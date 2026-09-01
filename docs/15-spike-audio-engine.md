@@ -746,3 +746,32 @@ future run, S6 comes before claiming success, not after.**
 |---|---|
 | S1a, S1b, S2, S3, S4, S5 | Passed on device, run 2 |
 | **S6** | **FAILED, run 2.** Three causes found and fixed; awaiting re-test |
+
+---
+
+## 15.20 S6 causes, in full — 2026-09-02
+
+Four defects sat between "all criteria pass" and "this is listenable". Only the
+listening test found any of them.
+
+| # | Defect | Evidence | Fix |
+|---|---|---|---|
+| 1 | **Play ignored every setting.** `_lastOutputPath` cached the first export and was never cleared | Every Play after the first replayed the same file; after a batch it replayed the 2x export | Cache removed; Play always re-exports the current report |
+| 2 | **Speed control shifted pitch an octave** | Median F0 233 Hz at 1.0x, **436 Hz** at 2.0x via the DSP stub — ratio 1.87 | Speed now uses the engine's rate control (ratio **0.99**, pitch preserved). The stub stays behind a switch labelled "pitch-shifts!" because S2 needs it |
+| 3 | **Forced `Locale.US`** selected a low-quality embedded fallback on a device without en-US data | — | Forced locale removed; voices enumerated and selectable |
+| 4 | **Then my own fix picked an Arabic voice for English text** | `voiceName: ar-language`. The replacement heuristic sorted by quality and name only, and `ar-` sorts first | Language match is now the *primary* key, not a tiebreaker. Offline beats network, then quality |
+
+Defect 4 is the instructive one: the fix for defect 3 introduced it, and the exported
+report was showing `voiceName` all along — nobody looked, because the criteria were
+green. The batch now logs the voice inventory (`473 total, 51 match "en",
+chosen="en-AU-language"`) so a wrong-language selection is visible without listening.
+
+### The lesson worth keeping
+
+S1–S5 passed on output that was unusable. They measured the arithmetic and nothing about
+whether a control was wired to the thing it names, whether the voice matched the text, or
+whether the result was pleasant. **A criteria suite that can be fully green on broken
+output is under-specified**, and reporting "all criteria met" against it overstated what
+had been established.
+
+S6 now runs before any success claim, not after.
