@@ -54,7 +54,24 @@ class _SpikeScreenState extends State<SpikeScreen> {
   @override
   void initState() {
     super.initState();
-    _loadEngines();
+    _bootstrap();
+  }
+
+  /// Loads the engine list, then checks whether this launch asked for a batch
+  /// run (`--es batch true`). Batch mode exists so a measurement is driven by
+  /// one adb command rather than by tapping sliders into the same positions.
+  Future<void> _bootstrap() async {
+    await _loadEngines();
+    if (!mounted) return;
+
+    try {
+      final args = await _channel.invokeMapMethod<String, Object?>('launchArgs');
+      if (args?['batch']?.toString() == 'true') {
+        await _runBatch();
+      }
+    } catch (_) {
+      // Batch mode is an optional convenience; never let it break startup.
+    }
   }
 
   @override
@@ -83,6 +100,19 @@ class _SpikeScreenState extends State<SpikeScreen> {
     }
   }
 
+  /// One synthesis call to the platform. Speed and pitch are left at 1.0 on
+  /// purpose: the spike measures our own pipeline arithmetic, not the engine's.
+  Future<Map<String, Object?>> _synthesiseNative(String? engineId) async {
+    final raw = await _channel.invokeMapMethod<String, Object?>('synthesise', {
+      'text': _textController.text,
+      'engineId': engineId,
+      'rate': 1.0,
+      'pitch': 1.0,
+    });
+    if (raw == null) throw Exception('No report returned');
+    return raw;
+  }
+
   Future<void> _run() async {
     setState(() {
       _busy = true;
@@ -91,18 +121,15 @@ class _SpikeScreenState extends State<SpikeScreen> {
     });
 
     try {
-      final raw = await _channel.invokeMapMethod<String, Object?>(
-        'synthesise',
-        {
-          'text': _textController.text,
-          'engineId': _engineId,
-          'rate': 1.0, // Speed is applied in our pipeline, not by the engine,
-          'pitch': 1.0, // so the spike measures our own arithmetic.
-        },
+      final native = await _synthesiseNative(_engineId);
+      final report = await _processWith(
+        native,
+        PipelineSettings(
+          wordGapMs: _gapMs.round(),
+          speedScale: _speed,
+          sentencePauseMs: _sentencePauseMs.round(),
+        ),
       );
-      if (raw == null) throw Exception('No report returned');
-
-      final report = await _process(raw);
       setState(() {
         _report = report;
         _status = 'Done.';
@@ -116,9 +143,90 @@ class _SpikeScreenState extends State<SpikeScreen> {
     }
   }
 
+  /// Every configuration, every engine, exported — driven by an intent extra so
+  /// a measurement run is reproducible instead of depending on someone tapping
+  /// sliders to the same positions twice.
+  ///
+  /// The engine is called once per engine and the resulting audio processed
+  /// four ways, so the configurations differ only in our own settings.
+  Future<void> _runBatch() async {
+    const configs = <({int gap, double speed})>[
+      (gap: 0, speed: 1.0),
+      (gap: 120, speed: 1.0),
+      (gap: 250, speed: 1.0),
+      (gap: 120, speed: 2.0),
+    ];
+
+    setState(() {
+      _busy = true;
+      _status = 'BATCH: starting...';
+    });
+
+    final log = <String>[];
+
+    for (final engine in _engines) {
+      final id = engine['name']!;
+      final short = id.split('.').last;
+
+      Map<String, Object?> native;
+      try {
+        setState(() => _status = 'BATCH: synthesising on $short...');
+        native = await _synthesiseNative(id);
+      } catch (e) {
+        log.add('$short: SYNTHESIS FAILED: $e');
+        continue;
+      }
+
+      final fired = native['rangeStartFired'] == true;
+      final events = (native['rangeEvents'] as List?)?.length ?? 0;
+      log.add('$short: onRangeStart=$fired events=$events '
+          'granularity=${native['granularity']}');
+
+      for (final c in configs) {
+        try {
+          final report = await _processWith(
+            native,
+            PipelineSettings(
+              wordGapMs: c.gap,
+              speedScale: c.speed,
+              sentencePauseMs: 350,
+            ),
+          );
+          final label = '$short-gap${c.gap}-speed'
+              '${c.speed.toStringAsFixed(1).replaceAll('.', '_')}';
+          await _exportReport(report, label);
+          log.add('  gap=${c.gap} speed=${c.speed}x -> $label');
+          if (!mounted) return;
+          setState(() {
+            _report = report;
+            _status = 'BATCH: exported $label';
+          });
+        } catch (e) {
+          log.add('  gap=${c.gap} speed=${c.speed}x FAILED: $e');
+        }
+      }
+    }
+
+    // A sentinel file, so `adb pull` tells us the run finished rather than
+    // leaving us guessing whether a missing export means failure or impatience.
+    final dir = await _channel.invokeMethod<String>('outputDir');
+    if (dir != null) {
+      await File('$dir/BATCH-COMPLETE.txt').writeAsString(log.join('\n'));
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _status = 'BATCH COMPLETE\n${log.join('\n')}';
+    });
+  }
+
   /// Turns the engine's report into a [SynthesisResult], runs the pipeline, and
   /// measures the outcome from the audio itself.
-  Future<_RunReport> _process(Map<String, Object?> native) async {
+  Future<_RunReport> _processWith(
+    Map<String, Object?> native,
+    PipelineSettings settings,
+  ) async {
     final wavPath = native['wavPath'] as String;
     final raw = WavCodec.decode(await File(wavPath).readAsBytes());
 
@@ -135,12 +243,6 @@ class _SpikeScreenState extends State<SpikeScreen> {
         ? _timingsFromEvents(events, raw.frameCount)
         : _estimatedTimings(_textController.text, raw.frameCount);
 
-    final settings = PipelineSettings(
-      wordGapMs: _gapMs.round(),
-      speedScale: _speed,
-      sentencePauseMs: _sentencePauseMs.round(),
-    );
-
     final traced = buildStandardPipeline(settings).runTraced(
       SynthesisResult(
         audio: raw,
@@ -152,7 +254,7 @@ class _SpikeScreenState extends State<SpikeScreen> {
 
     final silences = AudioAnalysis.interiorSilences(
       out.audio,
-      minDurationMs: _gapMs > 0 ? _gapMs * 0.5 : 20,
+      minDurationMs: settings.wordGapMs > 0 ? settings.wordGapMs * 0.5 : 20,
     );
 
     return _RunReport(
@@ -232,32 +334,39 @@ class _SpikeScreenState extends State<SpikeScreen> {
     }
   }
 
+  /// Writes the WAV and its JSON report side by side, sharing a prefix so
+  /// `measure.dart` can find both from one argument.
+  Future<String?> _exportReport(_RunReport report, String label) async {
+    final dir = await _channel.invokeMethod<String>('outputDir');
+    if (dir == null) return null;
+
+    final prefix = '$dir/tomevoice-spike-$label';
+
+    await File('$prefix.wav')
+        .writeAsBytes(WavCodec.encodePcm16(report.processed.audio));
+    await File('$prefix.json').writeAsString(
+      const JsonEncoder.withIndent('  ')
+          .convert(report.toJson(_textController.text)),
+    );
+
+    _lastOutputPath = '$prefix.wav';
+    return _lastOutputPath;
+  }
+
   Future<String?> _export({bool silent = false}) async {
     final report = _report;
     if (report == null) return null;
-
-    final dir = await _channel.invokeMethod<String>('outputDir');
-    if (dir == null) return null;
 
     final stamp = DateTime.now()
         .toIso8601String()
         .replaceAll(RegExp(r'[:.]'), '')
         .substring(0, 15);
-    final prefix = '$dir/tomevoice-spike-$stamp';
+    final path = await _exportReport(report, stamp);
 
-    await File('$prefix.wav')
-        .writeAsBytes(WavCodec.encodePcm16(report.processed.audio));
-    await File('$prefix.json').writeAsString(
-      const JsonEncoder.withIndent('  ').convert(report.toJson(
-        _textController.text,
-      )),
-    );
-
-    _lastOutputPath = '$prefix.wav';
-    if (!silent) {
-      setState(() => _status = 'Exported to $prefix.{wav,json}');
+    if (!silent && path != null) {
+      setState(() => _status = 'Exported to $path (+ .json)');
     }
-    return _lastOutputPath;
+    return path;
   }
 
   @override

@@ -18,6 +18,12 @@ app/windows/
 app/web/
 app/.metadata
 
+# Build outputs and spike artefacts. The APK is ~140 MB, well over GitHub's
+# 100 MB file limit, and is always reproducible from CI - never commit it.
+dist/
+*.apk
+*.aab
+
 # Spike artefacts pulled from a device
 spike-runs/
 *.wav

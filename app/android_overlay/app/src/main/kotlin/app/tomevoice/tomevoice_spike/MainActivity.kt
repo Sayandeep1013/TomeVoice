@@ -45,12 +45,31 @@ class MainActivity : FlutterActivity() {
                     "synthesise" -> synthesise(call.arguments as Map<*, *>, result)
                     "play" -> play(call.argument<String>("path"), result)
                     "outputDir" -> result.success(outputDir().absolutePath)
+                    "launchArgs" -> result.success(launchArgs())
                     else -> result.notImplemented()
                 }
             }
     }
 
     private fun outputDir(): File = getExternalFilesDir(null) ?: cacheDir
+
+    /**
+     * Intent extras, so a measurement run can be driven from adb rather than by
+     * tapping through the UI.
+     *
+     *   adb shell am start -n app.tomevoice.tomevoice_spike/.MainActivity \
+     *       --es batch true
+     *
+     * Driving Flutter through `input tap` would be fragile and would not
+     * reproduce; an explicit batch mode makes the run repeatable and makes the
+     * exported artefacts comparable across devices.
+     */
+    private fun launchArgs(): Map<String, String> {
+        val extras = intent?.extras ?: return emptyMap()
+        return extras.keySet().associateWith { key ->
+            extras.get(key)?.toString() ?: ""
+        }
+    }
 
     /**
      * R1 is a per-engine question, so the UI must be able to switch engines.
