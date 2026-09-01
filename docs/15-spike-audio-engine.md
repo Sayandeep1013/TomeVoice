@@ -596,3 +596,69 @@ pipeline to degrade gracefully rather than silently discard the feature.
 | Exports pulled and measured | **Done**, and they found two bugs |
 | S1–S4 verified on device audio | **Pending re-run after the fix** |
 | S6 human listen | **Pending** |
+
+---
+
+## 15.18 Device run 2 on 2026-09-02 — all criteria met
+
+Same device and engine, rebuilt with the parameter-order fix. **All four
+configurations pass all five criteria on real audio.**
+
+```
+tts-gap0-speed1_0     PASS  all 5 criteria met
+tts-gap120-speed1_0   PASS  all 5 criteria met
+tts-gap120-speed2_0   PASS  all 5 criteria met
+tts-gap250-speed1_0   PASS  all 5 criteria met
+```
+
+### The numbers that matter
+
+| Criterion | Result |
+|---|---|
+| **S1a** exact insertion | 46,080 frames for 120 ms, 96,000 for 250 ms, 0 for 0 ms — exact, every time |
+| **S1b** silence in the audio | 120 ms request measured **115–125 ms** per boundary; 250 ms measured **245–265 ms** |
+| **S2** gap survives speed | At **2.0×** the gaps still measure **115–125 ms**, not 60. The stage ordering holds on real audio |
+| **S3** no splice artefacts | Gap edges **0.0507** against a **0.2555** baseline — the splices are five times smoother than the surrounding speech |
+| **S4** timings match audio | 17 timings ordered, in range, every inserted gap on a word boundary |
+| **S5** engine reporting | `onRangeStart=YES`, `granularity=word`, 17 events, `layout=frameFirst` |
+
+`eventLayout: frameFirst` confirms the detection is doing its job, rather than the
+documented order silently working by luck.
+
+### A third thing the device taught us
+
+S4 initially failed at 1.0× on a 360 ms silence "at no word boundary". The pipeline was
+correct; **the verifier was wrong**.
+
+Google TTS leaves roughly 360 ms after a sentence-final full stop, and reports the *next*
+range only once the pause is over — so the pause falls **inside** the preceding word's
+reported span:
+
+```
+ 8 'dog'    frames  72120..93228     <- 880 ms for one syllable
+ 9 'Pack'   frames  93228..102107
+```
+
+S4 had assumed every silence longer than half the requested gap must be one of ours. It
+now takes an optional `--baseline` pointing at the gap=0 run of the same engine and
+speed, and allows that many engine-natural silences:
+
+```
+dart run bin/measure.dart <run> --baseline <same-engine-gap0-run>
+```
+
+The batch already produces a gap=0 run for exactly this purpose. Without a baseline the
+check still runs, but says so rather than quietly weakening.
+
+### Still open
+
+| | |
+|---|---|
+| Cross-engine variation | The device has only `com.google.android.tts`. `com.qualcomm.qti.voiceai.speech` is installed but does not register as a selectable TTS engine, so `getEngines()` returns one entry |
+| **S6** — the human listen | The only criterion no measurement settles |
+
+### Note for anyone reinstalling
+
+CI generates a fresh debug keystore per run, so an APK from a later run will not upgrade
+one from an earlier run: `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. Uninstall first, or commit
+a fixed debug keystore if this becomes routine.

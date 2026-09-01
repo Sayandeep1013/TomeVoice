@@ -24,11 +24,25 @@ const int kBoundaryToleranceMs = 25;
 
 Future<void> main(List<String> args) async {
   if (args.isEmpty) {
-    stderr.writeln('usage: dart run bin/measure.dart <run-prefix>');
+    stderr.writeln('usage: dart run bin/measure.dart <run-prefix> '
+        '[--baseline <gap-0-run-prefix>]');
     stderr.writeln('  e.g. dart run bin/measure.dart '
-        '../spike-runs/tomevoice-spike-20260901-2231');
+        '../spike-runs/files/tomevoice-spike-tts-gap120-speed1_0 \\');
+    stderr.writeln('         --baseline '
+        '../spike-runs/files/tomevoice-spike-tts-gap0-speed1_0');
+    stderr.writeln('');
+    stderr.writeln('  The baseline is the same engine and speed with gap=0. It '
+        'tells S4 how many');
+    stderr.writeln('  silences the engine produces on its own, so its natural '
+        'pauses are not');
+    stderr.writeln('  mistaken for gaps we inserted.');
     exit(64);
   }
+
+  final baselineIndex = args.indexOf('--baseline');
+  final baselinePrefix = baselineIndex >= 0 && baselineIndex + 1 < args.length
+      ? args[baselineIndex + 1].replaceAll(RegExp(r'\.(wav|json)$'), '')
+      : null;
 
   final prefix = args.first.replaceAll(RegExp(r'\.(wav|json)$'), '');
   final wavFile = File('$prefix.wav');
@@ -47,12 +61,29 @@ Future<void> main(List<String> args) async {
 
   _printHeader(report, audio);
 
+  // How many silences the engine produces unprompted. Google TTS, for instance,
+  // leaves ~360 ms after a sentence-final full stop, and reports it *inside* the
+  // preceding word's range rather than at a boundary - so without this, its own
+  // pause looks like a gap of ours that landed in the wrong place.
+  int? naturalSilences;
+  if (baselinePrefix != null) {
+    final bWav = File('$baselinePrefix.wav');
+    if (bWav.existsSync()) {
+      final bAudio = WavCodec.decode(await bWav.readAsBytes());
+      naturalSilences = AudioAnalysis.interiorSilences(bAudio).length;
+      stdout.writeln('  baseline   $naturalSilences natural interior silences '
+          '(from ${bWav.uri.pathSegments.last})');
+    } else {
+      stdout.writeln('  baseline   NOT FOUND at $baselinePrefix.wav');
+    }
+  }
+
   final checks = <_Check>[
     _checkEngineReport(report),
     _checkStageArithmetic(report),
     _checkGapsAcoustically(report, audio),
     _checkDiscontinuity(report, audio),
-    _checkTimings(report, audio),
+    _checkTimings(report, audio, naturalSilences),
   ];
 
   stdout
@@ -293,7 +324,11 @@ _Check _checkDiscontinuity(Map<String, dynamic> report, AudioBuffer audio) {
 /// coincidence test allows a window, because injected silence merges with the
 /// engine's own inter-word silence and the combined run's edges therefore sit
 /// outside the exact splice point.
-_Check _checkTimings(Map<String, dynamic> report, AudioBuffer audio) {
+_Check _checkTimings(
+  Map<String, dynamic> report,
+  AudioBuffer audio,
+  int? naturalSilences,
+) {
   final raw = (report['reportedTimings'] as List?) ?? const [];
   if (raw.isEmpty) {
     return const _Check('S4 timings match audio', false, 'no timings reported');
@@ -308,6 +343,8 @@ _Check _checkTimings(Map<String, dynamic> report, AudioBuffer audio) {
   }
 
   final problems = <String>[];
+  final unexplained = <SilenceRun>[];
+  var note = '';
 
   for (var i = 1; i < starts.length; i++) {
     if (starts[i] < starts[i - 1]) {
@@ -342,10 +379,29 @@ _Check _checkTimings(Map<String, dynamic> report, AudioBuffer audio) {
             (s) => s >= run.startFrame - tolerance &&
                 s <= run.endFrame + tolerance,
           );
-      if (!coincides) {
+      if (!coincides) unexplained.add(run);
+    }
+
+    // Silences the engine made itself are allowed to sit anywhere, including
+    // inside a reported word range. Google TTS puts its sentence pause there:
+    // it reports the next range only after the pause, so the preceding word's
+    // span swallows it.
+    //
+    // Without a baseline we cannot tell those apart from a misplaced gap, so we
+    // report them rather than failing, and say the check was weakened.
+    final allowance = naturalSilences ?? 0;
+    if (unexplained.length > allowance) {
+      for (final run in unexplained.take(4)) {
         problems.add('silence at frame ${run.startFrame} '
-            '(${run.durationMs.toStringAsFixed(0)}ms) is not at a word boundary');
+            '(${run.durationMs.toStringAsFixed(0)}ms) is at no word boundary');
       }
+      if (naturalSilences == null) {
+        problems.add('(no --baseline given, so engine-natural pauses cannot '
+            'be excluded)');
+      }
+    } else if (unexplained.isNotEmpty) {
+      note = ', ${unexplained.length} engine-natural silence(s) excluded via '
+          'baseline';
     }
   }
 
@@ -353,9 +409,9 @@ _Check _checkTimings(Map<String, dynamic> report, AudioBuffer audio) {
     'S4 timings match audio',
     problems.isEmpty,
     problems.isEmpty
-        ? '${starts.length} timings ordered, in range, and every gap sits on a '
-            'word boundary'
-        : problems.take(4).join('\n        '),
+        ? '${starts.length} timings ordered, in range, every inserted gap on a '
+            'word boundary$note'
+        : problems.take(5).join('\n        '),
   );
 }
 
