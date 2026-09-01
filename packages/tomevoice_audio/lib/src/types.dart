@@ -1,5 +1,8 @@
 import 'dart:typed_data';
 
+import 'stages/gain.dart';
+import 'stages/punctuation.dart';
+
 /// Mono PCM, normalised to -1.0..1.0.
 ///
 /// Every stage in the pipeline consumes and produces one of these. Keeping the
@@ -114,15 +117,27 @@ class SynthesisResult {
 
 enum Capability { rate, pitch, volume, ssml }
 
-/// Settings the pipeline reads. Only the fields the spike needs.
+/// Everything the pipeline reads.
+///
+/// Deliberately a plain value object: the UI builds one, the pipeline consumes
+/// it, and a preset is just a constant instance. Nothing here reaches back into
+/// widgets or platform channels.
 class PipelineSettings {
   const PipelineSettings({
     this.wordGapMs = 0,
     this.speedScale = 1.0,
     this.sentencePauseMs = 350,
+    this.paragraphPauseMs = 700,
     this.crossfadeMs = 4,
     this.snapSearchMs = 5,
     this.trimEdges = true,
+    this.punctuation = const PunctuationPauses(),
+    this.volume = 1.0,
+    this.trimDb = 0.0,
+    this.normaliseLoudness = true,
+    this.compression = Compression.light,
+    this.pitchSemitones = 0.0,
+    this.text = '',
   });
 
   /// Silence inserted at every word boundary. The headline feature.
@@ -142,17 +157,55 @@ class PipelineSettings {
 
   final bool trimEdges;
 
+  /// Silence between paragraphs. Applied by the scheduler between buffers in
+  /// the real product; recorded here so a preset can carry it.
+  final int paragraphPauseMs;
+
+  /// Per-punctuation-mark pauses inside a sentence.
+  final PunctuationPauses punctuation;
+
+  final double volume;
+  final double trimDb;
+  final bool normaliseLoudness;
+  final Compression compression;
+
+  /// Applied by the engine where it can, since no neural model exposes pitch
+  /// and our own shifter is Phase 3 work. Carried here so the UI and the
+  /// exported report agree on what was asked for.
+  final double pitchSemitones;
+
+  /// The text being spoken. Punctuation pauses need it to know what follows
+  /// each word.
+  final String text;
+
   PipelineSettings copyWith({
     int? wordGapMs,
     double? speedScale,
     int? sentencePauseMs,
+    int? paragraphPauseMs,
+    PunctuationPauses? punctuation,
+    double? volume,
+    double? trimDb,
+    bool? normaliseLoudness,
+    Compression? compression,
+    double? pitchSemitones,
+    String? text,
+    bool? trimEdges,
   }) =>
       PipelineSettings(
         wordGapMs: wordGapMs ?? this.wordGapMs,
         speedScale: speedScale ?? this.speedScale,
         sentencePauseMs: sentencePauseMs ?? this.sentencePauseMs,
+        paragraphPauseMs: paragraphPauseMs ?? this.paragraphPauseMs,
         crossfadeMs: crossfadeMs,
         snapSearchMs: snapSearchMs,
-        trimEdges: trimEdges,
+        trimEdges: trimEdges ?? this.trimEdges,
+        punctuation: punctuation ?? this.punctuation,
+        volume: volume ?? this.volume,
+        trimDb: trimDb ?? this.trimDb,
+        normaliseLoudness: normaliseLoudness ?? this.normaliseLoudness,
+        compression: compression ?? this.compression,
+        pitchSemitones: pitchSemitones ?? this.pitchSemitones,
+        text: text ?? this.text,
       );
 }

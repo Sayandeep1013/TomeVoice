@@ -1,43 +1,46 @@
-// Smoke tests for the spike screen.
+// Widget tests for the reading surface and the pop-out settings panel.
 //
-// Replaces the stub `flutter create` generates, which references a `MyApp`
-// class this project does not have.
-//
-// The screen talks to the platform on startup (listEngines, listVoices), so the
-// method channel is mocked here. These are build-and-render checks; the audio
-// pipeline is tested in packages/tomevoice_audio, where it runs without Flutter.
+// The screen talks to the platform on startup (launchArgs, listEngines,
+// listVoices), so the method channel is mocked. These are structure and
+// wiring checks; the audio pipeline is tested in packages/tomevoice_audio,
+// where it runs without Flutter at all.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_spike/main.dart';
+import 'package:tomevoice_spike/settings_panel.dart';
 
 const _channel = MethodChannel('tomevoice/tts');
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  final calls = <String>[];
-
   setUp(() {
-    calls.clear();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_channel, (call) async {
-      calls.add(call.method);
       return switch (call.method) {
+        // Not a batch launch, so the reader is shown.
+        'launchArgs' => <String, Object?>{},
         'listEngines' => [
             {'name': 'com.google.android.tts', 'label': 'Google TTS'},
-            {'name': 'com.acme.tts', 'label': 'Acme TTS'},
           ],
         'listVoices' => [
+            // Higher quality but Arabic: must lose to the English voice.
             {
-              'name': 'en-us-x-good',
-              'locale': 'en_US',
-              'quality': 400,
+              'name': 'ar-language',
+              'locale': 'ar',
+              'quality': 500,
               'networkRequired': false,
             },
             {
-              'name': 'en-us-x-network',
+              'name': 'en-GB-language',
+              'locale': 'en_GB',
+              'quality': 300,
+              'networkRequired': false,
+            },
+            {
+              'name': 'en-US-network',
               'locale': 'en_US',
               'quality': 500,
               'networkRequired': true,
@@ -54,88 +57,130 @@ void main() {
         .setMockMethodCallHandler(_channel, null);
   });
 
-  /// The screen is a lazily-built ListView, so widgets below the fold are not
-  /// in the tree at all. A tall surface keeps every control built, which is
-  /// simpler and less brittle than scrolling to each one.
-  Future<void> pumpTall(WidgetTester tester) async {
-    tester.view.physicalSize = const Size(1200, 3200);
+  Future<void> pumpApp(WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1100, 2400);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(const SpikeApp());
     await tester.pumpAndSettle();
   }
 
-  testWidgets('queries engines and voices on startup', (tester) async {
-    await pumpTall(tester);
+  group('reading surface', () {
+    testWidgets('renders the chrome from the reference design',
+        (tester) async {
+      await pumpApp(tester);
 
-    expect(calls, contains('listEngines'));
-    expect(calls, contains('listVoices'));
-    expect(find.text('TomeVoice audio spike'), findsOneWidget);
-    expect(find.text('Synthesise'), findsOneWidget);
-  });
-
-  testWidgets('renders every control', (tester) async {
-    await pumpTall(tester);
-
-    expect(find.textContaining('Word gap'), findsOneWidget);
-    expect(find.textContaining('Sentence pause'), findsOneWidget);
-    // 'Speed' appears twice by design: the slider label and the mode switch.
-    expect(find.textContaining('Speed'), findsWidgets);
-    expect(find.byType(Slider), findsNWidgets(3));
-  });
-
-  testWidgets('speed defaults to the engine, not the pitch-shifting stub',
-      (tester) async {
-    await pumpTall(tester);
-
-    // Regression guard. The DSP stub is a naive resampler that doubles the
-    // pitch at 2x; it must never be the default a listener hears.
-    final toggle = tester.widget<SwitchListTile>(find.byType(SwitchListTile));
-    expect(toggle.value, isTrue);
-    expect(find.textContaining('engine (natural)'), findsOneWidget);
-  });
-
-  testWidgets('prefers the best offline voice over a better network one',
-      (tester) async {
-    await pumpTall(tester);
-
-    // A network voice scores higher but is useless offline, so the offline
-    // voice must win the default.
-    final dropdowns =
-        tester.widgetList<DropdownButtonFormField<String>>(
-      find.byType(DropdownButtonFormField<String>),
-    );
-    expect(dropdowns.length, 2, reason: 'engine picker and voice picker');
-    expect(dropdowns.last.initialValue, 'en-us-x-good');
-  });
-
-  testWidgets('Play and Export stay disabled until a run exists',
-      (tester) async {
-    await pumpTall(tester);
-
-    for (final label in ['Play', 'Export WAV + JSON']) {
-      final button = tester.widget<OutlinedButton>(
-        find.ancestor(
-          of: find.text(label),
-          matching: find.byType(OutlinedButton),
-        ),
-      );
-      expect(button.onPressed, isNull, reason: '$label should be disabled');
-    }
-  });
-
-  testWidgets('surfaces engine failures instead of failing silently',
-      (tester) async {
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(_channel, (call) async {
-      if (call.method == 'listEngines') {
-        throw PlatformException(code: 'ENGINE_LIST', message: 'no engines');
-      }
-      return null;
+      expect(find.text('Library'), findsOneWidget);
+      // Monospace instrumentation, not headline copy.
+      expect(find.textContaining('VOICE:'), findsOneWidget);
+      expect(find.textContaining('SPEED:'), findsOneWidget);
+      expect(find.textContaining('GAP:'), findsOneWidget);
     });
 
-    await pumpTall(tester);
+    testWidgets('the text is the loudest thing on screen', (tester) async {
+      await pumpApp(tester);
 
-    expect(find.textContaining('Could not list engines'), findsOneWidget);
+      final display = tester.widget<Text>(
+        find.textContaining('quick brown fox').first,
+      );
+      expect(display.style?.fontFamily, 'Ojuju',
+          reason: 'the specimen face is reserved for the text being read');
+      expect(display.style?.fontSize, greaterThan(24));
+    });
+
+    testWidgets('starts on a preset rather than an arbitrary state',
+        (tester) async {
+      await pumpApp(tester);
+      expect(find.textContaining('PRESET: NATURAL'), findsOneWidget);
+    });
+  });
+
+  group('voice selection', () {
+    testWidgets('language beats quality', (tester) async {
+      await pumpApp(tester);
+
+      // ar-language scores 500 and en-GB only 300, but the text is English.
+      // Ranking by quality alone once shipped an Arabic voice for English text.
+      expect(find.textContaining('EN-GB-LANGUAGE'), findsOneWidget);
+      expect(find.textContaining('AR-LANGUAGE'), findsNothing);
+    });
+
+    testWidgets('offline beats a higher-scoring network voice',
+        (tester) async {
+      await pumpApp(tester);
+      // en-US-network scores 500 but needs a connection; en-GB wins.
+      expect(find.textContaining('EN-US-NETWORK'), findsNothing);
+    });
+  });
+
+  group('pop-out panel', () {
+    testWidgets('is closed until an edge tab is tapped', (tester) async {
+      await pumpApp(tester);
+      expect(find.byType(SettingsPanel), findsNothing);
+    });
+
+    testWidgets('opens on the speech tab and shows the presets',
+        (tester) async {
+      await pumpApp(tester);
+
+      await tester.tap(find.byIcon(Icons.text_fields_rounded));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SettingsPanel), findsOneWidget);
+      expect(find.text('Dyslexia'), findsOneWidget);
+      expect(find.text('Learning'), findsOneWidget);
+    });
+
+    testWidgets('exposes the controls that actually change the audio',
+        (tester) async {
+      await pumpApp(tester);
+      await tester.tap(find.byIcon(Icons.text_fields_rounded));
+      await tester.pumpAndSettle();
+
+      for (final label in [
+        'Word gap',
+        'Comma',
+        'Sentence',
+        'Paragraph',
+        'Volume',
+        'Speed',
+      ]) {
+        expect(find.text(label), findsOneWidget, reason: label);
+      }
+    });
+
+    testWidgets('opens on the voice tab from the top-right control',
+        (tester) async {
+      await pumpApp(tester);
+
+      await tester.tap(find.byIcon(Icons.graphic_eq_rounded));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Pitch'), findsOneWidget);
+      expect(find.textContaining('ENGINE'), findsWidgets);
+    });
+
+    testWidgets('applying a preset updates the reading surface',
+        (tester) async {
+      await pumpApp(tester);
+      await tester.tap(find.byIcon(Icons.text_fields_rounded));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Dyslexia'));
+      await tester.pumpAndSettle();
+
+      // Dyslexia is the preset the word-gap feature exists for.
+      expect(find.textContaining('GAP: 150MS'), findsOneWidget);
+    });
+
+    testWidgets('speed defaults to the engine, not the pitch-shifting stub',
+        (tester) async {
+      await pumpApp(tester);
+      await tester.tap(find.byIcon(Icons.text_fields_rounded));
+      await tester.pumpAndSettle();
+
+      expect(find.text('via engine'), findsOneWidget);
+      expect(find.text('via DSP stub'), findsNothing);
+    });
   });
 }

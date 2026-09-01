@@ -22,3 +22,20 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  assets:
+    - assets/fonts/
+
+  # Bundled, not fetched at runtime: the app is offline-first, and a reading
+  # app whose type disappears without a network is not offline-first.
+  # Both faces are SIL Open Font License 1.1, which is GPL-3.0 compatible;
+  # licence texts ship alongside them in assets/fonts/.
+  fonts:
+    - family: Ojuju
+      fonts:
+        - asset: assets/fonts/Ojuju-Variable.ttf
+    - family: SpaceMono
+      fonts:
+        - asset: assets/fonts/SpaceMono-Regular.ttf
+        - asset: assets/fonts/SpaceMono-Bold.ttf
+          weight: 700
