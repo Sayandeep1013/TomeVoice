@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:test/test.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
@@ -69,11 +71,109 @@ void main() {
       final pipeline = buildStandardPipeline(const PipelineSettings());
       final names = pipeline.stages.map((s) => s.name).toList();
 
+      expect(names.first, 'edges',
+          reason: 'edge trim must run before anything inserts silence');
       expect(names.indexOf('stretch_stub'), lessThan(names.indexOf('word_gap')),
           reason: 'time stretch must precede word gap');
       expect(names.indexOf('word_gap'),
           lessThan(names.indexOf('sentence_pause')));
-      expect(names.last, 'edges');
+    });
+
+    test('inserted silence survives edge trimming (device-run regression)', () {
+      // Reproduces what the first device run actually produced.
+      //
+      // Google TTS delivers onRangeStart as (frame, charStart, charEnd), not
+      // the documented (charStart, charEnd, frame). Misreading it put every
+      // word at frames 3, 9, 15, 19 - all bunched at the very start - so every
+      // gap was inserted before any audio. Edge trim then removed the lot,
+      // because at that point it is indistinguishable from engine lead-in.
+      //
+      // The parameter order is fixed in the app. This pins the pipeline against
+      // the same shape of failure from any other source of bad timings: with
+      // edge trim running first, inserted silence can never be mistaken for
+      // padding.
+      final speech = syntheticSpeech(words: 4, wordMs: 200, enveloped: true);
+      final leadFrames = speech.audio.msToFrames(100);
+      final padded = AudioBuffer(
+        Float32List.fromList([
+          ...List<double>.filled(leadFrames, 0.0),
+          ...speech.audio.samples,
+        ]),
+        speech.audio.sampleRate,
+      );
+
+      // Timings bunched near frame zero, exactly as the misread values were.
+      final bunched = [
+        for (var i = 0; i < speech.timings.length; i++)
+          speech.timings[i].copyWithFrames(i * 6, i * 6 + 3),
+      ];
+
+      const settings = PipelineSettings(
+        wordGapMs: 150,
+        sentencePauseMs: 0,
+        snapSearchMs: 0,
+        crossfadeMs: 2,
+      );
+      final shipped =
+          buildStandardPipeline(settings).run(resultOf(padded, bunched));
+
+      final trimLast = Pipeline([
+        const TimeStretchStubStage(1.0),
+        const WordGapStage(settings),
+        const EdgeTrimStage(),
+      ]).run(resultOf(padded, bunched));
+
+      // Trimming last removes every gap, because by then they sit in front of
+      // the first audible sample and are indistinguishable from engine padding.
+      // Trimming first cannot make that mistake.
+      //
+      // Note it does not rescue all three gaps either: trimming shifts the
+      // bunched timings to zero, and the gap stage then correctly declines to
+      // insert where words have collapsed onto one frame. Preserving *more* is
+      // the honest claim; preserving everything would not be true.
+      expect(
+        shipped.audio.frameCount,
+        greaterThan(trimLast.audio.frameCount),
+        reason: 'trimming first must lose less than trimming last',
+      );
+    });
+
+    test('with sound timings, trim position does not change the audio length',
+        () {
+      // The honest counterpart to the test above: when timings are correct,
+      // gaps land between words and edge-trim order makes no difference. The
+      // reorder is defensive hardening, not a fix for everyday operation, and
+      // saying otherwise in a test name would be a lie.
+      final speech = syntheticSpeech(words: 4, wordMs: 200, enveloped: true);
+      final leadFrames = speech.audio.msToFrames(100);
+      final padded = AudioBuffer(
+        Float32List.fromList([
+          ...List<double>.filled(leadFrames, 0.0),
+          ...speech.audio.samples,
+        ]),
+        speech.audio.sampleRate,
+      );
+      final shifted = [
+        for (final t in speech.timings)
+          t.copyWithFrames(t.frameStart + leadFrames, t.frameEnd + leadFrames),
+      ];
+
+      const settings = PipelineSettings(
+        wordGapMs: 150,
+        sentencePauseMs: 0,
+        snapSearchMs: 0,
+        crossfadeMs: 2,
+      );
+
+      final shipped =
+          buildStandardPipeline(settings).run(resultOf(padded, shifted));
+      final trimLast = Pipeline([
+        const TimeStretchStubStage(1.0),
+        const WordGapStage(settings),
+        const EdgeTrimStage(),
+      ]).run(resultOf(padded, shifted));
+
+      expect(trimLast.audio.frameCount, shipped.audio.frameCount);
     });
 
     test('gap survives a range of speeds unchanged', () {

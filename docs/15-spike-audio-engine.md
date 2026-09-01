@@ -499,3 +499,100 @@ ordinary integration work rather than the open problem it used to be
 
 Everything remaining needs a physical Android device. The Dart half is finished and
 self-verifying.
+
+---
+
+## 15.17 Device run 1 on 2026-09-02
+
+**Device:** Nothing A059, Android 16 (API 36), 7.6 GB RAM.
+**Engine:** `com.google.android.tts` — the only TTS engine installed.
+**Method:** headless batch (`--es batch true`), four configurations, exports pulled
+over adb and checked with `tools/measure.dart`.
+
+### R1 is answered: word-level timings are available
+
+```
+tts: onRangeStart=true  events=17  granularity=word
+```
+
+The test text is exactly 17 words. **Google TTS supplies one range event per word,
+with frame positions.** That is the best case in the pre-registered table in §15.14:
+
+> *Word granularity on Google TTS and at least one other engine* — proceed as
+> documented, word-level highlighting on system voices in v1.
+
+with one caveat: the device had **only one** TTS engine, so the "and at least one
+other engine" half is unverified. We are on the best-case branch for Google TTS
+specifically, which is the engine the large majority of Android users have. Treat
+per-engine variation as still open until a second engine is measured.
+
+### The finding that would have cost weeks
+
+**Google TTS delivers `onRangeStart` parameters in a different order than the platform
+documents.**
+
+Documented: `onRangeStart(String utteranceId, int start, int end, int frameInAudio)`.
+Observed, on this device:
+
+| Parameter | Documented meaning | Actual values |
+|---|---|---|
+| 1st | char start | `360, 2999, 9479, 17159 ... 109907` — monotonic, bounded by the 129,621-frame buffer |
+| 2nd | char end | `0, 4, 10, 16, 20, 26 ...` — word **start** offsets |
+| 3rd | frame in audio | `3, 9, 15, 19, 25, 30 ...` — word **end** offsets |
+
+The text is 85 characters, so the first parameter cannot be a character index. The real
+layout is **`(frameInAudio, charStart, charEnd)`**.
+
+This is consistent with the engine-side callback it forwards from —
+`SynthesisCallback#rangeStart(int markerInFrames, int start, int end)` — which puts
+frames first. The ordering evidently passes straight through.
+
+**Why it mattered.** Reading the third parameter as the frame position put every word at
+frame 3, 9, 15, 19... so all injected silence landed in the first hundred frames, ahead
+of any audio, and edge-trimming then removed it as lead-in. The stage trace made it
+visible immediately:
+
+```
+gap0    edges: 138021 -> 138021    (nothing removed)
+gap120  edges: 184101 -> 137897    46,204 frames removed; 46,080 had been inserted
+gap250  edges: 234021 -> 137897    96,124 frames removed; 96,000 had been inserted
+```
+
+Without the per-stage trace this would have looked like "the gap setting does nothing",
+which is a far harder thing to chase.
+
+**Fix.** The layout is now **detected, not assumed**: character offsets are bounded by
+the text length, frame positions at 24 kHz are not, so whichever column runs past the
+text length is the frame. This works for either ordering, and records which one it saw
+(`eventLayout`: `frameFirst` / `documented` / `ambiguous`) in the exported report. An
+engine we cannot disambiguate is marked `estimated` rather than trusted.
+
+### Secondary finding: stage order hardened
+
+`EdgeTrimStage` ran last, where it cannot distinguish inserted silence from engine
+padding. It now runs **first**.
+
+Honesty about the size of this one: with correct timings it changes nothing — gaps land
+between words, and the first audible sample is unaffected. `ordering_test` asserts that
+explicitly. It only matters when timings are bad, which is precisely when we want the
+pipeline to degrade gracefully rather than silently discard the feature.
+
+### Not yet answered
+
+| | |
+|---|---|
+| Per-engine variation | Only one engine installed. R1's cross-engine half is open |
+| S1–S4 on device audio | The run that produced these exports predates the fix; re-run required |
+| S6 (human listen) | Pending |
+
+### Status against §15.15
+
+| Item | Status |
+|---|---|
+| Core analyze + tests | **Done** — 49 cases, clean |
+| CI green, APK artifact | **Done** |
+| APK installs and runs | **Done** |
+| Three engines exercised | **Blocked** — one engine on the device |
+| Exports pulled and measured | **Done**, and they found two bugs |
+| S1–S4 verified on device audio | **Pending re-run after the fix** |
+| S6 human listen | **Pending** |

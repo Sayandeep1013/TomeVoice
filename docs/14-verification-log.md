@@ -55,6 +55,29 @@ which **2 were wrong** and **1 was materially incomplete**.
 
 ---
 
+## Pass 2 on 2026-09-02 (device)
+
+First run on real hardware: Nothing A059, Android 16 (API 36), Google TTS. Full detail
+in [15.17](15-spike-audio-engine.md#1517-device-run-1-on-2026-09-02).
+
+| # | Claim | Result |
+|---|---|---|
+| 19 | `onRangeStart` fires with per-word granularity on Google TTS | **Confirmed.** 17 events for a 17-word utterance. R1 lands on the best-case branch for this engine |
+| 20 | The documented **parameter order** `onRangeStart(utteranceId, start, end, frame)` | **WRONG on this device.** Google TTS delivers `(frameInAudio, charStart, charEnd)`, matching the engine-side `SynthesisCallback#rangeStart(markerInFrames, start, end)` it forwards from. Pass 1 row 4 verified what the parameters *mean* from the documentation; it did not, and could not, verify the order they actually arrive in |
+| 21 | Android system TTS returns usable PCM via `synthesizeToFile` | **Confirmed.** 129,621 frames at 24 kHz, decoded cleanly by our WAV reader |
+| 22 | A device offers several selectable TTS engines | **Not true here.** Only `com.google.android.tts` is installed, so per-engine variation is still unmeasured |
+
+**What this says about the method.** Row 20 is the one that matters: it was *verified
+against primary documentation in Pass 1 and still wrong in practice*. Documentation
+review establishes what an API promises, not what an implementation does. Anything a
+device can settle should be settled on a device before code is built on top of it.
+
+It also vindicates the stage trace. The symptom was "the word-gap setting does nothing";
+the per-stage frame counts showed edge-trim removing 46,204 frames immediately after
+word-gap inserted 46,080, which turned an open-ended hunt into a five-minute diagnosis.
+
+---
+
 ## Claims deliberately **not** yet verified
 
 Recorded so their status is not mistaken for verified fact.

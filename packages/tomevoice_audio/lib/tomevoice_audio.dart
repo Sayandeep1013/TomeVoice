@@ -26,12 +26,23 @@ export 'src/wav.dart';
 
 /// The standard pipeline, in the one order that is correct.
 ///
-/// Word-gap injection **must** follow time stretching. Reversed, the inserted
-/// silence is scaled by the speed setting and a 120 ms gap becomes 60 ms at 2x.
-/// `ordering_test.dart` pins this so a future refactor cannot quietly swap them.
+/// Two ordering constraints, both learned the hard way:
+///
+/// 1. **Edge trimming must come first.** It removes the engine's lead-in
+///    silence, and it identifies that silence by looking for the first audible
+///    sample. Run it *after* gap injection and it cannot tell our inserted
+///    silence from the engine's padding — it deletes the gaps. That is exactly
+///    what happened on the first device run, where a 120 ms setting produced
+///    46,080 frames of silence and edge-trim removed 46,204 of them.
+///
+/// 2. **Word-gap injection must follow time stretching.** Reversed, the
+///    inserted silence is scaled by the speed setting and a 120 ms gap becomes
+///    60 ms at 2x.
+///
+/// `ordering_test.dart` pins both so a future refactor cannot quietly undo them.
 Pipeline buildStandardPipeline(PipelineSettings settings) => Pipeline([
+      EdgeTrimStage(enabled: settings.trimEdges),
       TimeStretchStubStage(settings.speedScale),
       WordGapStage(settings),
       SentencePauseStage(settings.sentencePauseMs),
-      EdgeTrimStage(enabled: settings.trimEdges),
     ]);

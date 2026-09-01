@@ -230,17 +230,25 @@ class _SpikeScreenState extends State<SpikeScreen> {
     final wavPath = native['wavPath'] as String;
     final raw = WavCodec.decode(await File(wavPath).readAsBytes());
 
+    // Neutral names on purpose: the parameter order is not what the platform
+    // documentation says, so it is detected rather than assumed. See
+    // _timingsFromEvents.
     final events = [
       for (final e in (native['rangeEvents'] as List? ?? const []))
         (
-          start: (e as Map)['start'] as int,
-          end: e['end'] as int,
-          frame: e['frame'] as int,
+          a: (e as Map)['start'] as int,
+          b: e['end'] as int,
+          c: e['frame'] as int,
         ),
     ];
 
-    final timings = events.isNotEmpty
-        ? _timingsFromEvents(events, raw.frameCount)
+    final decoded = _timingsFromEvents(
+      events,
+      raw.frameCount,
+      _textController.text.length,
+    );
+    final timings = decoded.timings.isNotEmpty
+        ? decoded.timings
         : _estimatedTimings(_textController.text, raw.frameCount);
 
     final traced = buildStandardPipeline(settings).runTraced(
@@ -264,30 +272,92 @@ class _SpikeScreenState extends State<SpikeScreen> {
       trace: traced.trace,
       measuredGapsMs: silences.map((s) => s.durationMs).toList(),
       discontinuity: AudioAnalysis.maxDiscontinuity(out.audio.samples),
-      timingSource: events.isNotEmpty
-          ? WordTimingSource.engineReported
-          : WordTimingSource.estimated,
+      timingSource: timings.isEmpty
+          ? WordTimingSource.estimated
+          : timings.first.source,
+      eventLayout: decoded.layout,
       settings: settings,
     );
   }
 
-  /// The engine reports a frame position per range. A range's audio runs until
-  /// the next range begins, so ends come from the following event.
-  List<WordTiming> _timingsFromEvents(
-    List<({int start, int end, int frame})> events,
+  /// Decodes `onRangeStart` events into word timings, **detecting** which
+  /// parameter carries the frame position rather than trusting the documented
+  /// order.
+  ///
+  /// The platform documents
+  /// `onRangeStart(utteranceId, start, end, frameInAudio)`, but Google TTS on
+  /// Android 16 delivers `(frameInAudio, charStart, charEnd)`. The engine-side
+  /// callback it forwards from is
+  /// `SynthesisCallback#rangeStart(markerInFrames, start, end)`, which puts
+  /// frames first, and the ordering evidently passes straight through.
+  ///
+  /// Hard-coding either layout would break on the other, so the layout is
+  /// inferred instead: character offsets are bounded by the text length, while
+  /// frame positions at 24 kHz exceed it by orders of magnitude. Whichever
+  /// column runs past the text length is the frame.
+  ///
+  /// Reading this wrongly is not a subtle error. It put every word at frame
+  /// 3, 9, 15... so all the injected silence landed at the start of the buffer
+  /// and edge-trimming removed it.
+  ({List<WordTiming> timings, String layout}) _timingsFromEvents(
+    List<({int a, int b, int c})> events,
     int totalFrames,
-  ) =>
-      [
-        for (var i = 0; i < events.length; i++)
-          WordTiming(
-            charStart: events[i].start,
-            charEnd: events[i].end,
-            frameStart: events[i].frame,
-            frameEnd:
-                i + 1 < events.length ? events[i + 1].frame : totalFrames,
-            source: WordTimingSource.engineReported,
-          ),
-      ];
+    int textLength,
+  ) {
+    if (events.isEmpty) return (timings: const [], layout: 'none');
+
+    int maxOf(int Function(({int a, int b, int c})) pick) =>
+        events.map(pick).reduce((x, y) => x > y ? x : y);
+
+    final overA = maxOf((e) => e.a) > textLength;
+    final overB = maxOf((e) => e.b) > textLength;
+    final overC = maxOf((e) => e.c) > textLength;
+
+    final String layout;
+    int Function(({int a, int b, int c})) frameOf;
+    int Function(({int a, int b, int c})) startOf;
+    int Function(({int a, int b, int c})) endOf;
+
+    if (overA && !overB && !overC) {
+      layout = 'frameFirst';
+      frameOf = (e) => e.a;
+      startOf = (e) => e.b;
+      endOf = (e) => e.c;
+    } else if (overC && !overA && !overB) {
+      layout = 'documented';
+      frameOf = (e) => e.c;
+      startOf = (e) => e.a;
+      endOf = (e) => e.b;
+    } else {
+      // Cannot tell - a very short utterance, or an engine doing something
+      // else entirely. Assume the documented order and say so, so the report
+      // records that this run's timings are not trustworthy.
+      layout = 'ambiguous';
+      frameOf = (e) => e.c;
+      startOf = (e) => e.a;
+      endOf = (e) => e.b;
+    }
+
+    // A range's audio runs until the next range begins, so ends come from the
+    // following event.
+    final timings = [
+      for (var i = 0; i < events.length; i++)
+        WordTiming(
+          charStart: startOf(events[i]),
+          charEnd: endOf(events[i]),
+          frameStart: frameOf(events[i]).clamp(0, totalFrames),
+          frameEnd: (i + 1 < events.length
+                  ? frameOf(events[i + 1])
+                  : totalFrames)
+              .clamp(0, totalFrames),
+          source: layout == 'ambiguous'
+              ? WordTimingSource.estimated
+              : WordTimingSource.engineReported,
+        ),
+    ];
+
+    return (timings: timings, layout: layout);
+  }
 
   /// Fallback when the engine supplies nothing: distribute duration across
   /// words by character count. Good enough to place gaps, visibly wrong for
@@ -477,6 +547,7 @@ class _RunReport {
     required this.measuredGapsMs,
     required this.discontinuity,
     required this.timingSource,
+    required this.eventLayout,
     required this.settings,
   });
 
@@ -487,6 +558,12 @@ class _RunReport {
   final List<double> measuredGapsMs;
   final double discontinuity;
   final WordTimingSource timingSource;
+
+  /// Which onRangeStart parameter layout this engine used: `frameFirst`,
+  /// `documented`, `ambiguous`, or `none`. Recorded because it varies by
+  /// engine and silently corrupts timings when guessed wrong.
+  final String eventLayout;
+
   final PipelineSettings settings;
 
   String render(int requestedGapMs) {
@@ -499,6 +576,7 @@ class _RunReport {
       'onRangeStart fired : ${native['rangeStartFired'] == true ? 'YES' : 'NO'}',
       'granularity        : ${native['granularity']} ($events events)',
       'timing source      : ${timingSource.name}',
+      'event layout      : $eventLayout',
       'engine             : ${native['engineId']}',
       'sample rate        : ${native['sampleRate']} Hz',
       'raw frames         : $rawFrames',
@@ -528,6 +606,7 @@ class _RunReport {
         'granularity': native['granularity'],
         'rangeEvents': native['rangeEvents'],
         'timingSource': timingSource.name,
+        'eventLayout': eventLayout,
         'sampleRate': processed.audio.sampleRate,
         'rawFrameCount': rawFrames,
         'processedFrameCount': processed.audio.frameCount,
