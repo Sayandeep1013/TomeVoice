@@ -1,0 +1,16 @@
+name: tomevoice_tools
+description: >-
+  Offline verification for TomeVoice spike runs. Reads the WAV and JSON a device
+  exported and checks the spike's success criteria against the audio itself.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  tomevoice_audio:
+    path: ../packages/tomevoice_audio
+
+dev_dependencies:
+  lints: ^4.0.0

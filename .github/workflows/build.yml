@@ -1,0 +1,131 @@
+name: build
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # The gate that matters day to day. Runs in seconds, needs no Android
+  # toolchain, and covers everything intellectually risky in the project.
+  dart-core:
+    name: Dart core (pipeline + tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Resolve dependencies
+        working-directory: packages/tomevoice_audio
+        run: dart pub get
+
+      - name: Analyze
+        working-directory: packages/tomevoice_audio
+        run: dart analyze --fatal-infos
+
+      - name: Test
+        working-directory: packages/tomevoice_audio
+        run: dart test --reporter expanded
+
+      - name: Resolve tools
+        working-directory: tools
+        run: dart pub get
+
+      - name: Analyze tools
+        working-directory: tools
+        run: dart analyze --fatal-infos
+
+      # Exercises the offline verifier end to end without a device: build a
+      # synthetic run, then check it. Guards the measurement instrument itself —
+      # if `measure.dart` regresses, every result it later certifies is worthless.
+      - name: Verifier round-trip
+        working-directory: tools
+        run: |
+          set -e
+          for spec in "120 1.0" "120 2.0" "250 1.0" "0 1.0"; do
+            set -- $spec
+            gap=$1; speed=$2
+            echo "::group::gap=${gap}ms speed=${speed}x"
+            dart run bin/make_fixture.dart "/tmp/fixture-${gap}-${speed}" "$gap" "$speed"
+            dart run bin/measure.dart "/tmp/fixture-${gap}-${speed}"
+            echo "::endgroup::"
+          done
+
+  # Only runs if the core is green, so a broken pipeline never produces an
+  # installable build.
+  android-apk:
+    name: Android debug APK
+    runs-on: ubuntu-latest
+    needs: dart-core
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Show toolchain
+        run: flutter --version
+
+      # There is no committed android/ directory: the developer has no local
+      # Flutter install (docs/10 ADR-016), so the platform scaffolding is
+      # generated here and our sources are laid back over it. This also means
+      # the project self-heals across Flutter template changes.
+      - name: Generate Android scaffolding
+        working-directory: app
+        run: |
+          cp -r lib /tmp/tv_lib
+          cp pubspec.yaml /tmp/tv_pubspec.yaml
+          flutter create \
+            --platforms=android \
+            --project-name tomevoice_spike \
+            --org app.tomevoice \
+            .
+          rm -rf lib && cp -r /tmp/tv_lib lib
+          cp /tmp/tv_pubspec.yaml pubspec.yaml
+
+      - name: Apply our Android sources
+        working-directory: app
+        run: |
+          cp -r android_overlay/. android/
+          python3 ../tools/prepare_android.py .
+
+      - name: Verify the overlay landed
+        working-directory: app
+        run: |
+          echo "--- MainActivity ---"
+          test -f android/app/src/main/kotlin/app/tomevoice/tomevoice_spike/MainActivity.kt
+          grep -q "tomevoice/tts" android/app/src/main/kotlin/app/tomevoice/tomevoice_spike/MainActivity.kt
+          echo "--- manifest queries ---"
+          grep -q "TTS_SERVICE" android/app/src/main/AndroidManifest.xml
+          echo "--- sdk levels ---"
+          grep -E "minSdk|targetSdk" android/app/build.gradle.kts || \
+            grep -E "minSdk|targetSdk" android/app/build.gradle
+
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Analyze
+        working-directory: app
+        run: flutter analyze
+
+      - name: Build debug APK
+        working-directory: app
+        run: flutter build apk --debug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tomevoice-spike-apk
+          path: app/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error

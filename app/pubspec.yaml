@@ -1,0 +1,24 @@
+name: tomevoice_spike
+description: >-
+  Audio-engine spike for TomeVoice. One screen, deliberately unstyled: prove
+  that word timings can be captured from a real TTS engine and that word-gap
+  injection lands where it claims to. See docs/15-spike-audio-engine.md.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  tomevoice_audio:
+    path: ../packages/tomevoice_audio
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
