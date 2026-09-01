@@ -85,13 +85,19 @@ jobs:
         working-directory: app
         run: |
           cp -r lib /tmp/tv_lib
+          cp -r test /tmp/tv_test
           cp pubspec.yaml /tmp/tv_pubspec.yaml
           flutter create \
             --platforms=android \
             --project-name tomevoice_spike \
             --org app.tomevoice \
             .
-          rm -rf lib && cp -r /tmp/tv_lib lib
+          # flutter create writes lib/main.dart and pubspec.yaml, and also a
+          # stub test/widget_test.dart referencing a MyApp class this project
+          # does not have. All three are ours; restore all three.
+          rm -rf lib test
+          cp -r /tmp/tv_lib lib
+          cp -r /tmp/tv_test test
           cp /tmp/tv_pubspec.yaml pubspec.yaml
 
       - name: Apply our Android sources
@@ -119,6 +125,10 @@ jobs:
       - name: Analyze
         working-directory: app
         run: flutter analyze
+
+      - name: Widget tests
+        working-directory: app
+        run: flutter test
 
       - name: Build debug APK
         working-directory: app
