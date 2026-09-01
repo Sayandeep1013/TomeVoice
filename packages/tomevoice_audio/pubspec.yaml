@@ -1,0 +1,14 @@
+name: tomevoice_audio
+description: >-
+  Pure-Dart audio pipeline for TomeVoice. Takes PCM plus word timings from any
+  TTS engine and applies word-gap injection, pause shaping and edge treatment,
+  remapping the timings through every stage. No Flutter dependency.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.5.0
+
+dev_dependencies:
+  test: ^1.25.0
+  lints: ^4.0.0
