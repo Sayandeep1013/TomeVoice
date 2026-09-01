@@ -14,12 +14,15 @@
 // independently unit-tested and are not part of the pipeline.
 
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:io';
 
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
 const double kGapToleranceMs = 5.0;
-const double kDiscontinuityLimit = 0.1;
+/// Floor for the splice check on very smooth material. Not a ceiling:
+/// see _checkDiscontinuity for why an absolute cap was wrong.
+const double kDiscontinuityFloor = 0.02;
 const int kBoundaryToleranceMs = 25;
 
 Future<void> main(List<String> args) async {
@@ -300,10 +303,16 @@ _Check _checkDiscontinuity(Map<String, dynamic> report, AudioBuffer audio) {
     }
   }
 
-  // A splice is clean when it is no rougher than the signal around it. The
-  // absolute floor keeps the test meaningful on very smooth material, where a
-  // near-zero baseline would otherwise make any edge look like an outlier.
-  final allowed = (baseline * 1.2).clamp(0.02, kDiscontinuityLimit);
+  // A splice is clean when it is no rougher than the signal around it.
+  //
+  // The floor keeps the test meaningful on very smooth material, where a
+  // near-zero baseline would make any edge look like an outlier. There is
+  // deliberately **no ceiling**: an earlier version clamped the allowance to an
+  // absolute 0.1, which quietly reimposed the very threshold this check exists
+  // to replace. It only showed up once loudness levelling raised the signal
+  // peak — baseline 0.139, edges 0.1015, and a "failure" that was nothing of
+  // the sort.
+  final allowed = math.max(baseline * 1.2, kDiscontinuityFloor);
   final passed = edgeWorst <= allowed;
 
   return _Check(
