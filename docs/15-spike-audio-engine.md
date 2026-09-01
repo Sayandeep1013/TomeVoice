@@ -662,3 +662,87 @@ check still runs, but says so rather than quietly weakening.
 CI generates a fresh debug keystore per run, so an APK from a later run will not upgrade
 one from an earlier run: `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. Uninstall first, or commit
 a fixed debug keystore if this becomes routine.
+
+---
+
+## 15.19 S6 FAILED on 2026-09-02 — and what it exposed
+
+The listening test failed. Verbatim: *"what the fuq is that voice .. and none of the
+settings work properly"*.
+
+**S1–S5 all passed and the thing still sounded broken.** That is worth stating plainly,
+because it is the most important result in this document: the criteria measured gap
+durations and splice smoothness, and nothing at all about whether the output was pleasant
+or whether the controls did what they said. A measurement suite that passes on unusable
+output is not a good measurement suite.
+
+### Cause 1 — Play ignored every setting
+
+```dart
+final path = _lastOutputPath ?? await _export(silent: true);
+```
+
+`_lastOutputPath` was set on every export and **never cleared**. The first Play cached a
+path; every Play afterwards replayed *that same file*, whatever the sliders said. After a
+batch run it was worse: the cached path was the final export, so Play served the
+2x-speed file regardless of the settings on screen.
+
+Fixed by removing the cache. Play now always re-exports the current report. The field is
+gone entirely, so it cannot come back.
+
+### Cause 2 — the speed control was a chipmunk, and it was user-facing
+
+`TimeStretchStubStage` is a naive decimating resampler, so it shifts pitch along with
+duration. Measured on the exported audio:
+
+| | Median F0 |
+|---|---|
+| 1.0x | 226 Hz |
+| 2.0x | 444 Hz |
+
+**Ratio 1.96.** The voice is pitched up almost exactly an octave.
+
+This was documented as a known stub to be replaced in Phase 3 — and then wired straight
+to a user-facing Speed slider anyway. Documenting a defect is not the same as containing
+it.
+
+Fixed properly: speed now goes through **the engine's own rate control** by default,
+which is a real duration change and what [§5.1](05-tts-controls-spec.md#51-speed)
+specifies. The DSP stub is still reachable behind an explicit switch, labelled
+"pitch-shifts!", because S2 needs it to prove stage ordering. The batch exports both
+variants, tagged `eng2_0` and `dsp2_0`.
+
+### Cause 3 — we forced a locale and got the fallback voice
+
+```kotlin
+engine.language = Locale.US   // removed
+```
+
+On a device with no en-US voice data installed, forcing the locale selects a small
+embedded fallback rather than the good downloaded voice. That is very likely what made
+the voice itself sound poor.
+
+Fixed: no forced locale. `listVoices` now enumerates what the engine actually has —
+sorted by `Voice.getQuality()`, offline voices preferred — and the UI lets a voice be
+chosen. The report records which voice was used and its quality, so a future listening
+result can be attributed to a specific voice rather than to "Google TTS".
+
+### What this changes about the spike's criteria
+
+S1–S5 were not wrong, but they were **insufficient, and I presented them as if they
+settled the matter.** They cover the arithmetic. They say nothing about:
+
+- whether a control is wired to the thing it names
+- whether the output is pleasant to listen to
+- which voice produced it
+
+Two of those are now covered — the report records the voice and which component applied
+the speed. The third is S6, and S6 is not a formality to be cleared at the end. **On any
+future run, S6 comes before claiming success, not after.**
+
+### Status
+
+| Criterion | Status |
+|---|---|
+| S1a, S1b, S2, S3, S4, S5 | Passed on device, run 2 |
+| **S6** | **FAILED, run 2.** Three causes found and fixed; awaiting re-test |

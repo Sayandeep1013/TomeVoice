@@ -11,7 +11,6 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
-import java.util.Locale
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -42,6 +41,7 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "listEngines" -> listEngines(result)
+                    "listVoices" -> listVoices(call.argument<String>("engineId"), result)
                     "synthesise" -> synthesise(call.arguments as Map<*, *>, result)
                     "play" -> play(call.argument<String>("path"), result)
                     "outputDir" -> result.success(outputDir().absolutePath)
@@ -89,6 +89,59 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    /**
+     * The voices an engine actually has, so a poor default can be replaced.
+     *
+     * Quality varies enormously: a device may carry a small embedded fallback
+     * and a much better downloaded network-free voice under the same locale.
+     * `Voice.getQuality()` distinguishes them, so the list is sorted best-first.
+     */
+    private fun listVoices(engineId: String?, result: MethodChannel.Result) {
+        val replied = AtomicBoolean(false)
+        val holder = arrayOfNulls<TextToSpeech>(1)
+
+        holder[0] = TextToSpeech(applicationContext, { status ->
+            val engine = holder[0]
+            if (status != TextToSpeech.SUCCESS || engine == null) {
+                if (replied.compareAndSet(false, true)) {
+                    main.post { result.error("TTS_INIT", "init failed: $status", null) }
+                }
+                return@TextToSpeech
+            }
+            val voices = try {
+                (engine.voices ?: emptySet())
+                    .sortedWith(
+                        compareByDescending<android.speech.tts.Voice> { it.quality }
+                            .thenBy { it.name }
+                    )
+                    .map {
+                        mapOf(
+                            "name" to it.name,
+                            "locale" to it.locale.toString(),
+                            "quality" to it.quality,
+                            "networkRequired" to
+                                it.isNetworkConnectionRequired,
+                            "features" to it.features.joinToString(",")
+                        )
+                    }
+            } catch (e: Exception) {
+                emptyList()
+            }
+            if (replied.compareAndSet(false, true)) {
+                main.post {
+                    result.success(voices)
+                    engine.shutdown()
+                }
+            }
+        }, engineId)
+
+        main.postDelayed({
+            if (replied.compareAndSet(false, true)) {
+                result.error("TTS_TIMEOUT", "voice list timed out", null)
+            }
+        }, 15_000)
+    }
+
     private fun synthesise(args: Map<*, *>, result: MethodChannel.Result) {
         val text = (args["text"] as? String).orEmpty()
         val engineId = args["engineId"] as? String
@@ -129,7 +182,18 @@ class MainActivity : FlutterActivity() {
             }
 
             try {
-                engine.language = Locale.US
+                // Do NOT force Locale.US. On a device without en-US voice data
+                // installed, forcing it selects a low-quality embedded fallback
+                // - which is what made the first listening test sound robotic.
+                // Prefer an explicitly chosen voice, else the engine's own
+                // default, which is the one the user has actually installed.
+                val wanted = args["voiceName"] as? String
+                if (!wanted.isNullOrBlank()) {
+                    engine.voices?.firstOrNull { it.name == wanted }?.let {
+                        engine.voice = it
+                    }
+                }
+
                 engine.setSpeechRate(rate)
                 engine.setPitch(pitch)
 
@@ -232,6 +296,8 @@ class MainActivity : FlutterActivity() {
         return mapOf(
             "wavPath" to file.absolutePath,
             "engineId" to (engine.defaultEngine ?: "unknown"),
+            "voiceName" to (engine.voice?.name ?: "unknown"),
+            "voiceQuality" to (engine.voice?.quality ?: -1),
             "rangeEvents" to events,
             "rangeStartFired" to events.isNotEmpty(),
             "granularity" to granularity,

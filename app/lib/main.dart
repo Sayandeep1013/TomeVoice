@@ -42,6 +42,18 @@ class _SpikeScreenState extends State<SpikeScreen> {
   List<Map<String, String>> _engines = [];
   String? _engineId;
 
+  List<Map<String, Object?>> _voices = [];
+  String? _voiceName;
+
+  /// Where the speed change happens.
+  ///
+  /// The engine's own rate control is a real duration change and sounds
+  /// natural. Our DSP stage is a naive decimating resampler that shifts pitch
+  /// with it - measured at 226 Hz -> 444 Hz at 2x, an unmistakable chipmunk.
+  /// It exists to prove stage ordering, not to be listened to, so it is off by
+  /// default and labelled for what it is.
+  bool _speedViaEngine = true;
+
   double _gapMs = 120;
   double _speed = 1.0;
   double _sentencePauseMs = 350;
@@ -49,7 +61,6 @@ class _SpikeScreenState extends State<SpikeScreen> {
   bool _busy = false;
   String _status = 'Ready.';
   _RunReport? _report;
-  String? _lastOutputPath;
 
   @override
   void initState() {
@@ -95,18 +106,63 @@ class _SpikeScreenState extends State<SpikeScreen> {
         ];
         _engineId = _engines.isNotEmpty ? _engines.first['name'] : null;
       });
+      await _loadVoices();
     } on PlatformException catch (e) {
       setState(() => _status = 'Could not list engines: ${e.message}');
     }
   }
 
-  /// One synthesis call to the platform. Speed and pitch are left at 1.0 on
-  /// purpose: the spike measures our own pipeline arithmetic, not the engine's.
-  Future<Map<String, Object?>> _synthesiseNative(String? engineId) async {
+  /// The voices this engine actually has, best quality first.
+  ///
+  /// Quality varies enormously within one engine: a device may carry a small
+  /// embedded fallback alongside a much better downloaded voice for the same
+  /// locale. The first listening test sounded robotic because the code forced
+  /// Locale.US, which selected the fallback.
+  Future<void> _loadVoices() async {
+    try {
+      final raw = await _channel.invokeListMethod<Map<Object?, Object?>>(
+        'listVoices',
+        {'engineId': _engineId},
+      );
+      if (!mounted) return;
+      setState(() {
+        _voices = [
+          for (final v in raw ?? const [])
+            {
+              'name': v['name'] as String? ?? '',
+              'locale': v['locale'] as String? ?? '',
+              'quality': v['quality'] as int? ?? 0,
+              'networkRequired': v['networkRequired'] == true,
+            },
+        ];
+        // Prefer the best-quality offline voice for the device's language.
+        final offline =
+            _voices.where((v) => v['networkRequired'] != true).toList();
+        _voiceName =
+            (offline.isNotEmpty ? offline.first : _voices.firstOrNull)?['name']
+                as String?;
+      });
+    } on PlatformException catch (e) {
+      if (mounted) setState(() => _status = 'Could not list voices: ${e.message}');
+    }
+  }
+
+  /// One synthesis call to the platform.
+  ///
+  /// [rate] is the engine's own speed control. Passing it here produces a real
+  /// duration change that sounds natural; passing 1.0 and letting our DSP stage
+  /// do the work instead is only for measuring stage ordering, because that
+  /// stage is a naive resampler that shifts pitch with speed.
+  Future<Map<String, Object?>> _synthesiseNative(
+    String? engineId, {
+    double rate = 1.0,
+    String? voiceName,
+  }) async {
     final raw = await _channel.invokeMapMethod<String, Object?>('synthesise', {
       'text': _textController.text,
       'engineId': engineId,
-      'rate': 1.0,
+      'voiceName': voiceName,
+      'rate': rate,
       'pitch': 1.0,
     });
     if (raw == null) throw Exception('No report returned');
@@ -121,12 +177,17 @@ class _SpikeScreenState extends State<SpikeScreen> {
     });
 
     try {
-      final native = await _synthesiseNative(_engineId);
+      final native = await _synthesiseNative(
+        _engineId,
+        rate: _speedViaEngine ? _speed : 1.0,
+        voiceName: _voiceName,
+      );
       final report = await _processWith(
         native,
         PipelineSettings(
           wordGapMs: _gapMs.round(),
-          speedScale: _speed,
+          // Only one of the two applies the speed change, never both.
+          speedScale: _speedViaEngine ? 1.0 : _speed,
           sentencePauseMs: _sentencePauseMs.round(),
         ),
       );
@@ -150,11 +211,15 @@ class _SpikeScreenState extends State<SpikeScreen> {
   /// The engine is called once per engine and the resulting audio processed
   /// four ways, so the configurations differ only in our own settings.
   Future<void> _runBatch() async {
-    const configs = <({int gap, double speed})>[
-      (gap: 0, speed: 1.0),
-      (gap: 120, speed: 1.0),
-      (gap: 250, speed: 1.0),
-      (gap: 120, speed: 2.0),
+    // `viaEngine` decides who applies the speed change. The DSP variant is the
+    // one that proves stage ordering (S2); the engine variant is the one a human
+    // can actually listen to, because the DSP stage shifts pitch with speed.
+    const configs = <({int gap, double speed, bool viaEngine})>[
+      (gap: 0, speed: 1.0, viaEngine: false),
+      (gap: 120, speed: 1.0, viaEngine: false),
+      (gap: 250, speed: 1.0, viaEngine: false),
+      (gap: 120, speed: 2.0, viaEngine: false),
+      (gap: 120, speed: 2.0, viaEngine: true),
     ];
 
     setState(() {
@@ -168,32 +233,36 @@ class _SpikeScreenState extends State<SpikeScreen> {
       final id = engine['name']!;
       final short = id.split('.').last;
 
-      Map<String, Object?> native;
-      try {
-        setState(() => _status = 'BATCH: synthesising on $short...');
-        native = await _synthesiseNative(id);
-      } catch (e) {
-        log.add('$short: SYNTHESIS FAILED: $e');
-        continue;
-      }
-
-      final fired = native['rangeStartFired'] == true;
-      final events = (native['rangeEvents'] as List?)?.length ?? 0;
-      log.add('$short: onRangeStart=$fired events=$events '
-          'granularity=${native['granularity']}');
-
       for (final c in configs) {
         try {
+          setState(() => _status = 'BATCH: $short gap=${c.gap} '
+              'speed=${c.speed}x...');
+
+          // Engine-speed variants need their own synthesis, since the rate is
+          // applied inside the engine rather than afterwards.
+          final native = await _synthesiseNative(
+            id,
+            rate: c.viaEngine ? c.speed : 1.0,
+            voiceName: _voiceName,
+          );
+
+          if (c == configs.first) {
+            log.add('$short: onRangeStart=${native['rangeStartFired']} '
+                'events=${(native['rangeEvents'] as List?)?.length ?? 0} '
+                'granularity=${native['granularity']}');
+          }
+
           final report = await _processWith(
             native,
             PipelineSettings(
               wordGapMs: c.gap,
-              speedScale: c.speed,
+              speedScale: c.viaEngine ? 1.0 : c.speed,
               sentencePauseMs: 350,
             ),
           );
-          final label = '$short-gap${c.gap}-speed'
-              '${c.speed.toStringAsFixed(1).replaceAll('.', '_')}';
+          final speedTag =
+              '${c.viaEngine ? 'eng' : 'dsp'}${c.speed.toStringAsFixed(1).replaceAll('.', '_')}';
+          final label = '$short-gap${c.gap}-$speedTag';
           await _exportReport(report, label);
           log.add('  gap=${c.gap} speed=${c.speed}x -> $label');
           if (!mounted) return;
@@ -395,7 +464,16 @@ class _SpikeScreenState extends State<SpikeScreen> {
   Future<void> _play() async {
     final report = _report;
     if (report == null) return;
-    final path = _lastOutputPath ?? await _export(silent: true);
+
+    // Always re-export the current report.
+    //
+    // This used to be `_lastOutputPath ?? await _export(...)`, and
+    // _lastOutputPath was never cleared when a new run produced new audio. The
+    // first Play cached a path and every Play afterwards replayed that same
+    // file, so changing any setting appeared to do nothing at all. After a
+    // batch run it was worse: the cached path was the last export, so the
+    // 2x-speed file played back whatever the sliders said.
+    final path = await _exportReport(report, 'preview');
     if (path == null) return;
     try {
       await _channel.invokeMethod<void>('play', {'path': path});
@@ -419,11 +497,10 @@ class _SpikeScreenState extends State<SpikeScreen> {
           .convert(report.toJson(_textController.text)),
     );
 
-    _lastOutputPath = '$prefix.wav';
-    return _lastOutputPath;
+    return '$prefix.wav';
   }
 
-  Future<String?> _export({bool silent = false}) async {
+  Future<String?> _export() async {
     final report = _report;
     if (report == null) return null;
 
@@ -433,7 +510,7 @@ class _SpikeScreenState extends State<SpikeScreen> {
         .substring(0, 15);
     final path = await _exportReport(report, stamp);
 
-    if (!silent && path != null) {
+    if (path != null) {
       setState(() => _status = 'Exported to $path (+ .json)');
     }
     return path;
@@ -457,7 +534,48 @@ class _SpikeScreenState extends State<SpikeScreen> {
                     child: Text(e['label']!.isEmpty ? e['name']! : e['label']!),
                   ),
               ],
-              onChanged: (v) => setState(() => _engineId = v),
+              onChanged: (v) {
+                setState(() => _engineId = v);
+                _loadVoices();
+              },
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: _voiceName,
+              isExpanded: true,
+              decoration: InputDecoration(
+                labelText: 'Voice (${_voices.length} available, best first)',
+              ),
+              items: [
+                for (final v in _voices)
+                  DropdownMenuItem(
+                    value: v['name'] as String,
+                    child: Text(
+                      '${v['locale']}  q${v['quality']}'
+                      '${v['networkRequired'] == true ? '  [network]' : ''}'
+                      '  ${v['name']}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              onChanged: (v) => setState(() => _voiceName = v),
+            ),
+            const SizedBox(height: 12),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _speedViaEngine,
+              onChanged: (v) => setState(() => _speedViaEngine = v),
+              title: Text(_speedViaEngine
+                  ? 'Speed: engine (natural)'
+                  : 'Speed: DSP stub (pitch-shifts!)'),
+              subtitle: Text(
+                _speedViaEngine
+                    ? 'Real duration change inside the engine. Use this to listen.'
+                    : 'Naive resampler: 2x doubles the pitch. Measurement only.',
+                style: TextStyle(
+                  color: _speedViaEngine ? null : Theme.of(context).colorScheme.error,
+                ),
+              ),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -494,7 +612,7 @@ class _SpikeScreenState extends State<SpikeScreen> {
             ),
             const SizedBox(height: 8),
             OutlinedButton(
-              onPressed: _report == null ? null : () => _export(),
+              onPressed: _report == null ? null : _export,
               child: const Text('Export WAV + JSON'),
             ),
             const Divider(height: 32),
@@ -578,6 +696,8 @@ class _RunReport {
       'timing source      : ${timingSource.name}',
       'event layout      : $eventLayout',
       'engine             : ${native['engineId']}',
+      'voice              : ${native['voiceName'] ?? 'engine default'}',
+      'speed applied by   : ${settings.speedScale == 1.0 ? 'engine' : 'DSP stub'}',
       'sample rate        : ${native['sampleRate']} Hz',
       'raw frames         : $rawFrames',
       'processed frames   : ${processed.audio.frameCount}',
@@ -606,6 +726,8 @@ class _RunReport {
         'granularity': native['granularity'],
         'rangeEvents': native['rangeEvents'],
         'timingSource': timingSource.name,
+        'voiceName': native['voiceName'],
+        'speedAppliedBy': settings.speedScale == 1.0 ? 'engine' : 'dsp',
         'eventLayout': eventLayout,
         'sampleRate': processed.audio.sampleRate,
         'rawFrameCount': rawFrames,
