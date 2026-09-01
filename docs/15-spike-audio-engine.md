@@ -599,7 +599,7 @@ pipeline to degrade gracefully rather than silently discard the feature.
 
 ---
 
-## 15.18 Device run 2 on 2026-09-02 — all criteria met
+## 15.18 Device run 2 on 2026-09-02, all criteria met
 
 Same device and engine, rebuilt with the parameter-order fix. **All four
 configurations pass all five criteria on real audio.**
@@ -749,7 +749,7 @@ future run, S6 comes before claiming success, not after.**
 
 ---
 
-## 15.20 S6 causes, in full — 2026-09-02
+## 15.20 S6 causes in full, 2026-09-02
 
 Four defects sat between "all criteria pass" and "this is listenable". Only the
 listening test found any of them.

@@ -35,7 +35,11 @@ depends on them.
 
 ## Documentation
 
-Start at [`docs/README.md`](docs/README.md). The two documents that matter most if you
+**Picking this up cold? Start at
+[16 — Session Handoff](docs/16-session-handoff.md).** It has the current state, the
+gotchas that will otherwise cost you days, how to run everything, and what to do next.
+
+Otherwise start at [`docs/README.md`](docs/README.md). The two documents that matter most if you
 only read two:
 
 - [09 — Challenges & Solutions](docs/09-challenges-and-solutions.md) — every known

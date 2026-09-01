@@ -78,7 +78,7 @@ If you remember nothing else from this document: **we never call
 | Audio output | `miniaudio` via FFI (one backend, both platforms) | Avoids two different platform players with two different latency and device-change behaviours. |
 | DSP (pitch/time) | Small C++ core around a GPL stretcher (e.g. Rubber Band) | Under our own GPL-3.0 licence the best-in-class libraries are available, so no custom phase-vocoder work is needed. See [C-14](09-challenges-and-solutions.md#c-14). |
 
-## 2.4 Contract A — the Document Model
+## 2.4 Contract A: the Document Model
 
 ```dart
 class Book {

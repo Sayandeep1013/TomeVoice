@@ -26,6 +26,7 @@ but each file stands alone.
 | 13 | [Testing & QA](13-testing-and-qa.md) | How we prove the pipeline is correct, including the hard-to-test audio parts |
 | 14 | [Verification Log](14-verification-log.md) | Every load-bearing claim, its primary source, and what failed checking |
 | 15 | [Spike Spec: Audio Engine](15-spike-audio-engine.md) | The first build — what we are proving, and how we measure it |
+| 16 | [Session Handoff](16-session-handoff.md) | **Start here if picking this up cold.** State, gotchas, how to run it, what to do next |
 
 ## The one-paragraph summary
 
