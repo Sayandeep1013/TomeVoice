@@ -135,17 +135,46 @@ class _SpikeScreenState extends State<SpikeScreen> {
               'networkRequired': v['networkRequired'] == true,
             },
         ];
-        // Prefer the best-quality offline voice for the device's language.
-        final offline =
-            _voices.where((v) => v['networkRequired'] != true).toList();
-        _voiceName =
-            (offline.isNotEmpty ? offline.first : _voices.firstOrNull)?['name']
-                as String?;
+        _voiceName = _pickDefaultVoice()?['name'] as String?;
       });
     } on PlatformException catch (e) {
       if (mounted) setState(() => _status = 'Could not list voices: ${e.message}');
     }
   }
+
+  /// Picks a sensible default voice.
+  ///
+  /// **Language first, quality second.** An earlier version sorted only by
+  /// quality and name, and on a device whose engine offers dozens of locales
+  /// that selected `ar-language` — an Arabic voice reading English text. A
+  /// perfect-quality voice in the wrong language is worse than a mediocre one
+  /// in the right language, so language match is not a tiebreaker, it is the
+  /// primary key.
+  ///
+  /// Within the right language: offline beats network, then highest quality.
+  Map<String, Object?>? _pickDefaultVoice() {
+    if (_voices.isEmpty) return null;
+
+    bool matchesLanguage(Map<String, Object?> v) =>
+        (v['locale'] as String? ?? '')
+            .toLowerCase()
+            .startsWith(_targetLanguage.toLowerCase());
+
+    final candidates = _voices.where(matchesLanguage).toList();
+    final pool = candidates.isNotEmpty ? candidates : _voices;
+
+    final offline = pool.where((v) => v['networkRequired'] != true).toList();
+    final ranked = (offline.isNotEmpty ? offline : pool)
+      ..sort((a, b) =>
+          ((b['quality'] as int?) ?? 0).compareTo((a['quality'] as int?) ?? 0));
+
+    return ranked.first;
+  }
+
+  /// The language the text is in. Hard-coded for the spike, whose sample text
+  /// is English; the real product derives this from the document
+  /// (docs/03 section 3.8).
+  static const String _targetLanguage = 'en';
 
   /// One synthesis call to the platform.
   ///
@@ -228,6 +257,17 @@ class _SpikeScreenState extends State<SpikeScreen> {
     });
 
     final log = <String>[];
+
+    // Record what the device actually offers. The first run picked an Arabic
+    // voice for English text, and without this line that was invisible until
+    // someone listened.
+    final matching = _voices
+        .where((v) => (v['locale'] as String? ?? '')
+            .toLowerCase()
+            .startsWith(_targetLanguage))
+        .length;
+    log.add('voices: ${_voices.length} total, $matching match '
+        '"$_targetLanguage", chosen="$_voiceName"');
 
     for (final engine in _engines) {
       final id = engine['name']!;
