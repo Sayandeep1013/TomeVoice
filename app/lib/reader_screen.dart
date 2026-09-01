@@ -86,17 +86,33 @@ class _ReaderScreenState extends State<ReaderScreen>
     }
   }
 
+  /// Loads voices, retrying once if the engine answers with an empty set.
+  ///
+  /// Right after a cold start the TTS service can report initialised before its
+  /// voice data is queryable, and returns nothing. It looked intermittent
+  /// because it is: the first launch worked and the next, straight after a
+  /// force-stop, showed no voice at all.
   Future<void> _loadVoices() async {
-    try {
-      final list = await _svc.voices(_engineId);
-      if (!mounted) return;
-      setState(() {
-        _voices = list;
-        _voiceName =
-            SpeechService.pickVoice(_voices, _targetLanguage)?['name'] as String?;
-      });
-    } on PlatformException catch (e) {
-      if (mounted) setState(() => _status = 'No voices: ${e.message}');
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final list = await _svc.voices(_engineId);
+        if (!mounted) return;
+        if (list.isEmpty && attempt == 0) {
+          await Future<void>.delayed(const Duration(milliseconds: 700));
+          continue;
+        }
+        setState(() {
+          _voices = list;
+          _voiceName = SpeechService.pickVoice(_voices, _targetLanguage)?['name']
+              as String?;
+        });
+        return;
+      } on PlatformException catch (e) {
+        if (attempt == 1 && mounted) {
+          setState(() => _status = 'No voices: ${e.message}');
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+      }
     }
   }
 
@@ -332,14 +348,14 @@ class _ReaderScreenState extends State<ReaderScreen>
           RoundButton(
             icon: Icons.chevron_left_rounded,
             size: 44,
-            color: Skin.isDark(context) ? null : Skin.cream,
+            color: Skin.disc(context),
             onTap: () {},
           ),
           const SizedBox(width: 10),
           RoundButton(
             icon: Icons.chevron_right_rounded,
             size: 44,
-            color: Skin.isDark(context) ? null : Skin.cream,
+            color: Skin.disc(context),
             onTap: () {},
           ),
         ],
@@ -447,9 +463,9 @@ class _ReaderScreenState extends State<ReaderScreen>
         child: InkWell(
           onTap: () => _togglePanel(section),
           child: SizedBox(
-            width: 40,
-            height: 46,
-            child: Icon(icon, size: 19, color: fg),
+            width: 34,
+            height: 40,
+            child: Icon(icon, size: 17, color: fg),
           ),
         ),
       );

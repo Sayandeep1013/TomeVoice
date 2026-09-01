@@ -41,11 +41,18 @@ class Skin {
   static const amberSoft = Color(0xFFF2A05B);
 
   // ---- dark theme ------------------------------------------------------
-  static const nightTop = Color(0xFF1B241E);
-  static const nightBottom = Color(0xFF2A2621);
-  static const nightInk = Color(0xFFEDE7DA);
-  static const nightInkSoft = Color(0xFFB3AE9F);
-  static const nightCapsule = Color(0xE62F3329);
+  //
+  // Not an inversion. The light ground travels mint -> cream, so the dark one
+  // travels deep forest -> warm ember through the same diagonal: the same
+  // journey at a lower key. A first attempt simply darkened both ends and read
+  // as a flat grey-green field with none of the reference's character.
+  static const nightTop = Color(0xFF16241C);
+  static const nightMid = Color(0xFF1F3128);
+  static const nightWarm = Color(0xFF33291F);
+  static const nightBottom = Color(0xFF3D2E1F);
+  static const nightInk = Color(0xFFF2EADA);
+  static const nightInkSoft = Color(0xFFB9B2A0);
+  static const nightCapsule = Color(0xF23A4238);
 
   static bool isDark(BuildContext c) =>
       Theme.of(c).brightness == Brightness.dark;
@@ -56,8 +63,8 @@ class Skin {
       ? const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [nightTop, Color(0xFF232A24), nightBottom],
-          stops: [0.0, 0.55, 1.0],
+          colors: [nightTop, nightMid, nightWarm, nightBottom],
+          stops: [0.0, 0.30, 0.72, 1.0],
         )
       : const LinearGradient(
           begin: Alignment.topLeft,
@@ -74,6 +81,11 @@ class Skin {
   static Color darkOn(BuildContext c) =>
       isDark(c) ? const Color(0xFF0E120C) : dark;
   static Color onDark(BuildContext c) => isDark(c) ? nightInk : cream;
+
+  /// The cream discs the reference uses for the prev/next pair. On the dark
+  /// ground plain cream would glare, so it drops to a lifted surface instead.
+  static Color disc(BuildContext c) =>
+      isDark(c) ? const Color(0x2EF2EADA) : const Color(0xFFF0E6D6);
 
   // ---- type ------------------------------------------------------------
 
