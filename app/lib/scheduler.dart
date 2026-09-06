@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -71,7 +72,13 @@ class PlaybackScheduler {
           _lookahead = _process(units[i + 1]);
         }
 
-        final run = await current;
+        final ProcessedSpeech run;
+        try {
+          run = await current;
+        } catch (_) {
+          _dropLookahead();
+          rethrow;
+        }
         if (_stop) break;
 
         onTimings(run.timings);
@@ -82,17 +89,25 @@ class PlaybackScheduler {
       }
     } finally {
       _running = false;
-      _lookahead = null;
+      _dropLookahead();
       onWord(-1);
       if (!_stop) onFinished();
     }
   }
 
+  void _dropLookahead() {
+    final pending = _lookahead;
+    _lookahead = null;
+    _lookaheadIndex = -1;
+    if (pending == null) return;
+    // A failed n+1 must not become an uncaught async error when n throws.
+    unawaited(pending.then((_) {}, onError: (_) {}));
+  }
+
   /// Drop buffered audio after the current sentence. Call when voice/rate/gap
   /// change so the new settings are audible at sentence n+1.
   void invalidateLookahead() {
-    _lookahead = null;
-    _lookaheadIndex = -1;
+    _dropLookahead();
   }
 
   Future<void> stop() async {

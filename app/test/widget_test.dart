@@ -137,7 +137,8 @@ void main() {
       expect(find.textContaining('1 /'), findsOneWidget);
 
       await tester.tap(find.textContaining('Pack my box'));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
 
       expect(find.textContaining('2 /'), findsOneWidget);
     });
