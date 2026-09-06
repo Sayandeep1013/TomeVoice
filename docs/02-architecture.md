@@ -231,6 +231,11 @@ Rules:
   n+1 onward** and lets sentence *n* finish, so the change is audible at the next
   sentence instead of causing a glitch.
 - On seek, the buffer is dropped and re-primed from the target sentence.
+- **System TTS (current spike):** depth is 1, and n+1 must not call
+  `synthesizeToFile` until n has returned PCM. Android keeps a single
+  `UtteranceProgressListener`; overlapping jobs steal it and playback stops
+  after one sentence. Play n from WAV while n+1 synthesises. See
+  `app/lib/scheduler.dart`.
 
 ## 2.8 Module layout
 

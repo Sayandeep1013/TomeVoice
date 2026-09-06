@@ -199,6 +199,19 @@ Some things only a human ear catches. Before each release:
 - **A two-column paper**, listening for interleaved columns — this failure is obvious by
   ear and easy to miss by eye.
 
+## 13.11 Device flows (current slice)
+
+Maestro lives in `mobile-qa/`. Drive a real phone; there is no local Flutter.
+
+- `library-home.yaml` — wordmark, YOUR BOOKS, IMPORT A FILE. No Specimen.
+- `resume-and-start-here.yaml` — tap a sentence, leave, reopen; cursor must hold.
+  Do not `clearState: true`.
+- Chapter skip: next/previous chapter content-desc, not the sentence chevrons.
+- Sentence counter is `n / total` (slash). Chapter index is `n OF chapters`.
+- After `adb uninstall` the library is empty; re-import from Downloads.
+
+Listen to a chapter after every APK. Green widget tests do not prove the scheduler.
+
 ## 13.10 Feedback loop
 
 Text normalisation and pronunciation are permanently incomplete

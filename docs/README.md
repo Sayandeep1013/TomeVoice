@@ -29,9 +29,10 @@ but each file stands alone.
 | 16 | [Session Handoff](16-session-handoff.md) | **Start here if picking this up cold.** State, gotchas, how to run it, what to do next |
 
 The spike (audio pipeline on device) is done. The current product slice is a
-**speakable document**: import EPUB/TXT/Markdown and listen with the proven engine.
-Visual EPUB pagination (WebView) and PDF are still ahead on the
-[roadmap](12-roadmap-and-milestones.md).
+**speakable document**: import EPUB/TXT/Markdown, skip covers, swipe chapters,
+and listen with the proven engine. Visual EPUB pagination (WebView) and PDF are
+still ahead on the [roadmap](12-roadmap-and-milestones.md). Start from
+[Session Handoff](16-session-handoff.md) if picking this up cold.
 
 ## The one-paragraph summary
 
