@@ -10,8 +10,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tomevoice_document/tomevoice_document.dart';
 import 'package:tomevoice_spike/brand.dart';
 import 'package:tomevoice_spike/main.dart';
+import 'package:tomevoice_spike/reader_screen.dart';
 import 'package:tomevoice_spike/settings_panel.dart';
 
 const _channel = MethodChannel('tomevoice/tts');
@@ -141,6 +143,34 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
 
       expect(find.textContaining('2 /'), findsOneWidget);
+    });
+
+    testWidgets('opens on the first chapter, not a cover sheet', (tester) async {
+      tester.view.physicalSize = const Size(1100, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final book = ingestString(
+        'Title sheet\n\n'
+        '# Chapter 1: Alpha\n\n'
+        'First chapter has enough text that it counts as a real chapter to read.\n\n'
+        '# Chapter 2: Beta\n\n'
+        'Second chapter also has enough text that turning the page shows new sentences.',
+        filename: 'novel.md',
+      );
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(useMaterial3: true, brightness: Brightness.light),
+        home: ReaderScreen(book: book),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Chapter 1: Alpha'), findsWidgets);
+      expect(find.text('Title sheet'), findsNothing);
+
+      await tester.tap(find.byTooltip('Next chapter'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Chapter 2: Beta'), findsWidgets);
+      expect(find.textContaining('turning the page'), findsWidgets);
     });
 
     testWidgets('starts on a preset rather than an arbitrary state',

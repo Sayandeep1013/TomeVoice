@@ -245,8 +245,8 @@ Book specimenBook() => ingestString(
       'the audio you hear.\n\n'
       'Open the library and import an EPUB, a text file, or Markdown. '
       'Playback walks sentence by sentence so a chapter is not one giant '
-      'utterance. The arrows move one sentence. The list opens sections. '
-      'Play starts from where you left off.',
+      'utterance. The arrows move one sentence. Swipe sideways to change '
+      'chapter. Play starts from where you left off.',
       filename: 'specimen.txt',
       title: 'Specimen',
     );

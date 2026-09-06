@@ -10,4 +10,5 @@ export 'src/formats/html_blocks.dart';
 export 'src/formats/text.dart';
 export 'src/ingest.dart';
 export 'src/model.dart';
+export 'src/navigate.dart';
 export 'src/segment.dart';

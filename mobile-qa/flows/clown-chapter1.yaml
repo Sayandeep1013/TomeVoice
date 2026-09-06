@@ -1,0 +1,6 @@
+appId: app.tomevoice.tomevoice_spike
+---
+- tapOn: "Chapters"
+- tapOn: "Chapter 1: Crimson"
+- assertVisible: ".*Painful.*"
+- assertVisible: ".*[0-9]+ / 34523.*"

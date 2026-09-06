@@ -1,0 +1,22 @@
+appId: app.tomevoice.tomevoice_spike
+---
+- launchApp:
+    clearState: false
+- tapOn:
+    text: "Library"
+    optional: true
+- tapOn:
+    text: ".*Crime and Punishment.*"
+    optional: true
+- assertVisible: ".*1 / 14799.*|.*2 / 14799.*"
+- tapOn: ".*translated by constance garnett.*"
+- extendedWaitUntil:
+    visible: ".*2 / 14799.*"
+    timeout: 15000
+- tapOn:
+    text: "Stop"
+    optional: true
+- tapOn: "Library"
+- assertVisible: ".*Crime and Punishment.*"
+- tapOn: ".*Crime and Punishment.*"
+- assertVisible: ".*2 / 14799.*"

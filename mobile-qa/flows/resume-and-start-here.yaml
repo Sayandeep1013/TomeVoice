@@ -1,0 +1,19 @@
+appId: app.tomevoice.tomevoice_spike
+---
+- launchApp:
+    clearState: false
+- tapOn:
+    text: "Library"
+    optional: true
+- tapOn: ".*Specimen.*"
+- assertVisible: ".*1 /.*"
+- tapOn: ".*Pack my box.*"
+- extendedWaitUntil:
+    visible: ".*2 /.*"
+    timeout: 15000
+- tapOn:
+    text: "Stop"
+    optional: true
+- tapOn: "Library"
+- tapOn: ".*Specimen.*"
+- assertVisible: ".*2 /.*"

@@ -28,6 +28,7 @@ const Set<BlockRole> defaultSkippedRoles = {
   BlockRole.pageNumber,
   BlockRole.runningHeader,
   BlockRole.caption,
+  BlockRole.figure,
 };
 
 sealed class Anchor {

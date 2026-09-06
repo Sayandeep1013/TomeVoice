@@ -3,7 +3,7 @@ appId: app.tomevoice.tomevoice_spike
 - launchApp:
     clearState: false
 - tapOn: ".*Specimen.*"
-- tapOn: "Sections"
-- assertVisible: "SECTIONS"
+- tapOn: "Chapters"
+- assertVisible: "CHAPTERS"
 - tapOn: "Specimen"
 - assertVisible: "Library"
