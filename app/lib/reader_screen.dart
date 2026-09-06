@@ -492,9 +492,9 @@ class _ReaderScreenState extends State<ReaderScreen>
                             style: Skin.title(context, size: 18),
                           ),
                           Text(
-                            _chapters.isEmpty
+                            _chapters.length <= 1
                                 ? ''
-                                : '${_chapterPage + 1} / ${_chapters.length}',
+                                : '${_chapterPage + 1} OF ${_chapters.length}',
                             style: Skin.meta(context, size: 8),
                           ),
                         ],
