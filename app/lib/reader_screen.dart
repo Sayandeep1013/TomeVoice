@@ -580,7 +580,6 @@ class _ReaderScreenState extends State<ReaderScreen>
     ];
     return ListView.builder(
       padding: const EdgeInsets.only(top: 8, bottom: 24),
-      cacheExtent: 400,
       itemCount: indices.length,
       itemBuilder: (context, k) {
         final i = indices[k];
