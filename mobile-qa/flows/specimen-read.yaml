@@ -2,13 +2,11 @@ appId: app.tomevoice.tomevoice_spike
 ---
 - launchApp:
     clearState: false
-- tapOn: "Specimen"
+- tapOn: ".*Specimen.*"
 - assertVisible: "Library"
-- assertVisible: "quick brown fox"
-- assertVisible: "PRESET: NATURAL"
-- tapOn:
-    id: "Next sentence"
-- assertVisible: "Pack my box"
-- tapOn:
-    id: "Previous sentence"
-- assertVisible: "quick brown fox"
+- assertVisible: ".*quick brown fox.*"
+- assertVisible: ".*PRESET: NATURAL.*"
+- tapOn: "Next sentence"
+- assertVisible: ".*Pack my box.*"
+- tapOn: "Previous sentence"
+- assertVisible: ".*quick brown fox.*"

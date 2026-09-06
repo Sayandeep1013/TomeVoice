@@ -1,0 +1,9 @@
+appId: app.tomevoice.tomevoice_spike
+---
+- launchApp:
+    clearState: false
+- tapOn: ".*Specimen.*"
+- tapOn: "Voice"
+- assertVisible: "VOICE"
+- assertVisible: "Pitch"
+- tapOn: "Close"

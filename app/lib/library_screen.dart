@@ -13,7 +13,7 @@ import 'theme.dart';
 const _svc = SpeechService();
 
 /// The shelf of books. Same chrome language as the reader: gradient, capsules,
-/// monospace instrumentation. Ojuju is reserved for text being read.
+/// monospace instrumentation. Ojuju is for titles; the page of a book is not.
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
 
@@ -159,6 +159,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    final hero = (width * 0.155).clamp(46.0, 72.0);
+
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(gradient: Skin.ground(context)),
@@ -168,10 +171,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const BrandLockup(),
-                const SizedBox(height: 14),
-                Text('LIBRARY', style: Skin.meta(context, size: 11)),
-                const SizedBox(height: 6),
+                const BrandMark(size: 36),
+                const SizedBox(height: 18),
+                Text('TomeVoice', style: Skin.title(context, size: hero)),
+                const SizedBox(height: 8),
                 Text(
                   'EPUB, TXT, MARKDOWN. LOCAL. YOURS.',
                   style: Skin.meta(context),
@@ -181,24 +184,19 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   Text(_status.toUpperCase(),
                       style: Skin.meta(context, color: Skin.amber, size: 10)),
                 ],
-                const SizedBox(height: 18),
+                const SizedBox(height: 22),
                 Expanded(
                   child: ListView(
                     children: [
-                      _row(
-                        context,
-                        title: 'Specimen',
-                        subtitle: 'THE PANGRAM · TAP TO LISTEN',
-                        onTap: _openSpecimen,
-                      ),
+                      _specimenStage(context),
+                      const SizedBox(height: 22),
+                      Text('YOUR BOOKS', style: Skin.meta(context, size: 11)),
                       const SizedBox(height: 10),
-                      if (_entries.isEmpty) ...[
-                        const SizedBox(height: 8),
+                      if (_entries.isEmpty)
                         Text(
                           'IMPORTED BOOKS APPEAR HERE.',
                           style: Skin.meta(context),
                         ),
-                      ],
                       for (final e in _entries) ...[
                         _row(
                           context,
@@ -246,6 +244,61 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  /// The original specimen surface, now the way into the reader: oversized
+  /// chrome around a readable pangram, tap anywhere to listen.
+  Widget _specimenStage(BuildContext context) {
+    return Material(
+      color: Skin.capsuleOn(context),
+      borderRadius: const BorderRadius.all(Radius.circular(28)),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: _openSpecimen,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(20, 18, 16, 18),
+          decoration: BoxDecoration(
+            borderRadius: const BorderRadius.all(Radius.circular(28)),
+            border: Border.all(color: Skin.capsuleEdge),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('SPECIMEN · TAP TO LISTEN', style: Skin.meta(context)),
+              const SizedBox(height: 10),
+              Text('Specimen', style: Skin.title(context, size: 28)),
+              const SizedBox(height: 12),
+              Text(
+                'The quick brown fox jumps over the lazy dog.',
+                style: Skin.display(context, 22),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Text('PLAY',
+                      style: Skin.label(context, weight: FontWeight.w700)),
+                  const Spacer(),
+                  SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: Material(
+                      color: Skin.darkOn(context),
+                      shape: const CircleBorder(),
+                      child: Icon(
+                        Icons.play_arrow_rounded,
+                        color: Skin.onDark(context),
+                        size: 22,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   /// Delete is a sibling of the open-target, not a child of it. Nesting two
   /// InkWells made Remove eat the row tap, or the row eat Remove, depending
   /// on the device.
@@ -279,8 +332,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         title,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: Skin.label(context,
-                            size: 15, weight: FontWeight.w700),
+                        style: Skin.title(context, size: 20),
                       ),
                       const SizedBox(height: 4),
                       Text(subtitle, style: Skin.meta(context, size: 8.5)),

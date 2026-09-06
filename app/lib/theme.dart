@@ -15,7 +15,7 @@ import 'package:flutter/material.dart';
 /// * Metadata is monospace, uppercase and letterspaced, and sits quietly at low
 ///   contrast. It is instrumentation, not headline.
 /// * One accent colour, used sparingly, always amber.
-/// * The type is the loudest thing on screen by a wide margin.
+/// * Ojuju is for titles. The book itself is a reading serif.
 class Skin {
   const Skin._();
 
@@ -89,14 +89,27 @@ class Skin {
 
   // ---- type ------------------------------------------------------------
 
-  /// The specimen face. Used for the text being read and nothing else — it is
-  /// the subject, so it must not also be the furniture.
-  static TextStyle display(BuildContext c, double size) => TextStyle(
+  /// Ojuju: titles and the wordmark only. Never the page of a book — it is a
+  /// display face, and a chapter in it cannot be read.
+  static TextStyle title(BuildContext c,
+          {double size = 22, Color? color, FontWeight? weight}) =>
+      TextStyle(
         fontFamily: 'Ojuju',
         fontSize: size,
-        height: 1.02,
+        height: 1.05,
         letterSpacing: -size * 0.02,
-        fontWeight: FontWeight.w700,
+        fontWeight: weight ?? FontWeight.w700,
+        color: color ?? inkOn(c),
+      );
+
+  /// The page. Platform serif so imported text stays readable; chrome and
+  /// titles keep their own faces.
+  static TextStyle display(BuildContext c, double size) => TextStyle(
+        fontFamily: 'serif',
+        fontSize: size,
+        height: 1.38,
+        letterSpacing: 0.15,
+        fontWeight: FontWeight.w400,
         color: inkOn(c),
       );
 

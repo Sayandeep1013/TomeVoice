@@ -272,7 +272,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                     radius: const BorderRadius.all(Radius.circular(16)),
                     child: Text(
                       t.title,
-                      style: Skin.label(context, color: onDark, size: 13),
+                      style: Skin.title(context, size: 18, color: onDark),
                     ),
                   ),
                 ),
@@ -421,7 +421,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     return Center(
       child: LayoutBuilder(
         builder: (context, box) {
-          final size = (box.maxHeight * 0.18).clamp(28.0, 52.0);
+          final size = (box.maxHeight * 0.065).clamp(20.0, 28.0);
           final style = Skin.display(context, size);
           return SingleChildScrollView(
             child: timings.isEmpty || _wordIndex < 0

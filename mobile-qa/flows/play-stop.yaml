@@ -1,0 +1,11 @@
+appId: app.tomevoice.tomevoice_spike
+---
+- launchApp:
+    clearState: false
+- tapOn: ".*Specimen.*"
+- tapOn: "Play"
+- extendedWaitUntil:
+    visible: "Stop"
+    timeout: 20000
+- tapOn: "Stop"
+- assertVisible: "Play"

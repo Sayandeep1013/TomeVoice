@@ -1,0 +1,6 @@
+appId: app.tomevoice.tomevoice_spike
+---
+- launchApp:
+    clearState: false
+- tapOn: "Library"
+- tapOn: "IMPORT A FILE"

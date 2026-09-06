@@ -30,9 +30,9 @@ Install from CI as before, open **Library**, tap **Specimen** to hear the pangra
 **Import a file** and pick an EPUB / `.txt` / `.md`. The in-app mark and Android
 launcher icon live at `app/assets/brand/logo.png` and
 `app/android_overlay/.../res/` (adaptive + mipmap). Chrome is one language on
-library and reader: gradient, capsules, Space Mono instrumentation, Ojuju only
-for the sentence being read. Chevrons are sentence, not section. Paragraph
-pause is applied by the scheduler between blocks.
+library and reader: gradient, capsules, Space Mono instrumentation, Ojuju for
+titles only (never the page of a book). Chevrons are sentence, not section.
+Paragraph pause is applied by the scheduler between blocks.
 
 ---
 

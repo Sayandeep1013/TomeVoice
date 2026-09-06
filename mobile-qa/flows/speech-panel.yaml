@@ -2,14 +2,12 @@ appId: app.tomevoice.tomevoice_spike
 ---
 - launchApp:
     clearState: false
-- tapOn: "Specimen"
-- tapOn:
-    id: "Speech"
+- tapOn: ".*Specimen.*"
+- tapOn: "Speech"
 - assertVisible: "SPEECH"
 - assertVisible: "Dyslexia"
-- assertVisible: "Word gap"
-- assertVisible: "Paragraph"
+- assertVisible: ".*Word gap.*"
+- assertVisible: ".*Paragraph.*"
 - tapOn: "Dyslexia"
-- assertVisible: "GAP: 150MS"
-- tapOn:
-    id: "Close"
+- assertVisible: ".*GAP: 150MS.*"
+- tapOn: "Close"

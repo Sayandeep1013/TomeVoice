@@ -79,11 +79,21 @@ void main() {
     testWidgets('is the home surface', (tester) async {
       await pumpApp(tester);
       expect(find.byType(BrandMark), findsWidgets);
-      expect(find.text('LIBRARY'), findsOneWidget);
-      expect(find.textContaining('TOMEVOICE'), findsWidgets);
+      expect(find.textContaining('TomeVoice'), findsWidgets);
       expect(find.text('Specimen'), findsOneWidget);
+      expect(find.textContaining('quick brown fox'), findsWidgets);
       expect(find.text('IMPORT A FILE'), findsOneWidget);
+      expect(find.text('YOUR BOOKS'), findsOneWidget);
       expect(find.text('IMPORTED BOOKS APPEAR HERE.'), findsOneWidget);
+
+      final bookTitle = tester.widget<Text>(find.text('Specimen'));
+      expect(bookTitle.style?.fontFamily, 'Ojuju',
+          reason: 'Ojuju is the title face, not the page');
+      final pangram = tester.widget<Text>(
+        find.textContaining('quick brown fox').first,
+      );
+      expect(pangram.style?.fontFamily, 'serif',
+          reason: 'the pangram on the shelf is book text, not a title');
     });
   });
 
@@ -104,9 +114,9 @@ void main() {
       final display = tester.widget<Text>(
         find.textContaining('quick brown fox').first,
       );
-      expect(display.style?.fontFamily, 'Ojuju',
-          reason: 'the specimen face is reserved for the text being read');
-      expect(display.style?.fontSize, greaterThan(24));
+      expect(display.style?.fontFamily, 'serif',
+          reason: 'book text is a reading face, not Ojuju');
+      expect(display.style?.fontSize, greaterThan(18));
     });
 
     testWidgets('sentence chevrons advance the visible sentence',

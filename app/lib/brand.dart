@@ -129,8 +129,8 @@ class BrandLockup extends StatelessWidget {
         BrandMark(size: compact ? 22 : 28),
         const SizedBox(width: 10),
         Text(
-          'TOMEVOICE',
-          style: Skin.meta(context, size: compact ? 10 : 11),
+          'TomeVoice',
+          style: Skin.title(context, size: compact ? 16 : 20),
         ),
       ],
     );
