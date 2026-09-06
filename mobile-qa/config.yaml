@@ -1,0 +1,5 @@
+app_id: app.tomevoice.tomevoice_spike
+platform: android
+notes: >-
+  Local-first reader. No account, no backend. APKs come from GitHub Actions
+  (ADR-016); there is no local Flutter SDK. Launch activity is MainActivity.

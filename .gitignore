@@ -26,11 +26,13 @@ dist/
 
 # Spike artefacts pulled from a device
 spike-runs/
+mobile-qa/scratch/
 *.wav
 !packages/tomevoice_audio/test/golden/*.wav
 
 # Editors
 .idea/
 .vscode/
+.cursor/
 *.swp
 .DS_Store

@@ -74,8 +74,20 @@ class SpeechService {
 
   Future<String?> outputDir() => _channel.invokeMethod<String>('outputDir');
 
-  Future<void> play(String path) =>
-      _channel.invokeMethod<void>('play', {'path': path});
+  Future<void> play(String path, {bool wait = false}) =>
+      _channel.invokeMethod<void>('play', {'path': path, 'wait': wait});
+
+  Future<void> stopPlayback() => _channel.invokeMethod<void>('stop');
+
+  /// SAF picker. Returns null if the user cancelled.
+  Future<Map<String, String>?> pickDocument() async {
+    final raw =
+        await _channel.invokeMapMethod<String, Object?>('pickDocument');
+    if (raw == null) return null;
+    return {
+      for (final e in raw.entries) e.key: e.value?.toString() ?? '',
+    };
+  }
 
   /// Reads the WAV the engine wrote and runs it through the pipeline.
   Future<ProcessedSpeech> process(

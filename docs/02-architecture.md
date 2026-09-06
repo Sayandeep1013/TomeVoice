@@ -168,29 +168,41 @@ confidently highlighting the wrong word.
 
 This is where the promised control surface is actually implemented.
 
+Stage order is load-bearing. Device measurement (2026-09-02) and
+`packages/tomevoice_audio/test/ordering_test.dart` pin it. Do not restore the
+earlier "pitch then stretch then trim" sketch — that deleted injected gaps and
+halved them at 2×.
+
+Pitch is still engine-side (`setPitch`) until Phase 3 ships a formant-preserving
+shifter. The stub stretcher is DSP-only and pitch-shifts; the UI defaults speed
+to the engine for that reason.
+
 ```
 SynthesisResult (pcm + wordTimings)
         |
-        +-- 1. Pitch shift          if pitch requested and NOT appliedNatively
-        |                           (formant-preserving; timings unchanged)
+        +-- 1. Edge trim            engine lead-in/tail silence
+        |                           MUST run first: later stages insert silence
+        |                           the trimmer cannot distinguish from padding
         |
-        +-- 2. Time stretch         if rate is outside the engine's good range
-        |                           (WSOLA; timings scaled by the stretch factor)
+        +-- 2. Time stretch         residual rate the engine did not apply
+        |                           (stub today; WSOLA in Phase 3)
         |
         +-- 3. Word gap injection   insert N ms of silence at every word boundary
         |                           MUST run after (2), or the gaps get stretched too
         |
-        +-- 4. Punctuation pauses   comma / clause / sentence / paragraph / heading
+        +-- 4. Punctuation pauses   comma / clause / colon / dash
         |
-        +-- 5. Loudness normalise   target LUFS, so switching voices never blasts the user
+        +-- 5. Sentence pause       trailing silence on this buffer
+        |                           (scheduler owns inter-sentence gaps in the
+        |                            full product; the spike/v0 path bakes them in)
         |
-        +-- 6. Fades and trim       trim leading/trailing silence, 5 ms edge fades
+        +-- 6. Gain                 volume, trim-dB, loudness, limiter
         |
-        +--> ring buffer -> miniaudio output
+        +--> file / ring buffer -> platform player (miniaudio later)
 ```
 
 Every stage returns a **timing remap function** alongside its output buffer. The
-scheduler composes them so the final word timings — the ones highlighting uses — refer
+pipeline composes them so the final word timings — the ones highlighting uses — refer
 to the *post-processed* audio, not the raw synth output. Forgetting this is the single
 most likely source of "highlighting drifts after I change the speed" bugs.
 
@@ -249,6 +261,14 @@ lib/
 native/
   dsp/                  C++ pitch/stretch/gap, built for android-arm64/x86_64,
                         win-x64/arm64
+```
+
+The actual layout today is packages, not a single `lib/` tree:
+
+```
+packages/tomevoice_audio/      Contract B pipeline (pure Dart)
+packages/tomevoice_document/   Contract A + ingest (pure Dart)
+app/                           Flutter UI + Android overlay
 ```
 
 The dependency rule is one-directional: `ui -> domain <- data`, and `engine` depends

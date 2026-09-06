@@ -26,7 +26,9 @@ manifest `<queries>` present, SDK levels patched — and fails the build if not.
 
 | Path | Purpose |
 |---|---|
-| `app/src/main/kotlin/app/tomevoice/tomevoice_spike/MainActivity.kt` | The TTS adapter. Overwrites the generated stub at the same path. |
+| `app/src/main/kotlin/.../MainActivity.kt` | TTS adapter (engine reused across sentences), play-wait, SAF picker. |
+| `app/src/main/res/mipmap-*` and `mipmap-anydpi-v26/` | Launcher icon (adaptive + legacy). |
+| `app/src/main/res/drawable/ic_launcher_foreground.png` | Adaptive-icon foreground. |
 
 ## What `prepare_android.py` adds
 

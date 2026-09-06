@@ -159,24 +159,22 @@ class Capsule extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final r = radius ?? Skin.capsuleRadius;
+    final body = Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        borderRadius: r,
+        border: border ? Border.all(color: Skin.capsuleEdge, width: 1) : null,
+      ),
+      child: child,
+    );
     return Material(
       color: color ?? Skin.capsuleOn(context),
       borderRadius: r,
       clipBehavior: Clip.antiAlias,
       elevation: 0,
-      child: InkWell(
-        onTap: onTap,
-        child: Container(
-          padding: padding,
-          decoration: BoxDecoration(
-            borderRadius: r,
-            border: border
-                ? Border.all(color: Skin.capsuleEdge, width: 1)
-                : null,
-          ),
-          child: child,
-        ),
-      ),
+      // Only wrap a well when this capsule is itself a target. Nested InkWells
+      // (play inside the bottom bar, Remove inside a row) steal or swallow taps.
+      child: onTap == null ? body : InkWell(onTap: onTap, child: body),
     );
   }
 }

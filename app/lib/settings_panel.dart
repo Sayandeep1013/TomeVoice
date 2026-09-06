@@ -433,7 +433,16 @@ class SettingsPanel extends StatelessWidget {
             Switch(
               value: value,
               onChanged: onChanged,
-              activeThumbColor: Skin.amber,
+              thumbColor: WidgetStateProperty.resolveWith(
+                (states) => states.contains(WidgetState.selected)
+                    ? Skin.amber
+                    : onDark.withValues(alpha: 0.7),
+              ),
+              trackColor: WidgetStateProperty.resolveWith(
+                (states) => states.contains(WidgetState.selected)
+                    ? Skin.amber.withValues(alpha: 0.45)
+                    : onDark.withValues(alpha: 0.18),
+              ),
             ),
           ],
         ),
@@ -490,31 +499,44 @@ class SettingsPanel extends StatelessWidget {
     required T? value,
     required List<({T value, String label})> items,
     required ValueChanged<T?> onChanged,
-  }) =>
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: DropdownButtonHideUnderline(
-          child: DropdownButton<T>(
-            value: value,
-            isExpanded: true,
-            dropdownColor: Skin.darkSoft,
-            iconEnabledColor: onDark.withValues(alpha: 0.6),
-            style: Skin.label(context, color: onDark),
-            items: [
-              for (final i in items)
-                DropdownMenuItem<T>(
-                  value: i.value,
-                  child: Text(i.label, overflow: TextOverflow.ellipsis),
-                ),
-            ],
-            onChanged: onChanged,
-          ),
-        ),
+  }) {
+    if (items.isEmpty) {
+      return Text(
+        'None yet',
+        style: Skin.label(context, color: onDark.withValues(alpha: 0.5)),
       );
+    }
+    final seen = <T>{};
+    final unique = [
+      for (final i in items)
+        if (seen.add(i.value)) i,
+    ];
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<T>(
+          value: unique.any((i) => i.value == value) ? value : null,
+          isExpanded: true,
+          hint: Text('—', style: Skin.label(context, color: onDark)),
+          dropdownColor: Skin.darkSoft,
+          iconEnabledColor: onDark.withValues(alpha: 0.6),
+          style: Skin.label(context, color: onDark),
+          items: [
+            for (final i in unique)
+              DropdownMenuItem<T>(
+                value: i.value,
+                child: Text(i.label, overflow: TextOverflow.ellipsis),
+              ),
+          ],
+          onChanged: onChanged,
+        ),
+      ),
+    );
+  }
 }
 
 enum PanelSection { voice, speech }

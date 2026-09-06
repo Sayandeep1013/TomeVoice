@@ -1,8 +1,7 @@
 name: tomevoice_spike
 description: >-
-  Audio-engine spike for TomeVoice. One screen, deliberately unstyled: prove
-  that word timings can be captured from a real TTS engine and that word-gap
-  injection lands where it claims to. See docs/15-spike-audio-engine.md.
+  TomeVoice reader. Opens EPUB, TXT and Markdown, and reads them aloud with
+  the owned audio pipeline. See docs/16-session-handoff.md.
 publish_to: none
 version: 0.1.0
 
@@ -14,6 +13,8 @@ dependencies:
     sdk: flutter
   tomevoice_audio:
     path: ../packages/tomevoice_audio
+  tomevoice_document:
+    path: ../packages/tomevoice_document
 
 dev_dependencies:
   flutter_test:
@@ -25,6 +26,7 @@ flutter:
 
   assets:
     - assets/fonts/
+    - assets/brand/logo.png
 
   # Bundled, not fetched at runtime: the app is offline-first, and a reading
   # app whose type disappears without a network is not offline-first.

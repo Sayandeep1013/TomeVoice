@@ -38,21 +38,46 @@ Project skeleton, CI, and the decisions that are expensive to change later.
 **Exit criteria.** Both platforms build in CI from a clean checkout. The alignment and
 size checks are live and can fail the build. The licence decision is recorded.
 
+The audio-engine spike ([15](15-spike-audio-engine.md)) retired the Phase 2 *discovery*
+risk on Android before Phase 1 existed: word-gap injection and `onRangeStart` capture
+are proven. Windows speech, Drift, and size/alignment gates are still open.
+
 ---
 
-## Phase 1 — EPUB reader, no speech
+## Phase 1a — Speakable document
+*Current slice. This is the product you can use.*
+
+The specimen UI already speaks. What was missing was a book. This phase wires Contract A
+into that UI so a file on disk becomes something you can hear.
+
+- Document Model as pure Dart (`packages/tomevoice_document`)
+- Ingest: EPUB 2/3 (text + roles + TOC), TXT, Markdown, HTML
+- Library: SAF import, copied into app storage, resume cursor
+- Sentence-by-sentence playback with one-sentence lookahead
+- Section next/prev; word highlighting on the current sentence
+- DRM-encrypted EPUBs refused with a clear message
+
+**Not in this slice.** WebView pagination, EPUB CFI-accurate highlighting in the
+rendered HTML, cover art, search, Drift, Windows.
+
+**Exit criteria.** Open a real EPUB from the device, play from a mid-chapter sentence,
+change word-gap, and hear the new setting at the next sentence. Position survives
+leaving the reader and coming back.
+
+---
+
+## Phase 1b — Visual EPUB reader
 *Target: 4 weeks*
 
-A genuinely good silent reader. If this is not pleasant to use, no amount of TTS saves
-it.
+A genuinely good silent reader on top of the model Phase 1a already builds. If this is
+not pleasant to use, no amount of TTS saves it.
 
-- EPUB parsing: container, OPF, spine, NCX/nav, metadata, cover
-- Document Model construction with block roles and CFI anchors
 - WebView renderer with pagination, font/size/spacing/margin/theme controls
-- Library: import via SAF and Windows file picker, grid/list, collections, sorting
-- Navigation: TOC, progress, bookmarks, full-text search
-- Reading position persistence across reflow, rotation, restart
-- Sentence and word segmentation with the ICU-based tokeniser
+- Real EPUB CFI anchors that survive reflow (the 1a anchors are placeholders)
+- Library: collections, sorting, cover thumbnails
+- Navigation: TOC drawer, full-text search, bookmarks that land in the rendered view
+- Reading position persistence across reflow, rotation and restart
+- ICU-based sentence/word tokeniser replacing the English-first segmenter
 
 **Exit criteria.** Open 20 real-world EPUBs from varied sources without a crash or a
 layout failure. Reading position survives font-size change, rotation and app restart.
@@ -63,19 +88,18 @@ layout failure. Reading position survives font-size change, rotation and app res
 ## Phase 2 — Speech with system voices
 *Target: 5 weeks* — **the architectural proof**
 
-The whole speech architecture, using the engine that is easiest to get right.
+Android synthesis-to-PCM, word-gap, and a one-sentence lookahead already exist from the
+spike + Phase 1a. This phase finishes the *product* speech layer.
 
-- Android system TTS adapter: `synthesizeToFile` plus `onRangeStart` frame positions
+- ~~Android system TTS adapter: `synthesizeToFile` plus `onRangeStart`~~ **done (spike)**
 - Windows WinRT speech plugin (C++/WinRT): stream plus word-boundary markers
-- Audio pipeline: ring buffer, miniaudio output, **word-gap injection**, pause insertion,
-  loudness normalisation
-- Lookahead scheduler with cancellation
-- Word-synchronised highlighting with auto-scroll and the timing-offset calibration
-- Playback controls, per-book speed, presets
+- Audio output via miniaudio / ring buffer (today: MediaPlayer on a WAV file)
+- Adaptive lookahead depth and isolate-hosted synthesis
+- Word-synchronised highlighting with auto-scroll in the visual reader
 - Android foreground service, MediaSession, audio focus, `BECOMING_NOISY`
 - Windows SMTC, media keys, device-change handling
 - Text normalisation v1 and the pronunciation dictionary
-- Skip rules driven by block roles
+- Skip-rule UI driven by block roles
 
 **Exit criteria.** An 8-hour continuous background session on stock Android with the
 screen off, with no interruption and no position loss. Word gap audibly and measurably

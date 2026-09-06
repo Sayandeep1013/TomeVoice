@@ -1,0 +1,8 @@
+appId: app.tomevoice.tomevoice_spike
+---
+- launchApp:
+    clearState: false
+- assertVisible: "TOMEVOICE"
+- assertVisible: "LIBRARY"
+- assertVisible: "Specimen"
+- assertVisible: "IMPORT A FILE"

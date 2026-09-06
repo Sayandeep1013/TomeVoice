@@ -28,6 +28,11 @@ but each file stands alone.
 | 15 | [Spike Spec: Audio Engine](15-spike-audio-engine.md) | The first build — what we are proving, and how we measure it |
 | 16 | [Session Handoff](16-session-handoff.md) | **Start here if picking this up cold.** State, gotchas, how to run it, what to do next |
 
+The spike (audio pipeline on device) is done. The current product slice is a
+**speakable document**: import EPUB/TXT/Markdown and listen with the proven engine.
+Visual EPUB pagination (WebView) and PDF are still ahead on the
+[roadmap](12-roadmap-and-milestones.md).
+
 ## The one-paragraph summary
 
 The idea is sound and buildable. There is no blocker that kills the project. There are
@@ -78,4 +83,5 @@ Treat any claim not listed in that log as unverified.
 | Framework | Flutter; Android primary, Windows second ([ADR-001](10-decisions-adr.md#adr-001)) |
 | Toolchain | Dart SDK locally, APKs built in CI ([ADR-016](10-decisions-adr.md#adr-016)) |
 | Visual direction | The "specimen" aesthetic ([ADR-017](10-decisions-adr.md#adr-017)) |
-| First build | The audio-engine spike ([15](15-spike-audio-engine.md)) |
+| Current slice | Speakable documents: EPUB/TXT/Markdown + sentence playback |
+| Proven | Audio-engine spike ([15](15-spike-audio-engine.md)) |

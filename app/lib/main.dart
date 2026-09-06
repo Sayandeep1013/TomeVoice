@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
+import 'brand.dart';
+import 'library_screen.dart';
 import 'reader_screen.dart';
 import 'speech_service.dart';
 import 'theme.dart';
@@ -11,7 +13,7 @@ void main() => runApp(const SpikeApp());
 
 /// Entry point.
 ///
-/// Two modes. Normally this is the reader. Launched with `--es batch true` it
+/// Two modes. Normally this is the library. Launched with `--es batch true` it
 /// runs the measurement sweep instead, so a device run is one adb command
 /// rather than a person tapping sliders into the same positions twice:
 ///
@@ -58,9 +60,18 @@ class _ModeGateState extends State<_ModeGate> {
 
   @override
   Widget build(BuildContext context) => switch (_batch) {
-        null => const Scaffold(body: SizedBox.shrink()),
         true => const BatchScreen(),
-        false => const ReaderScreen(),
+        false => const LibraryScreen(),
+        // Same chrome as the library so launchArgs does not flash a blank
+        // scaffold and then a different product.
+        null => Scaffold(
+            body: Container(
+              decoration: BoxDecoration(gradient: Skin.ground(context)),
+              child: const SafeArea(
+                child: Center(child: BrandLockup()),
+              ),
+            ),
+          ),
       };
 }
 

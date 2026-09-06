@@ -1,74 +1,66 @@
 # 16 — Session Handoff
 
-**As of 2026-09-02.** Everything needed to pick this up cold.
+**As of 2026-09-06.** Everything needed to pick this up cold.
 
 ---
 
 ## 1. Where the project is
 
-The **audio-engine spike is complete and proven on a real device**, and the reading UI
-has been built to the supplied visual reference. There is no reader yet — no EPUB, no
-PDF, no library. That is deliberate: the spike existed to prove the architecture before
-building on it, and it did.
+The **audio-engine spike is complete and proven on a real device.** Phase 1a — a
+speakable document — is in the tree: import EPUB/TXT/Markdown, listen sentence by
+sentence, keep your place. There is still no visual EPUB renderer (no WebView
+pagination), no PDF, no neural voices, no Windows build.
 
 | Layer | State |
 |---|---|
-| Pure-Dart audio pipeline | **Done.** 64 tests, analyzer clean |
-| Android TTS adapter | **Done.** Word timings captured and verified on device |
+| Pure-Dart audio pipeline | **Done.** Analyzer clean, tests green |
+| Android TTS adapter | **Done.** Word timings captured and verified on device. Engine is now *reused* across sentences. |
+| Document Model + ingest | **Done for EPUB/TXT/MD/HTML.** `packages/tomevoice_document` |
+| Library + SAF import | **Done.** Copied into app storage; encrypted EPUBs refused |
+| Sentence scheduler | **Done, depth 1.** Lookahead of one sentence; flush on control change |
+| Reading UI (specimen design) | **Done.** Speaks the current sentence of a real book |
 | Offline verifier + fixtures | **Done.** Runs in CI |
-| Reading UI (specimen design) | **Done.** Renders on device |
-| Settings surface | **Done.** Every control drives real DSP |
-| CI (Dart + APK) | **Green** |
-| Document pipeline (EPUB/PDF/DOCX) | **Not started** — this is Phase 1 |
+| CI (Dart + APK) | Dart core covers *audio + document*. APK job unchanged |
+| Visual EPUB (WebView, CFI, pagination) | **Not started** — Phase 1b |
 | Neural voices (Piper/Kokoro) | **Not started** — Phase 3 |
 | Windows | **Not started** |
+| Background playback / MediaSession | **Not started** — still dies with the activity |
 
-Last commit on `main`: `0dd9931`.
+Install from CI as before, open **Library**, tap **Specimen** to hear the pangram, or
+**Import a file** and pick an EPUB / `.txt` / `.md`. The in-app mark and Android
+launcher icon live at `app/assets/brand/logo.png` and
+`app/android_overlay/.../res/` (adaptive + mipmap). Chrome is one language on
+library and reader: gradient, capsules, Space Mono instrumentation, Ojuju only
+for the sentence being read. Chevrons are sentence, not section. Paragraph
+pause is applied by the scheduler between blocks.
 
 ---
 
-## 2. What was proven
+## 2. What was proven (spike, unchanged)
 
-**R1 is answered.** Google TTS on Android 16 supplies **per-word** `onRangeStart` with
-frame positions — 17 events for a 17-word utterance. This is the best case in the
-pre-registered table ([§15.14](15-spike-audio-engine.md#1514-pre-registered-decisions)).
-
-All five measurement criteria pass on real device audio
-([§15.18](15-spike-audio-engine.md#1518-device-run-2-on-2026-09-02-all-criteria-met)):
-
-| | Result |
-|---|---|
-| Gap inserted exactly | 46,080 frames for 120 ms, 96,000 for 250 ms |
-| Gap present in audio | 120 ms measures 115–125 ms per boundary |
-| **Gap survives speed** | **At 2.0× still 115–125 ms, not 60** |
-| No splice artefacts | Edges 0.0507 vs 0.2555 baseline — smoother than the speech |
-| Timings match audio | Ordered, in range, every gap on a word boundary |
-
-The third row is the one that matters: it is the property that justified
-[ADR-003](10-decisions-adr.md#adr-003) and the whole synthesise-to-PCM architecture.
+**R1 is answered** for Google TTS on the test device. See the previous handoff notes
+and [§15.18](15-spike-audio-engine.md#1518-device-run-2-on-2026-09-02-all-criteria-met).
+Cross-engine R1 (eSpeak etc.) is still unmeasured.
 
 ---
 
 ## 3. Four findings that will save the next person days
 
-**1. `onRangeStart` parameters are not in the documented order.** The platform documents
-`(utteranceId, start, end, frame)`. Google TTS delivers **`(frame, charStart, charEnd)`**,
-matching the engine-side `SynthesisCallback#rangeStart(markerInFrames, start, end)` it
-forwards from. The code *detects* the layout rather than assuming either
+**1. `onRangeStart` parameters are not in the documented order.** Detect the layout
 (`SpeechService.decodeTimings`). Do not "simplify" that away.
 
-**2. Google TTS hides its sentence pause inside a word's range.** It reports the next
-range only after the pause, so `'dog'` spans 880 ms for one syllable. Anything reasoning
-about silence must not assume every gap is one it created — hence `measure.dart
---baseline`.
+**2. Google TTS hides its sentence pause inside a word's range.** Do not assume every
+gap in the audio is one we created.
 
-**3. Stage order is load-bearing, twice over.** Edge-trim must run *first* (it cannot
-distinguish inserted silence from engine padding) and word-gap must run *after* time
-stretch (or a 120 ms gap becomes 60 ms at 2×). `ordering_test.dart` encodes both bugs as
-well as both fixes.
+**3. Stage order is load-bearing.** Edge-trim first; word-gap after stretch.
+`ordering_test.dart` encodes both bugs. Architecture §2.6 now matches this; do not
+restore the earlier pitch→stretch→trim sketch.
 
-**4. A green test suite proved nothing about listenability.** S1–S5 all passed on output
-that was unusable. See §6.
+**4. A green test suite proved nothing about listenability.** Listen before claiming
+success.
+
+**5. (new) Re-init of `TextToSpeech` per sentence is unusable.** The adapter now keeps
+the engine warm. Do not put `tts?.shutdown()` back at the start of `synthesise`.
 
 ---
 
@@ -77,14 +69,9 @@ that was unusable. See §6.
 There is **no local Flutter or Gradle** by design ([ADR-016](10-decisions-adr.md#adr-016)).
 
 ```bash
-# Dart SDK is at (winget install path):
-#   %LOCALAPPDATA%\Microsoft\WinGet\Packages\Google.DartSDK_.../dart-sdk/bin
-# A new terminal picks it up from PATH automatically.
-
-# The part that matters day to day — milliseconds, no Gradle:
 cd packages/tomevoice_audio && dart pub get && dart analyze --fatal-infos && dart test
+cd packages/tomevoice_document && dart pub get && dart analyze --fatal-infos && dart test
 
-# The verifier, and a synthetic run to exercise it without a device:
 cd tools && dart pub get
 dart run bin/make_fixture.dart /tmp/fx 120 1.0
 dart run bin/measure.dart /tmp/fx
@@ -98,104 +85,54 @@ adb uninstall app.tomevoice.tomevoice_spike   # required: CI mints a new debug k
 adb install app-debug.apk
 ```
 
-**Measurement sweep** (five configurations, exported for offline checking):
-
-```bash
-adb shell am start -n app.tomevoice.tomevoice_spike/.MainActivity --es batch true
-# wait for BATCH-COMPLETE.txt, then:
-adb pull /sdcard/Android/data/app.tomevoice.tomevoice_spike/files/ ./spike-runs/
-cd tools
-dart run bin/measure.dart ../spike-runs/files/tomevoice-spike-tts-gap120-dsp1_0 \
-  --baseline ../spike-runs/files/tomevoice-spike-tts-gap0-dsp1_0
-```
-
-> **Git Bash gotcha:** `adb` paths get mangled into `D:/git/Git/sdcard/...`. Prefix with
-> `MSYS_NO_PATHCONV=1`. But **unset it before running `git`**, or Windows git cannot
-> resolve `/tmp/...` paths.
+Measurement sweep is unchanged (`--es batch true`).
 
 ---
 
 ## 5. Code map
 
 ```
-packages/tomevoice_audio/     PURE DART. No Flutter. Where the real work is.
+packages/tomevoice_audio/     PURE DART. Pipeline, timings remap, presets.
+packages/tomevoice_document/  PURE DART. Contract A + EPUB/TXT/MD/HTML ingest.
   lib/src/
-    types.dart                AudioBuffer, WordTiming, PipelineSettings
-    pipeline.dart             Stage interface + the frame-remap composition
-    stages/
-      edges.dart              trim engine lead-in            (runs 1st)
-      stretch_stub.dart       naive resampler — SEE §6       (runs 2nd)
-      word_gap.dart           THE feature                    (runs 3rd)
-      punctuation.dart        comma/clause/colon/dash/…      (runs 4th)
-      pauses.dart             sentence pause                 (runs 5th)
-      gain.dart               volume, trim, levelling, limit (runs 6th)
-    wav.dart                  RIFF read/write
-    analysis.dart             silence detection, discontinuity, RMS
-  lib/tomevoice_audio.dart    buildStandardPipeline() + the 7 presets
+    model.dart                Book → Section → Block → Sentence → Word
+    ingest.dart               ingestBytes / ingestString
+    formats/epub.dart         zip → OPF → spine → blocks
+    formats/text.dart         TXT / Markdown / HTML
+    segment.dart              English-first sentence splitter
+    build.dart                flattenSpeakable, skip roles, cursor
 
 app/                          FLUTTER. Only ever built in CI.
   lib/
-    main.dart                 entry; reader, or batch sweep via --es batch true
-    reader_screen.dart        the reading surface
-    settings_panel.dart       the right-edge pop-out
+    main.dart                 library, or batch sweep via --es batch true
+    brand.dart                logo mark + TOMEVOICE lockup
+    library_screen.dart       shelf + import
+    library_store.dart        JSON index, copied files (not Drift yet)
+    reader_screen.dart        specimen reading surface, one sentence at a time
+    scheduler.dart            sentence lookahead, flush on control change
+    settings_panel.dart       right-edge pop-out
     speech_service.dart       platform calls + onRangeStart layout detection
-    theme.dart                Skin: colours, type, Capsule, RoundButton
-  android_overlay/            our Kotlin, laid over CI-generated scaffolding
-  assets/fonts/               Ojuju + Space Mono, bundled (SIL OFL)
+    theme.dart                Skin
+  assets/brand/logo.png       in-app mark
+  android_overlay/            Kotlin: TTS (reused), play-wait, SAF picker, launcher icon
 
-tools/bin/
-  measure.dart                offline verifier (does NOT reuse the pipeline)
-  make_fixture.dart           synthetic runs, so the verifier is itself testable
-tools/prepare_android.py      patches the generated manifest + gradle
+tools/                        offline verifier, make_fixture, prepare_android.py
 ```
 
 ---
 
-## 6. Known problems — read before building on this
+## 6. Known problems — still true
 
-### The speed control has a placeholder in it
-
-`TimeStretchStubStage` is a **naive decimating resampler**. It shifts pitch with speed:
-median F0 goes 233 Hz at 1.0× to 436 Hz at 2.0×, an octave up.
-
-It is **not** what the user hears — speed goes through the engine's own rate control by
-default, measured at ratio 0.99 (pitch preserved). The stub survives only because S2
-needs it to prove stage ordering, and it is labelled *"pitch-shifts!"* in the UI.
-
-**Phase 3 replaces it with a real pitch-preserving stretcher.** GPL libraries are
-available to us under [ADR-014](10-decisions-adr.md#adr-014), so this is integration
-work, not research ([C-14](09-challenges-and-solutions.md#c-14)).
-
-### Pitch is engine-only
-
-`PipelineSettings.pitchSemitones` is passed to Android's `setPitch`. **Neural voices
-expose no pitch control at all**, so this control will do nothing for Piper or Kokoro
-until the DSP shifter lands. The UI should grey it out when a neural voice is selected —
-it does not yet.
-
-### Voice quality is mediocre and unresolved
-
-The user's verdict on the voices was *"aren't the best ones"*, and that is still open.
-Current selection is language-first, then offline, then quality — which fixed a genuinely
-bad bug (it was picking an **Arabic** voice for English text) but does not make Google
-TTS's offline voices good. Realistic options:
-
-1. Let network voices be chosen when the user opts in — they score materially higher.
-2. Ship Piper (Phase 3). This is the actual answer.
-3. Surface `Voice.getQuality()` in the picker so the choice is informed.
-
-### Cross-engine variation is unmeasured
-
-The test device registers exactly **one** TTS engine. R1's "does this hold across
-engines" half is unanswered. Installing eSpeak TTS from F-Droid and re-running the batch
-would settle it in minutes.
-
-### The lesson worth carrying forward
-
-**S1–S5 passed while the app was unusable.** They measured arithmetic and said nothing
-about whether a control was wired to the thing it names, whether the voice matched the
-text, or whether the result was pleasant to hear. Four defects hid behind green checks —
-detailed in [§15.20](15-spike-audio-engine.md#1520-s6-causes-in-full-2026-09-02).
+- `TimeStretchStubStage` pitch-shifts. Speed defaults to the engine. Phase 3 replaces it.
+- Pitch is engine-only. Grey it out for neural voices when those exist.
+- Google TTS offline voices are mediocre. Piper is the actual answer (Phase 3).
+- Cross-engine R1 is unmeasured.
+- Playback is in-process MediaPlayer. The app will not keep reading with the screen off
+  or after swipe-away. That is Phase 2 foreground-service work, not a regression.
+- EPUB CFI strings are placeholders (`epubcfi(/6/...)`), not spec-accurate. Good enough
+  to address a block; not good enough to survive a WebView reflow.
+- Sentence segmentation is English-first, not ICU.
+- Library persistence is JSON, not Drift.
 
 **Listen before claiming success.** Not after.
 
@@ -203,61 +140,41 @@ detailed in [§15.20](15-spike-audio-engine.md#1520-s6-causes-in-full-2026-09-02
 
 ## 7. Decisions already locked
 
-| | |
-|---|---|
-| Licence | **GPL-3.0**, public repo ([ADR-014](10-decisions-adr.md#adr-014)) — this unlocked eSpeak-NG, the Piper engine, and GPL DSP libraries in one move |
-| Framework | Flutter; **Android primary**, Windows second |
-| Toolchain | Dart SDK local, APKs in CI ([ADR-016](10-decisions-adr.md#adr-016)) |
-| Architecture | Synthesise to PCM, never `speak()` ([ADR-003](10-decisions-adr.md#adr-003)) |
-| Visual direction | The specimen aesthetic ([ADR-017](10-decisions-adr.md#adr-017)) |
-| DRM | Out of scope, permanently ([ADR-010](10-decisions-adr.md#adr-010)) |
-
-**Still open:** which fonts beyond Ojuju/Space Mono, and the per-voice Piper licence audit
-(the only item from [§6.6](06-voice-catalog-and-licensing.md#66-licence-audit-table) that
-survived the GPL-3.0 decision unchanged).
+Unchanged: GPL-3.0, Flutter, Android primary, Dart locally / APKs in CI, synthesise-to-PCM,
+specimen visual, DRM out of scope.
 
 ---
 
 ## 8. What to do next
 
-In order. The first is small and closes a real gap; the second is the actual product.
+In order.
 
-**A. Settle cross-engine R1** *(~30 minutes)*
-Install a second TTS engine, re-run the batch, record the result as Pass 3 in
-[14](14-verification-log.md). Cheap, and it either confirms or complicates a decision
-already made.
+**A. Use the APK.** Import a real EPUB you own. Listen through a chapter. That is the
+acceptance test for 1a. If synthesis stalls, or a book parses empty, that is the bug.
 
-**B. Phase 1 — the EPUB reader** *(~4 weeks,
-[roadmap](12-roadmap-and-milestones.md))*
-This is the real next step. The spike proved the speech half; the reader half is
-well-understood work. Build the Document Model
-([§2.4](02-architecture.md#24-contract-a-the-document-model)) and the EPUB parser
-([§3.2](03-document-pipeline.md#32-epub)) first — the UI already exists and expects
-sentences.
+**B. Phase 1b — the visual EPUB reader**
+WebView, pagination, real CFIs, search. The Document Model is already there; do not
+re-parse.
 
-**C. Sentence-by-sentence playback**
-The spike speaks one blob of text. The real scheduler
-([§2.7](02-architecture.md#27-the-lookahead-scheduler)) synthesises ahead by sentence
-so playback never waits. Needed before any document longer than a paragraph.
+**C. Phase 2 remainder — stay-alive speech**
+Foreground service, MediaSession, lock-screen controls. Without this it is a
+foreground toy.
 
 **D. Phase 3 — neural voices, and a real stretcher**
-Piper first (small, fast), Kokoro device-gated. This is also where the speed stub gets
-replaced and where voice quality finally gets fixed.
+Piper first. Replace the speed stub.
 
 ### Do not do these
 
-- Do not start with Kokoro because it is the exciting part. It is worthless without the
-  document pipeline and scheduler underneath it.
-- Do not "clean up" the `onRangeStart` layout detection into the documented order.
-- Do not reorder the pipeline stages without reading `ordering_test.dart` first.
+- Do not start with Kokoro.
+- Do not "clean up" the `onRangeStart` layout detection.
+- Do not reorder the pipeline stages without reading `ordering_test.dart`.
+- Do not shut down `TextToSpeech` at the start of every `synthesise` call.
+- Do not build a silent WebView reader that throws away the scheduler.
 
 ---
 
-## 9. Loose ends from this session
+## 9. Loose ends
 
-- **The test phone was left in light mode.** I ran `adb shell cmd uimode night no` to
-  photograph the light theme and the device disconnected before I could restore it.
-  Restore with `adb shell cmd uimode night yes`, or Settings → Display → Dark theme.
-- `spike-runs/` and `dist/` are gitignored working directories; delete freely.
-- The `spike/audio-engine` branch is pushed and identical to `main` up to `e74b6e7`; it
-  can be deleted.
+- Cross-engine R1 (install eSpeak from F-Droid, re-run the batch) is still cheap and undone.
+- `spike-runs/` and `dist/` are gitignored; delete freely.
+- The `spike/audio-engine` branch can still be deleted if it exists remotely.

@@ -19,16 +19,28 @@ jobs:
         with:
           sdk: stable
 
-      - name: Resolve dependencies
+      - name: Resolve audio
         working-directory: packages/tomevoice_audio
         run: dart pub get
 
-      - name: Analyze
+      - name: Analyze audio
         working-directory: packages/tomevoice_audio
         run: dart analyze --fatal-infos
 
-      - name: Test
+      - name: Test audio
         working-directory: packages/tomevoice_audio
+        run: dart test --reporter expanded
+
+      - name: Resolve document
+        working-directory: packages/tomevoice_document
+        run: dart pub get
+
+      - name: Analyze document
+        working-directory: packages/tomevoice_document
+        run: dart analyze --fatal-infos
+
+      - name: Test document
+        working-directory: packages/tomevoice_document
         run: dart test --reporter expanded
 
       - name: Resolve tools
@@ -114,6 +126,10 @@ jobs:
           grep -q "tomevoice/tts" android/app/src/main/kotlin/app/tomevoice/tomevoice_spike/MainActivity.kt
           echo "--- manifest queries ---"
           grep -q "TTS_SERVICE" android/app/src/main/AndroidManifest.xml
+          echo "--- launcher icon ---"
+          test -f android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+          test -f android/app/src/main/res/drawable/ic_launcher_foreground.png
+          grep -q "ic_launcher_background" android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
           echo "--- sdk levels ---"
           grep -E "minSdk|targetSdk" android/app/build.gradle.kts || \
             grep -E "minSdk|targetSdk" android/app/build.gradle

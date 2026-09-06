@@ -1,10 +1,14 @@
 package app.tomevoice.tomevoice_spike
 
+import android.app.Activity
+import android.content.Intent
 import android.media.MediaPlayer
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.OpenableColumns
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import io.flutter.embedding.android.FlutterActivity
@@ -32,7 +36,14 @@ class MainActivity : FlutterActivity() {
     private val main = Handler(Looper.getMainLooper())
 
     private var tts: TextToSpeech? = null
+    private var ttsEngineId: String? = null
     private var player: MediaPlayer? = null
+    private var pickResult: MethodChannel.Result? = null
+    private var playWaitResult: MethodChannel.Result? = null
+
+    companion object {
+        private const val REQ_PICK = 71
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -43,7 +54,13 @@ class MainActivity : FlutterActivity() {
                     "listEngines" -> listEngines(result)
                     "listVoices" -> listVoices(call.argument<String>("engineId"), result)
                     "synthesise" -> synthesise(call.arguments as Map<*, *>, result)
-                    "play" -> play(call.argument<String>("path"), result)
+                    "play" -> play(
+                        call.argument<String>("path"),
+                        call.argument<Boolean>("wait") ?: false,
+                        result
+                    )
+                    "stop" -> stopPlayback(result)
+                    "pickDocument" -> pickDocument(result)
                     "outputDir" -> result.success(outputDir().absolutePath)
                     "launchArgs" -> result.success(launchArgs())
                     else -> result.notImplemented()
@@ -153,40 +170,17 @@ class MainActivity : FlutterActivity() {
             return
         }
 
-        tts?.shutdown()
-        tts = null
-
         val replied = AtomicBoolean(false)
         fun reply(block: () -> Unit) {
             if (replied.compareAndSet(false, true)) main.post(block)
         }
 
-        // Callbacks arrive off the main thread, so this is written from a
-        // synthesis thread and read from the main one.
         val events = CopyOnWriteArrayList<Map<String, Int>>()
-        val utteranceId = "spike-" + System.currentTimeMillis()
+        val utteranceId = "tv-" + System.currentTimeMillis()
         val outFile = File(outputDir(), "$utteranceId.wav")
 
-        // The engine reference has to be reachable from inside its own init
-        // callback. A plain local would not be assigned yet, so it goes in a
-        // holder that the lambda closes over.
-        val holder = arrayOfNulls<TextToSpeech>(1)
-
-        holder[0] = TextToSpeech(applicationContext, { status ->
-            val engine = holder[0]
-            if (status != TextToSpeech.SUCCESS || engine == null) {
-                reply {
-                    result.error("TTS_INIT", "Engine init failed: $status", null)
-                }
-                return@TextToSpeech
-            }
-
+        fun speakWith(engine: TextToSpeech) {
             try {
-                // Do NOT force Locale.US. On a device without en-US voice data
-                // installed, forcing it selects a low-quality embedded fallback
-                // - which is what made the first listening test sound robotic.
-                // Prefer an explicitly chosen voice, else the engine's own
-                // default, which is the one the user has actually installed.
                 val wanted = args["voiceName"] as? String
                 if (!wanted.isNullOrBlank()) {
                     engine.voices?.firstOrNull { it.name == wanted }?.let {
@@ -235,9 +229,6 @@ class MainActivity : FlutterActivity() {
                     }
                 )
 
-                // No SSML. With SSML the start/end indices refer to the SSML
-                // string rather than the plain text, which would corrupt the
-                // character mapping we depend on (docs/04 section 4.3).
                 val code = engine.synthesizeToFile(text, Bundle(), outFile, utteranceId)
                 if (code != TextToSpeech.SUCCESS) {
                     reply {
@@ -247,32 +238,151 @@ class MainActivity : FlutterActivity() {
             } catch (e: Exception) {
                 reply { result.error("TTS_EXCEPTION", e.message, null) }
             }
+        }
+
+        val warm = tts
+        if (warm != null && ttsEngineId == engineId) {
+            speakWith(warm)
+            main.postDelayed({
+                reply { result.error("TTS_TIMEOUT", "No callback within 30s", null) }
+            }, 30_000)
+            return
+        }
+
+        tts?.shutdown()
+        tts = null
+        ttsEngineId = engineId
+
+        val holder = arrayOfNulls<TextToSpeech>(1)
+        holder[0] = TextToSpeech(applicationContext, { status ->
+            val engine = holder[0]
+            if (status != TextToSpeech.SUCCESS || engine == null) {
+                reply {
+                    result.error("TTS_INIT", "Engine init failed: $status", null)
+                }
+                return@TextToSpeech
+            }
+            tts = engine
+            speakWith(engine)
         }, engineId)
 
         tts = holder[0]
 
-        // An engine that never calls back would otherwise hang the UI silently.
         main.postDelayed({
             reply { result.error("TTS_TIMEOUT", "No callback within 30s", null) }
         }, 30_000)
     }
 
-    private fun play(path: String?, result: MethodChannel.Result) {
+    private fun play(path: String?, wait: Boolean, result: MethodChannel.Result) {
         if (path.isNullOrBlank() || !File(path).exists()) {
             result.error("NO_FILE", "No such file: $path", null)
             return
         }
         try {
+            playWaitResult?.success(null)
+            playWaitResult = null
             player?.release()
             player = MediaPlayer().apply {
                 setDataSource(path)
                 prepare()
+                if (wait) {
+                    playWaitResult = result
+                    setOnCompletionListener {
+                        val pending = playWaitResult
+                        playWaitResult = null
+                        pending?.success(null)
+                    }
+                    setOnErrorListener { _, _, extra ->
+                        val pending = playWaitResult
+                        playWaitResult = null
+                        pending?.error("PLAYBACK", "MediaPlayer error $extra", null)
+                        true
+                    }
+                }
                 start()
             }
-            result.success(null)
+            if (!wait) result.success(null)
         } catch (e: Exception) {
             result.error("PLAYBACK", e.message, null)
         }
+    }
+
+    private fun stopPlayback(result: MethodChannel.Result) {
+        try {
+            player?.stop()
+        } catch (_: Exception) {
+        }
+        player?.release()
+        player = null
+        playWaitResult?.success(null)
+        playWaitResult = null
+        result.success(null)
+    }
+
+    private fun pickDocument(result: MethodChannel.Result) {
+        pickResult = result
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            putExtra(
+                Intent.EXTRA_MIME_TYPES,
+                arrayOf(
+                    "application/epub+zip",
+                    "text/plain",
+                    "text/markdown",
+                    "text/html",
+                    "application/xhtml+xml",
+                    "application/octet-stream"
+                )
+            )
+        }
+        startActivityForResult(intent, REQ_PICK)
+    }
+
+    @Deprecated("startActivityForResult is what FlutterActivity still exposes")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_PICK) return
+        val reply = pickResult
+        pickResult = null
+        if (reply == null) return
+        if (resultCode != Activity.RESULT_OK || data?.data == null) {
+            reply.success(null)
+            return
+        }
+        try {
+            val uri = data.data!!
+            val name = queryDisplayName(uri) ?: "document"
+            val destDir = File(outputDir(), "incoming")
+            destDir.mkdirs()
+            val dest = File(destDir, name)
+            contentResolver.openInputStream(uri).use { input ->
+                requireNotNull(input) { "Could not open $uri" }
+                dest.outputStream().use { output -> input.copyTo(output) }
+            }
+            reply.success(
+                mapOf(
+                    "path" to dest.absolutePath,
+                    "name" to name,
+                    "mime" to (contentResolver.getType(uri) ?: "")
+                )
+            )
+        } catch (e: Exception) {
+            reply.error("PICK", e.message, null)
+        }
+    }
+
+    private fun queryDisplayName(uri: Uri): String? {
+        contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) return cursor.getString(0)
+        }
+        return uri.lastPathSegment
     }
 
     private fun buildReport(

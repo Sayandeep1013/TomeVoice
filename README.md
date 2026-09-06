@@ -21,26 +21,20 @@ on-device neural ones.
 
 ## Status
 
-**Design complete and fact-checked; first build starting.**
+**You can use it.** The audio-engine spike is proven on a real device. The app now
+opens EPUB, TXT and Markdown from the library and reads them aloud sentence by
+sentence, with the same word-gap / pause / speed controls.
 
-The full specification lives in [`docs/`](docs/). It was verified against primary sources
-on 2026-09-01 — two claims were wrong and were corrected, one of them load-bearing. The
-[Verification Log](docs/14-verification-log.md) records what was checked and what is still
-deliberately unverified.
+APKs still come from CI ([ADR-016](docs/10-decisions-adr.md#adr-016)): push, download
+`tomevoice-spike-apk`, `adb install`. There is no local Flutter install.
 
-The first thing being built is not the reader. It is the
-[audio-engine spike](docs/15-spike-audio-engine.md): proving that word-gap injection and
-word-timing capture actually work on a real Android device, because everything else
-depends on them.
+**Picking this up cold? Start at
+[16 — Session Handoff](docs/16-session-handoff.md).**
 
 ## Documentation
 
-**Picking this up cold? Start at
-[16 — Session Handoff](docs/16-session-handoff.md).** It has the current state, the
-gotchas that will otherwise cost you days, how to run everything, and what to do next.
-
-Otherwise start at [`docs/README.md`](docs/README.md). The two documents that matter most if you
-only read two:
+Start at [`docs/README.md`](docs/README.md) if you want the full spec. The two documents
+that matter most if you only read two:
 
 - [09 — Challenges & Solutions](docs/09-challenges-and-solutions.md) — every known
   blocker, its severity, and the chosen mitigation.
