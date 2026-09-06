@@ -57,6 +57,7 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   PlaybackScheduler? _scheduler;
   int _playEpoch = 0;
+  final _currentSentenceKey = GlobalKey();
 
   PanelSection? _openPanel;
   late final AnimationController _panel = AnimationController(
@@ -81,11 +82,13 @@ class _ReaderScreenState extends State<ReaderScreen>
         ? 0
         : indexOfCursor(_units, widget.initialCursor);
     _loadEngines();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToCurrent());
   }
 
   @override
   void dispose() {
     _playEpoch++;
+    unawaited(_persist());
     unawaited(_scheduler?.stop());
     _panel.dispose();
     super.dispose();
@@ -149,6 +152,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   Future<void> _togglePlay() async {
     if (_scheduler?.running == true) {
       await _scheduler?.stop();
+      unawaited(_persist());
       if (mounted) setState(() {});
       return;
     }
@@ -170,6 +174,7 @@ class _ReaderScreenState extends State<ReaderScreen>
           _timings = const [];
         });
         unawaited(_persist());
+        _scrollToCurrent();
       },
       onTimings: (t) {
         if (live()) setState(() => _timings = t);
@@ -198,32 +203,46 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   void _goUnit(int delta) {
     if (_units.isEmpty) return;
-    final next = (_unitIndex + delta).clamp(0, _units.length - 1);
-    if (next == _unitIndex) return;
-    setState(() {
-      _unitIndex = next;
-      _wordIndex = -1;
-      _timings = const [];
-    });
-    unawaited(_persist());
-    if (_scheduler?.running == true) {
-      unawaited(_restartFromHere());
-    }
+    _playFrom((_unitIndex + delta).clamp(0, _units.length - 1), autoplay: _scheduler?.running == true);
   }
 
   void _goSection(int sectionIndex) {
     if (_units.isEmpty) return;
     final i = _units.indexWhere((u) => u.sectionIndex == sectionIndex);
     if (i < 0) return;
+    _playFrom(i, autoplay: _scheduler?.running == true);
+  }
+
+  /// Jump to a sentence. Play starts here if [autoplay] is true, or if we
+  /// were already speaking — so a tap in the middle of a chapter is "from here".
+  void _playFrom(int index, {bool autoplay = true}) {
+    if (_units.isEmpty) return;
+    final next = index.clamp(0, _units.length - 1);
+    final playing = _scheduler?.running == true;
+    if (next == _unitIndex && !autoplay && !playing) return;
     setState(() {
-      _unitIndex = i;
+      _unitIndex = next;
       _wordIndex = -1;
       _timings = const [];
     });
     unawaited(_persist());
-    if (_scheduler?.running == true) {
+    _scrollToCurrent();
+    if (playing || autoplay) {
       unawaited(_restartFromHere());
     }
+  }
+
+  void _scrollToCurrent() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _currentSentenceKey.currentContext;
+      if (ctx == null) return;
+      Scrollable.ensureVisible(
+        ctx,
+        alignment: 0.28,
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+      );
+    });
   }
 
   void _openToc() {
@@ -317,8 +336,12 @@ class _ReaderScreenState extends State<ReaderScreen>
     final media = MediaQuery.of(context);
     final panelWidth = (media.size.width * 0.86).clamp(280.0, 420.0);
 
-    return Scaffold(
-      body: Container(
+    return PopScope(
+      onPopInvokedWithResult: (didPop, _) {
+        unawaited(_persist());
+      },
+      child: Scaffold(
+        body: Container(
         decoration: BoxDecoration(gradient: Skin.ground(context)),
         child: Stack(
           children: [
@@ -344,6 +367,7 @@ class _ReaderScreenState extends State<ReaderScreen>
           ],
         ),
       ),
+    ),
     );
   }
 
@@ -414,22 +438,49 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   Widget _stage(BuildContext context) {
-    final unit = _current;
-    final text = unit?.text ?? 'This file has no speakable text.';
-    final timings = _timings;
-
-    return Center(
-      child: LayoutBuilder(
-        builder: (context, box) {
-          final size = (box.maxHeight * 0.065).clamp(20.0, 28.0);
-          final style = Skin.display(context, size);
-          return SingleChildScrollView(
-            child: timings.isEmpty || _wordIndex < 0
-                ? Text(text, style: style)
-                : _highlighted(text, timings, _wordIndex, style),
-          );
-        },
-      ),
+    if (_units.isEmpty) {
+      return Center(
+        child: Text(
+          'This file has no speakable text.',
+          style: Skin.display(context, 22),
+        ),
+      );
+    }
+    final section = _current?.sectionIndex ?? 0;
+    final indices = [
+      for (var i = 0; i < _units.length; i++)
+        if (_units[i].sectionIndex == section) i,
+    ];
+    return ListView.builder(
+      padding: const EdgeInsets.only(top: 8, bottom: 24),
+      itemCount: indices.length,
+      itemBuilder: (context, k) {
+        final i = indices[k];
+        final unit = _units[i];
+        final current = i == _unitIndex;
+        final style = Skin.display(context, current ? 24 : 17).copyWith(
+          color: current ? Skin.inkOn(context) : Skin.inkFaintOn(context),
+          height: 1.42,
+        );
+        final body = current && _timings.isNotEmpty && _wordIndex >= 0
+            ? _highlighted(unit.text, _timings, _wordIndex, style)
+            : Text(unit.text, style: style);
+        final tile = Padding(
+          padding: const EdgeInsets.only(bottom: 18),
+          child: Semantics(
+            button: true,
+            label: current
+                ? 'Current sentence'
+                : 'Start reading from here',
+            child: GestureDetector(
+              onTap: () => _playFrom(i),
+              child: body,
+            ),
+          ),
+        );
+        if (!current) return tile;
+        return KeyedSubtree(key: _currentSentenceKey, child: tile);
+      },
     );
   }
 

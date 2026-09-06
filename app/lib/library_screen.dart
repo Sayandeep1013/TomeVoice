@@ -117,10 +117,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Future<void> _openSpecimen() async {
     final book = specimenBook();
+    final cursor = await _store?.cursorFor(book.id) ?? ReadingCursor.zero;
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => ReaderScreen(book: book, store: _store),
+        builder: (_) => ReaderScreen(
+          book: book,
+          store: _store,
+          initialCursor: cursor,
+        ),
       ),
     );
   }
@@ -176,7 +181,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 Text('TomeVoice', style: Skin.title(context, size: hero)),
                 const SizedBox(height: 8),
                 Text(
-                  'EPUB, TXT, MARKDOWN. LOCAL. YOURS.',
+                  'EPUB, TXT, MARKDOWN. PDF IS NEXT.',
                   style: Skin.meta(context),
                 ),
                 if (_status.isNotEmpty) ...[

@@ -132,6 +132,16 @@ void main() {
       expect(find.textContaining('2 /'), findsOneWidget);
     });
 
+    testWidgets('tapping a sentence starts from there', (tester) async {
+      await pumpReader(tester);
+      expect(find.textContaining('1 /'), findsOneWidget);
+
+      await tester.tap(find.textContaining('Pack my box'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('2 /'), findsOneWidget);
+    });
+
     testWidgets('starts on a preset rather than an arbitrary state',
         (tester) async {
       await pumpReader(tester);

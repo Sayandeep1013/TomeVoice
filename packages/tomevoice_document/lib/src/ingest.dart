@@ -28,7 +28,7 @@ Book ingestBytes(
       return parseText(bytes, id: bookId, filename: filename, kind: kind);
     case SourceKind.pdf:
       throw const UnsupportedDocumentException(
-        'PDF support is not in this build yet. Use EPUB, TXT, Markdown or HTML.',
+        'This file is a PDF. TomeVoice does not speak PDFs yet — that is the next phase. EPUB, TXT, Markdown and HTML work now.',
       );
     case SourceKind.docx:
       throw const UnsupportedDocumentException(

@@ -102,6 +102,15 @@ class LibraryStore {
   }
 
   Future<ReadingCursor> cursorFor(String id) async {
+    final file = File('${_booksDir.path}/$id/cursor.json');
+    if (await file.exists()) {
+      final raw = jsonDecode(await file.readAsString());
+      if (raw is Map) {
+        return ReadingCursor.fromJson(
+          Map<String, Object?>.from(raw['cursor'] as Map? ?? const {}),
+        );
+      }
+    }
     final entries = await list();
     for (final e in entries) {
       if (e.id == id) return e.cursor;
@@ -110,15 +119,24 @@ class LibraryStore {
   }
 
   Future<void> saveCursor(String id, ReadingCursor cursor, double progress) async {
+    await ensure();
+    final dir = Directory('${_booksDir.path}/$id');
+    await dir.create(recursive: true);
+    await File('${dir.path}/cursor.json').writeAsString(
+      jsonEncode({
+        'cursor': cursor.toJson(),
+        'progress': progress,
+      }),
+    );
     final entries = await list();
-    final next = [
+    if (entries.every((e) => e.id != id)) return;
+    await _write([
       for (final e in entries)
         if (e.id == id)
           e.copyWith(cursor: cursor, progress: progress, openedAt: DateTime.now())
         else
           e,
-    ];
-    await _write(next);
+    ]);
   }
 
   Future<void> remove(String id) async {

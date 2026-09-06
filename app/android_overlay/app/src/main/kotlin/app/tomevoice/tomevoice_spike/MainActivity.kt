@@ -320,21 +320,17 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun pickDocument(result: MethodChannel.Result) {
+        if (pickResult != null) {
+            result.error("PICK_IN_PROGRESS", "A picker is already open", null)
+            return
+        }
         pickResult = result
+        // "*/*" with no EXTRA_MIME_TYPES. DocumentsUI hides .epub/.pdf when we
+        // whitelist types, because many managers label them zip, empty, or octet.
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "*/*"
-            putExtra(
-                Intent.EXTRA_MIME_TYPES,
-                arrayOf(
-                    "application/epub+zip",
-                    "text/plain",
-                    "text/markdown",
-                    "text/html",
-                    "application/xhtml+xml",
-                    "application/octet-stream"
-                )
-            )
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         startActivityForResult(intent, REQ_PICK)
     }
@@ -352,7 +348,8 @@ class MainActivity : FlutterActivity() {
         }
         try {
             val uri = data.data!!
-            val name = queryDisplayName(uri) ?: "document"
+            val name = (queryDisplayName(uri) ?: "document")
+                .replace(Regex("[\\\\/:*?\"<>|]"), "_")
             val destDir = File(outputDir(), "incoming")
             destDir.mkdirs()
             val dest = File(destDir, name)

@@ -79,6 +79,16 @@ void main() {
       expect(spoken.any((s) => s.text.contains('footnote')), isFalse);
     });
 
+    test('PDF is refused with a clear next-phase message', () {
+      expect(
+        () => ingestBytes(
+          Uint8List.fromList(utf8.encode('%PDF-1.7')),
+          filename: 'paper.pdf',
+        ),
+        throwsA(isA<UnsupportedDocumentException>()),
+      );
+    });
+
     test('refuses encrypted books', () {
       expect(
         () => ingestBytes(minimalEpub(encrypted: true), filename: 'locked.epub'),
