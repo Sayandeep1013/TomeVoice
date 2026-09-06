@@ -115,21 +115,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
-  Future<void> _openSpecimen() async {
-    final book = specimenBook();
-    final cursor = await _store?.cursorFor(book.id) ?? ReadingCursor.zero;
-    if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => ReaderScreen(
-          book: book,
-          store: _store,
-          initialCursor: cursor,
-        ),
-      ),
-    );
-  }
-
   Future<void> _delete(LibraryEntry e) async {
     final onDark = Skin.onDark(context);
     final confirmed = await showDialog<bool>(
@@ -193,8 +178,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 Expanded(
                   child: ListView(
                     children: [
-                      _specimenStage(context),
-                      const SizedBox(height: 22),
                       Text('YOUR BOOKS', style: Skin.meta(context, size: 11)),
                       const SizedBox(height: 10),
                       if (_entries.isEmpty)
@@ -243,61 +226,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ),
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// The original specimen surface, now the way into the reader: oversized
-  /// chrome around a readable pangram, tap anywhere to listen.
-  Widget _specimenStage(BuildContext context) {
-    return Material(
-      color: Skin.capsuleOn(context),
-      borderRadius: const BorderRadius.all(Radius.circular(28)),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: _openSpecimen,
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(20, 18, 16, 18),
-          decoration: BoxDecoration(
-            borderRadius: const BorderRadius.all(Radius.circular(28)),
-            border: Border.all(color: Skin.capsuleEdge),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('SPECIMEN · TAP TO LISTEN', style: Skin.meta(context)),
-              const SizedBox(height: 10),
-              Text('Specimen', style: Skin.title(context, size: 28)),
-              const SizedBox(height: 12),
-              Text(
-                'The quick brown fox jumps over the lazy dog.',
-                style: Skin.display(context, 22),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Text('PLAY',
-                      style: Skin.label(context, weight: FontWeight.w700)),
-                  const Spacer(),
-                  SizedBox(
-                    width: 44,
-                    height: 44,
-                    child: Material(
-                      color: Skin.darkOn(context),
-                      shape: const CircleBorder(),
-                      child: Icon(
-                        Icons.play_arrow_rounded,
-                        color: Skin.onDark(context),
-                        size: 22,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
           ),
         ),
       ),

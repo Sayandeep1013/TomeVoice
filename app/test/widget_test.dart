@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 import 'package:tomevoice_spike/brand.dart';
+import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/main.dart';
 import 'package:tomevoice_spike/reader_screen.dart';
 import 'package:tomevoice_spike/settings_panel.dart';
@@ -72,8 +73,13 @@ void main() {
   }
 
   Future<void> pumpReader(WidgetTester tester) async {
-    await pumpApp(tester);
-    await tester.tap(find.text('Specimen'));
+    tester.view.physicalSize = const Size(1100, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData(useMaterial3: true, brightness: Brightness.light),
+      home: ReaderScreen(book: specimenBook()),
+    ));
     await tester.pumpAndSettle();
   }
 
@@ -82,20 +88,10 @@ void main() {
       await pumpApp(tester);
       expect(find.byType(BrandMark), findsWidgets);
       expect(find.textContaining('TomeVoice'), findsWidgets);
-      expect(find.text('Specimen'), findsOneWidget);
-      expect(find.textContaining('quick brown fox'), findsWidgets);
+      expect(find.text('Specimen'), findsNothing);
       expect(find.text('IMPORT A FILE'), findsOneWidget);
       expect(find.text('YOUR BOOKS'), findsOneWidget);
       expect(find.text('IMPORTED BOOKS APPEAR HERE.'), findsOneWidget);
-
-      final bookTitle = tester.widget<Text>(find.text('Specimen'));
-      expect(bookTitle.style?.fontFamily, 'Ojuju',
-          reason: 'Ojuju is the title face, not the page');
-      final pangram = tester.widget<Text>(
-        find.textContaining('quick brown fox').first,
-      );
-      expect(pangram.style?.fontFamily, 'serif',
-          reason: 'the pangram on the shelf is book text, not a title');
     });
   });
 

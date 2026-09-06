@@ -51,6 +51,8 @@ class _ReaderScreenState extends State<ReaderScreen>
   late final PageController _pageController;
   bool _paging = false;
   bool _pageReady = false;
+  final _wordIndex = ValueNotifier<int>(-1);
+  Timer? _persistTimer;
 
   List<Map<String, String>> _engines = [];
   String? _engineId;
@@ -63,7 +65,6 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   String _status = '';
   List<WordTiming> _timings = const [];
-  int _wordIndex = -1;
 
   PlaybackScheduler? _scheduler;
   int _playEpoch = 0;
@@ -116,11 +117,20 @@ class _ReaderScreenState extends State<ReaderScreen>
   @override
   void dispose() {
     _playEpoch++;
+    _persistTimer?.cancel();
     unawaited(_persist());
     unawaited(_scheduler?.stop());
+    _wordIndex.dispose();
     _pageController.dispose();
     _panel.dispose();
     super.dispose();
+  }
+
+  void _schedulePersist() {
+    _persistTimer?.cancel();
+    _persistTimer = Timer(const Duration(seconds: 2), () {
+      unawaited(_persist());
+    });
   }
 
   Future<void> _persist() async {
@@ -197,12 +207,12 @@ class _ReaderScreenState extends State<ReaderScreen>
       speedViaEngineOf: () => _speedViaEngine,
       onUnit: (i, _) {
         if (!live()) return;
+        _wordIndex.value = -1;
         setState(() {
           _unitIndex = i;
-          _wordIndex = -1;
           _timings = const [];
         });
-        unawaited(_persist());
+        _schedulePersist();
         _syncPage();
         _scrollToCurrent();
       },
@@ -210,7 +220,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         if (live()) setState(() => _timings = t);
       },
       onWord: (w) {
-        if (live()) setState(() => _wordIndex = w);
+        if (live() && _wordIndex.value != w) _wordIndex.value = w;
       },
       onStatus: (s) {
         if (live()) setState(() => _status = s);
@@ -259,10 +269,10 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (next == _unitIndex && !autoplay && !playing) return;
     setState(() {
       _unitIndex = next;
-      _wordIndex = -1;
       _timings = const [];
     });
-    unawaited(_persist());
+    _wordIndex.value = -1;
+    _schedulePersist();
     _syncPage();
     _scrollToCurrent();
     if (playing || autoplay) {
@@ -276,7 +286,9 @@ class _ReaderScreenState extends State<ReaderScreen>
     if ((_pageController.page ?? page).round() == page) return;
     _paging = true;
     _pageController.jumpToPage(page);
-    _paging = false;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _paging = false;
+    });
   }
 
   void _onChapterPage(int page) {
@@ -552,6 +564,10 @@ class _ReaderScreenState extends State<ReaderScreen>
     return PageView.builder(
       controller: _pageController,
       onPageChanged: _onChapterPage,
+      allowImplicitScrolling: false,
+      physics: _scheduler?.running == true
+          ? const NeverScrollableScrollPhysics()
+          : const PageScrollPhysics(),
       itemCount: pages.length,
       itemBuilder: (context, page) => _chapterList(context, pages[page]),
     );
@@ -564,6 +580,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     ];
     return ListView.builder(
       padding: const EdgeInsets.only(top: 8, bottom: 24),
+      cacheExtent: 400,
       itemCount: indices.length,
       itemBuilder: (context, k) {
         final i = indices[k];
@@ -573,19 +590,26 @@ class _ReaderScreenState extends State<ReaderScreen>
           color: current ? Skin.inkOn(context) : Skin.inkFaintOn(context),
           height: 1.42,
         );
-        final body = current && _timings.isNotEmpty && _wordIndex >= 0
-            ? _highlighted(unit.text, _timings, _wordIndex, style)
+        final body = current && _timings.isNotEmpty
+            ? ValueListenableBuilder<int>(
+                valueListenable: _wordIndex,
+                builder: (context, word, _) => word >= 0
+                    ? _highlighted(unit.text, _timings, word, style)
+                    : Text(unit.text, style: style),
+              )
             : Text(unit.text, style: style);
-        final tile = Padding(
-          padding: const EdgeInsets.only(bottom: 18),
-          child: Semantics(
-            button: true,
-            label: current
-                ? 'Current sentence'
-                : 'Start reading from here',
-            child: GestureDetector(
-              onTap: () => _playFrom(i),
-              child: body,
+        final tile = RepaintBoundary(
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 18),
+            child: Semantics(
+              button: true,
+              label: current
+                  ? 'Current sentence'
+                  : 'Start reading from here',
+              child: GestureDetector(
+                onTap: () => _playFrom(i),
+                child: body,
+              ),
             ),
           ),
         );

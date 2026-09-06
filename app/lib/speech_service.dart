@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -54,6 +55,11 @@ class SpeechService {
     ];
   }
 
+  /// Android TTS is a single engine with one progress listener. Overlapping
+  /// synthesise calls steal the listener and the first utterance never
+  /// continues the scheduler.
+  static Future<void> _synthBusy = Future<void>.value();
+
   Future<Map<String, Object?>> synthesise({
     required String text,
     String? engineId,
@@ -61,15 +67,23 @@ class SpeechService {
     double rate = 1.0,
     double pitch = 1.0,
   }) async {
-    final raw = await _channel.invokeMapMethod<String, Object?>('synthesise', {
-      'text': text,
-      'engineId': engineId,
-      'voiceName': voiceName,
-      'rate': rate,
-      'pitch': pitch,
-    });
-    if (raw == null) throw Exception('synthesise returned nothing');
-    return raw;
+    final previous = _synthBusy;
+    final gate = Completer<void>();
+    _synthBusy = gate.future;
+    await previous;
+    try {
+      final raw = await _channel.invokeMapMethod<String, Object?>('synthesise', {
+        'text': text,
+        'engineId': engineId,
+        'voiceName': voiceName,
+        'rate': rate,
+        'pitch': pitch,
+      });
+      if (raw == null) throw Exception('synthesise returned nothing');
+      return raw;
+    } finally {
+      gate.complete();
+    }
   }
 
   Future<String?> outputDir() => _channel.invokeMethod<String>('outputDir');

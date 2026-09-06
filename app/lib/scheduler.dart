@@ -44,6 +44,7 @@ class PlaybackScheduler {
   int _index = 0;
   Future<ProcessedSpeech>? _lookahead;
   int _lookaheadIndex = -1;
+  int _lastWord = -2;
 
   bool get running => _running;
   int get index => _index;
@@ -67,11 +68,6 @@ class PlaybackScheduler {
         _lookahead = null;
         _lookaheadIndex = -1;
 
-        if (i + 1 < units.length && !_stop) {
-          _lookaheadIndex = i + 1;
-          _lookahead = _process(units[i + 1]);
-        }
-
         final ProcessedSpeech run;
         try {
           run = await current;
@@ -80,6 +76,13 @@ class PlaybackScheduler {
           rethrow;
         }
         if (_stop) break;
+
+        // One TTS job at a time. Kick n+1 only after n is on disk, so it
+        // synthesises while n plays from WAV — never overlapping synthesizeToFile.
+        if (i + 1 < units.length && !_stop) {
+          _lookaheadIndex = i + 1;
+          _lookahead = _process(units[i + 1]);
+        }
 
         onTimings(run.timings);
         onStatus('');
@@ -112,8 +115,7 @@ class PlaybackScheduler {
 
   Future<void> stop() async {
     _stop = true;
-    _lookahead = null;
-    _lookaheadIndex = -1;
+    _dropLookahead();
     try {
       await service.stopPlayback();
     } on Object {
@@ -178,13 +180,17 @@ class PlaybackScheduler {
     int frameCount,
   ) async {
     final started = DateTime.now();
+    _lastWord = -2;
     while (!_stop) {
       final elapsed = DateTime.now().difference(started).inMilliseconds;
       final frame = elapsed * rate ~/ 1000;
       if (frame > frameCount) break;
       final i = timings.lastIndexWhere((t) => t.frameStart <= frame);
-      onWord(i);
-      await Future<void>.delayed(const Duration(milliseconds: 30));
+      if (i != _lastWord) {
+        _lastWord = i;
+        onWord(i);
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
     }
     onWord(-1);
   }

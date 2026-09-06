@@ -3,6 +3,5 @@ appId: app.tomevoice.tomevoice_spike
 - launchApp:
     clearState: false
 - assertVisible: "TomeVoice"
-- assertVisible: ".*Specimen.*"
 - assertVisible: "IMPORT A FILE"
 - assertVisible: "YOUR BOOKS"
