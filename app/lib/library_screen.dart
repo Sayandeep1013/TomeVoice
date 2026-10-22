@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
+import 'book_card.dart';
 import 'brand.dart';
 import 'library_store.dart';
 import 'reader_screen.dart';
@@ -35,6 +37,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   List<LibraryEntry> _entries = [];
   bool _loaded = false;
   _Importing? _importing;
+  String _query = '';
 
   /// Files handed over by "Open with" arrive both as an event and as the
   /// pending-open value; whichever reaches us second is ignored.
@@ -251,8 +254,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
     final hero = (width * 0.12).clamp(38.0, 56.0);
-    final recent = _entries.where((e) => e.openedAt != null).firstOrNull;
-    final rest = [for (final e in _entries) if (e != recent) e];
+    final q = _query.trim().toLowerCase();
+    final searching = q.isNotEmpty;
+    final recent = searching ? null : _entries.where((e) => e.openedAt != null).firstOrNull;
+    final rest = [
+      for (final e in _entries)
+        if (e != recent &&
+            (!searching ||
+                e.title.toLowerCase().contains(q) ||
+                e.authorLine.toLowerCase().contains(q)))
+          e,
+    ];
 
     return Scaffold(
       body: DecoratedBox(
@@ -291,14 +303,29 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           if (recent != null) ...[
                             Text('CONTINUE', style: Skin.meta(context, size: 10)),
                             const SizedBox(height: 8),
-                            _continueCard(context, recent),
+                            ContinueCard(
+                              entry: recent,
+                              onOpen: () => _openBook(recent),
+                              onPlay: () => _openBook(recent, autoplay: true),
+                              onMenu: () => _bookMenu(recent),
+                            ),
                             const SizedBox(height: 24),
                           ],
-                          if (rest.isNotEmpty) ...[
-                            Text(recent == null ? 'YOUR BOOKS' : 'MORE BOOKS',
-                                style: Skin.meta(context, size: 10)),
-                            const SizedBox(height: 8),
+                          if (_entries.length >= 5) ...[
+                            _search(context),
+                            const SizedBox(height: 16),
                           ],
+                          if (rest.isNotEmpty) ...[
+                            Text(
+                              searching
+                                  ? '${rest.length} FOUND'
+                                  : (recent == null ? 'YOUR BOOKS' : 'MORE BOOKS'),
+                              style: Skin.meta(context, size: 10),
+                            ),
+                            const SizedBox(height: 8),
+                          ] else if (searching)
+                            Text('NOTHING MATCHES "${_query.trim().toUpperCase()}"',
+                                style: Skin.meta(context, size: 10)),
                         ],
                       ),
                     ),
@@ -309,14 +336,40 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       sliver: SliverToBoxAdapter(child: _emptyState(context)),
                     ),
                   SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 110),
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 120),
                     sliver: SliverList.separated(
                       itemCount: rest.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 10),
-                      itemBuilder: (context, i) => _bookRow(context, rest[i]),
+                      itemBuilder: (context, i) => BookRow(
+                        entry: rest[i],
+                        onOpen: () => _openBook(rest[i]),
+                        onMenu: () => _bookMenu(rest[i]),
+                      ),
                     ),
                   ),
                 ],
+              ),
+              // Books scroll under the bar; fade them out so the bar reads
+              // as a floating control and not as something lying on a row.
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: 120,
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Skin.ground(context).colors.last.withValues(alpha: 0),
+                          Skin.ground(context).colors.last.withValues(alpha: 0.92),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               ),
               Positioned(
                 left: 20,
@@ -331,27 +384,66 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  /// Frosted glass: whatever scrolls behind is blurred, so the button never
+  /// looks pasted on top of a book.
   Widget _addButton(BuildContext context) {
     final busy = _importing != null;
-    return Capsule(
-      onTap: busy ? null : _pick,
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
-      color: Skin.darkOn(context),
-      border: false,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(busy ? Icons.hourglass_top_rounded : Icons.add_rounded,
-              size: 20, color: Skin.amberSoft),
-          const SizedBox(width: 10),
-          Text(
-            busy ? 'Adding…' : 'Add books',
-            style: Skin.label(context, color: Skin.onDark(context), size: 13.5, weight: FontWeight.w700),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(999),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Material(
+          color: Skin.darkOn(context).withValues(alpha: 0.72),
+          child: InkWell(
+            onTap: busy ? null : _pick,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(busy ? Icons.hourglass_top_rounded : Icons.add_rounded,
+                      size: 20, color: Skin.amberSoft),
+                  const SizedBox(width: 10),
+                  Text(
+                    busy ? 'Adding…' : 'Add books',
+                    style: Skin.label(context,
+                        color: Skin.onDark(context), size: 13.5, weight: FontWeight.w700),
+                  ),
+                ],
+              ),
+            ),
           ),
-        ],
+        ),
       ),
     );
   }
+
+  Widget _search(BuildContext context) => TextField(
+        style: Skin.label(context, color: Skin.inkOn(context), size: 13),
+        cursorColor: Skin.amber,
+        textInputAction: TextInputAction.search,
+        decoration: InputDecoration(
+          isDense: true,
+          filled: true,
+          fillColor: Skin.capsuleOn(context),
+          prefixIcon: Icon(Icons.search_rounded, size: 20, color: Skin.inkFaintOn(context)),
+          hintText: 'Search your books',
+          hintStyle: Skin.label(context, color: Skin.inkFaintOn(context), size: 13),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(999),
+            borderSide: const BorderSide(color: Skin.capsuleEdge),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(999),
+            borderSide: const BorderSide(color: Skin.capsuleEdge),
+          ),
+        ),
+        onChanged: (v) => setState(() => _query = v),
+      );
 
   Widget _emptyState(BuildContext context) => Container(
         padding: const EdgeInsets.all(20),
@@ -429,163 +521,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  Widget _continueCard(BuildContext context, LibraryEntry e) {
-    final onDark = Skin.onDark(context);
-    return Material(
-      color: Skin.darkOn(context),
-      borderRadius: BorderRadius.circular(26),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => _openBook(e),
-        onLongPress: () => _bookMenu(e),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 14, 16),
-          child: Row(
-            children: [
-              if (e.cover != null) ...[
-                _cover(context, e.cover!, 58, 84),
-                const SizedBox(width: 14),
-              ],
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(e.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Skin.title(context, size: 22, color: onDark)),
-                    const SizedBox(height: 4),
-                    Text(
-                      (e.where != null && e.where!.toLowerCase() != e.title.toLowerCase()
-                              ? e.where!
-                              : (e.authorLine.isNotEmpty ? e.authorLine : e.formatLabel))
-                          .toUpperCase(),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Skin.meta(context, color: onDark.withValues(alpha: 0.6), size: 8.5),
-                    ),
-                    const SizedBox(height: 10),
-                    _progress(context, e.progress, onDark),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              Tooltip(
-                message: 'Continue reading aloud',
-                child: Material(
-                  color: Skin.amber,
-                  shape: const CircleBorder(),
-                  child: InkWell(
-                    customBorder: const CircleBorder(),
-                    onTap: () => _openBook(e, autoplay: true),
-                    child: const SizedBox(
-                      width: 56,
-                      height: 56,
-                      child: Icon(Icons.play_arrow_rounded, size: 32, color: Skin.dark),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _bookRow(BuildContext context, LibraryEntry e) {
-    return Material(
-      color: Skin.capsuleOn(context),
-      borderRadius: BorderRadius.circular(22),
-      clipBehavior: Clip.antiAlias,
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: Skin.capsuleEdge),
-        ),
-        child: InkWell(
-          onTap: () => _openBook(e),
-          onLongPress: () => _bookMenu(e),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 13, 4, 13),
-            child: Row(
-              children: [
-                if (e.cover != null) ...[
-                  _cover(context, e.cover!, 44, 64),
-                  const SizedBox(width: 12),
-                ],
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(e.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: Skin.title(context, size: 19)),
-                      const SizedBox(height: 4),
-                      Text(
-                        [
-                          e.formatLabel,
-                          if (e.authorLine.isNotEmpty) e.authorLine.toUpperCase(),
-                        ].join('  ·  '),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Skin.meta(context, size: 8.5),
-                      ),
-                      if (e.progress > 0) ...[
-                        const SizedBox(height: 8),
-                        _progress(context, e.progress, Skin.inkOn(context)),
-                      ],
-                    ],
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'More',
-                  onPressed: () => _bookMenu(e),
-                  icon: Icon(Icons.more_vert_rounded, color: Skin.inkSoftOn(context)),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// The book's cover. Decoded at thumbnail size: a full-size cover is
-  /// megabytes of pixels for a 44-point square.
-  Widget _cover(BuildContext context, String path, double w, double h) {
-    final dpr = MediaQuery.devicePixelRatioOf(context);
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(6),
-      child: Image.file(
-        File(path),
-        width: w,
-        height: h,
-        fit: BoxFit.cover,
-        cacheWidth: (w * dpr).round(),
-        errorBuilder: (_, __, ___) => SizedBox(width: w, height: h),
-      ),
-    );
-  }
-
-  Widget _progress(BuildContext context, double p, Color ink) => Row(
-        children: [
-          Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(3),
-              child: LinearProgressIndicator(
-                value: p.clamp(0.0, 1.0),
-                minHeight: 4,
-                color: Skin.amber,
-                backgroundColor: ink.withValues(alpha: 0.14),
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Text('${(p * 100).round()}%', style: Skin.meta(context, color: ink.withValues(alpha: 0.6), size: 8.5)),
-        ],
-      );
 }
 
 String _thousands(int n) {

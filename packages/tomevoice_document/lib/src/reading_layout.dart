@@ -109,9 +109,16 @@ class ReadingLayout {
     if (chapter < 0 || chapter >= chapters.length) return '';
     final s = chapters[chapter];
     for (final t in toc) {
-      if (t.sectionIndex == s) return t.title;
+      if (t.sectionIndex == s) return _short(t.title);
     }
-    return book.sections[s].displayTitle;
+    return _short(book.sections[s].displayTitle);
+  }
+
+  /// A heading that is really a paragraph makes a poor chapter name.
+  static String _short(String t) {
+    if (t.length <= 64) return t;
+    final cut = t.lastIndexOf(' ', 60);
+    return '${t.substring(0, cut > 20 ? cut : 60)}…';
   }
 
   int chapterOfUnit(int u) =>
@@ -127,8 +134,21 @@ class ReadingLayout {
   }
 
   /// Index of the unit a saved cursor points at, skipping front matter.
-  int unitForCursor(ReadingCursor cursor) =>
-      units.isEmpty ? 0 : readingIndexOfCursor(units, book, cursor);
+  int unitForCursor(ReadingCursor cursor) {
+    if (units.isEmpty) return 0;
+    // A new book whose first "chapter" is its title page starts at the next.
+    final fresh = cursor.sectionIndex == 0 && cursor.blockIndex == 0 && cursor.sentenceIndex == 0;
+    if (fresh && chapters.length > 1 && _same(chapterTitle(0), book.metadata.title)) {
+      return chapterFirstUnit[1];
+    }
+    return readingIndexOfCursor(units, book, cursor);
+  }
+
+  static bool _same(String a, String b) {
+    String norm(String s) => s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    final x = norm(a), y = norm(b);
+    return x.isNotEmpty && (x == y || y.startsWith(x) || x.startsWith(y));
+  }
 
   static ReadingLayout build(Book book) {
     final raw = flattenSpeakable(book);
@@ -161,8 +181,10 @@ class ReadingLayout {
         if (keep.contains(s)) continue;
         final blocks = book.sections[s].blocks;
         // A map page often carries a caption ("The Seven Kingdoms"); a
-        // copyright page with a publisher logo does not need showing.
-        if (speakableTextOf(book.sections[s]).length > 300) continue;
+        // copyright page with a publisher logo does not need showing. Before
+        // the first chapter, though, every picture is front matter worth
+        // seeing: cover, frontispiece, title page.
+        if (previous >= 0 && speakableTextOf(book.sections[s]).length > 300) continue;
         out.addAll(blocks.where((b) => b.isImage && b.imageWidth != null));
       }
       previous = section;

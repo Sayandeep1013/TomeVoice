@@ -56,6 +56,11 @@ bool isReadingSection(
   if (RegExp(r'^●+$').hasMatch(title)) return false;
   if (_opensAsFrontMatter(text)) return false;
   if (_looksLikeCopyrightPage(text)) return false;
+  // Project Gutenberg's notes about editions and transcription.
+  if (text.length < 3000 &&
+      text.substring(0, text.length < 400 ? text.length : 400).toLowerCase().contains('project gutenberg')) {
+    return false;
+  }
 
   // Untitled calibre/z-lib sheets: "Section 12" with a handful of glyphs.
   if (_untitledSpine.hasMatch(lower) && text.length < 800) return false;

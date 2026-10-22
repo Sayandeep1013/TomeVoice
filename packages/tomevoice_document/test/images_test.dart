@@ -155,4 +155,25 @@ void main() {
       expect(all.codeUnits.any((c) => c < 0x20 && c != 0x0A), isFalse);
     });
   });
+
+  group('book apparatus', () {
+    test('a drop-cap picture gives its letter back to the text', () {
+      final blocks = blocksFromHtml(
+        '<html><body><div class="figleft"><img alt="&quot;Y" src="y.png"/></div>'
+        "<div>OU can't think how glad I am to see you.</div></body></html>",
+        href: 'OEBPS/ch.xhtml',
+      );
+      expect(blocks.map((b) => b.text), contains('"YOU can${"'"}t think how glad I am to see you.'));
+      expect(blocks.where((b) => b.isImage), hasLength(1));
+    });
+
+    test('printed page numbers and Gutenberg boilerplate are not read', () {
+      final blocks = blocksFromHtml(
+        '<html><body><header class="pg-boilerplate pgheader"><h2>The Project Gutenberg eBook of X</h2></header>'
+        '<p>So she said<span class="pagenum">[127]</span> nothing more.</p></body></html>',
+        href: 'OEBPS/ch.xhtml',
+      );
+      expect(blocks.map((b) => b.text), ['So she said nothing more.']);
+    });
+  });
 }

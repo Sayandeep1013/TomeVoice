@@ -65,7 +65,7 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename}) {
       id: 's$i',
       index: sections.length,
       href: href,
-      title: _firstHeading(blocks),
+      title: _firstHeading(blocks) ?? _chapterLineTitle(blocks),
       blocks: blocks,
     ));
   }
@@ -336,8 +336,26 @@ List<TocEntry> _tocFromNav(String html, int? Function(String href) sectionFor) {
   } on XmlException {
     return const [];
   }
+  // A nav document also holds the page list (printed page numbers) and
+  // landmarks. Only the toc nav is chapters; reading the page list gave
+  // chapter titles like "[127]".
+  String typeOf(XmlElement e) => [
+        for (final a in e.attributes)
+          if (a.name.local == 'type') a.value.toLowerCase(),
+      ].join(' ');
+  final navs = doc.descendants
+      .whereType<XmlElement>()
+      .where((e) => e.localName.toLowerCase() == 'nav')
+      .toList();
+  final toc = navs.where((n) => typeOf(n).contains('toc')).toList();
+  final roots = toc.isNotEmpty
+      ? toc
+      : navs.where((n) => !typeOf(n).contains('page-list') && !typeOf(n).contains('landmarks')).toList();
+  final links = roots.isNotEmpty
+      ? roots.expand((n) => n.descendants.whereType<XmlElement>())
+      : doc.descendants.whereType<XmlElement>();
   final out = <TocEntry>[];
-  for (final a in doc.descendants.whereType<XmlElement>()) {
+  for (final a in links) {
     if (a.localName.toLowerCase() != 'a') continue;
     final href = a.getAttribute('href') ?? '';
     final title = collapseWhitespace(a.innerText);
@@ -449,3 +467,27 @@ Set<String> imagesOf(Book book) => {
         for (final b in s.blocks)
           if (b.image != null) b.image!,
     };
+
+/// "CHAPTER IX" in a plain div, then "The Mock Turtle's Story" as a
+/// sidenote: books that never mark chapters as headings still name them in
+/// their first lines. Returns "Chapter IX: The Mock Turtle's Story".
+String? _chapterLineTitle(List<Block> blocks) {
+  final lead = blocks.where((b) => !b.isImage && b.text.isNotEmpty).take(3).toList();
+  for (var i = 0; i < lead.length; i++) {
+    final t = lead[i].text;
+    if (t.length > 40 || !looksLikeChapterLine(t)) continue;
+    var title = t == t.toUpperCase() ? _titleCase(t) : t;
+    if (i + 1 < lead.length) {
+      final sub = lead[i + 1].text;
+      if (sub.length <= 60 && !RegExp(r'[.!?,;]$').hasMatch(sub)) title = '$title: $sub';
+    }
+    return title;
+  }
+  return null;
+}
+
+/// "CHAPTER IX" -> "Chapter IX": roman numerals stay capitals.
+String _titleCase(String s) => s.split(' ').map((w) {
+      if (RegExp(r'^[IVXLCDM]+[.:]?$').hasMatch(w) || w.length <= 1) return w;
+      return w[0] + w.substring(1).toLowerCase();
+    }).join(' ');

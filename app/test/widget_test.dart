@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
+import 'package:tomevoice_spike/book_card.dart';
 import 'package:tomevoice_spike/brand.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/main.dart';
@@ -144,6 +145,39 @@ void main() {
       expect(find.text('Your shelf is empty'), findsOneWidget);
       expect(find.text('Add books'), findsOneWidget);
       expect(find.text('PDF'), findsOneWidget);
+      await finish(tester);
+    });
+  });
+
+  group('library rows', () {
+    testWidgets('each book says what it is, how long, and where you are', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 3.0; // a 360 dp wide phone
+      addTearDown(tester.view.reset);
+      await tester.runAsync(() async {
+        final store = LibraryStore(_tmp);
+        for (final name in ['first.txt', 'second.md']) {
+          final f = File('${_tmp.path}/incoming/$name')
+            ..createSync(recursive: true)
+            // Different text per file: the book id is a hash of the contents.
+            ..writeAsStringSync('${'A sentence with several words in it. ' * 400}\n\nThe end of $name.');
+          await store.importFile(PickedFile(path: f.path, name: name));
+        }
+      });
+      await tester.pumpWidget(const SpikeApp());
+      for (var i = 0; i < 30 && find.byType(BookCover).evaluate().isEmpty; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+
+      expect(find.byType(BookCover), findsNWidgets(2));
+      expect(find.text('TXT'), findsWidgets);
+      expect(find.text('MD'), findsWidgets);
+      expect(find.text('ENGLISH'), findsWidgets);
+      expect(find.text('17 M'), findsWidgets, reason: '2,804 words at 165 wpm');
+      expect(find.textContaining('NOT STARTED'), findsNWidgets(2));
+      expect(find.text('Add books'), findsOneWidget);
       await finish(tester);
     });
   });

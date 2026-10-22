@@ -61,7 +61,10 @@ List<Block> blocksFromHtml(String html, {String? language, String? href}) {
 
   final out = <Block>[];
   _walk(body, out, language, href, inherited: null);
-  return out;
+  // Transcribers' notes about Gutenberg editions sit in the book's own text.
+  out.removeWhere((b) =>
+      b.text.length < 600 && b.text.toLowerCase().contains('project gutenberg'));
+  return joinDropCaps(out);
 }
 
 void _walk(
@@ -73,7 +76,7 @@ void _walk(
 }) {
   if (node is! XmlElement) return;
   final name = node.localName.toLowerCase();
-  if (_skipTags.contains(name)) return;
+  if (_skipTags.contains(name) || _isApparatus(node)) return;
 
   if (name == 'img' || name == 'svg') {
     _images(node, out, language, href);
@@ -294,7 +297,7 @@ String _textWithoutSvg(XmlElement node) {
         buf.write(c.value);
       } else if (c is XmlElement) {
         final name = c.localName.toLowerCase();
-        if (name == 'svg' || _skipTags.contains(name)) continue;
+        if (name == 'svg' || _skipTags.contains(name) || _isApparatus(c)) continue;
         walk(c);
       } else if (c is XmlCDATA) {
         buf.write(c.value);
@@ -317,4 +320,43 @@ String _decode(String s) {
   } on Object {
     return s;
   }
+}
+
+/// Things in a book's markup that are not the book: Project Gutenberg's
+/// header and licence, and printed page numbers ("[127]") that would
+/// otherwise be read aloud mid-sentence.
+bool _isApparatus(XmlElement e) {
+  final cls = (e.getAttribute('class') ?? '').toLowerCase();
+  if (cls.isEmpty) return false;
+  return cls.contains('pg-boilerplate') ||
+      cls.contains('pagenum') ||
+      cls.contains('pageno') ||
+      cls.contains('page-number');
+}
+
+final _dropCap = RegExp(r'^[^\p{L}]{0,2}\p{Lu}$', unicode: true);
+final _continuesWord = RegExp(r'^\p{Lu}', unicode: true);
+
+/// A decorated initial is often a picture whose alt text is the letter
+/// (`"Y`), followed by the rest of the word as text ("OU can't think").
+/// Put the letter back so the voice says "YOU", and keep the picture.
+List<Block> joinDropCaps(List<Block> blocks) {
+  final out = <Block>[];
+  for (var i = 0; i < blocks.length; i++) {
+    final b = blocks[i];
+    out.add(b);
+    if (b.role != BlockRole.figure || !_dropCap.hasMatch(b.text)) continue;
+    if (i + 1 >= blocks.length) continue;
+    final next = blocks[i + 1];
+    if (next.role == BlockRole.figure || !_continuesWord.hasMatch(next.text)) continue;
+    out.add(makeBlock(
+      role: next.role,
+      text: b.text + next.text,
+      anchor: next.anchor,
+      language: next.language,
+      id: next.id,
+    ));
+    i++;
+  }
+  return out;
 }
