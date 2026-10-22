@@ -161,6 +161,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Future<void> _openBook(LibraryEntry entry, {bool autoplay = false}) async {
     final store = _store;
     if (store == null) return;
+    // Otherwise a focused search box takes focus back on return and the
+    // keyboard pops up over the shelf.
+    FocusManager.instance.primaryFocus?.unfocus();
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => BookLoader(store: store, entry: entry, autoplay: autoplay),
