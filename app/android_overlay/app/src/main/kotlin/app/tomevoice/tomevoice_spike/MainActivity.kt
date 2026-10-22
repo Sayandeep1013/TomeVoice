@@ -56,6 +56,7 @@ class MainActivity : FlutterActivity() {
 
     private val player = PcmPlayer()
     private var pickResult: MethodChannel.Result? = null
+    private var imageResult: MethodChannel.Result? = null
     private var pendingOpen: Map<String, String>? = null
 
     private var focusRequest: AudioFocusRequest? = null
@@ -71,6 +72,7 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val REQ_PICK = 71
         private const val REQ_NOTIFY = 72
+        private const val REQ_IMAGE = 73
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -128,6 +130,19 @@ class MainActivity : FlutterActivity() {
                 }
                 "session" -> session(call.arguments as Map<*, *>, result)
                 "pickDocuments" -> pickDocuments(result)
+                "pickImage" -> {
+                    if (imageResult != null) {
+                        result.error("PICK_IN_PROGRESS", "A picker is already open", null)
+                    } else {
+                        imageResult = result
+                        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "image/*"
+                        }
+                        @Suppress("DEPRECATION")
+                        startActivityForResult(intent, REQ_IMAGE)
+                    }
+                }
                 "pendingOpen" -> {
                     result.success(pendingOpen)
                     pendingOpen = null
@@ -485,6 +500,25 @@ class MainActivity : FlutterActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_IMAGE) {
+            val reply = imageResult
+            imageResult = null
+            val uri = data?.data
+            if (reply == null) return
+            if (resultCode != Activity.RESULT_OK || uri == null) {
+                reply.success(null)
+                return
+            }
+            io.execute {
+                try {
+                    val file = copyIn(uri)
+                    main.post { reply.success(file) }
+                } catch (e: Exception) {
+                    main.post { reply.error("PICK", e.message, null) }
+                }
+            }
+            return
+        }
         if (requestCode != REQ_PICK) return
         val reply = pickResult
         pickResult = null

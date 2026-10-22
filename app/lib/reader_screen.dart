@@ -1044,8 +1044,9 @@ class _PlayerBar extends StatelessWidget {
                       tooltip: 'Speed'),
                   Expanded(
                     child: Text(
+                      // With a sleep timer there is no room for all three.
                       [
-                        '$pct%',
+                        if (sleepNote == null) '$pct%',
                         '${_duration(minutes)} LEFT',
                         if (sleepNote != null) sleepNote!,
                       ].join('  ·  '),

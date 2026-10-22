@@ -288,6 +288,13 @@ void main() {
       await tester.tap(picture);
       await tester.pumpAndSettle();
       expect(find.byType(PictureViewer), findsOneWidget);
+      // The picture gets the whole screen, not the close button's corner.
+      final viewer = tester.getSize(find.byType(InteractiveViewer));
+      expect(viewer.width, tester.view.physicalSize.width / tester.view.devicePixelRatio);
+      expect(find.byTooltip('Close'), findsOneWidget);
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pumpAndSettle();
+      expect(find.byType(PictureViewer), findsNothing);
       await finish(tester);
     });
 
@@ -421,6 +428,37 @@ void main() {
           'Chapter 2\n\nAnother part begins here. It goes on.');
       final again = await store.importFile(PickedFile(path: src.path, name: 'story.txt'));
       expect(again.progress, 0.5);
+    });
+
+    test('a cover can be your own picture, plain, or automatic', () async {
+      final store = LibraryStore(_tmp);
+      final src = File('${_tmp.path}/incoming/c.txt')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('A short story about covers. It ends here.');
+      final entry = await store.importFile(PickedFile(path: src.path, name: 'c.txt'));
+      expect(entry.coverMode, CoverMode.auto);
+      expect(entry.shownCover, isNull, reason: 'a text file has no cover of its own');
+
+      final pic = File('${_tmp.path}/incoming/me.jpg')..writeAsBytesSync([1, 2, 3]);
+      var e = await store.setCover(entry.id, CoverMode.custom,
+          picture: PickedFile(path: pic.path, name: 'me.jpg'));
+      expect(e!.coverMode, CoverMode.custom);
+      expect(File(e.shownCover!).existsSync(), isTrue);
+      final first = e.shownCover;
+
+      e = await store.setCover(entry.id, CoverMode.plain);
+      expect(e!.shownCover, isNull);
+      expect(e.customCover, first, reason: 'the picture is kept for later');
+
+      final pic2 = File('${_tmp.path}/incoming/me2.png')..writeAsBytesSync([4, 5]);
+      e = await store.setCover(entry.id, CoverMode.custom,
+          picture: PickedFile(path: pic2.path, name: 'me2.png'));
+      expect(e!.shownCover, isNot(first), reason: 'a new name so the image cache refreshes');
+      expect(File(first!).existsSync(), isFalse, reason: 'the old picture is removed');
+
+      final listed = (await store.list()).single;
+      expect(listed.coverMode, CoverMode.custom);
+      expect(listed.shownCover, e.shownCover);
     });
 
     test('a book saved by an older build is parsed again', () async {

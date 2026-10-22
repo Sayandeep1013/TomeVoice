@@ -100,12 +100,14 @@ class LibraryStore {
     final previous = existing.where((e) => e.id == entry.id).firstOrNull;
     final merged = previous == null
         ? entry
-        : entry.copyWith(
-            cursor: previous.cursor,
-            progress: previous.progress,
-            openedAt: previous.openedAt,
-            where: previous.where,
-          );
+        : entry
+            .copyWith(
+              cursor: previous.cursor,
+              progress: previous.progress,
+              openedAt: previous.openedAt,
+              where: previous.where,
+            )
+            .withCover(previous.coverMode, previous.customCover);
     await _write([
       merged,
       for (final e in existing)
@@ -143,6 +145,38 @@ class LibraryStore {
       ]);
     }
     return layout;
+  }
+
+  /// How a book's cover is chosen: [CoverMode.auto] (the book's own, or one
+  /// made from the title), a picture of the user's, or a plain title cover.
+  Future<LibraryEntry?> setCover(String id, CoverMode mode, {PickedFile? picture}) async {
+    String? custom;
+    if (picture != null) {
+      final dir = Directory('${bookDir(id)}/img')..createSync(recursive: true);
+      // A new name every time: the image cache keys on the path, so reusing
+      // one would keep showing the previous picture.
+      for (final old in dir.listSync().whereType<File>()) {
+        if (old.uri.pathSegments.last.startsWith('custom_cover_')) old.deleteSync();
+      }
+      final dest = '${dir.path}/custom_cover_${DateTime.now().millisecondsSinceEpoch}${_ext(picture.name)}';
+      await File(picture.path).copy(dest);
+      try {
+        await File(picture.path).delete();
+      } on FileSystemException {
+        // The picker's copy; harmless if it stays.
+      }
+      custom = dest;
+    }
+    final entries = await list();
+    LibraryEntry? updated;
+    await _write([
+      for (final e in entries)
+        if (e.id == id)
+          updated = e.withCover(mode, custom ?? e.customCover)
+        else
+          e,
+    ]);
+    return updated;
   }
 
   /// Folder holding a book's source, parsed text and pictures.
@@ -352,6 +386,12 @@ ReadingLayout _loadLayoutSync(_LoadJob job) {
     _writeParsed(dir, book);
     _writeImages(dir, bytes, book);
   }
+  // PDFs stored one section per page get real chapters from their own text.
+  final resectioned = resectionPdf(book);
+  if (!identical(resectioned, book)) {
+    book = resectioned;
+    _writeParsed(dir, book);
+  }
   return ReadingLayout.build(book);
 }
 
@@ -372,6 +412,8 @@ class LibraryEntry {
     this.where,
     this.language,
     this.cover,
+    this.coverMode = CoverMode.auto,
+    this.customCover,
   });
 
   final String id;
@@ -389,8 +431,39 @@ class LibraryEntry {
   final String? where;
   final String? language;
 
-  /// Cover picture on disk, when the book has one.
+  /// The book's own cover picture on disk, when it has one.
   final String? cover;
+
+  /// Which cover the shelf shows; see [shownCover].
+  final CoverMode coverMode;
+
+  /// A picture the user chose, on disk.
+  final String? customCover;
+
+  /// The picture to show, or null for a cover drawn from the title.
+  String? get shownCover => switch (coverMode) {
+        CoverMode.plain => null,
+        CoverMode.custom => customCover ?? cover,
+        CoverMode.auto => cover,
+      };
+
+  LibraryEntry withCover(CoverMode mode, String? custom) => LibraryEntry(
+        id: id,
+        title: title,
+        authors: authors,
+        source: source,
+        wordCount: wordCount,
+        sourcePath: sourcePath,
+        addedAt: addedAt,
+        openedAt: openedAt,
+        cursor: cursor,
+        progress: progress,
+        where: where,
+        language: language,
+        cover: cover,
+        coverMode: mode,
+        customCover: custom,
+      );
 
   DateTime get lastTouched => openedAt ?? addedAt;
 
@@ -425,6 +498,8 @@ class LibraryEntry {
         where: where ?? this.where,
         language: language,
         cover: cover ?? this.cover,
+        coverMode: coverMode,
+        customCover: customCover,
       );
 
   Map<String, Object?> toJson() => {
@@ -441,6 +516,8 @@ class LibraryEntry {
         if (where != null) 'where': where,
         if (language != null) 'language': language,
         if (cover != null) 'cover': cover,
+        if (coverMode != CoverMode.auto) 'coverMode': coverMode.name,
+        if (customCover != null) 'customCover': customCover,
       };
 
   static LibraryEntry fromJson(Map<String, Object?> json) => LibraryEntry(
@@ -465,8 +542,15 @@ class LibraryEntry {
         where: json['where'] as String?,
         language: json['language'] as String?,
         cover: json['cover'] as String?,
+        coverMode: CoverMode.values.firstWhere(
+          (m) => m.name == json['coverMode'],
+          orElse: () => CoverMode.auto,
+        ),
+        customCover: json['customCover'] as String?,
       );
 }
+
+enum CoverMode { auto, custom, plain }
 
 String _ext(String path) {
   final slash = path.replaceAll(r'\', '/').split('/').last;

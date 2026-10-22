@@ -192,6 +192,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             const SizedBox(height: 18),
             _sheetAction(ctx, Icons.play_arrow_rounded, 'Read aloud from where I left off', 'play'),
             _sheetAction(ctx, Icons.restart_alt_rounded, 'Start from the beginning', 'restart'),
+            _sheetAction(ctx, Icons.image_outlined, 'Change cover', 'cover'),
             _sheetAction(ctx, Icons.delete_outline_rounded, 'Remove from library', 'remove',
                 danger: true),
           ],
@@ -202,6 +203,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
     switch (action) {
       case 'play':
         await _openBook(e, autoplay: true);
+      case 'cover':
+        await _coverMenu(e);
       case 'restart':
         await _store?.saveCursor(e.id, ReadingCursor.zero, 0);
         final fresh = (await _store?.list())?.where((x) => x.id == e.id).firstOrNull;
@@ -212,6 +215,109 @@ class _LibraryScreenState extends State<LibraryScreen> {
         if (mounted) setState(() => _entries = entries);
         _snack('Removed "${e.title}".');
     }
+  }
+
+  /// Pick how a book's cover looks. Each choice shows itself on this book.
+  Future<void> _coverMenu(LibraryEntry e) async {
+    final onDark = Skin.onDark(context);
+    final choice = await showModalBottomSheet<CoverMode>(
+      context: context,
+      backgroundColor: Skin.darkOn(context),
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) {
+        Widget option(CoverMode mode, String label, String detail) {
+          final selected = e.coverMode == mode;
+          return Expanded(
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () => Navigator.pop(ctx, mode),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+                child: Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(3),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: selected ? Skin.amber : Colors.transparent,
+                          width: 2,
+                        ),
+                      ),
+                      child: mode == CoverMode.custom && e.customCover == null
+                          ? Container(
+                              width: 70,
+                              height: 105,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.06),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Icon(Icons.add_photo_alternate_outlined,
+                                  color: onDark.withValues(alpha: 0.7), size: 28),
+                            )
+                          : BookCover(entry: e.withCover(mode, e.customCover), width: 70),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(label,
+                        textAlign: TextAlign.center,
+                        style: Skin.label(ctx,
+                            color: selected ? Skin.amber : onDark, size: 12, weight: FontWeight.w700)),
+                    const SizedBox(height: 2),
+                    Text(detail,
+                        textAlign: TextAlign.center,
+                        style: Skin.meta(ctx, color: onDark.withValues(alpha: 0.5), size: 8)),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 22, 16, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Text('Cover', style: Skin.title(ctx, size: 22, color: onDark)),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  option(CoverMode.auto, 'Automatic',
+                      e.cover == null ? 'MADE FROM THE TITLE' : "THE BOOK'S OWN"),
+                  option(CoverMode.custom, 'Your picture',
+                      e.customCover == null ? 'CHOOSE ONE' : 'TAP TO CHANGE'),
+                  option(CoverMode.plain, 'Plain', 'TITLE ON COLOUR'),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (choice == null || !mounted) return;
+    PickedFile? picture;
+    if (choice == CoverMode.custom) {
+      try {
+        picture = await _svc.pickImage();
+      } on PlatformException catch (err) {
+        _snack(err.message ?? err.code);
+        return;
+      }
+      // Cancelled the picker: keep things as they were, unless a picture
+      // was chosen before and they just want it back.
+      if (picture == null && e.customCover == null) return;
+    }
+    await _store?.setCover(e.id, choice, picture: picture);
+    final entries = await _store?.list() ?? const <LibraryEntry>[];
+    if (mounted) setState(() => _entries = entries);
   }
 
   Widget _sheetAction(BuildContext ctx, IconData icon, String label, String value,

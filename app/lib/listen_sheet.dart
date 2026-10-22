@@ -256,8 +256,10 @@ class _ListenSheetState extends State<_ListenSheet> {
     final lang = widget.controller.language;
     final browsing = _browse;
     final showing = browsing == null || browsing.isEmpty ? lang : browsing;
-    final voices = _catalog.forLanguage(showing);
     final selected = widget.controller.voiceName;
+    // The voice in use first, so it is on screen when the sheet opens.
+    final voices = [..._catalog.forLanguage(showing)]
+      ..sort((a, b) => (b.name == selected ? 1 : 0) - (a.name == selected ? 1 : 0));
     return [
       Row(
         children: [

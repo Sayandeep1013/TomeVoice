@@ -117,6 +117,16 @@ navigation and it outlines the focused view, which for Flutter is the full scree
 (Internet Archive "Text PDF") read with the scanner's typos. Image-only scans are
 refused; there is no OCR, by choice.
 
+**18. "Chapters skipping" in PDFs was one section per page.** Without bookmarks every
+page was a chapter and near-empty pages (plates, blanks) were hidden, so the list read
+5, 10, 11, 13. `sectionsWithoutOutline` now uses chapter headings found in the text
+(three or more), else ten pages per entry; `resectionPdf` fixes PDFs stored earlier.
+`chapterLine` requires a number after the keyword: "book of rules for..." is prose.
+
+**19. Covers.** `LibraryEntry.coverMode`: auto (the book's own, or drawn from the title),
+custom (the user's picture, copied under `img/custom_cover_<time>`; a new name each time
+because the image cache keys on the path) or plain.
+
 **14. EPUB copyright pages are untitled and long.** `_looksLikeCopyrightPage` in
 `navigate.dart` skips them (Red Rising opened on "This is a work of fiction").
 

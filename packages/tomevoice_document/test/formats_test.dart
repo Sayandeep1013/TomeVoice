@@ -269,7 +269,8 @@ void main() {
       expect(RegExp(r'^\d+$', multiLine: true).hasMatch(all), isFalse);
       // "...over the page" + "paragraph on page 2..." joined into one.
       expect(all, contains('runs over the gate alpha paragraph on page bravo'));
-      expect(book.sections.first.displayTitle, 'Page 1');
+      // No bookmarks and no chapter headings: ten pages per entry, none dropped.
+      expect(book.sections.first.displayTitle, 'Pages 1–6');
     });
 
     test('one line per paragraph is reflowed into real paragraphs', () {
@@ -289,6 +290,44 @@ void main() {
         'Every night the same ninety-six steps.',
       ]);
       expect(book.sections.first.blocks.first.role, BlockRole.heading);
+    });
+
+    test('without an outline, chapter headings in the text become chapters', () {
+      const m = pdfParagraphMark;
+      final pages = [
+        'Title page of the book, printed long ago in a city far away from here.',
+        // The extractor marks paragraphs; a heading is its own paragraph.
+        '${m}CHAPTER I${m}DOWN THE HOLE${m}Alice was beginning to get very tired of sitting by her sister.',
+        'More of the first chapter goes on here for a while, as chapters do, at length.',
+        '${m}CHAPTER II${m}THE POOL${m}Curiouser and curiouser, cried Alice, much surprised.',
+        '${m}CHAPTER III${m}A RACE${m}They were indeed a queer-looking party that assembled.',
+        'A book of rules for shutting people up like telescopes was not to be found.',
+      ];
+      final book = ingestPdfText(id: 'x', pages: pages);
+      expect(book.sections.map((s) => s.displayTitle), [
+        'Opening pages',
+        'Chapter I: Down The Hole',
+        'Chapter II: The Pool',
+        'Chapter III: A Race',
+      ]);
+    });
+
+    test('a stored one-section-per-page PDF is re-sectioned', () {
+      final old = Book(
+        id: 'o',
+        metadata: const BookMetadata(title: 'Old'),
+        source: SourceKind.pdf,
+        toc: const [],
+        sections: [
+          for (var p = 0; p < 12; p++)
+            Section(id: 's$p', index: p, title: 'Page ${p + 1}', blocks: [
+              makeBlock(role: BlockRole.paragraph, text: 'Text of page ${p + 1} goes on for a while.', anchor: PageAnchor(p)),
+            ]),
+        ],
+      );
+      final fixed = resectionPdf(old);
+      expect(fixed.sections.map((s) => s.displayTitle), ['Pages 1–10', 'Pages 11–12']);
+      expect(identical(resectionPdf(fixed), fixed), isTrue);
     });
 
     test('outline becomes chapters', () {

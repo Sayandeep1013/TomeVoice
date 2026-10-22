@@ -30,7 +30,7 @@ class BookCover extends StatelessWidget {
   Widget build(BuildContext context) {
     final dpr = MediaQuery.devicePixelRatioOf(context);
     final generated = _generated(context);
-    final path = entry.cover;
+    final path = entry.shownCover;
     return Container(
       width: width,
       height: height,

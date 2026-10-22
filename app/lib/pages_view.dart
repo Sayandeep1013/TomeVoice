@@ -229,15 +229,22 @@ class PictureViewer extends StatelessWidget {
                 child: Center(child: Image.file(file, fit: BoxFit.contain)),
               ),
             ),
-            SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: RoundButton(
-                  icon: Icons.close_rounded,
-                  tooltip: 'Close',
-                  color: Colors.white.withValues(alpha: 0.14),
-                  iconColor: Colors.white,
-                  onTap: () => Navigator.of(context).maybePop(),
+            // Positioned, so the stack takes the whole screen: as the only
+            // unpositioned child this button sized the stack to itself and
+            // squeezed the picture into its corner.
+            Positioned(
+              top: 0,
+              left: 0,
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: RoundButton(
+                    icon: Icons.close_rounded,
+                    tooltip: 'Close',
+                    color: Colors.white.withValues(alpha: 0.14),
+                    iconColor: Colors.white,
+                    onTap: () => Navigator.of(context).maybePop(),
+                  ),
                 ),
               ),
             ),

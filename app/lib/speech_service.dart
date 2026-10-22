@@ -174,6 +174,12 @@ class SpeechService {
     ];
   }
 
+  /// One picture from the phone (for a book cover). Null if cancelled.
+  Future<PickedFile?> pickImage() async {
+    final raw = await _channel.invokeMapMethod<String, Object?>('pickImage');
+    return raw == null ? null : PickedFile.fromMap(raw);
+  }
+
   /// A file handed to us by "Open with" / "Share" before Dart was listening.
   Future<PickedFile?> pendingOpen() async {
     try {

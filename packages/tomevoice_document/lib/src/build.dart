@@ -145,9 +145,21 @@ String? titleFromFilename(String? filename) {
 /// Lines that begin a chapter in plain text: "Chapter 12", "CHAPTER XII.",
 /// "Part Two", "Prologue", and the Bengali / Hindi equivalents.
 final chapterLine = RegExp(
-  r'^(chapter|chap\.|part|book|prologue|epilogue|interlude|afterword|'
-  r'অধ্যায়|পরিচ্ছেদ|পর্ব|अध्याय|भाग)'
-  r'(?![a-z])[\s.:\-–—]*.{0,70}$',
+  // A chapter keyword followed by its number ("Chapter 12", "CHAPTER XII.",
+  // "Part Two", "অধ্যায় ৩"), or a standalone named section. The number is
+  // required: "book of rules for shutting people up" is prose that happens
+  // to start with "book".
+  r'^(?:(?:chapter|chap\.|part|book|volume|অধ্যায়|পরিচ্ছেদ|পর্ব|अध्याय|भाग)'
+  r'[\s.:\-–—]*'
+  r'(?:\d+|[ivxlcdm]+|[০-৯]+|[०-९]+|one|two|three|four|five|six|seven|eight|'
+  r'nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|'
+  r'eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|'
+  r'hundred|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|'
+  r'last|final)'
+  r'(?=$|[\s.:\-–—,])'
+  r'|(?:prologue|epilogue|interlude|afterword|introduction|preface|foreword)'
+  r'(?=$|[\s.:\-–—,]))'
+  r'.{0,70}$',
   caseSensitive: false,
 );
 
@@ -157,4 +169,16 @@ bool looksLikeChapterLine(String line) {
   if (!chapterLine.hasMatch(t)) return false;
   // "Chapter one was the best part of the book." is prose, not a heading.
   return !RegExp(r'[.!?]\s*\S+\s+\S+\s+\S+').hasMatch(t) || t.length < 40;
+}
+
+/// "CHAPTER XII." -> "Chapter XII": all-capital headings in title case
+/// (roman numerals kept), trailing full stop dropped.
+String tidyHeading(String raw) {
+  var t = collapseWhitespace(raw);
+  if (t.endsWith('.') && !t.endsWith('...')) t = t.substring(0, t.length - 1);
+  if (t != t.toUpperCase() || !RegExp('[A-Z]').hasMatch(t)) return t;
+  return t.split(' ').map((w) {
+    if (w.length <= 1 || RegExp(r'^[IVXLCDM]+[.:]?$').hasMatch(w)) return w;
+    return w[0] + w.substring(1).toLowerCase();
+  }).join(' ');
 }

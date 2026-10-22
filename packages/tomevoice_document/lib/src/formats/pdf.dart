@@ -121,10 +121,9 @@ Book bookFromPdfText({
       ));
     }
   } else {
-    // No outline: one section per page, so "Page 12" is a place you can go.
-    for (var p = 0; p < perPage.length; p++) {
-      sections.add((title: 'Page ${p + 1}', blocks: blocksOf(p)));
-    }
+    sections.addAll(sectionsWithoutOutline([
+      for (final m in merged) (page: m.page, text: m.text),
+    ]));
   }
 
   return assembleBook(
@@ -203,3 +202,99 @@ bool _continues(String prev, String next) {
 /// C0 controls (except newline and the paragraph mark), the replacement
 /// character and the private-use area.
 final _unreadable = RegExp('[\x00-\x09\x0B-\x1F\uFFFD\uE000-\uF8FF]');
+
+bool _isChapterHeading(String t) => t.length <= 60 && looksLikeChapterLine(t);
+
+Block _pdfBlock(int page, String text, {bool? heading}) => makeBlock(
+      role: (heading ??
+              (text.length <= 80 &&
+                  !RegExp(r'[.!?,;:।]$').hasMatch(text) &&
+                  looksLikeChapterLine(text)))
+          ? BlockRole.heading
+          : BlockRole.paragraph,
+      text: text,
+      anchor: PageAnchor(page),
+    );
+
+/// Chapters for a PDF without bookmarks. When the text has enough chapter
+/// headings ("CHAPTER II", "Part Two"), those are the chapters, named with
+/// the line after them when it is a short title. Otherwise ten pages per
+/// entry. Every page with text is in one or the other: listing a "chapter"
+/// per page and hiding the near-empty ones read as chapters being skipped.
+List<DraftSection> sectionsWithoutOutline(List<({int page, String text})> paras) {
+  final heads = [
+    for (var i = 0; i < paras.length; i++)
+      if (_isChapterHeading(paras[i].text)) i,
+  ];
+  if (heads.length >= 3) {
+    final out = <DraftSection>[];
+    if (heads.first > 0) {
+      out.add((
+        title: 'Opening pages',
+        blocks: [for (final p in paras.sublist(0, heads.first)) _pdfBlock(p.page, p.text)],
+      ));
+    }
+    for (var h = 0; h < heads.length; h++) {
+      final start = heads[h];
+      final end = h + 1 < heads.length ? heads[h + 1] : paras.length;
+      var title = tidyHeading(paras[start].text);
+      if (start + 1 < end) {
+        final sub = paras[start + 1].text;
+        if (sub.length <= 60 && !RegExp(r'[.!?,;]$').hasMatch(sub)) {
+          title = '$title: ${tidyHeading(sub)}';
+        }
+      }
+      out.add((
+        title: title,
+        blocks: [
+          _pdfBlock(paras[start].page, paras[start].text, heading: true),
+          for (final p in paras.sublist(start + 1, end)) _pdfBlock(p.page, p.text),
+        ],
+      ));
+    }
+    return out;
+  }
+
+  final out = <DraftSection>[];
+  if (paras.isEmpty) return out;
+  final last = paras.map((p) => p.page).reduce((a, b) => a > b ? a : b);
+  for (var from = 0; from <= last; from += 10) {
+    final to = from + 9 < last ? from + 9 : last;
+    final blocks = [
+      for (final p in paras)
+        if (p.page >= from && p.page <= to) _pdfBlock(p.page, p.text),
+    ];
+    if (blocks.isEmpty) continue;
+    out.add((title: from == to ? 'Page ${from + 1}' : 'Pages ${from + 1}–${to + 1}', blocks: blocks));
+  }
+  return out;
+}
+
+final _pageTitle = RegExp(r'^Page (\d+)$');
+
+/// A PDF stored by an earlier build with one section per page gets real
+/// chapters (or ten-page groups) from its stored text, without re-reading
+/// the file. Anything else is returned unchanged.
+Book resectionPdf(Book book) {
+  if (book.source != SourceKind.pdf || book.sections.length < 2) return book;
+  if (!book.sections.every((s) => _pageTitle.hasMatch(s.title ?? ''))) return book;
+  final paras = <({int page, String text})>[];
+  for (final s in book.sections) {
+    final fallback = int.parse(_pageTitle.firstMatch(s.title!)!.group(1)!) - 1;
+    for (final b in s.blocks) {
+      final a = b.anchor;
+      paras.add((page: a is PageAnchor ? a.page : fallback, text: b.text));
+    }
+  }
+  resetBlockIds();
+  final sections = sectionsWithoutOutline(paras);
+  if (sections.isEmpty) return book;
+  final rebuilt = assembleBook(
+    id: book.id,
+    metadata: book.metadata,
+    sections: sections,
+    source: SourceKind.pdf,
+    filename: book.sourceName,
+  );
+  return rebuilt;
+}
