@@ -55,7 +55,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   void dispose() {
     unawaited(_events?.cancel());
+    _store?.changes.removeListener(_refresh);
     super.dispose();
+  }
+
+  /// The index changed (a reader saved its place, a cover changed): re-read
+  /// it so the shelf order and progress are never a step behind.
+  Future<void> _refresh() async {
+    final entries = await _store?.list();
+    if (entries != null && mounted) setState(() => _entries = entries);
   }
 
   Future<void> _open() async {
@@ -70,6 +78,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         _entries = entries;
         _loaded = true;
       });
+      store.changes.addListener(_refresh);
       final pending = await _svc.pendingOpen();
       if (pending != null && _handled.add(pending.path)) {
         await _importAll([pending], openAfter: true);
@@ -579,6 +588,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(999),
             borderSide: const BorderSide(color: Skin.capsuleEdge),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(999),
+            borderSide: const BorderSide(color: Skin.amber, width: 1.4),
           ),
         ),
         onChanged: (v) => setState(() => _query = v),

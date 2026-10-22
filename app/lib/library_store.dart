@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'speech_service.dart';
@@ -22,6 +23,10 @@ class LibraryStore {
   LibraryStore(this.root);
 
   final Directory root;
+
+  /// Bumped after every write to the index, so the shelf can refresh when a
+  /// reader saves its place after the shelf has already re-read the list.
+  final changes = ValueNotifier<int>(0);
 
   static const _svc = SpeechService();
 
@@ -58,6 +63,7 @@ class LibraryStore {
       }),
     );
     await tmp.rename(_indexFile.path);
+    changes.value++;
   }
 
   /// Import [file]: parse it off the UI thread, store the source and the
