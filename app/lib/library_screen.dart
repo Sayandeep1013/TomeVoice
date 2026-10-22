@@ -254,6 +254,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
     final hero = (width * 0.12).clamp(38.0, 56.0);
+    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
     final q = _query.trim().toLowerCase();
     final searching = q.isNotEmpty;
     final recent = searching ? null : _entries.where((e) => e.openedAt != null).firstOrNull;
@@ -269,7 +270,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return Scaffold(
       body: DecoratedBox(
         decoration: BoxDecoration(gradient: Skin.ground(context)),
+        // The shelf scrolls under the home bar; only the button keeps clear of it.
         child: SafeArea(
+          bottom: false,
           child: Stack(
             children: [
               CustomScrollView(
@@ -336,7 +339,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       sliver: SliverToBoxAdapter(child: _emptyState(context)),
                     ),
                   SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 120),
+                    padding: EdgeInsets.fromLTRB(20, 0, 20, 120 + bottomInset),
                     sliver: SliverList.separated(
                       itemCount: rest.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 10),
@@ -355,7 +358,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 left: 0,
                 right: 0,
                 bottom: 0,
-                height: 120,
+                height: 120 + bottomInset,
                 child: IgnorePointer(
                   child: DecoratedBox(
                     decoration: BoxDecoration(
@@ -374,7 +377,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
               Positioned(
                 left: 20,
                 right: 20,
-                bottom: 18,
+                bottom: 18 + bottomInset,
                 child: _addButton(context),
               ),
             ],

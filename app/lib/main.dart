@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
 import 'brand.dart';
@@ -9,7 +10,21 @@ import 'reader_screen.dart';
 import 'speech_service.dart';
 import 'theme.dart';
 
-void main() => runApp(const SpikeApp());
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Draw under the status bar and the gesture bar, and ask Android not to
+  // lay its contrast scrim over the gesture area: that scrim was a darker
+  // band with a hard edge just above the home bar, cutting the gradient.
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    systemNavigationBarColor: Colors.transparent,
+    systemNavigationBarDividerColor: Colors.transparent,
+    systemNavigationBarContrastEnforced: false,
+    systemStatusBarContrastEnforced: false,
+  ));
+  runApp(const SpikeApp());
+}
 
 /// Entry point.
 ///

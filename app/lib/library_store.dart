@@ -9,8 +9,9 @@ import 'speech_service.dart';
 
 /// Bumped when ingestion improves enough that stored books should be parsed
 /// again from their source file (v2: multilingual sentences, compact JSON;
-/// v3: pictures and covers from EPUBs, page numbers in PDFs).
-const _parsedVersion = 3;
+/// v3: pictures and covers from EPUBs, page numbers in PDFs; v4: toc nav
+/// only, chapters named from first lines, drop caps, Gutenberg apparatus).
+const _parsedVersion = 4;
 
 /// On-device library: copied files, parsed books, reading positions.
 ///
