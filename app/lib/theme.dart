@@ -113,6 +113,26 @@ class Skin {
         color: inkOn(c),
       );
 
+  /// Running text of a book: a reading serif at a comfortable measure. Every
+  /// paragraph is at full ink; the spoken sentence is marked by a wash, not by
+  /// fading everything else, so you can read along or read ahead.
+  static TextStyle page(BuildContext c, {double size = 19}) => TextStyle(
+        fontFamily: 'serif',
+        fontSize: size,
+        height: 1.58,
+        letterSpacing: 0.1,
+        fontWeight: FontWeight.w400,
+        color: inkOn(c),
+      );
+
+  /// Wash behind the sentence being spoken.
+  static Color sentenceWash(BuildContext c) =>
+      amber.withValues(alpha: isDark(c) ? 0.20 : 0.16);
+
+  /// Stronger wash behind the word being spoken.
+  static Color wordWash(BuildContext c) =>
+      amber.withValues(alpha: isDark(c) ? 0.55 : 0.45);
+
   /// Instrumentation: voice, speed, gap, position. Quiet by design.
   static TextStyle meta(BuildContext c, {Color? color, double size = 9.5}) =>
       TextStyle(

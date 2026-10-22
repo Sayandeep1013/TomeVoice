@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -9,10 +10,11 @@ import 'library_store.dart';
 import 'reader_screen.dart';
 import 'speech_service.dart';
 import 'theme.dart';
+import 'voices.dart';
 
 const _svc = SpeechService();
 
-/// The shelf of books. Same chrome language as the reader: gradient, capsules,
+/// The shelf. Same chrome language as the reader: gradient, capsules,
 /// monospace instrumentation. Ojuju is for titles; the page of a book is not.
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -21,208 +23,513 @@ class LibraryScreen extends StatefulWidget {
   State<LibraryScreen> createState() => _LibraryScreenState();
 }
 
+class _Importing {
+  _Importing(this.name);
+  final String name;
+  int done = 0;
+  int total = 0;
+}
+
 class _LibraryScreenState extends State<LibraryScreen> {
   LibraryStore? _store;
   List<LibraryEntry> _entries = [];
-  String _status = '';
-  bool _busy = false;
+  bool _loaded = false;
+  _Importing? _importing;
+
+  /// Files handed over by "Open with" arrive both as an event and as the
+  /// pending-open value; whichever reaches us second is ignored.
+  final _handled = <String>{};
+  StreamSubscription<Map<String, Object?>>? _events;
 
   @override
   void initState() {
     super.initState();
-    _open();
+    unawaited(VoiceCatalog.instance.ensureLoaded());
+    _events = SpeechService.events.listen(_onPlatformEvent);
+    unawaited(_open());
+  }
+
+  @override
+  void dispose() {
+    unawaited(_events?.cancel());
+    super.dispose();
   }
 
   Future<void> _open() async {
     try {
       final dir = await _svc.outputDir();
-      if (dir == null) {
-        if (mounted) setState(() => _status = 'No storage');
-        return;
-      }
+      if (dir == null) throw const FileSystemException('No storage');
       final store = LibraryStore(Directory(dir));
       final entries = await store.list();
       if (!mounted) return;
       setState(() {
         _store = store;
         _entries = entries;
+        _loaded = true;
       });
-    } on PlatformException catch (e) {
-      if (mounted) setState(() => _status = '${e.code}: ${e.message}');
-    }
-  }
-
-  Future<void> _import() async {
-    setState(() {
-      _busy = true;
-      _status = '';
-    });
-    try {
-      final picked = await _svc.pickDocument();
-      if (picked == null) return;
-      final path = picked['path'];
-      if (path == null || path.isEmpty) return;
-      if (_store == null) await _open();
-      final store = _store;
-      if (store == null) {
-        if (mounted) setState(() => _status = 'No storage');
-        return;
+      final pending = await _svc.pendingOpen();
+      if (pending != null && _handled.add(pending.path)) {
+        await _importAll([pending], openAfter: true);
       }
-      final entry = await store.importFile(
-        source: File(path),
-        displayName: picked['name'],
-        mime: picked['mime'],
-      );
-      final entries = await store.list();
+    } on Object catch (e) {
       if (!mounted) return;
-      setState(() => _entries = entries);
-      await _openBook(entry.id);
-    } on EncryptedDocumentException catch (e) {
-      if (mounted) setState(() => _status = e.message);
-    } on UnsupportedDocumentException catch (e) {
-      if (mounted) setState(() => _status = e.message);
-    } on ParseException catch (e) {
-      if (mounted) setState(() => _status = e.message);
-    } on PlatformException catch (e) {
-      if (mounted) setState(() => _status = '${e.code}: ${e.message}');
-    } catch (e) {
-      if (mounted) setState(() => _status = '$e');
-    } finally {
-      if (mounted) setState(() => _busy = false);
+      setState(() => _loaded = true);
+      _snack('Could not open the library: $e');
     }
   }
 
-  Future<void> _openBook(String id) async {
+  void _onPlatformEvent(Map<String, Object?> e) {
+    if (e['type'] == 'openFile') {
+      // "Open with TomeVoice" while the app is running: come back to the
+      // shelf, import, open.
+      final file = PickedFile.fromMap(e);
+      // Before the shelf has loaded, _open picks it up from pendingOpen.
+      if (!_loaded || !_handled.add(file.path)) return;
+      unawaited(_svc.pendingOpen());
+      Navigator.of(context).popUntil((r) => r.isFirst);
+      unawaited(_importAll([file], openAfter: true));
+    } else if (e['type'] == 'openFailed') {
+      _snack('Could not open that file: ${e['message']}');
+    }
+  }
+
+  Future<void> _pick() async {
+    if (_importing != null) return;
+    try {
+      final files = await _svc.pickDocuments();
+      if (files.isEmpty) return;
+      await _importAll(files, openAfter: files.length == 1);
+    } on PlatformException catch (e) {
+      _snack(e.message ?? e.code);
+    }
+  }
+
+  Future<void> _importAll(List<PickedFile> files, {required bool openAfter}) async {
     final store = _store;
     if (store == null) return;
-    try {
-      final book = await store.loadBook(id);
-      final cursor = await store.cursorFor(id);
-      if (!mounted) return;
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => ReaderScreen(
-            book: book,
-            store: store,
-            initialCursor: cursor,
-          ),
+    final imported = <LibraryEntry>[];
+    final failures = <String>[];
+    for (final f in files) {
+      final job = _Importing(f.name);
+      setState(() => _importing = job);
+      try {
+        imported.add(await store.importFile(f, onProgress: (done, total) {
+          if (!mounted) return;
+          setState(() {
+            job.done = done;
+            job.total = total;
+          });
+        }));
+      } on EncryptedDocumentException catch (e) {
+        failures.add('${f.name}: ${e.message}');
+      } on UnsupportedDocumentException catch (e) {
+        failures.add('${f.name}: ${e.message}');
+      } on ParseException catch (e) {
+        failures.add('${f.name}: ${e.message}');
+      } on PlatformException catch (e) {
+        failures.add('${f.name}: ${e.message ?? e.code}');
+      } on Object catch (e) {
+        failures.add('${f.name}: $e');
+      }
+    }
+    final entries = await store.list();
+    if (!mounted) return;
+    setState(() {
+      _importing = null;
+      _entries = entries;
+    });
+    if (failures.isNotEmpty) {
+      _snack(failures.join('\n'), long: true);
+    } else if (imported.length > 1) {
+      _snack('Added ${imported.length} books.');
+    }
+    if (openAfter && imported.length == 1) await _openBook(imported.single);
+  }
+
+  Future<void> _openBook(LibraryEntry entry, {bool autoplay = false}) async {
+    final store = _store;
+    if (store == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => BookLoader(store: store, entry: entry, autoplay: autoplay),
+      ),
+    );
+    final entries = await store.list();
+    if (mounted) setState(() => _entries = entries);
+  }
+
+  Future<void> _bookMenu(LibraryEntry e) async {
+    final onDark = Skin.onDark(context);
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Skin.darkOn(context),
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(e.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Skin.title(context, size: 22, color: onDark)),
+            const SizedBox(height: 4),
+            Text(
+              [
+                e.formatLabel,
+                if (e.wordCount > 0) '${_thousands(e.wordCount)} WORDS',
+                if (e.language != null) languageName(e.language!).toUpperCase(),
+              ].join('  ·  '),
+              style: Skin.meta(context, color: onDark.withValues(alpha: 0.5)),
+            ),
+            const SizedBox(height: 18),
+            _sheetAction(ctx, Icons.play_arrow_rounded, 'Read aloud from where I left off', 'play'),
+            _sheetAction(ctx, Icons.restart_alt_rounded, 'Start from the beginning', 'restart'),
+            _sheetAction(ctx, Icons.delete_outline_rounded, 'Remove from library', 'remove',
+                danger: true),
+          ],
         ),
-      );
-      final entries = await store.list();
-      if (mounted) setState(() => _entries = entries);
-    } catch (e) {
-      if (mounted) setState(() => _status = '$e');
+      ),
+    );
+    if (!mounted || action == null) return;
+    switch (action) {
+      case 'play':
+        await _openBook(e, autoplay: true);
+      case 'restart':
+        await _store?.saveCursor(e.id, ReadingCursor.zero, 0);
+        final fresh = (await _store?.list())?.where((x) => x.id == e.id).firstOrNull;
+        if (fresh != null) await _openBook(fresh);
+      case 'remove':
+        await _store?.remove(e.id);
+        final entries = await _store?.list() ?? const <LibraryEntry>[];
+        if (mounted) setState(() => _entries = entries);
+        _snack('Removed "${e.title}".');
     }
   }
 
-  Future<void> _delete(LibraryEntry e) async {
-    final onDark = Skin.onDark(context);
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Skin.darkOn(context),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-        title: Text('REMOVE',
-            style: Skin.meta(context, color: onDark, size: 11)),
-        content: Text(
-          e.title,
-          style: Skin.label(context, color: onDark, size: 14),
+  Widget _sheetAction(BuildContext ctx, IconData icon, String label, String value,
+      {bool danger = false}) {
+    final color = danger ? Skin.amber : Skin.onDark(ctx);
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: () => Navigator.pop(ctx, value),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 4),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(width: 14),
+            Text(label, style: Skin.label(ctx, color: color, size: 13.5)),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text('KEEP', style: Skin.label(context, color: onDark)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child:
-                Text('REMOVE', style: Skin.label(context, color: Skin.amber)),
-          ),
-        ],
       ),
     );
-    if (confirmed != true) return;
-    await _store?.remove(e.id);
-    final entries = await _store?.list() ?? const [];
-    if (mounted) setState(() => _entries = entries);
   }
+
+  void _snack(String text, {bool long = false}) {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(SnackBar(
+      content: Text(text, style: Skin.label(context, color: Skin.onDark(context), size: 12.5)),
+      backgroundColor: Skin.darkOn(context),
+      behavior: SnackBarBehavior.floating,
+      duration: Duration(seconds: long ? 8 : 3),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    ));
+  }
+
+  // ---------------------------------------------------------------- build
 
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
-    final hero = (width * 0.155).clamp(46.0, 72.0);
+    final hero = (width * 0.12).clamp(38.0, 56.0);
+    final recent = _entries.where((e) => e.openedAt != null).firstOrNull;
+    final rest = [for (final e in _entries) if (e != recent) e];
 
     return Scaffold(
-      body: Container(
+      body: DecoratedBox(
         decoration: BoxDecoration(gradient: Skin.ground(context)),
         child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const BrandMark(size: 36),
-                const SizedBox(height: 18),
-                Text('TomeVoice', style: Skin.title(context, size: hero)),
-                const SizedBox(height: 8),
-                Text(
-                  'EPUB, TXT, MARKDOWN. PDF IS NEXT.',
-                  style: Skin.meta(context),
-                ),
-                if (_status.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  Text(_status.toUpperCase(),
-                      style: Skin.meta(context, color: Skin.amber, size: 10)),
+          child: Stack(
+            children: [
+              CustomScrollView(
+                slivers: [
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+                    sliver: SliverToBoxAdapter(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const BrandMark(size: 34),
+                              const SizedBox(width: 12),
+                              Flexible(
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  alignment: Alignment.centerLeft,
+                                  child: Text('TomeVoice', style: Skin.title(context, size: hero)),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text('ANY BOOK, READ ALOUD.', style: Skin.meta(context, size: 10)),
+                          const SizedBox(height: 22),
+                          if (_importing != null) ...[
+                            _importCard(context, _importing!),
+                            const SizedBox(height: 16),
+                          ],
+                          if (recent != null) ...[
+                            Text('CONTINUE', style: Skin.meta(context, size: 10)),
+                            const SizedBox(height: 8),
+                            _continueCard(context, recent),
+                            const SizedBox(height: 24),
+                          ],
+                          if (rest.isNotEmpty) ...[
+                            Text(recent == null ? 'YOUR BOOKS' : 'MORE BOOKS',
+                                style: Skin.meta(context, size: 10)),
+                            const SizedBox(height: 8),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (_loaded && _entries.isEmpty && _importing == null)
+                    SliverPadding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      sliver: SliverToBoxAdapter(child: _emptyState(context)),
+                    ),
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 110),
+                    sliver: SliverList.separated(
+                      itemCount: rest.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      itemBuilder: (context, i) => _bookRow(context, rest[i]),
+                    ),
+                  ),
                 ],
-                const SizedBox(height: 22),
+              ),
+              Positioned(
+                left: 20,
+                right: 20,
+                bottom: 18,
+                child: _addButton(context),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _addButton(BuildContext context) {
+    final busy = _importing != null;
+    return Capsule(
+      onTap: busy ? null : _pick,
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
+      color: Skin.darkOn(context),
+      border: false,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(busy ? Icons.hourglass_top_rounded : Icons.add_rounded,
+              size: 20, color: Skin.amberSoft),
+          const SizedBox(width: 10),
+          Text(
+            busy ? 'Adding…' : 'Add books',
+            style: Skin.label(context, color: Skin.onDark(context), size: 13.5, weight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyState(BuildContext context) => Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Skin.capsuleOn(context),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: Skin.capsuleEdge),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Your shelf is empty', style: Skin.title(context, size: 24)),
+            const SizedBox(height: 8),
+            Text(
+              'Tap Add books and pick any file. TomeVoice opens it, finds the '
+              'chapters and reads it to you — screen on or off.',
+              style: Skin.page(context, size: 15.5),
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final f in const ['EPUB', 'PDF', 'DOCX', 'MOBI', 'AZW3', 'TXT', 'RTF', 'ODT', 'FB2', 'HTML', 'MD'])
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Skin.inkFaintOn(context).withValues(alpha: 0.4)),
+                    ),
+                    child: Text(f, style: Skin.meta(context, size: 9)),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'TIP: IN ANY FILE MANAGER, OPEN A BOOK WITH TOMEVOICE.',
+              style: Skin.meta(context, size: 8.5),
+            ),
+          ],
+        ),
+      );
+
+  Widget _importCard(BuildContext context, _Importing job) {
+    final frac = job.total > 0 ? job.done / job.total : null;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      decoration: BoxDecoration(
+        color: Skin.capsuleOn(context),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Skin.capsuleEdge),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(job.name,
+              maxLines: 1, overflow: TextOverflow.ellipsis, style: Skin.title(context, size: 17)),
+          const SizedBox(height: 4),
+          Text(
+            frac == null ? 'OPENING AND FINDING CHAPTERS…' : 'READING PAGE ${job.done} OF ${job.total}…',
+            style: Skin.meta(context, size: 8.5),
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: LinearProgressIndicator(
+              value: frac,
+              minHeight: 4,
+              color: Skin.amber,
+              backgroundColor: Skin.inkFaintOn(context).withValues(alpha: 0.2),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _continueCard(BuildContext context, LibraryEntry e) {
+    final onDark = Skin.onDark(context);
+    return Material(
+      color: Skin.darkOn(context),
+      borderRadius: BorderRadius.circular(26),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => _openBook(e),
+        onLongPress: () => _bookMenu(e),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 16, 14, 16),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(e.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Skin.title(context, size: 22, color: onDark)),
+                    const SizedBox(height: 4),
+                    Text(
+                      (e.where ?? e.authorLine).toUpperCase(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Skin.meta(context, color: onDark.withValues(alpha: 0.6), size: 8.5),
+                    ),
+                    const SizedBox(height: 10),
+                    _progress(context, e.progress, onDark),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Tooltip(
+                message: 'Continue reading aloud',
+                child: Material(
+                  color: Skin.amber,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: () => _openBook(e, autoplay: true),
+                    child: const SizedBox(
+                      width: 56,
+                      height: 56,
+                      child: Icon(Icons.play_arrow_rounded, size: 32, color: Skin.dark),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _bookRow(BuildContext context, LibraryEntry e) {
+    return Material(
+      color: Skin.capsuleOn(context),
+      borderRadius: BorderRadius.circular(22),
+      clipBehavior: Clip.antiAlias,
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: Skin.capsuleEdge),
+        ),
+        child: InkWell(
+          onTap: () => _openBook(e),
+          onLongPress: () => _bookMenu(e),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 13, 4, 13),
+            child: Row(
+              children: [
                 Expanded(
-                  child: ListView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('YOUR BOOKS', style: Skin.meta(context, size: 11)),
-                      const SizedBox(height: 10),
-                      if (_entries.isEmpty)
-                        Text(
-                          'IMPORTED BOOKS APPEAR HERE.',
-                          style: Skin.meta(context),
-                        ),
-                      for (final e in _entries) ...[
-                        _row(
-                          context,
-                          title: e.title,
-                          subtitle: '${e.authorLine.toUpperCase()}  ·  '
-                              '${e.source.name.toUpperCase()}  ·  '
-                              '${(e.progress * 100).round()}%',
-                          onTap: () => _openBook(e.id),
-                          onDelete: () => _delete(e),
-                        ),
-                        const SizedBox(height: 10),
+                      Text(e.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Skin.title(context, size: 19)),
+                      const SizedBox(height: 4),
+                      Text(
+                        [
+                          e.formatLabel,
+                          if (e.authorLine.isNotEmpty) e.authorLine.toUpperCase(),
+                        ].join('  ·  '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Skin.meta(context, size: 8.5),
+                      ),
+                      if (e.progress > 0) ...[
+                        const SizedBox(height: 8),
+                        _progress(context, e.progress, Skin.inkOn(context)),
                       ],
                     ],
                   ),
                 ),
-                Capsule(
-                  onTap: _busy ? null : _import,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                  color: Skin.darkOn(context),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        _busy
-                            ? Icons.hourglass_empty_rounded
-                            : Icons.add_rounded,
-                        size: 18,
-                        color: Skin.onDark(context),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _busy ? 'IMPORTING' : 'IMPORT A FILE',
-                        style: Skin.label(context,
-                            color: Skin.onDark(context), size: 12),
-                      ),
-                    ],
-                  ),
+                IconButton(
+                  tooltip: 'More',
+                  onPressed: () => _bookMenu(e),
+                  icon: Icon(Icons.more_vert_rounded, color: Skin.inkSoftOn(context)),
                 ),
               ],
             ),
@@ -232,61 +539,31 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  /// Delete is a sibling of the open-target, not a child of it. Nesting two
-  /// InkWells made Remove eat the row tap, or the row eat Remove, depending
-  /// on the device.
-  Widget _row(
-    BuildContext context, {
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-    VoidCallback? onDelete,
-  }) {
-    return Material(
-      color: Skin.capsuleOn(context),
-      borderRadius: const BorderRadius.all(Radius.circular(22)),
-      clipBehavior: Clip.antiAlias,
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: const BorderRadius.all(Radius.circular(22)),
-          border: Border.all(color: Skin.capsuleEdge),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: InkWell(
-                onTap: onTap,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Skin.title(context, size: 20),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(subtitle, style: Skin.meta(context, size: 8.5)),
-                    ],
-                  ),
-                ),
+  Widget _progress(BuildContext context, double p, Color ink) => Row(
+        children: [
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: LinearProgressIndicator(
+                value: p.clamp(0.0, 1.0),
+                minHeight: 4,
+                color: Skin.amber,
+                backgroundColor: ink.withValues(alpha: 0.14),
               ),
             ),
-            if (onDelete != null)
-              Padding(
-                padding: const EdgeInsets.only(right: 6),
-                child: RoundButton(
-                  icon: Icons.close_rounded,
-                  size: 34,
-                  tooltip: 'Remove',
-                  onTap: onDelete,
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
+          ),
+          const SizedBox(width: 10),
+          Text('${(p * 100).round()}%', style: Skin.meta(context, color: ink.withValues(alpha: 0.6), size: 8.5)),
+        ],
+      );
+}
+
+String _thousands(int n) {
+  final s = n.toString();
+  final out = StringBuffer();
+  for (var i = 0; i < s.length; i++) {
+    if (i > 0 && (s.length - i) % 3 == 0) out.write(',');
+    out.write(s[i]);
   }
+  return out.toString();
 }

@@ -1,44 +1,36 @@
 # 16 — Session Handoff
 
-**As of 2026-09-07.** Everything needed to pick this up cold.
+**As of 2026-10-22.** Everything needed to pick this up cold.
 
 ---
 
 ## 1. Where the project is
 
-The **audio-engine spike is complete and proven on a real device.** Phase 1a is in the
-tree and on-device: import EPUB/TXT/Markdown, skip EPUB covers, swipe/skip chapters,
-listen sentence-by-sentence, keep your place. There is still no visual EPUB renderer
-(no WebView pagination), no PDF speech, no neural voices, no Windows build.
+**As of 2026-10-22** (branch `ux-speed-overhaul`): the reader was rebuilt for speed and
+for being obvious to use, and it now opens nearly every document format. Speech streams
+gaplessly, follows the voice word by word, and keeps going with the screen off.
 
 | Layer | State |
 |---|---|
-| Pure-Dart audio pipeline | **Done.** Analyzer clean, tests green |
-| Android TTS adapter | **Done.** Word timings captured. Engine *reused*. One `synthesizeToFile` at a time |
-| Document Model + ingest | **Done for EPUB/TXT/MD/HTML.** `packages/tomevoice_document` |
-| Library + SAF import | **Done.** `*/*` picker (no MIME whitelist). Encrypted EPUBs refused. PDF/DOCX throw a clear next-phase message |
-| Sentence scheduler | **Done, depth 1.** Lookahead starts *after* n is on disk, while n plays from WAV |
-| Reading UI | **Done.** Chapter chrome + searchable TOC. Chevrons = sentence. Skip/swipe = chapter |
-| Place | **Done.** `books/{id}/cursor.json`. Tap a sentence = play from here |
-| Offline verifier + fixtures | **Done.** Runs in CI |
-| CI (Dart + APK) | Dart core + Flutter APK. `flutter analyze` fails on deprecations (e.g. `ListView.cacheExtent`) |
-| Visual EPUB (WebView, CFI, pagination) | **Not started** — Phase 1b |
-| Neural voices (Piper/Kokoro) | **Not started** — Phase 3 |
+| Pure-Dart audio pipeline | **Done.** `WavCodec.pcm16Bytes` added for the streaming player |
+| Android TTS adapter | **One warm engine** for engines, voices and synthesis. Callbacks filtered by utterance id; `cancelSynthesis` aborts a sentence on seek |
+| Player | **Streaming `AudioTrack`** (`PcmPlayer.kt`). Gapless, real pause/resume, position from the playback head |
+| Scheduler | Keeps ~10 s queued ahead. Highlight = hardware position, not a timer. DSP on a background isolate |
+| Screen off | **`ReadAloudService`** (mediaPlayback foreground service) + MediaSession: notification, lock screen, headset buttons |
+| Document Model + ingest | **EPUB, PDF, DOCX, ODT, MOBI/AZW/AZW3 (PalmDOC), FB2, RTF, HTML, MD, TXT.** Script-based language detection |
+| Segmentation | Multilingual (danda, CJK, Arabic stops); sentences capped at 280 chars at a clause boundary |
+| Library | Import/parse/load on background isolates. Compact `parsed.json` v2 (Clown 15 MB -> 4.9 MB). Older books re-parsed once on open |
+| Reading UI | Continuous scroll (`scrollable_positioned_list`), sentence + word wash, tap-to-read, follow mode with "Back to reading", contents sheet, player bar |
+| Settings | One "Listening" sheet: speed, voice (for the book's language), style presets, fine-tune. **Persisted** in `prefs.json` |
+| CI | **Release** APK, arm64 only, Gradle cache. Builds on `main`, PRs, or manual dispatch; docs-only changes skip |
+| Visual EPUB (WebView, CFI, pagination) | **Not started** |
+| Neural voices (Piper/Kokoro) | **Not started** |
 | Windows | **Not started** |
-| Background playback / MediaSession | **Not started** — still dies with the activity |
 
-Install from CI, open **Library**, **Import a file**, pick an EPUB / `.txt` / `.md`.
-There is **no Specimen card** on the home screen. The in-app mark and Android launcher
-icon live at `app/assets/brand/logo.png` and `app/android_overlay/.../res/`. Chrome:
-gradient, capsules, Space Mono instrumentation, Ojuju for titles only (never the page
-of a book). Chevrons are sentence, not chapter. Paragraph pause is applied by the
-scheduler between `blockId`s (`sentencePauseMs: 0` in the pipeline so it does not stack).
-
-Latest green APK as of this handoff: GitHub Actions run `34054606167`
-(`feat`/`fix` on `main` through `bee9bc2`). CI mints a **new debug key each run** —
-`adb uninstall` before `adb install`.
-
----
+Measured before this work (debug APK, Clown EPUB, Nothing A059): opening the book froze
+the UI ~2.5 s; 650-760 ms of dead air *between every pair of sentences* (per-sentence WAV +
+new `MediaPlayer` + a full-tree rebuild that scanned all 34k units three times); a WAV
+leaked per sentence (30 found, 80 MB folder).
 
 ## 2. What was proven (spike, unchanged)
 
@@ -92,8 +84,26 @@ part dividers are not chapters. `readingSectionIndexes` / `readingToc` in
 octet-stream. Picker is `*/*` with no MIME extra.
 
 **9. Do not rebuild the whole reader on every word.** Word highlight is a
-`ValueNotifier`. Persist cursor on a 2 s debounce, not every sentence. Lock chapter
-`PageView` physics while speaking so a tap does not change chapter.
+`ValueNotifier`. Persist cursor on a debounce, not every sentence. Each paragraph
+widget listens for the cursor itself and rebuilds only when the spoken sentence enters,
+leaves or moves within it.
+
+**10. A debug APK is not a performance test.** Debug Flutter is unoptimised JIT with
+asserts. CI builds `--release` now. Judge latency only on a release build.
+
+**11. Never feed the player per-sentence files.** The streaming track is what makes
+sentences gapless and pause possible. Queue PCM; read the playback head for "what is
+audible". Do not reintroduce `play(path, wait: true)`.
+
+**12. `Isolate.run` closures must be created in a top-level function.** A closure made
+inside a method can share a context with other captured variables (callbacks holding
+widget state), which cannot be sent. See `_runImport` / `_runLoad` in `library_store.dart`.
+
+**13. `flutter analyze` treats deprecations as failures.** Check locally before pushing
+(see §4); a CI round trip costs several minutes.
+
+**14. EPUB copyright pages are untitled and long.** `_looksLikeCopyrightPage` in
+`navigate.dart` skips them (Red Rising opened on "This is a work of fiction").
 
 ---
 
@@ -117,16 +127,25 @@ cd packages/tomevoice_document
 dart run tool/dump_book.dart "E:\stories\some-book.epub"
 ```
 
-**APKs come from CI**, never locally. Push, wait ~4 minutes, then:
+**APKs come from CI**, never locally. Pushes to `main` build automatically; for a
+branch run it by hand:
 
 ```bash
-gh run download <run-id> -n tomevoice-spike-apk
-adb uninstall app.tomevoice.tomevoice_spike   # required: CI mints a new debug key each run
-adb install app-debug.apk
+gh workflow run build.yml --ref <branch>
+gh run download <run-id> -n tomevoice-apk
+adb install -r app-release.apk
 ```
 
-Uninstall **wipes the library**. Re-import from `/sdcard/Download/` (Clown and Crime
-were pushed there). Measurement sweep is unchanged (`--es batch true`).
+**Signing.** With the repo secrets `TV_KEYSTORE_B64` and `TV_KEYSTORE_PASSWORD` set,
+every release APK is signed with the same key and `adb install -r` upgrades in place,
+keeping the library. Without them CI signs with a throwaway key and you must
+`adb uninstall` first, which **wipes the library**. The keystore lives outside the repo
+at `~/.tomevoice/` on the developer's laptop.
+
+**Checking Dart before pushing** without installing Flutter permanently: unzip a Flutter
+SDK into a temp folder, copy `app/` + `packages/` next to each other, run the same
+`flutter create` as CI, then `dart analyze --fatal-infos` (Flutter's own `analyze` trips
+over long Windows paths) and `flutter test`. Delete the SDK afterwards.
 
 Maestro flows: `mobile-qa/flows/`. Do not `clearState: true` on resume tests. Selectors
 use merged semantics (e.g. `Chapters\nChapter 1: Crimson\n1 OF 213`). Chapter index is
@@ -137,68 +156,61 @@ use merged semantics (e.g. `Chapters\nChapter 1: Crimson\n1 OF 213`). Chapter in
 ## 5. Code map
 
 ```
-packages/tomevoice_audio/     PURE DART. Pipeline, timings remap, presets.
-packages/tomevoice_document/  PURE DART. Contract A + EPUB/TXT/MD/HTML ingest.
+packages/tomevoice_audio/     PURE DART. Pipeline, timings remap, presets, PCM16 for the player.
+packages/tomevoice_document/  PURE DART. Contract A + every ingest format.
   lib/src/
-    model.dart                Book → Section → Block → Sentence → Word
-    ingest.dart               ingestBytes / ingestString
-    formats/epub.dart         zip → OPF → spine → blocks
-    formats/html_blocks.dart  XHTML → blocks (drop-cap spans join)
-    formats/text.dart         TXT / Markdown / HTML
-    segment.dart              English-first sentence splitter
-    build.dart                flattenSpeakable, skip roles, cursor
-    navigate.dart             reading sections, skip covers, readingToc
-  test/navigate_test.dart
-  tool/dump_book.dart         title, sections, first real chapter
-  tool/inspect_file.dart      one-line ingest summary
-  tool/emit_qa_epub.dart      writes the fox-book fixture
+    model.dart                Book -> Section -> Block -> Sentence (compact JSON: 'sb')
+    ingest.dart               ingestBytes / ingestPdfText, language resolved at the end
+    detect.dart               magic bytes first: PDF, RTF, MOBI, zip (EPUB/DOCX/ODT/FB2)
+    language.dart             script -> language (bn, hi, ar, ru, ja, ...)
+    segment.dart              multilingual sentences, 280-char cap at a clause
+    navigate.dart             reading sections: skip covers, TOC, copyright pages
+    reading_layout.dart       units/items/chapter tables the reader uses (O(1) lookups)
+    formats/epub.dart  html_blocks.dart (+ lenient tag-soup fallback)
+    formats/text.dart         TXT (encodings, one-line paragraphs, chapters), Markdown
+    formats/office.dart       DOCX, ODT
+    formats/pdf.dart          page text -> book (headers, page numbers, outline chapters)
+    formats/mobi.dart  fb2.dart  rtf.dart
 
-app/                          FLUTTER. Only ever built in CI.
+app/                          FLUTTER. Built in CI; analyzed/tested locally (see 4).
   lib/
     main.dart                 library, or batch sweep via --es batch true
-    brand.dart                logo mark + TOMEVOICE lockup
-    library_screen.dart       YOUR BOOKS + import (no Specimen)
-    library_store.dart        JSON index, copied files (not Drift yet)
-    reader_screen.dart        chapter PageView, searchable TOC, sentence list
-    scheduler.dart            depth-1 lookahead, no overlapping TTS
-    settings_panel.dart       right-edge pop-out
-    speech_service.dart       platform calls, onRangeStart layout, synth mutex
-    theme.dart                Skin
-  assets/brand/logo.png       in-app mark
-  android_overlay/            Kotlin: TTS (reused), play-wait, SAF picker, launcher icon
-  test/widget_test.dart       pumps ReaderScreen with specimenBook() as a fixture only
+    library_screen.dart       shelf: Continue card, books, Add books, Open-with
+    library_store.dart        JSON index; import/load on background isolates
+    reader_screen.dart        BookLoader, reading list, player bar, contents sheet
+    listen_sheet.dart         speed / voice / style / fine-tune
+    scheduler.dart            streaming scheduler, position-driven highlight
+    speech_service.dart       platform API, synth mutex, background render
+    voices.dart               VoiceCatalog (shared), friendly voice names
+    prefs.dart                persisted listening settings
+    theme.dart  brand.dart
+  android_overlay/app/
+    src/main/kotlin/.../MainActivity.kt      TTS, focus, import, intents
+    src/main/kotlin/.../PcmPlayer.kt         streaming AudioTrack
+    src/main/kotlin/.../ReadAloudService.kt  foreground service + MediaSession
+    src/main/kotlin/.../PdfText.kt           PdfBox-Android text + outline
+    proguard-rules.pro                        R8 keeps for PdfBox
+  test/widget_test.dart       reader, sheet, voices, store (real isolates)
 
-tools/                        offline verifier, make_fixture, prepare_android.py
-mobile-qa/                    Maestro config + flows
+tools/prepare_android.py      manifest/gradle patches: service, intents, PdfBox, signing
 ```
 
 ---
 
-## 6. Known problems — still true, plus what the user still feels
+## 6. Known problems
 
-- Playback can still **stop after one line** or hitch; the overlap fix is in tree and
-  installed, **not listened through a chapter**. That is the first thing next session.
-- The reader still **lags on tap** on a 200-chapter EPUB (34k speakable units in RAM,
-  JSON `parsed.json`, DSP on the UI isolate). Word-highlight setState is gone; the rest
-  is not.
-- SAF DocumentsUI is still a hunt (Recent vs Downloads). Import works; the picker UX
-  does not.
-- Large EPUB import is slow (Clown ~13 MB, ~34k sentences).
-- Z-Lib *Crime and Punishment* is a bad OCR copy. Use Clown / Gutenberg-quality files
-  to judge the reader.
-- PDF/DOCX are refused with a message. Speaking PDFs is Phase 4.
-- `TimeStretchStubStage` pitch-shifts. Speed defaults to the engine. Phase 3 replaces it.
-- Pitch is engine-only. Grey it out for neural voices when those exist.
+- **Kotlin was reviewed, not compiled locally.** The first CI build is its compiler.
+- **Scanned PDFs** (page images) are refused with a message; there is no OCR.
+- **Legacy-font Bengali PDFs** (Bijoy/SutonnyMJ, not Unicode) extract as Latin
+  gibberish. That is the file's encoding, not the extractor; converting it is its own job.
+- **Old .doc** and **HUFF/CDIC-compressed Kindle** books are refused with a message.
+- No visual EPUB pages, images or footnote links; text only.
+- Highlight lead on Bluetooth: the playback head does not include headset latency, so
+  the word can run ~100-200 ms ahead on Bluetooth.
+- `TimeStretchStubStage` pitch-shifts; speed is always the engine's. Phase 3 replaces it.
 - Google TTS offline voices are mediocre. Piper is the actual answer (Phase 3).
+- Library persistence is JSON, not Drift.
 - Cross-engine R1 is unmeasured.
-- Playback is in-process MediaPlayer. The app will not keep reading with the screen off
-  or after swipe-away. That is Phase 2 foreground-service work, not a regression.
-- EPUB CFI strings are placeholders (`epubcfi(/6/...)`), not spec-accurate.
-- Sentence segmentation is English-first, not ICU.
-- Library persistence is JSON, not Drift. Uninstall wipes it.
-- TOC can list duplicate titles (`I`, `II` per part) because that is the spine.
-
-**Listen before claiming success.** Not after.
 
 ---
 
@@ -212,35 +224,23 @@ DRM out of scope.
 
 ## 8. What to do next
 
-In order.
+**A. Listen on the device.** Chapter-long listen with the screen off; pause from the lock
+screen; a phone call mid-sentence; headphones unplugged. Open a PDF and a DOCX.
 
-**A. Listen.** Open Clown on the phone, Play from Chapter 1, and stay through several
-sentences and a chapter skip. If it still dies after one line, grab `adb logcat` for
-`TTS_QUEUE` / `TTS_ERROR` and the scheduler status chip. Do not add features until that
-is honest.
+**B. Phase 1b — the visual EPUB reader** (WebView, CFIs, images). The reading layout
+and scheduler are reusable; do not re-parse.
 
-**B. Then the remaining 1a pain:** import picker, open-book jank, huge-book memory.
-
-**C. Phase 1b — the visual EPUB reader**
-WebView, pagination, real CFIs, search. The Document Model is already there; do not
-re-parse.
-
-**D. Phase 2 remainder — stay-alive speech**
-Foreground service, MediaSession, lock-screen controls.
-
-**E. Phase 3 — neural voices, and a real stretcher**
-Piper first. Replace the speed stub.
+**C. Phase 3 — neural voices and a real time-stretcher.** Piper first.
 
 ### Do not do these
 
 - Do not start with Kokoro.
 - Do not "clean up" the `onRangeStart` layout detection.
 - Do not reorder the pipeline stages without reading `ordering_test.dart`.
-- Do not shut down `TextToSpeech` at the start of every `synthesise` call.
-- Do not start n+1 `synthesizeToFile` before n has returned PCM.
-- Do not put Specimen back on the library home.
-- Do not make the sentence chevrons skip chapters.
-- Do not build a silent WebView reader that throws away the scheduler.
+- Do not shut down `TextToSpeech` per call; one warm engine serves everything.
+- Do not start n+1 `synthesizeToFile` before n has returned (or been cancelled).
+- Do not go back to a file + MediaPlayer per sentence.
+- Do not build a debug APK to judge speed.
 
 ---
 

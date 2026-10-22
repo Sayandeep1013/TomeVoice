@@ -1,33 +1,47 @@
 #!/usr/bin/env python3
 """Patch the Android project that `flutter create` generates.
 
-Run from the `app/` directory after `flutter create`. Two changes are needed
-that the generated project cannot know about:
+Run from the `app/` directory after `flutter create` and after the overlay is
+copied in. The generated project cannot know about any of this:
 
-1. **Package visibility for TTS engines.** Since Android 11, an app can only
-   see other packages it declares an interest in. Without a <queries> entry for
-   the TTS_SERVICE intent, `TextToSpeech.getEngines()` returns almost nothing —
-   and the spike's whole purpose is comparing engines, so this is not optional.
+1. **Package visibility for TTS engines.** Since Android 11 an app only sees
+   packages it declares an interest in. Without a <queries> entry for the
+   TTS_SERVICE intent, `TextToSpeech.getEngines()` returns almost nothing.
 
-2. **SDK levels.** minSdk 26, because `onRangeStart` was added in API 26 and the
-   spike depends on it. targetSdk 36, because Google Play has required it for new
-   apps since 31 August 2026 (docs/07 section 7.1).
+2. **SDK levels.** minSdk 26 (`onRangeStart`, AudioFocusRequest), targetSdk 36
+   (Google Play requirement since 31 August 2026, docs/07 section 7.1).
+
+3. **Reading with the screen off.** A mediaPlayback foreground service and the
+   permissions it needs. Without it Android freezes the app seconds after the
+   screen turns off and the next sentence is never synthesised.
+
+4. **Open with / Share to TomeVoice** intent filters for document types, and a
+   singleTask launch mode so a file opened from another app lands in the
+   running reader instead of a second copy of it.
+
+5. **PDF text extraction** via PdfBox-Android (Apache-2.0, GPL-3.0 compatible).
+
+6. **A stable signing key** when TV_KEYSTORE is set, so each CI build installs
+   over the last one instead of requiring an uninstall that wipes the library.
+
+7. The launcher label, which `flutter create` sets to the project name.
 
 Idempotent: running it twice changes nothing the second time.
 """
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
 
 MIN_SDK = 26
 TARGET_SDK = 36
+PDFBOX = 'implementation("com.tom-roush:pdfbox-android:2.0.27.0")'
 
 QUERIES_BLOCK = """    <!-- Required since Android 11 for TextToSpeech.getEngines() to see
-         installed engines. Without this the spike can only test the default
-         engine, which would not answer the per-engine question it exists for. -->
+         installed engines. -->
     <queries>
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
@@ -35,22 +49,108 @@ QUERIES_BLOCK = """    <!-- Required since Android 11 for TextToSpeech.getEngine
     </queries>
 """
 
+PERMISSIONS = """    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+"""
+
+SERVICE = """        <service
+            android:name=".ReadAloudService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+"""
+
+DOC_MIME_TYPES = [
+    "application/pdf",
+    "application/epub+zip",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.oasis.opendocument.text",
+    "application/rtf",
+    "text/rtf",
+    "application/x-mobipocket-ebook",
+    "application/vnd.amazon.ebook",
+    "application/x-fictionbook+xml",
+    "text/plain",
+    "text/markdown",
+    "text/html",
+]
+
+
+def _filters() -> str:
+    data = "\n".join(
+        f'                <data android:mimeType="{m}" />' for m in DOC_MIME_TYPES
+    )
+    return f"""            <!-- Open with TomeVoice -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+{data}
+            </intent-filter>
+            <!-- Share to TomeVoice -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+{data}
+            </intent-filter>
+"""
+
 
 def patch_manifest(path: Path) -> str:
     text = path.read_text(encoding="utf-8")
+    notes = []
 
-    if "android.intent.action.TTS_SERVICE" in text:
-        return "manifest: already has TTS queries"
+    if "android.intent.action.TTS_SERVICE" not in text:
+        text = text.replace("</manifest>", QUERIES_BLOCK + "</manifest>", 1)
+        notes.append("TTS queries")
 
-    if "</manifest>" not in text:
-        raise SystemExit(f"manifest: no closing tag in {path}")
+    if "FOREGROUND_SERVICE_MEDIA_PLAYBACK" not in text:
+        text, n = re.subn(r"(<manifest\b[^>]*>\n?)", r"\1" + PERMISSIONS, text, count=1)
+        if n != 1:
+            raise SystemExit("manifest: no <manifest> tag")
+        notes.append("permissions")
 
-    text = text.replace("</manifest>", QUERIES_BLOCK + "</manifest>", 1)
+    if ".ReadAloudService" not in text:
+        if "</application>" not in text:
+            raise SystemExit("manifest: no </application>")
+        text = text.replace("</application>", SERVICE + "    </application>", 1)
+        notes.append("service")
+
+    if "android.intent.action.SEND" not in text:
+        if "</activity>" not in text:
+            raise SystemExit("manifest: no </activity>")
+        text = text.replace("</activity>", _filters() + "        </activity>", 1)
+        notes.append("open-with filters")
+
+    text, n = re.subn(r'android:launchMode="singleTop"', 'android:launchMode="singleTask"', text)
+    if n:
+        notes.append("singleTask")
+
+    text, n = re.subn(
+        r'(<application\b[^>]*?android:label=")[^"]*(")', r"\1TomeVoice\2", text, count=1
+    )
+    if n:
+        notes.append("label")
+
     path.write_text(text, encoding="utf-8")
-    return "manifest: added <queries> for TTS_SERVICE"
+    return "manifest: " + (", ".join(notes) if notes else "already patched")
 
 
-def patch_gradle(path: Path) -> str:
+SIGNING_BLOCK = """    signingConfigs {
+        create("tomevoice") {
+            storeFile = file(System.getenv("TV_KEYSTORE"))
+            storePassword = System.getenv("TV_KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("TV_KEY_ALIAS") ?: "tomevoice"
+            keyPassword = System.getenv("TV_KEYSTORE_PASSWORD")
+            storeType = "pkcs12"
+        }
+    }
+
+"""
+
+
+def patch_gradle(path: Path, signing: bool) -> str:
     text = path.read_text(encoding="utf-8")
     original = text
     notes = []
@@ -69,10 +169,42 @@ def patch_gradle(path: Path) -> str:
         if count:
             notes.append(f"{replacement} ({count})")
 
+    if PDFBOX not in text:
+        if path.suffix == ".kts":
+            text = text.rstrip() + f"\n\ndependencies {{\n    {PDFBOX}\n}}\n"
+        else:
+            text = text.rstrip() + "\n\ndependencies {\n    implementation 'com.tom-roush:pdfbox-android:2.0.27.0'\n}\n"
+        notes.append("pdfbox")
+
+    if 'proguardFiles("proguard-rules.pro")' not in text and path.suffix == ".kts":
+        text, n = re.subn(
+            r"(\n(\s*)release \{\n)",
+            lambda m: m.group(1) + m.group(2) + '    proguardFiles("proguard-rules.pro")\n',
+            text,
+            count=1,
+        )
+        if n:
+            notes.append("proguard rules")
+
+    if signing and 'create("tomevoice")' not in text:
+        if path.suffix != ".kts" or "    buildTypes {" not in text:
+            raise SystemExit("gradle: cannot place signingConfigs — CHECK THE TEMPLATE")
+        text = text.replace("    buildTypes {", SIGNING_BLOCK + "    buildTypes {", 1)
+        text, n = re.subn(
+            r'signingConfig\s*=\s*signingConfigs\.getByName\("debug"\)',
+            'signingConfig = signingConfigs.getByName("tomevoice")',
+            text,
+        )
+        if n != 1:
+            raise SystemExit("gradle: release signingConfig line not found — CHECK THE TEMPLATE")
+        notes.append("release signed with the TomeVoice key")
+
     if text != original:
         path.write_text(text, encoding="utf-8")
         return "gradle: " + ", ".join(notes)
-    return "gradle: nothing matched — CHECK THE TEMPLATE"
+    if not notes:
+        return "gradle: nothing matched — CHECK THE TEMPLATE"
+    return "gradle: already patched"
 
 
 def main() -> int:
@@ -90,7 +222,11 @@ def main() -> int:
     gradle = next((p for p in gradle_candidates if p.exists()), None)
     if gradle is None:
         raise SystemExit("no android/app/build.gradle[.kts] found")
-    print(patch_gradle(gradle))
+    keystore = os.environ.get("TV_KEYSTORE", "")
+    signing = bool(keystore) and Path(keystore).exists()
+    if not signing:
+        print("gradle: TV_KEYSTORE not set — release APK uses the throwaway debug key")
+    print(patch_gradle(gradle, signing))
 
     return 0
 

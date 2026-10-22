@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter/services.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
@@ -15,6 +16,24 @@ class SpeechService {
 
   static const _channel = MethodChannel('tomevoice/tts');
 
+  static final _events = StreamController<Map<String, Object?>>.broadcast();
+  static bool _handlerSet = false;
+
+  /// Platform events: audio focus, headphones unplugged, notification and
+  /// lock-screen buttons, "Open with TomeVoice", PDF import progress.
+  static Stream<Map<String, Object?>> get events {
+    if (!_handlerSet) {
+      _handlerSet = true;
+      _channel.setMethodCallHandler((call) async {
+        if (call.method == 'platformEvent' && call.arguments is Map) {
+          _events.add(Map<String, Object?>.from(call.arguments as Map));
+        }
+        return null;
+      });
+    }
+    return _events.stream;
+  }
+
   Future<Map<String, String>> launchArgs() async {
     try {
       final raw = await _channel.invokeMapMethod<String, Object?>('launchArgs');
@@ -23,6 +42,8 @@ class SpeechService {
           e.key: e.value?.toString() ?? '',
       };
     } on PlatformException {
+      return const {};
+    } on MissingPluginException {
       return const {};
     }
   }
@@ -51,13 +72,14 @@ class SpeechService {
           'locale': v['locale'] as String? ?? '',
           'quality': v['quality'] as int? ?? 0,
           'networkRequired': v['networkRequired'] == true,
+          'installed': v['installed'] != false,
         },
     ];
   }
 
   /// Android TTS is a single engine with one progress listener. Overlapping
   /// synthesise calls steal the listener and the first utterance never
-  /// continues the scheduler.
+  /// continues the scheduler, so this is strictly one at a time.
   static Future<void> _synthBusy = Future<void>.value();
 
   Future<Map<String, Object?>> synthesise({
@@ -86,24 +108,96 @@ class SpeechService {
     }
   }
 
+  /// Abandon the sentence being synthesised (after a seek).
+  Future<void> cancelSynthesis() => _quiet('cancelSynthesis');
+
   Future<String?> outputDir() => _channel.invokeMethod<String>('outputDir');
 
-  Future<void> play(String path, {bool wait = false}) =>
-      _channel.invokeMethod<void>('play', {'path': path, 'wait': wait});
+  // ---------------------------------------------------------------- player
 
-  Future<void> stopPlayback() => _channel.invokeMethod<void>('stop');
-
-  /// SAF picker. Returns null if the user cancelled.
-  Future<Map<String, String>?> pickDocument() async {
-    final raw =
-        await _channel.invokeMapMethod<String, Object?>('pickDocument');
-    if (raw == null) return null;
-    return {
-      for (final e in raw.entries) e.key: e.value?.toString() ?? '',
-    };
+  /// Queue PCM16 mono audio; returns the stream frame it will start at.
+  Future<int> enqueue(Uint8List pcm, int sampleRate) async {
+    final start = await _channel.invokeMethod<int>(
+      'playerEnqueue',
+      {'pcm': pcm, 'sampleRate': sampleRate},
+    );
+    return start ?? 0;
   }
 
-  /// Reads the WAV the engine wrote and runs it through the pipeline.
+  /// Frames the hardware has actually played in the current stream.
+  Future<int> position() async =>
+      await _channel.invokeMethod<int>('playerPosition') ?? 0;
+
+  Future<void> pausePlayback() => _quiet('playerPause');
+  Future<void> resumePlayback() => _quiet('playerResume');
+  Future<void> stopPlayback() => _quiet('playerStop');
+
+  /// The "reading aloud" foreground service that keeps speech going with the
+  /// screen off. Inactive ends it.
+  Future<void> session({
+    required bool active,
+    String title = '',
+    String subtitle = '',
+    bool playing = false,
+  }) =>
+      _quiet('session', {
+        'active': active,
+        'title': title,
+        'subtitle': subtitle,
+        'playing': playing,
+      });
+
+  Future<bool> openTtsSettings() async {
+    try {
+      return await _channel.invokeMethod<bool>('openTtsSettings') ?? false;
+    } on Object {
+      return false;
+    }
+  }
+
+  Future<void> _quiet(String method, [Object? args]) async {
+    try {
+      await _channel.invokeMethod<void>(method, args);
+    } on Object {
+      // Platform may not be ready in widget tests.
+    }
+  }
+
+  // ---------------------------------------------------------------- import
+
+  /// SAF picker, several files at once. Empty if the user cancelled.
+  Future<List<PickedFile>> pickDocuments() async {
+    final raw = await _channel.invokeListMethod<Object?>('pickDocuments');
+    return [
+      for (final m in raw ?? const [])
+        if (m is Map) PickedFile.fromMap(m),
+    ];
+  }
+
+  /// A file handed to us by "Open with" / "Share" before Dart was listening.
+  Future<PickedFile?> pendingOpen() async {
+    try {
+      final raw = await _channel.invokeMapMethod<String, Object?>('pendingOpen');
+      return raw == null ? null : PickedFile.fromMap(raw);
+    } on Object {
+      return null;
+    }
+  }
+
+  /// PDF text via PdfBox on the device.
+  Future<Map<String, Object?>> extractPdf(String path) async {
+    final raw = await _channel.invokeMapMethod<String, Object?>(
+      'extractPdf',
+      {'path': path},
+    );
+    if (raw == null) throw Exception('PDF extraction returned nothing');
+    return raw;
+  }
+
+  // ------------------------------------------------------------- pipeline
+
+  /// Reads the WAV the engine wrote and runs it through the pipeline. Used by
+  /// the measurement batch; playback uses [renderInBackground].
   Future<ProcessedSpeech> process(
     Map<String, Object?> native,
     PipelineSettings settings,
@@ -231,7 +325,7 @@ class SpeechService {
     ];
   }
 
-  /// Language first, then offline, then quality.
+  /// Language first, then installed and offline, then quality.
   ///
   /// Ranking by quality alone once selected an Arabic voice for English text,
   /// so language match is the primary key rather than a tiebreaker.
@@ -240,15 +334,15 @@ class SpeechService {
     String language,
   ) {
     if (voices.isEmpty) return null;
-    final matching = voices
-        .where((v) =>
-            (v['locale'] as String? ?? '').toLowerCase().startsWith(language))
-        .toList();
+    bool matches(Map<String, Object?> v) =>
+        (v['locale'] as String? ?? '').toLowerCase().startsWith(language);
+    final matching = voices.where(matches).toList();
     final pool = matching.isNotEmpty ? matching : voices;
-    final offline = pool.where((v) => v['networkRequired'] != true).toList();
-    final ranked = (offline.isNotEmpty ? offline : pool)
-      ..sort((a, b) =>
-          ((b['quality'] as int?) ?? 0).compareTo((a['quality'] as int?) ?? 0));
+    int score(Map<String, Object?> v) =>
+        (v['installed'] == false ? 0 : 4000) +
+        (v['networkRequired'] == true ? 0 : 2000) +
+        ((v['quality'] as int?) ?? 0);
+    final ranked = [...pool]..sort((a, b) => score(b).compareTo(score(a)));
     return ranked.first;
   }
 
@@ -258,13 +352,95 @@ class SpeechService {
     if (semitones == 0) return 1.0;
     var r = 1.0;
     final x = semitones / 12;
-    // 2^x without importing dart:math into the widget layer.
     final whole = x.truncate();
     for (var i = 0; i < whole.abs(); i++) {
       r = whole > 0 ? r * 2 : r / 2;
     }
     return (r * (1 + (x - whole) * 0.6931471805599453)).clamp(0.5, 2.0);
   }
+}
+
+class PickedFile {
+  const PickedFile({required this.path, required this.name, this.mime});
+
+  final String path;
+  final String name;
+  final String? mime;
+
+  static PickedFile fromMap(Map<Object?, Object?> m) => PickedFile(
+        path: m['path']?.toString() ?? '',
+        name: m['name']?.toString() ?? 'document',
+        mime: m['mime']?.toString(),
+      );
+}
+
+/// One sentence, ready for the player: raw PCM16 with the pause after it
+/// already appended, plus word timings in the same frame space.
+class RenderedSpeech {
+  const RenderedSpeech({
+    required this.pcm,
+    required this.sampleRate,
+    required this.speechFrames,
+    required this.totalFrames,
+    required this.timings,
+  });
+
+  final Uint8List pcm;
+  final int sampleRate;
+
+  /// Frames of voice; the rest of [totalFrames] is the pause after it.
+  final int speechFrames;
+  final int totalFrames;
+  final List<WordTiming> timings;
+}
+
+/// Decode, run the pipeline and encode for the player on a background
+/// isolate. On the UI isolate this work was a dropped frame per sentence.
+Future<RenderedSpeech> renderInBackground({
+  required Map<String, Object?> native,
+  required PipelineSettings settings,
+  required int pauseAfterMs,
+}) {
+  final job = (native: native, settings: settings, pauseAfterMs: pauseAfterMs);
+  return Isolate.run(() => _render(job));
+}
+
+RenderedSpeech _render(
+  ({
+    Map<String, Object?> native,
+    PipelineSettings settings,
+    int pauseAfterMs,
+  }) job,
+) {
+  final file = File(job.native['wavPath'] as String);
+  final bytes = file.readAsBytesSync();
+  try {
+    file.deleteSync();
+  } on FileSystemException {
+    // Cache directory; the platform sweeps it on next launch anyway.
+  }
+  final raw = WavCodec.decode(bytes);
+  final text = job.settings.text;
+  final decoded =
+      SpeechService.decodeTimings(job.native, raw.frameCount, text.length);
+  final result = buildStandardPipeline(job.settings).run(
+    SynthesisResult(
+      audio: raw,
+      wordTimings: decoded.timings.isNotEmpty
+          ? decoded.timings
+          : SpeechService.estimateTimings(text, raw.frameCount),
+      engineId: job.native['engineId'] as String? ?? 'unknown',
+    ),
+  );
+  final audio = result.audio;
+  final pause = audio.msToFrames(job.pauseAfterMs);
+  return RenderedSpeech(
+    pcm: WavCodec.pcm16Bytes(audio, silenceFrames: pause),
+    sampleRate: audio.sampleRate,
+    speechFrames: audio.frameCount,
+    totalFrames: audio.frameCount + pause,
+    timings: result.wordTimings,
+  );
 }
 
 class ProcessedSpeech {

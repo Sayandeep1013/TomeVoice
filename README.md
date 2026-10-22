@@ -21,12 +21,13 @@ on-device neural ones.
 
 ## Status
 
-**You can use it.** The audio-engine spike is proven on a real device. The app now
-opens EPUB, TXT and Markdown from the library and reads them aloud sentence by
-sentence, with the same word-gap / pause / speed controls.
+**You can use it.** Import EPUB, PDF, DOCX, ODT, MOBI/AZW3, FB2, RTF, HTML, Markdown or
+plain text, and it reads it aloud sentence by sentence with word highlighting, gapless
+streaming audio, and the word-gap / pause / speed controls. It keeps reading with the
+screen off, with pause and resume on the lock screen and headset.
 
-APKs still come from CI ([ADR-016](docs/10-decisions-adr.md#adr-016)): push, download
-`tomevoice-spike-apk`, `adb install`. There is no local Flutter install.
+Release APKs come from CI ([ADR-016](docs/10-decisions-adr.md#adr-016)): download
+`tomevoice-apk`, `adb install -r`. There is no local Flutter install.
 
 **Picking this up cold? Start at
 [16 — Session Handoff](docs/16-session-handoff.md).**

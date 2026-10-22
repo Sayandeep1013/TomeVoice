@@ -1,10 +1,20 @@
 name: build
 
+# Builds cost minutes, so only the pushes that matter build: main, pull
+# requests, and a manual "Run workflow" (gh workflow run build.yml --ref <branch>)
+# for a feature branch. Docs-only changes never build an APK.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
+    paths-ignore: ["docs/**", "**/*.md", "mobile-qa/**", "spike-runs/**"]
   pull_request:
+    paths-ignore: ["docs/**", "**/*.md", "mobile-qa/**", "spike-runs/**"]
   workflow_dispatch:
+
+# A newer push to the same ref makes the older build pointless.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   # The gate that matters day to day. Runs in seconds, needs no Android
@@ -70,7 +80,7 @@ jobs:
   # Only runs if the core is green, so a broken pipeline never produces an
   # installable build.
   android-apk:
-    name: Android debug APK
+    name: Android release APK
     runs-on: ubuntu-latest
     needs: dart-core
     steps:
@@ -86,6 +96,15 @@ jobs:
           channel: stable
           cache: true
 
+      # Gradle, AGP and PdfBox downloads dominate a cold Android build.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('app/pubspec.yaml', 'tools/prepare_android.py') }}
+          restore-keys: gradle-${{ runner.os }}-
+
       - name: Show toolchain
         run: flutter --version
 
@@ -99,11 +118,7 @@ jobs:
           cp -r lib /tmp/tv_lib
           cp -r test /tmp/tv_test
           cp pubspec.yaml /tmp/tv_pubspec.yaml
-          flutter create \
-            --platforms=android \
-            --project-name tomevoice_spike \
-            --org app.tomevoice \
-            .
+          flutter create --platforms=android --project-name tomevoice_spike --org app.tomevoice .
           # flutter create writes lib/main.dart and pubspec.yaml, and also a
           # stub test/widget_test.dart referencing a MyApp class this project
           # does not have. All three are ours; restore all three.
@@ -111,6 +126,20 @@ jobs:
           cp -r /tmp/tv_lib lib
           cp -r /tmp/tv_test test
           cp /tmp/tv_pubspec.yaml pubspec.yaml
+
+      # A stable key means each build installs over the last one. Without the
+      # secret the APK is signed with a throwaway key and needs an uninstall
+      # (which wipes the library) before it will install.
+      - name: Restore signing key
+        env:
+          TV_KEYSTORE_B64: ${{ secrets.TV_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$TV_KEYSTORE_B64" ]; then
+            echo "$TV_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/tomevoice.p12"
+            echo "TV_KEYSTORE=$RUNNER_TEMP/tomevoice.p12" >> "$GITHUB_ENV"
+          else
+            echo "::warning::TV_KEYSTORE_B64 is not set; the APK will need an uninstall to install."
+          fi
 
       - name: Apply our Android sources
         working-directory: app
@@ -121,18 +150,19 @@ jobs:
       - name: Verify the overlay landed
         working-directory: app
         run: |
-          echo "--- MainActivity ---"
-          test -f android/app/src/main/kotlin/app/tomevoice/tomevoice_spike/MainActivity.kt
-          grep -q "tomevoice/tts" android/app/src/main/kotlin/app/tomevoice/tomevoice_spike/MainActivity.kt
-          echo "--- manifest queries ---"
-          grep -q "TTS_SERVICE" android/app/src/main/AndroidManifest.xml
-          echo "--- launcher icon ---"
+          set -e
+          K=android/app/src/main/kotlin/app/tomevoice/tomevoice_spike
+          M=android/app/src/main/AndroidManifest.xml
+          for f in MainActivity PcmPlayer ReadAloudService PdfText; do test -f "$K/$f.kt"; done
+          grep -q "tomevoice/tts" "$K/MainActivity.kt"
+          grep -q "TTS_SERVICE" "$M"
+          grep -q "ReadAloudService" "$M"
+          grep -q 'foregroundServiceType="mediaPlayback"' "$M"
+          grep -q 'android:label="TomeVoice"' "$M"
+          grep -q "pdfbox-android" android/app/build.gradle.kts
+          test -f android/app/proguard-rules.pro
           test -f android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
-          test -f android/app/src/main/res/drawable/ic_launcher_foreground.png
-          grep -q "ic_launcher_background" android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
-          echo "--- sdk levels ---"
-          grep -E "minSdk|targetSdk" android/app/build.gradle.kts || \
-            grep -E "minSdk|targetSdk" android/app/build.gradle
+          grep -E "minSdk|targetSdk" android/app/build.gradle.kts
 
       - name: Resolve dependencies
         working-directory: app
@@ -146,12 +176,18 @@ jobs:
         working-directory: app
         run: flutter test
 
-      - name: Build debug APK
+      # Release, not debug: a debug build runs Dart unoptimised (JIT with
+      # asserts) and was several times slower at everything the user touches.
+      # arm64 only: every phone this is installed on is arm64, and one ABI is
+      # a smaller APK and a faster build.
+      - name: Build release APK
         working-directory: app
-        run: flutter build apk --debug
+        env:
+          TV_KEYSTORE_PASSWORD: ${{ secrets.TV_KEYSTORE_PASSWORD }}
+        run: flutter build apk --release --target-platform android-arm64
 
       - uses: actions/upload-artifact@v4
         with:
-          name: tomevoice-spike-apk
-          path: app/build/app/outputs/flutter-apk/app-debug.apk
+          name: tomevoice-apk
+          path: app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error

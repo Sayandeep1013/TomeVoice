@@ -1,17 +1,52 @@
 import 'dart:async';
-import 'dart:io';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'speech_service.dart';
 
-/// Sequential sentence playback with one-sentence lookahead.
+enum PlayState { idle, loading, playing, paused }
+
+/// The word being spoken: unit index plus a character range in that unit's
+/// text. `start < 0` means no word (between sentences, or not playing).
+@immutable
+class WordMark {
+  const WordMark(this.unit, this.start, this.end);
+  static const none = WordMark(-1, -1, -1);
+
+  final int unit;
+  final int start;
+  final int end;
+
+  @override
+  bool operator ==(Object other) =>
+      other is WordMark && other.unit == unit && other.start == start && other.end == end;
+
+  @override
+  int get hashCode => Object.hash(unit, start, end);
+}
+
+class _Chunk {
+  _Chunk(this.unit, this.start, this.speechFrames, this.totalFrames, this.timings);
+  final int unit;
+  final int start;
+  final int speechFrames;
+  final int totalFrames;
+  final List<WordTiming> timings;
+  int get end => start + totalFrames;
+}
+
+/// Streams sentences into the platform player, keeping several seconds of
+/// audio queued ahead of what is audible.
 ///
-/// System TTS is fast enough that depth 1 covers gaps between sentences.
-/// Neural engines (Phase 3) will raise this from measured RTF. Invalidating
-/// controls flush n+1 and let the current sentence finish — docs/02 §2.7.
+/// Synthesis stays strictly one sentence at a time (the engine has a single
+/// progress listener; see SpeechService.synthesise), but because the player
+/// streams, sentence n+1 is already queued behind n when n ends: there is no
+/// gap to fill. What is audible is read back from the hardware playback head,
+/// so the current sentence and word follow the sound itself rather than a
+/// timer started when we asked for playback.
 class PlaybackScheduler {
   PlaybackScheduler({
     required this.service,
@@ -19,12 +54,7 @@ class PlaybackScheduler {
     required this.settingsFor,
     required this.engineIdOf,
     required this.voiceNameOf,
-    required this.speedViaEngineOf,
-    required this.onUnit,
-    required this.onTimings,
-    required this.onWord,
-    required this.onStatus,
-    required this.onFinished,
+    required this.pauseAfter,
   });
 
   final SpeechService service;
@@ -32,166 +62,207 @@ class PlaybackScheduler {
   final PipelineSettings Function(String text) settingsFor;
   final String? Function() engineIdOf;
   final String? Function() voiceNameOf;
-  final bool Function() speedViaEngineOf;
-  final void Function(int index, Speakable unit) onUnit;
-  final void Function(List<WordTiming> timings) onTimings;
-  final void Function(int wordIndex) onWord;
-  final void Function(String status) onStatus;
-  final void Function() onFinished;
 
-  bool _running = false;
-  bool _stop = false;
-  int _index = 0;
-  Future<ProcessedSpeech>? _lookahead;
-  int _lookaheadIndex = -1;
-  int _lastWord = -2;
+  /// Silence after unit i (sentence or paragraph pause).
+  final int Function(int index) pauseAfter;
 
-  bool get running => _running;
-  int get index => _index;
+  final state = ValueNotifier<PlayState>(PlayState.idle);
+  final unit = ValueNotifier<int>(0);
+  final word = ValueNotifier<WordMark>(WordMark.none);
 
-  Future<void> start(int from) async {
+  /// Last error worth showing, cleared on the next play.
+  final error = ValueNotifier<String?>(null);
+
+  /// Called when the end of the book has been spoken.
+  VoidCallback? onFinished;
+
+  static const _ahead = Duration(seconds: 10);
+
+  int _gen = 0;
+  final _chunks = <_Chunk>[];
+  int _next = 0;
+  int _rate = 24000;
+  int _position = 0;
+  bool _fillDone = false;
+  bool _ticking = false;
+  Timer? _ticker;
+
+  bool get active => state.value != PlayState.idle;
+  bool get isPlaying =>
+      state.value == PlayState.playing || state.value == PlayState.loading;
+
+  /// Start speaking at [from], discarding anything queued.
+  Future<void> play(int from) async {
     if (units.isEmpty) return;
-    await stop();
-    _stop = false;
-    _running = true;
-    _index = from.clamp(0, units.length - 1);
-    try {
-      while (!_stop && _index < units.length) {
-        final i = _index;
-        final unit = units[i];
-        onUnit(i, unit);
-        onStatus('Synthesising');
-
-        final current = (_lookaheadIndex == i && _lookahead != null)
-            ? _lookahead!
-            : _process(unit);
-        _lookahead = null;
-        _lookaheadIndex = -1;
-
-        final ProcessedSpeech run;
-        try {
-          run = await current;
-        } catch (_) {
-          _dropLookahead();
-          rethrow;
-        }
-        if (_stop) break;
-
-        // One TTS job at a time. Kick n+1 only after n is on disk, so it
-        // synthesises while n plays from WAV — never overlapping synthesizeToFile.
-        if (i + 1 < units.length && !_stop) {
-          _lookaheadIndex = i + 1;
-          _lookahead = _process(units[i + 1]);
-        }
-
-        onTimings(run.timings);
-        onStatus('');
-        await _play(run, _gapAfter(unit, i));
-        if (_stop) break;
-        _index = i + 1;
-      }
-    } finally {
-      _running = false;
-      _dropLookahead();
-      onWord(-1);
-      if (!_stop) onFinished();
-    }
+    final gen = await _reset();
+    _next = from.clamp(0, units.length - 1);
+    unit.value = _next;
+    word.value = WordMark.none;
+    error.value = null;
+    state.value = PlayState.loading;
+    _ticker = Timer.periodic(const Duration(milliseconds: 40), (_) => _tick(gen));
+    unawaited(_fill(gen));
   }
 
-  void _dropLookahead() {
-    final pending = _lookahead;
-    _lookahead = null;
-    _lookaheadIndex = -1;
-    if (pending == null) return;
-    // A failed n+1 must not become an uncaught async error when n throws.
-    unawaited(pending.then((_) {}, onError: (_) {}));
+  Future<void> pause() async {
+    if (!active || state.value == PlayState.paused) return;
+    state.value = PlayState.paused;
+    await service.pausePlayback();
   }
 
-  /// Drop buffered audio after the current sentence. Call when voice/rate/gap
-  /// change so the new settings are audible at sentence n+1.
-  void invalidateLookahead() {
-    _dropLookahead();
+  Future<void> resume() async {
+    if (state.value != PlayState.paused) return;
+    state.value = PlayState.playing;
+    await service.resumePlayback();
   }
 
   Future<void> stop() async {
-    _stop = true;
-    _dropLookahead();
-    try {
-      await service.stopPlayback();
-    } on Object {
-      // Platform may not be ready in widget tests.
-    }
-    _running = false;
+    await _reset();
+    state.value = PlayState.idle;
+    word.value = WordMark.none;
   }
 
-  Future<ProcessedSpeech> _process(Speakable unit) async {
-    final native = await service.synthesise(
-      text: unit.text,
-      engineId: engineIdOf(),
-      voiceName: voiceNameOf(),
-      rate: speedViaEngineOf() ? settingsFor(unit.text).speedScale : 1.0,
-      pitch: SpeechService.semitonesToPitch(
-        settingsFor(unit.text).pitchSemitones,
-      ),
-    );
-    final settings = settingsFor(unit.text).copyWith(sentencePauseMs: 0);
-    return service.process(native, settings);
+  void dispose() {
+    _gen++;
+    _ticker?.cancel();
+    unawaited(service.stopPlayback());
+    state.dispose();
+    unit.dispose();
+    word.dispose();
+    error.dispose();
   }
 
-  /// Scheduler owns inter-sentence and inter-paragraph silence so the
-  /// paragraph slider actually does something. The pipeline still bakes a
-  /// trailing sentence pause if we leave it on — that would stack.
-  int _gapAfter(Speakable unit, int i) {
-    final settings = settingsFor(unit.text);
-    if (i + 1 >= units.length) return settings.sentencePauseMs;
-    final next = units[i + 1];
-    if (next.blockId != unit.blockId) return settings.paragraphPauseMs;
-    return settings.sentencePauseMs;
+  Future<int> _reset() async {
+    final gen = ++_gen;
+    _ticker?.cancel();
+    _ticker = null;
+    _chunks.clear();
+    _position = 0;
+    _fillDone = false;
+    await service.cancelSynthesis();
+    await service.stopPlayback();
+    return gen;
   }
 
-  Future<void> _play(ProcessedSpeech run, int gapMs) async {
-    final dir = await service.outputDir();
-    if (dir == null) {
-      onStatus('No storage');
-      return;
-    }
-    var audio = run.audio;
-    if (gapMs > 0) {
-      final extra = audio.msToFrames(gapMs);
-      final samples = Float32List(audio.frameCount + extra)
-        ..setRange(0, audio.frameCount, audio.samples);
-      audio = audio.withSamples(samples);
-    }
-    final path = '$dir/preview.wav';
-    await File(path).writeAsBytes(WavCodec.encodePcm16(audio));
+  int get _queuedEnd => _chunks.isEmpty ? 0 : _chunks.last.end;
 
-    final follow = _followAlong(
-      run.timings,
-      audio.sampleRate,
-      audio.frameCount,
-    );
-    await service.play(path, wait: true);
-    await follow;
-  }
-
-  Future<void> _followAlong(
-    List<WordTiming> timings,
-    int rate,
-    int frameCount,
-  ) async {
-    final started = DateTime.now();
-    _lastWord = -2;
-    while (!_stop) {
-      final elapsed = DateTime.now().difference(started).inMilliseconds;
-      final frame = elapsed * rate ~/ 1000;
-      if (frame > frameCount) break;
-      final i = timings.lastIndexWhere((t) => t.frameStart <= frame);
-      if (i != _lastWord) {
-        _lastWord = i;
-        onWord(i);
+  Future<void> _fill(int gen) async {
+    var failures = 0;
+    while (gen == _gen) {
+      if (_next >= units.length) break;
+      final ahead = _queuedEnd - _position;
+      if (_chunks.isNotEmpty && ahead > _rate * _ahead.inSeconds) {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+        continue;
       }
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      final i = _next;
+      final text = units[i].text;
+      try {
+        final s = settingsFor(text);
+        final native = await service.synthesise(
+          text: text,
+          engineId: engineIdOf(),
+          voiceName: voiceNameOf(),
+          rate: s.speedScale,
+          pitch: SpeechService.semitonesToPitch(s.pitchSemitones),
+        );
+        if (gen != _gen) return;
+        final r = await renderInBackground(
+          native: native,
+          // Speed is the engine's job (real duration change); the DSP stub
+          // would pitch-shift. Sentence pause is ours, appended below.
+          settings: s.copyWith(speedScale: 1.0, sentencePauseMs: 0, text: text),
+          pauseAfterMs: pauseAfter(i),
+        );
+        if (gen != _gen) return;
+        final start = await service.enqueue(r.pcm, r.sampleRate);
+        if (gen != _gen) return;
+        _rate = r.sampleRate;
+        _chunks.add(_Chunk(i, start, r.speechFrames, r.totalFrames, r.timings));
+        _next = i + 1;
+        failures = 0;
+      } on PlatformException catch (e) {
+        if (gen != _gen) return;
+        if (e.code == 'TTS_STOPPED') return;
+        // One unspeakable line ("* * *") should not end the book.
+        failures++;
+        _next = i + 1;
+        if (failures >= 3) {
+          error.value = e.message ?? e.code;
+          break;
+        }
+      } on Object catch (e) {
+        if (gen != _gen) return;
+        failures++;
+        _next = i + 1;
+        if (failures >= 3) {
+          error.value = '$e';
+          break;
+        }
+      }
     }
-    onWord(-1);
+    if (gen == _gen) _fillDone = true;
+  }
+
+  Future<void> _tick(int gen) async {
+    if (_ticking || gen != _gen) return;
+    _ticking = true;
+    try {
+      final pos = await service.position();
+      if (gen != _gen) return;
+      _position = pos;
+      if (_chunks.isEmpty) {
+        if (_fillDone) await _finish(gen);
+        return;
+      }
+      if (pos >= _queuedEnd) {
+        if (_fillDone) {
+          await _finish(gen);
+        } else if (state.value == PlayState.playing) {
+          // Ran dry: synthesis is behind. Say so instead of looking frozen.
+          state.value = PlayState.loading;
+        }
+        return;
+      }
+
+      var k = _chunks.length - 1;
+      while (k > 0 && _chunks[k].start > pos) {
+        k--;
+      }
+      final c = _chunks[k];
+      // Drop what has been played, keep the current chunk.
+      if (k > 0) _chunks.removeRange(0, k);
+
+      if (state.value == PlayState.loading) state.value = PlayState.playing;
+      if (unit.value != c.unit) unit.value = c.unit;
+
+      final rel = pos - c.start;
+      var w = -1;
+      for (var t = 0; t < c.timings.length; t++) {
+        if (c.timings[t].frameStart <= rel) {
+          w = t;
+        } else {
+          break;
+        }
+      }
+      final mark = w < 0 || rel >= c.speechFrames
+          ? WordMark.none
+          : WordMark(c.unit, c.timings[w].charStart, c.timings[w].charEnd);
+      if (word.value != mark) word.value = mark;
+    } on Object {
+      // A missed tick is invisible; the next one catches up.
+    } finally {
+      _ticking = false;
+    }
+  }
+
+  Future<void> _finish(int gen) async {
+    if (gen != _gen) return;
+    _ticker?.cancel();
+    _ticker = null;
+    state.value = PlayState.idle;
+    word.value = WordMark.none;
+    await service.stopPlayback();
+    if (error.value == null) onFinished?.call();
   }
 }

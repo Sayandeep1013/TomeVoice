@@ -1,7 +1,8 @@
 name: tomevoice_spike
 description: >-
-  TomeVoice reader. Opens EPUB, TXT and Markdown, and reads them aloud with
-  the owned audio pipeline. See docs/16-session-handoff.md.
+  TomeVoice reader. Opens EPUB, PDF, DOCX, MOBI/AZW3, ODT, FB2, RTF, HTML,
+  Markdown and text, and reads them aloud with the owned audio pipeline.
+  See docs/16-session-handoff.md.
 publish_to: none
 version: 0.1.0
 
@@ -15,6 +16,9 @@ dependencies:
     path: ../packages/tomevoice_audio
   tomevoice_document:
     path: ../packages/tomevoice_document
+  # Jump to any paragraph of a 17,000-item book without building the ones in
+  # between. BSD-3-Clause (Google), GPL-3.0 compatible.
+  scrollable_positioned_list: ^0.3.8
 
 dev_dependencies:
   flutter_test:

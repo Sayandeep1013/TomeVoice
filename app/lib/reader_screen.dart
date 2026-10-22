@@ -1,969 +1,1036 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:tomevoice_audio/tomevoice_audio.dart';
+import 'package:flutter/rendering.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'library_store.dart';
-import 'brand.dart';
+import 'listen_sheet.dart';
+import 'prefs.dart';
 import 'scheduler.dart';
-import 'settings_panel.dart';
 import 'speech_service.dart';
 import 'theme.dart';
+import 'voices.dart';
 
 const _svc = SpeechService();
+
+/// Opens a book: shows the reading surface's frame at once and fills it when
+/// the background isolate has the layout, so a tap on a book responds
+/// immediately even for a 200-chapter EPUB.
+class BookLoader extends StatefulWidget {
+  const BookLoader({
+    super.key,
+    required this.store,
+    required this.entry,
+    this.autoplay = false,
+  });
+
+  final LibraryStore store;
+  final LibraryEntry entry;
+  final bool autoplay;
+
+  @override
+  State<BookLoader> createState() => _BookLoaderState();
+}
+
+class _BookLoaderState extends State<BookLoader> {
+  late final Future<(ReadingLayout, ReadingCursor)> _load = () async {
+    final results = await Future.wait([
+      widget.store.loadLayout(widget.entry.id),
+      widget.store.cursorFor(widget.entry.id),
+    ]);
+    return (results[0] as ReadingLayout, results[1] as ReadingCursor);
+  }();
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder(
+        future: _load,
+        builder: (context, snap) {
+          final data = snap.data;
+          if (data != null) {
+            return ReaderScreen(
+              layout: data.$1,
+              store: widget.store,
+              initialCursor: data.$2,
+              autoplay: widget.autoplay,
+            );
+          }
+          return _ReaderSkeleton(
+            title: widget.entry.title,
+            error: snap.hasError ? '${snap.error}' : null,
+          );
+        },
+      );
+}
+
+class _ReaderSkeleton extends StatelessWidget {
+  const _ReaderSkeleton({required this.title, this.error});
+
+  final String title;
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) {
+    final faint = Skin.inkFaintOn(context).withValues(alpha: 0.18);
+    return Scaffold(
+      body: DecoratedBox(
+        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    RoundButton(
+                      icon: Icons.arrow_back_rounded,
+                      tooltip: 'Back to library',
+                      onTap: () => Navigator.of(context).maybePop(),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Skin.title(context, size: 18)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 28),
+                if (error != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Text(error!, style: Skin.label(context, size: 13)),
+                  )
+                else
+                  for (final w in const [0.5, 0.95, 0.9, 0.97, 0.6, 0.0, 0.93, 0.88, 0.96, 0.4])
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
+                      child: FractionallySizedBox(
+                        widthFactor: w == 0 ? 0.01 : w,
+                        child: Container(
+                          height: w == 0 ? 6 : 14,
+                          decoration: BoxDecoration(
+                            color: w == 0 ? Colors.transparent : faint,
+                            borderRadius: BorderRadius.circular(7),
+                          ),
+                        ),
+                      ),
+                    ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 /// The reading surface.
 ///
 /// Laid out from the reference design (docs/10 ADR-017): a soft gradient
-/// ground, chrome that floats over it as capsules, monospace instrumentation at
-/// low contrast, and the text itself as the loudest thing on screen by a wide
-/// margin. The text is the current sentence of a real [Book], not a pasted blob.
+/// ground, chrome as floating capsules, monospace instrumentation, and the
+/// text itself as the loudest thing on screen. The whole book scrolls as one
+/// page; the sentence being spoken is washed amber and the word under the
+/// voice a little stronger.
 class ReaderScreen extends StatefulWidget {
   const ReaderScreen({
     super.key,
-    required this.book,
+    required this.layout,
     this.store,
     this.initialCursor = ReadingCursor.zero,
+    this.autoplay = false,
   });
 
-  final Book book;
+  final ReadingLayout layout;
   final LibraryStore? store;
   final ReadingCursor initialCursor;
+  final bool autoplay;
 
   @override
   State<ReaderScreen> createState() => _ReaderScreenState();
 }
 
-class _ReaderScreenState extends State<ReaderScreen>
-    with SingleTickerProviderStateMixin {
-  late final List<Speakable> _rawUnits = flattenSpeakable(widget.book);
-  late final List<int> _chapters =
-      readingSectionIndexes(widget.book, _rawUnits);
-  late final List<Speakable> _units = () {
-    final keep = _chapters.toSet();
-    if (keep.isEmpty) return _rawUnits;
-    return [for (final u in _rawUnits) if (keep.contains(u.sectionIndex)) u];
-  }();
-  late int _unitIndex;
-  late final PageController _pageController;
-  bool _paging = false;
-  bool _pageReady = false;
-  final _wordIndex = ValueNotifier<int>(-1);
+class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver {
+  ReadingLayout get _l => widget.layout;
+  Book get _book => _l.book;
+
+  late final ValueNotifier<int> _cursor =
+      ValueNotifier(_l.isEmpty ? 0 : _l.unitForCursor(widget.initialCursor));
+  final _detached = ValueNotifier<bool>(false);
+  final _scroll = ItemScrollController();
+  final _positions = ItemPositionsListener.create();
+
+  late final PlaybackScheduler _player;
+  ListeningPrefs _prefs = ListeningPrefs.memory;
+  final _catalog = VoiceCatalog.instance;
+  late final String _language = _primaryLanguage(_book.metadata.language);
+
+  StreamSubscription<Map<String, Object?>>? _events;
   Timer? _persistTimer;
+  Timer? _restartTimer;
+  bool _resumeOnFocus = false;
+  int _sessionChapter = -1;
+  PlayState _sessionState = PlayState.idle;
+  bool _programmaticScroll = false;
 
-  List<Map<String, String>> _engines = [];
-  String? _engineId;
-  List<Map<String, Object?>> _voices = [];
-  String? _voiceName;
-
-  PipelineSettings _settings = const PipelineSettings();
-  String? _presetId = 'natural';
-  bool _speedViaEngine = true;
-
-  String _status = '';
-  List<WordTiming> _timings = const [];
-
-  PlaybackScheduler? _scheduler;
-  int _playEpoch = 0;
-  final _currentSentenceKey = GlobalKey();
-
-  PanelSection? _openPanel;
-  late final AnimationController _panel = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 280),
-  );
-  late final Animation<double> _panelCurve =
-      CurvedAnimation(parent: _panel, curve: Curves.easeOutCubic);
-
-  String get _targetLanguage {
-    final lang = widget.book.metadata.language ?? 'en';
-    return lang.length >= 2 ? lang.substring(0, 2).toLowerCase() : 'en';
-  }
-
-  Speakable? get _current =>
-      _units.isEmpty ? null : _units[_unitIndex.clamp(0, _units.length - 1)];
-
-  int get _chapterPage {
-    final section = _current?.sectionIndex;
-    if (section == null || _chapters.isEmpty) return 0;
-    final i = _chapters.indexOf(section);
-    return i < 0 ? 0 : i;
-  }
-
-  String get _chapterTitle {
-    if (_chapters.isEmpty || widget.book.sections.isEmpty) return '';
-    final section = _current?.sectionIndex ?? _chapters.first;
-    final i = section.clamp(0, widget.book.sections.length - 1);
-    return widget.book.sections[i].displayTitle;
-  }
+  SleepChoice _sleep = SleepChoice.off;
+  Timer? _sleepTimer;
+  DateTime? _sleepAt;
+  int _sleepChapter = -1;
 
   @override
   void initState() {
     super.initState();
-    _unitIndex = _units.isEmpty
-        ? 0
-        : readingIndexOfCursor(_units, widget.book, widget.initialCursor);
-    _pageController = PageController(initialPage: _chapterPage);
-    _loadEngines();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _pageReady = true;
-      _scrollToCurrent();
-    });
+    WidgetsBinding.instance.addObserver(this);
+    _player = PlaybackScheduler(
+      service: _svc,
+      units: _l.units,
+      settingsFor: (text) => _prefs.settings.copyWith(text: text),
+      engineIdOf: () => _prefs.engineId ?? _catalog.engineId,
+      voiceNameOf: () => _listen.voiceName,
+      pauseAfter: _pauseAfter,
+    )..onFinished = _onFinished;
+    _player.unit.addListener(() => _cursor.value = _player.unit.value);
+    _player.state.addListener(_onPlayState);
+    _cursor.addListener(_onCursor);
+    _catalog.addListener(_onCatalog);
+    unawaited(_catalog.ensureLoaded());
+    _events = SpeechService.events.listen(_onPlatformEvent);
+    unawaited(_loadPrefs());
+    if (widget.autoplay) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _togglePlay());
+    }
+  }
+
+  Future<void> _loadPrefs() async {
+    final dir = widget.store?.root.path;
+    if (dir == null) return;
+    final p = await ListeningPrefs.load(dir);
+    if (!mounted) return;
+    setState(() => _prefs = p);
+    if (p.engineId != null && p.engineId != _catalog.engineId) {
+      await _catalog.ensureLoaded();
+      await _catalog.switchEngine(p.engineId!);
+    }
   }
 
   @override
   void dispose() {
-    _playEpoch++;
+    WidgetsBinding.instance.removeObserver(this);
     _persistTimer?.cancel();
+    _restartTimer?.cancel();
+    _sleepTimer?.cancel();
     unawaited(_persist());
-    unawaited(_scheduler?.stop());
-    _wordIndex.dispose();
-    _pageController.dispose();
-    _panel.dispose();
+    unawaited(_events?.cancel());
+    _catalog.removeListener(_onCatalog);
+    unawaited(_svc.session(active: false));
+    _player.dispose();
+    _cursor.dispose();
+    _detached.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+      unawaited(_persist());
+    }
+  }
+
+  void _onCatalog() {
+    if (mounted) setState(() {});
+  }
+
+  ListenController get _listen => ListenController(
+        prefs: _prefs,
+        language: _language,
+        onChanged: _onSettingsChanged,
+        sleep: _sleep,
+        onSleep: _setSleep,
+      );
+
+  /// Stop reading after a while, or at the end of this chapter — for
+  /// listening in bed with the screen off.
+  void _setSleep(SleepChoice choice) {
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+    _sleepAt = null;
+    _sleepChapter = -1;
+    final minutes = switch (choice) {
+      SleepChoice.min15 => 15,
+      SleepChoice.min30 => 30,
+      SleepChoice.min60 => 60,
+      _ => 0,
+    };
+    if (minutes > 0) {
+      final d = Duration(minutes: minutes);
+      _sleepAt = DateTime.now().add(d);
+      _sleepTimer = Timer(d, () => _sleepNow('Sleep timer: paused.'));
+    } else if (choice == SleepChoice.chapterEnd) {
+      _sleepChapter = _l.chapterOfUnit(_cursor.value);
+    }
+    setState(() => _sleep = choice);
+  }
+
+  void _sleepNow(String message) {
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+    _sleepAt = null;
+    _sleepChapter = -1;
+    unawaited(_player.pause());
+    if (mounted) {
+      setState(() => _sleep = SleepChoice.off);
+      _snack(message);
+    }
+  }
+
+  String? get _sleepNote {
+    final at = _sleepAt;
+    if (at != null) {
+      final left = at.difference(DateTime.now()).inMinutes + 1;
+      return 'SLEEP ${left}M';
+    }
+    if (_sleep == SleepChoice.chapterEnd) return 'SLEEP AT CHAPTER END';
+    return null;
+  }
+
+  int _pauseAfter(int i) {
+    final s = _prefs.settings;
+    if (i + 1 >= _l.units.length) return s.sentencePauseMs;
+    final here = _l.units[i];
+    final next = _l.units[i + 1];
+    if (_l.unitChapter[i] != _l.unitChapter[i + 1]) return s.paragraphPauseMs + 400;
+    if (next.blockId != here.blockId) return s.paragraphPauseMs;
+    return s.sentencePauseMs;
+  }
+
+  // ------------------------------------------------------------- playback
+
+  Future<void> _togglePlay() async {
+    if (_l.isEmpty) return;
+    switch (_player.state.value) {
+      case PlayState.idle:
+        _follow();
+        await _player.play(_cursor.value);
+      case PlayState.paused:
+        await _player.resume();
+      case PlayState.playing:
+      case PlayState.loading:
+        await _player.pause();
+    }
+  }
+
+  /// Move to [unit]. Tapping text always means "read from here"; the
+  /// buttons keep playing if we were playing and just move if not.
+  Future<void> _goTo(int unit, {bool play = false}) async {
+    if (_l.isEmpty) return;
+    final next = unit.clamp(0, _l.units.length - 1);
+    _cursor.value = next;
+    _follow();
+    final state = _player.state.value;
+    if (play || state == PlayState.playing || state == PlayState.loading) {
+      await _player.play(next);
+    } else if (state == PlayState.paused) {
+      await _player.stop();
+    }
+  }
+
+  void _goChapter(int delta) {
+    final c = (_l.chapterOfUnit(_cursor.value) + delta).clamp(0, _l.chapters.length - 1);
+    unawaited(_goTo(_l.chapterFirstUnit[c]));
+  }
+
+  void _onSettingsChanged({required bool restart}) {
+    if (mounted) setState(() {});
+    if (!restart) return;
+    // Make the change audible from the current sentence, once the user has
+    // stopped fiddling.
+    _restartTimer?.cancel();
+    _restartTimer = Timer(const Duration(milliseconds: 350), () {
+      final s = _player.state.value;
+      if (s == PlayState.playing || s == PlayState.loading) {
+        unawaited(_player.play(_cursor.value));
+      }
+    });
+  }
+
+  void _onFinished() {
+    unawaited(_persist());
+    if (mounted) {
+      _snack('Finished. That is the end of the book.');
+    }
+  }
+
+  void _onPlayState() {
+    final s = _player.state.value;
+    final err = _player.error.value;
+    if (s == PlayState.idle && err != null && mounted) {
+      _snack('Reading stopped: $err');
+    }
+    _updateSession();
+  }
+
+  void _updateSession({bool force = false}) {
+    final s = _player.state.value;
+    final chapter = _l.chapterOfUnit(_cursor.value);
+    if (!force && s == _sessionState && chapter == _sessionChapter) return;
+    final wasActive = _sessionState != PlayState.idle;
+    _sessionState = s;
+    _sessionChapter = chapter;
+    if (s == PlayState.idle) {
+      if (wasActive) unawaited(_svc.session(active: false));
+      return;
+    }
+    unawaited(_svc.session(
+      active: true,
+      title: _book.metadata.title,
+      subtitle: _l.chapterTitle(chapter),
+      playing: s != PlayState.paused,
+    ));
+  }
+
+  void _onPlatformEvent(Map<String, Object?> e) {
+    switch (e['type']) {
+      case 'noisy':
+      case 'focusLoss':
+        unawaited(_player.pause());
+      case 'focusLossTransient':
+        if (_player.isPlaying) {
+          _resumeOnFocus = true;
+          unawaited(_player.pause());
+        }
+      case 'focusGain':
+        if (_resumeOnFocus && _player.state.value == PlayState.paused) {
+          unawaited(_player.resume());
+        }
+        _resumeOnFocus = false;
+      case 'action':
+        switch (e['action']) {
+          case 'play':
+            if (_player.state.value != PlayState.playing) unawaited(_togglePlay());
+          case 'pause':
+            unawaited(_player.pause());
+          case 'stop':
+            unawaited(_player.stop());
+          case 'next':
+            unawaited(_goTo(_cursor.value + 1));
+          case 'prev':
+            unawaited(_goTo(_cursor.value - 1));
+        }
+    }
+  }
+
+  // --------------------------------------------------------------- cursor
+
+  void _onCursor() {
+    if (_sleep == SleepChoice.chapterEnd &&
+        _sleepChapter >= 0 &&
+        _l.chapterOfUnit(_cursor.value) != _sleepChapter) {
+      _sleepNow('End of chapter: paused.');
+    }
+    _schedulePersist();
+    _updateSession();
+    if (!_detached.value) _reveal(_cursor.value);
+  }
+
+  /// Resume following the voice. [force] scrolls even if the paragraph is
+  /// already on screen (the "Back to reading" pill).
+  void _follow({bool force = false}) {
+    _detached.value = false;
+    _reveal(_cursor.value, force: force);
+  }
+
+  /// Scroll so the paragraph being read is in view, unless it already is.
+  void _reveal(int unit, {bool force = false}) {
+    if (_l.isEmpty || !_scroll.isAttached) return;
+    final item = _l.unitItem[unit.clamp(0, _l.units.length - 1)];
+    if (!force) {
+      for (final p in _positions.itemPositions.value) {
+        if (p.index == item && p.itemLeadingEdge >= 0.0 && p.itemTrailingEdge <= 0.9) {
+          return;
+        }
+      }
+    }
+    _programmaticScroll = true;
+    unawaited(_scroll
+        .scrollTo(
+          index: item,
+          alignment: 0.15,
+          duration: const Duration(milliseconds: 360),
+          curve: Curves.easeInOutCubic,
+        )
+        .whenComplete(() => _programmaticScroll = false));
+  }
+
+  bool _onScrollNotification(ScrollNotification n) {
+    if (n is ScrollStartNotification && n.dragDetails != null && !_programmaticScroll) {
+      _detached.value = true;
+    }
+    return false;
   }
 
   void _schedulePersist() {
     _persistTimer?.cancel();
-    _persistTimer = Timer(const Duration(seconds: 2), () {
-      unawaited(_persist());
-    });
+    _persistTimer = Timer(const Duration(milliseconds: 1500), () => unawaited(_persist()));
   }
 
   Future<void> _persist() async {
     final store = widget.store;
-    final unit = _current;
-    if (store == null || unit == null) return;
-    await store.saveCursor(
-      widget.book.id,
-      cursorOf(unit),
-      progressFraction(_units, _unitIndex),
-    );
-  }
-
-  Future<void> _loadEngines() async {
+    if (store == null || _l.isEmpty) return;
+    final u = _cursor.value.clamp(0, _l.units.length - 1);
     try {
-      final list = await _svc.engines();
-      if (!mounted) return;
-      setState(() {
-        _engines = list;
-        _engineId = _engines.isNotEmpty ? _engines.first['name'] : null;
-      });
-      await _loadVoices();
-    } on PlatformException catch (e) {
-      if (mounted) setState(() => _status = 'No engines: ${e.message}');
-    }
-  }
-
-  Future<void> _loadVoices() async {
-    for (var attempt = 0; attempt < 2; attempt++) {
-      try {
-        final list = await _svc.voices(_engineId);
-        if (!mounted) return;
-        if (list.isEmpty && attempt == 0) {
-          await Future<void>.delayed(const Duration(milliseconds: 700));
-          continue;
-        }
-        setState(() {
-          _voices = list;
-          _voiceName =
-              SpeechService.pickVoice(_voices, _targetLanguage)?['name']
-                  as String?;
-        });
-        return;
-      } on PlatformException catch (e) {
-        if (attempt == 1 && mounted) {
-          setState(() => _status = 'No voices: ${e.message}');
-        }
-        await Future<void>.delayed(const Duration(milliseconds: 700));
-      }
-    }
-  }
-
-  PipelineSettings _settingsFor(String text) => _settings.copyWith(
-        text: text,
-        speedScale: _speedViaEngine ? 1.0 : _settings.speedScale,
+      await store.saveCursor(
+        _book.id,
+        cursorOf(_l.units[u]),
+        progressFraction(_l.units, u),
+        where: _l.chapterTitle(_l.unitChapter[u]),
       );
-
-  Future<void> _togglePlay() async {
-    if (_scheduler?.running == true) {
-      await _scheduler?.stop();
-      unawaited(_persist());
-      if (mounted) setState(() {});
-      return;
-    }
-    if (_units.isEmpty) return;
-    final epoch = ++_playEpoch;
-    bool live() => mounted && epoch == _playEpoch;
-    final scheduler = PlaybackScheduler(
-      service: _svc,
-      units: _units,
-      settingsFor: _settingsFor,
-      engineIdOf: () => _engineId,
-      voiceNameOf: () => _voiceName,
-      speedViaEngineOf: () => _speedViaEngine,
-      onUnit: (i, _) {
-        if (!live()) return;
-        _wordIndex.value = -1;
-        setState(() {
-          _unitIndex = i;
-          _timings = const [];
-        });
-        _schedulePersist();
-        _syncPage();
-        _scrollToCurrent();
-      },
-      onTimings: (t) {
-        if (live()) setState(() => _timings = t);
-      },
-      onWord: (w) {
-        if (live() && _wordIndex.value != w) _wordIndex.value = w;
-      },
-      onStatus: (s) {
-        if (live()) setState(() => _status = s);
-      },
-      onFinished: () {
-        if (live()) setState(() {});
-      },
-    );
-    _scheduler = scheduler;
-    try {
-      await scheduler.start(_unitIndex);
-    } on PlatformException catch (e) {
-      if (live()) setState(() => _status = '${e.code}: ${e.message}');
-    } catch (e) {
-      if (live()) setState(() => _status = '$e');
-    } finally {
-      if (live()) setState(() {});
+    } on Object {
+      // Losing a position save is not worth an error on screen.
     }
   }
 
-  void _goUnit(int delta) {
-    if (_units.isEmpty) return;
-    _playFrom((_unitIndex + delta).clamp(0, _units.length - 1), autoplay: _scheduler?.running == true);
-  }
-
-  void _goChapter(int delta) {
-    if (_chapters.isEmpty) return;
-    final next = (_chapterPage + delta).clamp(0, _chapters.length - 1);
-    if (next == _chapterPage) return;
-    _goSection(_chapters[next]);
-  }
-
-  void _goSection(int sectionIndex) {
-    if (_units.isEmpty) return;
-    final i = _units.indexWhere((u) => u.sectionIndex == sectionIndex);
-    if (i < 0) return;
-    _playFrom(i, autoplay: _scheduler?.running == true);
-  }
-
-  /// Jump to a sentence. Play starts here if [autoplay] is true, or if we
-  /// were already speaking — so a tap in the middle of a chapter is "from here".
-  void _playFrom(int index, {bool autoplay = true}) {
-    if (_units.isEmpty) return;
-    final next = index.clamp(0, _units.length - 1);
-    final playing = _scheduler?.running == true;
-    if (next == _unitIndex && !autoplay && !playing) return;
-    setState(() {
-      _unitIndex = next;
-      _timings = const [];
-    });
-    _wordIndex.value = -1;
-    _schedulePersist();
-    _syncPage();
-    _scrollToCurrent();
-    if (playing || autoplay) {
-      unawaited(_restartFromHere());
-    }
-  }
-
-  void _syncPage() {
-    if (!_pageController.hasClients || _chapters.isEmpty) return;
-    final page = _chapterPage;
-    if ((_pageController.page ?? page).round() == page) return;
-    _paging = true;
-    _pageController.jumpToPage(page);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _paging = false;
-    });
-  }
-
-  void _onChapterPage(int page) {
-    if (!_pageReady || _paging) return;
-    if (page < 0 || page >= _chapters.length) return;
-    if (_current?.sectionIndex == _chapters[page]) return;
-    _goSection(_chapters[page]);
-  }
-
-  void _scrollToCurrent() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final ctx = _currentSentenceKey.currentContext;
-      if (ctx == null) return;
-      Scrollable.ensureVisible(
-        ctx,
-        alignment: 0.28,
-        duration: const Duration(milliseconds: 240),
-        curve: Curves.easeOutCubic,
-      );
-    });
-  }
-
-  void _openToc() {
-    final toc = readingToc(widget.book, _units);
-    showModalBottomSheet<void>(
-      context: context,
+  void _snack(String text) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.hideCurrentSnackBar();
+    messenger?.showSnackBar(SnackBar(
+      content: Text(text, style: Skin.label(context, color: Skin.onDark(context), size: 12.5)),
       backgroundColor: Skin.darkOn(context),
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (ctx) => _TocSheet(
-        entries: toc,
-        currentSection: _current?.sectionIndex ?? 0,
-        onPick: (sectionIndex) {
-          Navigator.pop(ctx);
-          _goSection(sectionIndex);
-        },
-      ),
-    );
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    ));
   }
 
-  Future<void> _restartFromHere() async {
-    await _scheduler?.stop();
-    await _togglePlay();
-  }
-
-  void _togglePanel(PanelSection s) {
-    setState(() {
-      if (_openPanel == s) {
-        _openPanel = null;
-        _panel.reverse();
-      } else {
-        _openPanel = s;
-        _panel.forward();
-      }
-    });
-  }
-
-  void _applyPreset(SpeechPreset p) => setState(() {
-        _settings = p.settings.copyWith(text: _current?.text ?? '');
-        _presetId = p.id;
-        _scheduler?.invalidateLookahead();
-      });
-
-  void _changeSettings(PipelineSettings s) => setState(() {
-        _settings = s;
-        _presetId = null;
-        _scheduler?.invalidateLookahead();
-      });
+  // ---------------------------------------------------------------- build
 
   @override
   Widget build(BuildContext context) {
-    final media = MediaQuery.of(context);
-    final panelWidth = (media.size.width * 0.86).clamp(280.0, 420.0);
-
-    return PopScope(
-      onPopInvokedWithResult: (didPop, _) {
-        unawaited(_persist());
-      },
-      child: Scaffold(
-        body: Container(
+    return Scaffold(
+      body: DecoratedBox(
         decoration: BoxDecoration(gradient: Skin.ground(context)),
-        child: Stack(
-          children: [
-            SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(18, 10, 52, 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+        child: SafeArea(
+          child: Column(
+            children: [
+              _topBar(context),
+              Expanded(
+                child: Stack(
                   children: [
-                    _topRow(context),
-                    const SizedBox(height: 12),
-                    _metadata(context),
-                    const SizedBox(height: 10),
-                    _chapterChrome(context),
-                    Expanded(child: _stage(context)),
-                    _navRow(context),
-                    const SizedBox(height: 12),
-                    _bottomBar(context),
+                    Positioned.fill(child: _text(context)),
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 10,
+                      child: Center(child: _backToReading(context)),
+                    ),
                   ],
                 ),
               ),
-            ),
-            _edgeTabs(context),
-            _panelLayer(context, panelWidth),
-          ],
-        ),
-      ),
-    ),
-    );
-  }
-
-  Widget _topRow(BuildContext context) => Row(
-        children: [
-          const BrandMark(size: 22),
-          const SizedBox(width: 8),
-          Capsule(
-            onTap: () => Navigator.of(context).maybePop(),
-            child: Text('Library', style: Skin.label(context)),
-          ),
-          const Spacer(),
-          RoundButton(
-            icon: Icons.list_rounded,
-            tooltip: 'Chapters',
-            onTap: _openToc,
-          ),
-          const SizedBox(width: 8),
-          RoundButton(
-            icon: Icons.graphic_eq_rounded,
-            tooltip: 'Voice',
-            onTap: () => _togglePanel(PanelSection.voice),
-          ),
-          const SizedBox(width: 8),
-          RoundButton(
-            icon: Icons.tune_rounded,
-            tooltip: 'Speech',
-            onTap: () => _togglePanel(PanelSection.speech),
-          ),
-        ],
-      );
-
-  Widget _metadata(BuildContext context) {
-    final v = _voiceName ?? '—';
-    final pct = (progressFraction(_units, _unitIndex) * 100).round();
-    final lines = [
-      [
-        widget.book.metadata.title.toUpperCase(),
-        '$pct%',
-      ].join('  ·  '),
-      [
-        'VOICE: ${v.toUpperCase()}',
-        'SPEED: ${_settings.speedScale.toStringAsFixed(2)}X',
-        _speedViaEngine ? 'ENGINE' : 'DSP',
-        'GAP: ${_settings.wordGapMs}MS',
-        if (_presetId != null) 'PRESET: ${_presetId!.toUpperCase()}',
-      ].join('  ·  '),
-    ];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (final l in lines)
-          Text(
-            l,
-            style: Skin.meta(context),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-      ],
-    );
-  }
-
-  Widget _chapterChrome(BuildContext context) {
-    final canPrev = _chapterPage > 0;
-    final canNext = _chapterPage < _chapters.length - 1;
-    final inChapter = [
-      for (var i = 0; i < _units.length; i++)
-        if (_units[i].sectionIndex == (_current?.sectionIndex ?? -1)) i,
-    ];
-    final local = inChapter.isEmpty
-        ? 0
-        : inChapter.indexOf(_unitIndex).clamp(0, inChapter.length - 1);
-    return Column(
-      children: [
-        Capsule(
-          padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
-          child: Row(
-            children: [
-              RoundButton(
-                icon: Icons.skip_previous_rounded,
-                size: 40,
-                tooltip: 'Previous chapter',
-                onTap: canPrev ? () => _goChapter(-1) : null,
-                iconColor: Skin.inkOn(context).withValues(alpha: canPrev ? 1 : 0.28),
-              ),
-              Expanded(
-                child: GestureDetector(
-                  onTap: _openToc,
-                  behavior: HitTestBehavior.opaque,
-                  child: Semantics(
-                    button: true,
-                    label: 'Chapters',
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 6),
-                      child: Column(
-                        children: [
-                          Text(
-                            _chapterTitle.isEmpty ? 'CHAPTER' : _chapterTitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: Skin.title(context, size: 18),
-                          ),
-                          Text(
-                            _chapters.length <= 1
-                                ? ''
-                                : '${_chapterPage + 1} OF ${_chapters.length}',
-                            style: Skin.meta(context, size: 8),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              RoundButton(
-                icon: Icons.skip_next_rounded,
-                size: 40,
-                tooltip: 'Next chapter',
-                onTap: canNext ? () => _goChapter(1) : null,
-                iconColor: Skin.inkOn(context).withValues(alpha: canNext ? 1 : 0.28),
+              _PlayerBar(
+                layout: _l,
+                cursor: _cursor,
+                player: _player,
+                speed: _prefs.settings.speedScale,
+                voiceLabel: _voiceLabel(),
+                sleepNote: _sleepNote,
+                onPlay: _togglePlay,
+                onPrevSentence: () => _goTo(_cursor.value - 1),
+                onNextSentence: () => _goTo(_cursor.value + 1),
+                onPrevChapter: () => _goChapter(-1),
+                onNextChapter: () => _goChapter(1),
+                onSeekInChapter: (u) => _goTo(u),
+                onSpeed: () => showListenSheet(context, _listen, focus: ListenFocus.speed),
+                onVoice: () => showListenSheet(context, _listen),
               ),
             ],
           ),
         ),
-        if (inChapter.length > 1)
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              trackHeight: 2,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-              activeTrackColor: Skin.amber,
-              inactiveTrackColor: Skin.inkFaintOn(context).withValues(alpha: 0.25),
-              thumbColor: Skin.amber,
-            ),
-            child: Slider(
-              min: 0,
-              max: (inChapter.length - 1).toDouble(),
-              divisions: inChapter.length - 1,
-              value: local.toDouble(),
-              label: '${local + 1} / ${inChapter.length}',
-              onChanged: (v) =>
-                  _playFrom(inChapter[v.round()], autoplay: false),
-            ),
-          ),
-      ],
+      ),
     );
   }
 
-  Widget _stage(BuildContext context) {
-    if (_units.isEmpty) {
-      return Center(
-        child: Text(
-          'This file has no speakable text.',
-          style: Skin.display(context, 22),
-        ),
-      );
-    }
-    final pages = _chapters.isEmpty
-        ? <int>[_current?.sectionIndex ?? 0]
-        : _chapters;
-    return PageView.builder(
-      controller: _pageController,
-      onPageChanged: _onChapterPage,
-      allowImplicitScrolling: false,
-      physics: _scheduler?.running == true
-          ? const NeverScrollableScrollPhysics()
-          : const PageScrollPhysics(),
-      itemCount: pages.length,
-      itemBuilder: (context, page) => _chapterList(context, pages[page]),
-    );
+  String _voiceLabel() {
+    final v = _catalog.byName(_listen.voiceName);
+    if (v != null) return v.region.isEmpty ? languageName(v.language) : '${v.language.toUpperCase()} · ${regionLabel(v.region)}';
+    if (!_catalog.loaded) return 'Voice…';
+    return 'No voice';
   }
 
-  Widget _chapterList(BuildContext context, int section) {
-    final indices = [
-      for (var i = 0; i < _units.length; i++)
-        if (_units[i].sectionIndex == section) i,
-    ];
-    return ListView.builder(
-      padding: const EdgeInsets.only(top: 8, bottom: 24),
-      itemCount: indices.length,
-      itemBuilder: (context, k) {
-        final i = indices[k];
-        final unit = _units[i];
-        final current = i == _unitIndex;
-        final style = Skin.display(context, current ? 24 : 17).copyWith(
-          color: current ? Skin.inkOn(context) : Skin.inkFaintOn(context),
-          height: 1.42,
-        );
-        final body = current && _timings.isNotEmpty
-            ? ValueListenableBuilder<int>(
-                valueListenable: _wordIndex,
-                builder: (context, word, _) => word >= 0
-                    ? _highlighted(unit.text, _timings, word, style)
-                    : Text(unit.text, style: style),
-              )
-            : Text(unit.text, style: style);
-        final tile = RepaintBoundary(
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 18),
-            child: Semantics(
-              button: true,
-              label: current
-                  ? 'Current sentence'
-                  : 'Start reading from here',
-              child: GestureDetector(
-                onTap: () => _playFrom(i),
-                child: body,
-              ),
+  Widget _topBar(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+        child: Row(
+          children: [
+            RoundButton(
+              icon: Icons.arrow_back_rounded,
+              tooltip: 'Back to library',
+              onTap: () => Navigator.of(context).maybePop(),
             ),
-          ),
-        );
-        if (!current) return tile;
-        return KeyedSubtree(key: _currentSentenceKey, child: tile);
-      },
-    );
-  }
-
-  /// Keep characters the engine didn't mark, so a missed range doesn't
-  /// swallow the rest of the sentence.
-  Widget _highlighted(
-    String text,
-    List<WordTiming> timings,
-    int wordIndex,
-    TextStyle base,
-  ) {
-    final spans = <InlineSpan>[];
-    var cursor = 0;
-    for (var i = 0; i < timings.length; i++) {
-      final start = timings[i].charStart.clamp(0, text.length);
-      final end = timings[i].charEnd.clamp(0, text.length);
-      if (start > cursor) {
-        spans.add(TextSpan(text: text.substring(cursor, start)));
-      }
-      if (end > start) {
-        spans.add(TextSpan(
-          text: text.substring(start, end),
-          style: i == wordIndex
-              ? TextStyle(
-                  color: Skin.amber,
-                  background: Paint()
-                    ..color = Skin.amber.withValues(alpha: 0.14),
-                )
-              : null,
-        ));
-      }
-      if (end > cursor) cursor = end;
-    }
-    if (cursor < text.length) {
-      spans.add(TextSpan(text: text.substring(cursor)));
-    }
-    return RichText(text: TextSpan(style: base, children: spans));
-  }
-
-  Widget _navRow(BuildContext context) => Row(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          RoundButton(
-            icon: Icons.chevron_left_rounded,
-            size: 44,
-            color: Skin.disc(context),
-            tooltip: 'Previous sentence',
-            onTap: () => _goUnit(-1),
-          ),
-          const SizedBox(width: 10),
-          RoundButton(
-            icon: Icons.chevron_right_rounded,
-            size: 44,
-            color: Skin.disc(context),
-            tooltip: 'Next sentence',
-            onTap: () => _goUnit(1),
-          ),
-        ],
-      );
-
-  Widget _bottomBar(BuildContext context) {
-    final playing = _scheduler?.running == true;
-    final empty = _units.isEmpty;
-    final pos = empty ? '0 / 0' : '${_unitIndex + 1} / ${_units.length}';
-    final status = _status.trim();
-    return Row(
-      children: [
-        Expanded(
-          child: Capsule(
-            padding: const EdgeInsets.fromLTRB(8, 6, 6, 6),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 38,
-                  height: 38,
-                  child: Material(
-                    color: Skin.darkOn(context)
-                        .withValues(alpha: empty ? 0.45 : 1),
-                    shape: const CircleBorder(),
-                    child: InkWell(
-                      customBorder: const CircleBorder(),
-                      onTap: empty ? null : _togglePlay,
-                      child: Tooltip(
-                        message: playing ? 'Stop' : 'Play',
-                        child: Icon(
-                          playing
-                              ? Icons.stop_rounded
-                              : Icons.play_arrow_rounded,
-                          color: Skin.onDark(context),
-                          size: 20,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
+            const SizedBox(width: 10),
+            Expanded(
+              child: Semantics(
+                button: true,
+                label: 'Contents',
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _openContents,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        pos,
+                        _book.metadata.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: Skin.label(context, size: 12.5),
+                        style: Skin.title(context, size: 17),
                       ),
-                      Text(
-                        status.isEmpty ? ' ' : status.toUpperCase(),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Skin.meta(context, color: Skin.amber, size: 8),
+                      ValueListenableBuilder<int>(
+                        valueListenable: _cursor,
+                        builder: (context, u, _) {
+                          final c = _l.chapterOfUnit(u);
+                          return Text(
+                            _l.chapters.length > 1
+                                ? '${_l.chapterTitle(c)}  ·  ${c + 1}/${_l.chapters.length}'
+                                    .toUpperCase()
+                                : (_book.metadata.authorLine.isEmpty
+                                    ? _book.source.name.toUpperCase()
+                                    : _book.metadata.authorLine.toUpperCase()),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Skin.meta(context, size: 8.5),
+                          );
+                        },
                       ),
                     ],
                   ),
                 ),
-                Capsule(
-                  onTap: () => _togglePanel(PanelSection.voice),
-                  border: false,
-                  color: Skin.darkOn(context),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        _shortVoice(),
-                        style: Skin.label(context,
-                            color: Skin.onDark(context), size: 10.5),
-                      ),
-                      const SizedBox(width: 4),
-                      Icon(Icons.keyboard_arrow_up_rounded,
-                          size: 15, color: Skin.onDark(context)),
-                    ],
-                  ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            RoundButton(
+              icon: Icons.format_list_bulleted_rounded,
+              tooltip: 'Contents',
+              onTap: _openContents,
+            ),
+            const SizedBox(width: 8),
+            RoundButton(
+              icon: Icons.tune_rounded,
+              tooltip: 'Listening settings',
+              onTap: () => showListenSheet(context, _listen),
+            ),
+          ],
+        ),
+      );
+
+  Widget _text(BuildContext context) {
+    if (_l.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Text(
+            'This file has no text that can be read aloud.',
+            textAlign: TextAlign.center,
+            style: Skin.page(context, size: 20),
+          ),
+        ),
+      );
+    }
+    final initial = _l.unitItem[_cursor.value.clamp(0, _l.units.length - 1)];
+    return NotificationListener<ScrollNotification>(
+      onNotification: _onScrollNotification,
+      child: ScrollablePositionedList.builder(
+        itemCount: _l.items.length,
+        itemScrollController: _scroll,
+        itemPositionsListener: _positions,
+        initialScrollIndex: initial,
+        initialAlignment: 0.12,
+        padding: const EdgeInsets.fromLTRB(22, 8, 22, 120),
+        itemBuilder: (context, i) => _item(context, i),
+      ),
+    );
+  }
+
+  Widget _item(BuildContext context, int i) {
+    final item = _l.items[i];
+    final chapterStart = i == _l.chapterFirstItem[item.chapter];
+    final label = chapterStart && _l.chapters.length > 1
+        ? Padding(
+            padding: EdgeInsets.only(top: i == 0 ? 8 : 40, bottom: 8),
+            child: Row(
+              children: [
+                Text('CHAPTER ${item.chapter + 1}', style: Skin.meta(context, size: 9)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Container(height: 1, color: Skin.inkFaintOn(context).withValues(alpha: 0.25)),
                 ),
               ],
             ),
+          )
+        : null;
+
+    if (item.isTitle) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (label != null) label,
+          Padding(
+            padding: const EdgeInsets.only(bottom: 18),
+            child: Text(item.title ?? '',
+                style: Skin.title(context, size: 28 * _prefs.textSize / 19)),
+          ),
+        ],
+      );
+    }
+
+    final heading = item.block!.role == BlockRole.heading;
+    final scale = _prefs.textSize / 19;
+    final style = heading
+        ? Skin.title(context, size: (chapterStart ? 28 : 21) * scale).copyWith(height: 1.2)
+        : Skin.page(context, size: _prefs.textSize);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (label != null) label,
+        Padding(
+          padding: EdgeInsets.only(bottom: heading ? 18 : 16, top: heading && !chapterStart ? 12 : 0),
+          child: _BlockText(
+            item: item,
+            layout: _l,
+            cursor: _cursor,
+            word: _player.word,
+            style: style,
+            onTapUnit: (u) => _goTo(u, play: true),
           ),
         ),
       ],
     );
   }
 
-  String _shortVoice() {
-    final n = _voiceName;
-    if (n == null || n.isEmpty) return 'voice';
-    final parts = n.split('-');
-    return parts.length >= 2 ? '${parts[0]}-${parts[1]}' : n;
-  }
-
-  Widget _edgeTabs(BuildContext context) {
-    final media = MediaQuery.of(context);
-    return Positioned(
-      right: 0,
-      top: media.padding.top + 56,
-      bottom: media.padding.bottom + 96,
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _tab(context, Icons.auto_awesome_rounded, PanelSection.voice,
-                Skin.darkOn(context), Skin.onDark(context)),
-            const SizedBox(height: 8),
-            _tab(context, Icons.text_fields_rounded, PanelSection.speech,
-                Skin.amber, Skin.dark),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _tab(BuildContext context, IconData icon, PanelSection section,
-          Color bg, Color fg) =>
-      Material(
-        color: bg,
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(14),
-          bottomLeft: Radius.circular(14),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => _togglePanel(section),
-          child: SizedBox(
-            width: 34,
-            height: 40,
-            child: Icon(icon, size: 17, color: fg),
+  Widget _backToReading(BuildContext context) => ValueListenableBuilder<bool>(
+        valueListenable: _detached,
+        builder: (context, detached, _) => AnimatedSlide(
+          offset: detached ? Offset.zero : const Offset(0, 1.6),
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          child: AnimatedOpacity(
+            opacity: detached ? 1 : 0,
+            duration: const Duration(milliseconds: 180),
+            child: IgnorePointer(
+              ignoring: !detached,
+              child: Capsule(
+                onTap: () => _follow(force: true),
+                color: Skin.darkOn(context),
+                border: false,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.my_location_rounded, size: 16, color: Skin.amber),
+                    const SizedBox(width: 8),
+                    Text('Back to reading',
+                        style: Skin.label(context, color: Skin.onDark(context), size: 12)),
+                  ],
+                ),
+              ),
+            ),
           ),
         ),
       );
 
-  Widget _panelLayer(BuildContext context, double width) {
-    return AnimatedBuilder(
-      animation: _panelCurve,
-      builder: (context, _) {
-        final t = _panelCurve.value;
-        if (t == 0) return const SizedBox.shrink();
-        return Stack(
-          children: [
-            Positioned.fill(
-              child: IgnorePointer(
-                ignoring: t < 0.5,
-                child: GestureDetector(
-                  onTap: () {
-                    setState(() => _openPanel = null);
-                    _panel.reverse();
-                  },
-                  child: Container(
-                    color: Colors.black.withValues(alpha: 0.28 * t),
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              right: -width * (1 - t),
-              top: 0,
-              bottom: 0,
-              width: width,
-              child: SettingsPanel(
-                section: _openPanel ?? PanelSection.speech,
-                settings: _settings,
-                onChanged: _changeSettings,
-                onPreset: _applyPreset,
-                activePresetId: _presetId,
-                onClose: () {
-                  setState(() => _openPanel = null);
-                  _panel.reverse();
-                },
-                speedViaEngine: _speedViaEngine,
-                onSpeedModeChanged: (v) {
-                  setState(() => _speedViaEngine = v);
-                  _scheduler?.invalidateLookahead();
-                },
-                engines: _engines,
-                engineId: _engineId,
-                onEngineChanged: (v) {
-                  setState(() => _engineId = v);
-                  _scheduler?.invalidateLookahead();
-                  _loadVoices();
-                },
-                voices: _voices,
-                voiceName: _voiceName,
-                onVoiceChanged: (v) {
-                  setState(() => _voiceName = v);
-                  _scheduler?.invalidateLookahead();
-                },
-              ),
-            ),
-          ],
-        );
-      },
+  void _openContents() {
+    if (_l.chapters.isEmpty) return;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Skin.darkOn(context),
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) => _ContentsSheet(
+        layout: _l,
+        current: _l.chapterOfUnit(_cursor.value),
+        onPick: (chapter) {
+          Navigator.pop(ctx);
+          unawaited(_goTo(_l.chapterFirstUnit[chapter]));
+        },
+      ),
     );
   }
 }
 
-class _TocSheet extends StatefulWidget {
-  const _TocSheet({
-    required this.entries,
-    required this.currentSection,
-    required this.onPick,
-  });
-
-  final List<TocEntry> entries;
-  final int currentSection;
-  final ValueChanged<int> onPick;
-
-  @override
-  State<_TocSheet> createState() => _TocSheetState();
+String _primaryLanguage(String? tag) {
+  final t = (tag ?? 'en').toLowerCase();
+  final p = t.split(RegExp('[-_]')).first;
+  return p.length >= 2 ? p : 'en';
 }
 
-class _TocSheetState extends State<_TocSheet> {
-  String _query = '';
+/// One paragraph. Rebuilds only when the spoken sentence enters, leaves or
+/// moves within it — not when anything else in the book changes.
+class _BlockText extends StatefulWidget {
+  const _BlockText({
+    required this.item,
+    required this.layout,
+    required this.cursor,
+    required this.word,
+    required this.style,
+    required this.onTapUnit,
+  });
+
+  final LayoutItem item;
+  final ReadingLayout layout;
+  final ValueListenable<int> cursor;
+  final ValueListenable<WordMark> word;
+  final TextStyle style;
+  final ValueChanged<int> onTapUnit;
+
+  @override
+  State<_BlockText> createState() => _BlockTextState();
+}
+
+class _BlockTextState extends State<_BlockText> {
+  final _key = GlobalKey();
+  late int _current = _mine(widget.cursor.value);
+
+  int _mine(int u) => widget.item.containsUnit(u) ? u : -1;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.cursor.addListener(_onCursor);
+  }
+
+  @override
+  void didUpdateWidget(_BlockText old) {
+    super.didUpdateWidget(old);
+    if (old.cursor != widget.cursor) {
+      old.cursor.removeListener(_onCursor);
+      widget.cursor.addListener(_onCursor);
+    }
+    _current = _mine(widget.cursor.value);
+  }
+
+  @override
+  void dispose() {
+    widget.cursor.removeListener(_onCursor);
+    super.dispose();
+  }
+
+  void _onCursor() {
+    final next = _mine(widget.cursor.value);
+    if (next != _current) setState(() => _current = next);
+  }
+
+  void _onTapUp(TapUpDetails d) {
+    final render = _paragraphOf(_key.currentContext?.findRenderObject());
+    if (render == null) return;
+    final offset = render.getPositionForOffset(render.globalToLocal(d.globalPosition)).offset;
+    final l = widget.layout;
+    var unit = widget.item.firstUnit;
+    for (var u = widget.item.firstUnit; u < widget.item.firstUnit + widget.item.unitCount; u++) {
+      if (l.unitOffset[u] <= offset) unit = u;
+    }
+    widget.onTapUnit(unit);
+  }
+
+  /// Text may wrap its paragraph in semantics or selection render objects.
+  static RenderParagraph? _paragraphOf(RenderObject? r) {
+    if (r == null) return null;
+    if (r is RenderParagraph) return r;
+    RenderParagraph? found;
+    r.visitChildren((child) => found ??= _paragraphOf(child));
+    return found;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final body = _current < 0
+        ? _span(context, WordMark.none)
+        : ValueListenableBuilder<WordMark>(
+            valueListenable: widget.word,
+            builder: (context, w, _) => _span(context, w.unit == _current ? w : WordMark.none),
+          );
+    return Semantics(
+      button: true,
+      hint: 'Double tap to read from here',
+      child: GestureDetector(onTapUp: _onTapUp, child: body),
+    );
+  }
+
+  Widget _span(BuildContext context, WordMark word) {
+    final text = widget.item.block!.text;
+    if (_current < 0) {
+      return Text.rich(TextSpan(text: text), key: _key, style: widget.style);
+    }
+    final l = widget.layout;
+    final s = l.unitOffset[_current].clamp(0, text.length);
+    final e = (s + l.units[_current].text.length).clamp(s, text.length);
+    final wash = Skin.sentenceWash(context);
+    final spans = <InlineSpan>[
+      if (s > 0) TextSpan(text: text.substring(0, s)),
+    ];
+    final ws = word.start < 0 ? -1 : (s + word.start).clamp(s, e);
+    final we = word.start < 0 ? -1 : (s + word.end).clamp(ws, e);
+    if (ws < 0 || we <= ws) {
+      spans.add(TextSpan(text: text.substring(s, e), style: TextStyle(backgroundColor: wash)));
+    } else {
+      spans
+        ..add(TextSpan(text: text.substring(s, ws), style: TextStyle(backgroundColor: wash)))
+        ..add(TextSpan(
+          text: text.substring(ws, we),
+          style: TextStyle(backgroundColor: Skin.wordWash(context)),
+        ))
+        ..add(TextSpan(text: text.substring(we, e), style: TextStyle(backgroundColor: wash)));
+    }
+    if (e < text.length) spans.add(TextSpan(text: text.substring(e)));
+    return Text.rich(TextSpan(children: spans), key: _key, style: widget.style);
+  }
+}
+
+/// The player: what is playing, how fast, in whose voice, and the controls.
+class _PlayerBar extends StatelessWidget {
+  const _PlayerBar({
+    required this.layout,
+    required this.cursor,
+    required this.player,
+    required this.speed,
+    required this.voiceLabel,
+    this.sleepNote,
+    required this.onPlay,
+    required this.onPrevSentence,
+    required this.onNextSentence,
+    required this.onPrevChapter,
+    required this.onNextChapter,
+    required this.onSeekInChapter,
+    required this.onSpeed,
+    required this.onVoice,
+  });
+
+  final ReadingLayout layout;
+  final ValueListenable<int> cursor;
+  final PlaybackScheduler player;
+  final double speed;
+  final String voiceLabel;
+  final String? sleepNote;
+  final VoidCallback onPlay;
+  final VoidCallback onPrevSentence;
+  final VoidCallback onNextSentence;
+  final VoidCallback onPrevChapter;
+  final VoidCallback onNextChapter;
+  final ValueChanged<int> onSeekInChapter;
+  final VoidCallback onSpeed;
+  final VoidCallback onVoice;
 
   @override
   Widget build(BuildContext context) {
     final onDark = Skin.onDark(context);
-    final q = _query.trim().toLowerCase();
-    final rows = [
-      for (final t in widget.entries)
-        if (q.isEmpty || t.title.toLowerCase().contains(q)) t,
-    ];
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.viewInsetsOf(context).bottom,
-        ),
-        child: SizedBox(
-          height: MediaQuery.sizeOf(context).height * 0.72,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+      decoration: BoxDecoration(
+        color: Skin.darkOn(context),
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: Skin.lift(context),
+      ),
+      child: ValueListenableBuilder<int>(
+        valueListenable: cursor,
+        builder: (context, u, _) {
+          final empty = layout.isEmpty;
+          final chapter = empty ? 0 : layout.chapterOfUnit(u);
+          final (first, count) = empty ? (0, 1) : layout.chapterRange(chapter);
+          final inChapter = (u - first).clamp(0, count - 1);
+          final wordsLeft = empty ? 0 : layout.totalWords - layout.wordsBefore[u];
+          final minutes = (wordsLeft / (165 * speed)).round();
+          final pct = empty ? 0 : (progressFraction(layout.units, u) * 100).round();
+          return Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(22, 18, 22, 0),
-                child: Text(
-                  'CHAPTERS',
-                  style: Skin.meta(context,
-                      color: onDark.withValues(alpha: 0.55), size: 11),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(22, 8, 22, 8),
-                child: TextField(
-                  style: Skin.label(context, color: onDark, size: 13),
-                  cursorColor: Skin.amber,
-                  decoration: InputDecoration(
-                    isDense: true,
-                    hintText: 'Search chapters',
-                    hintStyle: Skin.label(context,
-                        color: onDark.withValues(alpha: 0.4), size: 13),
-                    border: InputBorder.none,
+              Row(
+                children: [
+                  _chip(context, '${_trimSpeed(speed)}×', Icons.speed_rounded, onSpeed,
+                      tooltip: 'Speed'),
+                  Expanded(
+                    child: Text(
+                      [
+                        '$pct%',
+                        '${_duration(minutes)} LEFT',
+                        if (sleepNote != null) sleepNote!,
+                      ].join('  ·  '),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Skin.meta(context, color: onDark.withValues(alpha: 0.6), size: 8.5),
+                    ),
                   ),
-                  onChanged: (v) => setState(() => _query = v),
-                ),
+                  _chip(context, voiceLabel, Icons.record_voice_over_rounded, onVoice,
+                      tooltip: 'Voice'),
+                ],
               ),
-              Expanded(
-                child: rows.isEmpty
-                    ? Padding(
-                        padding: const EdgeInsets.fromLTRB(22, 12, 22, 28),
-                        child: Text(
-                          widget.entries.isEmpty
-                              ? 'No chapters in this file.'
-                              : 'No chapters match.',
-                          style: Skin.label(context,
-                              color: onDark.withValues(alpha: 0.7), size: 13),
-                        ),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(22, 0, 22, 28),
-                        itemCount: rows.length,
-                        itemBuilder: (context, i) {
-                          final t = rows[i];
-                          final current = t.sectionIndex == widget.currentSection;
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: Capsule(
-                              onTap: () => widget.onPick(t.sectionIndex),
-                              color: Colors.white.withValues(alpha: 0.07),
-                              border: false,
-                              radius: const BorderRadius.all(Radius.circular(16)),
-                              child: Text(
-                                t.title,
-                                style: Skin.title(context,
-                                    size: 18,
-                                    color: current ? Skin.amber : onDark),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
+              const SizedBox(height: 6),
+              _ChapterScrubber(
+                value: count <= 1 ? 0 : inChapter / (count - 1),
+                onSeek: count <= 1 ? null : (f) => onSeekInChapter(first + (f * (count - 1)).round()),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _icon(context, Icons.skip_previous_rounded, 'Previous chapter',
+                      chapter > 0 ? onPrevChapter : null),
+                  _icon(context, Icons.fast_rewind_rounded, 'Previous sentence',
+                      u > 0 ? onPrevSentence : null),
+                  _PlayButton(player: player, onTap: empty ? null : onPlay),
+                  _icon(context, Icons.fast_forward_rounded, 'Next sentence',
+                      u < layout.units.length - 1 ? onNextSentence : null),
+                  _icon(context, Icons.skip_next_rounded, 'Next chapter',
+                      chapter < layout.chapters.length - 1 ? onNextChapter : null),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _icon(BuildContext context, IconData icon, String tip, VoidCallback? onTap) {
+    final onDark = Skin.onDark(context);
+    return IconButton(
+      tooltip: tip,
+      onPressed: onTap,
+      iconSize: 26,
+      color: onDark,
+      disabledColor: onDark.withValues(alpha: 0.25),
+      icon: Icon(icon),
+    );
+  }
+
+  Widget _chip(BuildContext context, String label, IconData icon, VoidCallback onTap,
+      {required String tooltip}) {
+    final onDark = Skin.onDark(context);
+    return Tooltip(
+      message: tooltip,
+      child: Capsule(
+        onTap: onTap,
+        border: false,
+        color: Colors.white.withValues(alpha: 0.08),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 120),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 14, color: Skin.amberSoft),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Skin.label(context, color: onDark, size: 11),
+                ),
               ),
             ],
           ),
@@ -971,6 +1038,243 @@ class _TocSheetState extends State<_TocSheet> {
       ),
     );
   }
+}
+
+class _PlayButton extends StatelessWidget {
+  const _PlayButton({required this.player, required this.onTap});
+
+  final PlaybackScheduler player;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<PlayState>(
+        valueListenable: player.state,
+        builder: (context, state, _) {
+          final speaking = state == PlayState.playing || state == PlayState.loading;
+          return Tooltip(
+            message: speaking ? 'Pause' : 'Play',
+            child: SizedBox(
+              width: 62,
+              height: 62,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  if (state == PlayState.loading)
+                    const SizedBox(
+                      width: 62,
+                      height: 62,
+                      child: CircularProgressIndicator(strokeWidth: 2.5, color: Skin.amberSoft),
+                    ),
+                  Material(
+                    color: onTap == null ? Skin.amber.withValues(alpha: 0.4) : Skin.amber,
+                    shape: const CircleBorder(),
+                    child: InkWell(
+                      customBorder: const CircleBorder(),
+                      onTap: onTap,
+                      child: SizedBox(
+                        width: 54,
+                        height: 54,
+                        child: Icon(
+                          speaking ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                          size: 32,
+                          color: Skin.dark,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+}
+
+/// Position within the chapter. Drag or tap to jump.
+class _ChapterScrubber extends StatefulWidget {
+  const _ChapterScrubber({required this.value, required this.onSeek});
+
+  final double value;
+  final ValueChanged<double>? onSeek;
+
+  @override
+  State<_ChapterScrubber> createState() => _ChapterScrubberState();
+}
+
+class _ChapterScrubberState extends State<_ChapterScrubber> {
+  double? _drag;
+
+  @override
+  Widget build(BuildContext context) => SliderTheme(
+        data: SliderThemeData(
+          trackHeight: 3,
+          activeTrackColor: Skin.amber,
+          inactiveTrackColor: Skin.onDark(context).withValues(alpha: 0.14),
+          thumbColor: Skin.amberSoft,
+          overlayColor: Skin.amber.withValues(alpha: 0.12),
+          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+          overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+        ),
+        child: SizedBox(
+          height: 26,
+          child: Slider(
+            value: (_drag ?? widget.value).clamp(0.0, 1.0),
+            semanticFormatterCallback: (v) => 'Chapter position ${(v * 100).round()} percent',
+            onChanged: widget.onSeek == null ? null : (v) => setState(() => _drag = v),
+            onChangeEnd: widget.onSeek == null
+                ? null
+                : (v) {
+                    setState(() => _drag = null);
+                    widget.onSeek!(v);
+                  },
+          ),
+        ),
+      );
+}
+
+class _ContentsSheet extends StatefulWidget {
+  const _ContentsSheet({
+    required this.layout,
+    required this.current,
+    required this.onPick,
+  });
+
+  final ReadingLayout layout;
+  final int current;
+  final ValueChanged<int> onPick;
+
+  @override
+  State<_ContentsSheet> createState() => _ContentsSheetState();
+}
+
+class _ContentsSheetState extends State<_ContentsSheet> {
+  static const _rowHeight = 58.0;
+  String _query = '';
+  late final _controller = ScrollController(
+    initialScrollOffset: ((widget.current - 2) * _rowHeight).clamp(0, double.infinity).toDouble(),
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final onDark = Skin.onDark(context);
+    final l = widget.layout;
+    final q = _query.trim().toLowerCase();
+    final rows = [
+      for (var c = 0; c < l.chapters.length; c++)
+        if (q.isEmpty || l.chapterTitle(c).toLowerCase().contains(q) || '${c + 1}' == q) c,
+    ];
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.75,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(22, 18, 22, 4),
+              child: Row(
+                children: [
+                  Text('Contents', style: Skin.title(context, size: 24, color: onDark)),
+                  const Spacer(),
+                  Text('${l.chapters.length} CHAPTERS',
+                      style: Skin.meta(context, color: onDark.withValues(alpha: 0.5))),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
+              child: TextField(
+                style: Skin.label(context, color: onDark, size: 13),
+                cursorColor: Skin.amber,
+                decoration: InputDecoration(
+                  isDense: true,
+                  filled: true,
+                  fillColor: Colors.white.withValues(alpha: 0.07),
+                  prefixIcon: Icon(Icons.search_rounded, color: onDark.withValues(alpha: 0.5), size: 20),
+                  hintText: 'Find a chapter',
+                  hintStyle: Skin.label(context, color: onDark.withValues(alpha: 0.4), size: 13),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+                onChanged: (v) => setState(() => _query = v),
+              ),
+            ),
+            Expanded(
+              child: rows.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.all(22),
+                      child: Text('No chapters match.',
+                          style: Skin.label(context, color: onDark.withValues(alpha: 0.7), size: 13)),
+                    )
+                  : ListView.builder(
+                      controller: q.isEmpty ? _controller : null,
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
+                      itemExtent: _rowHeight,
+                      itemCount: rows.length,
+                      itemBuilder: (context, i) {
+                        final c = rows[i];
+                        final current = c == widget.current;
+                        return Material(
+                          color: current ? Skin.amber.withValues(alpha: 0.16) : Colors.transparent,
+                          borderRadius: BorderRadius.circular(14),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(14),
+                            onTap: () => widget.onPick(c),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              child: Row(
+                                children: [
+                                  SizedBox(
+                                    width: 40,
+                                    child: Text('${c + 1}',
+                                        style: Skin.meta(context,
+                                            color: current ? Skin.amber : onDark.withValues(alpha: 0.45),
+                                            size: 10)),
+                                  ),
+                                  Expanded(
+                                    child: Text(
+                                      l.chapterTitle(c),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Skin.title(context,
+                                          size: 17, color: current ? Skin.amber : onDark),
+                                    ),
+                                  ),
+                                  if (current)
+                                    const Icon(Icons.graphic_eq_rounded, size: 18, color: Skin.amber),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _trimSpeed(double v) {
+  final s = v.toStringAsFixed(2);
+  return s.endsWith('0') ? s.substring(0, s.length - 1) : s;
+}
+
+String _duration(int minutes) {
+  if (minutes < 60) return '${minutes}M';
+  final h = minutes ~/ 60;
+  final m = minutes % 60;
+  return m == 0 ? '${h}H' : '${h}H ${m}M';
 }
 
 /// Kept so the batch measurement path still has a JSON shape to write.
