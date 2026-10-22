@@ -102,6 +102,10 @@ widget state), which cannot be sent. See `_runImport` / `_runLoad` in `library_s
 **13. `flutter analyze` treats deprecations as failures.** Check locally before pushing
 (see §4); a CI round trip costs several minutes.
 
+**15. PdfBox's paragraph marks are not paragraphs.** On the device, a simple PDF came
+out one line per paragraph, which makes the voice pause at every line. `formats/pdf.dart`
+reflows: a paragraph continues unless it ends a sentence or is a heading.
+
 **14. EPUB copyright pages are untitled and long.** `_looksLikeCopyrightPage` in
 `navigate.dart` skips them (Red Rising opened on "This is a work of fiction").
 

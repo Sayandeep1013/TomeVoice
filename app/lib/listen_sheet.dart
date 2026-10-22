@@ -366,8 +366,7 @@ class _ListenSheetState extends State<_ListenSheet> {
 
   Widget _voiceRow(BuildContext context, Color onDark, VoiceInfo v, {required bool selected}) {
     final badges = [
-      if (!v.installed) 'DOWNLOADS ON FIRST USE' else if (v.networkRequired) 'NEEDS INTERNET' else 'OFFLINE',
-      if (v.highQuality) 'HD',
+      if (!v.installed) 'DOWNLOADS ON FIRST USE' else if (v.networkRequired) 'NEEDS INTERNET' else 'WORKS OFFLINE',
     ];
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
@@ -579,6 +578,7 @@ class _ListenSheetState extends State<_ListenSheet> {
           overlayColor: Skin.amber.withValues(alpha: 0.12),
           thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
           overlayShape: const RoundSliderOverlayShape(overlayRadius: 18),
+          tickMarkShape: SliderTickMarkShape.noTickMark,
         ),
         child: Slider(
           value: value.clamp(min, max),

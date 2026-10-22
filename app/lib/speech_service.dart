@@ -331,16 +331,24 @@ class SpeechService {
   /// so language match is the primary key rather than a tiebreaker.
   static Map<String, Object?>? pickVoice(
     List<Map<String, Object?>> voices,
-    String language,
-  ) {
+    String language, {
+    String? preferRegion,
+  }) {
     if (voices.isEmpty) return null;
     bool matches(Map<String, Object?> v) =>
         (v['locale'] as String? ?? '').toLowerCase().startsWith(language);
     final matching = voices.where(matches).toList();
     final pool = matching.isNotEmpty ? matching : voices;
+    final region = preferRegion?.toUpperCase();
+    bool local(Map<String, Object?> v) =>
+        region != null &&
+        (v['locale'] as String? ?? '').toUpperCase().endsWith(region);
+    // Installed, then offline, then the phone's own region (an Indian
+    // phone gets the Indian Bengali voice), then the engine's quality.
     int score(Map<String, Object?> v) =>
-        (v['installed'] == false ? 0 : 4000) +
-        (v['networkRequired'] == true ? 0 : 2000) +
+        (v['installed'] == false ? 0 : 8000) +
+        (v['networkRequired'] == true ? 0 : 4000) +
+        (local(v) ? 2000 : 0) +
         ((v['quality'] as int?) ?? 0);
     final ranked = [...pool]..sort((a, b) => score(b).compareTo(score(a)));
     return ranked.first;

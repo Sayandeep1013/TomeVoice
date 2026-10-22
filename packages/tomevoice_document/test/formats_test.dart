@@ -272,6 +272,25 @@ void main() {
       expect(book.sections.first.displayTitle, 'Page 1');
     });
 
+    test('one line per paragraph is reflowed into real paragraphs', () {
+      final mark = pdfParagraphMark;
+      final page = '${mark}Chapter One$mark'
+          'The storm came in from the west just after$mark'
+          'dusk, and the keeper climbed the long stair to light the$mark'
+          'lamp. He had done it for thirty years.$mark'
+          'Every night the same ninety-six steps.';
+      final book = ingestPdfText(id: 'x', pages: [page], filename: 'l.pdf');
+      final texts = [for (final b in book.sections.first.blocks) b.text];
+      expect(texts, [
+        'Chapter One',
+        'The storm came in from the west just after dusk, and the keeper '
+            'climbed the long stair to light the lamp. He had done it for '
+            'thirty years.',
+        'Every night the same ninety-six steps.',
+      ]);
+      expect(book.sections.first.blocks.first.role, BlockRole.heading);
+    });
+
     test('outline becomes chapters', () {
       final pages = [for (var p = 0; p < 4; p++) 'Text on page $p is long enough to count as real text for the reader.'];
       final book = ingestPdfText(

@@ -646,7 +646,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         itemScrollController: _scroll,
         itemPositionsListener: _positions,
         initialScrollIndex: initial,
-        initialAlignment: 0.12,
+        initialAlignment: initial == 0 ? 0 : 0.12,
         padding: const EdgeInsets.fromLTRB(22, 8, 22, 120),
         itemBuilder: (context, i) => _item(context, i),
       ),
@@ -1182,7 +1182,7 @@ class _ContentsSheetState extends State<_ContentsSheet> {
                 children: [
                   Text('Contents', style: Skin.title(context, size: 24, color: onDark)),
                   const Spacer(),
-                  Text('${l.chapters.length} CHAPTERS',
+                  Text('${l.chapters.length} ${l.chapters.length == 1 ? 'CHAPTER' : 'CHAPTERS'}',
                       style: Skin.meta(context, color: onDark.withValues(alpha: 0.5))),
                 ],
               ),

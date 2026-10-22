@@ -239,6 +239,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
       backgroundColor: Skin.darkOn(context),
       behavior: SnackBarBehavior.floating,
       duration: Duration(seconds: long ? 8 : 3),
+      // Above the Add books button, not on top of it.
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 84),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     ));
   }
@@ -450,7 +452,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         style: Skin.title(context, size: 22, color: onDark)),
                     const SizedBox(height: 4),
                     Text(
-                      (e.where ?? e.authorLine).toUpperCase(),
+                      (e.where != null && e.where!.toLowerCase() != e.title.toLowerCase()
+                              ? e.where!
+                              : (e.authorLine.isNotEmpty ? e.authorLine : e.formatLabel))
+                          .toUpperCase(),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Skin.meta(context, color: onDark.withValues(alpha: 0.6), size: 8.5),

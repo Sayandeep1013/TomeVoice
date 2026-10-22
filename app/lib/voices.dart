@@ -45,8 +45,6 @@ class VoiceInfo {
     return name;
   }
 
-  bool get highQuality => quality >= 400;
-
   Map<String, Object?> toMap() => {
         'name': name,
         'locale': locale,
@@ -140,6 +138,7 @@ class VoiceCatalog extends ChangeNotifier {
     final pick = SpeechService.pickVoice(
       [for (final v in voices) v.toMap()],
       language,
+      preferRegion: PlatformDispatcher.instance.locale.countryCode,
     );
     return pick == null ? null : byName(pick['name'] as String?);
   }
@@ -154,11 +153,23 @@ class VoiceCatalog extends ChangeNotifier {
         (v.installed ? 4000 : 0) +
         (v.networkRequired ? 0 : 2000) +
         v.quality;
-    list.sort((a, b) {
-      final r = a.region.compareTo(b.region);
-      return r != 0 ? r : score(b).compareTo(score(a));
-    });
-    return list;
+    // Google lists most voices twice, an offline and an online copy of the
+    // same speaker. Show each speaker once, the offline copy when there is one.
+    final best = <String, VoiceInfo>{};
+    for (final v in list) {
+      final key = '${v.region}/${v.variant}';
+      final have = best[key];
+      if (have == null || score(v) > score(have)) best[key] = v;
+    }
+    final unique = best.values.toList()
+      ..sort((a, b) {
+        final r = a.region.compareTo(b.region);
+        if (r != 0) return r;
+        if (a.variant == 'Default') return -1;
+        if (b.variant == 'Default') return 1;
+        return a.variant.compareTo(b.variant);
+      });
+    return unique;
   }
 
   /// Languages that have at least one voice, by display name.

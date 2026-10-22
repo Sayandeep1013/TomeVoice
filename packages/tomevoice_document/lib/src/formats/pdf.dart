@@ -51,19 +51,27 @@ Book bookFromPdfText({
     perPage.add(paras);
   }
 
-  // Join a paragraph that runs over a page break into the earlier page.
-  for (var p = 0; p + 1 < perPage.length; p++) {
-    final here = perPage[p];
-    final next = perPage[p + 1];
-    if (here.isEmpty || next.isEmpty) continue;
-    final last = here.last;
-    final first = next.first;
-    final ends = RegExp(r'[.!?।"”’:)\]]$').hasMatch(last);
-    final startsLower = RegExp(r'^[a-z]').hasMatch(first);
-    if (!ends && (startsLower || !RegExp(r'^[A-Z"“‘(]').hasMatch(first))) {
-      here[here.length - 1] = joinWrappedLines([last, first]);
-      next.removeAt(0);
+  // Reflow. The extractor's paragraph detection is unreliable: on a real
+  // device many PDFs came out one line per paragraph, which made the voice
+  // pause at every line break. A paragraph continues into the next one unless
+  // it ends a sentence or is a heading. This also joins a paragraph that runs
+  // over a page break; the joined text stays on the page where it started.
+  final merged = <({int page, String text})>[];
+  for (var p = 0; p < perPage.length; p++) {
+    for (final text in perPage[p]) {
+      if (merged.isNotEmpty && _continues(merged.last.text, text)) {
+        final last = merged.removeLast();
+        merged.add((page: last.page, text: joinWrappedLines([last.text, text])));
+      } else {
+        merged.add((page: p, text: text));
+      }
     }
+  }
+  for (final page in perPage) {
+    page.clear();
+  }
+  for (final m in merged) {
+    perPage[m.page].add(m.text);
   }
 
   Block block(String text) => makeBlock(
@@ -165,4 +173,13 @@ Set<String> _repeatedEdgeLines(List<String> pages) {
     for (final e in counts.entries)
       if (e.value >= threshold) e.key,
   };
+}
+
+/// Does [next] carry on the paragraph that [prev] started?
+bool _continues(String prev, String next) {
+  if (RegExp(r'[.!?।…"”’:;)\]]$').hasMatch(prev)) return false;
+  if (looksLikeChapterLine(prev) || looksLikeChapterLine(next)) return false;
+  if (RegExp(r'^[a-z]').hasMatch(next)) return true;
+  // A short line before a capital is a title, or a line of verse.
+  return prev.length >= 40;
 }
