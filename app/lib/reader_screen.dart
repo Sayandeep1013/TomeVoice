@@ -40,12 +40,12 @@ class BookLoader extends StatefulWidget {
 }
 
 class _BookLoaderState extends State<BookLoader> {
+  // The place is read after the layout: loading may re-parse the book and
+  // carry the saved place over to the new structure first.
   late final Future<(ReadingLayout, ReadingCursor)> _load = () async {
-    final results = await Future.wait([
-      widget.store.loadLayout(widget.entry.id),
-      widget.store.cursorFor(widget.entry.id),
-    ]);
-    return (results[0] as ReadingLayout, results[1] as ReadingCursor);
+    final layout = await widget.store.loadLayout(widget.entry.id);
+    final cursor = await widget.store.cursorFor(widget.entry.id);
+    return (layout, cursor);
   }();
 
   @override

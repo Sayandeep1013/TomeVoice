@@ -220,7 +220,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   /// Pick how a book's cover looks. Each choice shows itself on this book.
   Future<void> _coverMenu(LibraryEntry e) async {
     final onDark = Skin.onDark(context);
-    final choice = await showModalBottomSheet<CoverMode>(
+    final choice = await showModalBottomSheet<(CoverMode, bool)>(
       context: context,
       backgroundColor: Skin.darkOn(context),
       useSafeArea: true,
@@ -233,7 +233,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
           return Expanded(
             child: InkWell(
               borderRadius: BorderRadius.circular(16),
-              onTap: () => Navigator.pop(ctx, mode),
+              // A style tile only picks a style; it asks for a photo just
+              // when "Your picture" has none yet.
+              onTap: () => Navigator.pop(
+                ctx,
+                (mode, mode == CoverMode.custom && e.customCover == null),
+              ),
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
                 child: Column(
@@ -293,29 +298,53 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   option(CoverMode.auto, 'Automatic',
                       e.cover == null ? 'MADE FROM THE TITLE' : "THE BOOK'S OWN"),
                   option(CoverMode.custom, 'Your picture',
-                      e.customCover == null ? 'CHOOSE ONE' : 'TAP TO CHANGE'),
+                      e.customCover == null ? 'CHOOSE ONE' : 'FROM YOUR PHONE'),
                   option(CoverMode.plain, 'Plain', 'TITLE ON COLOUR'),
                 ],
               ),
+              if (e.customCover != null) ...[
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: Capsule(
+                    onTap: () => Navigator.pop(ctx, (CoverMode.custom, true)),
+                    color: Colors.white.withValues(alpha: 0.08),
+                    border: false,
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.add_photo_alternate_outlined, size: 18, color: Skin.amberSoft),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text('Choose a different picture',
+                              overflow: TextOverflow.ellipsis,
+                              style: Skin.label(ctx, color: onDark, size: 13, weight: FontWeight.w700)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         );
       },
     );
     if (choice == null || !mounted) return;
+    final (mode, pick) = choice;
     PickedFile? picture;
-    if (choice == CoverMode.custom) {
+    if (pick) {
       try {
         picture = await _svc.pickImage();
       } on PlatformException catch (err) {
         _snack(err.message ?? err.code);
         return;
       }
-      // Cancelled the picker: keep things as they were, unless a picture
-      // was chosen before and they just want it back.
-      if (picture == null && e.customCover == null) return;
+      // Cancelled the picker: leave the cover as it was.
+      if (picture == null) return;
     }
-    await _store?.setCover(e.id, choice, picture: picture);
+    await _store?.setCover(e.id, mode, picture: picture);
     final entries = await _store?.list() ?? const <LibraryEntry>[];
     if (mounted) setState(() => _entries = entries);
   }
@@ -332,7 +361,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
           children: [
             Icon(icon, color: color, size: 22),
             const SizedBox(width: 14),
-            Text(label, style: Skin.label(ctx, color: color, size: 13.5)),
+            // Wraps rather than overflowing at large system font sizes.
+            Expanded(child: Text(label, style: Skin.label(ctx, color: color, size: 13.5))),
           ],
         ),
       ),

@@ -24,15 +24,18 @@ import 'package:tomevoice_spike/speech_service.dart';
 const _channel = MethodChannel('tomevoice/tts');
 
 late Directory _tmp;
+final _calls = <String>[];
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() {
     _tmp = Directory.systemTemp.createTempSync('tomevoice_test');
+    _calls.clear();
     ListeningPrefs.reset();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_channel, (call) async {
+      _calls.add(call.method);
       return switch (call.method) {
         'launchArgs' => <String, Object?>{},
         'listEngines' => [
@@ -178,6 +181,38 @@ void main() {
       expect(find.text('17 M'), findsWidgets, reason: '2,804 words at 165 wpm');
       expect(find.textContaining('NOT STARTED'), findsNWidgets(2));
       expect(find.text('Add books'), findsOneWidget);
+      await finish(tester);
+    });
+  });
+
+  group('covers', () {
+    testWidgets('a wrong picture is one tap from being replaced', (tester) async {
+      phone(tester);
+      await tester.runAsync(() async {
+        final store = LibraryStore(_tmp);
+        final f = File('${_tmp.path}/incoming/book.txt')
+          ..createSync(recursive: true)
+          ..writeAsStringSync('A book about covers and choosing them well. The end.');
+        final e = await store.importFile(PickedFile(path: f.path, name: 'book.txt'));
+        final pic = File('${_tmp.path}/incoming/wrong.jpg')..writeAsBytesSync([1, 2, 3]);
+        await store.setCover(e.id, CoverMode.custom, picture: PickedFile(path: pic.path, name: 'wrong.jpg'));
+      });
+      await tester.pumpWidget(const SpikeApp());
+      for (var i = 0; i < 30 && find.byTooltip('More').evaluate().isEmpty; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('More').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Change cover'));
+      await tester.pumpAndSettle();
+      expect(find.text('Choose a different picture'), findsOneWidget);
+
+      await tester.tap(find.text('Choose a different picture'));
+      await tester.pumpAndSettle();
+      expect(_calls, contains('pickImage'));
       await finish(tester);
     });
   });
@@ -459,6 +494,39 @@ void main() {
       final listed = (await store.list()).single;
       expect(listed.coverMode, CoverMode.custom);
       expect(listed.shownCover, e.shownCover);
+    });
+
+    test('re-parsing a book keeps the place the reader was at', () async {
+      final store = LibraryStore(_tmp);
+      final src = File('${_tmp.path}/incoming/pages.txt')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('placeholder');
+      final entry = await store.importFile(PickedFile(path: src.path, name: 'pages.txt'));
+      // Store it the old way: a PDF with one section per page.
+      final old = Book(
+        id: entry.id,
+        metadata: const BookMetadata(title: 'Old', language: 'en'),
+        source: SourceKind.pdf,
+        toc: const [],
+        sections: [
+          for (var p = 0; p < 30; p++)
+            Section(id: 's$p', index: p, title: 'Page ${p + 1}', blocks: [
+              makeBlock(
+                role: BlockRole.paragraph,
+                text: 'This is the only sentence on page number ${p + 1} of the book.',
+                anchor: PageAnchor(p),
+              ),
+            ]),
+        ],
+      );
+      File('${_tmp.path}/books/${entry.id}/parsed.json')
+          .writeAsStringSync(encodeReport({'v': 3, 'book': old.toJson()}));
+      await store.saveCursor(entry.id, const ReadingCursor(sectionIndex: 21), 0.7);
+
+      final layout = await store.loadLayout(entry.id);
+      expect(layout.chapters.length, lessThan(30), reason: 'regrouped');
+      final cursor = await store.cursorFor(entry.id);
+      expect(layout.units[layout.unitForCursor(cursor)].text, contains('page number 22 '));
     });
 
     test('a book saved by an older build is parsed again', () async {

@@ -345,6 +345,9 @@ ReadingLayout _loadLayoutSync(_LoadJob job) {
   final dir = '${job.booksDir}/${job.id}';
   final parsed = File('$dir/parsed.json');
   Book? book;
+  // The book as it was stored, when it is about to be re-parsed: the saved
+  // place has to be carried across (see _carryCursor).
+  Book? before;
   if (parsed.existsSync()) {
     final raw = jsonDecode(parsed.readAsStringSync());
     if (raw is Map && raw['v'] == _parsedVersion && raw['book'] is Map) {
@@ -357,6 +360,7 @@ ReadingLayout _loadLayoutSync(_LoadJob job) {
       final legacy = Book.fromJson(
         Map<String, Object?>.from(inner is Map ? inner : raw),
       );
+      before = legacy;
       final source = job.sourcePath == null ? null : File(job.sourcePath!);
       if (legacy.source != SourceKind.pdf && source != null && source.existsSync()) {
         try {
@@ -389,10 +393,49 @@ ReadingLayout _loadLayoutSync(_LoadJob job) {
   // PDFs stored one section per page get real chapters from their own text.
   final resectioned = resectionPdf(book);
   if (!identical(resectioned, book)) {
+    before ??= book;
     book = resectioned;
     _writeParsed(dir, book);
   }
-  return ReadingLayout.build(book);
+  final layout = ReadingLayout.build(book);
+  if (before != null && !identical(before, book)) _carryCursor(dir, before, layout);
+  return layout;
+}
+
+/// A saved place is section/paragraph/sentence numbers. Re-parsing a book
+/// can regroup those (a PDF going from pages to chapters), and the old
+/// numbers then point somewhere else entirely: a book reopened at its last
+/// chapter. Find the sentence the reader was on by its text and save that.
+void _carryCursor(String dir, Book before, ReadingLayout after) {
+  final file = File('$dir/cursor.json');
+  if (!file.existsSync() || after.units.isEmpty) return;
+  try {
+    final raw = jsonDecode(file.readAsStringSync()) as Map;
+    final cursor = ReadingCursor.fromJson(Map<String, Object?>.from(raw['cursor'] as Map? ?? const {}));
+    final old = flattenSpeakable(before);
+    if (old.isEmpty) return;
+    final at = indexOfCursor(old, cursor);
+    final text = old[at].text;
+    // Nearest unit with the same text to where it sat proportionally.
+    final guess = (at * after.units.length / old.length).round().clamp(0, after.units.length - 1);
+    var best = -1;
+    for (var d = 0; d < after.units.length; d++) {
+      for (final i in [guess - d, guess + d]) {
+        if (i >= 0 && i < after.units.length && after.units[i].text == text) {
+          best = i;
+          break;
+        }
+      }
+      if (best >= 0 || d > 3000) break;
+    }
+    final target = best >= 0 ? best : guess;
+    file.writeAsStringSync(jsonEncode({
+      'cursor': cursorOf(after.units[target]).toJson(),
+      'progress': raw['progress'],
+    }));
+  } on Object {
+    // Losing the place is better than failing to open the book.
+  }
 }
 
 // -------------------------------------------------------------------- entry
