@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NovelDokusha Research</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Ojuju:wght@500;700&family=Space+Mono&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f6f3ec;
+    --paper: #fffdf8;
+    --ink: #1b2620;
+    --quiet: #5b665f;
+    --rule: #dcd6c8;
+    --forest: #1f5a3e;
+    --amber: #c98a1b;
+    --tint: #f3e7cc;
+    --code-bg: #efeadf;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1713;
+      --paper: #141e19;
+      --ink: #e9e4d8;
+      --quiet: #9aa69f;
+      --rule: #2b3832;
+      --forest: #5fb58a;
+      --amber: #e6aa45;
+      --tint: #2a2416;
+      --code-bg: #1c2822;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 17px/1.6 "Source Serif 4", Georgia, serif;
+  }
+  .band {
+    height: 6px;
+    background: linear-gradient(90deg, #1f5a3e, #6f8a3a 55%, #e6aa45);
+  }
+  main {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 40px 16px 80px;
+  }
+  h1, h2, h3 { font-family: "Ojuju", system-ui, sans-serif; line-height: 1.2; }
+  h1 { font-size: 40px; margin: 0 0 6px; }
+  h2 { font-size: 26px; margin: 48px 0 12px; padding-top: 12px; border-top: 1px solid var(--rule); }
+  h3 { font-size: 19px; margin: 28px 0 8px; }
+  .meta, .mono, code, th, .tag {
+    font-family: "Space Mono", ui-monospace, monospace;
+  }
+  .meta { color: var(--quiet); font-size: 13px; margin-bottom: 28px; }
+  .lead {
+    font-size: 19px;
+    background: var(--paper);
+    border-left: 4px solid var(--amber);
+    padding: 16px 20px;
+    border-radius: 0 10px 10px 0;
+  }
+  nav.toc {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 12px 20px;
+    font-size: 15px;
+  }
+  nav.toc ol { margin: 6px 0; padding-left: 20px; columns: 2; column-gap: 32px; }
+  @media (max-width: 600px) { nav.toc ol { columns: 1; } }
+  a { color: var(--forest); }
+  code {
+    font-size: 0.82em;
+    background: var(--code-bg);
+    padding: 1px 5px;
+    border-radius: 4px;
+    word-break: break-word;
+  }
+  pre {
+    background: var(--code-bg);
+    padding: 14px 16px;
+    border-radius: 10px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .table-wrap { overflow-x: auto; margin: 12px 0; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    background: var(--paper);
+    font-size: 15px;
+  }
+  th {
+    text-align: left;
+    font-size: 11.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--quiet);
+    font-weight: normal;
+  }
+  th, td { padding: 8px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  .tag {
+    display: inline-block;
+    font-size: 11px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    border: 1px solid var(--rule);
+    color: var(--quiet);
+    white-space: nowrap;
+  }
+  .tag.cat { border-color: var(--forest); color: var(--forest); }
+  .tag.en { border-color: var(--amber); color: var(--amber); }
+  figure { margin: 20px 0; }
+  figure svg { width: 100%; height: auto; display: block; }
+  figcaption { color: var(--quiet); font-size: 14px; margin-top: 6px; }
+  .svg-box { background: var(--paper); border: 1px solid var(--rule); border-radius: 12px; padding: 8px; }
+  svg text { font-family: "Space Mono", ui-monospace, monospace; }
+  .s-ink { fill: var(--ink); }
+  .s-quiet { fill: var(--quiet); }
+  .s-box { fill: none; stroke: var(--quiet); stroke-width: 1.25; }
+  .s-hi { fill: var(--tint); stroke: var(--amber); stroke-width: 2; }
+  .s-line { fill: none; stroke: var(--quiet); stroke-width: 1.25; }
+  .s-head { fill: var(--quiet); }
+  .phases { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin: 16px 0; }
+  .phase {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .phase .n { font-family: "Space Mono", monospace; color: var(--amber); font-size: 12px; }
+  .phase h3 { margin: 4px 0 6px; }
+  .phase p { margin: 0 0 6px; font-size: 15px; }
+  .phase .size { font-family: "Space Mono", monospace; font-size: 12px; color: var(--quiet); }
+  .note { color: var(--quiet); font-size: 15px; }
+</style>
+</head>
+<body>
+<div class="band"></div>
+<main>
+
+<h1>NovelDokusha: how it works, and bringing it to TomeVoice</h1>
+<div class="meta">Research note · 23 Oct 2026 · read from the source at
+  <a href="https://github.com/nanihadesuka/NovelDokusha">github.com/nanihadesuka/NovelDokusha</a> and the copy on the phone</div>
+
+<p class="lead">TomeVoice can get NovelDokusha's "search, add the novel, get new chapters every day" flow.
+NovelDokusha's search is not a service. Each site is one Kotlin class that knows its search URL and
+CSS selectors, and "search everywhere" just asks all of them at once. The plan below builds the
+same thing in TomeVoice, with sites described as data so a broken one can be fixed without a new APK.
+Nothing here is built yet.</p>
+
+<nav class="toc"><strong class="mono" style="font-size:12px">CONTENTS</strong>
+<ol>
+  <li><a href="#what">What NovelDokusha is</a></li>
+  <li><a href="#flow">The flow, start to finish</a></li>
+  <li><a href="#providers">How providers work</a></li>
+  <li><a href="#search">How global search works</a></li>
+  <li><a href="#sources">All 27 sources</a></li>
+  <li><a href="#updates">New chapters every day</a></li>
+  <li><a href="#data">Data model and backups</a></li>
+  <li><a href="#reading">Reading, speech, translation</a></li>
+  <li><a href="#risks">Risks</a></li>
+  <li><a href="#plan">Plan for TomeVoice</a></li>
+</ol>
+</nav>
+
+<h2 id="what">1. What NovelDokusha is</h2>
+<p>NovelDokusha is an open-source Android reader for web novels and local EPUBs. It is GPL-3.0, the same licence
+as TomeVoice, so its ideas and code can be reused here. The project is marked as no longer maintained.</p>
+<div class="table-wrap"><table>
+  <tr><th>Part</th><th>What it uses</th></tr>
+  <tr><td>UI</td><td>Kotlin, Jetpack Compose</td></tr>
+  <tr><td>Network</td><td>OkHttp, plus a hidden WebView for Cloudflare</td></tr>
+  <tr><td>Reading site pages</td><td>Jsoup (CSS selectors over HTML)</td></tr>
+  <tr><td>Text from any page</td><td>Readability4J (finds an article's main text)</td></tr>
+  <tr><td>Storage</td><td>Room (SQLite), database <code>bookEntry</code>, schema version 5</td></tr>
+  <tr><td>Background work</td><td>WorkManager</td></tr>
+  <tr><td>Speech</td><td>Android TextToSpeech plus a media-controls service</td></tr>
+  <tr><td>Translation</td><td>Google ML Kit, on the device</td></tr>
+</table></div>
+<p>On this phone: <code>my.noveldokusha</code> v2.2.0. It has 2 web novels, with 407 and 678 unread chapters, and
+3 local <em>A Song of Ice and Fire</em> EPUBs.</p>
+
+<h2 id="flow">2. The flow, start to finish</h2>
+<p>Everything goes directly to the sites. There is no NovelDokusha server in between.</p>
+<ol>
+  <li><strong>Find a novel.</strong> Browse one source's catalogue (popular, latest), search one source, or use
+    global search, which asks every source at once. A separate "database" search looks on NovelUpdates and
+    BakaUpdates for information about a novel, not its text.</li>
+  <li><strong>Open the book page.</strong> The source supplies the cover URL, the description and the full chapter
+    list (a title and URL for each chapter).</li>
+  <li><strong>Add to library.</strong> This saves the book and its chapter rows. No chapter text is downloaded yet.</li>
+  <li><strong>Read a chapter.</strong> The chapter page is fetched and the source pulls out the body text. The text is
+    saved, so the chapter opens offline next time. You can also download chapters ahead.</li>
+  <li><strong>Keep your place.</strong> It saves the last chapter read and the position inside it, and marks chapters
+    read as you go.</li>
+  <li><strong>New chapters.</strong> A background job re-fetches every library book's chapter list on a schedule,
+    adds the new ones and notifies you (<a href="#updates">section 6</a>).</li>
+  <li><strong>Any other site.</strong> Open a URL with no matching source and Readability4J guesses the page's
+    main text.</li>
+</ol>
+
+<h2 id="providers">3. How providers work</h2>
+<p>A provider (a "source") is one Kotlin class per website. It hard-codes that site's URLs and the CSS selectors
+for titles, covers, chapter links and chapter text. All of them are registered in one list,
+<code>scraper/Scraper.kt</code>. A URL is matched to its source by checking which source's <code>baseUrl</code> it
+starts with.</p>
+<p>The interface has two levels:</p>
+<div class="table-wrap"><table>
+  <tr><th>Level</th><th>What it must do</th><th>Count</th></tr>
+  <tr><td><code>SourceInterface.Base</code></td><td><code>getChapterText(doc)</code>: pull the readable text out of a
+    chapter page. Only reads chapters you link to.</td><td>3 sites</td></tr>
+  <tr><td><code>SourceInterface.Catalog</code></td><td>Everything in Base, plus <code>getCatalogList(page)</code>,
+    <code>getCatalogSearch(page, query)</code>, <code>getChapterList(book)</code>, cover URL, description,
+    <code>language</code>, <code>catalogUrl</code> and <code>baseUrl</code>.</td><td>23 sites</td></tr>
+</table></div>
+<p>A Catalog source, simplified:</p>
+<pre><code>class NovelBin(private val networkClient: NetworkClient) : SourceInterface.Catalog {
+    override val id = "novelbin"
+    override val baseUrl = "https://novelbin.me/"
+    override val catalogUrl = "https://novelbin.me/sort/novelbin-daily-update"
+    override val language = LanguageCode.ENGLISH
+
+    // search:   GET  the site's search page        -> select result rows -> (title, url, cover)
+    // chapters: GET  the book page                -> select chapter links -> (title, url)
+    // text:     GET  the chapter page             -> select the text container -> paragraphs
+}</code></pre>
+<p>The weak point: when a site changes its HTML, its selectors stop matching and that source returns nothing until
+someone edits the code and ships a new APK. Sites of this kind also move domains, which breaks the
+<code>baseUrl</code> match.</p>
+
+<h2 id="search">4. How global search works</h2>
+<p>When you type a name, the search screen makes one result row per Catalog source and starts all of them at
+the same moment. Each calls <code>getCatalogSearch(page 1, query)</code> on its own site and fills its own row as
+soon as it answers. Scrolling a row fetches that site's next page. A slow or broken site only affects its own row.
+That is why one search shows the same novel from several sites.</p>
+<figure>
+  <div class="svg-box">
+  <svg viewBox="0 0 760 330" role="img" aria-label="One query fans out to every catalog source; each fills its own row">
+    <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="s-head"/></marker></defs>
+    <text x="24" y="32" font-size="15" font-weight="700" class="s-ink">One query, every source at once</text>
+    <rect x="24" y="140" width="150" height="56" rx="8" class="s-hi"/>
+    <text x="99" y="164" text-anchor="middle" font-size="13" class="s-ink">You type</text>
+    <text x="99" y="182" text-anchor="middle" font-size="12" class="s-quiet">"shadow slave"</text>
+    <g class="s-line">
+      <path d="M174 168 C 230 168, 230 80, 280 80" marker-end="url(#arr)"/>
+      <path d="M174 168 C 230 168, 230 140, 280 140" marker-end="url(#arr)"/>
+      <path d="M174 168 C 230 168, 230 200, 280 200" marker-end="url(#arr)"/>
+      <path d="M174 168 C 230 168, 230 260, 280 260" marker-end="url(#arr)"/>
+    </g>
+    <rect x="280" y="58" width="170" height="44" rx="8" class="s-box"/>
+    <text x="365" y="85" text-anchor="middle" font-size="12.5" class="s-ink">NovelBin</text>
+    <rect x="280" y="118" width="170" height="44" rx="8" class="s-box"/>
+    <text x="365" y="145" text-anchor="middle" font-size="12.5" class="s-ink">RoyalRoad</text>
+    <rect x="280" y="178" width="170" height="44" rx="8" class="s-box"/>
+    <text x="365" y="205" text-anchor="middle" font-size="12.5" class="s-ink">LightNovelWorld</text>
+    <rect x="280" y="238" width="170" height="44" rx="8" class="s-box" stroke-dasharray="4 4"/>
+    <text x="365" y="265" text-anchor="middle" font-size="12.5" class="s-quiet">… 20 more</text>
+    <text x="365" y="306" text-anchor="middle" font-size="11.5" class="s-quiet">each: GET its site's search page,</text>
+    <text x="365" y="321" text-anchor="middle" font-size="11.5" class="s-quiet">CSS selectors → title, url, cover</text>
+    <g class="s-line">
+      <path d="M450 80H510" marker-end="url(#arr)"/>
+      <path d="M450 140H510" marker-end="url(#arr)"/>
+      <path d="M450 200H510" marker-end="url(#arr)"/>
+      <path d="M450 260H510" marker-end="url(#arr)"/>
+    </g>
+    <rect x="510" y="58" width="226" height="44" rx="8" class="s-box"/>
+    <text x="526" y="85" font-size="12" class="s-ink">row: 6 results  →</text>
+    <rect x="510" y="118" width="226" height="44" rx="8" class="s-box"/>
+    <text x="526" y="145" font-size="12" class="s-ink">row: 3 results  →</text>
+    <rect x="510" y="178" width="226" height="44" rx="8" class="s-box"/>
+    <text x="526" y="205" font-size="12" class="s-quiet">row: still loading…</text>
+    <rect x="510" y="238" width="226" height="44" rx="8" class="s-box"/>
+    <text x="526" y="265" font-size="12" class="s-quiet">row: error, others unaffected</text>
+  </svg>
+  </div>
+  <figcaption>Each source fills its own row independently. Result counts are illustrative.</figcaption>
+</figure>
+
+<h2 id="sources">5. All 27 sources</h2>
+<p>From <code>Scraper.kt</code>: 23 catalog sites, 3 read-only sites and the local-file source, plus NovelUpdates and
+BakaUpdates as information databases. 15 of the catalog sites are in English.</p>
+<div class="table-wrap"><table>
+  <tr><th>Source</th><th>Site</th><th>Language</th><th>Type</th></tr>
+  <tr><td>NovelBin</td><td>novelbin.me</td><td><span class="tag en">English</span></td><td><span class="tag cat">catalog</span></td></tr>
+  <tr><td>RoyalRoad</td><td>royalroad.com</td><td><span class="tag en">English</span></td><td><span class="tag cat">catalog</span></td></tr>
+  <tr><td>ReadNovelFull</td><td>readnovelfull.com</td><td><span class="tag en">English</span></td><td><span class="tag cat">catalog</span></td></tr>
+  <tr><td>LightNovelWorld</td><td>lightnovelworld.com</td><td><span class="tag en">English</span></td><td><span class="tag cat">catalog</span></td></tr>
+  <tr><td>BoxNovel</td><td>boxnovel.com</td><td><span class="tag en">English</span></td><td><span class="tag cat">catalog</span></td></tr>
+  <tr><td>NovelHall</td><td>novelhall.com</td><td><span class="tag en">English</span></td><td><span class="tag cat">catalog</span></td></tr>
+  <tr><td>MTLNovel</td><td>mtlnovel.com</td><td><span class="tag en">English</span></td><td><span class="tag cat">catalog</span></td></tr>
+  <tr><td>WuxiaWorld</td><td>wuxiaworld.site</td><td><span class="tag en">English</span></td><td><span class="tag cat">catalog</span></td></tr>
+  <tr><td>Wuxia</td><td>wuxia.blog</td><td><span class="tag en">English</span></td><td><span class="tag cat">catalog</span></td></tr>
+  <tr><td>BestLightNovel</td><td>bestlightnovel.com</td><td><span class="tag en">English</span></td><td><span class="tag cat">catalog</span></td></tr>
+  <tr><td>1stKissNovel</td><td>1stkissnovel.org</td><td><span class="tag en">English</span></td><td><span class="tag cat">catalog</span></td></tr>
+  <tr><td>ReadLightNovel</td><td>readlightnovel.meme</td><td><span class="tag en">English</span></td><td><span class="tag cat">catalog</span></td></tr>
+  <tr><td>LightNovelsTranslations</td><td>lightnovelstranslations.com</td><td><span class="tag en">English</span></td><td><span class="tag cat">catalog</span></td></tr>
+  <tr><td>KoreanNovelsMTL</td><td>koreanmtl.online</td><td><span class="tag en">English</span></td><td><span class="tag cat">catalog</span></td></tr>
+  <tr><td>NovelUpdates (as a source)</td><td>novelupdates.com</td><td><span class="tag en">English</span></td><td><span class="tag cat">catalog</span></td></tr>
+  <tr><td>Saikai</td><td>saikaiscan.com.br</td><td><span class="tag">Portuguese</span></td><td><span class="tag cat">catalog</span></td></tr>
+  <tr><td>IndoWebnovel</td><td>indowebnovel.id</td><td><span class="tag">Indonesian</span></td><td><span class="tag cat">catalog</span></td></tr>
+  <tr><td>BacaLightnovel</td><td>bacalightnovel.co</td><td><span class="tag">Indonesian</span></td><td><span class="tag cat">catalog</span></td></tr>
+  <tr><td>SakuraNovel</td><td>sakuranovel.id</td><td><span class="tag">Indonesian</span></td><td><span class="tag cat">catalog</span></td></tr>
+  <tr><td>MeioNovel</td><td>meionovel.id</td><td><span class="tag">Indonesian</span></td><td><span class="tag cat">catalog</span></td></tr>
+  <tr><td>MoreNovel</td><td>morenovel.net</td><td><span class="tag">Indonesian</span></td><td><span class="tag cat">catalog</span></td></tr>
+  <tr><td>Novelku</td><td>novelku.id</td><td><span class="tag">Indonesian</span></td><td><span class="tag cat">catalog</span></td></tr>
+  <tr><td>WbNovel</td><td>wbnovel.com</td><td><span class="tag">Indonesian</span></td><td><span class="tag cat">catalog</span></td></tr>
+  <tr><td>AT</td><td>a-t.nu</td><td>–</td><td><span class="tag">read-only</span></td></tr>
+  <tr><td>Reddit</td><td>reddit.com</td><td>–</td><td><span class="tag">read-only</span></td></tr>
+  <tr><td>Sousetsuka</td><td>sousetsuka.com</td><td>–</td><td><span class="tag">read-only</span></td></tr>
+  <tr><td>Local</td><td>files on the phone</td><td>–</td><td><span class="tag">local</span></td></tr>
+</table></div>
+<p class="note">Some of these sites may have moved or closed since the code was written. Checking which still
+answer is the first step before reusing any of them.</p>
+
+<h2 id="updates">6. New chapters every day</h2>
+<p>New chapters come from <code>LibraryUpdatesWorker</code>, a periodic WorkManager job. The interval is set in hours
+(24 hours by default), and the job runs only on a network connection with the battery not low. A manual "update now"
+runs the same job once.</p>
+<figure>
+  <div class="svg-box">
+  <svg viewBox="0 0 760 210" role="img" aria-label="The update job diffs each book's chapter list against the saved one">
+    <defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="s-head"/></marker></defs>
+    <text x="24" y="32" font-size="15" font-weight="700" class="s-ink">New chapters = chapter URLs not seen before</text>
+    <rect x="24" y="70" width="150" height="60" rx="8" class="s-box"/>
+    <text x="99" y="96" text-anchor="middle" font-size="12.5" class="s-ink">Every N hours</text>
+    <text x="99" y="114" text-anchor="middle" font-size="11" class="s-quiet">online, battery ok</text>
+    <rect x="206" y="70" width="160" height="60" rx="8" class="s-box"/>
+    <text x="286" y="96" text-anchor="middle" font-size="12.5" class="s-ink">Library books</text>
+    <text x="286" y="114" text-anchor="middle" font-size="11" class="s-quiet">not completed, not local</text>
+    <rect x="398" y="70" width="160" height="60" rx="8" class="s-box"/>
+    <text x="478" y="96" text-anchor="middle" font-size="12.5" class="s-ink">Fetch chapter list</text>
+    <text x="478" y="114" text-anchor="middle" font-size="11" class="s-quiet">one site at a time</text>
+    <rect x="590" y="70" width="146" height="60" rx="8" class="s-hi"/>
+    <text x="663" y="96" text-anchor="middle" font-size="12.5" class="s-ink">Merge + notify</text>
+    <text x="663" y="114" text-anchor="middle" font-size="11" class="s-quiet">new URLs only</text>
+    <g class="s-line">
+      <path d="M174 100H206" marker-end="url(#arr2)"/>
+      <path d="M366 100H398" marker-end="url(#arr2)"/>
+      <path d="M558 100H590" marker-end="url(#arr2)"/>
+    </g>
+    <text x="24" y="170" font-size="11.5" class="s-quiet">Books are grouped by website host. Sites are checked in parallel, but books on the same</text>
+    <text x="24" y="188" font-size="11.5" class="s-quiet">site one after another, so no site gets hammered. Chapter text is not downloaded here.</text>
+  </svg>
+  </div>
+</figure>
+
+<h2 id="data">7. Data model and backups</h2>
+<p>Three tables hold everything a web novel needs. The URL is the key throughout, which is why a site's domain change
+breaks the link to existing books.</p>
+<div class="table-wrap"><table>
+  <tr><th>Table</th><th>Key</th><th>Other columns</th></tr>
+  <tr><td><code>Book</code></td><td>url</td><td>title, completed, lastReadChapter, inLibrary, coverImageUrl, description,
+    lastReadEpochTimeMilli</td></tr>
+  <tr><td><code>Chapter</code></td><td>url</td><td>title, bookUrl, position, read, lastReadPosition, lastReadOffset</td></tr>
+  <tr><td><code>ChapterBody</code></td><td>url</td><td>body: plain text, paragraphs separated by blank lines, pictures
+    as <code>&lt;img src … yrel …&gt;</code> markers</td></tr>
+</table></div>
+<p><strong>Backup file.</strong> Settings → Backup writes a ZIP containing <code>database.sqlite3</code> and, optionally,
+the <code>books/</code> folder of local files and images. The app's own database is private, so this backup is the
+only way TomeVoice can read the novels already on the phone. Importing it is simple: open the SQLite file, read the
+three tables and turn each book into a TomeVoice book.</p>
+
+<h2 id="reading">8. Reading, speech and translation</h2>
+<ul>
+  <li><strong>Reader:</strong> a scrolling list of paragraphs that loads the next chapter as you reach the end.</li>
+  <li><strong>Speech:</strong> <code>TextToSpeechManager</code> reads the chapter through Android's TTS.
+    <code>NarratorMediaControlsService</code> adds a notification and lock-screen controls. TomeVoice already does
+    more here: its own audio pipeline, word highlighting, sleep timer and screen-off playback.</li>
+  <li><strong>Translation:</strong> ML Kit translates the chapter on the device, paragraph by paragraph, for
+    machine-translated reading of untranslated novels.</li>
+  <li><strong>Cloudflare:</strong> when a site answers with a challenge, an interceptor loads the page in a hidden
+    WebView to earn the <code>cf_clearance</code> cookie and retries. If that fails, a visible WebView lets you solve
+    it by hand.</li>
+</ul>
+
+<h2 id="risks">9. Risks</h2>
+<div class="table-wrap"><table>
+  <tr><th>Risk</th><th>What happens</th><th>How TomeVoice would handle it</th></tr>
+  <tr><td>Site changes its HTML</td><td>That source returns nothing</td><td>Sources as data: update a JSON file, not the APK</td></tr>
+  <tr><td>Domain moves</td><td>Saved book URLs stop matching</td><td>Store a site id plus a path, not the full URL</td></tr>
+  <tr><td>Cloudflare challenges</td><td>Requests blocked</td><td>Same WebView cookie approach, done in the Kotlin layer</td></tr>
+  <tr><td>Rights and terms</td><td>Many aggregator sites host translations without the publisher's licence</td><td>Personal use, no
+    bundled source list in a store release, prefer sites like RoyalRoad where authors post their own work</td></tr>
+  <tr><td>Maintenance</td><td>NovelDokusha stopped partly because 26 scrapers break constantly</td><td>Start with the 2–3 sites
+    actually used, add more only when needed</td></tr>
+</table></div>
+
+<h2 id="plan">10. Plan for TomeVoice</h2>
+<p>A web novel fits TomeVoice's existing model: a <code>Book</code> whose sections are chapters, with chapters fetched
+when needed and appended over time. The reading position is already kept across re-parses, so new chapters can be
+added without losing your place. Chapter HTML goes through the same HTML-to-blocks code the EPUB reader uses.</p>
+<div class="phases">
+  <div class="phase"><div class="n">PHASE 1</div><h3>Import a NovelDokusha backup</h3>
+    <p>Pick the backup ZIP, read its SQLite database, and bring every novel across with its saved chapters, read marks and
+    position.</p><p class="size">Moves the 2 novels on the phone over. Works offline.</p></div>
+  <div class="phase"><div class="n">PHASE 2</div><h3>Add a novel by URL</h3>
+    <p>Paste a book or chapter link. A generic extractor (the Readability approach in Dart) finds the chapter text and the
+    "next chapter" link.</p><p class="size">Works on most sites with no per-site code.</p></div>
+  <div class="phase"><div class="n">PHASE 3</div><h3>Daily new chapters</h3>
+    <p>A WorkManager job in the Kotlin layer re-checks each web novel once a day, diffs chapter URLs, downloads the new
+    chapters' text and notifies.</p><p class="size">Unlike NovelDokusha, new chapters are ready offline.</p></div>
+  <div class="phase"><div class="n">PHASE 4</div><h3>Sources and global search</h3>
+    <p>Each site is a small JSON file: search URL, and selectors for results, chapter list and text. Global search runs
+    every enabled source in parallel, one row each.</p><p class="size">Fix a broken site by editing JSON, not by releasing.</p></div>
+</div>
+<p>A source as data might look like this:</p>
+<pre><code>{
+  "id": "novelbin",
+  "name": "NovelBin",
+  "baseUrl": "https://novelbin.me",
+  "language": "en",
+  "search":   { "url": "/search?keyword={query}", "item": ".list-novel .row",
+                "title": "h3 a", "link": "h3 a@href", "cover": "img@src" },
+  "chapters": { "url": "{book}#tab-chapters", "item": "ul.list-chapter li a",
+                "title": "@title", "link": "@href" },
+  "text":     { "body": "#chr-content", "remove": ["script", ".ads"] }
+}</code></pre>
+<p class="note">The selectors above show the shape only. Each would be checked against the live site when the
+source is written.</p>
+
+</main>
+</body>
+</html>
