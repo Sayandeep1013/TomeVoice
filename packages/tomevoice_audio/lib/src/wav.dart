@@ -116,6 +116,22 @@ class WavCodec {
     return out;
   }
 
+  /// Raw little-endian 16-bit PCM with no header, optionally followed by
+  /// [silenceFrames] of silence. This is what the streaming player is fed: no
+  /// file, no header, and the inter-sentence pause rides in the same write so
+  /// it cannot drift from the audio it follows.
+  static Uint8List pcm16Bytes(AudioBuffer buffer, {int silenceFrames = 0}) {
+    final frames = buffer.frameCount;
+    final out = Uint8List((frames + silenceFrames) * 2);
+    final view = ByteData.sublistView(out);
+    for (var i = 0; i < frames; i++) {
+      final clamped = buffer.samples[i].clamp(-1.0, 1.0);
+      final value = (clamped * 32767).round().clamp(-32767, 32767);
+      view.setInt16(i * 2, value, Endian.little);
+    }
+    return out;
+  }
+
   /// Encodes as 32-bit float, lossless for our internal representation.
   static Uint8List encodeFloat32(AudioBuffer buffer) {
     final frames = buffer.frameCount;

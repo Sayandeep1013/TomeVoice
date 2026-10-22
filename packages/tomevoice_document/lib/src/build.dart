@@ -90,3 +90,69 @@ int wordCountOf(Book book) {
   }
   return n;
 }
+
+/// One chapter's worth of blocks, before indexing.
+typedef DraftSection = ({String? title, List<Block> blocks});
+
+/// The common tail of every parser: drop empty sections, index what is left,
+/// derive a TOC from the titles and count words.
+Book assembleBook({
+  required String id,
+  required BookMetadata metadata,
+  required List<DraftSection> sections,
+  required SourceKind source,
+  String? filename,
+}) {
+  final kept = [
+    for (final s in sections)
+      if (s.blocks.any((b) => b.text.isNotEmpty)) s,
+  ];
+  final indexed = [
+    for (var i = 0; i < kept.length; i++)
+      Section(
+        id: 's$i',
+        index: i,
+        title: kept[i].title,
+        blocks: kept[i].blocks,
+      ),
+  ];
+  final toc = [
+    for (final s in indexed) TocEntry(title: s.displayTitle, sectionIndex: s.index),
+  ];
+  final book = Book(
+    id: id,
+    metadata: metadata,
+    sections: indexed,
+    toc: toc,
+    source: source,
+    sourceName: filename,
+  );
+  return book.copyWith(wordCount: wordCountOf(book));
+}
+
+/// "my_book-v2.final.txt" -> "my book v2.final". Null if nothing is left.
+String? titleFromFilename(String? filename) {
+  if (filename == null || filename.isEmpty) return null;
+  final slash = filename.replaceAll(r'\', '/').split('/').last;
+  final dot = slash.lastIndexOf('.');
+  final stem = dot > 0 ? slash.substring(0, dot) : slash;
+  final cleaned = stem.replaceAll(RegExp(r'[_]+'), ' ').trim();
+  return cleaned.isEmpty ? null : cleaned;
+}
+
+/// Lines that begin a chapter in plain text: "Chapter 12", "CHAPTER XII.",
+/// "Part Two", "Prologue", and the Bengali / Hindi equivalents.
+final chapterLine = RegExp(
+  r'^(chapter|chap\.|part|book|prologue|epilogue|interlude|afterword|'
+  r'অধ্যায়|পরিচ্ছেদ|পর্ব|अध्याय|भाग)'
+  r'(?![a-z])[\s.:\-–—]*.{0,70}$',
+  caseSensitive: false,
+);
+
+bool looksLikeChapterLine(String line) {
+  final t = line.trim();
+  if (t.isEmpty || t.length > 90) return false;
+  if (!chapterLine.hasMatch(t)) return false;
+  // "Chapter one was the best part of the book." is prose, not a heading.
+  return !RegExp(r'[.!?]\s*\S+\s+\S+\s+\S+').hasMatch(t) || t.length < 40;
+}

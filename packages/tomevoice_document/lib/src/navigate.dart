@@ -55,6 +55,7 @@ bool isReadingSection(
   if (_frontMatterTitles.contains(lower)) return false;
   if (RegExp(r'^●+$').hasMatch(title)) return false;
   if (_opensAsFrontMatter(text)) return false;
+  if (_looksLikeCopyrightPage(text)) return false;
 
   // Untitled calibre/z-lib sheets: "Section 12" with a handful of glyphs.
   if (_untitledSpine.hasMatch(lower) && text.length < 800) return false;
@@ -139,6 +140,29 @@ bool _opensAsFrontMatter(String text) {
   final head = text.substring(0, end).toLowerCase().trim();
   for (final t in _frontMatterTitles) {
     if (head == t || head.startsWith('$t ')) return true;
+  }
+  return false;
+}
+
+final _copyrightMarkers = [
+  RegExp(r'©|\(c\) ?\d{4}|copyright \d{4}', caseSensitive: false),
+  RegExp(r'all rights reserved', caseSensitive: false),
+  RegExp(r'\bisbn\b', caseSensitive: false),
+  RegExp(r'work of fiction', caseSensitive: false),
+  RegExp(r'library of congress', caseSensitive: false),
+  RegExp(r'\bpublished (by|in)\b', caseSensitive: false),
+  RegExp(r'\bprinted in\b', caseSensitive: false),
+  RegExp(r'first (edition|published)', caseSensitive: false),
+];
+
+/// The copyright / legal page: untitled in many EPUBs and long enough to pass
+/// for a chapter, but nobody sits down to listen to it.
+bool _looksLikeCopyrightPage(String text) {
+  if (text.length > 4000) return false;
+  var hits = 0;
+  for (final m in _copyrightMarkers) {
+    if (m.hasMatch(text)) hits++;
+    if (hits >= 2) return true;
   }
   return false;
 }

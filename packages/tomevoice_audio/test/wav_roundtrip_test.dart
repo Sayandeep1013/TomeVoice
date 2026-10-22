@@ -19,6 +19,16 @@ void main() {
       }
     });
 
+    test('raw pcm16 is the WAV body plus trailing silence', () {
+      final fixture = syntheticSpeech(words: 3, wordMs: 100);
+      final wav = WavCodec.encodePcm16(fixture.audio);
+      final raw = WavCodec.pcm16Bytes(fixture.audio, silenceFrames: 50);
+
+      expect(raw.length, wav.length - 44 + 100);
+      expect(raw.sublist(0, wav.length - 44), wav.sublist(44));
+      expect(raw.sublist(wav.length - 44).every((b) => b == 0), isTrue);
+    });
+
     test('pcm16 round-trip is lossless within quantisation', () {
       final fixture = syntheticSpeech(words: 3, wordMs: 100);
       final decoded = WavCodec.decode(WavCodec.encodePcm16(fixture.audio));

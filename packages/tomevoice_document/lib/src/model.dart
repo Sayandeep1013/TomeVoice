@@ -5,7 +5,19 @@
 /// what an EPUB is. See docs/02 §2.4.
 library;
 
-enum SourceKind { epub, text, markdown, html, pdf, docx, rtf, unknown }
+enum SourceKind {
+  epub,
+  text,
+  markdown,
+  html,
+  pdf,
+  docx,
+  rtf,
+  odt,
+  fb2,
+  mobi,
+  unknown,
+}
 
 enum BlockRole {
   heading,
@@ -143,7 +155,11 @@ class Block {
         'id': id,
         'role': role.name,
         'text': text,
-        'sentences': [for (final s in sentences) s.toJson()],
+        // Flat [start, end, start, end, ...]. Word spans are not stored:
+        // nothing reads them back, and they were most of a 15 MB file.
+        'sb': [
+          for (final s in sentences) ...[s.startOffset, s.endOffset],
+        ],
         'anchor': anchor.toJson(),
         if (language != null) 'language': language,
       };
@@ -155,15 +171,31 @@ class Block {
           orElse: () => BlockRole.paragraph,
         ),
         text: json['text'] as String? ?? '',
-        sentences: [
-          for (final s in (json['sentences'] as List? ?? const []))
-            Sentence.fromJson(Map<String, Object?>.from(s as Map)),
-        ],
+        sentences: _sentencesFromJson(json),
         anchor: Anchor.fromJson(
           Map<String, Object?>.from(json['anchor'] as Map? ?? const {}),
         ),
         language: json['language'] as String?,
       );
+}
+
+List<Sentence> _sentencesFromJson(Map<String, Object?> json) {
+  final flat = json['sb'];
+  if (flat is List) {
+    return [
+      for (var i = 0; i + 1 < flat.length; i += 2)
+        Sentence(
+          startOffset: flat[i] as int,
+          endOffset: flat[i + 1] as int,
+          words: const [],
+        ),
+    ];
+  }
+  // Libraries written before the compact form.
+  return [
+    for (final s in (json['sentences'] as List? ?? const []))
+      Sentence.fromJson(Map<String, Object?>.from(s as Map)),
+  ];
 }
 
 class TocEntry {
@@ -250,6 +282,19 @@ class BookMetadata {
 
   String get authorLine => authors.join(', ');
 
+  BookMetadata copyWith({
+    String? title,
+    List<String>? authors,
+    String? language,
+  }) =>
+      BookMetadata(
+        title: title ?? this.title,
+        authors: authors ?? this.authors,
+        language: language ?? this.language,
+        publisher: publisher,
+        identifier: identifier,
+      );
+
   Map<String, Object?> toJson() => {
         'title': title,
         'authors': authors,
@@ -290,6 +335,22 @@ class Book {
 
   bool get isEmpty =>
       sections.every((s) => s.blocks.every((b) => b.text.isEmpty));
+
+  Book copyWith({
+    BookMetadata? metadata,
+    List<Section>? sections,
+    List<TocEntry>? toc,
+    int? wordCount,
+  }) =>
+      Book(
+        id: id,
+        metadata: metadata ?? this.metadata,
+        sections: sections ?? this.sections,
+        toc: toc ?? this.toc,
+        source: source,
+        sourceName: sourceName,
+        wordCount: wordCount ?? this.wordCount,
+      );
 
   Map<String, Object?> toJson() => {
         'id': id,

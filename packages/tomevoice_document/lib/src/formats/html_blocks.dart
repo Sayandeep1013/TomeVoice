@@ -45,16 +45,7 @@ List<Block> blocksFromHtml(String html, {String? language, String? href}) {
     try {
       doc = XmlDocument.parse(_ensureRoot(_stripDoctype(html)));
     } on XmlException {
-      final text = collapseWhitespace(_stripTags(html));
-      if (text.isEmpty) return const [];
-      return [
-        makeBlock(
-          role: BlockRole.paragraph,
-          text: text,
-          language: language,
-          anchor: OffsetAnchor(0, text.length),
-        ),
-      ];
+      return lenientHtmlBlocks(html, language: language);
     }
   }
 
@@ -203,3 +194,68 @@ String _stripTags(String html) => html
     .replaceAll(RegExp(r'<script[^>]*>[\s\S]*?</script>', caseSensitive: false), ' ')
     .replaceAll(RegExp(r'<style[^>]*>[\s\S]*?</style>', caseSensitive: false), ' ')
     .replaceAll(RegExp(r'<[^>]+>'), ' ');
+
+final _boundary = RegExp(
+  r'<(/?)(h[1-6]|p|div|li|blockquote|br|tr|dt|dd|section|article|title|hr)\b[^>]*>',
+  caseSensitive: false,
+);
+
+/// Tag soup (Kindle HTML, hand-written pages) is not XML. Rather than reading
+/// the whole thing as one paragraph, cut at block-level tags and keep going.
+List<Block> lenientHtmlBlocks(String html, {String? language}) {
+  final cleaned = html
+      .replaceAll(RegExp(r'<head[^>]*>[\s\S]*?</head>', caseSensitive: false), ' ')
+      .replaceAll(RegExp(r'<(script|style)[^>]*>[\s\S]*?</\1>', caseSensitive: false), ' ');
+  final out = <Block>[];
+  var role = BlockRole.paragraph;
+  var last = 0;
+  void emit(int end) {
+    final text = collapseWhitespace(decodeEntities(_stripTags(cleaned.substring(last, end))));
+    if (text.isNotEmpty) {
+      out.add(makeBlock(role: role, text: text, language: language));
+    }
+  }
+
+  for (final m in _boundary.allMatches(cleaned)) {
+    emit(m.start);
+    last = m.end;
+    final closing = m.group(1)!.isNotEmpty;
+    final tag = m.group(2)!.toLowerCase();
+    if (closing) {
+      role = BlockRole.paragraph;
+    } else if (tag.startsWith('h') && tag != 'hr') {
+      role = BlockRole.heading;
+    } else if (tag == 'li' || tag == 'dt' || tag == 'dd') {
+      role = BlockRole.listItem;
+    } else if (tag == 'blockquote') {
+      role = BlockRole.quote;
+    } else if (tag != 'br') {
+      role = BlockRole.paragraph;
+    }
+  }
+  emit(cleaned.length);
+  return out;
+}
+
+const _named = {
+  'amp': '&', 'lt': '<', 'gt': '>', 'quot': '"', 'apos': "'", 'nbsp': ' ',
+  'mdash': '—', 'ndash': '–', 'hellip': '…',
+  'lsquo': '‘', 'rsquo': '’', 'ldquo': '“', 'rdquo': '”',
+  'copy': '©', 'shy': '',
+};
+
+String decodeEntities(String s) => s.replaceAllMapped(
+      RegExp(r'&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);'),
+      (m) {
+        final e = m.group(1)!;
+        if (e.startsWith('#x') || e.startsWith('#X')) {
+          final v = int.tryParse(e.substring(2), radix: 16);
+          return v == null ? m.group(0)! : String.fromCharCode(v);
+        }
+        if (e.startsWith('#')) {
+          final v = int.tryParse(e.substring(1));
+          return v == null ? m.group(0)! : String.fromCharCode(v);
+        }
+        return _named[e.toLowerCase()] ?? m.group(0)!;
+      },
+    );
