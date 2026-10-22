@@ -23,6 +23,8 @@ gaplessly, follows the voice word by word, and keeps going with the screen off.
 | Reading UI | Continuous scroll (`scrollable_positioned_list`), sentence + word wash, tap-to-read, follow mode with "Back to reading", contents sheet, player bar |
 | Settings | One "Listening" sheet: speed, voice (for the book's language), style presets, fine-tune. **Persisted** in `prefs.json` |
 | CI | **Release** APK, arm64 only, Gradle cache. Builds on `main`, PRs, or manual dispatch; docs-only changes skip |
+| Pictures | EPUB images (incl. SVG covers, `<p><img>`) stored at import under `books/<id>/img/`, shown inline at natural size, tap to zoom, never spoken. Picture-only sections (maps, covers) lead into the next chapter. Library shows covers |
+| PDF page view | Text / Page toggle for PDFs: real pages via platform `PdfRenderer` (`PdfPages.kt`), current page outlined and followed; tap a page to read from it |
 | Visual EPUB (WebView, CFI, pagination) | **Not started** |
 | Neural voices (Piper/Kokoro) | **Not started** |
 | Windows | **Not started** |
@@ -105,6 +107,15 @@ widget state), which cannot be sent. See `_runImport` / `_runLoad` in `library_s
 **15. PdfBox's paragraph marks are not paragraphs.** On the device, a simple PDF came
 out one line per paragraph, which makes the voice pause at every line. `formats/pdf.dart`
 reflows: a paragraph continues unless it ends a sentence or is a heading.
+
+**16. A green line round the whole screen was Android's keyboard-focus outline.**
+One key press (keyboard, D-pad, `adb shell input keyevent`) puts Android in keyboard
+navigation and it outlines the focused view, which for Flutter is the full screen.
+`MainActivity.onPostResume` turns `defaultFocusHighlightEnabled` off.
+
+**17. Kinds of PDF.** Born-digital (text) reads cleanly. Scans with an OCR text layer
+(Internet Archive "Text PDF") read with the scanner's typos. Image-only scans are
+refused; there is no OCR, by choice.
 
 **14. EPUB copyright pages are untitled and long.** `_looksLikeCopyrightPage` in
 `navigate.dart` skips them (Red Rising opened on "This is a work of fiction").

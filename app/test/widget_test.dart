@@ -15,6 +15,7 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 import 'package:tomevoice_spike/brand.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/main.dart';
+import 'package:tomevoice_spike/pages_view.dart';
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/reader_screen.dart';
 import 'package:tomevoice_spike/speech_service.dart';
@@ -61,6 +62,11 @@ void main() {
           ],
         'outputDir' => _tmp.path,
         'playerPosition' => 0,
+        'pdfInfo' => {
+            'pages': 2,
+            'sizes': [612, 792, 612, 792],
+          },
+        'pdfRender' => '${_tmp.path}/page.jpg',
         'playerEnqueue' => 0,
         _ => null,
       };
@@ -209,6 +215,79 @@ void main() {
       await tester.tap(find.text('Chapter 2: Beta').last);
       await tester.pumpAndSettle();
       expect(washed(tester), 'Chapter 2: Beta');
+      await finish(tester);
+    });
+  });
+
+  group('pictures and pages', () {
+    Book illustrated() {
+      const text = 'The map below shows the whole of the kingdom and its seven '
+          'great houses, from the Wall in the north to Dorne in the south.';
+      final book = Book(
+        id: 'pics',
+        metadata: const BookMetadata(title: 'Pictures', language: 'en'),
+        source: SourceKind.epub,
+        toc: const [],
+        sections: [
+          Section(id: 's0', index: 0, title: 'Chapter 1', blocks: [
+            makeBlock(role: BlockRole.heading, text: 'Chapter 1'),
+            makeBlock(role: BlockRole.paragraph, text: text),
+            makeBlock(role: BlockRole.figure, text: 'The Seven Kingdoms', image: 'OEBPS/map.png')
+                .withImageSize(1200, 800),
+            makeBlock(role: BlockRole.paragraph, text: text),
+          ]),
+        ],
+      );
+      return book;
+    }
+
+    testWidgets('a picture sits in the text and opens full screen', (tester) async {
+      phone(tester);
+      await tester.pumpWidget(MaterialApp(
+        home: ReaderScreen(layout: ReadingLayout.build(illustrated()), bookDir: _tmp.path),
+      ));
+      await tester.pumpAndSettle();
+
+      final picture = find.bySemanticsLabel('The Seven Kingdoms');
+      expect(picture, findsOneWidget);
+      await tester.ensureVisible(picture);
+      await tester.tap(picture);
+      await tester.pumpAndSettle();
+      expect(find.byType(PictureViewer), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('pictures are not read aloud', (tester) async {
+      final layout = ReadingLayout.build(illustrated());
+      expect(layout.units.map((u) => u.text), isNot(contains('The Seven Kingdoms')));
+      expect(layout.items.where((i) => i.isImage), hasLength(1));
+    });
+
+    testWidgets('a PDF can switch to its real pages', (tester) async {
+      phone(tester);
+      final book = ingestPdfText(id: 'p', pages: [
+        'First page text is long enough to be a real page of a book, honestly.',
+        'Second page text is also long enough to count as a page of a book.',
+      ]);
+      await tester.pumpWidget(MaterialApp(
+        home: ReaderScreen(layout: ReadingLayout.build(book), sourcePath: '${_tmp.path}/b.pdf'),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Show the real pages'));
+      await tester.pumpAndSettle();
+      expect(find.byType(PdfPagesView), findsOneWidget);
+      expect(find.byTooltip('Show as text'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Show as text'));
+      await tester.pumpAndSettle();
+      expect(find.byType(PdfPagesView), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('only PDFs offer the page view', (tester) async {
+      await pumpReader(tester, specimenBook());
+      expect(find.byTooltip('Show the real pages'), findsNothing);
       await finish(tester);
     });
   });

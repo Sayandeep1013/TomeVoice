@@ -1,14 +1,16 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'speech_service.dart';
 
 /// Bumped when ingestion improves enough that stored books should be parsed
-/// again from their source file (v2: multilingual sentences, compact JSON).
-const _parsedVersion = 2;
+/// again from their source file (v2: multilingual sentences, compact JSON;
+/// v3: pictures and covers from EPUBs, page numbers in PDFs).
+const _parsedVersion = 3;
 
 /// On-device library: copied files, parsed books, reading positions.
 ///
@@ -129,8 +131,21 @@ class LibraryStore {
       id: id,
       sourcePath: entry?.sourcePath,
     );
-    return _runLoad(job);
+    final layout = await _runLoad(job);
+    // Books imported before covers were stored get theirs on first open.
+    final cover = coverFileOf(bookDir(id), layout.book);
+    if (entry != null && entry.cover != cover && cover != null) {
+      final now = await list();
+      await _write([
+        for (final e in now)
+          if (e.id == id) e.copyWith(cover: cover) else e,
+      ]);
+    }
+    return layout;
   }
+
+  /// Folder holding a book's source, parsed text and pictures.
+  String bookDir(String id) => '${_booksDir.path}/$id';
 
   Future<ReadingCursor> cursorFor(String id) async {
     final file = File('${_booksDir.path}/$id/cursor.json');
@@ -249,6 +264,7 @@ LibraryEntry _importSync(_ImportJob job) {
   final dest = File('${dir.path}/source${_ext(job.name)}');
   dest.writeAsBytesSync(bytes, flush: true);
   _writeParsed(dir.path, book);
+  _writeImages(dir.path, bytes, book);
 
   return LibraryEntry(
     id: id,
@@ -259,6 +275,7 @@ LibraryEntry _importSync(_ImportJob job) {
     sourcePath: dest.path,
     addedAt: DateTime.now(),
     language: book.metadata.language,
+    cover: coverFileOf(dir.path, book),
   );
 }
 
@@ -266,6 +283,27 @@ void _writeParsed(String dir, Book book) {
   File('$dir/parsed.json').writeAsStringSync(
     jsonEncode({'v': _parsedVersion, 'book': book.toJson()}),
   );
+}
+
+/// Store the pictures an EPUB uses under `<book>/img/`, so the reader shows
+/// them without opening the archive again.
+void _writeImages(String dir, Uint8List source, Book book) {
+  if (book.source != SourceKind.epub) return;
+  final wanted = imagesOf(book);
+  if (wanted.isEmpty) return;
+  final out = Directory('$dir/img')..createSync(recursive: true);
+  for (final e in epubResources(source, wanted).entries) {
+    File('${out.path}/${imageFileName(e.key)}').writeAsBytesSync(e.value);
+  }
+}
+
+/// Where a picture from the source file is stored, by its path in the source.
+String imageFileName(String path) =>
+    path.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+
+String? coverFileOf(String dir, Book book) {
+  final cover = book.metadata.cover;
+  return cover == null ? null : '$dir/img/${imageFileName(cover)}';
 }
 
 ReadingLayout _loadLayoutSync(_LoadJob job) {
@@ -278,18 +316,23 @@ ReadingLayout _loadLayoutSync(_LoadJob job) {
       book = Book.fromJson(Map<String, Object?>.from(raw['book'] as Map));
     } else if (raw is Map) {
       // Written by an older build. Parse the source again so the book gets
-      // today's sentence splitting and language detection; PDFs need the
-      // platform for that, so they keep what they have.
-      final legacy = Book.fromJson(Map<String, Object?>.from(raw));
+      // today's sentence splitting, language detection and pictures; PDFs
+      // need the platform for that, so they keep what they have.
+      final inner = raw['book'];
+      final legacy = Book.fromJson(
+        Map<String, Object?>.from(inner is Map ? inner : raw),
+      );
       final source = job.sourcePath == null ? null : File(job.sourcePath!);
       if (legacy.source != SourceKind.pdf && source != null && source.existsSync()) {
         try {
+          final bytes = source.readAsBytesSync();
           book = ingestBytes(
-            source.readAsBytesSync(),
+            bytes,
             filename: legacy.sourceName ?? source.path,
             id: job.id,
           );
           _writeParsed(dir, book);
+          _writeImages(dir, bytes, book);
         } on Object {
           book = withResolvedLanguage(legacy);
         }
@@ -303,8 +346,10 @@ ReadingLayout _loadLayoutSync(_LoadJob job) {
     if (source == null || !source.existsSync()) {
       throw const ParseException('This book\'s files are missing. Import it again.');
     }
-    book = ingestBytes(source.readAsBytesSync(), filename: source.path, id: job.id);
+    final bytes = source.readAsBytesSync();
+    book = ingestBytes(bytes, filename: source.path, id: job.id);
     _writeParsed(dir, book);
+    _writeImages(dir, bytes, book);
   }
   return ReadingLayout.build(book);
 }
@@ -325,6 +370,7 @@ class LibraryEntry {
     this.progress = 0,
     this.where,
     this.language,
+    this.cover,
   });
 
   final String id;
@@ -341,6 +387,9 @@ class LibraryEntry {
   /// Where the reader left off, in words: "Chapter 12: The Fool".
   final String? where;
   final String? language;
+
+  /// Cover picture on disk, when the book has one.
+  final String? cover;
 
   DateTime get lastTouched => openedAt ?? addedAt;
 
@@ -359,6 +408,7 @@ class LibraryEntry {
     double? progress,
     DateTime? openedAt,
     String? where,
+    String? cover,
   }) =>
       LibraryEntry(
         id: id,
@@ -373,6 +423,7 @@ class LibraryEntry {
         progress: progress ?? this.progress,
         where: where ?? this.where,
         language: language,
+        cover: cover ?? this.cover,
       );
 
   Map<String, Object?> toJson() => {
@@ -388,6 +439,7 @@ class LibraryEntry {
         'progress': progress,
         if (where != null) 'where': where,
         if (language != null) 'language': language,
+        if (cover != null) 'cover': cover,
       };
 
   static LibraryEntry fromJson(Map<String, Object?> json) => LibraryEntry(
@@ -411,6 +463,7 @@ class LibraryEntry {
         progress: (json['progress'] as num?)?.toDouble() ?? 0,
         where: json['where'] as String?,
         language: json['language'] as String?,
+        cover: json['cover'] as String?,
       );
 }
 

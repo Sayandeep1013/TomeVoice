@@ -57,6 +57,8 @@ sealed class Anchor {
           json['start'] as int? ?? 0,
           json['end'] as int? ?? 0,
         );
+      case 'page':
+        return PageAnchor(json['page'] as int? ?? 0);
       default:
         return OffsetAnchor(0, 0);
     }
@@ -69,6 +71,15 @@ class EpubAnchor extends Anchor {
 
   @override
   Map<String, Object?> toJson() => {'kind': 'epub', 'cfi': cfi};
+}
+
+/// A place in a PDF: the 0-based page a block starts on.
+class PageAnchor extends Anchor {
+  const PageAnchor(this.page);
+  final int page;
+
+  @override
+  Map<String, Object?> toJson() => {'kind': 'page', 'page': page};
 }
 
 class OffsetAnchor extends Anchor {
@@ -139,6 +150,9 @@ class Block {
     required this.sentences,
     required this.anchor,
     this.language,
+    this.image,
+    this.imageWidth,
+    this.imageHeight,
   });
 
   final String id;
@@ -147,6 +161,15 @@ class Block {
   final List<Sentence> sentences;
   final Anchor anchor;
   final String? language;
+
+  /// For a [BlockRole.figure]: the image's path inside the source file
+  /// (e.g. `OEBPS/Images/map.jpg`), and its pixel size so the reader can
+  /// reserve the right space before the picture loads.
+  final String? image;
+  final int? imageWidth;
+  final int? imageHeight;
+
+  bool get isImage => image != null;
 
   bool get speakable =>
       text.isNotEmpty && !defaultSkippedRoles.contains(role);
@@ -162,6 +185,9 @@ class Block {
         ],
         'anchor': anchor.toJson(),
         if (language != null) 'language': language,
+        if (image != null) 'img': image,
+        if (imageWidth != null) 'iw': imageWidth,
+        if (imageHeight != null) 'ih': imageHeight,
       };
 
   static Block fromJson(Map<String, Object?> json) => Block(
@@ -176,6 +202,21 @@ class Block {
           Map<String, Object?>.from(json['anchor'] as Map? ?? const {}),
         ),
         language: json['language'] as String?,
+        image: json['img'] as String?,
+        imageWidth: json['iw'] as int?,
+        imageHeight: json['ih'] as int?,
+      );
+
+  Block withImageSize(int width, int height) => Block(
+        id: id,
+        role: role,
+        text: text,
+        sentences: sentences,
+        anchor: anchor,
+        language: language,
+        image: image,
+        imageWidth: width,
+        imageHeight: height,
       );
 }
 
@@ -272,6 +313,7 @@ class BookMetadata {
     this.language,
     this.publisher,
     this.identifier,
+    this.cover,
   });
 
   final String title;
@@ -279,6 +321,9 @@ class BookMetadata {
   final String? language;
   final String? publisher;
   final String? identifier;
+
+  /// Path of the cover image inside the source file, when it has one.
+  final String? cover;
 
   String get authorLine => authors.join(', ');
 
@@ -293,6 +338,7 @@ class BookMetadata {
         language: language ?? this.language,
         publisher: publisher,
         identifier: identifier,
+        cover: cover,
       );
 
   Map<String, Object?> toJson() => {
@@ -301,6 +347,7 @@ class BookMetadata {
         if (language != null) 'language': language,
         if (publisher != null) 'publisher': publisher,
         if (identifier != null) 'identifier': identifier,
+        if (cover != null) 'cover': cover,
       };
 
   static BookMetadata fromJson(Map<String, Object?> json) => BookMetadata(
@@ -311,6 +358,7 @@ class BookMetadata {
         language: json['language'] as String?,
         publisher: json['publisher'] as String?,
         identifier: json['identifier'] as String?,
+        cover: json['cover'] as String?,
       );
 }
 

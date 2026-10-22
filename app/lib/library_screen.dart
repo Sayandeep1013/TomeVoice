@@ -439,9 +439,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
         onTap: () => _openBook(e),
         onLongPress: () => _bookMenu(e),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 16, 14, 16),
+          padding: const EdgeInsets.fromLTRB(16, 16, 14, 16),
           child: Row(
             children: [
+              if (e.cover != null) ...[
+                _cover(context, e.cover!, 58, 84),
+                const SizedBox(width: 14),
+              ],
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -503,9 +507,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
           onTap: () => _openBook(e),
           onLongPress: () => _bookMenu(e),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 13, 4, 13),
+            padding: const EdgeInsets.fromLTRB(14, 13, 4, 13),
             child: Row(
               children: [
+                if (e.cover != null) ...[
+                  _cover(context, e.cover!, 44, 64),
+                  const SizedBox(width: 12),
+                ],
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -540,6 +548,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  /// The book's cover. Decoded at thumbnail size: a full-size cover is
+  /// megabytes of pixels for a 44-point square.
+  Widget _cover(BuildContext context, String path, double w, double h) {
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(6),
+      child: Image.file(
+        File(path),
+        width: w,
+        height: h,
+        fit: BoxFit.cover,
+        cacheWidth: (w * dpr).round(),
+        errorBuilder: (_, __, ___) => SizedBox(width: w, height: h),
       ),
     );
   }

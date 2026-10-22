@@ -33,6 +33,10 @@ Book bookFromPdfText({
     );
   }
 
+  // Fonts without a proper Unicode map hand back control characters and
+  // private-use glyphs (a page number came out as U+0018). They are never
+  // readable text.
+  pages = [for (final p in pages) p.replaceAll(_unreadable, '')];
   final repeated = _repeatedEdgeLines(pages);
   resetBlockIds();
 
@@ -74,6 +78,8 @@ Book bookFromPdfText({
     perPage[m.page].add(m.text);
   }
 
+  // Blocks remember the page they start on, for the page view.
+  var page = 0;
   Block block(String text) => makeBlock(
         role: text.length <= 80 &&
                 !RegExp(r'[.!?,;:।]$').hasMatch(text) &&
@@ -81,7 +87,12 @@ Book bookFromPdfText({
             ? BlockRole.heading
             : BlockRole.paragraph,
         text: text,
+        anchor: PageAnchor(page),
       );
+  List<Block> blocksOf(int p) {
+    page = p;
+    return perPage[p].map(block).toList();
+  }
 
   final usable = [
     for (final o in outline)
@@ -96,7 +107,7 @@ Book bookFromPdfText({
       sections.add((
         title: 'Opening pages',
         blocks: [
-          for (var p = 0; p < usable.first.page; p++) ...perPage[p].map(block),
+          for (var p = 0; p < usable.first.page; p++) ...blocksOf(p),
         ],
       ));
     }
@@ -106,13 +117,13 @@ Book bookFromPdfText({
       if (to <= from) continue;
       sections.add((
         title: collapseWhitespace(usable[i].title),
-        blocks: [for (var p = from; p < to; p++) ...perPage[p].map(block)],
+        blocks: [for (var p = from; p < to; p++) ...blocksOf(p)],
       ));
     }
   } else {
     // No outline: one section per page, so "Page 12" is a place you can go.
     for (var p = 0; p < perPage.length; p++) {
-      sections.add((title: 'Page ${p + 1}', blocks: perPage[p].map(block).toList()));
+      sections.add((title: 'Page ${p + 1}', blocks: blocksOf(p)));
     }
   }
 
@@ -143,8 +154,13 @@ bool _isNoiseLine(String line, Set<String> repeated) {
   return repeated.contains(_edgeKey(t));
 }
 
-String _edgeKey(String line) =>
-    collapseWhitespace(line).toLowerCase().replaceAll(RegExp(r'[0-9০-৯०-९]+'), '#');
+/// Running heads and feet compared by their letters only: page numbers,
+/// punctuation and stray glyphs differ from page to page.
+String _edgeKey(String line) => collapseWhitespace(
+      line.toLowerCase().replaceAll(_notLetters, ' '),
+    );
+
+final _notLetters = RegExp(r'[^\p{L}\s]', unicode: true);
 
 /// Lines that appear at the top or bottom of many pages: running headers,
 /// footers, the book title on every page.
@@ -183,3 +199,7 @@ bool _continues(String prev, String next) {
   // A short line before a capital is a title, or a line of verse.
   return prev.length >= 40;
 }
+
+/// C0 controls (except newline and the paragraph mark), the replacement
+/// character and the private-use area.
+final _unreadable = RegExp('[\x00-\x09\x0B-\x1F\uFFFD\uE000-\uF8FF]');

@@ -1,6 +1,7 @@
 import 'package:xml/xml.dart';
 
 import '../build.dart';
+import 'epub.dart' show zipJoin;
 import '../model.dart';
 import '../segment.dart';
 
@@ -32,7 +33,7 @@ const _blockTags = {
   'hgroup',
 };
 
-const _skipTags = {'script', 'style', 'svg', 'head', 'noscript'};
+const _skipTags = {'script', 'style', 'head', 'noscript'};
 
 /// Walk XHTML/HTML into [Block]s. Joins inline runs inside a block so a drop
 /// cap (`<span>O</span>nce`) does not become its own sentence.
@@ -74,16 +75,8 @@ void _walk(
   final name = node.localName.toLowerCase();
   if (_skipTags.contains(name)) return;
 
-  if (name == 'img') {
-    final alt = (node.getAttribute('alt') ?? '').trim();
-    if (alt.isNotEmpty) {
-      out.add(makeBlock(
-        role: BlockRole.figure,
-        text: alt,
-        language: language,
-        anchor: EpubAnchor(_cfi(href, name, out.length)),
-      ));
-    }
+  if (name == 'img' || name == 'svg') {
+    _images(node, out, language, href);
     return;
   }
 
@@ -96,7 +89,7 @@ void _walk(
       }
       return;
     }
-    final text = collapseWhitespace(node.innerText);
+    final text = collapseWhitespace(_textWithoutSvg(node));
     if (text.isNotEmpty) {
       out.add(makeBlock(
         role: role ?? BlockRole.paragraph,
@@ -107,6 +100,8 @@ void _walk(
             : OffsetAnchor(0, text.length),
       ));
     }
+    // <p><img/></p> is the usual way a picture sits in a chapter.
+    _images(node, out, language, href);
     return;
   }
 
@@ -259,3 +254,67 @@ String decodeEntities(String s) => s.replaceAllMapped(
         return _named[e.toLowerCase()] ?? m.group(0)!;
       },
     );
+
+/// Figure blocks for every picture in [node] (itself included): `<img src>`
+/// and `<svg><image href>`, which is how most EPUB covers are drawn. The path
+/// is resolved against the chapter file so the importer can find the bytes.
+void _images(XmlElement node, List<Block> out, String? language, String? href) {
+  final found = <XmlElement>[
+    if (_isPicture(node)) node,
+    ...node.descendants.whereType<XmlElement>().where(_isPicture),
+  ];
+  for (final el in found) {
+    final name = el.localName.toLowerCase();
+    final src = name == 'img' ? el.getAttribute('src') ?? '' : _attr(el, 'href');
+    final alt = collapseWhitespace(el.getAttribute('alt') ?? '');
+    final path = href == null || src.isEmpty || src.startsWith('data:')
+        ? null
+        : zipJoin(_dirOfPath(href), _decode(src));
+    if (path == null && alt.isEmpty) continue;
+    out.add(makeBlock(
+      role: BlockRole.figure,
+      text: alt,
+      language: language,
+      image: path,
+      anchor: EpubAnchor(_cfi(href, name, out.length)),
+    ));
+  }
+}
+
+bool _isPicture(XmlElement e) {
+  final n = e.localName.toLowerCase();
+  return n == 'img' || (n == 'image' && e.parentElement != null);
+}
+
+String _textWithoutSvg(XmlElement node) {
+  final buf = StringBuffer();
+  void walk(XmlNode n) {
+    for (final c in n.children) {
+      if (c is XmlText) {
+        buf.write(c.value);
+      } else if (c is XmlElement) {
+        final name = c.localName.toLowerCase();
+        if (name == 'svg' || _skipTags.contains(name)) continue;
+        walk(c);
+      } else if (c is XmlCDATA) {
+        buf.write(c.value);
+      }
+    }
+  }
+
+  walk(node);
+  return buf.toString();
+}
+
+String _dirOfPath(String path) {
+  final i = path.replaceAll(r'\', '/').lastIndexOf('/');
+  return i <= 0 ? '' : path.substring(0, i);
+}
+
+String _decode(String s) {
+  try {
+    return Uri.decodeComponent(s.split('?').first);
+  } on Object {
+    return s;
+  }
+}

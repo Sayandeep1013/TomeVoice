@@ -13,6 +13,7 @@ Block makeBlock({
   Anchor? anchor,
   String? language,
   String? id,
+  String? image,
 }) {
   final collapsed = collapseWhitespace(text);
   return Block(
@@ -22,6 +23,7 @@ Block makeBlock({
     sentences: segmentSentences(collapsed),
     anchor: anchor ?? OffsetAnchor(0, collapsed.length),
     language: language,
+    image: image,
   );
 }
 

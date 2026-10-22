@@ -18,6 +18,8 @@ import android.os.Looper
 import android.provider.OpenableColumns
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.view.View
+import android.view.ViewGroup
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -44,6 +46,7 @@ class MainActivity : FlutterActivity() {
     private val channelName = "tomevoice/tts"
     private val main = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
+    private val pages = Executors.newSingleThreadExecutor()
     private var channel: MethodChannel? = null
 
     private var tts: TextToSpeech? = null
@@ -130,6 +133,30 @@ class MainActivity : FlutterActivity() {
                     pendingOpen = null
                 }
                 "extractPdf" -> extractPdf(call.argument<String>("path"), result)
+                "pdfInfo" -> {
+                    val path = call.argument<String>("path").orEmpty()
+                    pages.execute {
+                        try {
+                            val info = PdfPages.info(path)
+                            main.post { result.success(info) }
+                        } catch (e: Throwable) {
+                            main.post { result.error("PDF_PAGES", e.message ?: "Cannot show pages", null) }
+                        }
+                    }
+                }
+                "pdfRender" -> {
+                    val path = call.argument<String>("path").orEmpty()
+                    val index = call.argument<Int>("page") ?: 0
+                    val width = call.argument<Int>("width") ?: 1080
+                    pages.execute {
+                        try {
+                            val file = PdfPages.render(path, index, width, cacheDir)
+                            main.post { result.success(file) }
+                        } catch (e: Throwable) {
+                            main.post { result.error("PDF_PAGES", e.message ?: "Cannot draw page", null) }
+                        }
+                    }
+                }
                 "outputDir" -> result.success(outputDir().absolutePath)
                 "launchArgs" -> result.success(launchArgs())
                 else -> result.notImplemented()
@@ -144,6 +171,22 @@ class MainActivity : FlutterActivity() {
         withTts(null) { }
         cleanSynthDir()
         handleViewIntent(intent)
+    }
+
+    override fun onPostResume() {
+        super.onPostResume()
+        // One key press (keyboard, D-pad, remote) puts Android in keyboard
+        // navigation and it outlines the focused view. Flutter is a single
+        // full-screen view, so that outline was a green line round the whole
+        // screen, clipped by the rounded corners. Flutter draws its own focus.
+        disableFocusHighlight(window.decorView)
+    }
+
+    private fun disableFocusHighlight(view: View) {
+        if (Build.VERSION.SDK_INT >= 26) view.defaultFocusHighlightEnabled = false
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) disableFocusHighlight(view.getChildAt(i))
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -167,6 +210,7 @@ class MainActivity : FlutterActivity() {
             outputDir().listFiles()?.forEach {
                 if (it.isFile && it.name.endsWith(".wav")) it.delete()
             }
+            PdfPages.sweep(cacheDir)
         }
     }
 
@@ -594,6 +638,8 @@ class MainActivity : FlutterActivity() {
         tts?.shutdown()
         tts = null
         io.shutdown()
+        pages.execute { PdfPages.close() }
+        pages.shutdown()
         super.onDestroy()
     }
 }

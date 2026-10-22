@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +11,7 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'library_store.dart';
 import 'listen_sheet.dart';
+import 'pages_view.dart';
 import 'prefs.dart';
 import 'scheduler.dart';
 import 'speech_service.dart';
@@ -56,6 +59,8 @@ class _BookLoaderState extends State<BookLoader> {
               store: widget.store,
               initialCursor: data.$2,
               autoplay: widget.autoplay,
+              bookDir: widget.store.bookDir(widget.entry.id),
+              sourcePath: widget.entry.sourcePath,
             );
           }
           return _ReaderSkeleton(
@@ -144,12 +149,20 @@ class ReaderScreen extends StatefulWidget {
     this.store,
     this.initialCursor = ReadingCursor.zero,
     this.autoplay = false,
+    this.bookDir,
+    this.sourcePath,
   });
 
   final ReadingLayout layout;
   final LibraryStore? store;
   final ReadingCursor initialCursor;
   final bool autoplay;
+
+  /// Where the book's pictures were stored at import.
+  final String? bookDir;
+
+  /// The original file; a PDF's pages are drawn from it.
+  final String? sourcePath;
 
   @override
   State<ReaderScreen> createState() => _ReaderScreenState();
@@ -177,6 +190,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   int _sessionChapter = -1;
   PlayState _sessionState = PlayState.idle;
   bool _programmaticScroll = false;
+
+  bool get _isPdf => _book.source == SourceKind.pdf && widget.sourcePath != null;
+  bool get _showPages => _isPdf && _prefs.pdfPages;
 
   SleepChoice _sleep = SleepChoice.off;
   Timer? _sleepTimer;
@@ -292,7 +308,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   String? get _sleepNote {
     final at = _sleepAt;
     if (at != null) {
-      final left = at.difference(DateTime.now()).inMinutes + 1;
+      // Round up: 29:59 left reads as 30 minutes, and so does 30:00.
+      final left = (at.difference(DateTime.now()).inSeconds / 60).ceil();
       return 'SLEEP ${left}M';
     }
     if (_sleep == SleepChoice.chapterEnd) return 'SLEEP AT CHAPTER END';
@@ -520,7 +537,17 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
               Expanded(
                 child: Stack(
                   children: [
-                    Positioned.fill(child: _text(context)),
+                    Positioned.fill(
+                      child: _showPages
+                          ? PdfPagesView(
+                              path: widget.sourcePath!,
+                              layout: _l,
+                              cursor: _cursor,
+                              detached: _detached,
+                              onTapPage: (page) => _goTo(_l.unitForPage(page), play: true),
+                            )
+                          : _text(context),
+                    ),
                     Positioned(
                       left: 0,
                       right: 0,
@@ -609,6 +636,18 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                 ),
               ),
             ),
+            if (_isPdf) ...[
+              const SizedBox(width: 8),
+              RoundButton(
+                icon: _showPages ? Icons.notes_rounded : Icons.auto_stories_rounded,
+                tooltip: _showPages ? 'Show as text' : 'Show the real pages',
+                onTap: () {
+                  setState(() => _prefs.pdfPages = !_prefs.pdfPages);
+                  _prefs.save();
+                  _detached.value = false;
+                },
+              ),
+            ],
             const SizedBox(width: 8),
             RoundButton(
               icon: Icons.format_list_bulleted_rounded,
@@ -671,6 +710,16 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           )
         : null;
 
+    if (item.isImage) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (label != null) label,
+          _picture(context, item.block!),
+        ],
+      );
+    }
+
     if (item.isTitle) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -706,6 +755,47 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           ),
         ),
       ],
+    );
+  }
+
+  /// A picture from the book, at its natural size up to the column width.
+  /// Its space is reserved from the stored pixel size, so the text the voice
+  /// is following never jumps when a picture finishes loading.
+  Widget _picture(BuildContext context, Block block) {
+    final dir = widget.bookDir;
+    final iw = block.imageWidth, ih = block.imageHeight;
+    if (dir == null || iw == null || ih == null || iw == 0) return const SizedBox.shrink();
+    final file = File('$dir/img/${imageFileName(block.image!)}');
+    return LayoutBuilder(
+      builder: (context, c) {
+        final dpr = MediaQuery.devicePixelRatioOf(context);
+        // Small ornaments stay small; plates and maps fill the column.
+        final width = math.min(c.maxWidth, iw / dpr * 2.2);
+        final height = width * ih / iw;
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          child: Center(
+            child: GestureDetector(
+              onTap: () => PictureViewer.open(context, file, caption: block.text),
+              child: Semantics(
+                image: true,
+                label: block.text.isEmpty ? 'Picture. Double tap to enlarge' : block.text,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Image.file(
+                    file,
+                    width: width,
+                    height: height,
+                    fit: BoxFit.contain,
+                    cacheWidth: (width * dpr).round(),
+                    errorBuilder: (_, __, ___) => SizedBox(width: width, height: height),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1058,11 +1148,12 @@ class _PlayButton extends StatelessWidget {
               height: 62,
               child: Stack(
                 alignment: Alignment.center,
+                clipBehavior: Clip.none,
                 children: [
                   if (state == PlayState.loading)
                     const SizedBox(
-                      width: 62,
-                      height: 62,
+                      width: 60,
+                      height: 60,
                       child: CircularProgressIndicator(strokeWidth: 2.5, color: Skin.amberSoft),
                     ),
                   Material(

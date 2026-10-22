@@ -5,6 +5,7 @@ import 'package:archive/archive.dart';
 import 'package:xml/xml.dart';
 
 import '../build.dart';
+import '../image_size.dart';
 import '../model.dart';
 import '../segment.dart';
 import 'html_blocks.dart';
@@ -85,11 +86,32 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename}) {
       ),
   ];
 
-  final toc = _toc(archive, opf, opfDir, manifest, indexed);
+  final withImages = _measureImages(archive, indexed);
+  final toc = _toc(archive, opf, opfDir, manifest, withImages);
+  // Many EPUBs never declare a cover, or declare one that is not in the
+  // archive; their first picture is the cover.
+  final declared = _coverPath(opf, manifest);
+  final cover = declared != null && _bytes(archive, declared) != null
+      ? declared
+      : withImages
+          .take(8)
+          .expand((s) => s.blocks)
+          .where((b) => b.isImage && b.imageWidth != null)
+          .firstOrNull
+          ?.image;
   final book = Book(
     id: id,
-    metadata: metadata,
-    sections: indexed,
+    metadata: cover == null
+        ? metadata
+        : BookMetadata(
+            title: metadata.title,
+            authors: metadata.authors,
+            language: metadata.language,
+            publisher: metadata.publisher,
+            identifier: metadata.identifier,
+            cover: cover,
+          ),
+    sections: withImages,
     toc: toc,
     source: SourceKind.epub,
     sourceName: filename,
@@ -335,3 +357,95 @@ String? _firstHeading(List<Block> blocks) {
   }
   return null;
 }
+
+/// Give every figure its pixel size, and drop references to images that are
+/// not in the archive (or not a format we can show).
+List<Section> _measureImages(Archive archive, List<Section> sections) {
+  final sizes = <String, ({int width, int height})?>{};
+  return [
+    for (final s in sections)
+      Section(
+        id: s.id,
+        index: s.index,
+        href: s.href,
+        title: s.title,
+        blocks: [
+          for (final b in s.blocks)
+            if (b.image == null)
+              b
+            else ...() {
+              final size = sizes.putIfAbsent(b.image!, () {
+                final data = _bytes(archive, b.image!);
+                return data == null ? null : imageSize(data);
+              });
+              if (size != null) return [b.withImageSize(size.width, size.height)];
+              // Keep the caption if the picture itself is unusable.
+              if (b.text.isNotEmpty) {
+                return [
+                  Block(
+                    id: b.id,
+                    role: b.role,
+                    text: b.text,
+                    sentences: b.sentences,
+                    anchor: b.anchor,
+                    language: b.language,
+                  ),
+                ];
+              }
+              return const <Block>[];
+            }(),
+        ],
+      ),
+  ];
+}
+
+/// EPUB 3 `properties="cover-image"`, else EPUB 2 `<meta name="cover">`.
+String? _coverPath(
+  XmlDocument opf,
+  Map<String, ({String href, String media})> manifest,
+) {
+  for (final el in opf.descendants.whereType<XmlElement>()) {
+    if (el.localName.toLowerCase() == 'item' &&
+        (el.getAttribute('properties') ?? '').contains('cover-image')) {
+      final id = el.getAttribute('id');
+      if (id != null && manifest[id] != null) return manifest[id]!.href;
+    }
+  }
+  for (final el in opf.descendants.whereType<XmlElement>()) {
+    if (el.localName.toLowerCase() == 'meta' && el.getAttribute('name') == 'cover') {
+      final id = el.getAttribute('content');
+      final item = id == null ? null : manifest[id];
+      if (item != null && item.media.startsWith('image/')) return item.href;
+    }
+  }
+  return null;
+}
+
+Uint8List? _bytes(Archive archive, String path) {
+  final f = archive.findFile(path);
+  final data = f?.readBytes();
+  return data == null ? null : Uint8List.fromList(data);
+}
+
+/// The bytes of [paths] inside an EPUB, for the importer to store next to
+/// the parsed book. Missing paths are left out.
+Map<String, Uint8List> epubResources(Uint8List epub, Iterable<String> paths) {
+  final Archive archive;
+  try {
+    archive = ZipDecoder().decodeBytes(epub, verify: false);
+  } on Object {
+    return const {};
+  }
+  return {
+    for (final p in paths.toSet())
+      if (_bytes(archive, p) case final data?) p: data,
+  };
+}
+
+/// Every image a [book] refers to: figures and the cover.
+Set<String> imagesOf(Book book) => {
+      if (book.metadata.cover != null) book.metadata.cover!,
+      for (final s in book.sections)
+        for (final b in s.blocks)
+          if (b.image != null) b.image!,
+    };

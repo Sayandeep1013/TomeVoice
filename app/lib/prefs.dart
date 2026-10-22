@@ -14,6 +14,7 @@ class ListeningPrefs {
     Map<String, String>? voiceByLanguage,
     this.engineId,
     this.textSize = 19,
+    this.pdfPages = false,
   }) : voiceByLanguage = voiceByLanguage ?? {};
 
   PipelineSettings settings;
@@ -26,6 +27,9 @@ class ListeningPrefs {
 
   /// Size of the book's text, in logical pixels.
   double textSize;
+
+  /// Show PDFs as their real pages instead of reflowed text.
+  bool pdfPages;
 
   static ListeningPrefs? _cached;
   static File? _file;
@@ -79,6 +83,7 @@ class ListeningPrefs {
         'voiceByLanguage': voiceByLanguage,
         'engineId': engineId,
         'textSize': textSize,
+        'pdfPages': pdfPages,
       };
 
   static ListeningPrefs fromJson(Map<String, Object?> json) => ListeningPrefs(
@@ -92,6 +97,7 @@ class ListeningPrefs {
         },
         engineId: json['engineId'] as String?,
         textSize: ((json['textSize'] as num?)?.toDouble() ?? 19).clamp(14, 30).toDouble(),
+        pdfPages: json['pdfPages'] == true,
       );
 }
 

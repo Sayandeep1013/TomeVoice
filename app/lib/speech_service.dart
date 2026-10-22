@@ -194,6 +194,32 @@ class SpeechService {
     return raw;
   }
 
+  // ----------------------------------------------------------- page view
+
+  /// Page count and page sizes (in points) of a PDF, for the page view.
+  Future<({int pages, List<double> aspects})> pdfInfo(String path) async {
+    final raw = await _channel.invokeMapMethod<String, Object?>('pdfInfo', {'path': path});
+    final sizes = [for (final v in (raw?['sizes'] as List? ?? const [])) (v as num).toDouble()];
+    final pages = raw?['pages'] as int? ?? 0;
+    return (
+      pages: pages,
+      aspects: [
+        for (var i = 0; i + 1 < sizes.length; i += 2)
+          sizes[i + 1] <= 0 ? 1.414 : sizes[i] / sizes[i + 1],
+      ],
+    );
+  }
+
+  /// A rendered page as an image file, [width] pixels wide.
+  Future<String> pdfRender(String path, int page, int width) async {
+    final file = await _channel.invokeMethod<String>(
+      'pdfRender',
+      {'path': path, 'page': page, 'width': width},
+    );
+    if (file == null) throw Exception('Page $page could not be drawn');
+    return file;
+  }
+
   // ------------------------------------------------------------- pipeline
 
   /// Reads the WAV the engine wrote and runs it through the pipeline. Used by

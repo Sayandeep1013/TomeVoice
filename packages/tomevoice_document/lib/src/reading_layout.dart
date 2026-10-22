@@ -29,6 +29,7 @@ class LayoutItem {
   final int unitCount;
 
   bool get isTitle => block == null;
+  bool get isImage => block?.isImage ?? false;
   bool containsUnit(int u) => u >= firstUnit && u < firstUnit + unitCount;
 }
 
@@ -51,6 +52,7 @@ class ReadingLayout {
     required this.wordsBefore,
     required this.chapterFirstUnit,
     required this.chapterFirstItem,
+    required this.unitPage,
   });
 
   final Book book;
@@ -78,6 +80,27 @@ class ReadingLayout {
   /// chapter -> first unit / first item.
   final Int32List chapterFirstUnit;
   final Int32List chapterFirstItem;
+
+  /// unit -> 0-based PDF page it starts on, or -1 when the source has no
+  /// pages (or was parsed before pages were recorded).
+  final Int32List unitPage;
+
+  bool get hasPages => unitPage.isNotEmpty && unitPage.first >= 0;
+
+  /// First unit on or after PDF [page].
+  int unitForPage(int page) {
+    if (!hasPages) return 0;
+    var lo = 0, hi = units.length - 1;
+    while (lo < hi) {
+      final mid = (lo + hi) >> 1;
+      if (unitPage[mid] < page) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    return lo;
+  }
 
   bool get isEmpty => units.isEmpty;
   int get totalWords => wordsBefore.isEmpty ? 0 : wordsBefore.last;
@@ -126,6 +149,25 @@ class ReadingLayout {
     final wordsBefore = Int32List(units.length + 1);
     final chapterFirstUnit = Int32List(chapters.length);
     final chapterFirstItem = Int32List(chapters.length);
+    final unitPage = Int32List(units.length);
+
+    // Sections that are only pictures (maps, the cover, plates) have nothing
+    // to speak, so they are not chapters. Show their pictures at the start of
+    // the next chapter instead of dropping them.
+    var previous = -1;
+    List<Block> picturesBefore(int section) {
+      final out = <Block>[];
+      for (var s = previous + 1; s < section && s < book.sections.length; s++) {
+        if (keep.contains(s)) continue;
+        final blocks = book.sections[s].blocks;
+        // A map page often carries a caption ("The Seven Kingdoms"); a
+        // copyright page with a publisher logo does not need showing.
+        if (speakableTextOf(book.sections[s]).length > 300) continue;
+        out.addAll(blocks.where((b) => b.isImage && b.imageWidth != null));
+      }
+      previous = section;
+      return out;
+    }
 
     var u = 0;
     for (var c = 0; c < chapters.length; c++) {
@@ -133,6 +175,9 @@ class ReadingLayout {
       final section = book.sections[sectionIndex];
       chapterFirstUnit[c] = u;
       chapterFirstItem[c] = items.length;
+      for (final picture in picturesBefore(sectionIndex)) {
+        items.add(LayoutItem(chapter: c, section: sectionIndex, block: picture, firstUnit: u));
+      }
 
       final opensWithHeading = section.blocks
               .where((b) => b.text.isNotEmpty && !defaultSkippedRoles.contains(b.role))
@@ -150,6 +195,10 @@ class ReadingLayout {
 
       for (var bi = 0; bi < section.blocks.length; bi++) {
         final block = section.blocks[bi];
+        if (block.isImage && block.imageWidth != null) {
+          items.add(LayoutItem(chapter: c, section: sectionIndex, block: block, firstUnit: u));
+          continue;
+        }
         final first = u;
         while (u < units.length &&
             units[u].sectionIndex == sectionIndex &&
@@ -160,6 +209,8 @@ class ReadingLayout {
           unitOffset[u] = s.startOffset + (rawText.length - rawText.trimLeft().length);
           unitItem[u] = items.length;
           unitChapter[u] = c;
+          final anchor = block.anchor;
+          unitPage[u] = anchor is PageAnchor ? anchor.page : -1;
           wordsBefore[u + 1] = wordsBefore[u] + countWords(unit.text);
           u++;
         }
@@ -186,6 +237,7 @@ class ReadingLayout {
       wordsBefore: wordsBefore,
       chapterFirstUnit: chapterFirstUnit,
       chapterFirstItem: chapterFirstItem,
+      unitPage: unitPage,
     );
   }
 
