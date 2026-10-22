@@ -1,87 +1,90 @@
-# TomeVoice
+<p align="center">
+  <img src="app/assets/brand/icon.png" width="128" alt="TomeVoice logo: a page of text turning into a voice waveform">
+</p>
 
-A document reader with a serious text-to-speech engine, for **Android and Windows**.
+<h1 align="center">TomeVoice</h1>
 
-Read EPUB, PDF, DOCX and plain formats — and have any of them read aloud with far more
-control over the voice than a normal reader gives you: speed, pitch in semitones,
-punctuation pause shaping, and **word separation**, on every voice including free
-on-device neural ones.
+<p align="center">
+  <a href="https://github.com/Sayandeep1013/TomeVoice/actions/workflows/build.yml"><img src="https://github.com/Sayandeep1013/TomeVoice/actions/workflows/build.yml/badge.svg" alt="Build"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-blue.svg" alt="License: GPL-3.0"></a>
+  <img src="https://img.shields.io/badge/platform-Android-3DDC84.svg" alt="Platform: Android">
+</p>
 
-## Idea
+Any book, read aloud. Open an EPUB, a PDF, a Word file or plain text, press play, and
+it reads to you — sentence by sentence, the spoken word highlighted, on the device,
+with the screen off if you like.
 
-- **Any document.** EPUB 2/3, PDF, DOCX, TXT, Markdown, HTML, RTF. MOBI/AZW3 later.
-- **Real TTS control.** Speed, pitch, per-word gap, comma/sentence/paragraph/heading
-  pauses, loudness normalisation, pronunciation dictionaries, skip rules for footnotes,
-  page numbers and captions.
-- **Free AI voices.** Offline neural TTS via Piper and Kokoro, downloaded on demand.
-  No subscription, no account, nothing leaves the device.
-- **Word-synchronised highlighting** tied to the audio, not to a timer.
-- **Both platforms properly.** A `.apk` that keeps reading with the screen off, and a
-  real Windows `.exe` with media keys and a mini player.
+<p align="center">
+  <img src="docs/images/library.png" width="260" alt="The library: a Continue card with one-tap resume, and books with their covers, format, language, listening time and progress">
+  &nbsp;
+  <img src="docs/images/reader.png" width="260" alt="Reading Alice in Wonderland: the spoken sentence washed amber, an illustration in the text, and the player bar">
+</p>
 
-## Status
+No account. No cloud. Nothing leaves the phone.
 
-**You can use it.** Import EPUB, PDF, DOCX, ODT, MOBI/AZW3, FB2, RTF, HTML, Markdown or
-plain text, and it reads it aloud sentence by sentence with word highlighting, gapless
-streaming audio, and the word-gap / pause / speed controls. It keeps reading with the
-screen off, with pause and resume on the lock screen and headset.
+**Status: Android app — download the APK from [Releases](https://github.com/Sayandeep1013/TomeVoice/releases/latest). Windows is planned.**
 
-Release APKs come from CI ([ADR-016](docs/10-decisions-adr.md#adr-016)): download
-`tomevoice-apk`, `adb install -r`. There is no local Flutter install.
+---
 
-**Picking this up cold? Start at
-[16 — Session Handoff](docs/16-session-handoff.md).**
+## What it does
 
-## Documentation
+- **Opens almost anything.** EPUB, PDF, DOCX, ODT, MOBI / AZW3, FB2, RTF, HTML, Markdown
+  and TXT. Pictures and maps in ebooks are shown in the text; PDFs can be read as text
+  or shown as their real pages; chapters are found even when a file does not list them.
+- **Reads it aloud** with the voices already on your phone, picking one in the book's
+  language — a Bengali book gets a Bengali voice.
+- **Follows along.** The sentence being read is marked and the word under the voice is
+  highlighted, timed from the audio itself.
+- **Keeps going with the screen off.** Pause and resume from the lock screen,
+  notification or headset; it stops for calls and when headphones come out.
+- **Starts where you stopped**, with a sleep timer for listening in bed.
+- **A shelf that tells you what each book is:** cover (the book's own, one you pick, or a
+  plain title cover), author, format, language, listening time and where you left off.
+- **Gives you the voice controls readers don't:** speed, pitch, the gap between words,
+  and pauses at commas, sentences and paragraphs.
 
-Start at [`docs/README.md`](docs/README.md) if you want the full spec. The two documents
-that matter most if you only read two:
+## What it deliberately does not do
 
-- [09 — Challenges & Solutions](docs/09-challenges-and-solutions.md) — every known
-  blocker, its severity, and the chosen mitigation.
-- [10 — Decision Log](docs/10-decisions-adr.md) — every architectural decision, with the
-  alternatives rejected and what each one costs.
+DRM-protected books (Kindle, Adobe), scanned PDFs with no text in them (no OCR), and
+anything that needs an account or a server.
 
-## The short version of what's hard
+## Install (Android)
 
-The idea is buildable. Five findings shape the architecture:
+1. Download `TomeVoice-<version>.apk` from the latest
+   [Release](https://github.com/Sayandeep1013/TomeVoice/releases/latest).
+2. Open it on your phone and allow installs from your browser or file manager when asked
+   (or `adb install -r TomeVoice-<version>.apk`). Updates install over the old version
+   and keep your library.
+3. Open it, tap **Add books**, pick one or more files. Or open a book from any file
+   manager with TomeVoice.
 
-1. **No TTS engine on either platform can control the gap between words.** Not Android,
-   not Windows, not Piper, not Kokoro. Since word separation is a core requirement, we
-   must own the audio buffer — which means synthesising to PCM rather than calling
-   `speak()`, and building our own player, scheduler and DSP chain. That one requirement
-   determines most of the architecture.
-2. **Neural voices return no word timings.** System voices hand them to us for free;
-   Piper and Kokoro return only samples. Highlighting and word-gap injection both depend
-   on them, so they have to be derived — in stages, honestly labelled.
-3. **The best-sounding open model is too heavy for cheap phones.** Kokoro's measured
-   runtime footprint is several hundred MB, so it is device-gated and never the default.
-4. **The open TTS ecosystem is a licensing minefield — so we chose GPL-3.0 and defused
-   most of it.** eSpeak-NG (the phonemiser both Piper and Kokoro depend on) is GPL-3.0,
-   Piper's engine relicensed to GPL-3.0, and the best pitch/time library is GPL. Matching
-   their licence turns all three from blockers into dependencies. What remains: XTTS is
-   GPL-incompatible, `edge-tts` is an unsanctioned endpoint, and every Piper voice still
-   needs an individual audit.
-5. **PDF is not a text format.** Reconstructing reading order from glyph positions is the
-   single largest engineering cost in the document pipeline, and it is never perfect —
-   so the product lets users correct it.
+Every push to `main` also builds an APK in
+[Actions](https://github.com/Sayandeep1013/TomeVoice/actions/workflows/build.yml).
 
-DRM-protected books (Kindle, Adobe ADEPT) are permanently out of scope.
+## How it is built
+
+The hard part of the idea is the voice, not the reader. No text-to-speech engine lets
+you control the gap between words, so TomeVoice synthesises each sentence to PCM, runs
+it through its own pipeline (word gaps, pauses, loudness) and streams it to a player
+it owns. That is also what makes playback gapless and the highlighting accurate.
+
+| Part | Where |
+|---|---|
+| Audio pipeline (pure Dart, tested without a phone) | [`packages/tomevoice_audio`](packages/tomevoice_audio) |
+| Every document format to one readable model | [`packages/tomevoice_document`](packages/tomevoice_document) |
+| The Flutter app | [`app/lib`](app/lib) |
+| Android: TTS engine, streaming player, screen-off service, PDF | [`app/android_overlay`](app/android_overlay) |
+
+There is deliberately no local Flutter or Gradle requirement
+([ADR-016](docs/10-decisions-adr.md#adr-016)): the Dart packages test with the plain Dart
+SDK, and APKs are built by GitHub Actions.
+
+The full design is in [`docs/`](docs/README.md); picking the project up cold, start at
+the [session handoff](docs/16-session-handoff.md). Every decision and the alternatives
+it rejected: [decision log](docs/10-decisions-adr.md).
 
 ## Licence
 
-**GPL-3.0.** This was not a formality — it was the decision that unblocked the neural
-voice tier. Matching the licence of eSpeak-NG, the Piper engine and the best pitch/time
-libraries turned three separate blockers into ordinary dependencies. See
+**GPL-3.0.** It is what lets the planned offline neural voices (Piper, eSpeak-NG) be
+ordinary dependencies rather than licensing problems. See
 [ADR-014](docs/10-decisions-adr.md#adr-014).
-
-## Building
-
-There is deliberately no local Flutter or Gradle requirement
-([ADR-016](docs/10-decisions-adr.md#adr-016)):
-
-| | |
-|---|---|
-| Logic, audio pipeline, tests | Standalone **Dart SDK** — `dart test`, no Gradle |
-| APK and Windows builds | **GitHub Actions** — free and unmetered on this public repo |
-| Install and listen | **`adb install`** onto a physical device |
