@@ -554,7 +554,7 @@ open class PlayerWidget : BaseWidget() {
         when {
             h < 110 -> strip(c, book, pct, left, w, h, u, look)
             w < 230 -> square(c, book, pct, left, w, h, u, look)
-            h < 230 -> wide(c, book, pct, left, w, h, u, look)
+            h < 190 -> wide(c, book, pct, left, w, h, u, look)
             else -> large(c, book, pct, left, w, h, u, look)
         }
         return bmp
@@ -621,9 +621,9 @@ open class PlayerWidget : BaseWidget() {
         dotText(c, label(pct, left), x, cy + 14f * s, 10f * s, look.dim, width, look)
     }
 
-    /** 4 x 3 and up: the 2 x 2's ring, larger, with the chapter under the title and the controls. */
+    /** 4 x 3 and up: the ring and how far along at the top; the title, chapter and controls along the foot. */
     private fun large(c: Canvas, book: Widgets.Book, pct: String, left: String?, w: Float, h: Float, u: Float, look: Widgets.Look) {
-        val s = min(w / 300f, h / 260f)
+        val s = min(w / 300f, h / 230f)
         val pad = 18f * s
         val ring = 132f * s
         val cx = pad + ring / 2
@@ -631,19 +631,22 @@ open class PlayerWidget : BaseWidget() {
         Widgets.ring(c, cx, cy, ring * 0.46f, ring * 0.05f, 44, (book.progress * 44).roundToInt(), look)
         coverCircle(c, book, cx, cy, ring - 22f * s, u, look)
         mark(c, w - pad, pad, 11f * s, look.dim)
-        val x = pad + ring + 18f * s
-        dotText(c, pct, x, pad + 40f * s, 26f * s, look.ink, w - x - pad, look, weight = 800)
-        dotText(c, "of the book", x, pad + 58f * s, 10.5f * s, look.dim, w - x - pad, look)
-        if (left != null) dotText(c, left, x, pad + 76f * s, 10.5f * s, look.dim, w - x - pad, look)
-        val top = pad + ring + 26f * s
-        text(c, book.title, pad, top, 21f * s, look.bodoni, look.ink, w - 2 * pad)
-        text(c, book.where, pad, top + 20f * s, 12f * s, look.figtree, look.dim, w - 2 * pad)
-        val r = 26f * s
+        val x = pad + ring + 20f * s
+        val top = cy - 22f * s
+        dotText(c, pct, x, top + 20f * s, 30f * s, look.ink, w - x - pad, look, weight = 800)
+        dotText(c, "of the book", x, top + 38f * s, 10.5f * s, look.dim, w - x - pad, look)
+        if (left != null) dotText(c, left, x, top + 54f * s, 10.5f * s, look.dim, w - x - pad, look)
+        val r = 24f * s
         val pcy = h - pad - r
-        val pcx = w / 2
+        val nextX = w - pad - 9f * s
+        val pcx = nextX - 9f * s - 16f * s - r
+        val prevX = pcx - r - 16f * s - 9f * s
         play(c, pcx, pcy, r, u, look)
-        skip(c, pcx - r - 30f * s, pcy, 10f * s, false, u, look)
-        skip(c, pcx + r + 30f * s, pcy, 10f * s, true, u, look)
+        skip(c, prevX, pcy, 9f * s, false, u, look)
+        skip(c, nextX, pcy, 9f * s, true, u, look)
+        val width = prevX - 9f * s - 16f * s - pad
+        text(c, book.title, pad, pcy - 1f * s, 19f * s, look.bodoni, look.ink, width)
+        text(c, book.where, pad, pcy + 16f * s, 11.5f * s, look.figtree, look.dim, width)
     }
 
     override fun taps(ctx: Context, id: Int, views: RemoteViews) {
@@ -689,7 +692,7 @@ open class StreakWidget : BaseWidget() {
         when {
             h < 110 -> strip(c, habit, w, h, look)
             w < 230 -> square(c, habit, w, h, look)
-            h < 230 -> wide(c, habit, w, h, look)
+            h < 190 -> wide(c, habit, w, h, look)
             else -> large(c, habit, w, h, look)
         }
         return bmp
