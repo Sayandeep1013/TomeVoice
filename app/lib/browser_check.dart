@@ -11,7 +11,7 @@ import 'ui.dart';
 /// the reader in, so the caller can try again.
 Future<bool> passBrowserCheck(BuildContext context, ChallengeException e) async {
   final jar = await const SpeechService().browserCheck(e.url, Net.userAgent);
-  if (jar == null || jar.isEmpty) {
+  if (jar == null) {
     if (context.mounted) showSnack(context, 'The check did not finish. Try again in a moment.');
     return false;
   }

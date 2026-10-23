@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:isolate';
 
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart';
 
 import 'models.dart';
 import 'net.dart';
@@ -146,7 +146,8 @@ class _Worker {
     init.listen((m) {
       if (m is SendPort && !ready.isCompleted) ready.complete(m);
     });
-    await Isolate.spawn(_main, [init.sendPort, receive.sendPort, libs, shim, sourcesDir, Net.userAgent],
+    await Isolate.spawn(
+        _main, [init.sendPort, receive.sendPort, libs, shim, sourcesDir, Net.userAgent, RootIsolateToken.instance],
         debugName: 'source-worker');
     final send = await ready.future;
     init.close();
@@ -176,7 +177,26 @@ class _Worker {
     final dir = boot[4] as String;
     Net.userAgent = boot[5] as String;
     await Net.instance.attachPath(dir);
-    final host = PluginHost(createJsRuntime(), libs: boot[2] as String, shim: boot[3] as String, sourcesDir: dir);
+    // The platform channel, for pages only the phone's web view gets.
+    Future<String?> Function(String)? viaBrowser;
+    if (boot[6] case final RootIsolateToken token) {
+      BackgroundIsolateBinaryMessenger.ensureInitialized(token);
+      const channel = MethodChannel('tomevoice/tts');
+      viaBrowser = (url) async {
+        try {
+          return await channel.invokeMethod<String>('browserFetch', {'url': url, 'userAgent': Net.userAgent});
+        } on Object {
+          return null;
+        }
+      };
+    }
+    final host = PluginHost(
+      createJsRuntime(),
+      libs: boot[2] as String,
+      shim: boot[3] as String,
+      sourcesDir: dir,
+      viaBrowser: viaBrowser,
+    );
     await for (final m in requests) {
       if (m is! Map) continue;
       final id = m['id'];

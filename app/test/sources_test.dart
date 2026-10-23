@@ -155,6 +155,18 @@ void main() {
       throwsA(isA<ChallengeException>().having((e) => e.url, 'url', contains('/search?q=blocked'))),
     );
 
+    // With the phone's web view to hand, a checked page is read through it.
+    final viaBrowser = PluginHost(
+      rt,
+      libs: '',
+      shim: '',
+      sourcesDir: dir.path,
+      viaBrowser: (url) async => '<ul><li class="novel"><a href="novel/7">Seen by the browser</a></li></ul>',
+    );
+    viaBrowser.ensure('fake', '1.0.0', code.path);
+    final browsed = await viaBrowser.call('fake', 'searchNovels', ['blocked', 1]) as List;
+    expect(NovelItem.fromJs(browsed.single)!.name, 'Seen by the browser');
+
     // Storage persisted to the plugin's file.
     final stored = jsonDecode(File('${dir.path}/storage-fake.json').readAsStringSync()) as Map;
     expect(jsonDecode(stored['last'] as String)['value'], 'novel/1');

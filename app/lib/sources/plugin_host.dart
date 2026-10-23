@@ -57,7 +57,7 @@ class ChallengeException extends SourceException {
 ///
 /// Fetch goes through [Net]; storage is a small JSON file per plugin.
 class PluginHost {
-  PluginHost(this.rt, {required this.libs, required this.shim, required this.sourcesDir});
+  PluginHost(this.rt, {required this.libs, required this.shim, required this.sourcesDir, this.viaBrowser});
 
   final JsRuntime rt;
   final String libs;
@@ -65,6 +65,13 @@ class PluginHost {
 
   /// Where plugins' storage files live.
   final String sourcesDir;
+
+  /// A page's HTML as the phone's web view gets it, or null: for sites whose
+  /// Cloudflare turns away the app's own requests but lets a browser in.
+  final Future<String?> Function(String url)? viaBrowser;
+
+  /// Sites that needed [viaBrowser]; their pages go straight there.
+  final _browserHosts = <String>{};
 
   final _loaded = <String, String>{};
 
@@ -148,13 +155,27 @@ class PluginHost {
         if (v != null) headers[k.toString()] = v.toString();
       });
     }
+    final method = (req['method'] as String? ?? 'GET').toUpperCase();
+    final host = Uri.tryParse(url)?.host ?? '';
+    final browser = method == 'GET' ? viaBrowser : null;
+    if (browser != null && _browserHosts.contains(host)) {
+      final html = await browser(url);
+      if (html != null) return _page(url, html);
+    }
     try {
       final r = await Net.instance.request(
         url,
-        method: (req['method'] as String? ?? 'GET').toUpperCase(),
+        method: method,
         headers: headers,
         body: req['body'] as String?,
       );
+      if (r.isChallenge && browser != null) {
+        final html = await browser(url);
+        if (html != null) {
+          _browserHosts.add(host);
+          return _page(url, html);
+        }
+      }
       if (r.isChallenge) _challenged.add(url);
       return jsonEncode({
         'status': r.status,
@@ -177,6 +198,15 @@ class PluginHost {
       });
     }
   }
+
+  static String _page(String url, String html) => jsonEncode({
+        'status': 200,
+        'statusText': '',
+        'url': url,
+        'redirected': false,
+        'headers': const {'content-type': 'text/html; charset=utf-8'},
+        'body': html,
+      });
 
   final _stores = <String, Map<String, String>>{};
 

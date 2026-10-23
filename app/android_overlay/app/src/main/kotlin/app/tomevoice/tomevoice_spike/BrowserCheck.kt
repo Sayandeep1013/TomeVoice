@@ -74,23 +74,22 @@ object BrowserCheck {
             main.removeCallbacksAndMessages(null)
             cookies.flush()
             val jar = cookies.getCookie(url)
-            done(if (passed || jar?.contains("cf_clearance=") == true) jar else null)
+            done(if (passed || jar?.contains("cf_clearance=") == true) (jar ?: "") else null)
             web.stopLoading()
             web.destroy()
             if (dialog.isShowing) dialog.dismiss()
         }
 
-        // Passed when the clearance cookie is set and the page is the site,
-        // not the check. Asked twice a second; given up after three minutes.
+        // Passed when the page is the site, not the check, for a second in a
+        // row (the check reloads itself when done). Asked twice a second;
+        // given up after three minutes.
         val started = System.currentTimeMillis()
+        var calm = 0
         val poll = object : Runnable {
             override fun run() {
                 if (finished) return
-                val jar = cookies.getCookie(url) ?: ""
-                val title = web.title ?: ""
-                val checking = title.contains("Just a moment", true) ||
-                    title.contains("Attention Required", true) || title.isEmpty()
-                if (jar.contains("cf_clearance=") && !checking) {
+                calm = if (!isCheck(web.title) && web.progress == 100) calm + 1 else 0
+                if (calm >= 2) {
                     finish(true)
                 } else if (System.currentTimeMillis() - started > 180_000) {
                     finish(false)
@@ -105,5 +104,78 @@ object BrowserCheck {
         dialog.show()
         web.loadUrl(url)
         main.postDelayed(poll, 1000)
+    }
+
+    fun isCheck(title: String?): Boolean {
+        val t = title ?: return true
+        return t.isEmpty() || t.contains("Just a moment", true) ||
+            t.contains("Attention Required", true) || t.contains("Checking your browser", true)
+    }
+
+    private val queue = ArrayDeque<() -> Unit>()
+    private var fetching = false
+
+    /**
+     * Load [url] in a web view nobody sees and hand back its HTML once it is
+     * the site and not a check: for sites whose Cloudflare refuses the app's
+     * own requests whatever cookies they carry. One page at a time; null if
+     * the page is still a check after 25 seconds (the visible check is then
+     * the way through).
+     */
+    fun fetch(activity: Activity, url: String, userAgent: String, done: (String?) -> Unit) {
+        queue.addLast { load(activity, url, userAgent) { html -> done(html); next() } }
+        if (!fetching) next()
+    }
+
+    private fun next() {
+        val job = queue.removeFirstOrNull()
+        fetching = job != null
+        job?.invoke()
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun load(activity: Activity, url: String, userAgent: String, done: (String?) -> Unit) {
+        val main = Handler(Looper.getMainLooper())
+        val web = WebView(activity)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
+        web.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            blockNetworkImage = true
+            userAgentString = userAgent
+        }
+        // Attached, but one pixel and see-through: a detached web view may
+        // never run the check's scripts.
+        val parent = activity.window.decorView as ViewGroup
+        web.alpha = 0f
+        parent.addView(web, ViewGroup.LayoutParams(1, 1))
+        var finished = false
+        fun finish(html: String?) {
+            if (finished) return
+            finished = true
+            main.removeCallbacksAndMessages(null)
+            web.stopLoading()
+            parent.removeView(web)
+            web.destroy()
+            done(html)
+        }
+        val started = System.currentTimeMillis()
+        val poll = object : Runnable {
+            override fun run() {
+                if (finished) return
+                if (web.progress == 100 && !isCheck(web.title)) {
+                    web.evaluateJavascript("document.documentElement.outerHTML") { raw ->
+                        finish(if (raw == null || raw == "null") null else org.json.JSONArray("[$raw]").getString(0))
+                    }
+                } else if (System.currentTimeMillis() - started > 25_000) {
+                    finish(null)
+                } else {
+                    main.postDelayed(this, 400)
+                }
+            }
+        }
+        web.webViewClient = object : WebViewClient() {}
+        web.loadUrl(url)
+        main.postDelayed(poll, 800)
     }
 }
