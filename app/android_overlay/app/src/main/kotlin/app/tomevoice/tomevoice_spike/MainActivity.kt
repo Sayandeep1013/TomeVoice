@@ -253,8 +253,8 @@ class MainActivity : FlutterActivity() {
             }
         }
 
-        ReadAloudService.onAction = { action ->
-            main.post { event(mapOf("type" to "action", "action" to action)) }
+        ReadAloudService.onAction = { action, value ->
+            main.post { event(mapOf("type" to "action", "action" to action, "value" to value)) }
         }
 
         // Warm the engine now so the first Play does not pay for the bind.
@@ -537,6 +537,8 @@ class MainActivity : FlutterActivity() {
 
     // -------------------------------------------------------------- session
 
+    private var askedNotify = false
+
     /** Start, update or end the "reading aloud" foreground service. */
     private fun session(args: Map<*, *>, result: MethodChannel.Result) {
         val active = args["active"] == true
@@ -546,18 +548,27 @@ class MainActivity : FlutterActivity() {
             result.success(null)
             return
         }
-        if (Build.VERSION.SDK_INT >= 33 &&
+        // Asked once per launch: the session is updated on every sentence, and
+        // a refusal must not bring the prompt back each time.
+        if (Build.VERSION.SDK_INT >= 33 && !askedNotify &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) {
+            askedNotify = true
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIFY)
         }
         try {
             ReadAloudService.update(
                 this,
-                (args["title"] as? String) ?: "TomeVoice",
-                (args["subtitle"] as? String) ?: "",
-                args["playing"] == true
+                ReadAloudService.NowReading(
+                    title = (args["title"] as? String) ?: "TomeVoice",
+                    subtitle = (args["subtitle"] as? String) ?: "",
+                    playing = args["playing"] == true,
+                    cover = args["cover"] as? String,
+                    positionMs = (args["positionMs"] as? Number)?.toLong() ?: 0,
+                    durationMs = (args["durationMs"] as? Number)?.toLong() ?: 0,
+                    speed = (args["speed"] as? Number)?.toDouble() ?: 1.0,
+                )
             )
             result.success(null)
         } catch (e: Exception) {

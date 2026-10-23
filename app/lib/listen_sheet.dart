@@ -444,6 +444,10 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
       ];
 }
 
+/// The common speeds: the speed sheet's row, and the steps of the media
+/// card's speed button (which has an icon for each).
+const speedPresets = [0.75, 1.0, 1.25, 1.5, 2.0];
+
 /// Speed: − value + for fine steps, and one row of common speeds.
 class SpeedControl extends StatefulWidget {
   const SpeedControl({super.key, required this.prefs, required this.onChanged});
@@ -456,8 +460,6 @@ class SpeedControl extends StatefulWidget {
 }
 
 class _SpeedControlState extends State<SpeedControl> {
-  static const _presets = [0.75, 1.0, 1.25, 1.5, 2.0];
-
   double get _speed => widget.prefs.settings.speedScale;
 
   void _setSpeed(double v) {
@@ -469,7 +471,7 @@ class _SpeedControlState extends State<SpeedControl> {
 
   @override
   Widget build(BuildContext context) {
-    final preset = _presets.where((p) => (p - _speed).abs() < 0.001).firstOrNull;
+    final preset = speedPresets.where((p) => (p - _speed).abs() < 0.001).firstOrNull;
     return Column(
       children: [
         StepperControl(
@@ -481,7 +483,7 @@ class _SpeedControlState extends State<SpeedControl> {
         ),
         const SizedBox(height: Gap.m),
         ChoiceRow<double?>(
-          options: [for (final p in _presets) (p, '${trimSpeed(p)}×')],
+          options: [for (final p in speedPresets) (p, '${trimSpeed(p)}×')],
           value: preset,
           minSegment: 54,
           onChanged: (v) => _setSpeed(v!),

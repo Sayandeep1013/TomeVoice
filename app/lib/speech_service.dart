@@ -142,17 +142,29 @@ class SpeechService {
 
   /// The "reading aloud" foreground service that keeps speech going with the
   /// screen off. Inactive ends it.
+  ///
+  /// It also feeds the shade's media card: [cover] (an image file) is its
+  /// picture, [positionMs] of [durationMs] its seek bar through the chapter,
+  /// and [speed] its speed button.
   Future<void> session({
     required bool active,
     String title = '',
     String subtitle = '',
     bool playing = false,
+    String? cover,
+    int positionMs = 0,
+    int durationMs = 0,
+    double speed = 1.0,
   }) =>
       _quiet('session', {
         'active': active,
         'title': title,
         'subtitle': subtitle,
         'playing': playing,
+        'cover': cover,
+        'positionMs': positionMs,
+        'durationMs': durationMs,
+        'speed': speed,
       });
 
   Future<bool> openTtsSettings() async {

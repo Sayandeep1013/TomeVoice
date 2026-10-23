@@ -231,7 +231,16 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   Timer? _restartTimer;
   bool _resumeOnFocus = false;
   int _sessionChapter = -1;
+  int _sessionUnit = -1;
+  double _sessionSpeed = 0;
   PlayState _sessionState = PlayState.idle;
+
+  /// The book's cover file, for the shade's media card.
+  String? _cover;
+
+  /// The card moved the place while paused. Moving stops the player, but
+  /// the card stays up, paused at the new place, until reading resumes.
+  bool _parked = false;
   bool _programmaticScroll = false;
 
   bool get _isPdf => _book.source == SourceKind.pdf && widget.sourcePath != null;
@@ -262,6 +271,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _events = SpeechService.events.listen(_onPlatformEvent);
     ListeningPrefs.revision.addListener(_onPrefs);
     unawaited(_loadPrefs());
+    unawaited(_loadCover());
     if (widget.autoplay) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _togglePlay());
     }
@@ -277,6 +287,19 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (p.engineId != null && p.engineId != _catalog.engineId) {
       await _catalog.ensureLoaded();
       await _catalog.switchEngine(p.engineId!);
+    }
+  }
+
+  Future<void> _loadCover() async {
+    final store = widget.store;
+    if (store == null) return;
+    try {
+      final entry = (await store.list()).where((e) => e.id == _book.id).firstOrNull;
+      if (!mounted) return;
+      _cover = entry?.shownCover;
+      _updateSession(force: true);
+    } on Object {
+      // The card goes without a picture.
     }
   }
 
@@ -463,6 +486,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   void _onSettingsChanged({required bool restart}) {
     if (mounted) setState(() {});
+    _updateSession();
     if (!restart) return;
     // Make the change audible from the current sentence, once the user has
     // stopped fiddling.
@@ -489,6 +513,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   void _onPlayState() {
     final s = _player.state.value;
+    if (s == PlayState.playing || s == PlayState.loading) _parked = false;
     final err = _player.error.value;
     if (s == PlayState.idle && err != null && mounted) {
       _snack('Reading stopped: $err');
@@ -497,21 +522,37 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   void _updateSession({bool force = false}) {
-    final s = _player.state.value;
-    final chapter = _l.chapterOfUnit(_cursor.value);
-    if (!force && s == _sessionState && chapter == _sessionChapter) return;
+    final actual = _player.state.value;
+    final s = actual == PlayState.idle && _parked ? PlayState.paused : actual;
+    final u = _cursor.value;
+    final chapter = _l.chapterOfUnit(u);
+    final speed = _prefs.settings.speedScale;
+    if (!force &&
+        s == _sessionState &&
+        chapter == _sessionChapter &&
+        u == _sessionUnit &&
+        speed == _sessionSpeed) {
+      return;
+    }
     final wasActive = _sessionState != PlayState.idle;
     _sessionState = s;
     _sessionChapter = chapter;
+    _sessionUnit = u;
+    _sessionSpeed = speed;
     if (s == PlayState.idle) {
       if (wasActive) unawaited(_svc.session(active: false));
       return;
     }
+    final (first, count) = _l.chapterRange(chapter);
     unawaited(_svc.session(
       active: true,
       title: _book.metadata.title,
       subtitle: _l.chapterTitle(chapter),
       playing: s != PlayState.paused,
+      cover: _cover,
+      positionMs: _msFor(_wordsAt(u) - _wordsAt(first)),
+      durationMs: _msFor(_wordsAt(first + count) - _wordsAt(first)),
+      speed: speed,
     ));
   }
 
@@ -537,13 +578,69 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           case 'pause':
             unawaited(_player.pause());
           case 'stop':
+            _parked = false;
             unawaited(_player.stop());
           case 'next':
-            unawaited(_goTo(_cursor.value + 1));
+            _park();
+            _goChapter(1);
           case 'prev':
-            unawaited(_goTo(_cursor.value - 1));
+            _park();
+            _cardPrevious();
+          case 'seek':
+            _park();
+            _seekInChapter((e['value'] as num?)?.toInt() ?? 0);
+          case 'speed':
+            _nextSpeed();
         }
     }
+  }
+
+  // ----------------------------------------------------------- media card
+
+  void _park() {
+    if (_player.state.value == PlayState.paused) _parked = true;
+  }
+
+  /// Words before unit [u]; [u] may be one past the end.
+  int _wordsAt(int u) => u < _l.units.length ? _l.wordsBefore[u] : _l.totalWords;
+
+  /// How long [words] take at the reading speed: the same 165 words a minute
+  /// as the time left under the player.
+  int _msFor(int words) => (words / (165 * _prefs.settings.speedScale) * 60000).round();
+
+  /// The card's previous button: back to the start of this chapter, or to the
+  /// previous chapter when within its first seconds, as a music player does.
+  void _cardPrevious() {
+    if (_l.isEmpty) return;
+    final u = _cursor.value;
+    final (first, _) = _l.chapterRange(_l.chapterOfUnit(u));
+    if (_msFor(_wordsAt(u) - _wordsAt(first)) > 3000) {
+      unawaited(_goTo(first));
+    } else {
+      _goChapter(-1);
+    }
+  }
+
+  /// The card's seek bar was dragged to [ms] into the chapter.
+  void _seekInChapter(int ms) {
+    if (_l.isEmpty) return;
+    final (first, count) = _l.chapterRange(_l.chapterOfUnit(_cursor.value));
+    final target = _wordsAt(first) + ms / 60000 * 165 * _prefs.settings.speedScale;
+    var u = first;
+    while (u + 1 < first + count && _wordsAt(u + 1) <= target) {
+      u++;
+    }
+    unawaited(_goTo(u));
+  }
+
+  /// The card's speed button: the next of the common speeds, round to the
+  /// slowest after the fastest.
+  void _nextSpeed() {
+    final now = _prefs.settings.speedScale;
+    final next = speedPresets.firstWhere((p) => p > now + 0.001, orElse: () => speedPresets.first);
+    _prefs.settings = _prefs.settings.copyWith(speedScale: next);
+    _prefs.save();
+    _onSettingsChanged(restart: true);
   }
 
   // --------------------------------------------------------------- cursor

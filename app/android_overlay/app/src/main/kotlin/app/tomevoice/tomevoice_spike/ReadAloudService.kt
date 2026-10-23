@@ -8,6 +8,8 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.drawable.Icon
 import android.media.MediaMetadata
 import android.media.session.MediaSession
@@ -24,6 +26,10 @@ import android.os.IBinder
  * audio work itself; the activity's player and the Dart scheduler keep doing
  * that. It owns the notification and a MediaSession so the lock screen,
  * notification shade and headset buttons can pause and resume.
+ *
+ * On Android 13+ the shade's media card is drawn from the session alone: the
+ * cover is its background (and its colours come from the cover), the chapter
+ * is its seek bar, and the custom action is the speed button.
  */
 class ReadAloudService : Service() {
 
@@ -33,27 +39,37 @@ class ReadAloudService : Service() {
         const val ACTION_STOP = "app.tomevoice.action.STOP"
         const val ACTION_NEXT = "app.tomevoice.action.NEXT"
         const val ACTION_PREV = "app.tomevoice.action.PREV"
+        private const val CUSTOM_SPEED = "speed"
         private const val CHANNEL_ID = "reading"
         private const val NOTIFICATION_ID = 7
 
-        /** Set by the activity; receives "play", "pause", "stop", "next", "prev". */
+        /** Covers are scaled to this on their long side; the card crops them. */
+        private const val ART_MAX = 480
+
+        /**
+         * Set by the activity; receives "play", "pause", "stop", "next",
+         * "prev", "speed", and "seek" with a position in milliseconds.
+         */
         @Volatile
-        var onAction: ((String) -> Unit)? = null
+        var onAction: ((String, Long) -> Unit)? = null
 
         @Volatile
         private var instance: ReadAloudService? = null
 
-        private var title = "TomeVoice"
-        private var subtitle = ""
-        private var playing = false
+        private var now = NowReading()
 
-        fun update(ctx: Context, newTitle: String, newSubtitle: String, isPlaying: Boolean) {
-            title = newTitle
-            subtitle = newSubtitle
-            playing = isPlaying
+        fun update(ctx: Context, next: NowReading) {
+            val previous = now
+            now = next
             val running = instance
             if (running != null) {
-                running.refresh()
+                // A new sentence only moves the seek bar; leave the
+                // notification itself alone.
+                if (next.copy(positionMs = previous.positionMs) == previous) {
+                    running.publishState()
+                } else {
+                    running.refresh()
+                }
                 return
             }
             val intent = Intent(ctx, ReadAloudService::class.java)
@@ -65,12 +81,48 @@ class ReadAloudService : Service() {
         }
 
         fun end(ctx: Context) {
-            playing = false
+            now = now.copy(playing = false)
             ctx.stopService(Intent(ctx, ReadAloudService::class.java))
+        }
+
+        /** The button for [speed]: the number itself for the presets. */
+        private fun speedIcon(speed: Double): Int {
+            fun near(v: Double) = Math.abs(speed - v) < 0.001
+            return when {
+                near(0.75) -> R.drawable.ic_speed_0_75
+                near(1.0) -> R.drawable.ic_speed_1_0
+                near(1.25) -> R.drawable.ic_speed_1_25
+                near(1.5) -> R.drawable.ic_speed_1_5
+                near(2.0) -> R.drawable.ic_speed_2_0
+                else -> R.drawable.ic_speed
+            }
+        }
+
+        /** "1.25x", "2x" (with a multiplication sign). */
+        private fun speedLabel(speed: Double): String {
+            val text = String.format(java.util.Locale.US, "%.2f", speed).trimEnd('0').trimEnd('.')
+            return text + "\u00d7"
         }
     }
 
+    /**
+     * What the card shows. [positionMs] and [durationMs] place the sentence
+     * in its chapter, estimated from words at the current speed; a zero
+     * duration hides the seek bar.
+     */
+    data class NowReading(
+        val title: String = "TomeVoice",
+        val subtitle: String = "",
+        val playing: Boolean = false,
+        val cover: String? = null,
+        val positionMs: Long = 0,
+        val durationMs: Long = 0,
+        val speed: Double = 1.0,
+    )
+
     private var session: MediaSession? = null
+    private var artPath: String? = null
+    private var art: Bitmap? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -80,23 +132,31 @@ class ReadAloudService : Service() {
         val s = MediaSession(this, "TomeVoice")
         s.setCallback(object : MediaSession.Callback() {
             override fun onPlay() {
-                onAction?.invoke("play")
+                onAction?.invoke("play", 0)
             }
 
             override fun onPause() {
-                onAction?.invoke("pause")
+                onAction?.invoke("pause", 0)
             }
 
             override fun onStop() {
-                onAction?.invoke("stop")
+                onAction?.invoke("stop", 0)
             }
 
             override fun onSkipToNext() {
-                onAction?.invoke("next")
+                onAction?.invoke("next", 0)
             }
 
             override fun onSkipToPrevious() {
-                onAction?.invoke("prev")
+                onAction?.invoke("prev", 0)
+            }
+
+            override fun onSeekTo(pos: Long) {
+                onAction?.invoke("seek", pos)
+            }
+
+            override fun onCustomAction(action: String, extras: android.os.Bundle?) {
+                if (action == CUSTOM_SPEED) onAction?.invoke("speed", 0)
             }
         })
         s.isActive = true
@@ -105,11 +165,11 @@ class ReadAloudService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_PLAY -> onAction?.invoke("play")
-            ACTION_PAUSE -> onAction?.invoke("pause")
-            ACTION_NEXT -> onAction?.invoke("next")
-            ACTION_PREV -> onAction?.invoke("prev")
-            ACTION_STOP -> onAction?.invoke("stop")
+            ACTION_PLAY -> onAction?.invoke("play", 0)
+            ACTION_PAUSE -> onAction?.invoke("pause", 0)
+            ACTION_NEXT -> onAction?.invoke("next", 0)
+            ACTION_PREV -> onAction?.invoke("prev", 0)
+            ACTION_STOP -> onAction?.invoke("stop", 0)
         }
         val n = build()
         if (Build.VERSION.SDK_INT >= 29) {
@@ -125,6 +185,8 @@ class ReadAloudService : Service() {
         session?.isActive = false
         session?.release()
         session = null
+        art = null
+        artPath = null
         if (Build.VERSION.SDK_INT >= 24) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         }
@@ -134,6 +196,78 @@ class ReadAloudService : Service() {
     fun refresh() {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(NOTIFICATION_ID, build())
+    }
+
+    /** Play state, place in the chapter and the speed button. */
+    fun publishState() {
+        val n = now
+        val seekable = n.durationMs > 0
+        var actions = PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or
+            PlaybackState.ACTION_PLAY_PAUSE or PlaybackState.ACTION_STOP or
+            PlaybackState.ACTION_SKIP_TO_NEXT or PlaybackState.ACTION_SKIP_TO_PREVIOUS
+        if (seekable) actions = actions or PlaybackState.ACTION_SEEK_TO
+        val position = if (seekable) {
+            n.positionMs.coerceIn(0, n.durationMs)
+        } else {
+            PlaybackState.PLAYBACK_POSITION_UNKNOWN
+        }
+        session?.setPlaybackState(
+            PlaybackState.Builder()
+                .setActions(actions)
+                .setState(
+                    if (n.playing) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED,
+                    position,
+                    // The position is already in time at this speed, so the bar
+                    // runs at real time between sentences.
+                    if (n.playing) 1f else 0f
+                )
+                .addCustomAction(
+                    PlaybackState.CustomAction.Builder(
+                        CUSTOM_SPEED,
+                        "Speed " + speedLabel(n.speed),
+                        speedIcon(n.speed)
+                    ).build()
+                )
+                .build()
+        )
+    }
+
+    /** The cover at card size, decoded once per book. */
+    private fun artFor(path: String?): Bitmap? {
+        if (path == artPath) return art
+        artPath = path
+        art = path?.let { decodeArt(it) }
+        return art
+    }
+
+    private fun decodeArt(path: String): Bitmap? = try {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(path, bounds)
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= ART_MAX) sample *= 2
+        // RGB_565 is half the bytes of ARGB: the session sends the picture
+        // between processes, and that has a size limit.
+        val decoded = BitmapFactory.decodeFile(
+            path,
+            BitmapFactory.Options().apply {
+                inSampleSize = sample
+                inPreferredConfig = Bitmap.Config.RGB_565
+            }
+        )
+        val long = if (decoded == null) 0 else maxOf(decoded.width, decoded.height)
+        if (decoded == null || long <= ART_MAX) {
+            decoded
+        } else {
+            val k = ART_MAX.toFloat() / long
+            Bitmap.createScaledBitmap(
+                decoded,
+                (decoded.width * k).toInt().coerceAtLeast(1),
+                (decoded.height * k).toInt().coerceAtLeast(1),
+                true
+            )
+        }
+    } catch (e: Exception) {
+        null
     }
 
     private fun build(): Notification {
@@ -149,27 +283,16 @@ class ReadAloudService : Service() {
             nm.createNotificationChannel(channel)
         }
 
-        session?.setMetadata(
-            MediaMetadata.Builder()
-                .putString(MediaMetadata.METADATA_KEY_TITLE, title)
-                .putString(MediaMetadata.METADATA_KEY_ARTIST, subtitle)
-                .build()
-        )
-        session?.setPlaybackState(
-            PlaybackState.Builder()
-                .setActions(
-                    PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or
-                        PlaybackState.ACTION_PLAY_PAUSE or PlaybackState.ACTION_STOP or
-                        PlaybackState.ACTION_SKIP_TO_NEXT or
-                        PlaybackState.ACTION_SKIP_TO_PREVIOUS
-                )
-                .setState(
-                    if (playing) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED,
-                    PlaybackState.PLAYBACK_POSITION_UNKNOWN,
-                    1f
-                )
-                .build()
-        )
+        val n = now
+        val cover = artFor(n.cover)
+        val meta = MediaMetadata.Builder()
+            .putString(MediaMetadata.METADATA_KEY_TITLE, n.title)
+            .putString(MediaMetadata.METADATA_KEY_ARTIST, n.subtitle)
+        if (n.durationMs > 0) meta.putLong(MediaMetadata.METADATA_KEY_DURATION, n.durationMs)
+        if (cover != null) meta.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, cover)
+        session?.setMetadata(meta.build())
+        publishState()
+        val playing = n.playing
 
         val open = PendingIntent.getActivity(
             this,
@@ -200,11 +323,11 @@ class ReadAloudService : Service() {
             Notification.Builder(this)
         }
         builder
-            .setSmallIcon(
-                if (playing) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause
-            )
-            .setContentTitle(title)
-            .setContentText(subtitle)
+            // The app's mark, as Spotify shows its own. The card puts this top
+            // left, where a play or pause sign read as a second button.
+            .setSmallIcon(R.drawable.ic_stat_tomevoice)
+            .setContentTitle(n.title)
+            .setContentText(n.subtitle)
             .setContentIntent(open)
             .setOngoing(playing)
             .setShowWhen(false)
@@ -221,6 +344,7 @@ class ReadAloudService : Service() {
             .addAction(
                 action(android.R.drawable.ic_menu_close_clear_cancel, "Stop", ACTION_STOP, 5)
             )
+        if (cover != null) builder.setLargeIcon(cover)
         val style = Notification.MediaStyle().setShowActionsInCompactView(0, 1, 2)
         session?.let { style.setMediaSession(it.sessionToken) }
         builder.setStyle(style)
