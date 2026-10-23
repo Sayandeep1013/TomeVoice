@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
-import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:flutter/foundation.dart';
@@ -289,7 +288,6 @@ Future<void> _workerMain(SendPort out) async {
 }
 
 /// Float samples as a 16-bit mono WAV.
-@visibleForTesting
 Uint8List wavBytes(Float32List samples, int sampleRate) {
   final data = ByteData(44 + samples.length * 2);
   void ascii(int at, String s) {
