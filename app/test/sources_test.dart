@@ -119,11 +119,15 @@ void main() {
     });
     final site = 'http://127.0.0.1:${server.port}/';
     final code = File('${dir.path}/fake.js')..writeAsStringSync(_plugin.replaceAll('SITE', jsonEncode(site)));
+    // The phone's web view, once the test hands one over.
+    var browserOn = false;
     final host = PluginHost(
       rt,
       libs: File('assets/js/lnreader_libs.js').readAsStringSync(),
       shim: File('assets/js/lnreader_shim.js').readAsStringSync(),
       sourcesDir: dir.path,
+      viaBrowser: (url) async =>
+          browserOn ? '<ul><li class="novel"><a href="novel/7">Seen by the browser</a></li></ul>' : null,
     );
     host.ensure('fake', '1.0.0', code.path);
 
@@ -156,15 +160,8 @@ void main() {
     );
 
     // With the phone's web view to hand, a checked page is read through it.
-    final viaBrowser = PluginHost(
-      rt,
-      libs: '',
-      shim: '',
-      sourcesDir: dir.path,
-      viaBrowser: (url) async => '<ul><li class="novel"><a href="novel/7">Seen by the browser</a></li></ul>',
-    );
-    viaBrowser.ensure('fake', '1.0.0', code.path);
-    final browsed = await viaBrowser.call('fake', 'searchNovels', ['blocked', 1]) as List;
+    browserOn = true;
+    final browsed = await host.call('fake', 'searchNovels', ['blocked', 1]) as List;
     expect(NovelItem.fromJs(browsed.single)!.name, 'Seen by the browser');
 
     // Storage persisted to the plugin's file.
