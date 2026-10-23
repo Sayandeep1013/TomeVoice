@@ -47,6 +47,9 @@ No account. No cloud. Your books never leave the phone.
   player in the notification shade shows the book's cover in its colours, a bar through
   the chapter you can drag, a speed button, and skips by chapter.
 - **Starts where you stopped**, with a sleep timer for listening in bed.
+- **Your library in one file.** Back it up to Downloads or Drive and restore it on a new
+  phone, adding to what is there or replacing it. TomeVoice also tells you when a new
+  version is out.
 - **A shelf you can organise.** Cover tiles with format, length and progress on each;
   your own categories (Reading, Later, or any you make), swiped between; the books you are
   in the middle of waiting at the bottom with a play button.
