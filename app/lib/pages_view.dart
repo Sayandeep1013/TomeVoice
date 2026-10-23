@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
@@ -88,6 +89,13 @@ class _PdfPagesViewState extends State<PdfPagesView> {
       }
     }
     _programmatic = true;
+    // Far away or motion turned down: straight there, without the list's
+    // cross-fade of two copies of the pages.
+    if (!_positions.itemPositions.value.any((p) => p.index == page) || Motion.reduced(context)) {
+      _scroll.jumpTo(index: page, alignment: 0.02);
+      _programmatic = false;
+      return;
+    }
     unawaited(_scroll
         .scrollTo(
           index: page,
@@ -156,13 +164,20 @@ class _PdfPagesViewState extends State<PdfPagesView> {
           final px = ((c.maxWidth * dpr) / 120).ceil() * 120;
           final key = '$index@$px';
           final file = _renders.putIfAbsent(key, () => _svc.pdfRender(widget.path, index, px));
+          // Press and hold reads from the page, as on the text: a tap (to
+          // stop a fling) must not move the voice. A screen reader's double
+          // tap still does.
           return GestureDetector(
-            onTap: () => widget.onTapPage(index),
+            onLongPress: () {
+              unawaited(HapticFeedback.selectionClick());
+              widget.onTapPage(index);
+            },
             child: Semantics(
               button: true,
               label: 'Page ${index + 1}. Double tap to read from here',
+              onTap: () => widget.onTapPage(index),
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
+                duration: Motion.of(context, const Duration(milliseconds: 200)),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(4),

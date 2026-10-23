@@ -100,10 +100,11 @@ class ChoiceRow<T> extends StatefulWidget {
   final double minSegment;
 
   /// Width of [label] as a segment draws it, padding included.
-  static double _segmentWidth(String label) {
+  static double _segmentWidth(String label, TextScaler scale) {
     final painter = TextPainter(
       text: TextSpan(text: label, style: Skin.ui(size: 13.5, weight: FontWeight.w700)),
       textDirection: TextDirection.ltr,
+      textScaler: scale,
       maxLines: 1,
     )..layout();
     return painter.width + Gap.m * 2 + 2;
@@ -130,11 +131,17 @@ class _ChoiceRowState<T> extends State<ChoiceRow<T>> {
 
   void _reveal(int index, double left, double width, double viewport) {
     if (_shown == index) return;
+    final first = _shown == null;
     _shown = index;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scroll.hasClients) return;
       final target = (left - (viewport - width) / 2).clamp(0.0, _scroll.position.maxScrollExtent);
-      _scroll.animateTo(target, duration: Motion.of(context, Motion.standard), curve: Motion.emphasized);
+      final d = Motion.of(context, Motion.standard);
+      if (first || d == Duration.zero) {
+        _scroll.jumpTo(target);
+      } else {
+        _scroll.animateTo(target, duration: d, curve: Motion.emphasized);
+      }
     });
   }
 
@@ -145,7 +152,8 @@ class _ChoiceRowState<T> extends State<ChoiceRow<T>> {
           // Each segment as wide as its label needs (so "Newsreader" is not
           // cut to "Newsrea…" beside "Sans"), sharing out what is left over.
           final widths = [
-            for (final (_, label) in options) ChoiceRow._segmentWidth(label).clamp(widget.minSegment, 400.0),
+            for (final (_, label) in options)
+              ChoiceRow._segmentWidth(label, MediaQuery.textScalerOf(context)).clamp(widget.minSegment, 400.0),
           ];
           final needed = widths.fold<double>(6, (a, b) => a + b);
           final fits = needed <= c.maxWidth;
@@ -320,7 +328,7 @@ class StepperControl extends StatelessWidget {
             child: AnimatedSwitcher(
               duration: Motion.of(context, Motion.quick),
               switchInCurve: Motion.out,
-              switchOutCurve: Motion.out,
+              switchOutCurve: const Interval(0.5, 1),
               transitionBuilder: fadeRise,
               child: Text(
                 value,

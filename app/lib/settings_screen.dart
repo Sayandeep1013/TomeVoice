@@ -498,7 +498,7 @@ class _PaletteSwatches extends StatelessWidget {
         child: Column(
           children: [
             AnimatedContainer(
-              duration: const Duration(milliseconds: 160),
+              duration: Motion.of(context, const Duration(milliseconds: 160)),
               height: 76,
               padding: const EdgeInsets.all(7),
               decoration: BoxDecoration(

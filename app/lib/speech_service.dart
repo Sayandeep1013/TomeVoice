@@ -111,7 +111,7 @@ class SpeechService {
           voice: natural,
           text: text,
           speed: rate,
-          outDir: Directory.systemTemp.path,
+          outDir: synthTempDir().path,
         );
       }
       final raw = await _channel.invokeMapMethod<String, Object?>('synthesise', {
@@ -720,3 +720,7 @@ class ProcessedSpeech {
         ],
       };
 }
+
+/// Where speech made in Dart (natural voices, joined dialogue) is written:
+/// cache/tts, the folder the app empties on every start.
+Directory synthTempDir() => Directory('${Directory.systemTemp.path}/tts')..createSync(recursive: true);

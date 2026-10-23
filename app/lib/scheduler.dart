@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -59,6 +60,7 @@ class PlaybackScheduler {
     required this.pauseAfter,
     this.respell,
     this.dialogueVoiceOf,
+    this.quoteOpenAt,
   });
 
   final SpeechService service;
@@ -76,6 +78,10 @@ class PlaybackScheduler {
 
   /// The voice for words in quotation marks, when not the narrator's.
   final String? Function()? dialogueVoiceOf;
+
+  /// Whether a quotation is open where unit i begins (said on from an
+  /// earlier sentence of its paragraph), when that can be told.
+  final bool Function(int index)? quoteOpenAt;
 
   final state = ValueNotifier<PlayState>(PlayState.idle);
   final unit = ValueNotifier<int>(0);
@@ -111,11 +117,13 @@ class PlaybackScheduler {
   Future<void> play(int from) async {
     if (units.isEmpty) return;
     final gen = await _reset();
+    if (gen != _gen) return;
     _next = from.clamp(0, units.length - 1);
     unit.value = _next;
     word.value = WordMark.none;
     error.value = null;
     state.value = PlayState.loading;
+    _ticker?.cancel();
     _ticker = Timer.periodic(const Duration(milliseconds: 40), (_) => _tick(gen));
     unawaited(_fill(gen));
   }
@@ -190,7 +198,9 @@ class PlaybackScheduler {
       try {
         final s = settingsFor(text);
         final dialogue = dialogueVoiceOf?.call();
-        final native = dialogue == null || !text.contains(RegExp('[“”"«»「」„]'))
+        final open = dialogue == null ? null : quoteOpenAt?.call(i);
+        // A sentence in the middle of a long quote has no marks of its own.
+        final native = dialogue == null || !(open == true || text.contains(RegExp('[“”"«»「」„]')))
             ? await service.synthesise(
                 text: text,
                 engineId: engineIdOf(),
@@ -201,13 +211,20 @@ class PlaybackScheduler {
             : await speakWithDialogue(
                 svc: service,
                 text: text,
+                stale: () => gen != _gen,
+                startsInside: open,
                 narrator: voiceNameOf(),
                 dialogueVoice: dialogue,
                 engineId: engineIdOf(),
                 rate: s.speedScale,
                 pitch: SpeechService.semitonesToPitch(s.pitchSemitones),
               );
-        if (gen != _gen) return;
+        if (gen != _gen) {
+          // Made for a start that was overtaken: nobody will hear it.
+          final wav = native['wavPath'];
+          if (wav is String) unawaited(File(wav).delete().catchError((Object _) => File(wav)));
+          return;
+        }
         final r = await renderInBackground(
           native: native,
           // Speed is the engine's job (real duration change); the DSP stub
@@ -241,6 +258,11 @@ class PlaybackScheduler {
       } on PlatformException catch (e) {
         if (gen != _gen) return;
         if (e.code == 'TTS_STOPPED') return;
+        // A line with nothing to say ("* * *") is skipped, not a failure.
+        if (e.code == 'EMPTY_TEXT') {
+          _next = i + 1;
+          continue;
+        }
         // One unspeakable line ("* * *") should not end the book.
         failures++;
         _next = i + 1;

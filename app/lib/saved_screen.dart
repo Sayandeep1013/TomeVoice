@@ -54,6 +54,8 @@ class _SavedScreenState extends State<SavedScreen> {
   }
 
   Future<void> _open(Mark m) async {
+    if (_books.isEmpty) await _loadBooks();
+    if (!mounted) return;
     final entry = _books[m.bookId];
     if (entry == null) {
       showSnack(context, 'That book is no longer in your library.');

@@ -149,6 +149,6 @@ Future<String?> askNote(BuildContext context, {String initial = ''}) async {
       ],
     ),
   );
-  controller.dispose();
+  // Not disposed: the dialog still draws the field while it closes.
   return result;
 }

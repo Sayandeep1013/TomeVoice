@@ -38,6 +38,8 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
       final type = e['type'];
       if (type != 'urlSampleDone' && type != 'urlSampleFailed') return;
       if (!mounted) return;
+      // Only the sample now playing: an older one's late news is ignored.
+      if (e['url'] != neuralVoiceFor('$neuralPrefix$_hearing')?.sampleUrl) return;
       setState(() => _hearing = null);
       if (type == 'urlSampleFailed') {
         showSnack(context, 'The sample could not play. Check the internet connection.');

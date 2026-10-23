@@ -6,6 +6,8 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
+import 'safe_file.dart';
+
 /// A quote kept to read again or share, or a bookmark: a place to come back to.
 enum MarkKind { quote, bookmark }
 
@@ -113,7 +115,9 @@ class MarkStore {
         changes.value++;
       }
     } on Object {
-      // Nothing saved yet, or a broken file: start empty.
+      // A broken file: start empty, but keep it beside as marks.json.broken
+      // so the next save does not destroy what may be recovered from it.
+      await setAside(_file);
     }
   }
 
@@ -165,7 +169,7 @@ class MarkStore {
   Future<void> _save() async {
     changes.value++;
     try {
-      await _file?.writeAsString(jsonEncode([for (final m in _all) m.toJson()]));
+      await writeSafely(_file, jsonEncode([for (final m in _all) m.toJson()]));
     } on Object {
       // Kept in memory until the next change.
     }

@@ -998,7 +998,7 @@ class _VoicePickerState extends State<_VoicePicker> {
             AnimatedSwitcher(
               duration: duration,
               switchInCurve: Motion.out,
-              switchOutCurve: Motion.out,
+              switchOutCurve: const Interval(0.5, 1),
               child: Icon(
                 selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
                 key: ValueKey(selected),

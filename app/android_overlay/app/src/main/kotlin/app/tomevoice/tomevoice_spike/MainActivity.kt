@@ -188,6 +188,11 @@ class MainActivity : FlutterActivity() {
                 "outputDir" -> result.success(outputDir().absolutePath)
                 "launchArgs" -> result.success(launchArgs())
                 "openUrl" -> {
+                    val scheme = Uri.parse(call.argument<String>("url").orEmpty()).scheme?.lowercase()
+                    if (scheme != "https" && scheme != "http") {
+                        result.success(false)
+                        return@setMethodCallHandler
+                    }
                     try {
                         startActivity(
                             Intent(Intent.ACTION_VIEW, Uri.parse(call.argument<String>("url").orEmpty()))
@@ -277,6 +282,7 @@ class MainActivity : FlutterActivity() {
                 "is64Bit" -> result.success(android.os.Process.is64Bit())
                 "playUrl" -> {
                     stopSample()
+                    val url = call.argument<String>("url").orEmpty()
                     try {
                         sampler = android.media.MediaPlayer().apply {
                             setAudioAttributes(
@@ -285,15 +291,15 @@ class MainActivity : FlutterActivity() {
                                     .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
                                     .build()
                             )
-                            setDataSource(call.argument<String>("url").orEmpty())
+                            setDataSource(url)
                             setOnPreparedListener { it.start() }
                             setOnCompletionListener {
                                 stopSample()
-                                event(mapOf("type" to "urlSampleDone"))
+                                event(mapOf("type" to "urlSampleDone", "url" to url))
                             }
                             setOnErrorListener { _, _, _ ->
                                 stopSample()
-                                event(mapOf("type" to "urlSampleFailed"))
+                                event(mapOf("type" to "urlSampleFailed", "url" to url))
                                 true
                             }
                             prepareAsync()
@@ -321,6 +327,11 @@ class MainActivity : FlutterActivity() {
                     } else {
                         try {
                             val file = File(call.argument<String>("path").orEmpty())
+                            if (!isOwnUpdate(file)) {
+                                file.delete()
+                                result.success("notOurs")
+                                return@setMethodCallHandler
+                            }
                             val uri = ShareProvider.uriFor("$packageName.share", file)
                             startActivity(Intent(Intent.ACTION_VIEW).apply {
                                 setDataAndType(uri, "application/vnd.android.package-archive")
@@ -485,6 +496,31 @@ class MainActivity : FlutterActivity() {
         i.removeExtra(Widgets.EXTRA_PAGE)
         return true
     }
+
+    /**
+     * Whether the APK at [file] is an update of this app: the same package,
+     * signed with the same key when Android can tell. Android itself refuses
+     * a same-package update signed by someone else; this stops an APK for a
+     * different package (installed as a second app, under TomeVoice's name)
+     * from ever being offered.
+     */
+    private fun isOwnUpdate(file: File): Boolean {
+        val flags = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES
+        else @Suppress("DEPRECATION") PackageManager.GET_SIGNATURES
+        val apk = packageManager.getPackageArchiveInfo(file.path, flags) ?: return false
+        if (apk.packageName != packageName) return false
+        val mine = packageManager.getPackageInfo(packageName, flags)
+        val theirs = signers(apk)
+        return theirs.isEmpty() || theirs == signers(mine)
+    }
+
+    private fun signers(p: android.content.pm.PackageInfo): Set<String> =
+        if (Build.VERSION.SDK_INT >= 28) {
+            p.signingInfo?.apkContentsSigners?.map { it.toCharsString() }?.toSet() ?: emptySet()
+        } else {
+            @Suppress("DEPRECATION")
+            p.signatures?.map { it.toCharsString() }?.toSet() ?: emptySet()
+        }
 
     /** A voice's sample, streamed (Settings → Natural voices). */
     private var sampler: android.media.MediaPlayer? = null
@@ -939,6 +975,7 @@ class MainActivity : FlutterActivity() {
             else -> null
         }
         if (uri == null) return
+        if (uri.scheme != "content" || uri.authority?.startsWith(packageName) == true) return
         // Do not re-import the same file when the activity is recreated.
         intent.action = Intent.ACTION_MAIN
         io.execute {

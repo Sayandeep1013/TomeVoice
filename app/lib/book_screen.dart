@@ -111,9 +111,21 @@ class _BookScreenState extends State<BookScreen> {
     return l.chapterOfUnit(l.unitForCursor(_cursor));
   }
 
+  /// Set while a book is being opened: a second tap does nothing.
+  bool _opening = false;
+
   Future<void> _read({required bool play, int? chapter, int? unit}) async {
     final l = _layout;
-    if (l == null) return;
+    if (l == null || _opening) return;
+    _opening = true;
+    try {
+      await _open(l, play: play, chapter: chapter, unit: unit);
+    } finally {
+      _opening = false;
+    }
+  }
+
+  Future<void> _open(ReadingLayout l, {required bool play, int? chapter, int? unit}) async {
     final cursor = l.isEmpty
         ? await _store.cursorFor(_entry.id)
         : unit != null
@@ -369,8 +381,12 @@ class _BookScreenState extends State<BookScreen> {
                       children: [
                         Icon(Icons.folder_outlined, size: 18, color: Skin.inkSoftOn(context)),
                         const SizedBox(width: 6),
-                        Text(category.name,
-                            style: Skin.ui(size: 14, weight: FontWeight.w600, color: Skin.inkSoftOn(context))),
+                        Flexible(
+                          child: Text(category.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Skin.ui(size: 14, weight: FontWeight.w600, color: Skin.inkSoftOn(context))),
+                        ),
                         Icon(Icons.arrow_drop_down_rounded, color: Skin.inkSoftOn(context)),
                       ],
                     ),
@@ -428,7 +444,7 @@ class _BookScreenState extends State<BookScreen> {
   Widget _blurb(BuildContext context, String text) => GestureDetector(
         onTap: () => setState(() => _blurbOpen = !_blurbOpen),
         child: AnimatedSize(
-          duration: const Duration(milliseconds: 200),
+          duration: Motion.of(context, const Duration(milliseconds: 200)),
           alignment: Alignment.topCenter,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

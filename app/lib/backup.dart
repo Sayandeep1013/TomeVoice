@@ -132,6 +132,20 @@ Future<void> checkStaged(StagedBackup staged, Directory root) async {
   if (!await index.exists()) {
     throw const FormatException('That backup has no library in it.');
   }
+  // Every book's id becomes a folder name: one that is not a book id (a
+  // "..") could delete or replace folders outside the books.
+  try {
+    final books = (jsonDecode(await index.readAsString()) as Map)['books'] as List? ?? const [];
+    for (final b in books) {
+      if (b is! Map || !LibraryStore.isBookId('${b['id']}')) throw const FormatException('');
+    }
+  } on Object {
+    throw const FormatException('That backup is damaged or was not made by TomeVoice.');
+  }
+  // What a backup never carries, even if a file says otherwise: the update
+  // check's state (it names the APK to install).
+  final update = File('${staged.dir.path}/app_update.json');
+  if (await update.exists()) await update.delete();
   await rewritePaths(index, from: staged.info.root, to: root.path);
 }
 

@@ -358,7 +358,7 @@ class BookRow extends StatelessWidget {
               AnimatedSwitcher(
                 duration: duration,
                 switchInCurve: Motion.out,
-                switchOutCurve: Motion.out,
+                switchOutCurve: const Interval(0.5, 1),
                 child: selecting
                     ? Padding(
                         key: ValueKey(selected),

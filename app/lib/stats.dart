@@ -5,6 +5,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'safe_file.dart';
+
 /// One day of reading: time listened and read, words heard, chapters
 /// finished, and time per book.
 class DayStats {
@@ -135,7 +137,7 @@ class StatsStore {
     _saveTimer = null;
     changes.value++;
     try {
-      await _file?.writeAsString(jsonEncode({
+      await writeSafely(_file, jsonEncode({
         'goalMinutes': goal.inMinutes,
         'days': {for (final e in _days.entries) e.key: e.value.toJson()},
       }));

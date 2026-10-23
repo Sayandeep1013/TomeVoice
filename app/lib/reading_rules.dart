@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import 'safe_file.dart';
+
 /// "Say Zorian as Zor-ee-an": what the voice is told, never what the page
 /// shows. [book] limits it to one book; null is every book.
 class SayRule {
@@ -126,7 +128,7 @@ class ReadingRules {
   Future<void> _save() async {
     changes.value++;
     try {
-      await _file?.writeAsString(jsonEncode({
+      await writeSafely(_file, jsonEncode({
         'say': [for (final r in say) r.toJson()],
         'skip': [for (final r in skip) r.toJson()],
       }));

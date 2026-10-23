@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
 import 'neural_voices.dart' show wavBytes;
@@ -18,15 +19,23 @@ const _closes = {'”', '"', '»', '」', '“'};
 /// its own: a sentence that closes a quote it never opened began inside
 /// one, and one that opens a quote it never closes ends inside one.
 /// Single quotes are left alone; they are too often apostrophes.
-List<Part> splitDialogue(String text) {
+///
+/// [startsInside], when the paragraph is known, says whether a quote is
+/// already open where this sentence begins (straight quotes, which open and
+/// close with the same mark, can only be told apart that way).
+List<Part> splitDialogue(String text, {bool? startsInside}) {
   final parts = <Part>[];
   final buf = StringBuffer();
   String? closing;
   // Opened before this sentence: a closing mark with no opening one first.
   final firstOpen = text.indexOf(RegExp('[“"«「„]'));
   final firstClose = text.indexOf(RegExp('[”»」]'));
-  var inside = firstClose >= 0 && (firstOpen < 0 || firstClose < firstOpen);
-  if (inside) closing = text[firstClose];
+  var inside = startsInside ?? (firstClose >= 0 && (firstOpen < 0 || firstClose < firstOpen));
+  if (inside) {
+    // What closes it: the first closing mark, or a straight quote.
+    final close = text.indexOf(RegExp('[”»」"]'));
+    closing = close >= 0 ? text[close] : null;
+  }
 
   void flush() {
     final s = buf.toString();
@@ -100,8 +109,10 @@ Future<Map<String, Object?>> speakWithDialogue({
   String? engineId,
   double rate = 1.0,
   double pitch = 1.0,
+  bool Function()? stale,
+  bool? startsInside,
 }) async {
-  final parts = splitDialogue(text);
+  final parts = splitDialogue(text, startsInside: startsInside);
   if (parts.length == 1) {
     return svc.synthesise(
       text: text,
@@ -113,6 +124,8 @@ Future<Map<String, Object?>> speakWithDialogue({
   }
   final pieces = <AudioBuffer>[];
   for (final p in parts) {
+    // A jump since: stop here, so the new sentence is not kept waiting.
+    if (stale?.call() ?? false) throw PlatformException(code: 'TTS_STOPPED');
     final native = await svc.synthesise(
       text: p.text,
       engineId: engineId,
@@ -131,7 +144,8 @@ Future<Map<String, Object?>> speakWithDialogue({
   final joined = <double>[
     for (final p in pieces) ...resample(p.samples, p.sampleRate, rate0),
   ];
-  final out = File('${Directory.systemTemp.path}/dialogue-${DateTime.now().microsecondsSinceEpoch}.wav');
+  // In the folder swept on every start, so none are left behind.
+  final out = File('${synthTempDir().path}/dialogue-${DateTime.now().microsecondsSinceEpoch}.wav');
   await out.writeAsBytes(wavBytes(Float32List.fromList(joined), rate0));
   return {'wavPath': out.path, 'engineId': 'tomevoice.dialogue', 'rangeEvents': const []};
 }

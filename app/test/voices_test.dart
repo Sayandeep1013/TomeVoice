@@ -23,6 +23,13 @@ void main() {
     expect(show(splitDialogue('Why couldn’t you?” she asked.')), 'D[Why couldn’t you?”] N[ she asked.]');
   });
 
+  test('straight quotes over several sentences, told from the paragraph', () {
+    // "I will go. You stay here. I'll be back," he said.
+    expect(show(splitDialogue('"I will go.', startsInside: false)), 'D["I will go.]');
+    expect(show(splitDialogue('You stay here.', startsInside: true)), 'D[You stay here.]');
+    expect(show(splitDialogue('I\'ll be back," he said.', startsInside: true)), 'D[I\'ll be back,"] N[ he said.]');
+  });
+
   test('apostrophes are not quotes', () {
     expect(show(splitDialogue('Zorian’s idea wasn’t bad.')), 'N[Zorian’s idea wasn’t bad.]');
   });

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show ThemeMode;
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
+import 'safe_file.dart';
 import 'theme.dart';
 
 /// What the reader chose, remembered across books and launches: voice and
@@ -144,7 +145,7 @@ class ListeningPrefs {
       final file = _file;
       if (file == null) return;
       try {
-        await file.writeAsString(jsonEncode(toJson()));
+        await writeSafely(file, jsonEncode(toJson()));
       } on Object {
         // Next change will try again.
       }

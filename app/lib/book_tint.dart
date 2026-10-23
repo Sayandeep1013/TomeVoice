@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:material_color_utilities/material_color_utilities.dart';
 
 import 'prefs.dart';
+import 'safe_file.dart';
 import 'theme.dart';
 
 /// Whether book colours are on (Settings → Appearance).
@@ -127,7 +128,7 @@ class TintCache {
     _saveTimer?.cancel();
     _saveTimer = Timer(const Duration(seconds: 2), () async {
       try {
-        await _file?.writeAsString(jsonEncode({
+        await writeSafely(_file, jsonEncode({
           'covers': _covers,
           'books': _books,
           // The home-screen widgets draw natively and cannot work these out.

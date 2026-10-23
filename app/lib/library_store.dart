@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:tomevoice_document/tomevoice_document.dart';
 
+import 'safe_file.dart';
 import 'sources/models.dart';
 import 'sources/net.dart';
 import 'reading_rules.dart';
@@ -82,15 +83,16 @@ class LibraryStore {
   }
 
   Future<void> _write(List<LibraryEntry> entries) async {
-    final tmp = File('${_indexFile.path}.tmp');
-    await tmp.writeAsString(
+    // One write at a time, each to its own temp file (two writes sharing one
+    // temp name could interleave into invalid JSON, read back as no books).
+    await writeSafely(
+      _indexFile,
       const JsonEncoder.withIndent('  ').convert({
         'categories': [for (final c in _categories) c.toJson()],
         'defaultCategory': _defaultCategory,
         'books': [for (final e in entries) e.toJson()],
       }),
     );
-    await tmp.rename(_indexFile.path);
     changes.value++;
   }
 
@@ -374,7 +376,17 @@ class LibraryStore {
   }
 
   /// Folder holding a book's source, parsed text and pictures.
-  String bookDir(String id) => '${_booksDir.path}/$id';
+  /// A book's folder. An id is 16 hex digits, or web- and 16 more; anything
+  /// else (a "..", a slash) could reach outside the books, so it is refused.
+  String bookDir(String id) {
+    if (!isBookId(id)) throw ArgumentError.value(id, 'id', 'not a book id');
+    return '${_booksDir.path}/$id';
+  }
+
+  static final _bookId = RegExp(r'^[A-Za-z0-9_-]{1,64}$');
+
+  /// Whether [id] has the shape of a book id (and so is safe as a folder name).
+  static bool isBookId(String id) => _bookId.hasMatch(id);
 
   Future<ReadingCursor> cursorFor(String id) async {
     final file = File('${_booksDir.path}/$id/cursor.json');

@@ -219,7 +219,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
     setState(() => _page = page);
     if (_pages.hasClients) {
       unawaited(
-        _pages.animateToPage(page, duration: const Duration(milliseconds: 280), curve: Curves.easeOutCubic),
+        Motion.reduced(context)
+            ? Future<void>.sync(() => _pages.jumpToPage(page))
+            : _pages.animateToPage(page, duration: const Duration(milliseconds: 280), curve: Curves.easeOutCubic),
       );
     }
   }
@@ -486,7 +488,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     child: AnimatedSwitcher(
                       duration: Motion.of(context, Motion.standard),
                       switchInCurve: Motion.out,
-                      switchOutCurve: Motion.out,
+                      switchOutCurve: const Interval(0.5, 1),
                       transitionBuilder: fadeRise,
                       child: _selecting
                           ? KeyedSubtree(key: const ValueKey('selecting'), child: _selectionBar(context))
@@ -1051,7 +1053,7 @@ class _ContinueDockState extends State<ContinueDock> {
                     children: [
                       for (var i = 0; i < books.length; i++)
                         AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
+                          duration: Motion.of(context, const Duration(milliseconds: 200)),
                           margin: const EdgeInsets.symmetric(horizontal: 2.5),
                           width: i == _page ? 14 : 5,
                           height: 5,
