@@ -126,7 +126,7 @@ object Widgets {
         return all.firstOrNull { it.id == chosen } ?: all.firstOrNull()
     }
 
-    class Habit(val streak: Int, val todayMin: Int, val goalMin: Int, val days: List<Int>)
+    class Habit(val streak: Int, val todayMin: Int, val goalMin: Int, val days: List<Int>, val best: Int)
 
     /** The streak and recent days, as the app counts them (a day starts at 4 am). */
     fun habit(ctx: Context, dayCount: Int): Habit {
@@ -156,7 +156,19 @@ object Widgets {
             streak++
             s.add(Calendar.DAY_OF_MONTH, -1)
         }
-        return Habit(streak, today, goal, list)
+        // The longest run ever, from every day kept.
+        var best = 0
+        var run = 0
+        var prev: java.time.LocalDate? = null
+        val keys = days?.keys()?.asSequence()?.toList()?.sorted() ?: emptyList()
+        for (k in keys) {
+            if (minutes(k) < goal) continue
+            val d = try { java.time.LocalDate.parse(k) } catch (e: Exception) { continue }
+            run = if (prev != null && prev.plusDays(1) == d) run + 1 else 1
+            best = max(best, run)
+            prev = d
+        }
+        return Habit(streak, today, goal, list, max(best, streak))
     }
 
     // ---------------------------------------------------------------- style
@@ -358,10 +370,11 @@ abstract class BaseWidget : AppWidgetProvider() {
     abstract val layout: Int
 
     /**
-     * Draw the face at [w] x [h] pixels ([u] pixels a dp). Faces are laid
-     * out in proportion to their size, so a 2 x 2 and a 3 x 3 look alike.
+     * Draw the face at [w] x [h] dp, [u] pixels to the dp. Each kind of widget
+     * has a layout for each size class (a strip, a square, wide, large), all
+     * measured in dp so the spacing is the same on every phone.
      */
-    abstract fun render(ctx: Context, id: Int, w: Int, h: Int, u: Float): Bitmap
+    abstract fun render(ctx: Context, id: Int, w: Float, h: Float, u: Float): Bitmap
 
     /** Where the play button was drawn, in pixels of the last face, if any. */
     var playRect: RectF? = null
@@ -388,20 +401,20 @@ abstract class BaseWidget : AppWidgetProvider() {
         val wDp = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH).takeIf { it > 0 } ?: defaultWidthDp()
         val hDp = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT).takeIf { it > 0 } ?: defaultHeightDp()
         // Two and a half pixels a dp is sharp enough and keeps the picture small.
-        val scale = min(density, 2.5f)
+        val u = min(density, 2.5f)
         val views = RemoteViews(ctx.packageName, layout)
         playRect = null
         try {
-            views.setImageViewBitmap(R.id.widget_face, render(ctx, id, (wDp * scale).toInt(), (hDp * scale).toInt(), scale))
+            views.setImageViewBitmap(R.id.widget_face, render(ctx, id, wDp.toFloat(), hDp.toFloat(), u))
             // The tap target over the drawn button (Android 12 and later can
             // move it; before that the layout's place is close).
             val r = playRect
             if (r != null && Build.VERSION.SDK_INT >= 31) {
                 val dip = android.util.TypedValue.COMPLEX_UNIT_DIP
-                views.setViewLayoutWidth(R.id.widget_play, r.width() / scale, dip)
-                views.setViewLayoutHeight(R.id.widget_play, r.height() / scale, dip)
-                views.setViewLayoutMargin(R.id.widget_play, RemoteViews.MARGIN_LEFT, r.left / scale, dip)
-                views.setViewLayoutMargin(R.id.widget_play, RemoteViews.MARGIN_TOP, r.top / scale, dip)
+                views.setViewLayoutWidth(R.id.widget_play, r.width() / u, dip)
+                views.setViewLayoutHeight(R.id.widget_play, r.height() / u, dip)
+                views.setViewLayoutMargin(R.id.widget_play, RemoteViews.MARGIN_LEFT, r.left / u, dip)
+                views.setViewLayoutMargin(R.id.widget_play, RemoteViews.MARGIN_TOP, r.top / u, dip)
             }
         } catch (e: Exception) {
             // A face that cannot be drawn stays as it was.
@@ -412,43 +425,177 @@ abstract class BaseWidget : AppWidgetProvider() {
 
     open fun defaultWidthDp() = 160
     open fun defaultHeightDp() = 160
+
+    // ---- drawing in dp ----------------------------------------------------
+
+    /** A face of [w] x [h] dp, and a canvas that draws in dp. */
+    fun canvas(w: Float, h: Float, u: Float, look: Widgets.Look): Pair<Bitmap, Canvas> {
+        val (bmp, c) = Widgets.face((w * u).toInt(), (h * u).toInt(), look, 24 * u)
+        c.scale(u, u)
+        return bmp to c
+    }
+
+    fun ink(color: Int) = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
+
+    fun text(c: Canvas, s: String, x: Float, y: Float, size: Float, face: Typeface, color: Int, maxWidth: Float, caps: Boolean = false) =
+        Widgets.text(c, s, x, y, size, face, color, max(0f, maxWidth), caps)
+
+    /** Up to two lines of [s], the second ending in "…" if it runs over; returns the height used. */
+    fun twoLines(c: Canvas, s: String, x: Float, top: Float, size: Float, face: Typeface, color: Int, width: Float): Float {
+        val p = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = size; typeface = face; this.color = color }
+        val layout = android.text.StaticLayout.Builder.obtain(s, 0, s.length, p, max(1, width.toInt()))
+            .setMaxLines(2)
+            .setEllipsize(TextUtils.TruncateAt.END)
+            .setLineSpacing(0f, 0.95f)
+            .build()
+        c.save()
+        c.translate(x, top)
+        layout.draw(c)
+        c.restore()
+        return layout.height.toFloat()
+    }
+
+    fun dotHeight(dot: Float) = 7 * dot * 1.5f - dot * 0.5f
+
+    /** The TomeVoice mark, [h] dp tall, its right edge at [right]. */
+    fun mark(c: Canvas, right: Float, top: Float, h: Float, color: Int) {
+        val unit = h / 11f
+        val bars = floatArrayOf(5f, 9f, 7f, 11f, 6f)
+        val p = ink(color)
+        for (i in bars.indices) {
+            val x = right - (bars.size - i) * unit * 1.7f
+            val bh = bars[i] * unit
+            c.drawRoundRect(RectF(x, top + (h - bh) / 2, x + unit * 0.8f, top + (h + bh) / 2), unit, unit, p)
+        }
+    }
+
+    /** A row of dots across [width], the first [frac] of them lit. */
+    fun dotRow(c: Canvas, x: Float, y: Float, width: Float, dot: Float, frac: Double, look: Widgets.Look) {
+        val step = dot * 1.9f
+        val n = max(4, ((width + dot * 0.9f) / step).toInt())
+        val lit = (frac * n).roundToInt()
+        val on = ink(look.accent)
+        val off = ink(look.off)
+        for (i in 0 until n) c.drawCircle(x + i * step + dot / 2, y, dot / 2, if (i < lit) on else off)
+    }
+
+    fun coverCircle(c: Canvas, book: Widgets.Book, cx: Float, cy: Float, d: Float, u: Float, look: Widgets.Look) {
+        val rect = RectF(cx - d / 2, cy - d / 2, cx + d / 2, cy + d / 2)
+        Widgets.drawCover(c, Widgets.cover(book.cover, (d * u).toInt()), rect, Path().apply { addOval(rect, Path.Direction.CW) }, look.off)
+    }
+
+    fun coverRect(c: Canvas, book: Widgets.Book, rect: RectF, radius: Float, u: Float, look: Widgets.Look) {
+        Widgets.drawCover(c, Widgets.cover(book.cover, (rect.width() * u).toInt()), rect,
+            Path().apply { addRoundRect(rect, radius, radius, Path.Direction.CW) }, look.off)
+    }
+
+    /** Play, in dp, remembering where (in pixels) for the tap target. */
+    fun play(c: Canvas, cx: Float, cy: Float, r: Float, u: Float, look: Widgets.Look) {
+        Widgets.playButton(c, cx, cy, r, look, Widgets.isPlaying())
+        playRect = RectF((cx - r) * u, (cy - r) * u, (cx + r) * u, (cy + r) * u)
+    }
 }
 
-/** Now reading, small: the cover in a ring of dots, the title, play. */
+/** Now reading: the book being read (or one chosen), with play. */
 open class PlayerWidget : BaseWidget() {
     override val layout = R.layout.widget_small
 
-    override fun render(ctx: Context, id: Int, w: Int, h: Int, u: Float): Bitmap {
+    override fun render(ctx: Context, id: Int, w: Float, h: Float, u: Float): Bitmap {
         val book = Widgets.book(ctx, id)
         val look = Widgets.Look(ctx, book?.tint ?: 0)
-        val s = min(w, h).toFloat()
-        val (bmp, c) = Widgets.face(w, h, look, 0.16f * s)
-        val pad = 0.09f * s
-        Widgets.mark(c, w - pad, pad, 0.0055f * s, look.dim)
+        val (bmp, c) = canvas(w, h, u, look)
         if (book == null) {
-            Widgets.text(c, "Add a book to TomeVoice", pad, h / 2f, 0.08f * s, look.figtree, look.ink, w - 2 * pad)
+            text(c, "Add a book to TomeVoice", 16f, h / 2 + 4, 13f, look.figtree, look.ink, w - 32)
             return bmp
         }
-        val ringD = 0.58f * s
-        val cx = pad + ringD / 2
-        val cy = pad + ringD / 2
-        val dot = 0.026f * s
-        Widgets.ring(c, cx, cy, ringD / 2 - dot, dot, 36, (book.progress * 36).roundToInt(), look)
-        val coverD = ringD - 0.13f * s
-        val rect = RectF(cx - coverD / 2, cy - coverD / 2, cx + coverD / 2, cy + coverD / 2)
-        Widgets.drawCover(c, Widgets.cover(book.cover, coverD.toInt()), rect, Path().apply { addOval(rect, Path.Direction.CW) }, look.off)
-        // Play: beside the ring, level with its middle.
-        val r = 0.125f * s
-        val px = w - pad - r
-        Widgets.playButton(c, px, cy, r, look, Widgets.isPlaying())
-        playRect = RectF(px - r, cy - r, px + r, cy + r)
-        Widgets.text(c, book.title, pad, h - pad - 0.135f * s, 0.095f * s, look.bodoni, look.ink, w - 2 * pad)
         val pct = "${(book.progress * 100).roundToInt()}%"
-        val d = 0.009f * s
-        Widgets.dots(c, pct, pad, h - pad - 7 * d * 1.5f, d, look.dim)
-        val after = pad + Widgets.dotWidth(pct, d) + 0.04f * s
-        Widgets.text(c, book.where, after, h - pad, 0.055f * s, look.figtree, look.dim, w - pad - after, caps = true)
+        when {
+            h < 110 -> strip(c, book, pct, w, h, u, look)
+            w < 230 -> square(c, book, pct, w, h, u, look)
+            h < 230 -> wide(c, book, pct, w, h, u, look)
+            else -> large(c, book, pct, w, h, u, look)
+        }
         return bmp
+    }
+
+    /** A strip (4 x 1): the cover in its ring, the title and chapter, play. */
+    private fun strip(c: Canvas, book: Widgets.Book, pct: String, w: Float, h: Float, u: Float, look: Widgets.Look) {
+        val pad = 12f
+        val d = h - 2 * pad
+        val cx = pad + d / 2
+        val cy = h / 2
+        val dot = max(2.2f, d * 0.05f)
+        Widgets.ring(c, cx, cy, d / 2 - dot / 2, dot, 28, (book.progress * 28).roundToInt(), look)
+        coverCircle(c, book, cx, cy, d - dot * 2 - 6, u, look)
+        val r = min(17f, d / 2)
+        play(c, w - pad - r, cy, r, u, look)
+        val x = pad + d + 12
+        val maxW = w - x - pad - 2 * r - 12
+        text(c, book.title, x, cy - 3, 14f, look.bodoni, look.ink, maxW)
+        text(c, if (book.where.isEmpty()) pct else "$pct · ${book.where}", x, cy + 13, 9f, look.figtree, look.dim, maxW, caps = true)
+    }
+
+    /** A square (2 x 2): the cover in a ring of dots, play beside it, the title below. */
+    private fun square(c: Canvas, book: Widgets.Book, pct: String, w: Float, h: Float, u: Float, look: Widgets.Look) {
+        val pad = 16f
+        val r = 17f
+        val d = min(w - 2 * pad - 2 * r - 14, h - 2 * pad - 44)
+        val cx = pad + d / 2
+        val cy = pad + d / 2
+        val dot = d * 0.042f
+        Widgets.ring(c, cx, cy, d / 2 - dot / 2, dot, 32, (book.progress * 32).roundToInt(), look)
+        coverCircle(c, book, cx, cy, d - dot * 2 - 8, u, look)
+        play(c, w - pad - r, cy + d * 0.18f, r, u, look)
+        mark(c, w - pad, pad + 2, 8f, look.dim)
+        text(c, book.title, pad, h - pad - 17, 14.5f, look.bodoni, look.ink, w - 2 * pad)
+        val pd = 1.05f
+        Widgets.dots(c, pct, pad, h - pad - dotHeight(pd), pd, look.dim)
+        val x = pad + Widgets.dotWidth(pct, pd) + 8
+        text(c, book.where.substringBefore(':'), x, h - pad, 8.5f, look.figtree, look.dim, w - x - pad, caps = true)
+    }
+
+    /** Wide (4 x 2, 3 x 2): the cover, the title and chapter, dots for progress, play. */
+    private fun wide(c: Canvas, book: Widgets.Book, pct: String, w: Float, h: Float, u: Float, look: Widgets.Look) {
+        val pad = 16f
+        val ch = h - 2 * pad
+        val cw = min(ch * 0.68f, w * 0.32f)
+        coverRect(c, book, RectF(pad, pad, pad + cw, pad + ch), 12f, u, look)
+        val x = pad + cw + 16
+        val width = w - x - pad
+        mark(c, w - pad, pad + 2, 8f, look.dim)
+        text(c, book.title, x, pad + 16, 17f, look.bodoni, look.ink, width - 26)
+        text(c, book.where, x, pad + 34, 10.5f, look.figtree, look.dim, width)
+        dotRow(c, x, pad + 54, width - 4, 3.6f, book.progress, look)
+        val pd = 1.15f
+        Widgets.dots(c, pct, x, pad + 66, pd, look.dim)
+        val label = if (book.chapters > 0) "of ${book.chapters} chapters" else "through"
+        text(c, label, x + Widgets.dotWidth(pct, pd) + 7, pad + 66 + dotHeight(pd) - 0.5f, 9f, look.figtree, look.dim, width, caps = true)
+        val r = 19f
+        play(c, w - pad - r, h - pad - r, r, u, look)
+    }
+
+    /** Large (3 x 3 and up): the cover beside its title, progress across the foot, play. */
+    private fun large(c: Canvas, book: Widgets.Book, pct: String, w: Float, h: Float, u: Float, look: Widgets.Look) {
+        val pad = 18f
+        val r = 22f
+        val ch = min(h - 2 * pad - 2 * r - 30, (w - 2 * pad) * 0.62f / 0.68f)
+        val cw = ch * 0.68f
+        coverRect(c, book, RectF(pad, pad, pad + cw, pad + ch), 14f, u, look)
+        val x = pad + cw + 16
+        val width = w - x - pad
+        mark(c, w - pad, pad + 2, 8f, look.dim)
+        val used = twoLines(c, book.title, x, pad + 2, 20f, look.bodoni, look.ink, width - 18)
+        val where = book.where
+        val head = where.substringBefore(':').trim()
+        val rest = if (where.contains(':')) where.substringAfter(':').trim() else ""
+        text(c, head, x, pad + used + 18, 10.5f, look.figtree, look.dim, width, caps = true)
+        if (rest.isNotEmpty()) text(c, rest, x, pad + used + 34, 11f, look.figtree, look.dim, width)
+        dotRow(c, pad, h - pad - 2 * r - 14, w - 2 * pad, 4.2f, book.progress, look)
+        val pd = 1.3f
+        Widgets.dots(c, pct, pad, h - pad - r - dotHeight(pd) / 2, pd, look.ink)
+        val label = if (book.chapters > 0) "of ${book.chapters} chapters" else "through"
+        text(c, label, pad + Widgets.dotWidth(pct, pd) + 8, h - pad - r + 4, 9.5f, look.figtree, look.dim, w - 2 * pad - 2 * r - 60, caps = true)
+        play(c, w - pad - r, h - pad - r, r, u, look)
     }
 
     override fun taps(ctx: Context, id: Int, views: RemoteViews) {
@@ -462,127 +609,71 @@ open class PlayerWidget : BaseWidget() {
     }
 }
 
-/** Now reading, wide: cover, title, chapter, dot progress, play. */
+/** Now reading, offered wide: the same widget, a wider start. */
 class PlayerWidgetWide : PlayerWidget() {
     override val layout = R.layout.widget_wide
 
     override fun defaultWidthDp() = 320
-
-    override fun render(ctx: Context, id: Int, w: Int, h: Int, u: Float): Bitmap {
-        val book = Widgets.book(ctx, id)
-        val look = Widgets.Look(ctx, book?.tint ?: 0)
-        val s = h.toFloat()
-        val (bmp, c) = Widgets.face(w, h, look, 0.16f * s)
-        val pad = 0.09f * s
-        if (book == null) {
-            Widgets.text(c, "Add a book to TomeVoice", pad, h / 2f, 0.08f * s, look.figtree, look.ink, w - 2 * pad)
-            return bmp
-        }
-        val coverH = h - 2 * pad
-        val coverW = min(coverH * 0.68f, w * 0.34f)
-        val rect = RectF(pad, pad, pad + coverW, pad + coverH)
-        Widgets.drawCover(c, Widgets.cover(book.cover, coverW.toInt()), rect,
-            Path().apply { addRoundRect(rect, 0.09f * s, 0.09f * s, Path.Direction.CW) }, look.off)
-        val x = rect.right + 0.09f * s
-        val width = w - x - pad
-        Widgets.mark(c, w - pad, pad, 0.0055f * s, look.dim)
-        Widgets.text(c, book.title, x, pad + 0.11f * s, 0.11f * s, look.bodoni, look.ink, width - 0.12f * s)
-        Widgets.text(c, book.where, x, pad + 0.22f * s, 0.07f * s, look.figtree, look.dim, width)
-        // Progress as a row of dots.
-        val count = 24
-        val dot = min(0.04f * s, width / (count * 1.5f))
-        val on = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = look.accent }
-        val off = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = look.off }
-        val lit = (book.progress * count).roundToInt()
-        for (i in 0 until count) c.drawCircle(x + i * dot * 1.5f + dot / 2, pad + 0.33f * s, dot / 2, if (i < lit) on else off)
-        val pct = "${(book.progress * 100).roundToInt()}%"
-        Widgets.dots(c, pct, x, pad + 0.42f * s, 0.012f * s, look.dim)
-        val r = 0.15f * s
-        val px = w - pad - r
-        val py = h - pad - r
-        Widgets.playButton(c, px, py, r, look, Widgets.isPlaying())
-        playRect = RectF(px - r, py - r, px + r, py + r)
-        return bmp
-    }
 }
 
-/** The streak, small: the number in dots, the week, today's ring. */
+/** The streak: days in a row, the week, and (with room) weeks of days. */
 open class StreakWidget : BaseWidget() {
     override val layout = R.layout.widget_plain
 
-    override fun render(ctx: Context, id: Int, w: Int, h: Int, u: Float): Bitmap {
-        val habit = Widgets.habit(ctx, 7)
+    override fun render(ctx: Context, id: Int, w: Float, h: Float, u: Float): Bitmap {
+        val habit = Widgets.habit(ctx, 7 * 30)
         val current = Widgets.books(ctx).firstOrNull()
         val look = Widgets.Look(ctx, current?.tint ?: 0)
-        val s = min(w, h).toFloat()
-        val (bmp, c) = Widgets.face(w, h, look, 0.16f * s)
-        val pad = 0.09f * s
-        Widgets.mark(c, w - pad, pad, 0.0055f * s, look.dim)
-        val number = "${habit.streak}"
-        val digit = min(0.035f * s, (w - 2 * pad - 0.16f * s) / (number.length * 9f))
-        Widgets.dots(c, number, pad, pad, digit, look.ink)
-        val below = pad + 7 * digit * 1.5f
-        Widgets.text(c, if (habit.streak == 1) "day streak" else "days streak", pad, below + 0.1f * s, 0.06f * s, look.figtree, look.dim, w - 2 * pad, caps = true)
-        Widgets.text(c, "${min(habit.todayMin, habit.goalMin)} of ${habit.goalMin} min today", pad, below + 0.19f * s, 0.06f * s, look.figtree, look.ink, w - 2 * pad, caps = true)
-        // The week: a dot a day, today a ring closing toward the goal.
-        val slot = (w - 2 * pad) / 7f
-        val r = min(slot * 0.33f, 0.045f * s)
-        val y = h - pad - 0.075f * s - r
-        val letters = "MTWTFSS"
+        val (bmp, c) = canvas(w, h, u, look)
+        when {
+            h < 110 -> strip(c, habit, w, h, look)
+            w < 230 -> square(c, habit, w, h, look)
+            h < 230 -> wide(c, habit, w, h, look)
+            else -> large(c, habit, w, h, look)
+        }
+        return bmp
+    }
+
+    private fun label(habit: Widgets.Habit) = if (habit.streak == 1) "day streak" else "days streak"
+
+    private fun weekText(habit: Widgets.Habit): String {
+        val m = habit.days.takeLast(7).sum()
+        return if (m < 60) "${m}m this week" else "${m / 60}h ${m % 60}m this week"
+    }
+
+    /** The last seven days, today a ring closing toward the goal. */
+    private fun week(c: Canvas, habit: Widgets.Habit, x: Float, y: Float, width: Float, r: Float, lettersY: Float, look: Widgets.Look) {
+        val slot = width / 7f
+        val days = habit.days.takeLast(7)
         val todayIndex = (Calendar.getInstance().apply { add(Calendar.HOUR_OF_DAY, -4) }.get(Calendar.DAY_OF_WEEK) + 5) % 7
-        val on = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = look.ink }
-        val off = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = look.off }
-        val lp = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 0.05f * s; typeface = look.figtree; color = look.dim; textAlign = Paint.Align.CENTER }
+        val on = ink(look.ink)
+        val off = ink(look.off)
+        val letters = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 7.5f; typeface = look.figtree; color = look.dim; textAlign = Paint.Align.CENTER
+        }
         for (i in 0 until 7) {
-            val cx = pad + slot * i + slot / 2
-            val m = habit.days[i]
+            val cx = x + slot * i + slot / 2
+            val m = days.getOrElse(i) { 0 }
             if (i == 6) {
-                val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = r * 0.34f; strokeCap = Paint.Cap.ROUND }
-                val box = RectF(cx - r * 0.83f, y - r * 0.83f, cx + r * 0.83f, y + r * 0.83f)
+                val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = r * 0.36f; strokeCap = Paint.Cap.ROUND }
+                val box = RectF(cx - r * 0.82f, y - r * 0.82f, cx + r * 0.82f, y + r * 0.82f)
                 c.drawArc(box, 0f, 360f, false, stroke.apply { color = look.off })
                 val sweep = 360f * min(1f, m.toFloat() / habit.goalMin)
                 if (sweep > 0) c.drawArc(box, -90f, sweep, false, stroke.apply { color = look.accent })
             } else {
                 c.drawCircle(cx, y, r, if (m >= habit.goalMin) on else off)
             }
-            c.drawText(letters[(todayIndex - (6 - i) + 7) % 7].toString(), cx, h - pad, lp)
+            c.drawText("MTWTFSS"[(todayIndex - (6 - i) + 7) % 7].toString(), cx, lettersY, letters)
         }
-        return bmp
     }
 
-    override fun taps(ctx: Context, id: Int, views: RemoteViews) {
-        views.setOnClickPendingIntent(R.id.widget_face, Widgets.openApp(ctx, id * 4 + 3, null, false, "stats"))
-    }
-}
-
-/** The streak, wide: the number, this week, and eighteen weeks of dots. */
-class StreakWidgetWide : StreakWidget() {
-    override fun defaultWidthDp() = 320
-
-    override fun render(ctx: Context, id: Int, w: Int, h: Int, u: Float): Bitmap {
-        val weeks = 18
-        val habit = Widgets.habit(ctx, weeks * 7)
-        val current = Widgets.books(ctx).firstOrNull()
-        val look = Widgets.Look(ctx, current?.tint ?: 0)
-        val s = h.toFloat()
-        val (bmp, c) = Widgets.face(w, h, look, 0.16f * s)
-        val pad = 0.09f * s
-        val number = "${habit.streak}"
-        val digit = min(0.035f * s, (w * 0.4f - pad) / (number.length * 9f))
-        Widgets.dots(c, number, pad, pad, digit, look.ink)
-        val below = pad + 7 * digit * 1.5f
-        Widgets.text(c, if (habit.streak == 1) "day streak" else "days streak", pad, below + 0.1f * s, 0.06f * s, look.figtree, look.dim, w * 0.4f, caps = true)
-        val week = habit.days.takeLast(7).sum()
-        Widgets.text(c, if (week < 60) "${week}m this week" else "${week / 60}h ${week % 60}m this week", pad, h - pad, 0.06f * s, look.figtree, look.ink, w * 0.4f, caps = true)
-        // Eighteen weeks: columns of seven, newest on the right.
-        val step = min(w * 0.55f / weeks, (h - 2 * pad) / 7f)
-        val left = w - pad - step * weeks
-        val top = (h - step * 7) / 2
-        val dotR = step * 0.32f
-        for (i in habit.days.indices) {
-            val m = habit.days[i]
-            val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = if (m == 0) look.off else look.ink
+    /** Days as dots in columns of seven, newest at the right; brighter for more. */
+    private fun grid(c: Canvas, habit: Widgets.Habit, x: Float, y: Float, cols: Int, step: Float, look: Widgets.Look) {
+        val days = habit.days.takeLast(cols * 7)
+        val offset = cols * 7 - days.size
+        for (i in days.indices) {
+            val m = days[i]
+            val p = ink(if (m == 0) look.off else look.ink).apply {
                 alpha = when {
                     m == 0 -> 255
                     m < habit.goalMin -> 90
@@ -590,8 +681,72 @@ class StreakWidgetWide : StreakWidget() {
                     else -> 255
                 }
             }
-            c.drawCircle(left + (i / 7) * step + step / 2, top + (i % 7) * step + step / 2, dotR, p)
+            val k = i + offset
+            c.drawCircle(x + (k / 7) * step + step / 2, y + (k % 7) * step + step / 2, step * 0.3f, p)
         }
-        return bmp
     }
+
+    private fun strip(c: Canvas, habit: Widgets.Habit, w: Float, h: Float, look: Widgets.Look) {
+        val pad = 14f
+        val dot = 2.4f
+        val n = "${habit.streak}"
+        Widgets.dots(c, n, pad, (h - dotHeight(dot)) / 2 - 6, dot, look.ink)
+        text(c, label(habit), pad, h - pad + 1, 8.5f, look.figtree, look.dim, 100f, caps = true)
+        val x0 = pad + max(Widgets.dotWidth(n, dot), 70f) + 16
+        week(c, habit, x0, h / 2 - 5, w - x0 - pad, min(6f, (w - x0 - pad) / 7 * 0.3f), h / 2 + 15, look)
+    }
+
+    private fun square(c: Canvas, habit: Widgets.Habit, w: Float, h: Float, look: Widgets.Look) {
+        val pad = 16f
+        val n = "${habit.streak}"
+        val dot = min(3.1f, (w - 2 * pad - 24) / (n.length * 9f))
+        Widgets.dots(c, n, pad, pad, dot, look.ink)
+        mark(c, w - pad, pad + 2, 8f, look.dim)
+        val y = pad + dotHeight(dot)
+        text(c, label(habit), pad, y + 17, 9f, look.figtree, look.dim, w - 2 * pad, caps = true)
+        text(c, "${min(habit.todayMin, habit.goalMin)} of ${habit.goalMin} min today", pad, y + 31, 9f, look.figtree, look.ink, w - 2 * pad, caps = true)
+        val r = min((w - 2 * pad) / 7 * 0.3f, 6f)
+        week(c, habit, pad, h - pad - 13 - r, w - 2 * pad, r, h - pad, look)
+    }
+
+    private fun wide(c: Canvas, habit: Widgets.Habit, w: Float, h: Float, look: Widgets.Look) {
+        val pad = 16f
+        val n = "${habit.streak}"
+        val dot = 3.1f
+        Widgets.dots(c, n, pad, pad, dot, look.ink)
+        val y = pad + dotHeight(dot)
+        val left = max(Widgets.dotWidth(n, dot), 92f)
+        text(c, label(habit), pad, y + 17, 9f, look.figtree, look.dim, left, caps = true)
+        text(c, weekText(habit), pad, h - pad, 9f, look.figtree, look.ink, left + 10, caps = true)
+        val gx = pad + left + 14
+        val step = min((w - gx - pad) / 18f, (h - 2 * pad) / 7f)
+        val cols = ((w - gx - pad) / step).toInt()
+        grid(c, habit, w - pad - cols * step, (h - 7 * step) / 2, cols, step, look)
+    }
+
+    private fun large(c: Canvas, habit: Widgets.Habit, w: Float, h: Float, look: Widgets.Look) {
+        val pad = 18f
+        val n = "${habit.streak}"
+        val dot = 3.6f
+        Widgets.dots(c, n, pad, pad, dot, look.ink)
+        mark(c, w - pad, pad + 2, 8f, look.dim)
+        val y = pad + dotHeight(dot)
+        text(c, label(habit), pad, y + 18, 9.5f, look.figtree, look.dim, w - 2 * pad, caps = true)
+        text(c, "best ${habit.best} · ${weekText(habit)}", pad, y + 33, 9.5f, look.figtree, look.ink, w - 2 * pad, caps = true)
+        val top = y + 52
+        val bottom = h - pad - 34
+        val step = min(16f, (bottom - top) / 7f)
+        val cols = ((w - 2 * pad) / step).toInt()
+        grid(c, habit, pad + ((w - 2 * pad) - cols * step) / 2, top + ((bottom - top) - 7 * step) / 2, cols, step, look)
+        week(c, habit, pad, h - pad - 17, w - 2 * pad, 5f, h - pad, look)
+    }
+
+    override fun taps(ctx: Context, id: Int, views: RemoteViews) {
+        views.setOnClickPendingIntent(R.id.widget_face, Widgets.openApp(ctx, id * 4 + 3, null, false, "stats"))
+    }
+}
+
+/** The streak, offered wide: the same widget, a wider start. */
+class StreakWidgetWide : StreakWidget() {
+    override fun defaultWidthDp() = 320
 }
