@@ -83,7 +83,9 @@ class AppUpdates {
   static Future<AppUpdate?> check(Directory root, {bool force = false}) async {
     final state = await _read(root);
     if (!force && state['enabled'] == false) return null;
-    final last = DateTime.tryParse(state['checked'] as String? ?? '');
+    var last = DateTime.tryParse(state['checked'] as String? ?? '');
+    // A date in the future would keep the stored answer for ever.
+    if (last != null && last.isAfter(DateTime.now())) last = null;
     final installed = await const SpeechService().appVersion();
     Map<String, Object?>? latest;
     if (!force && last != null && DateTime.now().difference(last) < _every) {
@@ -151,13 +153,18 @@ class AppUpdates {
       version: tag,
       url: latest['url'] as String? ?? 'https://github.com/Sayandeep1013/TomeVoice/releases/latest',
       title: latest['title'] as String? ?? 'TomeVoice $tag',
-      apk64: latest['apk64'] as String?,
-      apk32: latest['apk32'] as String?,
+      apk64: _ours(latest['apk64']),
+      apk32: _ours(latest['apk32']),
       bytes64: (latest['bytes64'] as num?)?.toInt() ?? 0,
       bytes32: (latest['bytes32'] as num?)?.toInt() ?? 0,
     );
   }
 }
+
+/// [url] if it is an APK attached to one of TomeVoice's own releases; null
+/// otherwise, so nothing else is ever offered for install.
+String? _ours(Object? url) =>
+    url is String && url.startsWith('https://github.com/Sayandeep1013/TomeVoice/releases/download/') ? url : null;
 
 /// Compare "0.10.1" with "0.9" as versions: negative, zero or positive.
 /// Anything after a "+" or "-" (build numbers, "-beta") is ignored.

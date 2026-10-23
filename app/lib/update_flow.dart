@@ -46,6 +46,9 @@ Future<void> offerUpdate(BuildContext context, AppUpdate update) async {
   if (go != true || !context.mounted) return;
 
   final progress = ValueNotifier<double?>(null);
+  var cancelled = false;
+  // Captured now: the dialog is closed through it even if this screen goes.
+  final nav = Navigator.of(context, rootNavigator: true);
   unawaited(showDialog<void>(
     context: context,
     barrierDismissible: false,
@@ -53,6 +56,9 @@ Future<void> offerUpdate(BuildContext context, AppUpdate update) async {
       canPop: false,
       child: AlertDialog(
         title: Text('Downloading ${update.version}'),
+        actions: [
+          TextButton(onPressed: () => cancelled = true, child: const Text('Cancel')),
+        ],
         content: ValueListenableBuilder<double?>(
           valueListenable: progress,
           builder: (_, v, __) => Column(
@@ -71,14 +77,15 @@ Future<void> offerUpdate(BuildContext context, AppUpdate update) async {
   String? file;
   String? failed;
   try {
-    file = await _download(apk, 'TomeVoice-${update.version}.apk', progress);
+    file = await _download(apk, 'TomeVoice-${update.version}.apk', progress, () => cancelled);
   } on Object {
-    failed = 'The download did not finish. Check the internet connection and try again.';
+    failed = cancelled ? null : 'The download did not finish. Check the internet connection and try again.';
   }
-  if (!context.mounted) return;
-  Navigator.of(context, rootNavigator: true).pop();
+  nav.pop();
   progress.dispose();
+  if (!context.mounted) return;
   if (file == null) {
+    if (cancelled) return;
     showSnack(context, failed ?? 'The download did not finish.', long: true);
     return;
   }
@@ -89,7 +96,12 @@ Future<void> offerUpdate(BuildContext context, AppUpdate update) async {
 /// TomeVoice may install apps; once that is allowed, Install goes on.
 Future<void> _install(BuildContext context, String path) async {
   final r = await _svc.installApk(path);
-  if (r != 'permission' || !context.mounted) return;
+  if (!context.mounted) return;
+  if (r == 'notOurs') {
+    showSnack(context, 'That download was not a TomeVoice update, so it was not installed.', long: true);
+    return;
+  }
+  if (r != 'permission') return;
   final again = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
@@ -107,8 +119,9 @@ Future<void> _install(BuildContext context, String path) async {
   if (again == true && context.mounted) await _install(context, path);
 }
 
-/// Fetch [url] into the folder the installer can read, as [name].
-Future<String> _download(String url, String name, ValueNotifier<double?> progress) async {
+/// Fetch [url] into the folder the installer can read, as [name]. Stops when
+/// [cancelled] says so, or after 30 seconds with nothing arriving.
+Future<String> _download(String url, String name, ValueNotifier<double?> progress, bool Function() cancelled) async {
   final dir = await _svc.shareDir();
   if (dir == null) throw const FileSystemException('No room for the download');
   final out = File('$dir/$name');
@@ -122,7 +135,11 @@ Future<String> _download(String url, String name, ValueNotifier<double?> progres
     final total = res.contentLength;
     final sink = part.openWrite();
     var got = 0;
-    await for (final chunk in res) {
+    await for (final chunk in res.timeout(const Duration(seconds: 30))) {
+      if (cancelled()) {
+        await sink.close();
+        throw const HttpException('Cancelled');
+      }
       sink.add(chunk);
       got += chunk.length;
       if (total > 0) progress.value = got / total;

@@ -6,6 +6,8 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
+import 'safe_file.dart';
+
 /// A quote kept to read again or share, or a bookmark: a place to come back to.
 enum MarkKind { quote, bookmark }
 
@@ -40,6 +42,20 @@ class Mark {
   final String? chapter;
   final String? note;
   final DateTime created;
+
+  /// The same mark with [note] (null or empty: none).
+  Mark withNote(String? note) => Mark(
+        id: id,
+        bookId: bookId,
+        bookTitle: bookTitle,
+        kind: kind,
+        at: at,
+        text: text,
+        created: created,
+        span: span,
+        chapter: chapter,
+        note: note == null || note.trim().isEmpty ? null : note.trim(),
+      );
 
   Map<String, Object?> toJson() => {
         'id': id,
@@ -99,7 +115,9 @@ class MarkStore {
         changes.value++;
       }
     } on Object {
-      // Nothing saved yet, or a broken file: start empty.
+      // A broken file: start empty, but keep it beside as marks.json.broken
+      // so the next save does not destroy what may be recovered from it.
+      await setAside(_file);
     }
   }
 
@@ -111,6 +129,7 @@ class MarkStore {
     required String text,
     int span = 1,
     String? chapter,
+    String? note,
   }) async {
     final now = DateTime.now();
     final mark = Mark(
@@ -122,11 +141,18 @@ class MarkStore {
       text: text,
       span: span,
       chapter: chapter,
+      note: note == null || note.trim().isEmpty ? null : note.trim(),
       created: now,
     );
     _all = [mark, ..._all];
     await _save();
     return mark;
+  }
+
+  /// Replace the mark with [mark]'s id (a note added or changed).
+  Future<void> update(Mark mark) async {
+    _all = [for (final m in _all) m.id == mark.id ? mark : m];
+    await _save();
   }
 
   Future<void> remove(String id) async {
@@ -143,7 +169,7 @@ class MarkStore {
   Future<void> _save() async {
     changes.value++;
     try {
-      await _file?.writeAsString(jsonEncode([for (final m in _all) m.toJson()]));
+      await writeSafely(_file, jsonEncode([for (final m in _all) m.toJson()]));
     } on Object {
       // Kept in memory until the next change.
     }

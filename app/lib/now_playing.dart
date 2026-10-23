@@ -303,10 +303,14 @@ class _Backdrop extends StatelessWidget {
         children: [
           ColoredBox(color: Color.lerp(accent, Colors.black, 0.72)!),
           if (cover != null)
-            ImageFiltered(
-              imageFilter: ui.ImageFilter.blur(sigmaX: 36, sigmaY: 36, tileMode: TileMode.clamp),
-              // A small decode is all a blur needs, and keeps it cheap.
-              child: Image.file(File(cover!), fit: BoxFit.cover, cacheWidth: 96, gaplessPlayback: true),
+            // Its own layer: the blur is drawn once, not again on every frame
+            // of the slide up.
+            RepaintBoundary(
+              child: ImageFiltered(
+                imageFilter: ui.ImageFilter.blur(sigmaX: 36, sigmaY: 36, tileMode: TileMode.clamp),
+                // A small decode is all a blur needs, and keeps it cheap.
+                child: Image.file(File(cover!), fit: BoxFit.cover, cacheWidth: 96, gaplessPlayback: true),
+              ),
             ),
           DecoratedBox(
             decoration: BoxDecoration(
@@ -354,18 +358,24 @@ class _LyricsState extends State<_Lyrics> {
   /// The old sentence leaves first, fading out over the first half; the new
   /// one rises in after it, so the two never sit on top of each other
   /// half-faded. Both keep to the top: blocks of different heights don't jump.
-  Widget _push(Widget child, Animation<double> a) {
-    final incoming = child.key == ValueKey(widget.unit);
-    final dir = _forward ? 1.0 : -1.0;
-    // An outgoing child's animation runs backwards, from 1 to 0.
-    final fade = CurvedAnimation(
-      parent: a,
-      curve: incoming ? const Interval(0.35, 1, curve: Curves.easeOut) : const Interval(0.5, 1, curve: Curves.easeIn),
-    );
-    final slide = Tween(begin: Offset(0, (incoming ? 0.1 : -0.1) * dir), end: Offset.zero)
-        .chain(CurveTween(curve: incoming ? Motion.out : Curves.easeIn));
-    return FadeTransition(opacity: fade, child: SlideTransition(position: a.drive(slide), child: child));
-  }
+  Widget _push(Widget child, Animation<double> a) => AnimatedBuilder(
+        animation: a,
+        child: child,
+        builder: (context, child) {
+          // Arriving or leaving is read from the animation as it runs: the
+          // switcher keeps the transition it built for a child when it
+          // arrived, also while that child leaves (its animation then runs
+          // backwards, from 1 to 0).
+          final leaving = a.status == AnimationStatus.reverse || a.status == AnimationStatus.dismissed;
+          final dir = _forward ? 1.0 : -1.0;
+          final t = a.value;
+          final opacity = leaving
+              ? const Interval(0.5, 1, curve: Curves.easeIn).transform(t)
+              : const Interval(0.35, 1, curve: Curves.easeOut).transform(t);
+          final dy = leaving ? -0.1 * dir * (1 - Curves.easeIn.transform(t)) : 0.1 * dir * (1 - Motion.out.transform(t));
+          return Opacity(opacity: opacity, child: FractionalTranslation(translation: Offset(0, dy), child: child));
+        },
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -389,64 +399,71 @@ class _LyricsState extends State<_Lyrics> {
           onLongPress: () => onHold(u, ''),
           child: Text(layout.units[u].text, maxLines: maxLines, overflow: TextOverflow.ellipsis, style: style),
         );
-    return ClipRect(
-      child: AnimatedSwitcher(
-        duration: Motion.of(context, _sentenceChange),
-        transitionBuilder: _push,
-        layoutBuilder: (current, previous) => Stack(
-          alignment: Alignment.topLeft,
-          children: [...previous, if (current != null) current],
-        ),
-        child: Column(
-          key: ValueKey(unit),
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (unit > 0) line(unit - 1, dim, 2),
-            const SizedBox(height: Gap.s),
-            Flexible(
-              // Press and hold: the word under the finger, found as the
-              // reader finds it.
-              child: LayoutBuilder(
-                builder: (context, box) => GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onLongPressStart: (d) {
-                    final text = layout.units[unit].text;
-                    final painter = TextPainter(
-                      text: TextSpan(text: text, style: read),
-                      textDirection: TextDirection.ltr,
-                      textScaler: MediaQuery.textScalerOf(context),
-                    )..layout(maxWidth: box.maxWidth);
-                    final at = painter.getPositionForOffset(d.localPosition).offset;
-                    painter.dispose();
-                    onHold(unit, wordAt(text, at));
-                  },
-                  child: ValueListenableBuilder<WordMark>(
-                    valueListenable: player.word,
-                    builder: (context, word, _) {
-                      final text = layout.units[unit].text;
-                      final on = word.unit == unit && word.start >= 0 && word.end > word.start;
-                      final ws = on ? word.start.clamp(0, text.length) : 0;
-                      final we = on ? word.end.clamp(ws, text.length) : 0;
-                      return Text.rich(
-                        TextSpan(children: [
-                          TextSpan(text: text.substring(0, ws)),
-                          if (on)
-                            TextSpan(text: text.substring(ws, we), style: TextStyle(color: Skin.accentSoftOf(context))),
-                          TextSpan(text: text.substring(we)),
-                        ]),
-                        style: read,
-                        overflow: TextOverflow.fade,
-                      );
-                    },
+    return LayoutBuilder(
+      builder: (context, box) {
+        // Too short for three lines (a small screen on its side): only the
+        // one being read, so it is never squeezed out.
+        final roomy = box.maxHeight >= 160;
+        return ClipRect(
+          child: AnimatedSwitcher(
+            duration: Motion.of(context, _sentenceChange),
+            transitionBuilder: _push,
+            layoutBuilder: (current, previous) => Stack(
+              alignment: Alignment.topLeft,
+              children: [...previous, if (current != null) current],
+            ),
+            child: Column(
+              key: ValueKey(unit),
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (roomy && unit > 0) line(unit - 1, dim, 2),
+                const SizedBox(height: Gap.s),
+                Flexible(
+                  // Press and hold: the word under the finger, found as the
+                  // reader finds it.
+                  child: LayoutBuilder(
+                    builder: (context, box) => GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onLongPressStart: (d) {
+                        final text = layout.units[unit].text;
+                        final painter = TextPainter(
+                          text: TextSpan(text: text, style: read),
+                          textDirection: TextDirection.ltr,
+                          textScaler: MediaQuery.textScalerOf(context),
+                        )..layout(maxWidth: box.maxWidth);
+                        final at = painter.getPositionForOffset(d.localPosition).offset;
+                        painter.dispose();
+                        onHold(unit, wordAt(text, at));
+                      },
+                      child: ValueListenableBuilder<WordMark>(
+                        valueListenable: player.word,
+                        builder: (context, word, _) {
+                          final text = layout.units[unit].text;
+                          final on = word.unit == unit && word.start >= 0 && word.end > word.start;
+                          final ws = on ? word.start.clamp(0, text.length) : 0;
+                          final we = on ? word.end.clamp(ws, text.length) : 0;
+                          return Text.rich(
+                            TextSpan(children: [
+                              TextSpan(text: text.substring(0, ws)),
+                              if (on)
+                                TextSpan(text: text.substring(ws, we), style: TextStyle(color: Skin.accentSoftOf(context))),
+                              TextSpan(text: text.substring(we)),
+                            ]),
+                            style: read,
+                            overflow: TextOverflow.fade,
+                          );
+                        },
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                const SizedBox(height: Gap.s),
+                if (roomy && unit + 1 < layout.units.length) line(unit + 1, dim, 2),
+              ],
             ),
-            const SizedBox(height: Gap.s),
-            if (unit + 1 < layout.units.length) line(unit + 1, dim, 2),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }

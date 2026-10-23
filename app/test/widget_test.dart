@@ -346,8 +346,18 @@ void main() {
       expect(find.textContaining('Fix how'), findsOneWidget);
       await tester.tap(find.text('Save as a quote'));
       await tester.pumpAndSettle();
+      // The sheet: take in the next sentence too, add a note, save.
+      expect(find.text('Save a quote'), findsOneWidget);
+      await tester.tap(find.byTooltip('One sentence more after'));
+      await tester.pump();
+      await tester.enterText(find.byType(TextField), 'Every pangram at once');
+      await tester.tap(find.text('Save 2 sentences'));
+      await tester.pumpAndSettle();
       expect(MarkStore.instance.all.length, before + 1);
-      expect(MarkStore.instance.all.first.kind, MarkKind.quote);
+      final saved = MarkStore.instance.all.first;
+      expect(saved.kind, MarkKind.quote);
+      expect(saved.span, 2);
+      expect(saved.note, 'Every pangram at once');
       await finish(tester);
     });
 

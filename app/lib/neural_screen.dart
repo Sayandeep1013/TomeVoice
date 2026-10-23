@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'neural_voices.dart';
 import 'prefs.dart';
+import 'speech_service.dart';
 import 'theme.dart';
 import 'ui.dart';
 import 'voices.dart';
@@ -25,16 +26,51 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
   final _speed = <String, double>{};
   String? _testing;
 
+  /// The voice whose sample is playing.
+  String? _hearing;
+  StreamSubscription<Map<String, Object?>>? _events;
+
   @override
   void initState() {
     super.initState();
     _voices.addListener(_changed);
+    _events = SpeechService.events.listen((e) {
+      final type = e['type'];
+      if (type != 'urlSampleDone' && type != 'urlSampleFailed') return;
+      if (!mounted) return;
+      // Only the sample now playing: an older one's late news is ignored.
+      if (e['url'] != neuralVoiceFor('$neuralPrefix$_hearing')?.sampleUrl) return;
+      setState(() => _hearing = null);
+      if (type == 'urlSampleFailed') {
+        showSnack(context, 'The sample could not play. Check the internet connection.');
+      }
+    });
   }
 
   @override
   void dispose() {
     _voices.removeListener(_changed);
+    unawaited(_events?.cancel());
+    if (_hearing != null) unawaited(const SpeechService().stopUrl());
     super.dispose();
+  }
+
+  /// Hear [v] before downloading it, or stop.
+  Future<void> _hear(NeuralVoice v) async {
+    const svc = SpeechService();
+    if (_hearing == v.id) {
+      setState(() => _hearing = null);
+      await svc.stopUrl();
+      return;
+    }
+    setState(() => _hearing = v.id);
+    try {
+      await svc.playUrl(v.sampleUrl);
+    } on Object {
+      if (!mounted) return;
+      setState(() => _hearing = null);
+      showSnack(context, 'The sample could not play. Check the internet connection.');
+    }
   }
 
   void _changed() {
@@ -267,10 +303,23 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
                         PopupMenuItem(value: 'remove', child: Text('Remove')),
                       ],
                     )
-                  : IconButton(
-                      tooltip: 'Download ${v.name}',
-                      icon: Icon(Icons.download_rounded, color: Skin.accentOf(context)),
-                      onPressed: () => _download(v),
+                  : Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          tooltip: _hearing == v.id ? 'Stop' : 'Hear ${v.name}',
+                          icon: Icon(
+                            _hearing == v.id ? Icons.stop_rounded : Icons.play_arrow_rounded,
+                            color: Skin.inkSoftOn(context),
+                          ),
+                          onPressed: () => _hear(v),
+                        ),
+                        IconButton(
+                          tooltip: 'Download ${v.name}',
+                          icon: Icon(Icons.download_rounded, color: Skin.accentOf(context)),
+                          onPressed: () => _download(v),
+                        ),
+                      ],
                     ),
           ],
         ),

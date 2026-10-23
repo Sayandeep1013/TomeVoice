@@ -111,7 +111,7 @@ class SpeechService {
           voice: natural,
           text: text,
           speed: rate,
-          outDir: Directory.systemTemp.path,
+          outDir: synthTempDir().path,
         );
       }
       final raw = await _channel.invokeMapMethod<String, Object?>('synthesise', {
@@ -275,6 +275,12 @@ class SpeechService {
 
   /// Where pictures to share are written (served to other apps from there).
   Future<String?> shareDir() => _channel.invokeMethod<String>('shareDir');
+
+  /// Play the recording at [url] (a voice's sample) as it streams; an event
+  /// `urlSampleDone` or `urlSampleFailed` follows.
+  Future<void> playUrl(String url) => _channel.invokeMethod<void>('playUrl', {'url': url});
+
+  Future<void> stopUrl() => _channel.invokeMethod<void>('stopUrl');
 
   /// Whether this app runs as 64-bit code (so wants the 64-bit APK).
   Future<bool> is64Bit() async => await _channel.invokeMethod<bool>('is64Bit') ?? true;
@@ -714,3 +720,7 @@ class ProcessedSpeech {
         ],
       };
 }
+
+/// Where speech made in Dart (natural voices, joined dialogue) is written:
+/// cache/tts, the folder the app empties on every start.
+Directory synthTempDir() => Directory('${Directory.systemTemp.path}/tts')..createSync(recursive: true);

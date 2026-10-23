@@ -23,6 +23,13 @@ void main() {
     expect(show(splitDialogue('Why couldn’t you?” she asked.')), 'D[Why couldn’t you?”] N[ she asked.]');
   });
 
+  test('straight quotes over several sentences, told from the paragraph', () {
+    // "I will go. You stay here. I'll be back," he said.
+    expect(show(splitDialogue('"I will go.', startsInside: false)), 'D["I will go.]');
+    expect(show(splitDialogue('You stay here.', startsInside: true)), 'D[You stay here.]');
+    expect(show(splitDialogue('I\'ll be back," he said.', startsInside: true)), 'D[I\'ll be back,"] N[ he said.]');
+  });
+
   test('apostrophes are not quotes', () {
     expect(show(splitDialogue('Zorian’s idea wasn’t bad.')), 'N[Zorian’s idea wasn’t bad.]');
   });
@@ -67,5 +74,10 @@ void main() {
       expect(v.url, endsWith('vits-piper-${v.id}.tar.bz2'));
       expect(v.sizeMb, v.hd ? 110 : 64);
     }
+    // Piper's own sample of each voice, to hear before downloading it.
+    expect(neuralVoices.first.sampleUrl,
+        'https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/kristin/medium/samples/speaker_0.mp3');
+    expect(neuralVoiceFor('neural:en_GB-jenny_dioco-medium')!.sampleUrl,
+        endsWith('/en/en_GB/jenny_dioco/medium/samples/speaker_0.mp3'));
   });
 }

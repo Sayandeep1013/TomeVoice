@@ -192,6 +192,13 @@ class ReadAloudService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, n)
         }
+        if (onAction == null) {
+            // Nothing is reading (the app was closed since): stop again, and
+            // redraw the widgets so their buttons open the app instead.
+            stopSelf()
+            val app = applicationContext
+            android.os.Handler(mainLooper).postDelayed({ Widgets.refreshAll(app) }, 400)
+        }
         return START_NOT_STICKY
     }
 

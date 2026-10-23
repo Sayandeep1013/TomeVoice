@@ -29,6 +29,14 @@ class NeuralVoice {
   /// phones: ONNX Runtime has no fp16 kernel for one of their layers on CPU
   /// (found on the phone).
   String get url => 'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-$id.tar.bz2';
+
+  /// Piper's own recording of this voice (about 100 KB), to hear before
+  /// downloading it: en_US-kristin-medium is en/en_US/kristin/medium.
+  String get sampleUrl {
+    final parts = id.split('-');
+    final lang = parts.first.split('_').first;
+    return 'https://huggingface.co/rhasspy/piper-voices/resolve/main/$lang/${parts.join('/')}/samples/speaker_0.mp3';
+  }
 }
 
 /// Voice names that start with this are TomeVoice's own, not the phone's.
@@ -253,7 +261,8 @@ class NeuralEngine {
     const text = 'It was a bright cold day in April, and the clocks were striking thirteen, '
         'while the wind swept little eddies of dust and torn paper into spirals along the street.';
     // The first call loads the voice; time the second.
-    await synthesise(voice: voice, text: 'Hello.', speed: 1, outDir: outDir);
+    final warm = await synthesise(voice: voice, text: 'Hello.', speed: 1, outDir: outDir);
+    await File(warm['wavPath']! as String).delete().catchError((Object _) => File(''));
     final watch = Stopwatch()..start();
     final r = await synthesise(voice: voice, text: text, speed: 1, outDir: outDir);
     watch.stop();
@@ -296,7 +305,11 @@ Future<void> _workerMain(SendPort out) async {
       }
       final model = m['model'] as String;
       if (loaded != model) {
+        // Forget the old engine before making the new one: if making it
+        // fails, nothing is left pointing at freed memory.
         tts?.free();
+        tts = null;
+        loaded = null;
         final dir = m['dir'] as String;
         tts = sherpa.OfflineTts(sherpa.OfflineTtsConfig(
           model: sherpa.OfflineTtsModelConfig(

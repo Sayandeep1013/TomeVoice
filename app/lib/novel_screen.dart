@@ -9,6 +9,7 @@ import 'book_card.dart';
 import 'book_tint.dart';
 import 'browser_check.dart';
 import 'library_store.dart';
+import 'saved_screen.dart';
 import 'sources/models.dart';
 import 'sources/net.dart';
 import 'sources/plugin_host.dart';
@@ -94,6 +95,9 @@ class _NovelScreenState extends State<NovelScreen> {
 
   @override
   void dispose() {
+    // A download in progress stops with the page (coming back started a
+    // second one beside it).
+    _stopDownload = true;
     _store.changes.removeListener(_refreshLocal);
     super.dispose();
   }
@@ -212,7 +216,20 @@ class _NovelScreenState extends State<NovelScreen> {
     if (mounted) showSnack(context, 'Added to your library.');
   }
 
+  /// Set while the novel is being opened: a second tap does nothing.
+  bool _opening = false;
+
   Future<void> _read({int? chapter, bool play = false}) async {
+    if (_opening) return;
+    _opening = true;
+    try {
+      await _openReader(chapter: chapter, play: play);
+    } finally {
+      _opening = false;
+    }
+  }
+
+  Future<void> _openReader({int? chapter, bool play = false}) async {
     final e = await _ensureAdded();
     if (e == null || !mounted) return;
     await Navigator.of(context).push(MaterialPageRoute<void>(
@@ -346,6 +363,11 @@ class _NovelScreenState extends State<NovelScreen> {
             child: Wrap(spacing: 6, runSpacing: 6, children: [for (final g in novel.genres) TagChip(g)]),
           ),
         ),
+      if (_entry != null)
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
+          sliver: SliverToBoxAdapter(child: BookSavedSection(store: _store, entry: _entry!)),
+        ),
     ];
     final chapterList = <Widget>[
       SliverPadding(
@@ -453,7 +475,7 @@ class _NovelScreenState extends State<NovelScreen> {
                   child: AnimatedSwitcher(
                     duration: Motion.of(context, Motion.standard),
                     switchInCurve: Motion.out,
-                    switchOutCurve: Motion.out,
+                    switchOutCurve: const Interval(0.5, 1),
                     transitionBuilder: fadeRise,
                     child: _picking ? _pickBar(context) : const SizedBox.shrink(),
                   ),
@@ -687,7 +709,7 @@ class _NovelScreenState extends State<NovelScreen> {
   Widget _blurb(BuildContext context, String text) => GestureDetector(
         onTap: () => setState(() => _blurbOpen = !_blurbOpen),
         child: AnimatedSize(
-          duration: const Duration(milliseconds: 200),
+          duration: Motion.of(context, const Duration(milliseconds: 200)),
           alignment: Alignment.topCenter,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

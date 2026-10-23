@@ -19,6 +19,7 @@ import 'now_playing.dart';
 import 'pages_view.dart';
 import 'player_controls.dart';
 import 'prefs.dart';
+import 'quote_sheet.dart';
 import 'reading_rules.dart';
 import 'rules_screen.dart';
 import 'share_card.dart';
@@ -301,6 +302,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       pauseAfter: _pauseAfter,
       respell: (text) => respell(text, ReadingRules.instance.sayFor(_book.id)),
       dialogueVoiceOf: () => _listen.dialogueVoice,
+      quoteOpenAt: _quoteOpenAt,
     )..onFinished = _onFinished;
     _player.unit.addListener(() => _cursor.value = _player.unit.value);
     _player.state.addListener(_onPlayState);
@@ -366,8 +368,25 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     setState(() {});
   }
 
+  /// Now Playing, while it is open over this reader, and the navigator it is on.
+  Route<void>? _nowPlaying;
+  NavigatorState? _nowPlayingNav;
+
+  /// Redraws the sleep countdown in the player bar.
+  Timer? _sleepTick;
+
   @override
   void dispose() {
+    final open = _nowPlaying;
+    final nav = _nowPlayingNav;
+    if (open != null && nav != null && open.isActive) {
+      // It holds this reader's player and place, which are going: close it
+      // after this frame (a route cannot be removed while the tree is torn down).
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (open.isActive) nav.removeRoute(open);
+      });
+    }
+    _sleepTick?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     ListeningPrefs.revision.removeListener(_onPrefs);
     ReadingRules.instance.changes.removeListener(_onRules);
@@ -443,6 +462,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   void _setSleep(SleepChoice choice) {
     _sleepTimer?.cancel();
     _sleepTimer = null;
+    _sleepTick?.cancel();
+    _sleepTick = null;
     _sleepAt = null;
     _sleepChapter = -1;
     final minutes = switch (choice) {
@@ -455,6 +476,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       final d = Duration(minutes: minutes);
       _sleepAt = DateTime.now().add(d);
       _sleepTimer = Timer(d, () => _sleepNow('Sleep timer: paused.'));
+      // The countdown in the player bar is redrawn as it runs.
+      _sleepTick = Timer.periodic(const Duration(seconds: 30), (_) {
+        if (mounted && _sleepAt != null) setState(() {});
+      });
     } else if (choice == SleepChoice.chapterEnd) {
       _sleepChapter = _l.chapterOfUnit(_cursor.value);
     }
@@ -464,6 +489,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   void _sleepNow(String message) {
     _sleepTimer?.cancel();
     _sleepTimer = null;
+    _sleepTick?.cancel();
+    _sleepTick = null;
     _sleepAt = null;
     _sleepChapter = -1;
     unawaited(_player.pause());
@@ -754,25 +781,43 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _reveal(_cursor.value, force: force);
   }
 
-  /// Scroll so the paragraph being read is in view, unless it already is.
+  /// Scroll so the sentence being read is in view, unless it already is.
   void _reveal(int unit, {bool force = false}) {
     if (_l.isEmpty || !_scroll.isAttached) return;
-    final item = _l.unitItem[unit.clamp(0, _l.units.length - 1)];
-    if (!force) {
-      for (final p in _positions.itemPositions.value) {
-        if (p.index == item && p.itemLeadingEdge >= 0.0 && p.itemTrailingEdge <= 0.9) {
-          return;
-        }
+    final u = unit.clamp(0, _l.units.length - 1);
+    final item = _l.unitItem[u];
+    ItemPosition? shown;
+    for (final p in _positions.itemPositions.value) {
+      if (p.index == item) shown = p;
+    }
+    var alignment = 0.15;
+    if (shown != null) {
+      final height = shown.itemTrailingEdge - shown.itemLeadingEdge;
+      if (height > 0.75) {
+        // A paragraph taller than most of the screen is followed sentence by
+        // sentence: where the sentence sits is estimated from its place in
+        // the paragraph's text. (Following the paragraph left the voice
+        // below the fold until the next one.)
+        final text = _l.items[item].block?.text ?? '';
+        final frac = text.isEmpty ? 0.0 : (_l.unitOffset[u] / text.length).clamp(0.0, 1.0);
+        final at = shown.itemLeadingEdge + frac * height;
+        if (!force && at >= 0.05 && at <= 0.75) return;
+        alignment = 0.15 - frac * height;
+      } else if (!force && shown.itemLeadingEdge >= 0.0 && shown.itemTrailingEdge <= 0.9) {
+        return;
       }
     }
     _programmaticScroll = true;
+    final duration = Motion.of(context, const Duration(milliseconds: 360));
+    // Far away (not laid out) or motion turned down: go straight there. The
+    // list would otherwise cross-fade two copies of the text.
+    if (shown == null || duration == Duration.zero) {
+      _scroll.jumpTo(index: item, alignment: alignment);
+      _programmaticScroll = false;
+      return;
+    }
     unawaited(_scroll
-        .scrollTo(
-          index: item,
-          alignment: 0.15,
-          duration: const Duration(milliseconds: 360),
-          curve: Curves.easeInOutCubic,
-        )
+        .scrollTo(index: item, alignment: alignment, duration: duration, curve: Curves.easeInOutCubic)
         .whenComplete(() => _programmaticScroll = false));
   }
 
@@ -805,6 +850,19 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     }
   }
 
+  /// Whether a quotation is still open where sentence [u] begins, counted
+  /// over its paragraph's text before it: an odd number of straight quotes,
+  /// or more opening curly marks than closing ones.
+  bool _quoteOpenAt(int u) {
+    if (u < 0 || u >= _l.units.length) return false;
+    final text = _l.items[_l.unitItem[u]].block?.text ?? '';
+    final before = text.substring(0, _l.unitOffset[u].clamp(0, text.length));
+    final straight = '"'.allMatches(before).length;
+    final opens = RegExp('[“«「]').allMatches(before).length;
+    final closes = RegExp('[”»」]').allMatches(before).length;
+    return straight.isOdd || opens > closes;
+  }
+
   /// The player's height, so a message shows above it instead of over it.
   final _barKey = GlobalKey();
   double get _barLift => (_barKey.currentContext?.findRenderObject() as RenderBox?)?.size.height ?? 0;
@@ -817,7 +875,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   /// Keep sentence [unit] (the one being read by default) as a quote or a
   /// bookmark. The message offers Undo, for a save made by mistake.
-  Future<Mark?> _save(MarkKind kind, {int? unit, int span = 1}) async {
+  Future<Mark?> _save(MarkKind kind, {int? unit, int span = 1, String? note}) async {
     if (_l.isEmpty) return null;
     final u = (unit ?? _cursor.value).clamp(0, _l.units.length - 1);
     final end = (u + span).clamp(u + 1, _l.units.length);
@@ -830,6 +888,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       span: end - u,
       text: text,
       chapter: _l.chapterTitle(_l.chapterOfUnit(u)),
+      note: note,
     );
     if (!mounted) return mark;
     final said = kind == MarkKind.quote ? 'Saved to your quotes.' : 'Bookmarked.';
@@ -848,7 +907,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   /// Press and hold on the text: what can be done with that sentence.
   Future<void> _onLongPress(int unit, String word) async {
-    if (_l.isEmpty) return;
+    if (!mounted || _l.isEmpty) return;
     unawaited(HapticFeedback.selectionClick());
     final sentence = _l.units[unit].text;
     final web = _entry?.plugin != null;
@@ -913,7 +972,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       case 'read':
         await _goTo(unit, play: true);
       case 'quote':
-        await _save(MarkKind.quote, unit: unit);
+        // Widen it to the sentences around, add a note, then keep it.
+        final choice = await showQuoteSheet(context, layout: _l, unit: unit);
+        if (choice != null && mounted) {
+          await _save(MarkKind.quote, unit: choice.first, span: choice.count, note: choice.note);
+        }
       case 'share':
         final mark = await _save(MarkKind.quote, unit: unit);
         if (mark != null && mounted) _share(mark);
@@ -928,12 +991,15 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           word: word,
           bookId: _book.id,
           bookTitle: _book.metadata.title,
-          preview: (text) => speakSample(
-            voiceName: _listen.voiceName ?? '',
-            text: text,
-            settings: _prefs.settings,
-            engineId: _prefs.engineId ?? _catalog.engineId,
-          ),
+          preview: (text) async {
+            await _player.stop();
+            return speakSample(
+              voiceName: _listen.voiceName ?? '',
+              text: text,
+              settings: _prefs.settings,
+              engineId: _prefs.engineId ?? _catalog.engineId,
+            );
+          },
         );
       case 'skip':
         final plugin = _entry?.plugin;
@@ -982,9 +1048,13 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                '“$_hitQuery”  ${_hit + 1} of ${_hits.length}',
-                style: Skin.ui(size: 13, weight: FontWeight.w600, color: Skin.onDark(context)),
+              Flexible(
+                child: Text(
+                  '“$_hitQuery”  ${_hit + 1} of ${_hits.length}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Skin.ui(size: 13, weight: FontWeight.w600, color: Skin.onDark(context)),
+                ),
               ),
               IconButton(
                 tooltip: 'Previous match',
@@ -1069,16 +1139,21 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         if (!rail) bar,
       ],
     );
-    return Scaffold(
+    return PopScope(
+      canPop: _hits.isEmpty,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) setState(() => _hits = const []);
+      },
+      child: Scaffold(
       body: DecoratedBox(
         decoration: BoxDecoration(gradient: Skin.ground(context)),
         child: SafeArea(
-          child: rail
-              ? Stack(
+          child: Stack(
                   children: [
                     reading,
                     // The text fades out before the dock, instead of showing
                     // in the gap beneath it.
+                    if (rail)
                     Positioned(
                       left: 0,
                       right: 0,
@@ -1097,19 +1172,22 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                         ),
                       ),
                     ),
-                    Positioned(left: 0, right: 0, bottom: 0, child: Center(child: bar)),
+                    if (rail) Positioned(left: 0, right: 0, bottom: 0, child: Center(child: bar)),
                   ],
-                )
-              : reading,
+                ),
         ),
+      ),
       ),
     );
   }
 
   /// The book filling the screen, its words like lyrics.
   void _openNowPlaying() {
+    // A swipe and a tap on the handle together must not open it twice.
+    if (_nowPlaying?.isActive ?? false) return;
     final from = context;
-    unawaited(Navigator.of(context).push(PageRouteBuilder<void>(
+    final nav = Navigator.of(context);
+    final route = PageRouteBuilder<void>(
       transitionDuration: Motion.of(context, Motion.page),
       reverseTransitionDuration: Motion.of(context, Motion.standard),
       pageBuilder: (ctx, _, __) => carryTint(
@@ -1141,7 +1219,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         ),
         child: child,
       ),
-    )));
+    );
+    _nowPlaying = route;
+    _nowPlayingNav = nav;
+    unawaited(nav.push(route).whenComplete(() {
+      if (identical(_nowPlaying, route)) _nowPlaying = null;
+    }));
   }
 
   String _voiceLabel() {
@@ -1423,11 +1506,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         valueListenable: _detached,
         builder: (context, detached, _) => AnimatedSlide(
           offset: detached ? Offset.zero : const Offset(0, 1.6),
-          duration: const Duration(milliseconds: 220),
+          duration: Motion.of(context, const Duration(milliseconds: 220)),
           curve: Curves.easeOutCubic,
           child: AnimatedOpacity(
             opacity: detached ? 1 : 0,
-            duration: const Duration(milliseconds: 180),
+            duration: Motion.of(context, const Duration(milliseconds: 180)),
             child: IgnorePointer(
               ignoring: !detached,
               child: Capsule(
@@ -1818,18 +1901,23 @@ class _PlayerBar extends StatelessWidget {
                   Expanded(
                     child: Padding(
                       padding: const EdgeInsets.only(left: Gap.l),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          _chip(context, '${trimSpeed(speed)}×', Icons.speed_rounded, onSpeed, tooltip: 'Speed'),
-                          if (onSleep != null)
-                            _small(context, sleepNote == null ? Icons.bedtime_outlined : Icons.bedtime_rounded,
-                                'Sleep timer', onSleep!, lit: sleepNote != null),
-                          if (onSave != null) _small(context, Icons.bookmark_add_outlined, 'Save this line', onSave!),
-                          Flexible(
-                            child: _chip(context, voiceLabel, Icons.record_voice_over_rounded, onVoice, tooltip: 'Voice'),
-                          ),
-                        ],
+                      // On a narrower phone, sleep and save (both in Now
+                      // Playing too) step aside before the row overflows.
+                      child: LayoutBuilder(
+                        builder: (context, box) => Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            _chip(context, '${trimSpeed(speed)}×', Icons.speed_rounded, onSpeed, tooltip: 'Speed'),
+                            if (onSleep != null && box.maxWidth >= 200)
+                              _small(context, sleepNote == null ? Icons.bedtime_outlined : Icons.bedtime_rounded,
+                                  'Sleep timer', onSleep!, lit: sleepNote != null),
+                            if (onSave != null && box.maxWidth >= 250)
+                              _small(context, Icons.bookmark_add_outlined, 'Save this line', onSave!),
+                            Flexible(
+                              child: _chip(context, voiceLabel, Icons.record_voice_over_rounded, onVoice, tooltip: 'Voice'),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),

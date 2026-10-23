@@ -20,6 +20,10 @@ object LibraryBackup {
 
     const val MANIFEST = "manifest.json"
 
+    /** Far beyond any real library; a zip that unpacks to more is refused. */
+    private const val MAX_BYTES = 16L shl 30
+    private const val MAX_FILES = 500_000
+
     /** What is never backed up: imports in flight, caches, site cookies. */
     private fun skip(rel: String, includeChapters: Boolean): Boolean {
         val top = rel.substringBefore('/')
@@ -27,6 +31,8 @@ object LibraryBackup {
         if (top == "incoming") return true
         if (rel.endsWith(".tmp")) return true
         if (rel == "sources/cookies.json") return true
+        // The update check's state names the APK to install: never carried.
+        if (rel == "app_update.json") return true
         // A cached copy of a source list; fetched again when needed.
         if (rel.startsWith("sources/index-")) return true
         if (!includeChapters && rel.startsWith("books/") && rel.split('/').getOrNull(2) == "ch") return true
@@ -100,11 +106,14 @@ object LibraryBackup {
         var manifest: String? = null
         var done = 0L
         var lastReport = 0L
+        var files = 0
         ZipInputStream(input.buffered(1 shl 16)).use { zip ->
             val buf = ByteArray(1 shl 16)
             while (true) {
                 val entry = zip.nextEntry ?: break
                 if (entry.isDirectory) continue
+                // A crafted zip must not fill the phone.
+                if (++files > MAX_FILES) throw IllegalStateException("That backup has too many files")
                 if (entry.name == MANIFEST) {
                     manifest = zip.readBytes().toString(Charsets.UTF_8)
                     continue
@@ -121,6 +130,7 @@ object LibraryBackup {
                         if (n < 0) break
                         o.write(buf, 0, n)
                         done += n
+                        if (done > MAX_BYTES) throw IllegalStateException("That backup is too large to restore")
                         if (done - lastReport > (1 shl 20)) {
                             lastReport = done
                             progress(done)

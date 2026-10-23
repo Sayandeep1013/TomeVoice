@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show LicenseEntryWithLineBreaks, LicenseRegistry;
+import 'package:flutter/foundation.dart' show LicenseEntryWithLineBreaks, LicenseRegistry, kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
@@ -134,7 +134,9 @@ class _ModeGateState extends State<_ModeGate> {
   void initState() {
     super.initState();
     const SpeechService().launchArgs().then((args) {
-      if (mounted) setState(() => _batch = args['batch'] == 'true');
+      // A development tool: a release build ignores it (any app can send
+      // the extra).
+      if (mounted) setState(() => _batch = !kReleaseMode && args['batch'] == 'true');
     });
   }
 
