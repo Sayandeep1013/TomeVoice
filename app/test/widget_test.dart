@@ -19,6 +19,7 @@ import 'package:tomevoice_spike/brand.dart';
 import 'package:tomevoice_spike/library_screen.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/main.dart';
+import 'package:tomevoice_spike/marks.dart';
 import 'package:tomevoice_spike/pages_view.dart';
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/reader_screen.dart';
@@ -325,6 +326,21 @@ void main() {
       expect(tester.getCenter(find.byTooltip('Play')).dx, greaterThan(width * 0.6));
       // The text keeps most of the height: it starts near the top.
       expect(tester.getTopLeft(find.textContaining('quick brown fox').first).dy, lessThan(200));
+      await finish(tester);
+    });
+
+    testWidgets('holding a sentence offers to keep it, and keeps it', (tester) async {
+      await pumpReader(tester, specimenBook());
+      final before = MarkStore.instance.all.length;
+      await tester.longPress(find.textContaining('Pack my box').first);
+      await tester.pumpAndSettle();
+      expect(find.text('Save as a quote'), findsOneWidget);
+      expect(find.text('Bookmark here'), findsOneWidget);
+      expect(find.textContaining('Fix how'), findsOneWidget);
+      await tester.tap(find.text('Save as a quote'));
+      await tester.pumpAndSettle();
+      expect(MarkStore.instance.all.length, before + 1);
+      expect(MarkStore.instance.all.first.kind, MarkKind.quote);
       await finish(tester);
     });
 
