@@ -20,6 +20,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -174,6 +175,80 @@ class MainActivity : FlutterActivity() {
                 }
                 "outputDir" -> result.success(outputDir().absolutePath)
                 "launchArgs" -> result.success(launchArgs())
+                "openUrl" -> {
+                    try {
+                        startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(call.argument<String>("url").orEmpty()))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.success(false)
+                    }
+                }
+                "readNovelDokushaBackup" -> {
+                    val path = call.argument<String>("path").orEmpty()
+                    // Its own thread: a backup can be large, and the shared
+                    // executors serve speech and PDF pages.
+                    Thread {
+                        try {
+                            val out = NovelDokushaImport.read(path, cacheDir)
+                            main.post { result.success(out) }
+                        } catch (e: Throwable) {
+                            main.post { result.error("ND_IMPORT", e.message ?: "Cannot read that backup", null) }
+                        }
+                    }.start()
+                }
+                "keepScreenOn" -> {
+                    if (call.argument<Boolean>("on") == true) {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    } else {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    }
+                    result.success(null)
+                }
+                "webUserAgent" -> {
+                    try {
+                        result.success(BrowserCheck.userAgent(this))
+                    } catch (e: Exception) {
+                        // No WebView installed: the built-in agent stays.
+                        result.success(null)
+                    }
+                }
+                "browserCheck" -> {
+                    val url = call.argument<String>("url")
+                    val agent = call.argument<String>("userAgent")
+                    if (url == null || agent == null) {
+                        result.success(null)
+                    } else {
+                        try {
+                            BrowserCheck.open(this, url, agent) { jar -> result.success(jar) }
+                        } catch (e: Exception) {
+                            result.error("BROWSER_CHECK", e.message ?: "No web view on this phone", null)
+                        }
+                    }
+                }
+                "browserFetch" -> {
+                    val url = call.argument<String>("url")
+                    val agent = call.argument<String>("userAgent")
+                    if (url == null || agent == null) {
+                        result.success(null)
+                    } else {
+                        try {
+                            BrowserCheck.fetch(this, url, agent) { html -> result.success(html) }
+                        } catch (e: Exception) {
+                            result.success(null)
+                        }
+                    }
+                }
+                "appVersion" -> {
+                    try {
+                        @Suppress("DEPRECATION")
+                        result.success(packageManager.getPackageInfo(packageName, 0).versionName)
+                    } catch (e: Exception) {
+                        result.success(null)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
@@ -186,6 +261,22 @@ class MainActivity : FlutterActivity() {
         withTts(null) { }
         cleanSynthDir()
         handleViewIntent(intent)
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // Draw into the camera cutout too. Without this, landscape leaves a
+        // dark strip down the cutout side and under the gesture bar, where
+        // the window background shows instead of the app's gradient.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
     }
 
     override fun onPostResume() {

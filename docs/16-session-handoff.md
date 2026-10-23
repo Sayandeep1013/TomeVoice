@@ -1,10 +1,28 @@
 # 16 — Session Handoff
 
-**As of 2026-10-22.** Everything needed to pick this up cold.
+**As of 2026-10-23.** Everything needed to pick this up cold.
 
 ---
 
 ## 1. Where the project is
+
+**As of 2026-10-23** (v0.4.0, branch `m1-new-look`, merged to `main` for the release): a
+full interface pass, web novels from LNReader sources, and new-chapter updates, on top of
+everything below. The plan these follow is `docs/roadmap.html`.
+
+| Area | State |
+|---|---|
+| Look | Bodoni Moda titles, Figtree interface, Newsreader/Literata page ([ADR-018](10-decisions-adr.md#adr-018)). One `ThemeData` from `Skin`; spacing `Gap`, corners `Radii`, motion `Motion`; shared widgets in `ui.dart`. Five palettes (Forest, Lavender, Ocean, Black, Paper) |
+| Shell | Drawer: Library, Browse, Updates, History; Categories, Sources, Settings, About |
+| Library | Cover tiles with a translucent info band (list view optional); categories as swipeable pages; long-press multi-select, move, remove; a continue dock at the bottom |
+| Book page | Details, description (EPUB `dc:description`, parsed v5), category, per-book voice with a sample, chapters |
+| Reader | Listen/Read settings sheet; voice picker with readable names and spoken samples; fades under the bars; ornament pictures drawn in the page's ink; keep screen on |
+| Web novels | LNReader plugins in QuickJS ([ADR-019](10-decisions-adr.md#adr-019)): Sources (repos, install/update), Browse (global search, per-source feeds), novel page, reading with chapters fetched ahead |
+| Updates | New chapters checked on app open (off/12 h/daily/2 days/weekly) and from the Updates screen. Not yet a background job |
+| Import | NovelDokusha backup zip (SQLite read in Kotlin) -> web novels with downloaded chapters and place |
+| Animation | Fade-through transitions with predictive back, cover hero, staggered entrances, sliding choices, theme cross-fade |
+
+### Earlier state (2026-10-22)
 
 **As of 2026-10-22** (branch `ux-speed-overhaul`): the reader was rebuilt for speed and
 for being obvious to use, and it now opens nearly every document format. Speech streams
@@ -130,6 +148,36 @@ because the image cache keys on the path) or plain.
 **14. EPUB copyright pages are untitled and long.** `_looksLikeCopyrightPage` in
 `navigate.dart` skips them (Red Rising opened on "This is a work of fiction").
 
+**15. The release manifest had no INTERNET permission.** Nothing used the network before
+web novels; every source request failed "host lookup". `tools/prepare_android.py` adds it.
+
+**16. QuickJS cannot be built on this Windows PC.** flutter_qjs compiles C through a
+native-assets hook that wants MSVC, and the scratch Flutter SDK lacks `gen_kernel_aot`.
+Local checks swap `lib/sources/qjs_runtime.dart` for a stub and drop the dependency
+(the scratchpad `sync.sh`); CI (Linux) builds and tests the real engine. The engine test in
+`test/sources_test.dart` skips itself where the engine is missing.
+
+**17. Mangayomi's Dart re-implementation of cheerio breaks the common plugin families**
+(`.length` as a method, no `$(this)`, no `.attribs`). TomeVoice bundles the real cheerio
+1.0.0-rc.12 + htmlparser2 + dayjs (tools/lnreader_libs, esbuild) and bridges only fetch and
+storage. Verified with RoyalRoad, NovelBin and a madara site end to end.
+
+**18. A painted fade band never matches the diagonal ground.** It read as a "bar" above the
+home indicator. Fade the content itself (`ShaderMask` + `dstIn`) instead.
+
+**19. `Skin.amber` and the ground colours are palette getters now**, so they cannot appear
+inside `const` expressions.
+
+**20. Cloudflare can refuse the app's HTTP client while letting the web view in.** From the
+phone's network Royal Road answered every Dart (and phone curl) request with "Just a moment"
+(403, `cf-mitigated: challenge`), while the PC's curl and the phone's WebView got the site
+with no check at all, so no `cf_clearance` cookie is ever issued and cookies alone cannot
+help. Plugins parsed the check page as "no results". Now: requests use the WebView's own
+User-Agent; a challenged GET is loaded in a hidden one-pixel WebView (`BrowserCheck.fetch`,
+called from worker isolates via `RootIsolateToken`) and its HTML goes to the plugin; if
+even that is still a check, the UI shows "Open the check" (visible WebView dialog). Test
+from the phone's network, not the PC's.
+
 ---
 
 ## 4. Running it
@@ -172,6 +220,10 @@ SDK into a temp folder, copy `app/` + `packages/` next to each other, run the sa
 `flutter create` as CI, then `dart analyze --fatal-infos` (Flutter's own `analyze` trips
 over long Windows paths) and `flutter test`. Delete the SDK afterwards.
 
+**The LNReader libraries bundle** (`app/assets/js/lnreader_libs.js`) is committed. To
+rebuild it after changing versions: `cd tools/lnreader_libs && npm install && npm run
+build` (Node only; CI does not need it). Smoke-test it in QuickJS before committing.
+
 Maestro flows: `mobile-qa/flows/`. Do not `clearState: true` on resume tests. Selectors
 use merged semantics (e.g. `Chapters\nChapter 1: Crimson\n1 OF 213`). Chapter index is
 `1 OF 213`, sentence counter is `1 / 34273` — do not assert `1 /` as unique.
@@ -208,12 +260,23 @@ app/                          FLUTTER. Built in CI; analyzed/tested locally (see
     speech_service.dart       platform API, synth mutex, background render
     voices.dart               VoiceCatalog (shared), friendly voice names
     prefs.dart                persisted listening settings
-    theme.dart  brand.dart
+    theme.dart  brand.dart    Skin, Palette, Gap, Radii, Motion, ThemeData; the logo
+    ui.dart                   shared widgets (ChoiceRow, SettingRow, SearchField, ...)
+    home_shell.dart           drawer and places (Library, Browse, Updates, History)
+    book_screen.dart          a book's page;  book_actions.dart: cover, move, remove
+    categories_screen.dart  history_screen.dart  settings_screen.dart (+ About)
+    sources/                  web novels: net.dart, models.dart, source_store.dart,
+                              plugin_host.dart (bridges), qjs_runtime.dart (QuickJS),
+                              source_engine.dart (isolate pool)
+    sources_screen.dart  browse_screen.dart  novel_screen.dart  web_reader.dart
+    updates.dart  updates_screen.dart  noveldokusha_import.dart
+  assets/js/                  lnreader_libs.js (bundle), lnreader_shim.js (require, fetch, storage)
   android_overlay/app/
     src/main/kotlin/.../MainActivity.kt      TTS, focus, import, intents
     src/main/kotlin/.../PcmPlayer.kt         streaming AudioTrack
     src/main/kotlin/.../ReadAloudService.kt  foreground service + MediaSession
     src/main/kotlin/.../PdfText.kt           PdfBox-Android text + outline
+    src/main/kotlin/.../NovelDokushaImport.kt reads a NovelDokusha backup's SQLite
     proguard-rules.pro                        R8 keeps for PdfBox
   test/widget_test.dart       reader, sheet, voices, store (real isolates)
 
@@ -242,12 +305,19 @@ tools/prepare_android.py      manifest/gradle patches: service, intents, PdfBox,
 ## 7. Decisions already locked
 
 Unchanged: GPL-3.0, Flutter, Android primary, Dart locally / APKs in CI, synthesise-to-PCM,
-specimen *visual language* (Ojuju titles, serif page — not a Specimen book on home),
-DRM out of scope.
+DRM out of scope. New: the type set of ADR-018 replaces Ojuju/Space Mono; web novels run
+LNReader plugins and TomeVoice ships no list of sites (ADR-019).
 
 ---
 
 ## 8. What to do next
+
+**Web novels, next steps.** (1) A background update job (WorkManager) with a notification,
+so updates happen with the app closed. (2) Cloudflare is handled (finding 20); a
+POST behind a check still fails. (3) Per-plugin settings and filters (`pluginSettings`, `filters`) in the source screen.
+(4) Download queue screen.
+
+**Earlier list, still open:**
 
 **A. Listen on the device.** Chapter-long listen with the screen off; pause from the lock
 screen; a phone call mid-sentence; headphones unplugged. Open a PDF and a DOCX.

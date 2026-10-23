@@ -426,3 +426,50 @@ ground needs verification against accessibility targets in both themes.
 
 **Scope.** Applies from Phase 1, when there is real UI. The audio spike is deliberately
 unstyled.
+
+## ADR-018
+**Type and design system: a fashion-magazine set** — Accepted, 2026-10-23. Amends ADR-017.
+
+**Context.** On the phone, Ojuju (titles) and Space Mono (all small labels, letterspaced in
+capitals) read as a hobby project: Ojuju is a display face that tires in lists, and
+monospace labels are slow to read. Every screen also restyled Flutter widgets by hand, with
+13 different corner radii and about 20 paddings, and the Flutter theme was never set, so
+sliders, switches and dialogs fell back to stock Material in places.
+
+**Decision.** Titles in **Bodoni Moda** (a Didone with optical sizes, chosen by the
+developer from a comparison of five pairings), interface in **Figtree**, small labels in
+Figtree capitals with tabular figures, the page in **Newsreader** with Literata, a sans
+and the phone's serif as reader choices. All SIL OFL, bundled, listed on the About screen.
+Spacing from `Gap`, corners from `Radii`, one `ThemeData` built from `Skin` for every
+Material component, and one shared widget for each repeated piece (`ui.dart`).
+
+**Kept from ADR-017.** The forest-to-amber ground, floating capsule controls, one amber
+accent, and type as the subject rather than the interface.
+
+**Consequences.** About 2 MB of fonts (one variable file per family, upright only for the
+page faces since book text has no inline italics). Weights and optical sizes are set with
+font variations, because Flutter does not map `FontWeight` to a variable font's axes.
+
+## ADR-019
+**Web novels run LNReader's source plugins in QuickJS** — Accepted, 2026-10-23.
+
+**Context.** The developer wants NovelDokusha's flow (search sites, add a novel, get new
+chapters) in TomeVoice. NovelDokusha hard-codes 26 Kotlin scrapers; half of their English
+sites are dead or hijacked in 2026, and the project is unmaintained.
+
+**Decision.** Run LNReader plugins (MIT, 319 sources, fixed by their community almost
+daily) in an embedded QuickJS (`kodjodevf/flutter_qjs`, pinned by commit). Give them the
+real libraries they are written against (cheerio 1.0.0-rc.12, htmlparser2, dayjs), bundled
+once with esbuild, plus a host shim with LNReader's `require`. Only fetch and storage cross
+into Dart. Plugins run in a pool of background isolates.
+
+**Rejected.** Mangayomi's Dart re-implementation of cheerio: it breaks the madara,
+lightnovelwp and readnovelfull families. Own JSON selector rules: we would own every site's
+breakage. NovelDokusha's scrapers: dead sites, no maintainer.
+
+**Rights.** TomeVoice ships no list of sites. Users add source lists themselves, as in
+LNReader and Mihon; the Sources screen says the sites belong to their owners.
+
+**Consequences.** About 3 MB more APK (QuickJS, the bundle). QuickJS's native build cannot
+run on the developer's Windows PC without MSVC, so local checks stub the engine and CI tests
+it (handoff finding 16).

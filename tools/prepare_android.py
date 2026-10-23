@@ -49,7 +49,9 @@ QUERIES_BLOCK = """    <!-- Required since Android 11 for TextToSpeech.getEngine
     </queries>
 """
 
-PERMISSIONS = """    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+PERMISSIONS = """    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />

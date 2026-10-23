@@ -172,6 +172,21 @@ class VoiceCatalog extends ChangeNotifier {
     return unique;
   }
 
+  /// A name people can read. Google's voices are only told apart by codes
+  /// ("IOL", "SFG"), so those become "Voice 1", "Voice 2" in their region;
+  /// the engine's default stays "Default voice", and an engine that already
+  /// names its voices keeps those names.
+  String friendlyName(VoiceInfo v) {
+    if (v.variant == 'Default') return 'Default voice';
+    if (!RegExp(r'^[A-Z0-9]{2,5}$').hasMatch(v.variant)) return v.variant;
+    final same = [
+      for (final x in forLanguage(v.language))
+        if (x.region == v.region && RegExp(r'^[A-Z0-9]{2,5}$').hasMatch(x.variant)) x,
+    ];
+    final i = same.indexWhere((x) => x.variant == v.variant);
+    return i < 0 ? v.variant : 'Voice ${i + 1}';
+  }
+
   /// Languages that have at least one voice, by display name.
   List<String> languages() {
     final set = {for (final v in voices) v.language};
@@ -205,6 +220,11 @@ const _languages = {
   'te': 'Telugu', 'th': 'Thai', 'tl': 'Filipino', 'tr': 'Turkish',
   'uk': 'Ukrainian', 'ur': 'Urdu', 'uz': 'Uzbek', 'vi': 'Vietnamese',
   'yue': 'Cantonese', 'zh': 'Chinese', 'zu': 'Zulu',
+  'brx': 'Bodo', 'doi': 'Dogri', 'kok': 'Konkani', 'mai': 'Maithili',
+  'mni': 'Manipuri', 'sat': 'Santali', 'sd': 'Sindhi', 'ks': 'Kashmiri',
+  'sa': 'Sanskrit', 'ps': 'Pashto', 'so': 'Somali', 'ha': 'Hausa',
+  'yo': 'Yoruba', 'ig': 'Igbo', 'mt': 'Maltese', 'lb': 'Luxembourgish',
+  'gd': 'Scottish Gaelic', 'fy': 'Frisian', 'bo': 'Tibetan', 'ug': 'Uyghur',
 };
 
 const _regions = {

@@ -49,6 +49,7 @@ Book ingestBytes(
       throw const UnsupportedDocumentException(
         'PDF text has to be extracted on the device first; call ingestPdfText.',
       );
+    case SourceKind.web:
     case SourceKind.unknown:
       throw _unknownFormat(filename);
   }

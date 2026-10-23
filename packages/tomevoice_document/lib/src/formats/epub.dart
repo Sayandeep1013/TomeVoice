@@ -110,6 +110,7 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename}) {
             publisher: metadata.publisher,
             identifier: metadata.identifier,
             cover: cover,
+            description: metadata.description,
           ),
     sections: withImages,
     toc: toc,
@@ -199,7 +200,17 @@ BookMetadata _metadata(XmlDocument opf, String? filename) {
     language: first('language'),
     publisher: first('publisher'),
     identifier: first('identifier'),
+    description: _plainBlurb(first('description')),
   );
+}
+
+/// A description is often escaped HTML; keep only its words.
+String? _plainBlurb(String? raw) {
+  if (raw == null) return null;
+  final text = collapseWhitespace(decodeEntities(raw.replaceAll(RegExp(r'<[^>]+>'), ' ')))
+      // A removed tag leaves a space before punctuation: "cheese ." -> "cheese."
+      .replaceAllMapped(RegExp(r' ([.,;:!?])'), (m) => m.group(1)!);
+  return text.isEmpty ? null : text;
 }
 
 String _fallbackTitle(String? filename) {

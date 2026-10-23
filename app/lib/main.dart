@@ -1,17 +1,20 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show LicenseEntryWithLineBreaks, LicenseRegistry;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
 import 'brand.dart';
-import 'library_screen.dart';
+import 'home_shell.dart';
+import 'prefs.dart';
 import 'reader_screen.dart';
 import 'speech_service.dart';
 import 'theme.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  _registerFontLicences();
   // Draw under the status bar and the gesture bar, and ask Android not to
   // lay its contrast scrim over the gesture area: that scrim was a darker
   // band with a hard edge just above the home bar, cutting the gradient.
@@ -26,6 +29,29 @@ void main() {
   runApp(const SpikeApp());
 }
 
+/// The fonts ship inside the app, so their licences are listed on the About
+/// screen with everything else.
+void _registerFontLicences() {
+  LicenseRegistry.addLicense(() async* {
+    for (final (family, file) in const [
+      ('Bodoni Moda', 'BodoniModa'),
+      ('Figtree', 'Figtree'),
+      ('Newsreader', 'Newsreader'),
+      ('Literata', 'Literata'),
+    ]) {
+      yield LicenseEntryWithLineBreaks(
+        [family],
+        await rootBundle.loadString('assets/fonts/OFL-$file.txt'),
+      );
+    }
+    // The engine and libraries web-novel sources run on.
+    yield LicenseEntryWithLineBreaks(
+      const ['QuickJS', 'cheerio', 'htmlparser2', 'parse5', 'dayjs', 'core-js', 'LNReader plugins'],
+      await rootBundle.loadString('assets/licenses/third_party.txt'),
+    );
+  });
+}
+
 /// Entry point.
 ///
 /// Two modes. Normally this is the library. Launched with `--es batch true` it
@@ -38,21 +64,55 @@ class SpikeApp extends StatelessWidget {
   const SpikeApp({super.key});
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-        title: 'TomeVoice',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          useMaterial3: true,
-          brightness: Brightness.light,
-          scaffoldBackgroundColor: Skin.cream,
-        ),
-        darkTheme: ThemeData(
-          useMaterial3: true,
-          brightness: Brightness.dark,
-          scaffoldBackgroundColor: Skin.nightBottom,
-        ),
-        home: const _ModeGate(),
+  Widget build(BuildContext context) => ValueListenableBuilder<int>(
+        valueListenable: ListeningPrefs.revision,
+        builder: (context, _, __) {
+          final prefs = ListeningPrefs.loaded;
+          final palette = Palette.byId(prefs?.paletteId);
+          // Every colour in Skin reads the palette, so set it before the
+          // tree below is built.
+          Skin.palette = palette;
+          return _app(palette, palette.modeFor(prefs?.themeMode ?? ThemeMode.system));
+        },
       );
+
+  Widget _app(Palette palette, ThemeMode mode) => MaterialApp(
+          title: 'TomeVoice',
+          debugShowCheckedModeBanner: false,
+          theme: Skin.themeFor(palette, Brightness.light),
+          darkTheme: Skin.themeFor(palette, Brightness.dark),
+          themeMode: mode,
+          // Palette and light/dark changes ease across rather than snap
+          // (Settings also cross-fades its whole screen when you pick one).
+          themeAnimationDuration: Motion.page,
+          themeAnimationCurve: Motion.emphasized,
+          // Status bar icons dark on the light ground, light on the dark one.
+          // Every field is set: one left out falls back to Android's default,
+          // which for the divider is the separator line above the home bar.
+          builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
+            value: Skin.isDark(context)
+                ? const SystemUiOverlayStyle(
+                    statusBarColor: Colors.transparent,
+                    statusBarIconBrightness: Brightness.light,
+                    systemNavigationBarColor: Colors.transparent,
+                    systemNavigationBarDividerColor: Colors.transparent,
+                    systemNavigationBarIconBrightness: Brightness.light,
+                    systemNavigationBarContrastEnforced: false,
+                    systemStatusBarContrastEnforced: false,
+                  )
+                : const SystemUiOverlayStyle(
+                    statusBarColor: Colors.transparent,
+                    statusBarIconBrightness: Brightness.dark,
+                    systemNavigationBarColor: Colors.transparent,
+                    systemNavigationBarDividerColor: Colors.transparent,
+                    systemNavigationBarIconBrightness: Brightness.dark,
+                    systemNavigationBarContrastEnforced: false,
+                    systemStatusBarContrastEnforced: false,
+                  ),
+            child: child!,
+          ),
+          home: const _ModeGate(),
+        );
 }
 
 class _ModeGate extends StatefulWidget {
@@ -76,7 +136,7 @@ class _ModeGateState extends State<_ModeGate> {
   @override
   Widget build(BuildContext context) => switch (_batch) {
         true => const BatchScreen(),
-        false => const LibraryScreen(),
+        false => const HomeShell(),
         // Same chrome as the library so launchArgs does not flash a blank
         // scaffold and then a different product.
         null => Scaffold(

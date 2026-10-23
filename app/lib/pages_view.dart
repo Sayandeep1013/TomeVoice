@@ -116,7 +116,7 @@ class _PdfPagesViewState extends State<PdfPagesView> {
           }
           final info = snap.data;
           if (info == null) {
-            return const Center(
+            return Center(
               child: SizedBox(
                 width: 28,
                 height: 28,

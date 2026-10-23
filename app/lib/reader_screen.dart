@@ -16,9 +16,28 @@ import 'prefs.dart';
 import 'scheduler.dart';
 import 'speech_service.dart';
 import 'theme.dart';
+import 'ui.dart';
 import 'voices.dart';
+import 'web_reader.dart';
 
 const _svc = SpeechService();
+
+/// Open [entry] in the reader, straight to where it was left.
+Future<void> openBook(
+  BuildContext context,
+  LibraryStore store,
+  LibraryEntry entry, {
+  bool autoplay = false,
+}) async {
+  FocusManager.instance.primaryFocus?.unfocus();
+  await Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => entry.isWeb
+          ? WebNovelReader(store: store, entry: entry, autoplay: autoplay)
+          : BookLoader(store: store, entry: entry, autoplay: autoplay),
+    ),
+  );
+}
 
 /// Opens a book: shows the reading surface's frame at once and fills it when
 /// the background isolate has the layout, so a tap on a book responds
@@ -151,12 +170,36 @@ class ReaderScreen extends StatefulWidget {
     this.autoplay = false,
     this.bookDir,
     this.sourcePath,
+    this.onReachedEnd,
+    this.onChapterChanged,
+    this.progressOf,
+    this.endLabel,
+    this.positionOf,
   });
 
   final ReadingLayout layout;
   final LibraryStore? store;
   final ReadingCursor initialCursor;
   final bool autoplay;
+
+  /// The end of what is here was reached (a web novel whose next chapters
+  /// are still on the site). [playing] says whether to carry on aloud. When
+  /// null, the end is the end of the book.
+  final Future<void> Function({required bool playing})? onReachedEnd;
+
+  /// The section (chapter number) being read changed.
+  final ValueChanged<int>? onChapterChanged;
+
+  /// How far through the whole work unit [u] is; defaults to the share of
+  /// this layout read so far.
+  final double Function(int u)? progressOf;
+
+  /// The button at the end of the page when [onReachedEnd] is set.
+  final String? endLabel;
+
+  /// "12/340" for unit [u] in the whole work, when this layout holds only
+  /// part of it (a web novel's downloaded chapters).
+  final String Function(int u)? positionOf;
 
   /// Where the book's pictures were stored at import.
   final String? bookDir;
@@ -217,6 +260,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _catalog.addListener(_onCatalog);
     unawaited(_catalog.ensureLoaded());
     _events = SpeechService.events.listen(_onPlatformEvent);
+    ListeningPrefs.revision.addListener(_onPrefs);
     unawaited(_loadPrefs());
     if (widget.autoplay) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _togglePlay());
@@ -229,15 +273,34 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final p = await ListeningPrefs.load(dir);
     if (!mounted) return;
     setState(() => _prefs = p);
+    _applyScreenOn();
     if (p.engineId != null && p.engineId != _catalog.engineId) {
       await _catalog.ensureLoaded();
       await _catalog.switchEngine(p.engineId!);
     }
   }
 
+  bool _screenOn = false;
+
+  void _applyScreenOn() {
+    if (_prefs.keepScreenOn == _screenOn) return;
+    _screenOn = _prefs.keepScreenOn;
+    unawaited(_svc.keepScreenOn(_screenOn));
+  }
+
+  /// Font, size, spacing or theme changed somewhere (this book's sheet, or
+  /// Settings): redraw the page.
+  void _onPrefs() {
+    if (!mounted) return;
+    _applyScreenOn();
+    setState(() {});
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    ListeningPrefs.revision.removeListener(_onPrefs);
+    if (_screenOn) unawaited(_svc.keepScreenOn(false));
     _persistTimer?.cancel();
     _restartTimer?.cancel();
     _sleepTimer?.cancel();
@@ -265,10 +328,38 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   ListenController get _listen => ListenController(
         prefs: _prefs,
         language: _language,
+        bookId: _book.id,
         onChanged: _onSettingsChanged,
         sleep: _sleep,
         onSleep: _setSleep,
+        onPreview: _previewVoice,
+        isPlaying: () =>
+            _player.state.value == PlayState.playing || _player.state.value == PlayState.loading,
+        isPdf: _isPdf,
       );
+
+  /// Say the sentence under the cursor in [voiceName], so a voice is judged
+  /// on this book's own text.
+  Future<void> _previewVoice(String voiceName) async {
+    if (_player.state.value != PlayState.idle) await _player.stop();
+    final u = _cursor.value.clamp(0, math.max(0, _l.units.length - 1)).toInt();
+    var text = _l.isEmpty ? '' : _l.units[u].text;
+    if (text.length < 40 && !_l.isEmpty && u + 1 < _l.units.length) {
+      text = '$text ${_l.units[u + 1].text}';
+    }
+    if (text.trim().isEmpty) text = 'This is how I will sound reading your book.';
+    if (text.length > 220) text = '${text.substring(0, text.lastIndexOf(' ', 220).clamp(80, 220))}.';
+    try {
+      await speakSample(
+        voiceName: voiceName,
+        text: text,
+        settings: _prefs.settings,
+        engineId: _prefs.engineId ?? _catalog.engineId,
+      );
+    } on Object catch (e) {
+      _snack('Could not play a sample: $e');
+    }
+  }
 
   /// Stop reading after a while, or at the end of this chapter — for
   /// listening in bed with the screen off.
@@ -358,6 +449,14 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   void _goChapter(int delta) {
+    final more = widget.onReachedEnd;
+    if (delta > 0 && more != null && _l.chapterOfUnit(_cursor.value) >= _l.chapters.length - 1) {
+      // Past what is here: the next chapters are still on the site.
+      final s = _player.state.value;
+      unawaited(_persist());
+      unawaited(more(playing: s == PlayState.playing || s == PlayState.loading));
+      return;
+    }
     final c = (_l.chapterOfUnit(_cursor.value) + delta).clamp(0, _l.chapters.length - 1);
     unawaited(_goTo(_l.chapterFirstUnit[c]));
   }
@@ -378,6 +477,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   void _onFinished() {
     unawaited(_persist());
+    final more = widget.onReachedEnd;
+    if (more != null) {
+      unawaited(more(playing: true));
+      return;
+    }
     if (mounted) {
       _snack('Finished. That is the end of the book.');
     }
@@ -444,7 +548,17 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   // --------------------------------------------------------------- cursor
 
+  int _lastSection = -1;
+
   void _onCursor() {
+    final changed = widget.onChapterChanged;
+    if (changed != null && !_l.isEmpty) {
+      final section = _l.units[_cursor.value.clamp(0, _l.units.length - 1)].sectionIndex;
+      if (section != _lastSection) {
+        _lastSection = section;
+        changed(section);
+      }
+    }
     if (_sleep == SleepChoice.chapterEnd &&
         _sleepChapter >= 0 &&
         _l.chapterOfUnit(_cursor.value) != _sleepChapter) {
@@ -504,7 +618,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       await store.saveCursor(
         _book.id,
         cursorOf(_l.units[u]),
-        progressFraction(_l.units, u),
+        widget.progressOf?.call(u) ?? progressFraction(_l.units, u),
         where: _l.chapterTitle(_l.unitChapter[u]),
       );
     } on Object {
@@ -513,14 +627,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   void _snack(String text) {
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    messenger?.hideCurrentSnackBar();
-    messenger?.showSnackBar(SnackBar(
-      content: Text(text, style: Skin.label(context, color: Skin.onDark(context), size: 12.5)),
-      backgroundColor: Skin.darkOn(context),
-      behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-    ));
+    if (mounted) showSnack(context, text);
   }
 
   // ---------------------------------------------------------------- build
@@ -569,6 +676,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                 onNextSentence: () => _goTo(_cursor.value + 1),
                 onPrevChapter: () => _goChapter(-1),
                 onNextChapter: () => _goChapter(1),
+                moreAfter: widget.onReachedEnd != null,
+                progressOf: widget.progressOf,
                 onSeekInChapter: (u) => _goTo(u),
                 onSpeed: () => showListenSheet(context, _listen, focus: ListenFocus.speed),
                 onVoice: () => showListenSheet(context, _listen),
@@ -612,22 +721,22 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                         _book.metadata.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: Skin.title(context, size: 17),
+                        style: Skin.title(context, size: 18),
                       ),
                       ValueListenableBuilder<int>(
                         valueListenable: _cursor,
                         builder: (context, u, _) {
                           final c = _l.chapterOfUnit(u);
                           return Text(
-                            _l.chapters.length > 1
-                                ? '${_l.chapterTitle(c)}  ·  ${c + 1}/${_l.chapters.length}'
+                            _l.chapters.length > 1 || widget.positionOf != null
+                                ? '${_l.chapterTitle(c)}  ·  ${widget.positionOf?.call(u) ?? '${c + 1}/${_l.chapters.length}'}'
                                     .toUpperCase()
                                 : (_book.metadata.authorLine.isEmpty
                                     ? _book.source.name.toUpperCase()
                                     : _book.metadata.authorLine.toUpperCase()),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: Skin.meta(context, size: 8.5),
+                            style: Skin.meta(context, size: 10.5),
                           );
                         },
                       ),
@@ -678,16 +787,28 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       );
     }
     final initial = _l.unitItem[_cursor.value.clamp(0, _l.units.length - 1)];
-    return NotificationListener<ScrollNotification>(
-      onNotification: _onScrollNotification,
-      child: ScrollablePositionedList.builder(
-        itemCount: _l.items.length,
-        itemScrollController: _scroll,
-        itemPositionsListener: _positions,
-        initialScrollIndex: initial,
-        initialAlignment: initial == 0 ? 0 : 0.12,
-        padding: const EdgeInsets.fromLTRB(22, 8, 22, 120),
-        itemBuilder: (context, i) => _item(context, i),
+    // Text fades out under the top bar and the player instead of being cut
+    // off against them.
+    return ShaderMask(
+      blendMode: BlendMode.dstIn,
+      shaderCallback: (rect) => LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: const [Colors.transparent, Colors.black, Colors.black, Colors.transparent],
+        stops: [0, 18 / rect.height, 1 - 28 / rect.height, 1],
+      ).createShader(rect),
+      child: NotificationListener<ScrollNotification>(
+        onNotification: _onScrollNotification,
+        child: ScrollablePositionedList.builder(
+          // One more item at the end when there is more to fetch: the way on.
+          itemCount: _l.items.length + (widget.onReachedEnd == null ? 0 : 1),
+          itemScrollController: _scroll,
+          itemPositionsListener: _positions,
+          initialScrollIndex: initial,
+          initialAlignment: initial == 0 ? 0 : 0.12,
+          padding: EdgeInsets.fromLTRB(_prefs.margin, 16, _prefs.margin, 120),
+          itemBuilder: (context, i) => i == _l.items.length ? _more(context) : _item(context, i),
+        ),
       ),
     );
   }
@@ -697,11 +818,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final chapterStart = i == _l.chapterFirstItem[item.chapter];
     final label = chapterStart && _l.chapters.length > 1
         ? Padding(
-            padding: EdgeInsets.only(top: i == 0 ? 8 : 40, bottom: 8),
+            padding: EdgeInsets.only(top: i == 0 ? 8 : 44, bottom: 10),
             child: Row(
               children: [
-                Text('CHAPTER ${item.chapter + 1}', style: Skin.meta(context, size: 9)),
-                const SizedBox(width: 10),
+                Text('CHAPTER ${item.chapter + 1}', style: Skin.meta(context, size: 10.5)),
+                const SizedBox(width: Gap.m),
                 Expanded(
                   child: Container(height: 1, color: Skin.inkFaintOn(context).withValues(alpha: 0.25)),
                 ),
@@ -728,7 +849,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           Padding(
             padding: const EdgeInsets.only(bottom: 18),
             child: Text(item.title ?? '',
-                style: Skin.title(context, size: 28 * _prefs.textSize / 19)),
+                style: Skin.title(context, size: 30 * _prefs.textSize / 19, weight: FontWeight.w500)),
           ),
         ],
       );
@@ -737,8 +858,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final heading = item.block!.role == BlockRole.heading;
     final scale = _prefs.textSize / 19;
     final style = heading
-        ? Skin.title(context, size: (chapterStart ? 28 : 21) * scale).copyWith(height: 1.2)
-        : Skin.page(context, size: _prefs.textSize);
+        ? Skin.title(context, size: (chapterStart ? 30 : 22) * scale, weight: FontWeight.w500)
+            .copyWith(height: 1.2)
+        : Skin.page(context, size: _prefs.textSize, font: _prefs.bookFont, height: _prefs.lineHeight);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -751,12 +873,29 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             cursor: _cursor,
             word: _player.word,
             style: style,
+            heading: heading,
+            justify: _prefs.justify && !heading,
             onTapUnit: (u) => _goTo(u, play: true),
           ),
         ),
       ],
     );
   }
+
+  /// The end of what has been fetched: carry on to the next chapter.
+  Widget _more(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: Gap.xxl),
+        child: Center(
+          child: FilledButton.icon(
+            onPressed: () {
+              final s = _player.state.value;
+              unawaited(widget.onReachedEnd!(playing: s == PlayState.playing || s == PlayState.loading));
+            },
+            icon: const Icon(Icons.arrow_forward_rounded),
+            label: Text(widget.endLabel ?? 'Next chapter'),
+          ),
+        ),
+      );
 
   /// A picture from the book, at its natural size up to the column width.
   /// Its space is reserved from the stored pixel size, so the text the voice
@@ -772,6 +911,30 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         // Small ornaments stay small; plates and maps fill the column.
         final width = math.min(c.maxWidth, iw / dpr * 2.2);
         final height = width * ih / iw;
+        // A thin, wide picture is a printer's ornament: usually black on
+        // white, which on this page is a glaring strip. Draw it in the
+        // page's ink with the white taken out.
+        final ornament = iw >= ih * 2.5 && height <= 120;
+        Widget image = Image.file(
+          file,
+          width: width,
+          height: height,
+          fit: BoxFit.contain,
+          cacheWidth: (width * dpr).round(),
+          errorBuilder: (_, __, ___) => SizedBox(width: width, height: height),
+        );
+        if (ornament) {
+          final ink = Skin.inkSoftOn(context);
+          image = ColorFiltered(
+            colorFilter: ColorFilter.matrix([
+              0, 0, 0, 0, ink.r * 255, //
+              0, 0, 0, 0, ink.g * 255, //
+              0, 0, 0, 0, ink.b * 255, //
+              -0.2126, -0.7152, -0.0722, 1, 0,
+            ]),
+            child: image,
+          );
+        }
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 14),
           child: Center(
@@ -782,14 +945,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                 label: block.text.isEmpty ? 'Picture. Double tap to enlarge' : block.text,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(6),
-                  child: Image.file(
-                    file,
-                    width: width,
-                    height: height,
-                    fit: BoxFit.contain,
-                    cacheWidth: (width * dpr).round(),
-                    errorBuilder: (_, __, ___) => SizedBox(width: width, height: height),
-                  ),
+                  child: image,
                 ),
               ),
             ),
@@ -818,10 +974,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.my_location_rounded, size: 16, color: Skin.amber),
-                    const SizedBox(width: 8),
+                    Icon(Icons.my_location_rounded, size: 16, color: Skin.amber),
+                    const SizedBox(width: Gap.s),
                     Text('Back to reading',
-                        style: Skin.label(context, color: Skin.onDark(context), size: 12)),
+                        style: Skin.ui(size: 14, weight: FontWeight.w600, color: Skin.onDark(context))),
                   ],
                 ),
               ),
@@ -834,12 +990,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (_l.chapters.isEmpty) return;
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: Skin.darkOn(context),
       isScrollControlled: true,
       useSafeArea: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
       builder: (ctx) => _ContentsSheet(
         layout: _l,
         current: _l.chapterOfUnit(_cursor.value),
@@ -868,6 +1020,8 @@ class _BlockText extends StatefulWidget {
     required this.word,
     required this.style,
     required this.onTapUnit,
+    this.heading = false,
+    this.justify = false,
   });
 
   final LayoutItem item;
@@ -876,6 +1030,10 @@ class _BlockText extends StatefulWidget {
   final ValueListenable<WordMark> word;
   final TextStyle style;
   final ValueChanged<int> onTapUnit;
+
+  /// A heading being spoken turns amber rather than sitting in a box.
+  final bool heading;
+  final bool justify;
 
   @override
   State<_BlockText> createState() => _BlockTextState();
@@ -952,31 +1110,34 @@ class _BlockTextState extends State<_BlockText> {
 
   Widget _span(BuildContext context, WordMark word) {
     final text = widget.item.block!.text;
+    final align = widget.justify ? TextAlign.justify : TextAlign.start;
     if (_current < 0) {
-      return Text.rich(TextSpan(text: text), key: _key, style: widget.style);
+      return Text.rich(TextSpan(text: text), key: _key, style: widget.style, textAlign: align);
     }
     final l = widget.layout;
     final s = l.unitOffset[_current].clamp(0, text.length);
     final e = (s + l.units[_current].text.length).clamp(s, text.length);
-    final wash = Skin.sentenceWash(context);
+    final wash = widget.heading ? Skin.sentenceWash(context).withValues(alpha: 0.08) : Skin.sentenceWash(context);
+    final spoken = widget.heading ? TextStyle(color: Skin.amber) : null;
     final spans = <InlineSpan>[
       if (s > 0) TextSpan(text: text.substring(0, s)),
     ];
     final ws = word.start < 0 ? -1 : (s + word.start).clamp(s, e);
     final we = word.start < 0 ? -1 : (s + word.end).clamp(ws, e);
+    final sentence = TextStyle(backgroundColor: wash, color: spoken?.color);
     if (ws < 0 || we <= ws) {
-      spans.add(TextSpan(text: text.substring(s, e), style: TextStyle(backgroundColor: wash)));
+      spans.add(TextSpan(text: text.substring(s, e), style: sentence));
     } else {
       spans
-        ..add(TextSpan(text: text.substring(s, ws), style: TextStyle(backgroundColor: wash)))
+        ..add(TextSpan(text: text.substring(s, ws), style: sentence))
         ..add(TextSpan(
           text: text.substring(ws, we),
-          style: TextStyle(backgroundColor: Skin.wordWash(context)),
+          style: TextStyle(backgroundColor: Skin.wordWash(context), color: spoken?.color),
         ))
-        ..add(TextSpan(text: text.substring(we, e), style: TextStyle(backgroundColor: wash)));
+        ..add(TextSpan(text: text.substring(we, e), style: sentence));
     }
     if (e < text.length) spans.add(TextSpan(text: text.substring(e)));
-    return Text.rich(TextSpan(children: spans), key: _key, style: widget.style);
+    return Text.rich(TextSpan(children: spans), key: _key, style: widget.style, textAlign: align);
   }
 }
 
@@ -994,6 +1155,8 @@ class _PlayerBar extends StatelessWidget {
     required this.onNextSentence,
     required this.onPrevChapter,
     required this.onNextChapter,
+    this.moreAfter = false,
+    this.progressOf,
     required this.onSeekInChapter,
     required this.onSpeed,
     required this.onVoice,
@@ -1010,6 +1173,13 @@ class _PlayerBar extends StatelessWidget {
   final VoidCallback onNextSentence;
   final VoidCallback onPrevChapter;
   final VoidCallback onNextChapter;
+
+  /// Chapters follow the last one here (a web novel's, still on the site).
+  final bool moreAfter;
+
+  /// As [ReaderScreen.progressOf]. When set, this layout is only part of
+  /// the work, so the time shown is what is left of the chapter.
+  final double Function(int u)? progressOf;
   final ValueChanged<int> onSeekInChapter;
   final VoidCallback onSpeed;
   final VoidCallback onVoice;
@@ -1018,11 +1188,11 @@ class _PlayerBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final onDark = Skin.onDark(context);
     return Container(
-      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+      margin: const EdgeInsets.fromLTRB(Gap.m, 0, Gap.m, Gap.m),
+      padding: const EdgeInsets.fromLTRB(14, Gap.m, 14, 10),
       decoration: BoxDecoration(
         color: Skin.darkOn(context),
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(Radii.card + 4),
         boxShadow: Skin.lift(context),
       ),
       child: ValueListenableBuilder<int>(
@@ -1032,28 +1202,31 @@ class _PlayerBar extends StatelessWidget {
           final chapter = empty ? 0 : layout.chapterOfUnit(u);
           final (first, count) = empty ? (0, 1) : layout.chapterRange(chapter);
           final inChapter = (u - first).clamp(0, count - 1);
-          final wordsLeft = empty ? 0 : layout.totalWords - layout.wordsBefore[u];
+          final partial = progressOf != null;
+          final end = first + count;
+          final upTo = partial && end < layout.units.length ? layout.wordsBefore[end] : layout.totalWords;
+          final wordsLeft = empty ? 0 : upTo - layout.wordsBefore[u];
           final minutes = (wordsLeft / (165 * speed)).round();
-          final pct = empty ? 0 : (progressFraction(layout.units, u) * 100).round();
+          final pct = empty ? 0 : ((progressOf?.call(u) ?? progressFraction(layout.units, u)) * 100).round();
           return Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Row(
                 children: [
-                  _chip(context, '${_trimSpeed(speed)}×', Icons.speed_rounded, onSpeed,
+                  _chip(context, '${trimSpeed(speed)}×', Icons.speed_rounded, onSpeed,
                       tooltip: 'Speed'),
                   Expanded(
                     child: Text(
                       // With a sleep timer there is no room for all three.
                       [
                         if (sleepNote == null) '$pct%',
-                        '${_duration(minutes)} LEFT',
+                        partial ? '${_duration(minutes)} LEFT IN CHAPTER' : '${_duration(minutes)} LEFT',
                         if (sleepNote != null) sleepNote!,
                       ].join('  ·  '),
                       textAlign: TextAlign.center,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: Skin.meta(context, color: onDark.withValues(alpha: 0.6), size: 8.5),
+                      style: Skin.meta(context, color: onDark.withValues(alpha: 0.62), size: 10.5),
                     ),
                   ),
                   _chip(context, voiceLabel, Icons.record_voice_over_rounded, onVoice,
@@ -1076,7 +1249,7 @@ class _PlayerBar extends StatelessWidget {
                   _icon(context, Icons.fast_forward_rounded, 'Next sentence',
                       u < layout.units.length - 1 ? onNextSentence : null),
                   _icon(context, Icons.skip_next_rounded, 'Next chapter',
-                      chapter < layout.chapters.length - 1 ? onNextChapter : null),
+                      chapter < layout.chapters.length - 1 || moreAfter ? onNextChapter : null),
                 ],
               ),
             ],
@@ -1107,9 +1280,9 @@ class _PlayerBar extends StatelessWidget {
         onTap: onTap,
         border: false,
         color: Colors.white.withValues(alpha: 0.08),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: Gap.m, vertical: 7),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 120),
+          constraints: const BoxConstraints(maxWidth: 130),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -1120,7 +1293,7 @@ class _PlayerBar extends StatelessWidget {
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Skin.label(context, color: onDark, size: 11),
+                  style: Skin.ui(size: 13, weight: FontWeight.w600, color: onDark),
                 ),
               ),
             ],
@@ -1152,7 +1325,7 @@ class _PlayButton extends StatelessWidget {
                 clipBehavior: Clip.none,
                 children: [
                   if (state == PlayState.loading)
-                    const SizedBox(
+                    SizedBox(
                       width: 60,
                       height: 60,
                       child: CircularProgressIndicator(strokeWidth: 2.5, color: Skin.amberSoft),
@@ -1169,7 +1342,7 @@ class _PlayButton extends StatelessWidget {
                         child: Icon(
                           speaking ? Icons.pause_rounded : Icons.play_arrow_rounded,
                           size: 32,
-                          color: Skin.dark,
+                          color: Skin.onAmber,
                         ),
                       ),
                     ),
@@ -1198,12 +1371,8 @@ class _ChapterScrubberState extends State<_ChapterScrubber> {
 
   @override
   Widget build(BuildContext context) => SliderTheme(
-        data: SliderThemeData(
-          trackHeight: 3,
-          activeTrackColor: Skin.amber,
+        data: SliderTheme.of(context).copyWith(
           inactiveTrackColor: Skin.onDark(context).withValues(alpha: 0.14),
-          thumbColor: Skin.amberSoft,
-          overlayColor: Skin.amber.withValues(alpha: 0.12),
           thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
           overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
         ),
@@ -1254,7 +1423,6 @@ class _ContentsSheetState extends State<_ContentsSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final onDark = Skin.onDark(context);
     final l = widget.layout;
     final q = _query.trim().toLowerCase();
     final rows = [
@@ -1268,86 +1436,33 @@ class _ContentsSheetState extends State<_ContentsSheet> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(22, 18, 22, 4),
-              child: Row(
-                children: [
-                  Text('Contents', style: Skin.title(context, size: 24, color: onDark)),
-                  const Spacer(),
-                  Text('${l.chapters.length} ${l.chapters.length == 1 ? 'CHAPTER' : 'CHAPTERS'}',
-                      style: Skin.meta(context, color: onDark.withValues(alpha: 0.5))),
-                ],
+            SheetHeader(
+              'Contents',
+              trailing: Text(
+                '${l.chapters.length} ${l.chapters.length == 1 ? 'CHAPTER' : 'CHAPTERS'}',
+                style: Skin.meta(context),
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
-              child: TextField(
-                style: Skin.label(context, color: onDark, size: 13),
-                cursorColor: Skin.amber,
-                decoration: InputDecoration(
-                  isDense: true,
-                  filled: true,
-                  fillColor: Colors.white.withValues(alpha: 0.07),
-                  prefixIcon: Icon(Icons.search_rounded, color: onDark.withValues(alpha: 0.5), size: 20),
-                  hintText: 'Find a chapter',
-                  hintStyle: Skin.label(context, color: onDark.withValues(alpha: 0.4), size: 13),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
+              padding: const EdgeInsets.fromLTRB(Gap.l, 0, Gap.l, Gap.s),
+              child: SearchField(
+                hint: 'Find a chapter',
                 onChanged: (v) => setState(() => _query = v),
               ),
             ),
             Expanded(
               child: rows.isEmpty
                   ? Padding(
-                      padding: const EdgeInsets.all(22),
-                      child: Text('No chapters match.',
-                          style: Skin.label(context, color: onDark.withValues(alpha: 0.7), size: 13)),
+                      padding: const EdgeInsets.all(Gap.xl),
+                      child: Text('No chapters match.', style: Skin.label(context, size: 15)),
                     )
-                  : ListView.builder(
+                  : ChapterList(
+                      layout: l,
+                      chapters: rows,
+                      current: widget.current,
                       controller: q.isEmpty ? _controller : null,
-                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
-                      itemExtent: _rowHeight,
-                      itemCount: rows.length,
-                      itemBuilder: (context, i) {
-                        final c = rows[i];
-                        final current = c == widget.current;
-                        return Material(
-                          color: current ? Skin.amber.withValues(alpha: 0.16) : Colors.transparent,
-                          borderRadius: BorderRadius.circular(14),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(14),
-                            onTap: () => widget.onPick(c),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 12),
-                              child: Row(
-                                children: [
-                                  SizedBox(
-                                    width: 40,
-                                    child: Text('${c + 1}',
-                                        style: Skin.meta(context,
-                                            color: current ? Skin.amber : onDark.withValues(alpha: 0.45),
-                                            size: 10)),
-                                  ),
-                                  Expanded(
-                                    child: Text(
-                                      l.chapterTitle(c),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: Skin.title(context,
-                                          size: 17, color: current ? Skin.amber : onDark),
-                                    ),
-                                  ),
-                                  if (current)
-                                    const Icon(Icons.graphic_eq_rounded, size: 18, color: Skin.amber),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      },
+                      rowHeight: _rowHeight,
+                      onPick: widget.onPick,
                     ),
             ),
           ],
@@ -1357,9 +1472,82 @@ class _ContentsSheetState extends State<_ContentsSheet> {
   }
 }
 
-String _trimSpeed(double v) {
-  final s = v.toStringAsFixed(2);
-  return s.endsWith('0') ? s.substring(0, s.length - 1) : s;
+/// A book's chapters: number, title, the one being read marked. Parts
+/// ("Part II: Reborn") read as dividers above the chapters they hold.
+class ChapterList extends StatelessWidget {
+  const ChapterList({
+    super.key,
+    required this.layout,
+    required this.chapters,
+    required this.current,
+    required this.onPick,
+    this.controller,
+    this.rowHeight = 56,
+    this.shrinkWrap = false,
+  });
+
+  final ReadingLayout layout;
+  final List<int> chapters;
+  final int current;
+  final ValueChanged<int> onPick;
+  final ScrollController? controller;
+  final double rowHeight;
+  final bool shrinkWrap;
+
+  static final _part = RegExp(r'^(part|book|volume|act)\b', caseSensitive: false);
+
+  @override
+  Widget build(BuildContext context) => ListView.builder(
+        controller: controller,
+        shrinkWrap: shrinkWrap,
+        physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,
+        padding: const EdgeInsets.fromLTRB(Gap.m, 0, Gap.m, Gap.xl),
+        itemExtent: rowHeight,
+        itemCount: chapters.length,
+        itemBuilder: (context, i) => chapterRow(context, chapters[i]),
+      );
+
+  Widget chapterRow(BuildContext context, int c) {
+    final isCurrent = c == current;
+    final title = layout.chapterTitle(c);
+    final part = _part.hasMatch(title);
+    return Material(
+      color: isCurrent ? Skin.amber.withValues(alpha: 0.14) : Colors.transparent,
+      borderRadius: BorderRadius.circular(Radii.row),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(Radii.row),
+        onTap: () => onPick(c),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Gap.m),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 40,
+                child: Text('${c + 1}',
+                    style: Skin.meta(context, size: 11.5, color: isCurrent ? Skin.amber : null)),
+              ),
+              Expanded(
+                child: part
+                    ? Text(
+                        title.toUpperCase(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Skin.meta(context, size: 12, color: isCurrent ? Skin.amber : Skin.inkSoftOn(context)),
+                      )
+                    : Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Skin.title(context, size: 17, color: isCurrent ? Skin.amber : null),
+                      ),
+              ),
+              if (isCurrent) Icon(Icons.graphic_eq_rounded, size: 18, color: Skin.amber),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 String _duration(int minutes) {

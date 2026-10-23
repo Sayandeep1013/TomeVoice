@@ -11,15 +11,22 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 import 'package:tomevoice_spike/book_card.dart';
+import 'package:tomevoice_spike/book_screen.dart';
 import 'package:tomevoice_spike/brand.dart';
+import 'package:tomevoice_spike/library_screen.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/main.dart';
 import 'package:tomevoice_spike/pages_view.dart';
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/reader_screen.dart';
+import 'package:tomevoice_spike/settings_screen.dart';
 import 'package:tomevoice_spike/speech_service.dart';
+import 'package:tomevoice_spike/theme.dart';
+import 'package:tomevoice_spike/ui.dart';
+import 'package:tomevoice_spike/voices.dart';
 
 const _channel = MethodChannel('tomevoice/tts');
 
@@ -33,6 +40,7 @@ void main() {
     _tmp = Directory.systemTemp.createTempSync('tomevoice_test');
     _calls.clear();
     ListeningPrefs.reset();
+    SpeechService.resetQueue();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_channel, (call) async {
       _calls.add(call.method);
@@ -122,6 +130,45 @@ void main() {
     return out.toString();
   }
 
+  /// Two books in the store, pumped as the app; returns their entries.
+  Future<List<LibraryEntry>> pumpShelf(WidgetTester tester,
+      {bool openFirst = false, bool secondToLater = false}) async {
+    phone(tester);
+    late List<LibraryEntry> made;
+    await tester.runAsync(() async {
+      final store = LibraryStore(_tmp);
+      made = [];
+      for (final name in ['alpha.txt', 'beta.txt']) {
+        final f = File('${_tmp.path}/incoming/$name')
+          ..createSync(recursive: true)
+          ..writeAsStringSync('Chapter 1\n\n${'The $name story goes on. ' * 40}\n\n'
+              'Chapter 2\n\n${'It keeps going here. ' * 40}');
+        made.add(await store.importFile(PickedFile(path: f.path, name: name)));
+      }
+      if (secondToLater) await store.moveBooks({made.last.id}, 'later');
+      if (openFirst) {
+        final layout = await store.loadLayout(made.first.id);
+        await store.saveCursor(made.first.id, cursorOf(layout.units[3]), 0.3, where: 'Chapter 1');
+      }
+    });
+    await tester.pumpWidget(const SpikeApp());
+    for (var i = 0; i < 40 && find.byType(BookCover).evaluate().isEmpty; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+    return made;
+  }
+
+  /// Let real file IO and isolates finish, then settle the frame.
+  Future<void> settleIo(WidgetTester tester, {bool Function()? until}) async {
+    for (var i = 0; i < 60 && !(until?.call() ?? false); i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 25)));
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+  }
+
   final chaptered = ingestString(
     'Title sheet\n\n'
     '# Chapter 1: Alpha\n\n'
@@ -143,11 +190,20 @@ void main() {
       }
       await tester.pumpAndSettle();
 
+      expect(find.text('Library'), findsOneWidget);
+      expect(find.text('Your shelf is empty'), findsOneWidget);
+      expect(find.text('Add books'), findsOneWidget, reason: 'the empty shelf says how to start');
+      expect(find.byTooltip('Add books'), findsOneWidget, reason: 'and the header always can');
+      expect(find.text('PDF'), findsOneWidget);
+
+      // The menu at the top left holds the rest of the app.
+      await tester.tap(find.byTooltip('Menu'));
+      await tester.pumpAndSettle();
       expect(find.byType(BrandMark), findsWidgets);
       expect(find.text('TomeVoice'), findsOneWidget);
-      expect(find.text('Your shelf is empty'), findsOneWidget);
-      expect(find.text('Add books'), findsOneWidget);
-      expect(find.text('PDF'), findsOneWidget);
+      for (final place in ['History', 'Categories', 'Settings', 'About']) {
+        expect(find.text(place), findsOneWidget, reason: place);
+      }
       await finish(tester);
     });
   });
@@ -179,8 +235,18 @@ void main() {
       expect(find.text('MD'), findsWidgets);
       expect(find.text('ENGLISH'), findsWidgets);
       expect(find.text('17 M'), findsWidgets, reason: '2,804 words at 165 wpm');
+      expect(find.text('NEW'), findsNWidgets(2), reason: 'tiles mark unopened books');
+      expect(find.byType(BookTile), findsNWidgets(2), reason: 'covers are the default view');
+      expect(find.byTooltip('Add books'), findsOneWidget);
+      expect(find.byType(ContinueDock), findsNothing, reason: 'nothing has been opened yet');
+      await finish(tester);
+    });
+
+    testWidgets('the list view spells out where you are', (tester) async {
+      File('${_tmp.path}/prefs.json').writeAsStringSync('{"gridView": false}');
+      await pumpShelf(tester);
+      expect(find.byType(BookRow), findsNWidgets(2));
       expect(find.textContaining('NOT STARTED'), findsNWidgets(2));
-      expect(find.text('Add books'), findsOneWidget);
       await finish(tester);
     });
   });
@@ -198,13 +264,14 @@ void main() {
         await store.setCover(e.id, CoverMode.custom, picture: PickedFile(path: pic.path, name: 'wrong.jpg'));
       });
       await tester.pumpWidget(const SpikeApp());
-      for (var i = 0; i < 30 && find.byTooltip('More').evaluate().isEmpty; i++) {
-        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
-        await tester.pump();
-      }
-      await tester.pumpAndSettle();
+      await settleIo(tester, until: () => find.text('book').evaluate().isNotEmpty);
 
-      await tester.tap(find.byTooltip('More').first);
+      await tester.tap(find.text('book'));
+      await settleIo(tester,
+          until: () =>
+              find.text('Chapters').evaluate().isNotEmpty &&
+              find.byType(CircularProgressIndicator).evaluate().isEmpty);
+      await tester.tap(find.byTooltip('Book options'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Change cover'));
       await tester.pumpAndSettle();
@@ -229,10 +296,10 @@ void main() {
       await finish(tester);
     });
 
-    testWidgets('book text is a reading serif, not Ojuju', (tester) async {
+    testWidgets('book text is set in the reading face', (tester) async {
       await pumpReader(tester, specimenBook());
       final text = tester.widget<Text>(find.textContaining('quick brown fox').first);
-      expect(text.style?.fontFamily, 'serif');
+      expect(text.style?.fontFamily, 'Newsreader');
       expect(text.style?.fontSize, greaterThanOrEqualTo(18));
       await finish(tester);
     });
@@ -254,7 +321,7 @@ void main() {
     testWidgets('tapping a paragraph reads from there', (tester) async {
       await pumpReader(tester, specimenBook());
       final target = find.textContaining('Tap any sentence');
-      await tester.ensureVisible(target);
+      await tester.dragUntilVisible(target, find.byType(ScrollablePositionedList), const Offset(0, -200));
       await tester.pumpAndSettle();
       await tester.tap(target);
       await tester.pump();
@@ -387,12 +454,49 @@ void main() {
       expect(find.text('Speed'), findsOneWidget);
       expect(find.text('Sleep timer'), findsOneWidget);
       expect(find.text('Voice'), findsWidgets);
-      expect(find.textContaining('English (UK)'), findsOneWidget);
-      final sheet = find.byType(Scrollable).last;
-      for (final title in ['Style', 'Text size', 'Fine-tune']) {
+      // A voice is named, not shown as an engine code.
+      expect(find.text('English (UK) · Voice 1'), findsOneWidget);
+      final sheet = find.descendant(
+        of: find.byKey(const Key('reader-settings')),
+        matching: find.byType(Scrollable),
+      ).first;
+      for (final title in ['Style', 'Fine-tune']) {
         await tester.scrollUntilVisible(find.text(title), 200, scrollable: sheet);
         expect(find.text(title), findsOneWidget, reason: title);
       }
+
+      // How the page looks is the other tab.
+      expect(find.text('Text size'), findsNothing);
+      await tester.tap(find.text('Read'));
+      await tester.pumpAndSettle();
+      for (final title in ['Text size', 'Font', 'Line spacing', 'Margins']) {
+        expect(find.text(title), findsOneWidget, reason: title);
+      }
+      expect(find.text('Theme'), findsNothing, reason: 'theme lives in Settings');
+      await finish(tester);
+    });
+
+    testWidgets('picking a voice keeps the list in place and says something', (tester) async {
+      await pumpReader(tester, specimenBook());
+      await tester.tap(find.byTooltip('Listening settings'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Change'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('IN USE'), findsOneWidget);
+      List<String> regions() => [
+            for (final t in tester.widgetList<Text>(find.byType(Text)))
+              if (t.data == 'UK' || t.data == 'US') t.data!,
+          ];
+      expect(regions(), ['UK', 'US']);
+
+      _calls.clear();
+      await tester.tap(find.text('Voice 1').last); // the American one
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(_calls, contains('synthesise'), reason: 'the chosen voice says a line');
+      expect(regions(), ['UK', 'US'], reason: 'choosing does not move it to the top');
+      expect(find.text('English (US) · Voice 1'), findsOneWidget, reason: 'shown as in use');
       await finish(tester);
     });
 
@@ -543,6 +647,236 @@ void main() {
       final layout = await store.loadLayout(entry.id);
       expect(layout.book.metadata.language, 'bn');
       expect(layout.units, hasLength(2));
+    });
+  });
+
+  group('categories', () {
+    test('a library starts with Reading and Later; books can move between them', () async {
+      final store = LibraryStore(_tmp);
+      final f = File('${_tmp.path}/incoming/a.txt')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('A book that will move shelves. It ends.');
+      final e = await store.importFile(PickedFile(path: f.path, name: 'a.txt'));
+      var idx = await store.index();
+      expect(idx.categories.map((c) => c.name), ['Reading', 'Later']);
+      expect(idx.inCategory('reading').map((x) => x.id), [e.id], reason: 'new books go to the default');
+
+      await store.moveBooks({e.id}, 'later');
+      idx = await store.index();
+      expect(idx.inCategory('later').map((x) => x.id), [e.id]);
+      expect(idx.inCategory('reading'), isEmpty);
+    });
+
+    test('categories can be renamed, added and deleted without losing books', () async {
+      final store = LibraryStore(_tmp);
+      final f = File('${_tmp.path}/incoming/b.txt')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('Another book, for the shelf tests. The end.');
+      final e = await store.importFile(PickedFile(path: f.path, name: 'b.txt'));
+      final fav = await store.addCategory('Favourites');
+      await store.moveBooks({e.id}, fav.id);
+
+      var idx = await store.index();
+      await store.saveCategories([
+        for (final c in idx.categories) c.id == 'reading' ? c.renamed('Now reading') : c,
+      ]);
+      idx = await store.index();
+      expect(idx.categories.map((c) => c.name), ['Now reading', 'Later', 'Favourites']);
+
+      // Deleting Favourites puts its book back on the first shelf.
+      await store.saveCategories([for (final c in idx.categories) if (c.id != fav.id) c]);
+      idx = await store.index();
+      expect(idx.categories, hasLength(2));
+      expect(idx.inCategory('reading').map((x) => x.id), [e.id]);
+      expect((await store.list()).single.id, e.id, reason: 'no book is deleted with a category');
+    });
+
+    testWidgets('swiping the shelf moves to the next category', (tester) async {
+      await pumpShelf(tester, secondToLater: true);
+      expect(find.byType(BookCover), findsOneWidget, reason: 'one book left on Reading');
+      expect(find.text('alpha'), findsOneWidget);
+      await tester.fling(find.byType(PageView).first, const Offset(-500, 0), 1500);
+      await tester.pumpAndSettle();
+      expect(find.text('beta'), findsOneWidget, reason: 'Later holds the moved book');
+      await finish(tester);
+    });
+
+    testWidgets('long-press selects books, and Move offers the categories', (tester) async {
+      await pumpShelf(tester);
+      await tester.longPress(find.byType(BookTile).first);
+      await tester.pumpAndSettle();
+      expect(find.text('1 selected'), findsOneWidget);
+      await tester.tap(find.byType(BookTile).last);
+      await tester.pumpAndSettle();
+      expect(find.text('2 selected'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Move to…'));
+      await settleIo(tester, until: () => find.text('New category…').evaluate().isNotEmpty);
+      expect(find.text('Later'), findsWidgets);
+      expect(find.text('New category…'), findsOneWidget);
+      await finish(tester);
+    });
+  });
+
+  group('book page', () {
+    testWidgets('tapping a book shows its chapters, voice and Play', (tester) async {
+      await pumpShelf(tester);
+      await tester.tap(find.text('alpha'));
+      await settleIo(tester, until: () => find.text('Chapter 2').evaluate().isNotEmpty);
+
+      expect(find.byType(BookScreen), findsOneWidget);
+      expect(find.text('Listen'), findsOneWidget);
+      expect(find.text('Read'), findsOneWidget);
+      expect(find.text('VOICE FOR THIS BOOK'), findsOneWidget);
+      expect(find.text('Chapters'), findsOneWidget);
+      expect(find.text('Chapter 1'), findsOneWidget);
+
+      // A chapter opens the reader right there.
+      await tester.tap(find.text('Chapter 2'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ReaderScreen), findsOneWidget);
+      expect(washed(tester), 'Chapter 2');
+      await finish(tester);
+    });
+
+    testWidgets('the cover flies from the shelf to the book page and back', (tester) async {
+      final made = await pumpShelf(tester);
+      final tag = CoverHero.tag(made.first.id);
+      Finder heroes() => find.byWidgetPredicate((w) => w is Hero && w.tag == tag);
+
+      expect(heroes(), findsOneWidget, reason: 'one cover per book on the shelf');
+      await tester.tap(find.text('alpha'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 120));
+      // Mid-flight the cover is drawn above both screens, outside either hero.
+      final flying = find.byType(BookCover).evaluate().where((e) => e.findAncestorWidgetOfExactType<Hero>() == null);
+      expect(flying, isNotEmpty, reason: 'the cover is in flight');
+
+      await settleIo(tester, until: () => find.text('Chapter 2').evaluate().isNotEmpty);
+      expect(find.byType(BookScreen), findsOneWidget);
+      expect(heroes(), findsOneWidget, reason: 'the book page has the one cover under that tag');
+
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      expect(find.byType(BookScreen), findsNothing);
+      expect(find.byType(BookTile), findsNWidgets(2), reason: 'the shelf is back, cover in place');
+      await finish(tester);
+    });
+
+    testWidgets('a book being read waits at the bottom, one tap from playing', (tester) async {
+      await pumpShelf(tester, openFirst: true);
+      expect(find.byType(ContinueDock), findsOneWidget);
+      expect(find.byTooltip('Continue reading aloud'), findsOneWidget);
+      expect(find.textContaining('30%'), findsWidgets);
+      await finish(tester);
+    });
+  });
+
+  group('motion', () {
+    Future<void> pumpChoice(WidgetTester tester, {required bool still}) async {
+      var value = 'One';
+      await tester.pumpWidget(MaterialApp(
+        theme: Skin.themeFor(Palette.forest, Brightness.light),
+        home: Builder(
+          builder: (context) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(disableAnimations: still),
+            child: Scaffold(
+              body: Center(
+                child: SizedBox(
+                  width: 360,
+                  child: StatefulBuilder(
+                    builder: (context, setState) => ChoiceRow<String>(
+                      options: const [('One', 'One'), ('Two', 'Two'), ('Three', 'Three')],
+                      value: value,
+                      onChanged: (v) => setState(() => value = v),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ));
+    }
+
+    double highlight(WidgetTester tester) => tester
+        .getCenter(find.descendant(of: find.byType(AnimatedPositioned), matching: find.byType(DecoratedBox)))
+        .dx;
+
+    testWidgets('a choice slides its highlight to the tapped segment', (tester) async {
+      await pumpChoice(tester, still: false);
+      final from = highlight(tester);
+      expect(from, closeTo(tester.getCenter(find.text('One')).dx, 1));
+
+      await tester.tap(find.text('Three'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 80));
+      final to = tester.getCenter(find.text('Three')).dx;
+      expect(highlight(tester), allOf(greaterThan(from + 1), lessThan(to - 1)), reason: 'on its way');
+      await tester.pumpAndSettle();
+      expect(highlight(tester), closeTo(to, 1));
+    });
+
+    testWidgets('with animations off the highlight moves at once', (tester) async {
+      await pumpChoice(tester, still: true);
+      await tester.tap(find.text('Two'));
+      await tester.pump();
+      expect(highlight(tester), closeTo(tester.getCenter(find.text('Two')).dx, 1));
+    });
+  });
+
+  group('settings', () {
+    testWidgets('has theme, reading, listening and library groups', (tester) async {
+      phone(tester);
+      await tester.pumpWidget(MaterialApp(home: SettingsScreen(store: LibraryStore(_tmp))));
+      await settleIo(tester);
+      final list = find.byType(Scrollable).first;
+      for (final title in ['Theme', 'Text size', 'Speed', 'Categories', 'About TomeVoice']) {
+        await tester.scrollUntilVisible(find.text(title), 300, scrollable: list);
+        expect(find.text(title), findsOneWidget, reason: title);
+      }
+      await finish(tester);
+    });
+
+    testWidgets('a colour theme can be picked; Black and Paper fix the brightness', (tester) async {
+      phone(tester);
+      await tester.pumpWidget(MaterialApp(home: SettingsScreen(store: LibraryStore(_tmp))));
+      await settleIo(tester);
+      for (final name in ['Forest', 'Lavender', 'Ocean', 'Black', 'Paper']) {
+        expect(find.text(name), findsOneWidget, reason: name);
+      }
+      await tester.tap(find.text('Lavender'));
+      await tester.pumpAndSettle();
+      expect(ListeningPrefs.memory.paletteId, 'lavender');
+      expect(Palette.lavender.modeFor(ThemeMode.light), ThemeMode.light);
+      expect(Palette.black.modeFor(ThemeMode.light), ThemeMode.dark);
+      expect(Palette.paper.modeFor(ThemeMode.dark), ThemeMode.light);
+
+      await tester.tap(find.text('Black'));
+      await tester.pumpAndSettle();
+      expect(find.text('Black is always dark.'), findsOneWidget);
+      await finish(tester);
+    });
+
+    test('voices get names people can read', () {
+      final catalog = VoiceCatalog.instance;
+      catalog.voices = [
+        for (final (name, locale) in const [
+          ('en-us-x-iog-local', 'en-US'),
+          ('en-us-x-iol-local', 'en-US'),
+          ('en-us-x-iol-network', 'en-US'),
+          ('en-gb-x-gba-local', 'en-GB'),
+          ('en-us-language', 'en-US'),
+        ])
+          VoiceInfo(name: name, locale: locale, quality: 400, networkRequired: name.endsWith('network'), installed: true),
+      ];
+      String named(String n) => catalog.friendlyName(catalog.byName(n)!);
+      expect(named('en-us-x-iog-local'), 'Voice 1');
+      expect(named('en-us-x-iol-local'), 'Voice 2');
+      expect(named('en-us-x-iol-network'), 'Voice 2', reason: 'the same speaker, online');
+      expect(named('en-gb-x-gba-local'), 'Voice 1', reason: 'counted per region');
+      expect(named('en-us-language'), 'Default voice');
+      catalog.voices = const [];
     });
   });
 }

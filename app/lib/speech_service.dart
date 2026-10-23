@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
@@ -82,6 +83,10 @@ class SpeechService {
   /// continues the scheduler, so this is strictly one at a time.
   static Future<void> _synthBusy = Future<void>.value();
 
+  /// Forget a synthesis still holding the queue (between widget tests).
+  @visibleForTesting
+  static void resetQueue() => _synthBusy = Future<void>.value();
+
   Future<Map<String, Object?>> synthesise({
     required String text,
     String? engineId,
@@ -92,7 +97,10 @@ class SpeechService {
     final previous = _synthBusy;
     final gate = Completer<void>();
     _synthBusy = gate.future;
-    await previous;
+    // Never wait on a call that will not come back (an engine that hung, a
+    // test that ended mid-call): one stuck sentence must not silence every
+    // later one.
+    await previous.timeout(const Duration(seconds: 20), onTimeout: () {});
     try {
       final raw = await _channel.invokeMapMethod<String, Object?>('synthesise', {
         'text': text,
@@ -152,6 +160,54 @@ class SpeechService {
       return await _channel.invokeMethod<bool>('openTtsSettings') ?? false;
     } on Object {
       return false;
+    }
+  }
+
+  /// Open a web page in the browser.
+  Future<bool> openUrl(String url) async {
+    try {
+      return await _channel.invokeMethod<bool>('openUrl', {'url': url}) ?? false;
+    } on Object {
+      return false;
+    }
+  }
+
+  /// Read a NovelDokusha backup zip; the path of the JSON it was turned into.
+  Future<String> readNovelDokushaBackup(String path) async {
+    final out = await _channel.invokeMethod<String>('readNovelDokushaBackup', {'path': path});
+    if (out == null) throw Exception('The backup could not be read');
+    return out;
+  }
+
+  /// The phone's own browser User-Agent, so a site's browser check, passed
+  /// in a web view, also holds for the app's requests. Null without one.
+  Future<String?> webUserAgent() async {
+    try {
+      return await _channel.invokeMethod<String>('webUserAgent');
+    } on Object {
+      return null;
+    }
+  }
+
+  /// Show [url]'s browser check in a web view; the site's cookies once it
+  /// lets the reader in ("a=1; cf_clearance=…"), or null if it did not.
+  Future<String?> browserCheck(String url, String userAgent) async {
+    try {
+      return await _channel.invokeMethod<String>('browserCheck', {'url': url, 'userAgent': userAgent});
+    } on Object {
+      return null;
+    }
+  }
+
+  /// Keep the display awake while a book is open (a reader setting).
+  Future<void> keepScreenOn(bool on) => _quiet('keepScreenOn', {'on': on});
+
+  /// The installed version name, "0.3.0".
+  Future<String?> appVersion() async {
+    try {
+      return await _channel.invokeMethod<String>('appVersion');
+    } on Object {
+      return null;
     }
   }
 
@@ -432,6 +488,27 @@ class RenderedSpeech {
   final int speechFrames;
   final int totalFrames;
   final List<WordTiming> timings;
+}
+
+/// Say [text] once in [voiceName], through the same pipeline as reading, so
+/// a voice sounds in the preview exactly as it will in the book. Completes
+/// when the sample has about finished playing.
+Future<void> speakSample({
+  required String voiceName,
+  required String text,
+  required PipelineSettings settings,
+  String? engineId,
+}) async {
+  const svc = SpeechService();
+  final native = await svc.synthesise(text: text, engineId: engineId, voiceName: voiceName);
+  final r = await renderInBackground(
+    native: native,
+    settings: settings.copyWith(text: text),
+    pauseAfterMs: 0,
+  );
+  await svc.stopPlayback();
+  await svc.enqueue(r.pcm, r.sampleRate);
+  await Future<void>.delayed(Duration(milliseconds: r.totalFrames * 1000 ~/ r.sampleRate));
 }
 
 /// Decode, run the pipeline and encode for the player on a background
