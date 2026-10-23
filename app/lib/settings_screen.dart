@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
@@ -10,6 +11,7 @@ import 'brand.dart';
 import 'categories_screen.dart';
 import 'library_store.dart';
 import 'listen_sheet.dart';
+import 'noveldokusha_import.dart';
 import 'prefs.dart';
 import 'sources/source_engine.dart';
 import 'sources_screen.dart';
@@ -102,6 +104,50 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
       _before?.dispose();
       _before = null;
     });
+  }
+
+  /// Pick a NovelDokusha backup and bring its web novels into the library.
+  Future<void> _importNovelDokusha() async {
+    final List<PickedFile> files;
+    try {
+      files = await _svc.pickDocuments();
+    } on Object catch (e) {
+      if (mounted) showSnack(context, '$e');
+      return;
+    }
+    if (files.isEmpty || !mounted) return;
+    final progress = ValueNotifier<String>('Reading the backup…');
+    unawaited(showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Importing'),
+        content: Row(
+          children: [
+            const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5)),
+            const SizedBox(width: Gap.l),
+            Expanded(child: ValueListenableBuilder<String>(valueListenable: progress, builder: (_, v, __) => Text(v))),
+          ],
+        ),
+      ),
+    ));
+    String message;
+    try {
+      final json = await _svc.readNovelDokushaBackup(files.first.path);
+      final report = await importNovelDokushaJson(widget.store, SourceEngine.instance.store, json,
+          onProgress: (title, done, total) => progress.value = '$title (${done + 1} of $total)');
+      message = report.novels == 0
+          ? 'That backup has no web novels in its library.'
+          : 'Imported ${report.novels} ${report.novels == 1 ? 'novel' : 'novels'} '
+              'with ${report.chapters} downloaded ${report.chapters == 1 ? 'chapter' : 'chapters'}.'
+              '${report.unmatched.isEmpty ? '' : ' Install a source for ${report.unmatched.join(', ')} to get new chapters.'}';
+    } on Object catch (e) {
+      message = e is PlatformException ? (e.message ?? e.code) : '$e';
+    }
+    if (!mounted) return;
+    Navigator.of(context, rootNavigator: true).pop();
+    progress.dispose();
+    showSnack(context, message, long: true);
   }
 
   Timer? _sampleTimer;
@@ -254,6 +300,12 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
                             builder: (_) => SourcesScreen(store: SourceEngine.instance.store),
                           )),
+                        ),
+                        _Link(
+                          icon: Icons.move_to_inbox_outlined,
+                          title: 'Import from NovelDokusha',
+                          subtitle: 'Bring your web novels across from a NovelDokusha backup (.zip)',
+                          onTap: _importNovelDokusha,
                         ),
                         const SizedBox(height: Gap.l),
                         const SectionTitle('Check for new chapters'),

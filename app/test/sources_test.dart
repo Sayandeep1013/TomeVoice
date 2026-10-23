@@ -8,6 +8,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_spike/library_store.dart';
+import 'package:tomevoice_spike/noveldokusha_import.dart';
 import 'package:tomevoice_spike/sources/models.dart';
 import 'package:tomevoice_spike/sources/net.dart';
 import 'package:tomevoice_spike/sources/plugin_host.dart';
@@ -249,5 +250,57 @@ void main() {
     expect(languageCodeOf('Русский'), 'ru');
     expect(languageCodeOf('${String.fromCharCode(0x200E)}العربية'), 'ar');
     expect(languageCodeOf('Klingon'), 'en');
+  });
+
+  test('a NovelDokusha backup brings its novels, downloaded text and place', () async {
+    final dir = Directory.systemTemp.createTempSync('tv_nd');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final json = File('${dir.path}/nd.json')
+      ..writeAsStringSync(jsonEncode({
+        'books': [
+          {
+            'title': 'Lord of Mysteries',
+            'url': 'https://www.example-novels.com/novel/lord-of-mysteries',
+            'completed': false,
+            'lastReadChapter': 'https://www.example-novels.com/novel/lord-of-mysteries/chapter-2',
+            'cover': '',
+            'description': 'Steam and machinery.',
+            'chapters': [
+              {
+                'title': 'Chapter 1 Crimson',
+                'url': 'https://www.example-novels.com/novel/lord-of-mysteries/chapter-1',
+                'read': true,
+                'body': 'Pain! Such a headache!${String.fromCharCode(10) * 2}Zhou Mingrui woke up & looked around.',
+              },
+              {
+                'title': 'Chapter 2 Situation',
+                'url': 'https://www.example-novels.com/novel/lord-of-mysteries/chapter-2',
+                'read': false,
+                'body': null,
+              },
+              {
+                'title': 'Chapter 3 Melissa',
+                'url': 'https://www.example-novels.com/novel/lord-of-mysteries/chapter-3',
+                'read': false,
+                'body': null,
+              },
+            ],
+          },
+        ],
+      }));
+    final store = LibraryStore(dir);
+    final report = await importNovelDokushaJson(store, SourceStore(dir), json.path);
+    expect(report.novels, 1);
+    expect(report.chapters, 1);
+    expect(report.unmatched, ['Lord of Mysteries'], reason: 'no source for that site is installed');
+
+    final e = (await store.list()).single;
+    expect(e.isWeb, isTrue);
+    expect(e.chapterCount, 3);
+    expect(e.novelPath, 'novel/lord-of-mysteries');
+    expect((await store.cursorFor(e.id)).sectionIndex, 1, reason: 'NovelDokusha was on chapter 2');
+    final layout = await store.loadLayout(e.id);
+    expect(layout.units.map((u) => u.text), contains('Zhou Mingrui woke up & looked around.'));
+    expect(json.existsSync(), isFalse, reason: 'the temporary file is cleaned up');
   });
 }

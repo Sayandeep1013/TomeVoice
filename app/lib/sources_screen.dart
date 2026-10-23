@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'sources/models.dart';
+import 'sources/net.dart';
 import 'sources/source_store.dart';
 import 'theme.dart';
 import 'ui.dart';
@@ -112,10 +113,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
     await _load();
   }
 
-  static String _message(Object e) {
-    final s = '$e';
-    return s.startsWith('FormatException: ') ? s.substring(17) : s;
-  }
+  static String _message(Object e) => friendlyError(e);
 
   @override
   Widget build(BuildContext context) {

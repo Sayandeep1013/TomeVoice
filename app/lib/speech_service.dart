@@ -172,6 +172,13 @@ class SpeechService {
     }
   }
 
+  /// Read a NovelDokusha backup zip; the path of the JSON it was turned into.
+  Future<String> readNovelDokushaBackup(String path) async {
+    final out = await _channel.invokeMethod<String>('readNovelDokushaBackup', {'path': path});
+    if (out == null) throw Exception('The backup could not be read');
+    return out;
+  }
+
   /// Keep the display awake while a book is open (a reader setting).
   Future<void> keepScreenOn(bool on) => _quiet('keepScreenOn', {'on': on});
 

@@ -186,6 +186,19 @@ class MainActivity : FlutterActivity() {
                         result.success(false)
                     }
                 }
+                "readNovelDokushaBackup" -> {
+                    val path = call.argument<String>("path").orEmpty()
+                    // Its own thread: a backup can be large, and the shared
+                    // executors serve speech and PDF pages.
+                    Thread {
+                        try {
+                            val out = NovelDokushaImport.read(path, cacheDir)
+                            main.post { result.success(out) }
+                        } catch (e: Throwable) {
+                            main.post { result.error("ND_IMPORT", e.message ?: "Cannot read that backup", null) }
+                        }
+                    }.start()
+                }
                 "keepScreenOn" -> {
                     if (call.argument<Boolean>("on") == true) {
                         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
