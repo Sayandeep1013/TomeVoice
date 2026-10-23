@@ -294,7 +294,7 @@ Future<bool> _costs(BuildContext context, {required String title, int? size}) as
               ),
               const SizedBox(height: Gap.m),
               for (final line in [
-                size == null ? 'A download of 34 to 55 MB for each voice' : 'A download of $size MB, kept on the phone',
+                size == null ? 'A download of 64 to 110 MB for each voice' : 'A download of $size MB, kept on the phone',
                 'More battery while reading aloud than the phone\'s own voices',
                 'Up to a few hundred MB of memory while a voice is reading',
                 'On older or slower phones the voice can fall behind, with pauses between sentences',

@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
 
-import 'package:archive/archive.dart';
+import 'package:archive/archive_io.dart';
 import 'package:flutter/foundation.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
@@ -25,8 +25,10 @@ class NeuralVoice {
   /// The name voices go by in the app (see [neuralPrefix]).
   String get voiceName => '$neuralPrefix$id';
 
-  String get url =>
-      'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-$id-fp16.tar.bz2';
+  /// The full-precision model. The half-size (fp16) ones crash the engine on
+  /// phones: ONNX Runtime has no fp16 kernel for one of their layers on CPU
+  /// (found on the phone).
+  String get url => 'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-$id.tar.bz2';
 }
 
 /// Voice names that start with this are TomeVoice's own, not the phone's.
@@ -34,16 +36,15 @@ const neuralPrefix = 'neural:';
 
 bool isNeural(String? voiceName) => voiceName?.startsWith(neuralPrefix) ?? false;
 
-/// The voices on offer: English for now, half-size (fp16) models, which
-/// sound the same as the full ones.
+/// The voices on offer: English for now.
 const neuralVoices = [
-  NeuralVoice('en_US-kristin-medium', 'Kristin', 'en-US', 34, blurb: 'Warm and clear'),
-  NeuralVoice('en_US-norman-medium', 'Norman', 'en-US', 34, blurb: 'Calm, a little deep'),
-  NeuralVoice('en_GB-alan-medium', 'Alan', 'en-GB', 34, blurb: 'Steady British reader'),
-  NeuralVoice('en_GB-jenny_dioco-medium', 'Jenny', 'en-GB', 34, blurb: 'Bright British voice'),
-  NeuralVoice('en_GB-cori-medium', 'Cori', 'en-GB', 34, blurb: 'Soft and expressive'),
-  NeuralVoice('en_US-lessac-high', 'Lessac', 'en-US', 55, hd: true, blurb: 'The richest, needs a faster phone'),
-  NeuralVoice('en_US-ryan-high', 'Ryan', 'en-US', 55, hd: true, blurb: 'Deep and full, needs a faster phone'),
+  NeuralVoice('en_US-kristin-medium', 'Kristin', 'en-US', 64, blurb: 'Warm and clear'),
+  NeuralVoice('en_US-norman-medium', 'Norman', 'en-US', 64, blurb: 'Calm, a little deep'),
+  NeuralVoice('en_GB-alan-medium', 'Alan', 'en-GB', 64, blurb: 'Steady British reader'),
+  NeuralVoice('en_GB-jenny_dioco-medium', 'Jenny', 'en-GB', 64, blurb: 'Bright British voice'),
+  NeuralVoice('en_GB-cori-medium', 'Cori', 'en-GB', 64, blurb: 'Soft and expressive'),
+  NeuralVoice('en_US-lessac-high', 'Lessac', 'en-US', 110, hd: true, blurb: 'The richest, needs a faster phone'),
+  NeuralVoice('en_US-ryan-high', 'Ryan', 'en-US', 110, hd: true, blurb: 'Deep and full, needs a faster phone'),
 ];
 
 NeuralVoice? neuralVoiceFor(String? voiceName) {
@@ -67,9 +68,21 @@ class NeuralVoices extends ChangeNotifier {
 
   void attach(Directory root) {
     _dir = Directory('${root.path}/voices');
+    // Folders from an earlier format (the fp16 models, which crash the
+    // engine) or an unfinished unpacking are not voices: clear them.
+    try {
+      for (final e in dir.listSync()) {
+        final name = e.uri.pathSegments.where((s) => s.isNotEmpty).last;
+        if (!name.startsWith('piper-') || name.endsWith('.unpacking')) {
+          e.deleteSync(recursive: true);
+        }
+      }
+    } on Object {
+      // No voices folder yet.
+    }
   }
 
-  Directory folder(NeuralVoice v) => Directory('${dir.path}/${v.id}');
+  Directory folder(NeuralVoice v) => Directory('${dir.path}/piper-${v.id}');
 
   bool installed(NeuralVoice v) => File('${folder(v).path}/${v.id}.onnx').existsSync();
 
@@ -144,22 +157,40 @@ class NeuralVoices extends ChangeNotifier {
 }
 
 /// Unpack the archive at [archive] into [into], dropping its top folder.
+/// Streamed through files (the bz2 to a plain tar beside it, then each file
+/// out of that), so memory stays small however large the voice: reading it
+/// whole took about four times its size.
 void _unpack(String archive, String into) {
-  final tar = TarDecoder().decodeBytes(BZip2Decoder().decodeBytes(File(archive).readAsBytesSync()));
-  final out = Directory(into)..createSync(recursive: true);
-  for (final f in tar.files) {
-    final parts = f.name.split('/');
-    if (parts.length < 2 || parts.sublist(1).join('/').isEmpty) continue;
-    final rel = parts.sublist(1).join('/');
-    if (rel.contains('..')) continue;
-    final path = '${out.path}/$rel';
-    if (f.isFile) {
-      File(path)
-        ..createSync(recursive: true)
-        ..writeAsBytesSync(f.content as List<int>);
-    } else {
-      Directory(path).createSync(recursive: true);
+  final tarPath = '$archive.tar';
+  final work = Directory('$into.unpacking');
+  try {
+    final input = InputFileStream(archive);
+    final plain = OutputFileStream(tarPath);
+    BZip2Decoder().decodeStream(input, plain);
+    input.closeSync();
+    plain.closeSync();
+    if (work.existsSync()) work.deleteSync(recursive: true);
+    final tarIn = InputFileStream(tarPath);
+    try {
+      for (final f in TarDecoder().decodeStream(tarIn)) {
+        final parts = f.name.split('/');
+        final rel = parts.skip(1).join('/');
+        if (!f.isFile || rel.isEmpty || parts.contains('..')) continue;
+        final path = '${work.path}/$rel';
+        File(path).parent.createSync(recursive: true);
+        final out = OutputFileStream(path);
+        f.writeContent(out);
+        out.closeSync();
+      }
+    } finally {
+      tarIn.closeSync();
     }
+    final out = Directory(into);
+    if (out.existsSync()) out.deleteSync(recursive: true);
+    work.renameSync(out.path);
+  } finally {
+    if (File(tarPath).existsSync()) File(tarPath).deleteSync();
+    if (work.existsSync()) work.deleteSync(recursive: true);
   }
 }
 
