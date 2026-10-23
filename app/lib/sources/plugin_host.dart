@@ -42,6 +42,15 @@ class SourceException implements Exception {
   String toString() => message;
 }
 
+/// The site answered with a browser check (Cloudflare) instead of itself.
+/// Passing it once in a web view ([url]) lets the requests through.
+class ChallengeException extends SourceException {
+  ChallengeException(this.url)
+      : super('${Uri.tryParse(url)?.host ?? 'The site'} wants a quick browser check first.');
+
+  final String url;
+}
+
 /// Runs LNReader source plugins in one [JsRuntime]: the libraries they use
 /// (lnreader_libs.js), the host that hands them `require` (lnreader_shim.js),
 /// and the plugins themselves, each loaded once and kept.
@@ -58,6 +67,9 @@ class PluginHost {
   final String sourcesDir;
 
   final _loaded = <String, String>{};
+
+  /// Addresses that answered with a browser check, newest last.
+  final _challenged = <String>[];
   final _meta = <String, Map<String, Object?>>{};
   bool _ready = false;
 
@@ -84,16 +96,27 @@ class PluginHost {
   }
 
   /// Call [method] on plugin [id] with [args]; the result, decoded from JSON.
+  ///
+  /// When a request on the way met a browser check, throws
+  /// [ChallengeException]: whatever the plugin made of that page is wrong.
   Future<Object?> call(String id, String method, List<Object?> args, {Duration? timeout}) async {
+    final checks = _challenged.length;
+    void challenged() {
+      if (_challenged.length > checks) throw ChallengeException(_challenged.last);
+    }
+
     try {
       final out = await rt.evalAsync(
         '__tvCall(${jsonEncode(id)}, ${jsonEncode(method)}, ${jsonEncode(jsonEncode(args))})',
         timeout: timeout ?? const Duration(seconds: 90),
       );
+      challenged();
       return jsonDecode(out);
     } on TimeoutException {
+      challenged();
       throw SourceException('The site took too long to answer.');
     } on JsException catch (e) {
+      challenged();
       throw SourceException(_clean(e.message));
     }
   }
@@ -132,6 +155,7 @@ class PluginHost {
         headers: headers,
         body: req['body'] as String?,
       );
+      if (r.isChallenge) _challenged.add(url);
       return jsonEncode({
         'status': r.status,
         'statusText': '',

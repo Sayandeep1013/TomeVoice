@@ -11,6 +11,7 @@ import 'library_screen.dart';
 import 'library_store.dart';
 import 'prefs.dart';
 import 'settings_screen.dart';
+import 'sources/net.dart';
 import 'sources/source_engine.dart';
 import 'sources/source_store.dart';
 import 'sources_screen.dart';
@@ -48,6 +49,9 @@ class _HomeShellState extends State<HomeShell> {
       final dir = await const SpeechService().outputDir();
       if (dir == null) throw const FileSystemException('No storage');
       await ListeningPrefs.load(dir);
+      // Sources ask as the phone's own browser does (see Net.userAgent).
+      final agent = await const SpeechService().webUserAgent();
+      if (agent != null && agent.isNotEmpty) Net.userAgent = agent;
       final sources = SourceStore(Directory(dir));
       await sources.ensure();
       SourceEngine.instance.attach(sources);

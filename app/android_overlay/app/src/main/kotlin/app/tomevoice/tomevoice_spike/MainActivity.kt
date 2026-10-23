@@ -207,6 +207,27 @@ class MainActivity : FlutterActivity() {
                     }
                     result.success(null)
                 }
+                "webUserAgent" -> {
+                    try {
+                        result.success(BrowserCheck.userAgent(this))
+                    } catch (e: Exception) {
+                        // No WebView installed: the built-in agent stays.
+                        result.success(null)
+                    }
+                }
+                "browserCheck" -> {
+                    val url = call.argument<String>("url")
+                    val agent = call.argument<String>("userAgent")
+                    if (url == null || agent == null) {
+                        result.success(null)
+                    } else {
+                        try {
+                            BrowserCheck.open(this, url, agent) { jar -> result.success(jar) }
+                        } catch (e: Exception) {
+                            result.error("BROWSER_CHECK", e.message ?: "No web view on this phone", null)
+                        }
+                    }
+                }
                 "appVersion" -> {
                     try {
                         @Suppress("DEPRECATION")

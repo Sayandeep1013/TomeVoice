@@ -129,7 +129,8 @@
           var s = call('get', [key]);
           if (s == null || s === '') return undefined;
           var item = JSON.parse(s);
-          if (item && item.expires && Date.now() > item.expires) { call('delete', [key]); return undefined; }
+          if (item == null) return undefined;
+          if (item.expires && Date.now() > item.expires) { call('delete', [key]); return undefined; }
           return raw ? item : item.value;
         },
         set: function (key, value, expires) {

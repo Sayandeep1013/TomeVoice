@@ -116,6 +116,26 @@ class _ChoiceRowState<T> extends State<ChoiceRow<T>> {
   /// speed between presets) it fades out where it was instead of jumping.
   int _last = 0;
 
+  /// For a row that scrolls: brings the chosen segment into view.
+  final _scroll = ScrollController();
+  int? _shown;
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _reveal(int index, double left, double width, double viewport) {
+    if (_shown == index) return;
+    _shown = index;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      final target = (left - (viewport - width) / 2).clamp(0.0, _scroll.position.maxScrollExtent);
+      _scroll.animateTo(target, duration: Motion.of(context, Motion.standard), curve: Motion.emphasized);
+    });
+  }
+
   @override
   Widget build(BuildContext context) => LayoutBuilder(
         builder: (context, c) {
@@ -183,6 +203,7 @@ class _ChoiceRowState<T> extends State<ChoiceRow<T>> {
             ),
           );
           if (fits) return track;
+          if (selected >= 0) _reveal(selected, left, spans[at], c.maxWidth);
           // Too many to fit: the row scrolls, and fades at the edge so it is
           // plainly more than what shows.
           return ShaderMask(
@@ -191,7 +212,7 @@ class _ChoiceRowState<T> extends State<ChoiceRow<T>> {
               colors: [Colors.black, Colors.black, Colors.transparent],
               stops: [0, 0.88, 1],
             ).createShader(rect),
-            child: SingleChildScrollView(scrollDirection: Axis.horizontal, child: track),
+            child: SingleChildScrollView(controller: _scroll, scrollDirection: Axis.horizontal, child: track),
           );
         },
       );

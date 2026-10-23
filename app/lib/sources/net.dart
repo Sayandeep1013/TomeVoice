@@ -61,32 +61,55 @@ class Net {
   static final instance = Net._();
 
   /// A current Chrome on Android. Many novel sites refuse unknown agents.
-  static const userAgent =
+  static const fallbackUserAgent =
       'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) '
       'Chrome/129.0.0.0 Mobile Safari/537.36';
 
+  /// The agent every request sends. Set at launch to the phone's own web
+  /// view's, so a browser check passed there holds here too.
+  static String userAgent = fallbackUserAgent;
+
   final _client = HttpClient()
-    ..userAgent = userAgent
     ..connectionTimeout = const Duration(seconds: 20)
     ..autoUncompress = true;
 
   /// host -> cookie name -> value.
   final _cookies = <String, Map<String, String>>{};
   File? _cookieFile;
+  DateTime? _cookieStamp;
 
   /// Keep cookies in [dir] across launches.
   Future<void> attach(Directory dir) async {
-    final f = File('${dir.path}/cookies.json');
-    _cookieFile = f;
+    _cookieFile = File('${dir.path}/cookies.json');
+    await _loadCookies();
+  }
+
+  Future<void> _loadCookies() async {
+    final f = _cookieFile;
+    if (f == null) return;
     try {
       if (await f.exists()) {
+        _cookieStamp = await f.lastModified();
         final raw = jsonDecode(await f.readAsString()) as Map;
         for (final e in raw.entries) {
-          _cookies[e.key as String] = Map<String, String>.from(e.value as Map);
+          (_cookies[e.key as String] ??= {}).addAll(Map<String, String>.from(e.value as Map));
         }
       }
     } on Object {
       // A broken cookie file only costs a fresh login.
+    }
+  }
+
+  /// Pick up cookies another isolate saved since (a browser check passed on
+  /// the main one, while sources run in workers).
+  Future<void> refreshCookies() async {
+    final f = _cookieFile;
+    if (f == null) return;
+    try {
+      final stamp = await f.lastModified();
+      if (_cookieStamp == null || stamp.isAfter(_cookieStamp!)) await _loadCookies();
+    } on FileSystemException {
+      // Not written yet.
     }
   }
 
@@ -98,6 +121,7 @@ class Net {
     if (f == null) return;
     try {
       await f.writeAsString(jsonEncode(_cookies));
+      _cookieStamp = await f.lastModified();
     } on Object {
       // Next request saves again.
     }
@@ -144,6 +168,7 @@ class Net {
     for (var hop = 0; hop < 8; hop++) {
       final req = await _client.openUrl(method, uri).timeout(timeout);
       req.followRedirects = false;
+      req.headers.set(HttpHeaders.userAgentHeader, userAgent);
       final cookie = cookieHeader(uri.host);
       if (cookie != null) req.headers.set(HttpHeaders.cookieHeader, cookie);
       req.headers.set(HttpHeaders.acceptLanguageHeader, 'en-US,en;q=0.9');

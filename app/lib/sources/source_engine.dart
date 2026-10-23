@@ -122,7 +122,9 @@ class _Worker {
       if (m is! Map) return;
       final c = _pending.remove(m['id']);
       if (c == null) return;
-      if (m.containsKey('err')) {
+      if (m['challenge'] is String) {
+        c.completeError(ChallengeException(m['challenge'] as String));
+      } else if (m.containsKey('err')) {
         c.completeError(SourceException(m['err'] as String));
       } else {
         c.complete(m['ok']);
@@ -144,7 +146,7 @@ class _Worker {
     init.listen((m) {
       if (m is SendPort && !ready.isCompleted) ready.complete(m);
     });
-    await Isolate.spawn(_main, [init.sendPort, receive.sendPort, libs, shim, sourcesDir],
+    await Isolate.spawn(_main, [init.sendPort, receive.sendPort, libs, shim, sourcesDir, Net.userAgent],
         debugName: 'source-worker');
     final send = await ready.future;
     init.close();
@@ -172,6 +174,7 @@ class _Worker {
     final requests = ReceivePort();
     init.send(requests.sendPort);
     final dir = boot[4] as String;
+    Net.userAgent = boot[5] as String;
     await Net.instance.attachPath(dir);
     final host = PluginHost(createJsRuntime(), libs: boot[2] as String, shim: boot[3] as String, sourcesDir: dir);
     await for (final m in requests) {
@@ -179,9 +182,12 @@ class _Worker {
       final id = m['id'];
       unawaited(() async {
         try {
+          await Net.instance.refreshCookies();
           host.ensure(m['plugin'] as String, m['version'] as String, m['code'] as String);
           final out = await host.call(m['plugin'] as String, m['method'] as String, (m['args'] as List).cast<Object?>());
           reply.send({'id': id, 'ok': out});
+        } on ChallengeException catch (e) {
+          reply.send({'id': id, 'err': e.message, 'challenge': e.url});
         } on SourceException catch (e) {
           reply.send({'id': id, 'err': e.message});
         } on JsException catch (e) {

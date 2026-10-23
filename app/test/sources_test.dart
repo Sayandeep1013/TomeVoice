@@ -65,7 +65,13 @@ Future<HttpServer> _site() async {
   server.listen((req) async {
     final path = req.uri.path;
     final res = req.response;
-    if (path == '/search') {
+    if (path == '/search' && req.uri.queryParameters['q'] == 'blocked') {
+      // Cloudflare's "Just a moment…" page.
+      res.statusCode = 403;
+      res.headers.set('cf-mitigated', 'challenge');
+      res.headers.contentType = ContentType.html;
+      res.write('<title>Just a moment...</title>');
+    } else if (path == '/search') {
       final q = req.uri.queryParameters['q'] ?? '';
       res.headers.contentType = ContentType.html;
       res.write('<ul><li class="novel"><a href="novel/1">Fake $q One</a><img src="/c1.jpg"></li>'
@@ -141,6 +147,12 @@ void main() {
     await expectLater(
       host.call('fake', 'parseChapter', ['ch/9']),
       throwsA(isA<SourceException>().having((e) => e.message, 'message', contains('Could not reach site'))),
+    );
+
+    // A browser check is reported as one, with its address, not as "nothing found".
+    await expectLater(
+      host.call('fake', 'searchNovels', ['blocked', 1]),
+      throwsA(isA<ChallengeException>().having((e) => e.url, 'url', contains('/search?q=blocked'))),
     );
 
     // Storage persisted to the plugin's file.

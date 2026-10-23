@@ -179,6 +179,26 @@ class SpeechService {
     return out;
   }
 
+  /// The phone's own browser User-Agent, so a site's browser check, passed
+  /// in a web view, also holds for the app's requests. Null without one.
+  Future<String?> webUserAgent() async {
+    try {
+      return await _channel.invokeMethod<String>('webUserAgent');
+    } on Object {
+      return null;
+    }
+  }
+
+  /// Show [url]'s browser check in a web view; the site's cookies once it
+  /// lets the reader in ("a=1; cf_clearance=…"), or null if it did not.
+  Future<String?> browserCheck(String url, String userAgent) async {
+    try {
+      return await _channel.invokeMethod<String>('browserCheck', {'url': url, 'userAgent': userAgent});
+    } on Object {
+      return null;
+    }
+  }
+
   /// Keep the display awake while a book is open (a reader setting).
   Future<void> keepScreenOn(bool on) => _quiet('keepScreenOn', {'on': on});
 

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
+import 'browser_check.dart';
 import 'library_store.dart';
 import 'reader_screen.dart';
 import 'sources/plugin_host.dart';
@@ -70,7 +71,7 @@ class _WebNovelReaderState extends State<WebNovelReader> {
   int _generation = 0;
   int _total = 0;
   String? _status;
-  String? _error;
+  Object? _error;
   bool _prefetching = false;
 
   @override
@@ -108,7 +109,7 @@ class _WebNovelReaderState extends State<WebNovelReader> {
         _status = null;
       });
     } on Object catch (e) {
-      if (mounted) setState(() => _error = '$e');
+      if (mounted) setState(() => _error = e);
     }
   }
 
@@ -199,14 +200,10 @@ class _WebNovelReaderState extends State<WebNovelReader> {
               Expanded(
                 child: Center(
                   child: _error != null
-                      ? EmptyState(
-                          icon: Icons.cloud_off_rounded,
+                      ? SourceProblem(
+                          error: _error!,
                           title: 'Could not open this chapter',
-                          body: _error!,
-                          action: FilledButton(
-                            onPressed: () => _open(widget.startChapter, autoplay: widget.autoplay),
-                            child: const Text('Try again'),
-                          ),
+                          onRetry: () => _open(widget.startChapter, autoplay: widget.autoplay),
                         )
                       : Column(
                           mainAxisSize: MainAxisSize.min,

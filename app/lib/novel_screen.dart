@@ -5,6 +5,7 @@ import 'package:tomevoice_document/tomevoice_document.dart' show SourceKind;
 
 import 'book_actions.dart';
 import 'book_card.dart';
+import 'browser_check.dart';
 import 'library_store.dart';
 import 'sources/models.dart';
 import 'sources/net.dart';
@@ -58,7 +59,7 @@ class _NovelScreenState extends State<NovelScreen> {
   LibraryEntry? _entry;
   Set<int> _downloaded = const {};
   int _current = -1;
-  String? _error;
+  Object? _error;
   bool _loading = true;
   bool _newestFirst = false;
   bool _blurbOpen = false;
@@ -117,7 +118,7 @@ class _NovelScreenState extends State<NovelScreen> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        if (stored == null) _error = '$e';
+        if (stored == null) _error = e;
       });
     }
   }
@@ -271,17 +272,10 @@ class _NovelScreenState extends State<NovelScreen> {
                   SliverPadding(
                     padding: const EdgeInsets.all(Gap.page),
                     sliver: SliverToBoxAdapter(
-                      child: EmptyState(
-                        icon: Icons.cloud_off_rounded,
-                        title: 'The site did not answer',
-                        body: _error!,
-                        action: Wrap(
-                          spacing: Gap.s,
-                          children: [
-                            FilledButton(onPressed: _load, child: const Text('Try again')),
-                            OutlinedButton(onPressed: _openInBrowser, child: const Text('Open in browser')),
-                          ],
-                        ),
+                      child: SourceProblem(
+                        error: _error!,
+                        onRetry: _load,
+                        more: OutlinedButton(onPressed: _openInBrowser, child: const Text('Open in browser')),
                       ),
                     ),
                   )
@@ -547,12 +541,16 @@ class NetworkCover extends StatelessWidget {
     required this.title,
     required this.width,
     this.referer,
+    this.titled = true,
   });
 
   final String? url;
   final String title;
   final double width;
   final String? referer;
+
+  /// As [BookCover.titled]: tiles with their own title band say false.
+  final bool titled;
 
   @override
   Widget build(BuildContext context) {
@@ -567,6 +565,7 @@ class NetworkCover extends StatelessWidget {
         addedAt: DateTime.fromMillisecondsSinceEpoch(0),
       ),
       width: width,
+      titled: titled,
     );
     final u = url;
     if (u == null || !u.startsWith('http')) return fallback;
@@ -585,7 +584,11 @@ class NetworkCover extends StatelessWidget {
         u,
         fit: BoxFit.cover,
         cacheWidth: (width * dpr).round(),
-        headers: {'User-Agent': Net.userAgent, if (referer != null) 'Referer': referer!},
+        headers: {
+          'User-Agent': Net.userAgent,
+          if (referer != null) 'Referer': referer!,
+          if (Net.instance.cookieHeader(Uri.parse(u).host) case final cookie?) 'Cookie': cookie,
+        },
         errorBuilder: (_, __, ___) => fallback,
         loadingBuilder: (context, child, progress) => progress == null ? child : fallback,
       ),

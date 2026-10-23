@@ -30,7 +30,16 @@ class _SourcesScreenState extends State<SourcesScreen> {
   String _query = '';
   final _busy = <String>{};
 
+  /// Held here so the search survives the list above it growing.
+  final _search = TextEditingController();
+
   SourceStore get _store => widget.store;
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -193,7 +202,17 @@ class _SourcesScreenState extends State<SourcesScreen> {
                         _section('Available', note: '${_available.length - installedIds.length}'),
                         Padding(
                           padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
-                          child: SearchField(hint: 'Find a source', onChanged: (v) => setState(() => _query = v)),
+                          child: SearchField(
+                            hint: 'Find a source',
+                            controller: _search,
+                            onChanged: (v) => setState(() => _query = v),
+                            onClear: _query.isEmpty
+                                ? null
+                                : () => setState(() {
+                                      _search.clear();
+                                      _query = '';
+                                    }),
+                          ),
                         ),
                         if (q.isEmpty && langs.length > 1)
                           Padding(
@@ -201,7 +220,6 @@ class _SourcesScreenState extends State<SourcesScreen> {
                             child: ChoiceRow<String>(
                               options: [for (final l in langs) (l, l.replaceAll(String.fromCharCode(0x200E), ''))],
                               value: _language ?? langs.first,
-                              minSegment: 400,
                               onChanged: (l) => setState(() => _language = l),
                             ),
                           ),

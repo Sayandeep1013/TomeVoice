@@ -8,9 +8,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_spike/browse_screen.dart';
+import 'package:tomevoice_spike/browser_check.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/novel_screen.dart';
 import 'package:tomevoice_spike/sources/models.dart';
+import 'package:tomevoice_spike/sources/net.dart';
+import 'package:tomevoice_spike/sources/plugin_host.dart';
 import 'package:tomevoice_spike/sources/source_store.dart';
 import 'package:tomevoice_spike/sources_screen.dart';
 
@@ -106,5 +109,32 @@ void main() {
     final last = tester.getTopLeft(find.text('Chapter 1')).dy;
     expect(first, lessThan(last));
     await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets("a site's browser check opens, and its cookies are kept for the retry", (tester) async {
+    phone(tester);
+    final asked = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(_channel, (call) async {
+      asked.add(call);
+      return call.method == 'browserCheck' ? 'cf_clearance=abc; theme=dark' : null;
+    });
+    var retried = 0;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SourceProblem(
+          error: ChallengeException('https://www.royalroad.com/fictions/search?title=x'),
+          onRetry: () => retried++,
+        ),
+      ),
+    ));
+    expect(find.text('A quick check first'), findsOneWidget);
+    expect(find.textContaining('www.royalroad.com wants a quick browser check'), findsOneWidget);
+    await tester.tap(find.text('Open the check'));
+    await tester.pumpAndSettle();
+    final check = asked.singleWhere((c) => c.method == 'browserCheck');
+    expect((check.arguments as Map)['userAgent'], Net.userAgent);
+    expect(retried, 1);
+    expect(Net.instance.cookieHeader('www.royalroad.com'), contains('cf_clearance=abc'));
+    await Net.instance.clearCookies();
   });
 }

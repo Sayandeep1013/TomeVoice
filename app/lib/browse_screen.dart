@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'browser_check.dart';
 import 'library_store.dart';
 import 'novel_screen.dart';
 import 'sources/models.dart';
@@ -28,7 +29,7 @@ class _Results {
   _Results(this.plugin);
   final PluginInfo plugin;
   List<NovelItem>? items;
-  String? error;
+  Object? error;
   bool get done => items != null || error != null;
 }
 
@@ -81,16 +82,31 @@ class _BrowseScreenState extends State<BrowseScreen> {
     Future<void> worker() async {
       while (next < results.length && run == _searchRun) {
         final r = results[next++];
-        try {
-          r.items = await SourceEngine.instance.search(r.plugin, query, 1);
-        } on Object catch (e) {
-          r.error = '$e';
-        }
+        await _ask(r);
         if (mounted && run == _searchRun) setState(() {});
       }
     }
 
     await Future.wait([for (var i = 0; i < 4; i++) worker()]);
+  }
+
+  Future<void> _ask(_Results r) async {
+    try {
+      r.items = await SourceEngine.instance.search(r.plugin, _query, 1);
+    } on Object catch (e) {
+      r.error = e;
+    }
+  }
+
+  /// One source again, after its browser check.
+  Future<void> _retry(_Results r) async {
+    final run = _searchRun;
+    setState(() {
+      r.items = null;
+      r.error = null;
+    });
+    await _ask(r);
+    if (mounted && run == _searchRun) setState(() {});
   }
 
   void _openSources() => Navigator.of(context).push(MaterialPageRoute<void>(
@@ -258,15 +274,17 @@ class _BrowseScreenState extends State<BrowseScreen> {
                   onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
                     builder: (_) => SourceScreen(store: widget.store, plugin: r.plugin, initialQuery: _query),
                   )),
-                ),
+                )
+              else
+                // Where the arrow would be, so the counts line up.
+                const SizedBox(width: 48),
             ],
           ),
         ),
         if (r.error != null)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: Gap.page),
-            child: Text(r.error!, maxLines: 2, overflow: TextOverflow.ellipsis,
-                style: Skin.label(context, size: 13, color: Skin.inkFaintOn(context))),
+            child: SourceProblemLine(error: r.error!, onRetry: () => _retry(r)),
           )
         else if (items != null && items.isEmpty)
           Padding(
@@ -317,7 +335,7 @@ class _SourceScreenState extends State<SourceScreen> {
   int _page = 0;
   bool _loading = false;
   bool _end = false;
-  String? _error;
+  Object? _error;
   int _run = 0;
 
   @override
@@ -364,7 +382,7 @@ class _SourceScreenState extends State<SourceScreen> {
         _end = fresh.isEmpty;
       });
     } on Object catch (e) {
-      if (mounted && run == _run) setState(() => _error = '$e');
+      if (mounted && run == _run) setState(() => _error = e);
     } finally {
       if (mounted && run == _run) setState(() => _loading = false);
     }
@@ -452,12 +470,7 @@ class _SourceScreenState extends State<SourceScreen> {
                           child: _loading
                               ? const Center(child: CircularProgressIndicator())
                               : _error != null
-                                  ? EmptyState(
-                                      icon: Icons.cloud_off_rounded,
-                                      title: 'The site did not answer',
-                                      body: _error!,
-                                      action: FilledButton(onPressed: _reset, child: const Text('Try again')),
-                                    )
+                                  ? SourceProblem(error: _error!, onRetry: _reset)
                                   : _items.isEmpty
                                       ? Text('Nothing here.', textAlign: TextAlign.center, style: Skin.label(context))
                                       : const SizedBox.shrink(),
@@ -498,7 +511,7 @@ class RemoteNovelTile extends StatelessWidget {
                 children: [
                   FittedBox(
                     fit: BoxFit.cover,
-                    child: NetworkCover(url: item.cover, title: item.name, width: c.maxWidth, referer: referer),
+                    child: NetworkCover(url: item.cover, title: item.name, width: c.maxWidth, referer: referer, titled: false),
                   ),
                   Positioned(
                     left: 0,
