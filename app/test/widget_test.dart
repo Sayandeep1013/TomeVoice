@@ -340,6 +340,7 @@ void main() {
       final before = MarkStore.instance.all.length;
       await tester.longPress(find.textContaining('Pack my box').first);
       await tester.pumpAndSettle();
+      expect(find.text('Read from here'), findsOneWidget);
       expect(find.text('Save as a quote'), findsOneWidget);
       expect(find.text('Bookmark here'), findsOneWidget);
       expect(find.textContaining('Fix how'), findsOneWidget);

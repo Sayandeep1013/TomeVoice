@@ -34,6 +34,19 @@ void main() {
     expect(identical(resample(second, 22050, 22050), second), isTrue);
   });
 
+  test('a sentence at another rate joins the stream at its rate, not a new one', () {
+    // A second of 16-bit PCM at 24000 Hz (a phone voice) after a natural
+    // voice at 22050: converted, so the player is not restarted.
+    final pcm = Int16List.fromList([for (var i = 0; i < 24000; i++) (math.sin(i / 10) * 20000).round()]);
+    final out = resamplePcm16(pcm.buffer.asUint8List(), 24000, 22050);
+    expect(out.lengthInBytes, 22050 * 2);
+    final back = Int16List.view(out.buffer, out.offsetInBytes, out.lengthInBytes ~/ 2);
+    expect(back.reduce(math.max), closeTo(20000, 300));
+    // An odd offset (a slice of a larger buffer) still works.
+    final odd = Uint8List(pcm.lengthInBytes + 1)..setRange(1, pcm.lengthInBytes + 1, pcm.buffer.asUint8List());
+    expect(resamplePcm16(Uint8List.sublistView(odd, 1), 24000, 22050).lengthInBytes, 22050 * 2);
+  });
+
   test('a natural voice writes the WAV the pipeline reads', () {
     final samples = Float32List.fromList([0, 0.5, -0.5, 1, -1, 0.25]);
     final decoded = WavCodec.decode(wavBytes(samples, 22050));

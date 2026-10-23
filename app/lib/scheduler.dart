@@ -93,6 +93,11 @@ class PlaybackScheduler {
   final _chunks = <_Chunk>[];
   int _next = 0;
   int _rate = 24000;
+
+  /// The rate of the audio stream since the last start. A sentence at
+  /// another rate (a second voice from another engine) is converted to it:
+  /// a new rate would restart the player, dropping what is queued.
+  int? _streamRate;
   int _position = 0;
   bool _fillDone = false;
   bool _ticking = false;
@@ -149,6 +154,7 @@ class PlaybackScheduler {
     _ticker = null;
     _chunks.clear();
     _position = 0;
+    _streamRate = null;
     _fillDone = false;
     await service.cancelSynthesis();
     await service.stopPlayback();
@@ -210,10 +216,26 @@ class PlaybackScheduler {
           pauseAfterMs: pauseAfter(i),
         );
         if (gen != _gen) return;
-        final start = await service.enqueue(r.pcm, r.sampleRate);
+        final to = _streamRate ??= r.sampleRate;
+        final k = to / r.sampleRate;
+        int at(int frame) => (frame * k).round();
+        final pcm = to == r.sampleRate ? r.pcm : resamplePcm16(r.pcm, r.sampleRate, to);
+        final start = await service.enqueue(pcm, to);
         if (gen != _gen) return;
-        _rate = r.sampleRate;
-        _chunks.add(_Chunk(i, start, r.speechFrames, r.totalFrames, said.changed ? _onPage(r.timings, said) : r.timings));
+        _rate = to;
+        final timings = [
+          for (final t in said.changed ? _onPage(r.timings, said) : r.timings)
+            to == r.sampleRate
+                ? t
+                : WordTiming(
+                    charStart: t.charStart,
+                    charEnd: t.charEnd,
+                    frameStart: at(t.frameStart),
+                    frameEnd: at(t.frameEnd),
+                    source: t.source,
+                  ),
+        ];
+        _chunks.add(_Chunk(i, start, at(r.speechFrames), to == r.sampleRate ? r.totalFrames : pcm.length ~/ 2, timings));
         _next = i + 1;
         failures = 0;
       } on PlatformException catch (e) {

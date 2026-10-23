@@ -879,6 +879,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                     ),
                   ),
                 ),
+                SheetAction(icon: Icons.play_arrow_rounded, label: 'Read from here', onTap: () => Navigator.pop(ctx, 'read')),
                 SheetAction(icon: Icons.format_quote_rounded, label: 'Save as a quote', onTap: () => Navigator.pop(ctx, 'quote')),
                 SheetAction(
                   icon: Icons.ios_share_rounded,
@@ -909,6 +910,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     );
     if (picked == null || !mounted) return;
     switch (picked) {
+      case 'read':
+        await _goTo(unit, play: true);
       case 'quote':
         await _save(MarkKind.quote, unit: unit);
       case 'share':
@@ -1537,18 +1540,6 @@ class _BlockTextState extends State<_BlockText> {
     if (next != _current) setState(() => _current = next);
   }
 
-  void _onTapUp(TapUpDetails d) {
-    final render = _paragraphOf(_key.currentContext?.findRenderObject());
-    if (render == null) return;
-    final offset = render.getPositionForOffset(render.globalToLocal(d.globalPosition)).offset;
-    final l = widget.layout;
-    var unit = widget.item.firstUnit;
-    for (var u = widget.item.firstUnit; u < widget.item.firstUnit + widget.item.unitCount; u++) {
-      if (l.unitOffset[u] <= offset) unit = u;
-    }
-    widget.onTapUnit(unit);
-  }
-
   void _onLongPress(LongPressStartDetails d) {
     final render = _paragraphOf(_key.currentContext?.findRenderObject());
     if (render == null) return;
@@ -1578,10 +1569,14 @@ class _BlockTextState extends State<_BlockText> {
             valueListenable: widget.word,
             builder: (context, w, _) => _span(context, w.unit == _current ? w : WordMark.none),
           );
+    // A tap does nothing: taps while scrolling kept sending the voice
+    // somewhere else. Press and hold, then Read from here. A screen reader's
+    // double tap still reads from the paragraph.
     return Semantics(
       button: true,
       hint: 'Double tap to read from here',
-      child: GestureDetector(onTapUp: _onTapUp, onLongPressStart: _onLongPress, child: body),
+      onTap: () => widget.onTapUnit(widget.item.firstUnit),
+      child: GestureDetector(onLongPressStart: _onLongPress, child: body),
     );
   }
 
