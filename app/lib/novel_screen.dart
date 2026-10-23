@@ -9,6 +9,7 @@ import 'book_card.dart';
 import 'book_tint.dart';
 import 'browser_check.dart';
 import 'library_store.dart';
+import 'saved_screen.dart';
 import 'sources/models.dart';
 import 'sources/net.dart';
 import 'sources/plugin_host.dart';
@@ -345,6 +346,11 @@ class _NovelScreenState extends State<NovelScreen> {
           sliver: SliverToBoxAdapter(
             child: Wrap(spacing: 6, runSpacing: 6, children: [for (final g in novel.genres) TagChip(g)]),
           ),
+        ),
+      if (_entry != null)
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
+          sliver: SliverToBoxAdapter(child: BookSavedSection(store: _store, entry: _entry!)),
         ),
     ];
     final chapterList = <Widget>[

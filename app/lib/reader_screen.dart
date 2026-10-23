@@ -19,6 +19,7 @@ import 'now_playing.dart';
 import 'pages_view.dart';
 import 'player_controls.dart';
 import 'prefs.dart';
+import 'quote_sheet.dart';
 import 'reading_rules.dart';
 import 'rules_screen.dart';
 import 'share_card.dart';
@@ -817,7 +818,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   /// Keep sentence [unit] (the one being read by default) as a quote or a
   /// bookmark. The message offers Undo, for a save made by mistake.
-  Future<Mark?> _save(MarkKind kind, {int? unit, int span = 1}) async {
+  Future<Mark?> _save(MarkKind kind, {int? unit, int span = 1, String? note}) async {
     if (_l.isEmpty) return null;
     final u = (unit ?? _cursor.value).clamp(0, _l.units.length - 1);
     final end = (u + span).clamp(u + 1, _l.units.length);
@@ -830,6 +831,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       span: end - u,
       text: text,
       chapter: _l.chapterTitle(_l.chapterOfUnit(u)),
+      note: note,
     );
     if (!mounted) return mark;
     final said = kind == MarkKind.quote ? 'Saved to your quotes.' : 'Bookmarked.';
@@ -913,7 +915,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       case 'read':
         await _goTo(unit, play: true);
       case 'quote':
-        await _save(MarkKind.quote, unit: unit);
+        // Widen it to the sentences around, add a note, then keep it.
+        final choice = await showQuoteSheet(context, layout: _l, unit: unit);
+        if (choice != null && mounted) {
+          await _save(MarkKind.quote, unit: choice.first, span: choice.count, note: choice.note);
+        }
       case 'share':
         final mark = await _save(MarkKind.quote, unit: unit);
         if (mark != null && mounted) _share(mark);

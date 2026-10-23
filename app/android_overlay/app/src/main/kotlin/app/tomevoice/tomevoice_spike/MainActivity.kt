@@ -275,6 +275,39 @@ class MainActivity : FlutterActivity() {
                 }
                 "shareDir" -> result.success(ShareProvider.dir(cacheDir).absolutePath)
                 "is64Bit" -> result.success(android.os.Process.is64Bit())
+                "playUrl" -> {
+                    stopSample()
+                    try {
+                        sampler = android.media.MediaPlayer().apply {
+                            setAudioAttributes(
+                                android.media.AudioAttributes.Builder()
+                                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                                    .build()
+                            )
+                            setDataSource(call.argument<String>("url").orEmpty())
+                            setOnPreparedListener { it.start() }
+                            setOnCompletionListener {
+                                stopSample()
+                                event(mapOf("type" to "urlSampleDone"))
+                            }
+                            setOnErrorListener { _, _, _ ->
+                                stopSample()
+                                event(mapOf("type" to "urlSampleFailed"))
+                                true
+                            }
+                            prepareAsync()
+                        }
+                        result.success(null)
+                    } catch (e: Exception) {
+                        stopSample()
+                        result.error("SAMPLE", e.message, null)
+                    }
+                }
+                "stopUrl" -> {
+                    stopSample()
+                    result.success(null)
+                }
                 "installApk" -> {
                     // A downloaded update (in cache/share) to Android's
                     // installer, which asks the reader to confirm. The first
@@ -451,6 +484,19 @@ class MainActivity : FlutterActivity() {
         i.removeExtra(Widgets.EXTRA_BOOK)
         i.removeExtra(Widgets.EXTRA_PAGE)
         return true
+    }
+
+    /** A voice's sample, streamed (Settings → Natural voices). */
+    private var sampler: android.media.MediaPlayer? = null
+
+    private fun stopSample() {
+        val s = sampler ?: return
+        sampler = null
+        try {
+            s.stop()
+        } catch (_: Exception) {
+        }
+        s.release()
     }
 
     private fun event(payload: Map<String, Any?>) {
@@ -987,6 +1033,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        stopSample()
         ReadAloudService.onAction = null
         ReadAloudService.end(this)
         abandonFocus()

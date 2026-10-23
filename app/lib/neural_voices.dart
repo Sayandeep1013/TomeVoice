@@ -29,6 +29,14 @@ class NeuralVoice {
   /// phones: ONNX Runtime has no fp16 kernel for one of their layers on CPU
   /// (found on the phone).
   String get url => 'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-$id.tar.bz2';
+
+  /// Piper's own recording of this voice (about 100 KB), to hear before
+  /// downloading it: en_US-kristin-medium is en/en_US/kristin/medium.
+  String get sampleUrl {
+    final parts = id.split('-');
+    final lang = parts.first.split('_').first;
+    return 'https://huggingface.co/rhasspy/piper-voices/resolve/main/$lang/${parts.join('/')}/samples/speaker_0.mp3';
+  }
 }
 
 /// Voice names that start with this are TomeVoice's own, not the phone's.

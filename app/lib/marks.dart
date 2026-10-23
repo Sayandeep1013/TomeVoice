@@ -41,6 +41,20 @@ class Mark {
   final String? note;
   final DateTime created;
 
+  /// The same mark with [note] (null or empty: none).
+  Mark withNote(String? note) => Mark(
+        id: id,
+        bookId: bookId,
+        bookTitle: bookTitle,
+        kind: kind,
+        at: at,
+        text: text,
+        created: created,
+        span: span,
+        chapter: chapter,
+        note: note == null || note.trim().isEmpty ? null : note.trim(),
+      );
+
   Map<String, Object?> toJson() => {
         'id': id,
         'book': bookId,
@@ -111,6 +125,7 @@ class MarkStore {
     required String text,
     int span = 1,
     String? chapter,
+    String? note,
   }) async {
     final now = DateTime.now();
     final mark = Mark(
@@ -122,11 +137,18 @@ class MarkStore {
       text: text,
       span: span,
       chapter: chapter,
+      note: note == null || note.trim().isEmpty ? null : note.trim(),
       created: now,
     );
     _all = [mark, ..._all];
     await _save();
     return mark;
+  }
+
+  /// Replace the mark with [mark]'s id (a note added or changed).
+  Future<void> update(Mark mark) async {
+    _all = [for (final m in _all) m.id == mark.id ? mark : m];
+    await _save();
   }
 
   Future<void> remove(String id) async {

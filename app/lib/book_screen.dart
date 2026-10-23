@@ -8,6 +8,7 @@ import 'book_card.dart';
 import 'book_search.dart';
 import 'book_tint.dart';
 import 'library_store.dart';
+import 'saved_screen.dart';
 import 'listen_sheet.dart';
 import 'prefs.dart';
 import 'reader_screen.dart';
@@ -204,6 +205,10 @@ class _BookScreenState extends State<BookScreen> {
       SliverPadding(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
         sliver: SliverToBoxAdapter(child: _voice(context)),
+      ),
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
+        sliver: SliverToBoxAdapter(child: BookSavedSection(store: _store, entry: _entry)),
       ),
     ];
     final chapterList = <Widget>[
