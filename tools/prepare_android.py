@@ -252,6 +252,24 @@ def patch_gradle(path: Path, signing: bool) -> str:
         if count:
             notes.append(f"{replacement} ({count})")
 
+    # Each APK carries native code for its own CPU only: plugins such as
+    # sherpa-onnx ship all four, which made the 64-bit APK 101 MB. CI sets
+    # TV_ABIS per build. Native libraries are stored compressed: a download
+    # of about half the size (Android unpacks them when installing).
+    if "TV_ABIS" not in text and path.suffix == ".kts":
+        text, n = re.subn(
+            r"(\n(\s*)defaultConfig \{\n)",
+            lambda m: m.group(1)
+            + m.group(2)
+            + '    ndk { abiFilters.addAll((System.getenv("TV_ABIS") ?: "arm64-v8a,armeabi-v7a").split(",")) }\n',
+            text,
+            count=1,
+        )
+        if n != 1:
+            raise SystemExit("gradle: no defaultConfig block -- CHECK THE TEMPLATE")
+        text = text.rstrip() + "\n\nandroid {\n    packaging {\n        jniLibs {\n            useLegacyPackaging = true\n        }\n    }\n}\n"
+        notes.append("ABI filters, compressed native libraries")
+
     if PDFBOX not in text:
         if path.suffix == ".kts":
             text = text.rstrip() + f"\n\ndependencies {{\n    {PDFBOX}\n}}\n"
