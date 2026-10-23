@@ -8,6 +8,7 @@ Uint8List minimalEpub({
   String title = 'Fox Book',
   String author = 'Aesop',
   String language = 'en',
+  String? description,
   bool encrypted = false,
 }) {
   final archive = Archive();
@@ -44,6 +45,7 @@ Uint8List minimalEpub({
     <dc:creator>$author</dc:creator>
     <dc:language>$language</dc:language>
     <dc:identifier id="BookId">urn:uuid:tomevoice-test</dc:identifier>
+    ${description == null ? '' : '<dc:description>$description</dc:description>'}
   </metadata>
   <manifest>
     <item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/>

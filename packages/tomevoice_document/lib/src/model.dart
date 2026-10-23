@@ -314,6 +314,7 @@ class BookMetadata {
     this.publisher,
     this.identifier,
     this.cover,
+    this.description,
   });
 
   final String title;
@@ -324,6 +325,9 @@ class BookMetadata {
 
   /// Path of the cover image inside the source file, when it has one.
   final String? cover;
+
+  /// The blurb: an EPUB's dc:description, a web novel's summary.
+  final String? description;
 
   String get authorLine => authors.join(', ');
 
@@ -339,6 +343,7 @@ class BookMetadata {
         publisher: publisher,
         identifier: identifier,
         cover: cover,
+        description: description,
       );
 
   Map<String, Object?> toJson() => {
@@ -348,6 +353,7 @@ class BookMetadata {
         if (publisher != null) 'publisher': publisher,
         if (identifier != null) 'identifier': identifier,
         if (cover != null) 'cover': cover,
+        if (description != null) 'description': description,
       };
 
   static BookMetadata fromJson(Map<String, Object?> json) => BookMetadata(
@@ -359,6 +365,7 @@ class BookMetadata {
         publisher: json['publisher'] as String?,
         identifier: json['identifier'] as String?,
         cover: json['cover'] as String?,
+        description: json['description'] as String?,
       );
 }
 

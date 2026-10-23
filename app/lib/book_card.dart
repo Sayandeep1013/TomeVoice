@@ -4,15 +4,27 @@ import 'package:flutter/material.dart';
 
 import 'library_store.dart';
 import 'theme.dart';
+import 'ui.dart';
 import 'voices.dart';
 
 /// A book's cover: the real one when the file has it, otherwise a cover made
 /// from the title, so every book on the shelf is recognisable at a glance.
 class BookCover extends StatelessWidget {
-  const BookCover({super.key, required this.entry, required this.width});
+  const BookCover({
+    super.key,
+    required this.entry,
+    required this.width,
+    this.shadow = true,
+    this.titled = true,
+  });
 
   final LibraryEntry entry;
   final double width;
+  final bool shadow;
+
+  /// Whether a cover made from the title shows the title. Tiles print the
+  /// title on their own band, so theirs shows only an initial.
+  final bool titled;
 
   double get height => width * 1.5;
 
@@ -31,21 +43,24 @@ class BookCover extends StatelessWidget {
     final dpr = MediaQuery.devicePixelRatioOf(context);
     final generated = _generated(context);
     final path = entry.shownCover;
+    final radius = BorderRadius.circular((width * 0.07).clamp(4.0, Radii.chip));
     return Container(
       width: width,
       height: height,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(width * 0.08),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.28),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        borderRadius: radius,
+        boxShadow: shadow
+            ? [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.28),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ]
+            : null,
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(width * 0.08),
+        borderRadius: radius,
         child: path == null
             ? generated
             : Image.file(
@@ -63,6 +78,26 @@ class BookCover extends StatelessWidget {
 
   Widget _generated(BuildContext context) {
     final color = _palette[entry.title.hashCode.abs() % _palette.length];
+    if (!titled) {
+      final t = entry.title.trim();
+      return Container(
+        width: width,
+        height: height,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color.lerp(color, Colors.white, 0.10)!, color],
+          ),
+        ),
+        alignment: const Alignment(0, -0.35),
+        child: Text(
+          t.isEmpty ? '?' : t.characters.first.toUpperCase(),
+          style: Skin.title(context,
+              size: width * 0.62, weight: FontWeight.w400, color: Skin.nightInk.withValues(alpha: 0.22)),
+        ),
+      );
+    }
     return Container(
       width: width,
       height: height,
@@ -84,13 +119,13 @@ class BookCover extends StatelessWidget {
               entry.title,
               maxLines: 4,
               overflow: TextOverflow.ellipsis,
-              style: Skin.title(context, size: width * 0.16, color: Skin.nightInk)
+              style: Skin.title(context, size: width * 0.15, color: Skin.nightInk)
                   .copyWith(height: 1.1),
             ),
           ),
           Text(
             entry.formatLabel,
-            style: Skin.meta(context, color: Skin.nightInk.withValues(alpha: 0.7), size: width * 0.1)
+            style: Skin.meta(context, color: Skin.nightInk.withValues(alpha: 0.7), size: width * 0.095)
                 .copyWith(height: 1),
           ),
         ],
@@ -124,7 +159,7 @@ String relativeDay(DateTime when, {DateTime? now}) {
 
 /// Where the reader stands in [e], in words.
 String progressLine(LibraryEntry e) {
-  if (e.progress >= 0.995) return 'Finished';
+  if (e.finished) return 'Finished';
   final where = e.where;
   final useful = where != null && where.toLowerCase() != e.title.toLowerCase();
   if (e.openedAt == null || e.progress <= 0) {
@@ -142,92 +177,119 @@ class BookRow extends StatelessWidget {
     required this.entry,
     required this.onOpen,
     required this.onMenu,
+    this.onLongPress,
+    this.selected = false,
+    this.selecting = false,
   });
 
   final LibraryEntry entry;
   final VoidCallback onOpen;
   final VoidCallback onMenu;
+  final VoidCallback? onLongPress;
+  final bool selected;
+  final bool selecting;
 
   @override
   Widget build(BuildContext context) {
     final e = entry;
-    final ink = Skin.inkOn(context);
     final facts = [
       e.formatLabel,
-      if (e.language != null) languageName(e.language!).toUpperCase(),
+      if (e.language != null) languageName(e.language!),
       if (e.wordCount > 0) listenLength(e.wordCount),
     ];
+    final radius = BorderRadius.circular(Radii.row + 4);
     return Material(
-      color: Skin.capsuleOn(context),
-      borderRadius: BorderRadius.circular(22),
+      color: selected ? Skin.amber.withValues(alpha: 0.14) : Skin.capsuleOn(context),
+      borderRadius: radius,
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onOpen,
-        onLongPress: onMenu,
-        child: Container(
+        onLongPress: onLongPress ?? onMenu,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: Skin.capsuleEdge),
+            borderRadius: radius,
+            border: Border.all(
+              color: selected ? Skin.amber : Skin.outlineOn(context),
+              width: selected ? 1.5 : 1,
+            ),
           ),
-          padding: const EdgeInsets.fromLTRB(12, 12, 2, 12),
+          padding: const EdgeInsets.fromLTRB(Gap.m, Gap.m, Gap.xs, Gap.m),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              BookCover(entry: e, width: 62),
+              _SelectableCover(entry: e, width: 62, selected: selected),
               const SizedBox(width: 14),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      e.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Skin.title(context, size: 18).copyWith(height: 1.15),
-                    ),
-                    if (e.authorLine.isNotEmpty) ...[
-                      const SizedBox(height: 3),
-                      Text(
-                        e.authorLine,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Skin.label(context, size: 12),
+                child: ConstrainedBox(
+                  // Every row the same height as its cover, author or not.
+                  constraints: const BoxConstraints(minHeight: 93),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            e.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: Skin.title(context, size: 17.5).copyWith(height: 1.18),
+                          ),
+                          if (e.authorLine.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              e.authorLine,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Skin.label(context, size: 13.5),
+                            ),
+                          ],
+                          const SizedBox(height: Gap.s),
+                          Wrap(
+                            spacing: 5,
+                            runSpacing: 5,
+                            children: [for (final f in facts) TagChip(f)],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: Gap.s),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (e.progress > 0 && !e.finished)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 5, right: Gap.m),
+                              child: Progress(e.progress),
+                            ),
+                          Text(
+                            progressLine(e).toUpperCase(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Skin.meta(context, size: 10.5,
+                                color: e.finished ? Skin.amber : null),
+                          ),
+                        ],
                       ),
                     ],
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 5,
-                      runSpacing: 5,
-                      children: [for (final f in facts) _Chip(f)],
-                    ),
-                    const SizedBox(height: 10),
-                    if (e.progress > 0 && e.progress < 0.995)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 6, right: 10),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(3),
-                          child: LinearProgressIndicator(
-                            value: e.progress.clamp(0.0, 1.0),
-                            minHeight: 3,
-                            color: Skin.amber,
-                            backgroundColor: ink.withValues(alpha: 0.12),
-                          ),
-                        ),
-                      ),
-                    Text(
-                      progressLine(e).toUpperCase(),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Skin.meta(context, size: 8.5),
-                    ),
-                  ],
+                  ),
                 ),
               ),
-              IconButton(
-                tooltip: 'More',
-                onPressed: onMenu,
-                icon: Icon(Icons.more_vert_rounded, color: Skin.inkSoftOn(context)),
-              ),
+              if (selecting)
+                Padding(
+                  padding: const EdgeInsets.all(Gap.m),
+                  child: Icon(
+                    selected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                    color: selected ? Skin.amber : Skin.inkFaintOn(context),
+                  ),
+                )
+              else
+                IconButton(
+                  tooltip: 'More',
+                  onPressed: onMenu,
+                  icon: Icon(Icons.more_vert_rounded, color: Skin.inkSoftOn(context)),
+                ),
             ],
           ),
         ),
@@ -236,118 +298,214 @@ class BookRow extends StatelessWidget {
   }
 }
 
-class _Chip extends StatelessWidget {
-  const _Chip(this.label);
+/// One book in the cover grid: the cover fills the tile, and what the list
+/// spells out (title, author, format, length, progress) sits on a dark
+/// translucent band across its foot, the way novel readers show a shelf.
+class BookTile extends StatelessWidget {
+  const BookTile({
+    super.key,
+    required this.entry,
+    required this.onOpen,
+    required this.onLongPress,
+    this.selected = false,
+  });
+
+  final LibraryEntry entry;
+  final VoidCallback onOpen;
+  final VoidCallback onLongPress;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final e = entry;
+    final tags = [
+      e.formatLabel,
+      if (e.language != null) languageName(e.language!),
+      if (e.wordCount > 0) listenLength(e.wordCount),
+    ];
+    const white = Colors.white;
+    final radius = BorderRadius.circular(Radii.row - 4);
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: e.title,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onOpen,
+        onLongPress: onLongPress,
+        child: LayoutBuilder(
+          builder: (context, c) {
+            final w = c.maxWidth;
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              decoration: BoxDecoration(
+                borderRadius: radius,
+                border: Border.all(color: selected ? Skin.amber : Colors.transparent, width: 2.5),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.25),
+                    blurRadius: 12,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: radius,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    BookCover(entry: e, width: w, shadow: false, titled: false),
+                    // The band: clear at the top, dark enough at the foot for
+                    // white text on any cover.
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.black.withValues(alpha: 0),
+                              Colors.black.withValues(alpha: 0.62),
+                              Colors.black.withValues(alpha: 0.86),
+                            ],
+                            stops: const [0, 0.38, 1],
+                          ),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(10, 34, 10, 10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                e.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: Skin.title(context, size: 15.5, color: white).copyWith(height: 1.15),
+                              ),
+                              if (e.authorLine.isNotEmpty)
+                                Text(
+                                  e.authorLine,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Skin.ui(
+                                      size: 12, weight: FontWeight.w500, color: white.withValues(alpha: 0.75)),
+                                ),
+                              const SizedBox(height: 6),
+                              Wrap(
+                                spacing: 4,
+                                runSpacing: 4,
+                                children: [for (final t in tags) _GlassTag(t)],
+                              ),
+                              if (e.progress > 0 && !e.finished) ...[
+                                const SizedBox(height: 7),
+                                Progress(e.progress, height: 3, track: white.withValues(alpha: 0.22)),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(left: 7, top: 7, child: _StatusBadge(entry: e)),
+                    if (selected)
+                      Positioned.fill(
+                        child: ColoredBox(
+                          color: Skin.amber.withValues(alpha: 0.30),
+                          child: const Align(
+                            alignment: Alignment(0, -0.4),
+                            child: Icon(Icons.check_circle_rounded, color: Colors.white, size: 34),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+/// "34%", "NEW" or "DONE", top left of a tile.
+class _StatusBadge extends StatelessWidget {
+  const _StatusBadge({required this.entry});
+
+  final LibraryEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final e = entry;
+    final loud = e.finished || e.progress <= 0;
+    final label = e.finished ? 'DONE' : (e.progress > 0 ? '${(e.progress * 100).round()}%' : 'NEW');
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: loud ? Skin.amber : Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(Radii.pill),
+      ),
+      child: Text(label, style: Skin.meta(context, size: 10, color: loud ? Skin.onAmber : Colors.white)),
+    );
+  }
+}
+
+/// A tag on a tile's band: white on a faint glass pill.
+class _GlassTag extends StatelessWidget {
+  const _GlassTag(this.label);
 
   final String label;
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: Skin.inkFaintOn(context).withValues(alpha: 0.45)),
+          color: Colors.white.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(Radii.pill),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
         ),
-        child: Text(label, style: Skin.meta(context, size: 8).copyWith(height: 1.4)),
+        child: Text(label.toUpperCase(),
+            style: Skin.meta(context, size: 9.5, color: Colors.white.withValues(alpha: 0.9))),
       );
 }
 
-/// The book you were last reading, with one-tap resume.
-class ContinueCard extends StatelessWidget {
-  const ContinueCard({
-    super.key,
-    required this.entry,
-    required this.onOpen,
-    required this.onPlay,
-    required this.onMenu,
-  });
+class _SelectableCover extends StatelessWidget {
+  const _SelectableCover({required this.entry, required this.width, required this.selected});
 
   final LibraryEntry entry;
-  final VoidCallback onOpen;
-  final VoidCallback onPlay;
-  final VoidCallback onMenu;
+  final double width;
+  final bool selected;
 
   @override
-  Widget build(BuildContext context) {
-    final e = entry;
-    final onDark = Skin.onDark(context);
-    final left = e.wordCount > 0 ? listenLength((e.wordCount * (1 - e.progress)).round()) : '';
-    return Material(
-      color: Skin.darkOn(context),
-      borderRadius: BorderRadius.circular(26),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onOpen,
-        onLongPress: onMenu,
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            children: [
-              BookCover(entry: e, width: 74),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      e.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Skin.title(context, size: 20, color: onDark).copyWith(height: 1.12),
-                    ),
-                    if (e.authorLine.isNotEmpty) ...[
-                      const SizedBox(height: 3),
-                      Text(
-                        e.authorLine,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Skin.label(context, color: onDark.withValues(alpha: 0.7), size: 12),
-                      ),
-                    ],
-                    const SizedBox(height: 10),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(3),
-                      child: LinearProgressIndicator(
-                        value: e.progress.clamp(0.0, 1.0),
-                        minHeight: 4,
-                        color: Skin.amber,
-                        backgroundColor: onDark.withValues(alpha: 0.14),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      [
-                        progressLine(e),
-                        if (left.isNotEmpty && e.progress < 0.995) '$left left',
-                      ].join(' · ').toUpperCase(),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Skin.meta(context, color: onDark.withValues(alpha: 0.6), size: 8.5),
-                    ),
-                  ],
+  Widget build(BuildContext context) => Stack(
+        children: [
+          BookCover(entry: entry, width: width),
+          if (entry.finished)
+            Positioned(
+              right: 4,
+              top: 4,
+              child: Container(
+                padding: const EdgeInsets.all(2),
+                decoration: const BoxDecoration(color: Skin.amber, shape: BoxShape.circle),
+                child: const Icon(Icons.check_rounded, size: 12, color: Skin.onAmber),
+              ),
+            ),
+          if (selected)
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Skin.amber.withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular((width * 0.07).clamp(4.0, Radii.chip)),
+                  border: Border.all(color: Skin.amber, width: 2),
+                ),
+                child: const Center(
+                  child: Icon(Icons.check_circle_rounded, color: Colors.white, size: 26),
                 ),
               ),
-              const SizedBox(width: 10),
-              Tooltip(
-                message: 'Continue reading aloud',
-                child: Material(
-                  color: Skin.amber,
-                  shape: const CircleBorder(),
-                  child: InkWell(
-                    customBorder: const CircleBorder(),
-                    onTap: onPlay,
-                    child: const SizedBox(
-                      width: 54,
-                      height: 54,
-                      child: Icon(Icons.play_arrow_rounded, size: 32, color: Skin.dark),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+            ),
+        ],
+      );
 }

@@ -4,7 +4,7 @@ description: >-
   Markdown and text, and reads them aloud with the owned audio pipeline.
   See docs/16-session-handoff.md.
 publish_to: none
-version: 0.2.1+3
+version: 0.3.0+4
 
 environment:
   sdk: ^3.5.0
@@ -29,19 +29,34 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/fonts/
+    # Only the licence texts: listing the folder would ship every font twice.
+    - assets/fonts/OFL-BodoniModa.txt
+    - assets/fonts/OFL-Figtree.txt
+    - assets/fonts/OFL-Newsreader.txt
+    - assets/fonts/OFL-Literata.txt
     - assets/brand/logo.png
 
   # Bundled, not fetched at runtime: the app is offline-first, and a reading
   # app whose type disappears without a network is not offline-first.
-  # Both faces are SIL Open Font License 1.1, which is GPL-3.0 compatible;
-  # licence texts ship alongside them in assets/fonts/.
+  # All four families are SIL Open Font License 1.1, which is GPL-3.0
+  # compatible; licence texts ship alongside them in assets/fonts/ and are
+  # listed on the About screen. Each is one variable file; weights and
+  # optical sizes are chosen with font variations (see theme.dart).
   fonts:
-    - family: Ojuju
+    # Titles, the wordmark and chapter openings.
+    - family: BodoniModa
       fonts:
-        - asset: assets/fonts/Ojuju-Variable.ttf
-    - family: SpaceMono
+        - asset: assets/fonts/BodoniModa-Variable.ttf
+        - asset: assets/fonts/BodoniModa-Italic-Variable.ttf
+          style: italic
+    # Everything you tap and read as interface.
+    - family: Figtree
       fonts:
-        - asset: assets/fonts/SpaceMono-Regular.ttf
-        - asset: assets/fonts/SpaceMono-Bold.ttf
-          weight: 700
+        - asset: assets/fonts/Figtree-Variable.ttf
+    # The page: Newsreader by default, Literata as the alternative.
+    - family: Newsreader
+      fonts:
+        - asset: assets/fonts/Newsreader-Variable.ttf
+    - family: Literata
+      fonts:
+        - asset: assets/fonts/Literata-Variable.ttf

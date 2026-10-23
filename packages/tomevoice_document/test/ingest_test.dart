@@ -117,4 +117,14 @@ void main() {
       expect(i, units.length - 1);
     });
   });
+
+  test('an EPUB description becomes plain text on the book', () {
+    final book = ingestBytes(
+      minimalEpub(description: '&lt;p&gt;A fox, a crow &amp;amp; some &lt;i&gt;cheese&lt;/i&gt;.&lt;/p&gt;'),
+      filename: 'fox.epub',
+    );
+    expect(book.metadata.description, 'A fox, a crow & some cheese.');
+    final again = Book.fromJson(book.toJson());
+    expect(again.metadata.description, book.metadata.description);
+  });
 }

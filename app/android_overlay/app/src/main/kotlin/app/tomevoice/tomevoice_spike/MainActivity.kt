@@ -20,6 +20,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -174,6 +175,33 @@ class MainActivity : FlutterActivity() {
                 }
                 "outputDir" -> result.success(outputDir().absolutePath)
                 "launchArgs" -> result.success(launchArgs())
+                "openUrl" -> {
+                    try {
+                        startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(call.argument<String>("url").orEmpty()))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.success(false)
+                    }
+                }
+                "keepScreenOn" -> {
+                    if (call.argument<Boolean>("on") == true) {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    } else {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    }
+                    result.success(null)
+                }
+                "appVersion" -> {
+                    try {
+                        @Suppress("DEPRECATION")
+                        result.success(packageManager.getPackageInfo(packageName, 0).versionName)
+                    } catch (e: Exception) {
+                        result.success(null)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }

@@ -11,8 +11,9 @@ import 'speech_service.dart';
 /// Bumped when ingestion improves enough that stored books should be parsed
 /// again from their source file (v2: multilingual sentences, compact JSON;
 /// v3: pictures and covers from EPUBs, page numbers in PDFs; v4: toc nav
-/// only, chapters named from first lines, drop caps, Gutenberg apparatus).
-const _parsedVersion = 4;
+/// only, chapters named from first lines, drop caps, Gutenberg apparatus;
+/// v5: the book's description, shown on its page).
+const _parsedVersion = 5;
 
 /// On-device library: copied files, parsed books, reading positions.
 ///
@@ -37,33 +38,97 @@ class LibraryStore {
     await _booksDir.create(recursive: true);
   }
 
-  Future<List<LibraryEntry>> list() async {
+  // Categories as last read or written; every public method reads the index
+  // first, so these are current whenever _write runs.
+  List<Category> _categories = Category.defaults;
+  String _defaultCategory = Category.defaults.first.id;
+
+  /// Books, most recently opened first.
+  Future<List<LibraryEntry>> list() async => (await index()).entries;
+
+  /// Books plus the shelf's categories.
+  Future<LibraryIndex> index() async {
     await ensure();
-    if (!await _indexFile.exists()) return const [];
-    try {
-      final raw = jsonDecode(await _indexFile.readAsString());
-      if (raw is! Map) return const [];
-      final books = raw['books'] as List? ?? const [];
-      final entries = [
-        for (final b in books)
-          LibraryEntry.fromJson(Map<String, Object?>.from(b as Map)),
-      ];
-      entries.sort((a, b) => b.lastTouched.compareTo(a.lastTouched));
-      return entries;
-    } on FormatException {
-      return const [];
+    var entries = <LibraryEntry>[];
+    if (await _indexFile.exists()) {
+      try {
+        final raw = jsonDecode(await _indexFile.readAsString());
+        if (raw is Map) {
+          entries = [
+            for (final b in raw['books'] as List? ?? const [])
+              LibraryEntry.fromJson(Map<String, Object?>.from(b as Map)),
+          ];
+          final cats = [
+            for (final c in raw['categories'] as List? ?? const [])
+              if (c is Map) Category.fromJson(Map<String, Object?>.from(c)),
+          ];
+          _categories = cats.isEmpty ? Category.defaults : cats;
+          final d = raw['defaultCategory'] as String?;
+          _defaultCategory = _categories.any((c) => c.id == d) ? d! : _categories.first.id;
+        }
+      } on FormatException {
+        entries = [];
+      }
     }
+    entries.sort((a, b) => b.lastTouched.compareTo(a.lastTouched));
+    return LibraryIndex(
+      entries: entries,
+      categories: _categories,
+      defaultCategory: _defaultCategory,
+    );
   }
 
   Future<void> _write(List<LibraryEntry> entries) async {
     final tmp = File('${_indexFile.path}.tmp');
     await tmp.writeAsString(
       const JsonEncoder.withIndent('  ').convert({
+        'categories': [for (final c in _categories) c.toJson()],
+        'defaultCategory': _defaultCategory,
         'books': [for (final e in entries) e.toJson()],
       }),
     );
     await tmp.rename(_indexFile.path);
     changes.value++;
+  }
+
+  // ------------------------------------------------------------ categories
+
+  /// Replace the category list (rename, reorder, add, delete). Books in a
+  /// category that no longer exists move to the first one.
+  Future<void> saveCategories(List<Category> categories, {String? defaultCategory}) async {
+    if (categories.isEmpty) return;
+    final entries = await list();
+    _categories = List.unmodifiable(categories);
+    final d = defaultCategory ?? _defaultCategory;
+    _defaultCategory = categories.any((c) => c.id == d) ? d : categories.first.id;
+    final ids = {for (final c in categories) c.id};
+    await _write([
+      for (final e in entries)
+        e.category == null || ids.contains(e.category) ? e : e.copyWith(category: categories.first.id),
+    ]);
+  }
+
+  /// A new category at the end of the list.
+  Future<Category> addCategory(String name) async {
+    final idx = await index();
+    final cat = Category(Category.newId(name), name);
+    await saveCategories([...idx.categories, cat]);
+    return cat;
+  }
+
+  /// Put [ids] in [categoryId].
+  Future<void> moveBooks(Set<String> ids, String categoryId) async {
+    final entries = await list();
+    await _write([
+      for (final e in entries) ids.contains(e.id) ? e.copyWith(category: categoryId) : e,
+    ]);
+  }
+
+  /// Take [id] off the history (and the Continue card) without touching the
+  /// place it is saved at.
+  Future<void> forgetOpened(String id) async {
+    final entries = await list();
+    await _write([for (final e in entries) e.id == id ? e.copyWith(clearOpened: true) : e]);
   }
 
   /// Import [file]: parse it off the UI thread, store the source and the
@@ -105,13 +170,14 @@ class LibraryStore {
     final existing = await list();
     final previous = existing.where((e) => e.id == entry.id).firstOrNull;
     final merged = previous == null
-        ? entry
+        ? entry.copyWith(category: _defaultCategory)
         : entry
             .copyWith(
               cursor: previous.cursor,
               progress: previous.progress,
               openedAt: previous.openedAt,
               where: previous.where,
+              category: previous.category,
             )
             .withCover(previous.coverMode, previous.customCover);
     await _write([
@@ -463,6 +529,7 @@ class LibraryEntry {
     this.cover,
     this.coverMode = CoverMode.auto,
     this.customCover,
+    this.category,
   });
 
   final String id;
@@ -489,6 +556,9 @@ class LibraryEntry {
   /// A picture the user chose, on disk.
   final String? customCover;
 
+  /// The category id it sits in; null means the shelf's default.
+  final String? category;
+
   /// The picture to show, or null for a cover drawn from the title.
   String? get shownCover => switch (coverMode) {
         CoverMode.plain => null,
@@ -496,27 +566,14 @@ class LibraryEntry {
         CoverMode.auto => cover,
       };
 
-  LibraryEntry withCover(CoverMode mode, String? custom) => LibraryEntry(
-        id: id,
-        title: title,
-        authors: authors,
-        source: source,
-        wordCount: wordCount,
-        sourcePath: sourcePath,
-        addedAt: addedAt,
-        openedAt: openedAt,
-        cursor: cursor,
-        progress: progress,
-        where: where,
-        language: language,
-        cover: cover,
-        coverMode: mode,
-        customCover: custom,
-      );
+  LibraryEntry withCover(CoverMode mode, String? custom) =>
+      copyWith(coverMode: mode, customCover: custom, clearCustomCover: custom == null);
 
   DateTime get lastTouched => openedAt ?? addedAt;
 
   String get authorLine => authors.join(', ');
+
+  bool get finished => progress >= 0.995;
 
   /// "EPUB", "PDF", "DOCX"…
   String get formatLabel => switch (source) {
@@ -526,12 +583,21 @@ class LibraryEntry {
         _ => source.name.toUpperCase(),
       };
 
+  /// The category this book shows under, given the shelf's [categories].
+  String categoryIn(List<Category> categories, String fallback) =>
+      category != null && categories.any((c) => c.id == category) ? category! : fallback;
+
   LibraryEntry copyWith({
     ReadingCursor? cursor,
     double? progress,
     DateTime? openedAt,
+    bool clearOpened = false,
     String? where,
     String? cover,
+    CoverMode? coverMode,
+    String? customCover,
+    bool clearCustomCover = false,
+    String? category,
   }) =>
       LibraryEntry(
         id: id,
@@ -541,14 +607,15 @@ class LibraryEntry {
         wordCount: wordCount,
         sourcePath: sourcePath,
         addedAt: addedAt,
-        openedAt: openedAt ?? this.openedAt,
+        openedAt: clearOpened ? null : (openedAt ?? this.openedAt),
         cursor: cursor ?? this.cursor,
         progress: progress ?? this.progress,
         where: where ?? this.where,
         language: language,
         cover: cover ?? this.cover,
-        coverMode: coverMode,
-        customCover: customCover,
+        coverMode: coverMode ?? this.coverMode,
+        customCover: clearCustomCover ? null : (customCover ?? this.customCover),
+        category: category ?? this.category,
       );
 
   Map<String, Object?> toJson() => {
@@ -567,6 +634,7 @@ class LibraryEntry {
         if (cover != null) 'cover': cover,
         if (coverMode != CoverMode.auto) 'coverMode': coverMode.name,
         if (customCover != null) 'customCover': customCover,
+        if (category != null) 'category': category,
       };
 
   static LibraryEntry fromJson(Map<String, Object?> json) => LibraryEntry(
@@ -596,7 +664,57 @@ class LibraryEntry {
           orElse: () => CoverMode.auto,
         ),
         customCover: json['customCover'] as String?,
+        category: json['category'] as String?,
       );
+}
+
+/// A shelf in the library: "Reading", "Later", or one the user made.
+class Category {
+  const Category(this.id, this.name);
+
+  final String id;
+  final String name;
+
+  /// The two the library starts with. Both can be renamed or deleted.
+  static const defaults = [Category('reading', 'Reading'), Category('later', 'Later')];
+
+  static String newId(String name) {
+    final slug = name.toLowerCase().replaceAll(RegExp('[^a-z0-9]+'), '-');
+    final stamp = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
+    return '${slug.isEmpty ? 'shelf' : slug}-$stamp';
+  }
+
+  Category renamed(String to) => Category(id, to);
+
+  Map<String, Object?> toJson() => {'id': id, 'name': name};
+
+  static Category fromJson(Map<String, Object?> json) =>
+      Category(json['id'] as String? ?? newId('shelf'), json['name'] as String? ?? 'Shelf');
+
+  @override
+  bool operator ==(Object other) => other is Category && other.id == id && other.name == name;
+
+  @override
+  int get hashCode => Object.hash(id, name);
+}
+
+/// What the library index holds.
+class LibraryIndex {
+  const LibraryIndex({
+    required this.entries,
+    required this.categories,
+    required this.defaultCategory,
+  });
+
+  final List<LibraryEntry> entries;
+  final List<Category> categories;
+  final String defaultCategory;
+
+  /// Books in [categoryId].
+  List<LibraryEntry> inCategory(String categoryId) => [
+        for (final e in entries)
+          if (e.categoryIn(categories, defaultCategory) == categoryId) e,
+      ];
 }
 
 enum CoverMode { auto, custom, plain }
