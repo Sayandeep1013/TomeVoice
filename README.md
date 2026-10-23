@@ -15,9 +15,16 @@ it reads to you — sentence by sentence, the spoken word highlighted, on the de
 with the screen off if you like.
 
 <p align="center">
-  <img src="docs/images/library.png" width="260" alt="The library: a Continue card with one-tap resume, and books with their covers, format, language, listening time and progress">
+  <img src="docs/images/library.png" width="240" alt="The library as cover tiles, each with its format, language, listening time and progress on a translucent band">
   &nbsp;
-  <img src="docs/images/reader.png" width="260" alt="Reading Alice in Wonderland: the spoken sentence washed amber, an illustration in the text, and the player bar">
+  <img src="docs/images/book.png" width="240" alt="A book's page: the cover, category, Continue and Read, the voice chosen for this book, and its chapters with the current one marked">
+  &nbsp;
+  <img src="docs/images/reader.png" width="240" alt="Reading Alice in Wonderland aloud: the spoken sentence and word highlighted, and the player bar">
+</p>
+<p align="center">
+  <img src="docs/images/sources.png" width="240" alt="Sources: LNReader's list built in, the installed sites, and hundreds more to install by language">
+  &nbsp;
+  <img src="docs/images/settings.png" width="240" alt="Settings: five colour themes, light or dark, and the reading type, spacing and margins">
 </p>
 
 No account. No cloud. Your books never leave the phone.
@@ -51,6 +58,9 @@ No account. No cloud. Your books never leave the phone.
   browser engine. Download single chapters or whole novels to listen offline. Your
   NovelDokusha library can be imported from its backup
   ([ADR-019](docs/10-decisions-adr.md#adr-019)).
+- **Never an empty shelf.** A new install starts with *Pride and Prejudice* (public
+  domain, with its 1894 peacock cover) and two popular web novels, *Shadow Slave* and
+  *Lord of the Mysteries*, ready to play. Remove them like any other book.
 - **Five colour themes:** Forest, Lavender, Ocean, Black for OLED screens, and Paper.
 - **Gives you the voice controls readers don't:** speed, pitch, the gap between words,
   and pauses at commas, sentences and paragraphs.

@@ -4,6 +4,40 @@
 
 ---
 
+## 0. Checkpoint (2026-10-23, end of session)
+
+**Stopped here on purpose** (the developer needed the machine). Everything is on `main`
+and released as **v0.4.0**; `m1-new-look` equals `main`.
+
+- **On the developer's phone** (Nothing A059, adb `00158351M001200`): v0.4.0 installed. Their
+  library is their own; do not reorganise it, and never re-add "Reborn In A World of Chastity
+  Reversal" (they removed it).
+- **Verified on the phone this session:**
+  - adding LNReader's list (319 sources)
+  - installing NovelBin and Royal Road
+  - global search
+  - novel page; add to library
+  - listening, with chapters fetched ahead and next-chapter past what is downloaded
+  - Royal Road through the hidden WebView (finding 20)
+  - Updates
+  - NovelDokusha import of 8 novels with covers and places
+  - one-tap install of a missing source
+  - the Sources language row
+- **README screenshots** were retaken (public-domain books only, via the library search
+  "alice"), cropped to the app and framed by `mockup.py`. That script lived in the scratchpad
+  and is gone; any PIL rounded-rectangle frame will do.
+- **Not verified on a device:**
+  - first-run seeding (`starter.dart`), which needs a fresh install and could not be tested
+    without wiping the phone; the bundled EPUB import is unit-tested
+  - chapter multi-select and per-chapter downloads on the real phone (widget-tested)
+- **Open, next session:**
+  1. Check the fresh-install shelf on a second device or an emulator.
+  2. The priorities in [17-step-back-review.md](17-step-back-review.md), starting with the
+     application id.
+- **Local machine:** the scratch Flutter SDK and workspaces were deleted at the end of the
+  session (PC kept light). To check locally again, rebuild them as in section 5 (or rely on
+  CI: `gh workflow run build.yml --ref <branch>`).
+
 ## 1. Where the project is
 
 **As of 2026-10-23** (v0.4.0, branch `m1-new-look`, merged to `main` for the release): a
@@ -17,6 +51,7 @@ everything below. The plan these follow is `docs/roadmap.html`.
 | Library | Cover tiles with a translucent info band (list view optional); categories as swipeable pages; long-press multi-select, move, remove; a continue dock at the bottom |
 | Book page | Details, description (EPUB `dc:description`, parsed v5), category, per-book voice with a sample, chapters |
 | Reader | Listen/Read settings sheet; voice picker with readable names and spoken samples; fades under the bars; ornament pictures drawn in the page's ink; keep screen on |
+| First run | A new install starts with Pride and Prejudice (bundled, public domain), ReadNovelFull and Royal Road installed, and Shadow Slave and Lord of the Mysteries added from ReadNovelFull (`starter.dart`) |
 | Web novels | LNReader plugins in QuickJS ([ADR-019](10-decisions-adr.md#adr-019)): Sources (LNReader's list built in, own lists addable, install/update), Browse (global search, per-source feeds), novel page (pull to check for new chapters, per-chapter and batch downloads), reading with chapters fetched ahead |
 | Updates | New chapters checked on app open (off/12 h/daily/2 days/weekly) and from the Updates screen. Not yet a background job |
 | Import | NovelDokusha backup zip (SQLite read in Kotlin) -> web novels with downloaded chapters and place |
