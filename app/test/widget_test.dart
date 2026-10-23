@@ -528,7 +528,7 @@ void main() {
       await pumpReader(tester, specimenBook());
       await tester.tap(find.byTooltip('Listening settings'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Change'));
+      await tester.tap(find.text('Change').first); // The voice; the second is for dialogue.
       await tester.pumpAndSettle();
 
       expect(find.text('IN USE'), findsOneWidget);
