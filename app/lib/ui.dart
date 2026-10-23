@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 
 import 'theme.dart';
@@ -169,8 +171,9 @@ class _ChoiceRowState<T> extends State<ChoiceRow<T>> {
           final track = Container(
             padding: const EdgeInsets.all(3),
             constraints: BoxConstraints(minWidth: c.maxWidth),
+            // A row that scrolls has its ground on the window round it (below).
             decoration: BoxDecoration(
-              color: Skin.raisedOn(context),
+              color: fits ? Skin.raisedOn(context) : null,
               borderRadius: BorderRadius.circular(Radii.pill),
             ),
             child: Stack(
@@ -204,15 +207,22 @@ class _ChoiceRowState<T> extends State<ChoiceRow<T>> {
           );
           if (fits) return track;
           if (selected >= 0) _reveal(selected, left, spans[at], c.maxWidth);
-          // Too many to fit: the row scrolls, and fades at the edge so it is
-          // plainly more than what shows.
-          return ShaderMask(
-            blendMode: BlendMode.dstIn,
-            shaderCallback: (rect) => const LinearGradient(
-              colors: [Colors.black, Colors.black, Colors.transparent],
-              stops: [0, 0.88, 1],
-            ).createShader(rect),
-            child: SingleChildScrollView(controller: _scroll, scrollDirection: Axis.horizontal, child: track),
+          // Too many to fit: the segments scroll inside a pill that stays
+          // put (scrolling the pill itself cut its ends off square), and fade
+          // at the edge so it is plainly more than what shows.
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(Radii.pill),
+            child: ColoredBox(
+              color: Skin.raisedOn(context),
+              child: ShaderMask(
+                blendMode: BlendMode.dstIn,
+                shaderCallback: (rect) => const LinearGradient(
+                  colors: [Colors.black, Colors.black, Colors.transparent],
+                  stops: [0, 0.88, 1],
+                ).createShader(rect),
+                child: SingleChildScrollView(controller: _scroll, scrollDirection: Axis.horizontal, child: track),
+              ),
+            ),
           );
         },
       );
@@ -794,4 +804,56 @@ class ScreenTopBar extends StatelessWidget {
           ],
         ),
       );
+}
+
+/// A page's top bar ([child]) that stays put while the page scrolls under it:
+/// a long chapter list used to carry Back, Search and the menu off the top.
+/// Once something slides beneath, the bar frosts over so they stay legible.
+class PinnedBar extends StatelessWidget {
+  const PinnedBar({super.key, required this.child});
+
+  final Widget child;
+
+  /// The round buttons (44) with a little room above and below.
+  static const height = Gap.s + 44 + Gap.s;
+
+  @override
+  Widget build(BuildContext context) => SliverPersistentHeader(pinned: true, delegate: _PinnedBarDelegate(child));
+}
+
+class _PinnedBarDelegate extends SliverPersistentHeaderDelegate {
+  _PinnedBarDelegate(this.child);
+
+  final Widget child;
+
+  @override
+  double get minExtent => PinnedBar.height;
+
+  @override
+  double get maxExtent => PinnedBar.height;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    final under = overlapsContent || shrinkOffset > 0;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        AnimatedOpacity(
+          opacity: under ? 1 : 0,
+          duration: Motion.of(context, Motion.standard),
+          curve: Motion.out,
+          child: ClipRect(
+            child: BackdropFilter(
+              filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+              child: ColoredBox(color: Skin.ground(context).colors.first.withValues(alpha: 0.78)),
+            ),
+          ),
+        ),
+        Align(alignment: Alignment.topCenter, child: child),
+      ],
+    );
+  }
+
+  @override
+  bool shouldRebuild(_PinnedBarDelegate old) => old.child != child;
 }

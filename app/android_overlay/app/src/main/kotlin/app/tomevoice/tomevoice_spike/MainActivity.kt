@@ -60,6 +60,9 @@ class MainActivity : FlutterActivity() {
     private var imageResult: MethodChannel.Result? = null
     private var pendingOpen: Map<String, String>? = null
 
+    /** A widget was tapped: the book to open (and play), or the page to show. */
+    private var pendingWidget: Map<String, Any>? = null
+
     // A backup or restore waiting on Android's file dialog.
     private var backupResult: MethodChannel.Result? = null
     private var backupManifest = ""
@@ -271,6 +274,53 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "shareDir" -> result.success(ShareProvider.dir(cacheDir).absolutePath)
+                "is64Bit" -> result.success(android.os.Process.is64Bit())
+                "installApk" -> {
+                    // A downloaded update (in cache/share) to Android's
+                    // installer, which asks the reader to confirm. The first
+                    // time, Android must be told TomeVoice may install apps.
+                    if (!packageManager.canRequestPackageInstalls()) {
+                        startActivity(
+                            Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
+                                .setData(android.net.Uri.parse("package:$packageName"))
+                        )
+                        result.success("permission")
+                    } else {
+                        try {
+                            val file = File(call.argument<String>("path").orEmpty())
+                            val uri = ShareProvider.uriFor("$packageName.share", file)
+                            startActivity(Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(uri, "application/vnd.android.package-archive")
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            })
+                            result.success("started")
+                        } catch (e: Exception) {
+                            result.error("install", e.message, null)
+                        }
+                    }
+                }
+                "widgetLaunch" -> {
+                    result.success(pendingWidget)
+                    pendingWidget = null
+                }
+                "pinWidget" -> {
+                    // Ask the launcher to put a widget on the home screen
+                    // (Android shows its own "Add to home screen" sheet).
+                    val mgr = getSystemService(android.appwidget.AppWidgetManager::class.java)
+                    val cls = when (call.argument<String>("kind")) {
+                        "playerWide" -> PlayerWidgetWide::class.java
+                        "streak" -> StreakWidget::class.java
+                        "streakWide" -> StreakWidgetWide::class.java
+                        else -> PlayerWidget::class.java
+                    }
+                    val ok = Build.VERSION.SDK_INT >= 26 && mgr != null && mgr.isRequestPinAppWidgetSupported &&
+                        mgr.requestPinAppWidget(android.content.ComponentName(this, cls), null, null)
+                    result.success(ok)
+                }
+                "refreshWidgets" -> {
+                    Widgets.refreshAll(this)
+                    result.success(null)
+                }
                 "restartApp" -> {
                     // After a restore every store must read the new files; a
                     // fresh process is the one sure way. The process must end
@@ -346,6 +396,7 @@ class MainActivity : FlutterActivity() {
         withTts(null) { }
         cleanSynthDir()
         handleViewIntent(intent)
+        takeWidgetIntent(intent)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -383,6 +434,23 @@ class MainActivity : FlutterActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleViewIntent(intent)
+        if (takeWidgetIntent(intent)) event(mapOf("type" to "widgetLaunch"))
+    }
+
+    /** Keep what a widget asked for, for the app to act on. */
+    private fun takeWidgetIntent(intent: Intent?): Boolean {
+        val i = intent ?: return false
+        val book = i.getStringExtra(Widgets.EXTRA_BOOK)
+        val page = i.getStringExtra(Widgets.EXTRA_PAGE)
+        if (book == null && page == null) return false
+        pendingWidget = buildMap {
+            if (book != null) put("book", book)
+            if (page != null) put("page", page)
+            if (i.getBooleanExtra(Widgets.EXTRA_PLAY, false)) put("play", true)
+        }
+        i.removeExtra(Widgets.EXTRA_BOOK)
+        i.removeExtra(Widgets.EXTRA_PAGE)
+        return true
     }
 
     private fun event(payload: Map<String, Any?>) {

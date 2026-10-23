@@ -313,7 +313,7 @@ void main() {
       await finish(tester);
     });
 
-    testWidgets('on its side, the player is a rail beside the text', (tester) async {
+    testWidgets('on its side, the player floats over the foot of the text', (tester) async {
       tester.view.physicalSize = const Size(2392, 1080);
       tester.view.devicePixelRatio = 2.75;
       addTearDown(tester.view.reset);
@@ -322,10 +322,16 @@ void main() {
         home: ReaderScreen(layout: ReadingLayout.build(specimenBook())),
       ));
       await tester.pumpAndSettle();
-      final width = tester.view.physicalSize.width / tester.view.devicePixelRatio;
-      expect(tester.getCenter(find.byTooltip('Play')).dx, greaterThan(width * 0.6));
-      // The text keeps most of the height: it starts near the top.
-      expect(tester.getTopLeft(find.textContaining('quick brown fox').first).dy, lessThan(200));
+      final size = tester.view.physicalSize / tester.view.devicePixelRatio;
+      // One row along the foot: play low on the screen, with sleep and save
+      // beside it.
+      expect(tester.getCenter(find.byTooltip('Play')).dy, greaterThan(size.height * 0.7));
+      expect(find.byTooltip('Sleep timer'), findsOneWidget);
+      expect(find.byTooltip('Save this line'), findsOneWidget);
+      // The text keeps the height, and a comfortable line on the wide screen.
+      final text = tester.getRect(find.textContaining('quick brown fox').first);
+      expect(text.top, lessThan(200));
+      expect(text.width, lessThanOrEqualTo(720));
       await finish(tester);
     });
 
@@ -528,7 +534,7 @@ void main() {
       await pumpReader(tester, specimenBook());
       await tester.tap(find.byTooltip('Listening settings'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Change'));
+      await tester.tap(find.text('Change').first); // The voice; the second is for dialogue.
       await tester.pumpAndSettle();
 
       expect(find.text('IN USE'), findsOneWidget);

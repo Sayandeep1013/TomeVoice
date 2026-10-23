@@ -160,7 +160,8 @@ jobs:
           set -e
           K=android/app/src/main/kotlin/app/tomevoice/tomevoice_spike
           M=android/app/src/main/AndroidManifest.xml
-          for f in MainActivity PcmPlayer ReadAloudService PdfText PdfPages ShareProvider LibraryBackup; do test -f "$K/$f.kt"; done
+          for f in MainActivity PcmPlayer ReadAloudService PdfText PdfPages ShareProvider LibraryBackup Widgets WidgetConfigActivity; do test -f "$K/$f.kt"; done
+          grep -q "PlayerWidget" "$M"
           grep -q "tomevoice/tts" "$K/MainActivity.kt"
           grep -q "TTS_SERVICE" "$M"
           grep -q "ReadAloudService" "$M"
@@ -195,6 +196,7 @@ jobs:
         working-directory: app
         env:
           TV_KEYSTORE_PASSWORD: ${{ secrets.TV_KEYSTORE_PASSWORD }}
+          TV_ABIS: armeabi-v7a
         run: |
           flutter build apk --release --target-platform android-arm
           cp build/app/outputs/flutter-apk/app-release.apk "$RUNNER_TEMP/app-release-32bit.apk"
@@ -203,7 +205,12 @@ jobs:
         working-directory: app
         env:
           TV_KEYSTORE_PASSWORD: ${{ secrets.TV_KEYSTORE_PASSWORD }}
-        run: flutter build apk --release --target-platform android-arm64
+          TV_ABIS: arm64-v8a
+        run: |
+          flutter build apk --release --target-platform android-arm64
+          # Each APK holds one CPU's native code, compressed.
+          unzip -l build/app/outputs/flutter-apk/app-release.apk | grep -E "lib/" | awk '{print $4}' | cut -d/ -f2 | sort -u
+          ls -la build/app/outputs/flutter-apk/app-release.apk
 
       - uses: actions/upload-artifact@v4
         with:

@@ -4,7 +4,7 @@ description: >-
   Markdown and text, and reads them aloud with the owned audio pipeline.
   See docs/16-session-handoff.md.
 publish_to: none
-version: 0.8.0+10
+version: 1.0.0+12
 
 environment:
   sdk: ^3.5.0
@@ -23,6 +23,12 @@ dependencies:
   # from its cover. Already part of Flutter, so "any" takes the version the
   # SDK pins. Apache-2.0.
   material_color_utilities: any
+  # Natural voices made on the phone (Piper models through sherpa-onnx).
+  # Apache-2.0. Pinned: 2.0 drops the eSpeak data Piper voices rely on
+  # (docs/14, recheck triggers).
+  sherpa_onnx: 1.13.8
+  # Unpacking downloaded voices (tar.bz2). MIT.
+  archive: ^4.0.7
   # QuickJS, to run LNReader source plugins (web novels). MIT, as is the
   # QuickJS it vendors. Pinned by commit: a single-maintainer git package,
   # the one Mangayomi uses. Builds through Flutter's native-assets hook.
@@ -45,6 +51,7 @@ flutter:
     - assets/fonts/OFL-Figtree.txt
     - assets/fonts/OFL-Newsreader.txt
     - assets/fonts/OFL-Literata.txt
+    - assets/fonts/OFL-Doto.txt
     - assets/brand/logo.png
     # The libraries LNReader source plugins use, and TomeVoice's host for
     # them (tools/lnreader_libs builds the first).
@@ -78,3 +85,8 @@ flutter:
     - family: Literata
       fonts:
         - asset: assets/fonts/Literata-Variable.ttf
+    # Dot-matrix numbers on the home-screen widgets (drawn natively from
+    # flutter_assets).
+    - family: Doto
+      fonts:
+        - asset: assets/fonts/Doto-Variable.ttf

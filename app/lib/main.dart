@@ -38,6 +38,7 @@ void _registerFontLicences() {
       ('Figtree', 'Figtree'),
       ('Newsreader', 'Newsreader'),
       ('Literata', 'Literata'),
+      ('Doto', 'Doto'),
     ]) {
       yield LicenseEntryWithLineBreaks(
         [family],

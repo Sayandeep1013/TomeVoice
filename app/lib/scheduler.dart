@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
+import 'dialogue.dart';
 import 'reading_rules.dart';
 import 'speech_service.dart';
 
@@ -57,6 +58,7 @@ class PlaybackScheduler {
     required this.voiceNameOf,
     required this.pauseAfter,
     this.respell,
+    this.dialogueVoiceOf,
   });
 
   final SpeechService service;
@@ -71,6 +73,9 @@ class PlaybackScheduler {
   /// The sentence as the voice should say it (the reader's pronunciation
   /// fixes), with the way back to the page's text for the highlight.
   final Respelled Function(String text)? respell;
+
+  /// The voice for words in quotation marks, when not the narrator's.
+  final String? Function()? dialogueVoiceOf;
 
   final state = ValueNotifier<PlayState>(PlayState.idle);
   final unit = ValueNotifier<int>(0);
@@ -178,13 +183,24 @@ class PlaybackScheduler {
       final text = said.text;
       try {
         final s = settingsFor(text);
-        final native = await service.synthesise(
-          text: text,
-          engineId: engineIdOf(),
-          voiceName: voiceNameOf(),
-          rate: s.speedScale,
-          pitch: SpeechService.semitonesToPitch(s.pitchSemitones),
-        );
+        final dialogue = dialogueVoiceOf?.call();
+        final native = dialogue == null || !text.contains(RegExp('[“”"«»「」„]'))
+            ? await service.synthesise(
+                text: text,
+                engineId: engineIdOf(),
+                voiceName: voiceNameOf(),
+                rate: s.speedScale,
+                pitch: SpeechService.semitonesToPitch(s.pitchSemitones),
+              )
+            : await speakWithDialogue(
+                svc: service,
+                text: text,
+                narrator: voiceNameOf(),
+                dialogueVoice: dialogue,
+                engineId: engineIdOf(),
+                rate: s.speedScale,
+                pitch: SpeechService.semitonesToPitch(s.pitchSemitones),
+              );
         if (gen != _gen) return;
         final r = await renderInBackground(
           native: native,

@@ -55,12 +55,69 @@ PERMISSIONS = """    <uses-permission android:name="android.permission.INTERNET"
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 """
 
 SERVICE = """        <service
             android:name=".ReadAloudService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+"""
+
+# The home-screen widgets (Widgets.kt) and the screen that picks a widget's book.
+WIDGETS = """        <receiver
+            android:name=".PlayerWidget"
+            android:exported="true"
+            android:label="Now reading">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_player_small_info" />
+        </receiver>
+        <receiver
+            android:name=".PlayerWidgetWide"
+            android:exported="true"
+            android:label="Now reading (wide)">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_player_wide_info" />
+        </receiver>
+        <receiver
+            android:name=".StreakWidget"
+            android:exported="true"
+            android:label="Streak">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_streak_small_info" />
+        </receiver>
+        <receiver
+            android:name=".StreakWidgetWide"
+            android:exported="true"
+            android:label="Streak (wide)">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_streak_wide_info" />
+        </receiver>
+        <activity
+            android:name=".WidgetConfigActivity"
+            android:exported="true"
+            android:label="Show on the widget"
+            android:theme="@android:style/Theme.DeviceDefault.Dialog">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
 """
 
 # Serves pictures made to share (quote cards) to the app they are shared with.
@@ -127,6 +184,10 @@ def patch_manifest(path: Path) -> str:
         text = text.replace("</application>", SERVICE + "    </application>", 1)
         notes.append("service")
 
+    if ".PlayerWidget" not in text:
+        text = text.replace("</application>", WIDGETS + "    </application>", 1)
+        notes.append("widgets")
+
     if ".ShareProvider" not in text:
         text = text.replace("</application>", PROVIDER + "    </application>", 1)
         notes.append("share provider")
@@ -152,6 +213,23 @@ def patch_manifest(path: Path) -> str:
 
 
 APPLICATION_ID = "app.tomevoice"
+
+# Native code for the CPU this APK is for (TV_ABIS, set per build in CI),
+# stored compressed: about half the download.
+PACKAGING = """
+
+android {
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+            val keep = (System.getenv("TV_ABIS") ?: "arm64-v8a,armeabi-v7a").split(",")
+            excludes += listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+                .filter { it !in keep }
+                .map { "lib/$it/**" }
+        }
+    }
+}
+"""
 
 SIGNING_BLOCK = """    signingConfigs {
         create("tomevoice") {
@@ -191,6 +269,16 @@ def patch_gradle(path: Path, signing: bool) -> str:
         text, count = re.subn(pattern, replacement, text)
         if count:
             notes.append(f"{replacement} ({count})")
+
+    # Each APK carries native code for its own CPU only: plugins such as
+    # sherpa-onnx ship all four, which made the 64-bit APK 101 MB. CI sets
+    # TV_ABIS per build. Native libraries are stored compressed: a download
+    # of about half the size (Android unpacks them when installing).
+    if "TV_ABIS" not in text and path.suffix == ".kts":
+        # Excluded at packaging: ndk.abiFilters alone left the plugins' other
+        # CPUs in the APK (checked in a CI build).
+        text = text.rstrip() + PACKAGING
+        notes.append("one CPU per APK, compressed native libraries")
 
     if PDFBOX not in text:
         if path.suffix == ".kts":

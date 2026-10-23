@@ -25,6 +25,7 @@ import 'share_card.dart';
 import 'sources/source_engine.dart';
 import 'scheduler.dart';
 import 'speech_service.dart';
+import 'stats.dart';
 import 'theme.dart';
 import 'ui.dart';
 import 'voices.dart';
@@ -262,6 +263,13 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// This book in the library (web source, author), once looked up.
   LibraryEntry? _entry;
 
+  /// Reading time: counted every [_tick] as listening (playing) or reading
+  /// (scrolled in the last minute), from the time actually passed.
+  Timer? _statsTimer;
+  DateTime _lastTick = DateTime.now();
+  DateTime? _lastScroll;
+  int _statsUnit = -1;
+
   /// Search matches being stepped through, and which one is shown.
   List<SearchHit> _hits = const [];
   int _hit = 0;
@@ -292,6 +300,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       voiceNameOf: () => _listen.voiceName,
       pauseAfter: _pauseAfter,
       respell: (text) => respell(text, ReadingRules.instance.sayFor(_book.id)),
+      dialogueVoiceOf: () => _listen.dialogueVoice,
     )..onFinished = _onFinished;
     _player.unit.addListener(() => _cursor.value = _player.unit.value);
     _player.state.addListener(_onPlayState);
@@ -303,6 +312,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     ReadingRules.instance.changes.addListener(_onRules);
     unawaited(_loadPrefs());
     unawaited(_loadCover());
+    _statsTimer = Timer.periodic(const Duration(seconds: 15), (_) => _countTime());
     if (widget.autoplay) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _togglePlay());
     }
@@ -365,6 +375,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _persistTimer?.cancel();
     _restartTimer?.cancel();
     _sleepTimer?.cancel();
+    _statsTimer?.cancel();
+    _countTime();
+    unawaited(StatsStore.instance.flush());
     unawaited(_persist());
     unawaited(_events?.cancel());
     _catalog.removeListener(_onCatalog);
@@ -379,6 +392,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
       unawaited(_persist());
+      _countTime();
+      unawaited(StatsStore.instance.flush());
     }
   }
 
@@ -418,7 +433,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         engineId: _prefs.engineId ?? _catalog.engineId,
       );
     } on Object catch (e) {
-      _snack('Could not play a sample: $e');
+      debugPrint('Voice sample failed: $e');
+      _snack('That voice could not play a sample. Try another.');
     }
   }
 
@@ -630,7 +646,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           case 'speed':
             _nextSpeed();
           case 'save':
-            unawaited(_save(MarkKind.quote, quietly: false));
+            unawaited(_save(MarkKind.quote));
         }
     }
   }
@@ -687,7 +703,32 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   int _lastSection = -1;
 
+  /// Time since the last count, to listening or reading. A gap longer than a
+  /// tick (the phone asleep with nothing playing) is not counted.
+  void _countTime() {
+    final now = DateTime.now();
+    final passed = now.difference(_lastTick);
+    _lastTick = now;
+    if (passed > const Duration(seconds: 20) || _l.isEmpty) return;
+    if (_player.isPlaying) {
+      StatsStore.instance.addTime(_book.id, passed, listening: true);
+    } else if (_lastScroll != null && now.difference(_lastScroll!) < const Duration(minutes: 1)) {
+      StatsStore.instance.addTime(_book.id, passed, listening: false);
+    }
+  }
+
+  /// A sentence heard to its end (reading moved on by one while playing),
+  /// and a chapter finished (the next one begun).
+  void _countProgress(int u) {
+    final prev = _statsUnit;
+    _statsUnit = u;
+    if (prev < 0 || u != prev + 1 || !_player.isPlaying || _l.isEmpty) return;
+    StatsStore.instance.addWords(_l.wordsBefore[u] - _l.wordsBefore[prev]);
+    if (_l.chapterOfUnit(u) == _l.chapterOfUnit(prev) + 1) StatsStore.instance.addChapter();
+  }
+
   void _onCursor() {
+    _countProgress(_cursor.value);
     final changed = widget.onChapterChanged;
     if (changed != null && !_l.isEmpty) {
       final section = _l.units[_cursor.value.clamp(0, _l.units.length - 1)].sectionIndex;
@@ -736,6 +777,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   bool _onScrollNotification(ScrollNotification n) {
+    if (n is ScrollUpdateNotification && n.dragDetails != null) _lastScroll = DateTime.now();
     if (n is ScrollStartNotification && n.dragDetails != null && !_programmaticScroll) {
       _detached.value = true;
     }
@@ -770,9 +812,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   // ----------------------------------------------------- keep and share
 
   /// Keep sentence [unit] (the one being read by default) as a quote or a
-  /// bookmark. [quietly]: no Share button on the message (from the text,
-  /// where the menu already offered it).
-  Future<Mark?> _save(MarkKind kind, {int? unit, int span = 1, bool quietly = true}) async {
+  /// bookmark. The message offers Undo, for a save made by mistake.
+  Future<Mark?> _save(MarkKind kind, {int? unit, int span = 1}) async {
     if (_l.isEmpty) return null;
     final u = (unit ?? _cursor.value).clamp(0, _l.units.length - 1);
     final end = (u + span).clamp(u + 1, _l.units.length);
@@ -788,11 +829,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     );
     if (!mounted) return mark;
     final said = kind == MarkKind.quote ? 'Saved to your quotes.' : 'Bookmarked.';
-    if (quietly || kind != MarkKind.quote) {
-      _snack(said);
-    } else {
-      showSnack(context, said, actionLabel: 'Share', onAction: () => _share(mark));
-    }
+    showSnack(
+      context,
+      said,
+      actionLabel: 'Undo',
+      onAction: () => unawaited(MarkStore.instance.remove(mark.id)),
+    );
     return mark;
   }
 
@@ -863,7 +905,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (picked == null || !mounted) return;
     switch (picked) {
       case 'quote':
-        await _save(MarkKind.quote, unit: unit, quietly: false);
+        await _save(MarkKind.quote, unit: unit);
       case 'share':
         final mark = await _save(MarkKind.quote, unit: unit);
         if (mark != null && mounted) _share(mark);
@@ -960,6 +1002,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    // A phone on its side: the player floats over the foot of the text as
+    // one row, so the text keeps the height.
+    final rail = size.width > size.height && size.height < 600;
     final bar = _PlayerBar(
       layout: _l,
       cursor: _cursor,
@@ -978,11 +1024,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       onSpeed: () => showListenSheet(context, _listen, focus: ListenFocus.speed),
       onVoice: () => showListenSheet(context, _listen),
       onExpand: _openNowPlaying,
+      dock: rail,
+      title: _book.metadata.title,
+      cover: _cover,
+      onSleep: () => showListenSheet(context, _listen),
+      onSave: () => unawaited(_save(MarkKind.quote)),
     );
-    final size = MediaQuery.sizeOf(context);
-    // A phone on its side: the player as a rail down the right, so the text
-    // keeps the height (the bar used to take half of it).
-    final rail = size.width > size.height && size.height < 600;
     final reading = Column(
       children: [
         _topBar(context),
@@ -1003,7 +1050,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
               Positioned(
                 left: 0,
                 right: 0,
-                bottom: 10,
+                // Above the dock when it floats over the text.
+                bottom: rail ? 112 : 10,
                 child: Center(child: _hits.isEmpty ? _backToReading(context) : _matches(context)),
               ),
             ],
@@ -1017,15 +1065,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         decoration: BoxDecoration(gradient: Skin.ground(context)),
         child: SafeArea(
           child: rail
-              ? Row(
+              ? Stack(
                   children: [
-                    Expanded(child: reading),
-                    SizedBox(
-                      width: 340,
-                      child: Center(
-                        child: SingleChildScrollView(padding: const EdgeInsets.only(top: Gap.m), child: bar),
-                      ),
-                    ),
+                    reading,
+                    Positioned(left: 0, right: 0, bottom: 0, child: Center(child: bar)),
                   ],
                 )
               : reading,
@@ -1059,7 +1102,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           onSpeed: () => showListenSheet(ctx, _listen, focus: ListenFocus.speed),
           onVoice: () => showListenSheet(ctx, _listen),
           onSleep: () => showListenSheet(ctx, _listen),
-          onSave: () => _save(MarkKind.quote, quietly: false),
+          onSave: () => _save(MarkKind.quote),
+          onHold: (unit, word) => unawaited(_onLongPress(unit, word)),
         ),
       ),
       transitionsBuilder: (ctx, animation, _, child) => SlideTransition(
@@ -1175,6 +1219,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       );
     }
     final initial = _l.unitItem[_cursor.value.clamp(0, _l.units.length - 1)];
+    // A wide screen keeps a comfortable line (about 70 characters), centred.
+    final side = math.max(_prefs.margin, (MediaQuery.sizeOf(context).width - 720) / 2);
     // Text fades out under the top bar and the player instead of being cut
     // off against them.
     return ShaderMask(
@@ -1194,7 +1240,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           itemPositionsListener: _positions,
           initialScrollIndex: initial,
           initialAlignment: initial == 0 ? 0 : 0.12,
-          padding: EdgeInsets.fromLTRB(_prefs.margin, 16, _prefs.margin, 120),
+          padding: EdgeInsets.fromLTRB(side, 16, side, 120),
           itemBuilder: (context, i) => i == _l.items.length ? _more(context) : _item(context, i),
         ),
       ),
@@ -1566,6 +1612,11 @@ class _PlayerBar extends StatelessWidget {
     required this.onSpeed,
     required this.onVoice,
     required this.onExpand,
+    this.dock = false,
+    this.title = '',
+    this.cover,
+    this.onSleep,
+    this.onSave,
   });
 
   final ReadingLayout layout;
@@ -1593,12 +1644,169 @@ class _PlayerBar extends StatelessWidget {
   /// Open Now Playing: swipe the bar up, or tap its handle.
   final VoidCallback onExpand;
 
+  /// A phone on its side: one floating row over the text (see [_dock]).
+  final bool dock;
+
+  /// The book and its shown cover, for the dock.
+  final String title;
+  final String? cover;
+  final VoidCallback? onSleep;
+  final VoidCallback? onSave;
+
   @override
   Widget build(BuildContext context) => GestureDetector(
         onVerticalDragEnd: (d) {
           if ((d.primaryVelocity ?? 0) < -250) onExpand();
         },
-        child: _bar(context),
+        child: dock ? _dock(context) : _bar(context),
+      );
+
+  /// Where [u] stands: its chapter, the chapter's span, the minutes left and
+  /// how far through (of the chapter when this layout is part of the work).
+  ({int chapter, int first, int count, int minutes, int pct}) _at(int u) {
+    if (layout.isEmpty) return (chapter: 0, first: 0, count: 1, minutes: 0, pct: 0);
+    final chapter = layout.chapterOfUnit(u);
+    final (first, count) = layout.chapterRange(chapter);
+    final end = first + count;
+    final upTo = progressOf != null && end < layout.units.length ? layout.wordsBefore[end] : layout.totalWords;
+    final wordsLeft = upTo - layout.wordsBefore[u];
+    return (
+      chapter: chapter,
+      first: first,
+      count: count,
+      minutes: (wordsLeft / (165 * speed)).round(),
+      pct: ((progressOf?.call(u) ?? progressFraction(layout.units, u)) * 100).round(),
+    );
+  }
+
+  /// The handle: says the bar swipes up to Now Playing, and opens it on a tap.
+  Widget _handle(BuildContext context, {double below = 6}) => Semantics(
+        button: true,
+        label: 'Open Now Playing',
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onExpand,
+          child: Padding(
+            padding: EdgeInsets.only(bottom: below),
+            child: Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Skin.onDark(context).withValues(alpha: 0.28),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+  /// Landscape: everything the portrait bar has, and sleep and save, as one
+  /// floating row in the book's colour, so the text keeps the screen's height
+  /// (the bar as a column beside it left half the column empty).
+  Widget _dock(BuildContext context) {
+    final onDark = Skin.onDark(context);
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 980),
+      margin: const EdgeInsets.fromLTRB(Gap.m, 0, Gap.m, Gap.s),
+      padding: const EdgeInsets.fromLTRB(Gap.s, Gap.s, Gap.s, Gap.xs),
+      decoration: BoxDecoration(
+        color: Color.lerp(Skin.darkOn(context), Skin.accentOf(context), 0.16),
+        borderRadius: BorderRadius.circular(Radii.card + 4),
+        boxShadow: Skin.lift(context),
+      ),
+      child: ValueListenableBuilder<int>(
+        valueListenable: cursor,
+        builder: (context, u, _) {
+          final empty = layout.isEmpty;
+          final at = _at(u);
+          final inChapter = (u - at.first).clamp(0, at.count - 1);
+          final partial = progressOf != null;
+          final left = partial ? '${_duration(at.minutes)} left in chapter' : '${_duration(at.minutes)} left';
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _handle(context, below: 2),
+              Row(
+                children: [
+                  Semantics(
+                    button: true,
+                    label: 'Open Now Playing',
+                    child: GestureDetector(
+                      onTap: onExpand,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: SizedBox(
+                          width: 40,
+                          height: 58,
+                          child: cover == null
+                              ? ColoredBox(
+                                  color: Skin.accentOf(context).withValues(alpha: 0.35),
+                                  child: Icon(Icons.menu_book_rounded, size: 18, color: onDark),
+                                )
+                              : Image.file(File(cover!), fit: BoxFit.cover, cacheWidth: 120, gaplessPlayback: true),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: Gap.m),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          empty ? title : layout.chapterTitle(at.chapter),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Skin.ui(size: 13.5, weight: FontWeight.w600, color: onDark),
+                        ),
+                        Text(
+                          [if (sleepNote == null) '${at.pct}%', left.toUpperCase(), if (sleepNote != null) sleepNote!]
+                              .join('  ·  '),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Skin.meta(context, color: onDark.withValues(alpha: 0.62), size: 10),
+                        ),
+                        ChapterScrubber(
+                          value: at.count <= 1 ? 0 : inChapter / (at.count - 1),
+                          onSeek: at.count <= 1 ? null : (f) => onSeekInChapter(at.first + (f * (at.count - 1)).round()),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: Gap.xs),
+                  _icon(context, Icons.skip_previous_rounded, 'Previous chapter', at.chapter > 0 ? onPrevChapter : null),
+                  _icon(context, Icons.fast_rewind_rounded, 'Previous sentence', u > 0 ? onPrevSentence : null),
+                  PlayButton(player: player, onTap: empty ? null : onPlay),
+                  _icon(context, Icons.fast_forward_rounded, 'Next sentence',
+                      u < layout.units.length - 1 ? onNextSentence : null),
+                  _icon(context, Icons.skip_next_rounded, 'Next chapter',
+                      at.chapter < layout.chapters.length - 1 || moreAfter ? onNextChapter : null),
+                  const SizedBox(width: Gap.s),
+                  _chip(context, '${trimSpeed(speed)}×', Icons.speed_rounded, onSpeed, tooltip: 'Speed'),
+                  if (onSleep != null)
+                    _small(context, sleepNote == null ? Icons.bedtime_outlined : Icons.bedtime_rounded, 'Sleep timer',
+                        onSleep!, lit: sleepNote != null),
+                  if (onSave != null) _small(context, Icons.bookmark_add_outlined, 'Save this line', onSave!),
+                  _chip(context, voiceLabel, Icons.record_voice_over_rounded, onVoice, tooltip: 'Voice'),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _small(BuildContext context, IconData icon, String tip, VoidCallback onTap, {bool lit = false}) => IconButton(
+        tooltip: tip,
+        onPressed: onTap,
+        iconSize: 21,
+        visualDensity: VisualDensity.compact,
+        color: lit ? Skin.accentSoftOf(context) : Skin.onDark(context),
+        icon: Icon(icon),
       );
 
   Widget _bar(BuildContext context) {
@@ -1615,39 +1823,13 @@ class _PlayerBar extends StatelessWidget {
         valueListenable: cursor,
         builder: (context, u, _) {
           final empty = layout.isEmpty;
-          final chapter = empty ? 0 : layout.chapterOfUnit(u);
-          final (first, count) = empty ? (0, 1) : layout.chapterRange(chapter);
+          final (:chapter, :first, :count, :minutes, :pct) = _at(u);
           final inChapter = (u - first).clamp(0, count - 1);
           final partial = progressOf != null;
-          final end = first + count;
-          final upTo = partial && end < layout.units.length ? layout.wordsBefore[end] : layout.totalWords;
-          final wordsLeft = empty ? 0 : upTo - layout.wordsBefore[u];
-          final minutes = (wordsLeft / (165 * speed)).round();
-          final pct = empty ? 0 : ((progressOf?.call(u) ?? progressFraction(layout.units, u)) * 100).round();
           return Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Semantics(
-                button: true,
-                label: 'Open Now Playing',
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: onExpand,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Center(
-                      child: Container(
-                        width: 36,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: onDark.withValues(alpha: 0.28),
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+              _handle(context),
               Row(
                 children: [
                   _chip(context, '${trimSpeed(speed)}×', Icons.speed_rounded, onSpeed,

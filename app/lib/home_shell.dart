@@ -14,9 +14,13 @@ import 'history_screen.dart';
 import 'library_screen.dart';
 import 'library_store.dart';
 import 'marks.dart';
+import 'neural_voices.dart';
 import 'prefs.dart';
+import 'reader_screen.dart';
 import 'reading_rules.dart';
 import 'saved_screen.dart';
+import 'stats.dart';
+import 'stats_screen.dart';
 import 'settings_screen.dart';
 import 'sources/net.dart';
 import 'sources/source_engine.dart';
@@ -28,6 +32,7 @@ import 'updates.dart';
 import 'updates_screen.dart';
 import 'theme.dart';
 import 'ui.dart';
+import 'update_flow.dart';
 
 /// The app around the screens: storage and settings are opened once here,
 /// and the menu (top left of the library) moves between them.
@@ -42,10 +47,39 @@ enum _Place { library, browse, updates, history }
 
 class _HomeShellState extends State<HomeShell> {
   Timer? _followTimer;
+  Timer? _widgetTimer;
+  StreamSubscription<Map<String, Object?>>? _widgetEvents;
+
+  /// The widgets show the library and the streak: redraw them a moment after
+  /// a change (places are saved often while reading).
+  void _scheduleWidgets() {
+    _widgetTimer?.cancel();
+    _widgetTimer = Timer(const Duration(seconds: 3), () => unawaited(const SpeechService().refreshWidgets()));
+  }
+
+  /// A widget was tapped: open its book (and play it), or Stats.
+  Future<void> _fromWidget() async {
+    final store = _store;
+    if (store == null) return;
+    final launch = await const SpeechService().widgetLaunch();
+    if (launch == null || !mounted) return;
+    if (launch['page'] == 'stats') {
+      unawaited(Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => StatsScreen(store: store))));
+      return;
+    }
+    final id = launch['book'] as String?;
+    final entry = (await store.list()).where((e) => e.id == id).firstOrNull;
+    if (entry == null || !mounted) return;
+    // Back to the shelf first, so the book opens on top of it once.
+    Navigator.of(context).popUntil((r) => r.isFirst);
+    await openBook(context, store, entry, autoplay: launch['play'] == true);
+  }
 
   @override
   void dispose() {
     _followTimer?.cancel();
+    _widgetTimer?.cancel();
+    unawaited(_widgetEvents?.cancel());
     _store?.changes.removeListener(_scheduleFollow);
     super.dispose();
   }
@@ -97,6 +131,9 @@ class _HomeShellState extends State<HomeShell> {
       await TintCache.instance.attach(Directory(dir));
       await ReadingRules.instance.attach(Directory(dir));
       await MarkStore.instance.attach(Directory(dir));
+      await StatsStore.instance.attach(Directory(dir));
+      NeuralVoices.instance.attach(Directory(dir));
+      StatsStore.instance.onSaved = _scheduleWidgets;
       final updates = Updates(store);
       if (mounted) {
         setState(() {
@@ -108,6 +145,10 @@ class _HomeShellState extends State<HomeShell> {
       // A restore that was interrupted leaves its unpacked copy behind.
       unawaited(clearStaleRestore(Directory(dir)));
       store.changes.addListener(_scheduleFollow);
+      store.changes.addListener(_scheduleWidgets);
+      // A widget may have opened the app.
+      unawaited(_fromWidget());
+      _widgetEvents = SpeechService.events.where((e) => e['type'] == 'widgetLaunch').listen((_) => _fromWidget());
       unawaited(_follow());
       // A fresh install may be someone moving over: from the older
       // TomeVoice (another app id), or from another phone.
@@ -151,8 +192,8 @@ class _HomeShellState extends State<HomeShell> {
       context,
       'TomeVoice ${update.version} is out.',
       long: true,
-      actionLabel: 'See what\'s new',
-      onAction: () => const SpeechService().openUrl(update.url),
+      actionLabel: 'Install',
+      onAction: () => unawaited(offerUpdate(context, update)),
     );
     await AppUpdates.markTold(root, update);
   }
@@ -244,6 +285,8 @@ class _HomeShellState extends State<HomeShell> {
                   selected: _place == _Place.history, onTap: () => _go(_Place.history)),
               _item(context, Icons.bookmarks_outlined, Icons.bookmarks_rounded, 'Saved',
                   onTap: () => _push((s) => SavedScreen(store: s))),
+              _item(context, Icons.insights_outlined, Icons.insights_rounded, 'Stats',
+                  onTap: () => _push((s) => StatsScreen(store: s))),
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: Gap.xl, vertical: Gap.m),
                 child: Divider(),

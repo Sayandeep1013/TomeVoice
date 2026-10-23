@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
+import 'neural_voices.dart';
+
 /// Everything that talks to the platform, plus the decoding that has to happen
 /// before the pure-Dart pipeline can be handed anything.
 ///
@@ -102,6 +104,16 @@ class SpeechService {
     // later one.
     await previous.timeout(const Duration(seconds: 20), onTimeout: () {});
     try {
+      // A natural voice is made here, not by the phone's speech engine.
+      final natural = neuralVoiceFor(voiceName);
+      if (natural != null) {
+        return await NeuralEngine.instance.synthesise(
+          voice: natural,
+          text: text,
+          speed: rate,
+          outDir: Directory.systemTemp.path,
+        );
+      }
       final raw = await _channel.invokeMapMethod<String, Object?>('synthesise', {
         'text': text,
         'engineId': engineId,
@@ -264,9 +276,39 @@ class SpeechService {
   /// Where pictures to share are written (served to other apps from there).
   Future<String?> shareDir() => _channel.invokeMethod<String>('shareDir');
 
+  /// Whether this app runs as 64-bit code (so wants the 64-bit APK).
+  Future<bool> is64Bit() async => await _channel.invokeMethod<bool>('is64Bit') ?? true;
+
+  /// Open Android's installer for the APK at [path] (in [shareDir]):
+  /// "started", or "permission" when Android first has to be told TomeVoice
+  /// may install apps (its setting is opened instead).
+  Future<String?> installApk(String path) => _channel.invokeMethod<String>('installApk', {'path': path});
+
   /// Android's share sheet for the picture at [path], with [text] beside it.
   Future<void> shareImage(String path, {String? text}) =>
       _channel.invokeMethod<void>('shareImage', {'path': path, 'text': text});
+
+  /// What a tapped widget asked for (`book`, `play`, `page`), once.
+  Future<Map<String, Object?>?> widgetLaunch() async {
+    try {
+      return await _channel.invokeMapMethod<String, Object?>('widgetLaunch');
+    } on Object {
+      return null;
+    }
+  }
+
+  /// Ask the launcher to add a widget: player, playerWide, streak or
+  /// streakWide. False when the launcher cannot.
+  Future<bool> pinWidget(String kind) async {
+    try {
+      return await _channel.invokeMethod<bool>('pinWidget', {'kind': kind}) ?? false;
+    } on Object {
+      return false;
+    }
+  }
+
+  /// Redraw the home-screen widgets (the library or stats changed).
+  Future<void> refreshWidgets() => _quiet('refreshWidgets');
 
   /// Start the app again in a fresh process (after a restore).
   Future<void> restartApp() => _quiet('restartApp');

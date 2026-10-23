@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
 import 'book_tint.dart';
+import 'neural_screen.dart';
+import 'neural_voices.dart';
 import 'prefs.dart';
 import 'speech_service.dart';
 import 'theme.dart';
@@ -74,6 +76,25 @@ class ListenController {
   void chooseVoice(String name) {
     if (bookId != null) prefs.voiceByBook[bookId!] = name;
     prefs.voiceByLanguage[language] = name;
+    prefs.save();
+    onChanged(restart: true);
+  }
+
+  /// The voice dialogue is read in, when this book has its own for it.
+  String? get dialogueVoice {
+    final chosen = bookId == null ? null : prefs.dialogueByBook[bookId];
+    return chosen != null && VoiceCatalog.instance.byName(chosen) != null && chosen != voiceName ? chosen : null;
+  }
+
+  /// Read this book's dialogue in [name], or in the narrator's voice (null).
+  void chooseDialogueVoice(String? name) {
+    final id = bookId;
+    if (id == null) return;
+    if (name == null) {
+      prefs.dialogueByBook.remove(id);
+    } else {
+      prefs.dialogueByBook[id] = name;
+    }
     prefs.save();
     onChanged(restart: true);
   }
@@ -247,6 +268,10 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
         SectionTitle('Voice', note: 'Book: ${languageName(widget.controller.language)}'),
         const SizedBox(height: Gap.m),
         _voiceCard(context),
+        if (widget.controller.bookId != null) ...[
+          const SizedBox(height: Gap.s),
+          _dialogueCard(context),
+        ],
         const SizedBox(height: Gap.xl),
         const SectionTitle('Style'),
         const SizedBox(height: Gap.m),
@@ -298,6 +323,86 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
         ),
       ),
     );
+  }
+
+  /// Dialogue in a second voice: what is in quotation marks, read by another.
+  Widget _dialogueCard(BuildContext context) {
+    final c = widget.controller;
+    final v = _catalog.byName(c.dialogueVoice);
+    return Material(
+      color: Skin.raisedOn(context),
+      borderRadius: BorderRadius.circular(Radii.row),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(Radii.row),
+        onTap: () => _pickDialogue(context),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Gap.l, vertical: 12),
+          child: Row(
+            children: [
+              Icon(Icons.forum_outlined, color: Skin.accentOf(context), size: 22),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Dialogue', style: Skin.ui(size: 15, weight: FontWeight.w600, color: Skin.inkOn(context))),
+                    Text(
+                      v == null ? 'In the same voice' : 'Words in quotation marks: ${_catalog.friendlyName(v)}',
+                      style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
+                    ),
+                  ],
+                ),
+              ),
+              Text('Change', style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentSoftOf(context))),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickDialogue(BuildContext context) async {
+    final c = widget.controller;
+    final voices = [
+      for (final v in _catalog.forLanguage(c.language))
+        if (v.name != c.voiceName) v,
+    ];
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      builder: (ctx) => carryTint(
+        context,
+        SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.7),
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                const SheetHeader('Dialogue voice', subtitle: 'Who reads the words in quotation marks'),
+                SheetAction(
+                  icon: Icons.person_outline_rounded,
+                  label: 'The same voice',
+                  detail: 'Everything in the narrator\'s voice',
+                  onTap: () => Navigator.pop(ctx, ''),
+                ),
+                for (final v in voices)
+                  SheetAction(
+                    icon: isNeural(v.name) ? Icons.auto_awesome_rounded : Icons.record_voice_over_outlined,
+                    label: _catalog.friendlyName(v),
+                    detail: v.languageLabel,
+                    onTap: () => Navigator.pop(ctx, v.name),
+                  ),
+                const SizedBox(height: Gap.s),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    c.chooseDialogueVoice(picked.isEmpty ? null : picked);
+    setState(() {});
   }
 
   Widget _style(BuildContext context) {
@@ -776,6 +881,18 @@ class _VoicePickerState extends State<_VoicePicker> {
                             _selectedCard(context, current),
                             const SizedBox(height: Gap.s),
                           ],
+                          if (_language == 'en' && ListeningPrefs.loaded?.naturalVoices != false)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(Gap.l, Gap.s, Gap.l, 0),
+                              child: SheetAction(
+                                icon: Icons.auto_awesome_rounded,
+                                label: 'Natural voices',
+                                detail: 'Voices that sound like people, downloaded once, made on your phone',
+                                onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(builder: (_) => const NeuralVoicesScreen()),
+                                ),
+                              ),
+                            ),
                           for (final group in byRegion.entries) ...[
                             if (byRegion.length > 1 || group.key.isNotEmpty)
                               Padding(

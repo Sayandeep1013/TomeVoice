@@ -8,7 +8,15 @@ import 'speech_service.dart';
 
 /// A release newer than the one installed.
 class AppUpdate {
-  const AppUpdate({required this.version, required this.url, required this.title});
+  const AppUpdate({
+    required this.version,
+    required this.url,
+    required this.title,
+    this.apk64,
+    this.apk32,
+    this.bytes64 = 0,
+    this.bytes32 = 0,
+  });
 
   /// "0.6.0".
   final String version;
@@ -16,6 +24,18 @@ class AppUpdate {
   /// The release page, where the APK is.
   final String url;
   final String title;
+
+  /// The APKs attached to the release, for 64- and 32-bit phones, if any.
+  final String? apk64;
+  final String? apk32;
+  final int bytes64;
+  final int bytes32;
+
+  /// The download's size in MB, rounded up, or null if unknown.
+  int? sizeMb({required bool is64}) {
+    final b = is64 ? bytes64 : bytes32;
+    return b <= 0 ? null : (b / (1024 * 1024)).ceil();
+  }
 }
 
 /// Whether there is a newer TomeVoice on GitHub.
@@ -100,10 +120,21 @@ class AppUpdates {
         return null;
       }
       final body = jsonDecode(await res.transform(utf8.decoder).join()) as Map;
+      // TomeVoice-1.0.0.apk for 64-bit phones, TomeVoice-1.0.0-32bit.apk
+      // for older ones.
+      final apks = [
+        for (final a in (body['assets'] as List? ?? const []))
+          if (a is Map && '${a['name']}'.endsWith('.apk')) a,
+      ];
+      Map? pick(bool bit32) => apks.where((a) => '${a['name']}'.endsWith('-32bit.apk') == bit32).firstOrNull;
       return {
         'tag': body['tag_name'],
         'url': body['html_url'],
         'title': body['name'],
+        'apk64': pick(false)?['browser_download_url'],
+        'apk32': pick(true)?['browser_download_url'],
+        'bytes64': pick(false)?['size'],
+        'bytes32': pick(true)?['size'],
       };
     } on Object {
       return null;
@@ -120,6 +151,10 @@ class AppUpdates {
       version: tag,
       url: latest['url'] as String? ?? 'https://github.com/Sayandeep1013/TomeVoice/releases/latest',
       title: latest['title'] as String? ?? 'TomeVoice $tag',
+      apk64: latest['apk64'] as String?,
+      apk32: latest['apk32'] as String?,
+      bytes64: (latest['bytes64'] as num?)?.toInt() ?? 0,
+      bytes32: (latest['bytes32'] as num?)?.toInt() ?? 0,
     );
   }
 }

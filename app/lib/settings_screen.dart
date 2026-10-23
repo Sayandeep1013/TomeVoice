@@ -14,15 +14,18 @@ import 'brand.dart';
 import 'categories_screen.dart';
 import 'library_store.dart';
 import 'listen_sheet.dart';
+import 'neural_screen.dart';
 import 'noveldokusha_import.dart';
 import 'prefs.dart';
 import 'rules_screen.dart';
 import 'sources/source_engine.dart';
 import 'sources_screen.dart';
+import 'stats_screen.dart' show addWidget;
 import 'speech_service.dart';
 import 'theme.dart';
 import 'ui.dart';
 import 'updates.dart';
+import 'update_flow.dart';
 import 'voices.dart';
 
 const _svc = SpeechService();
@@ -120,7 +123,8 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     try {
       files = await _svc.pickDocuments();
     } on Object catch (e) {
-      if (mounted) showSnack(context, '$e');
+      debugPrint('File picker failed: $e');
+      if (mounted) showSnack(context, 'The file picker could not open. Try again.');
       return;
     }
     if (files.isEmpty || !mounted) return;
@@ -299,6 +303,14 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                         ),
                         const SizedBox(height: Gap.l),
                         _Link(
+                          icon: Icons.auto_awesome_rounded,
+                          title: 'Natural voices',
+                          subtitle: 'Voices that sound like people, made on your phone',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(builder: (_) => const NeuralVoicesScreen()),
+                          ),
+                        ),
+                        _Link(
                           icon: Icons.record_voice_over_outlined,
                           title: 'Voices',
                           subtitle: 'Each book picks its voice on its own page. '
@@ -403,6 +415,18 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           minSegment: 84,
                           onChanged: (v) => _change(() => _prefs.sort = v),
                         ),
+                      ],
+                    ),
+                    _Group(
+                      title: 'Home screen',
+                      children: [
+                        for (final (kind, icon, title, sub) in const [
+                          ('player', Icons.album_outlined, 'Now reading', 'The cover in a ring of dots, and play'),
+                          ('playerWide', Icons.view_agenda_outlined, 'Now reading, wide', 'Cover, chapter, progress and play'),
+                          ('streak', Icons.local_fire_department_outlined, 'Streak', 'Your streak and this week'),
+                          ('streakWide', Icons.grid_view_rounded, 'Streak, wide', 'Your streak and eighteen weeks'),
+                        ])
+                          _Link(icon: icon, title: title, subtitle: sub, onTap: () => addWidget(context, kind)),
                       ],
                     ),
                     _Group(
@@ -626,8 +650,8 @@ class _AboutScreenState extends State<AboutScreen> {
           context,
           'TomeVoice ${update.version} is out.',
           long: true,
-          actionLabel: 'Get it',
-          onAction: () => _svc.openUrl(update.url),
+          actionLabel: 'Install',
+          onAction: () => unawaited(offerUpdate(context, update)),
         );
       }
     } on Object {

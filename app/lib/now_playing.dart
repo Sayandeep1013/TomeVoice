@@ -8,6 +8,7 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 import 'listen_sheet.dart' show trimSpeed;
 import 'player_controls.dart';
 import 'prefs.dart';
+import 'reader_screen.dart' show wordAt;
 import 'scheduler.dart';
 import 'theme.dart';
 
@@ -38,6 +39,7 @@ class NowPlayingScreen extends StatelessWidget {
     required this.onVoice,
     required this.onSleep,
     required this.onSave,
+    required this.onHold,
   });
 
   final String title;
@@ -65,6 +67,10 @@ class NowPlayingScreen extends StatelessWidget {
 
   /// Keep the sentence being read as a quote.
   final VoidCallback onSave;
+
+  /// Press and hold on sentence [unit] (on [word] in it, or '' for none):
+  /// the reader's menu for it (save, bookmark, share, copy, say it right).
+  final void Function(int unit, String word) onHold;
 
   @override
   Widget build(BuildContext context) {
@@ -188,7 +194,7 @@ class NowPlayingScreen extends StatelessWidget {
                   style: Skin.meta(context, color: Colors.white.withValues(alpha: 0.62)),
                 ),
                 const SizedBox(height: Gap.m),
-                Expanded(child: _Lyrics(layout: layout, unit: u, player: player, onTap: onGoTo)),
+                Expanded(child: _Lyrics(layout: layout, unit: u, player: player, onTap: onGoTo, onHold: onHold)),
                 const SizedBox(height: Gap.s),
                 ChapterScrubber(
                   value: count <= 1 ? 0 : inChapter / (count - 1),
@@ -322,16 +328,52 @@ class _Backdrop extends StatelessWidget {
 
 /// The sentence before (dim), the one being read (large, its word lit) and
 /// the next (dim). Tap one to read from it.
-class _Lyrics extends StatelessWidget {
-  const _Lyrics({required this.layout, required this.unit, required this.player, required this.onTap});
+class _Lyrics extends StatefulWidget {
+  const _Lyrics({required this.layout, required this.unit, required this.player, required this.onTap, required this.onHold});
 
   final ReadingLayout layout;
   final int unit;
   final PlaybackScheduler player;
   final ValueChanged<int> onTap;
+  final void Function(int unit, String word) onHold;
+
+  @override
+  State<_Lyrics> createState() => _LyricsState();
+}
+
+class _LyricsState extends State<_Lyrics> {
+  /// Moving on through the book (the text pushes up) or back (down).
+  bool _forward = true;
+
+  @override
+  void didUpdateWidget(_Lyrics old) {
+    super.didUpdateWidget(old);
+    if (widget.unit != old.unit) _forward = widget.unit > old.unit;
+  }
+
+  /// The old sentence leaves first, fading out over the first half; the new
+  /// one rises in after it, so the two never sit on top of each other
+  /// half-faded. Both keep to the top: blocks of different heights don't jump.
+  Widget _push(Widget child, Animation<double> a) {
+    final incoming = child.key == ValueKey(widget.unit);
+    final dir = _forward ? 1.0 : -1.0;
+    // An outgoing child's animation runs backwards, from 1 to 0.
+    final fade = CurvedAnimation(
+      parent: a,
+      curve: incoming ? const Interval(0.35, 1, curve: Curves.easeOut) : const Interval(0.5, 1, curve: Curves.easeIn),
+    );
+    final slide = Tween(begin: Offset(0, (incoming ? 0.1 : -0.1) * dir), end: Offset.zero)
+        .chain(CurveTween(curve: incoming ? Motion.out : Curves.easeIn));
+    return FadeTransition(opacity: fade, child: SlideTransition(position: a.drive(slide), child: child));
+  }
 
   @override
   Widget build(BuildContext context) {
+    final layout = widget.layout;
+    final unit = widget.unit;
+    final player = widget.player;
+    final onTap = widget.onTap;
+    final onHold = widget.onHold;
     if (layout.isEmpty) return const SizedBox.shrink();
     final dim = Skin.ui(size: 14, weight: FontWeight.w400, color: Colors.white.withValues(alpha: 0.38))
         .copyWith(height: 1.35);
@@ -344,14 +386,17 @@ class _Lyrics extends StatelessWidget {
     Widget line(int u, TextStyle style, int maxLines) => GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: () => onTap(u),
+          onLongPress: () => onHold(u, ''),
           child: Text(layout.units[u].text, maxLines: maxLines, overflow: TextOverflow.ellipsis, style: style),
         );
     return ClipRect(
       child: AnimatedSwitcher(
-        duration: Motion.of(context, Motion.standard),
-        switchInCurve: Motion.out,
-        switchOutCurve: Motion.out,
-        transitionBuilder: fadeRiseUp,
+        duration: Motion.of(context, _sentenceChange),
+        transitionBuilder: _push,
+        layoutBuilder: (current, previous) => Stack(
+          alignment: Alignment.topLeft,
+          children: [...previous, if (current != null) current],
+        ),
         child: Column(
           key: ValueKey(unit),
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -359,24 +404,42 @@ class _Lyrics extends StatelessWidget {
             if (unit > 0) line(unit - 1, dim, 2),
             const SizedBox(height: Gap.s),
             Flexible(
-              child: ValueListenableBuilder<WordMark>(
-                valueListenable: player.word,
-                builder: (context, word, _) {
-                  final text = layout.units[unit].text;
-                  final on = word.unit == unit && word.start >= 0 && word.end > word.start;
-                  final ws = on ? word.start.clamp(0, text.length) : 0;
-                  final we = on ? word.end.clamp(ws, text.length) : 0;
-                  return Text.rich(
-                    TextSpan(children: [
-                      TextSpan(text: text.substring(0, ws)),
-                      if (on)
-                        TextSpan(text: text.substring(ws, we), style: TextStyle(color: Skin.accentSoftOf(context))),
-                      TextSpan(text: text.substring(we)),
-                    ]),
-                    style: read,
-                    overflow: TextOverflow.fade,
-                  );
-                },
+              // Press and hold: the word under the finger, found as the
+              // reader finds it.
+              child: LayoutBuilder(
+                builder: (context, box) => GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onLongPressStart: (d) {
+                    final text = layout.units[unit].text;
+                    final painter = TextPainter(
+                      text: TextSpan(text: text, style: read),
+                      textDirection: TextDirection.ltr,
+                      textScaler: MediaQuery.textScalerOf(context),
+                    )..layout(maxWidth: box.maxWidth);
+                    final at = painter.getPositionForOffset(d.localPosition).offset;
+                    painter.dispose();
+                    onHold(unit, wordAt(text, at));
+                  },
+                  child: ValueListenableBuilder<WordMark>(
+                    valueListenable: player.word,
+                    builder: (context, word, _) {
+                      final text = layout.units[unit].text;
+                      final on = word.unit == unit && word.start >= 0 && word.end > word.start;
+                      final ws = on ? word.start.clamp(0, text.length) : 0;
+                      final we = on ? word.end.clamp(ws, text.length) : 0;
+                      return Text.rich(
+                        TextSpan(children: [
+                          TextSpan(text: text.substring(0, ws)),
+                          if (on)
+                            TextSpan(text: text.substring(ws, we), style: TextStyle(color: Skin.accentSoftOf(context))),
+                          TextSpan(text: text.substring(we)),
+                        ]),
+                        style: read,
+                        overflow: TextOverflow.fade,
+                      );
+                    },
+                  ),
+                ),
               ),
             ),
             const SizedBox(height: Gap.s),
@@ -388,14 +451,8 @@ class _Lyrics extends StatelessWidget {
   }
 }
 
-/// The new sentence rises into place as the old one leaves upwards.
-Widget fadeRiseUp(Widget child, Animation<double> animation) => FadeTransition(
-      opacity: animation,
-      child: SlideTransition(
-        position: animation.drive(Tween(begin: const Offset(0, 0.08), end: Offset.zero)),
-        child: child,
-      ),
-    );
+/// Long enough to follow the line upwards; short beside a sentence.
+const _sentenceChange = Duration(milliseconds: 380);
 
 /// A plain cover for a book without a picture: its title on the accent.
 class _DrawnCover extends StatelessWidget {

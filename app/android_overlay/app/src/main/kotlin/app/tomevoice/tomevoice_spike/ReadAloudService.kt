@@ -59,9 +59,18 @@ class ReadAloudService : Service() {
 
         private var now = NowReading()
 
+        /** Whether reading is under way (playing or paused), for the widgets. */
+        fun isRunning(): Boolean = instance != null
+
+        fun isPlaying(): Boolean = instance != null && now.playing
+
         fun update(ctx: Context, next: NowReading) {
             val previous = now
             now = next
+            // The widgets show play or pause: redraw them when that changes.
+            if (previous.playing != next.playing || previous.title != next.title || instance == null) {
+                Widgets.refreshAll(ctx)
+            }
             val running = instance
             if (running != null) {
                 // A new sentence only moves the seek bar; leave the
@@ -84,6 +93,8 @@ class ReadAloudService : Service() {
         fun end(ctx: Context) {
             now = now.copy(playing = false)
             ctx.stopService(Intent(ctx, ReadAloudService::class.java))
+            instance = null
+            Widgets.refreshAll(ctx)
         }
 
         /** The button for [speed]: the number itself for the presets. */
@@ -163,6 +174,8 @@ class ReadAloudService : Service() {
         })
         s.isActive = true
         session = s
+        // Widgets' play buttons now go straight to this service.
+        Widgets.refreshAll(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

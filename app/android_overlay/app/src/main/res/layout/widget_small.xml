@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A TomeVoice widget: the face is one picture drawn by Widgets.kt; the buttons sit over the ones drawn on it. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ImageView
+        android:id="@+id/widget_face"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@string/widget_face"
+        android:scaleType="fitXY" />
+    <ImageButton
+        android:id="@+id/widget_play"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="106dp"
+        android:layout_marginTop="39dp"
+        android:background="@android:color/transparent"
+        android:contentDescription="@string/widget_play" />
+    <ImageButton
+        android:id="@+id/widget_prev"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_gravity="top|start"
+        android:background="@android:color/transparent"
+        android:contentDescription="@string/widget_prev"
+        android:visibility="gone" />
+    <ImageButton
+        android:id="@+id/widget_next"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_gravity="top|start"
+        android:background="@android:color/transparent"
+        android:contentDescription="@string/widget_next"
+        android:visibility="gone" />
+</FrameLayout>

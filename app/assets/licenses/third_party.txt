@@ -62,3 +62,14 @@ Jane Austen, 1813; cover by Hugh Thomson, 1894. Public domain.
 The eBook is Project Gutenberg's #1342, unchanged, distributed free of charge
 under the Project Gutenberg License included in the book itself
 (https://www.gutenberg.org/policy/license.html).
+
+
+------------------------------------------------------------------------
+sherpa-onnx (natural voices), Apache License 2.0
+https://github.com/k2-fsa/sherpa-onnx
+Includes ONNX Runtime (MIT) and eSpeak NG data (GPL-3.0-or-later).
+
+Piper voices (downloaded on request, not part of the app)
+https://github.com/rhasspy/piper
+Each voice keeps the licence of the recordings it was trained on, given
+in the MODEL_CARD that comes with it in voices/<name>/ on the phone.

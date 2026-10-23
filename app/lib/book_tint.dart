@@ -78,6 +78,8 @@ class TintCache {
         for (final e in (raw['books'] as Map? ?? const {}).entries) {
           _books[e.key as String] = e.value as int;
         }
+        // Written before the widgets read the app's own accents.
+        if (raw['accents'] == null && _books.isNotEmpty) _save();
       }
     } on Object {
       // Worked out again as covers are shown.
@@ -118,15 +120,37 @@ class TintCache {
     if (_books[id] == tint) return;
     _books[id] = tint;
     changes.value++;
+    _save();
+  }
+
+  void _save() {
     _saveTimer?.cancel();
     _saveTimer = Timer(const Duration(seconds: 2), () async {
       try {
-        await _file?.writeAsString(jsonEncode({'covers': _covers, 'books': _books}));
+        await _file?.writeAsString(jsonEncode({
+          'covers': _covers,
+          'books': _books,
+          // The home-screen widgets draw natively and cannot work these out.
+          'accents': {
+            for (final e in _books.entries)
+              if (e.value != 0) e.key: widgetAccents(e.value),
+          },
+        }));
       } on Object {
         // Saved with the next change.
       }
     });
   }
+}
+
+/// A book's accent as the widgets need it, from its cover colour [seed]:
+/// the accent on black and the ink on it (as the app's dark screens), then
+/// the accent on white and its ink (as the light ones).
+List<int> widgetAccents(int seed) {
+  final hct = Hct.fromInt(seed);
+  final chroma = hct.chroma < 36 ? 36.0 : hct.chroma;
+  int tone(double t) => Hct.from(hct.hue, chroma, t).toInt();
+  return [tone(66), tone(10), tone(40), tone(100)];
 }
 
 /// [child] in the colours of book [bookId]: its accent everywhere below,
