@@ -10,6 +10,11 @@ on:
   pull_request:
     paths-ignore: ["docs/**", "**/*.md", "mobile-qa/**", "spike-runs/**"]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Attach the APK to this (draft) release and publish it, e.g. v0.4.0"
+        required: false
+        default: ""
 
 # A newer push to the same ref makes the older build pointless.
 concurrency:
@@ -83,6 +88,8 @@ jobs:
     name: Android release APK
     runs-on: ubuntu-latest
     needs: dart-core
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -191,3 +198,15 @@ jobs:
           name: tomevoice-apk
           path: app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
+
+      # Releasing from CI: uploads from a home connection can stall.
+      - name: Attach to the release
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          apk="TomeVoice-${TAG#v}.apk"
+          cp app/build/app/outputs/flutter-apk/app-release.apk "$apk"
+          gh release upload "$TAG" "$apk" --clobber --repo "$GITHUB_REPOSITORY"
+          gh release edit "$TAG" --draft=false --latest --repo "$GITHUB_REPOSITORY"
