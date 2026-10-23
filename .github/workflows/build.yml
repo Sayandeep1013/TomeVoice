@@ -160,10 +160,11 @@ jobs:
           set -e
           K=android/app/src/main/kotlin/app/tomevoice/tomevoice_spike
           M=android/app/src/main/AndroidManifest.xml
-          for f in MainActivity PcmPlayer ReadAloudService PdfText PdfPages; do test -f "$K/$f.kt"; done
+          for f in MainActivity PcmPlayer ReadAloudService PdfText PdfPages ShareProvider LibraryBackup; do test -f "$K/$f.kt"; done
           grep -q "tomevoice/tts" "$K/MainActivity.kt"
           grep -q "TTS_SERVICE" "$M"
           grep -q "ReadAloudService" "$M"
+          grep -q "ShareProvider" "$M"
           grep -q 'foregroundServiceType="mediaPlayback"' "$M"
           grep -q 'android:label="TomeVoice"' "$M"
           grep -q "pdfbox-android" android/app/build.gradle.kts

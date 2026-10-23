@@ -63,6 +63,14 @@ SERVICE = """        <service
             android:foregroundServiceType="mediaPlayback" />
 """
 
+# Serves pictures made to share (quote cards) to the app they are shared with.
+PROVIDER = """        <provider
+            android:name=".ShareProvider"
+            android:authorities="${applicationId}.share"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+"""
+
 DOC_MIME_TYPES = [
     "application/pdf",
     "application/epub+zip",
@@ -118,6 +126,10 @@ def patch_manifest(path: Path) -> str:
             raise SystemExit("manifest: no </application>")
         text = text.replace("</application>", SERVICE + "    </application>", 1)
         notes.append("service")
+
+    if ".ShareProvider" not in text:
+        text = text.replace("</application>", PROVIDER + "    </application>", 1)
+        notes.append("share provider")
 
     if "android.intent.action.SEND" not in text:
         if "</activity>" not in text:

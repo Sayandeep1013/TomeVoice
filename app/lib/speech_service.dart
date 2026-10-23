@@ -261,6 +261,13 @@ class SpeechService {
   Future<String?> pickBackup(String staging) =>
       _channel.invokeMethod<String>('pickBackup', {'staging': staging});
 
+  /// Where pictures to share are written (served to other apps from there).
+  Future<String?> shareDir() => _channel.invokeMethod<String>('shareDir');
+
+  /// Android's share sheet for the picture at [path], with [text] beside it.
+  Future<void> shareImage(String path, {String? text}) =>
+      _channel.invokeMethod<void>('shareImage', {'path': path, 'text': text});
+
   /// Start the app again in a fresh process (after a restore).
   Future<void> restartApp() => _quiet('restartApp');
 

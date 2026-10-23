@@ -37,6 +37,7 @@ class NowPlayingScreen extends StatelessWidget {
     required this.onSpeed,
     required this.onVoice,
     required this.onSleep,
+    required this.onSave,
   });
 
   final String title;
@@ -61,6 +62,9 @@ class NowPlayingScreen extends StatelessWidget {
   final VoidCallback onSpeed;
   final VoidCallback onVoice;
   final VoidCallback onSleep;
+
+  /// Keep the sentence being read as a quote.
+  final VoidCallback onSave;
 
   @override
   Widget build(BuildContext context) {
@@ -220,6 +224,7 @@ class NowPlayingScreen extends StatelessWidget {
                   children: [
                     _chip(context, '${trimSpeed(speed())}×', Icons.speed_rounded, onSpeed),
                     _chip(context, sleep == null ? 'Sleep' : 'Sleep on', Icons.bedtime_outlined, onSleep),
+                    _chip(context, 'Save', Icons.bookmark_add_outlined, onSave),
                     _chip(context, voiceLabel(), Icons.record_voice_over_rounded, onVoice),
                   ],
                 ),

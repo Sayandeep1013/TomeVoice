@@ -49,6 +49,34 @@ void main() {
       expect(after.units[after.unitForCursor(cursor)].text, 'Chapter 3');
     });
 
+    test('a first line that repeats the title becomes the heading', () {
+      final s = webChapterSection(index: 0, title: '44. A Show of Trust', html: '''
+<p>Chapter 044 A Show of Trust</p>
+<p>The idea that someone might connect all the dots was not a foreign idea.</p>''');
+      expect(s.blocks.first.role, BlockRole.heading);
+      expect(s.blocks.first.text, 'Chapter 044 A Show of Trust', reason: 'still heard once');
+      final layout = ReadingLayout.build(webNovelBook(id: 'w', title: 'M', sections: [s]));
+      expect(layout.items.where((i) => i.title != null), isEmpty, reason: 'no second title row');
+    });
+
+    test('titles match on words and numbers, not on a mere mention', () {
+      expect(sameChapterTitle('Chapter 1', 'Chapter 1'), isTrue);
+      expect(sameChapterTitle('CHAPTER 12: The Fool', '12. The Fool'), isTrue);
+      expect(sameChapterTitle('Chapter 2', 'Chapter 3'), isFalse);
+      expect(sameChapterTitle('Chapter 1: Nightmare Begins', 'Chapter 1'), isFalse);
+      expect(sameChapterTitle('The Fool', 'Chapter 12: The Fool'), isTrue);
+      expect(sameChapterTitle('He went to see the fool.', 'The Fool'), isFalse);
+    });
+
+    test('lines the reader chose to skip are dropped, already-downloaded ones too', () {
+      final s = webChapterSection(index: 0, title: 'One', html: '''
+<p>Thanks to our patrons on Patreon!</p>
+<p>The story begins here.</p>''');
+      final cleaned = cleanWebChapter(s, skip: ['patreon']);
+      expect(cleaned.blocks.map((b) => b.text), ['The story begins here.']);
+      expect(identical(cleanWebChapter(cleaned), cleaned), isTrue, reason: 'nothing to do, nothing copied');
+    });
+
     test('dividers and empty lines are junk, ordinary sentences are not', () {
       expect(isWebJunk('-----'), isTrue);
       expect(isWebJunk('═══'), isTrue);

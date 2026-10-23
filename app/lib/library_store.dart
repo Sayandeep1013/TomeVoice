@@ -8,6 +8,7 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'sources/models.dart';
 import 'sources/net.dart';
+import 'reading_rules.dart';
 import 'speech_service.dart';
 
 /// Bumped when ingestion improves enough that stored books should be parsed
@@ -541,13 +542,18 @@ ReadingLayout _loadWebSync(String dir, String id) {
     Map<String, Object?>.from(jsonDecode(File('$dir/novel.json').readAsStringSync()) as Map),
   );
   final sections = <Section>[];
+  // Lines the reader chose not to hear, from rules.json at the library root.
+  final skip = ReadingRules.skipTextsSync(Directory(dir).parent.parent.path, info.plugin.id);
   for (var i = 0; i < info.chapters.length; i++) {
     final title = info.chapters[i].name;
     final f = File('$dir/ch/$i.json');
     Section? s;
     if (f.existsSync()) {
       try {
-        s = Section.fromJson(Map<String, Object?>.from(jsonDecode(f.readAsStringSync()) as Map));
+        s = cleanWebChapter(
+          Section.fromJson(Map<String, Object?>.from(jsonDecode(f.readAsStringSync()) as Map)),
+          skip: skip,
+        );
       } on Object {
         s = null;
       }

@@ -174,6 +174,20 @@ class Block {
 
   bool get isImage => image != null;
 
+  /// This block as a [role] (a first line that repeats its chapter's title
+  /// becomes that chapter's heading).
+  Block withRole(BlockRole role) => Block(
+        id: id,
+        role: role,
+        text: text,
+        sentences: sentences,
+        anchor: anchor,
+        language: language,
+        image: image,
+        imageWidth: imageWidth,
+        imageHeight: imageHeight,
+      );
+
   bool get speakable =>
       text.isNotEmpty && !defaultSkippedRoles.contains(role);
 

@@ -18,7 +18,53 @@ Section webChapterSection({
     for (final b in blocksFromHtml(html, language: language))
       if (!isWebJunk(b.text)) b,
   ];
-  return Section(id: 'ch$index', index: index, title: title, blocks: blocks);
+  return cleanWebChapter(Section(id: 'ch$index', index: index, title: title, blocks: blocks));
+}
+
+/// A chapter made ready to read, when it is fetched and again whenever it is
+/// opened (so chapters downloaded before a rule existed follow it too):
+///
+/// * a first line that only repeats the chapter's title ("Chapter 044 A Show
+///   of Trust" under "44. A Show of Trust") becomes the chapter's heading:
+///   heard once and shown once, not under a title row of its own;
+/// * lines containing any of [skip], the reader's own "don't read lines like
+///   this", are dropped (ignoring case).
+Section cleanWebChapter(Section s, {Iterable<String> skip = const []}) {
+  var blocks = s.blocks;
+  final rules = [
+    for (final k in skip)
+      if (k.trim().isNotEmpty) k.trim().toLowerCase(),
+  ];
+  if (rules.isNotEmpty) {
+    blocks = [
+      for (final b in blocks)
+        if (!rules.any((r) => b.text.toLowerCase().contains(r))) b,
+    ];
+  }
+  final first = blocks.indexWhere((b) => b.speakable);
+  if (first >= 0 && blocks[first].role != BlockRole.heading && sameChapterTitle(blocks[first].text, s.title)) {
+    blocks = [...blocks]..[first] = blocks[first].withRole(BlockRole.heading);
+  }
+  if (identical(blocks, s.blocks)) return s;
+  return Section(id: s.id, index: s.index, title: s.title, blocks: blocks);
+}
+
+/// Whether [line] says what [title] says: the same words once "Chapter" and
+/// punctuation are set aside, and the same numbers (44 = 044).
+bool sameChapterTitle(String line, String? title) {
+  if (title == null || line.length > 200) return false;
+  String words(String t) => t
+      .toLowerCase()
+      .replaceAll(RegExp(r'\b(chapter|chap|ch)\b\.?'), ' ')
+      .replaceAll(RegExp(r'[^\p{L}]', unicode: true), '');
+  List<int> numbers(String t) => [for (final m in RegExp(r'\d+').allMatches(t)) int.parse(m.group(0)!)];
+  final a = words(line);
+  if (a != words(title)) return false;
+  final na = numbers(line);
+  final nb = numbers(title);
+  if (a.isEmpty && (na.isEmpty || nb.isEmpty)) return false;
+  if (na.isEmpty || nb.isEmpty) return true;
+  return na.length == nb.length && [for (var i = 0; i < na.length; i++) na[i] == nb[i]].every((x) => x);
 }
 
 /// A section for a chapter that has not been fetched yet: no text, so the

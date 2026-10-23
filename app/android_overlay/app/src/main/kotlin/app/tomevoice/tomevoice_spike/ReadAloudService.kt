@@ -40,6 +40,7 @@ class ReadAloudService : Service() {
         const val ACTION_NEXT = "app.tomevoice.action.NEXT"
         const val ACTION_PREV = "app.tomevoice.action.PREV"
         private const val CUSTOM_SPEED = "speed"
+        private const val CUSTOM_SAVE = "save"
         private const val CHANNEL_ID = "reading"
         private const val NOTIFICATION_ID = 7
 
@@ -157,6 +158,7 @@ class ReadAloudService : Service() {
 
             override fun onCustomAction(action: String, extras: android.os.Bundle?) {
                 if (action == CUSTOM_SPEED) onAction?.invoke("speed", 0)
+                if (action == CUSTOM_SAVE) onAction?.invoke("save", 0)
             }
         })
         s.isActive = true
@@ -227,6 +229,10 @@ class ReadAloudService : Service() {
                         "Speed " + speedLabel(n.speed),
                         speedIcon(n.speed)
                     ).build()
+                )
+                // Keep the sentence being read (Saved, in the app).
+                .addCustomAction(
+                    PlaybackState.CustomAction.Builder(CUSTOM_SAVE, "Save this line", R.drawable.ic_save_line).build()
                 )
                 .build()
         )

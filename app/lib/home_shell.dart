@@ -13,7 +13,10 @@ import 'categories_screen.dart';
 import 'history_screen.dart';
 import 'library_screen.dart';
 import 'library_store.dart';
+import 'marks.dart';
 import 'prefs.dart';
+import 'reading_rules.dart';
+import 'saved_screen.dart';
 import 'settings_screen.dart';
 import 'sources/net.dart';
 import 'sources/source_engine.dart';
@@ -92,6 +95,8 @@ class _HomeShellState extends State<HomeShell> {
       SourceEngine.instance.attach(sources);
       final store = LibraryStore(Directory(dir));
       await TintCache.instance.attach(Directory(dir));
+      await ReadingRules.instance.attach(Directory(dir));
+      await MarkStore.instance.attach(Directory(dir));
       final updates = Updates(store);
       if (mounted) {
         setState(() {
@@ -237,6 +242,8 @@ class _HomeShellState extends State<HomeShell> {
                   selected: _place == _Place.updates, onTap: () => _go(_Place.updates)),
               _item(context, Icons.history_rounded, Icons.history_rounded, 'History',
                   selected: _place == _Place.history, onTap: () => _go(_Place.history)),
+              _item(context, Icons.bookmarks_outlined, Icons.bookmarks_rounded, 'Saved',
+                  onTap: () => _push((s) => SavedScreen(store: s))),
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: Gap.xl, vertical: Gap.m),
                 child: Divider(),

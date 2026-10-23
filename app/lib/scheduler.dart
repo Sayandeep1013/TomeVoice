@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
+import 'reading_rules.dart';
 import 'speech_service.dart';
 
 enum PlayState { idle, loading, playing, paused }
@@ -55,6 +56,7 @@ class PlaybackScheduler {
     required this.engineIdOf,
     required this.voiceNameOf,
     required this.pauseAfter,
+    this.respell,
   });
 
   final SpeechService service;
@@ -65,6 +67,10 @@ class PlaybackScheduler {
 
   /// Silence after unit i (sentence or paragraph pause).
   final int Function(int index) pauseAfter;
+
+  /// The sentence as the voice should say it (the reader's pronunciation
+  /// fixes), with the way back to the page's text for the highlight.
+  final Respelled Function(String text)? respell;
 
   final state = ValueNotifier<PlayState>(PlayState.idle);
   final unit = ValueNotifier<int>(0);
@@ -144,6 +150,18 @@ class PlaybackScheduler {
     return gen;
   }
 
+  /// Word positions from the voice, moved onto the page's text.
+  static List<WordTiming> _onPage(List<WordTiming> timings, Respelled said) => [
+        for (final t in timings)
+          WordTiming(
+            charStart: said.toOriginal(t.charStart),
+            charEnd: said.toOriginal(t.charEnd, end: true),
+            frameStart: t.frameStart,
+            frameEnd: t.frameEnd,
+            source: t.source,
+          ),
+      ];
+
   int get _queuedEnd => _chunks.isEmpty ? 0 : _chunks.last.end;
 
   Future<void> _fill(int gen) async {
@@ -156,7 +174,8 @@ class PlaybackScheduler {
         continue;
       }
       final i = _next;
-      final text = units[i].text;
+      final said = respell?.call(units[i].text) ?? Respelled.same(units[i].text);
+      final text = said.text;
       try {
         final s = settingsFor(text);
         final native = await service.synthesise(
@@ -178,7 +197,7 @@ class PlaybackScheduler {
         final start = await service.enqueue(r.pcm, r.sampleRate);
         if (gen != _gen) return;
         _rate = r.sampleRate;
-        _chunks.add(_Chunk(i, start, r.speechFrames, r.totalFrames, r.timings));
+        _chunks.add(_Chunk(i, start, r.speechFrames, r.totalFrames, said.changed ? _onPage(r.timings, said) : r.timings));
         _next = i + 1;
         failures = 0;
       } on PlatformException catch (e) {

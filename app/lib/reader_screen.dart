@@ -6,16 +6,23 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData, HapticFeedback;
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'book_tint.dart';
 import 'library_store.dart';
+import 'book_search.dart';
 import 'listen_sheet.dart';
+import 'marks.dart';
 import 'now_playing.dart';
 import 'pages_view.dart';
 import 'player_controls.dart';
 import 'prefs.dart';
+import 'reading_rules.dart';
+import 'rules_screen.dart';
+import 'share_card.dart';
+import 'sources/source_engine.dart';
 import 'scheduler.dart';
 import 'speech_service.dart';
 import 'theme.dart';
@@ -31,6 +38,7 @@ Future<void> openBook(
   LibraryStore store,
   LibraryEntry entry, {
   bool autoplay = false,
+  Mark? at,
 }) async {
   FocusManager.instance.primaryFocus?.unfocus();
   await Navigator.of(context).push(
@@ -39,8 +47,8 @@ Future<void> openBook(
         bookId: entry.id,
         cover: entry.shownCover,
         child: entry.isWeb
-            ? WebNovelReader(store: store, entry: entry, autoplay: autoplay)
-            : BookLoader(store: store, entry: entry, autoplay: autoplay),
+            ? WebNovelReader(store: store, entry: entry, autoplay: autoplay, startChapter: at?.at.sectionIndex)
+            : BookLoader(store: store, entry: entry, autoplay: autoplay, at: at),
       ),
     ),
   );
@@ -55,11 +63,15 @@ class BookLoader extends StatefulWidget {
     required this.store,
     required this.entry,
     this.autoplay = false,
+    this.at,
   });
 
   final LibraryStore store;
   final LibraryEntry entry;
   final bool autoplay;
+
+  /// Open at this saved quote or bookmark instead of the reading place.
+  final Mark? at;
 
   @override
   State<BookLoader> createState() => _BookLoaderState();
@@ -70,6 +82,8 @@ class _BookLoaderState extends State<BookLoader> {
   // carry the saved place over to the new structure first.
   late final Future<(ReadingLayout, ReadingCursor)> _load = () async {
     final layout = await widget.store.loadLayout(widget.entry.id);
+    final at = widget.at;
+    if (at != null && !layout.isEmpty) return (layout, cursorOf(layout.units[unitOfMark(layout, at)]));
     final cursor = await widget.store.cursorFor(widget.entry.id);
     return (layout, cursor);
   }();
@@ -245,6 +259,14 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// The book's cover file, for the shade's media card.
   String? _cover;
 
+  /// This book in the library (web source, author), once looked up.
+  LibraryEntry? _entry;
+
+  /// Search matches being stepped through, and which one is shown.
+  List<SearchHit> _hits = const [];
+  int _hit = 0;
+  String _hitQuery = '';
+
   /// The card moved the place while paused. Moving stops the player, but
   /// the card stays up, paused at the new place, until reading resumes.
   bool _parked = false;
@@ -269,6 +291,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       engineIdOf: () => _prefs.engineId ?? _catalog.engineId,
       voiceNameOf: () => _listen.voiceName,
       pauseAfter: _pauseAfter,
+      respell: (text) => respell(text, ReadingRules.instance.sayFor(_book.id)),
     )..onFinished = _onFinished;
     _player.unit.addListener(() => _cursor.value = _player.unit.value);
     _player.state.addListener(_onPlayState);
@@ -277,6 +300,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     unawaited(_catalog.ensureLoaded());
     _events = SpeechService.events.listen(_onPlatformEvent);
     ListeningPrefs.revision.addListener(_onPrefs);
+    ReadingRules.instance.changes.addListener(_onRules);
     unawaited(_loadPrefs());
     unawaited(_loadCover());
     if (widget.autoplay) {
@@ -303,7 +327,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     try {
       final entry = (await store.list()).where((e) => e.id == _book.id).firstOrNull;
       if (!mounted) return;
-      setState(() => _cover = entry?.shownCover);
+      setState(() {
+        _entry = entry;
+        _cover = entry?.shownCover;
+      });
       _updateSession(force: true);
     } on Object {
       // The card goes without a picture.
@@ -311,6 +338,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   bool _screenOn = false;
+
+  /// A pronunciation was fixed: say the current sentence again with it.
+  void _onRules() => _onSettingsChanged(restart: true);
 
   void _applyScreenOn() {
     if (_prefs.keepScreenOn == _screenOn) return;
@@ -330,6 +360,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     ListeningPrefs.revision.removeListener(_onPrefs);
+    ReadingRules.instance.changes.removeListener(_onRules);
     if (_screenOn) unawaited(_svc.keepScreenOn(false));
     _persistTimer?.cancel();
     _restartTimer?.cancel();
@@ -598,6 +629,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             _seekInChapter((e['value'] as num?)?.toInt() ?? 0);
           case 'speed':
             _nextSpeed();
+          case 'save':
+            unawaited(_save(MarkKind.quote, quietly: false));
         }
     }
   }
@@ -734,6 +767,195 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (mounted) showSnack(context, text);
   }
 
+  // ----------------------------------------------------- keep and share
+
+  /// Keep sentence [unit] (the one being read by default) as a quote or a
+  /// bookmark. [quietly]: no Share button on the message (from the text,
+  /// where the menu already offered it).
+  Future<Mark?> _save(MarkKind kind, {int? unit, int span = 1, bool quietly = true}) async {
+    if (_l.isEmpty) return null;
+    final u = (unit ?? _cursor.value).clamp(0, _l.units.length - 1);
+    final end = (u + span).clamp(u + 1, _l.units.length);
+    final text = [for (var i = u; i < end; i++) _l.units[i].text].join(' ');
+    final mark = await MarkStore.instance.add(
+      bookId: _book.id,
+      bookTitle: _book.metadata.title,
+      kind: kind,
+      at: cursorOf(_l.units[u]),
+      span: end - u,
+      text: text,
+      chapter: _l.chapterTitle(_l.chapterOfUnit(u)),
+    );
+    if (!mounted) return mark;
+    final said = kind == MarkKind.quote ? 'Saved to your quotes.' : 'Bookmarked.';
+    if (quietly || kind != MarkKind.quote) {
+      _snack(said);
+    } else {
+      showSnack(context, said, actionLabel: 'Share', onAction: () => _share(mark));
+    }
+    return mark;
+  }
+
+  void _share(Mark mark) =>
+      unawaited(showQuoteShare(context, mark, cover: _cover, author: _book.metadata.authorLine));
+
+  /// Press and hold on the text: what can be done with that sentence.
+  Future<void> _onLongPress(int unit, String word) async {
+    if (_l.isEmpty) return;
+    unawaited(HapticFeedback.selectionClick());
+    final sentence = _l.units[unit].text;
+    final web = _entry?.plugin != null;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      builder: (ctx) => carryTint(
+        context,
+        SafeArea(
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(Gap.xl, 0, Gap.xl, Gap.m),
+                  child: Text(
+                    sentence,
+                    maxLines: 4,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: 'Newsreader',
+                      fontStyle: FontStyle.italic,
+                      fontSize: 16,
+                      height: 1.4,
+                      color: Skin.inkSoftOn(ctx),
+                    ),
+                  ),
+                ),
+                SheetAction(icon: Icons.format_quote_rounded, label: 'Save as a quote', onTap: () => Navigator.pop(ctx, 'quote')),
+                SheetAction(
+                  icon: Icons.ios_share_rounded,
+                  label: 'Share as a picture',
+                  onTap: () => Navigator.pop(ctx, 'share'),
+                ),
+                SheetAction(icon: Icons.bookmark_add_outlined, label: 'Bookmark here', onTap: () => Navigator.pop(ctx, 'bookmark')),
+                SheetAction(icon: Icons.copy_rounded, label: 'Copy', onTap: () => Navigator.pop(ctx, 'copy')),
+                if (word.isNotEmpty)
+                  SheetAction(
+                    icon: Icons.record_voice_over_outlined,
+                    label: 'Fix how "$word" is said',
+                    onTap: () => Navigator.pop(ctx, 'say'),
+                  ),
+                if (web)
+                  SheetAction(
+                    icon: Icons.visibility_off_outlined,
+                    label: "Don't read lines like this",
+                    detail: 'Site notices, credits, links: left out from now on',
+                    onTap: () => Navigator.pop(ctx, 'skip'),
+                  ),
+                const SizedBox(height: Gap.s),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    switch (picked) {
+      case 'quote':
+        await _save(MarkKind.quote, unit: unit, quietly: false);
+      case 'share':
+        final mark = await _save(MarkKind.quote, unit: unit);
+        if (mark != null && mounted) _share(mark);
+      case 'bookmark':
+        await _save(MarkKind.bookmark, unit: unit);
+      case 'copy':
+        await Clipboard.setData(ClipboardData(text: sentence));
+        _snack('Copied.');
+      case 'say':
+        await showSayDialog(
+          context,
+          word: word,
+          bookId: _book.id,
+          bookTitle: _book.metadata.title,
+          preview: (text) => speakSample(
+            voiceName: _listen.voiceName ?? '',
+            text: text,
+            settings: _prefs.settings,
+            engineId: _prefs.engineId ?? _catalog.engineId,
+          ),
+        );
+      case 'skip':
+        final plugin = _entry?.plugin;
+        if (plugin == null) return;
+        final name = (await SourceEngine.instance.store.installedById(plugin))?.name ?? plugin;
+        if (!mounted) return;
+        if (await showSkipDialog(context, line: sentence, plugin: plugin, siteName: name)) {
+          _snack('Lines like that are left out now.');
+        }
+    }
+  }
+
+  // ---------------------------------------------------------------- search
+
+  void _openSearch() {
+    if (_l.isEmpty) return;
+    unawaited(showBookSearch(
+      context,
+      layout: _l,
+      chapter: _l.chapterOfUnit(_cursor.value),
+      onPick: (hits, i, query) {
+        setState(() {
+          _hits = hits;
+          _hit = i;
+          _hitQuery = query;
+        });
+        _detached.value = false;
+        unawaited(_goTo(hits[i].unit));
+      },
+    ));
+  }
+
+  void _stepHit(int delta) {
+    if (_hits.isEmpty) return;
+    setState(() => _hit = (_hit + delta) % _hits.length);
+    unawaited(_goTo(_hits[_hit].unit));
+  }
+
+  /// "3 of 12 · ↑ ↓ ✕" while stepping through search matches.
+  Widget _matches(BuildContext context) => Material(
+        color: Skin.darkOn(context),
+        shape: const StadiumBorder(),
+        elevation: 4,
+        child: Padding(
+          padding: const EdgeInsets.only(left: Gap.l),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '“$_hitQuery”  ${_hit + 1} of ${_hits.length}',
+                style: Skin.ui(size: 13, weight: FontWeight.w600, color: Skin.onDark(context)),
+              ),
+              IconButton(
+                tooltip: 'Previous match',
+                icon: Icon(Icons.keyboard_arrow_up_rounded, color: Skin.onDark(context)),
+                onPressed: () => _stepHit(-1),
+              ),
+              IconButton(
+                tooltip: 'Next match',
+                icon: Icon(Icons.keyboard_arrow_down_rounded, color: Skin.onDark(context)),
+                onPressed: () => _stepHit(1),
+              ),
+              IconButton(
+                tooltip: 'Done',
+                icon: Icon(Icons.close_rounded, color: Skin.onDark(context)),
+                onPressed: () => setState(() => _hits = const []),
+              ),
+            ],
+          ),
+        ),
+      );
+
   // ---------------------------------------------------------------- build
 
   @override
@@ -782,7 +1004,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                 left: 0,
                 right: 0,
                 bottom: 10,
-                child: Center(child: _backToReading(context)),
+                child: Center(child: _hits.isEmpty ? _backToReading(context) : _matches(context)),
               ),
             ],
           ),
@@ -837,6 +1059,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           onSpeed: () => showListenSheet(ctx, _listen, focus: ListenFocus.speed),
           onVoice: () => showListenSheet(ctx, _listen),
           onSleep: () => showListenSheet(ctx, _listen),
+          onSave: () => _save(MarkKind.quote, quietly: false),
         ),
       ),
       transitionsBuilder: (ctx, animation, _, child) => SlideTransition(
@@ -916,6 +1139,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                 },
               ),
             ],
+            const SizedBox(width: 8),
+            RoundButton(
+              icon: Icons.search_rounded,
+              tooltip: 'Search',
+              onTap: _openSearch,
+            ),
             const SizedBox(width: 8),
             RoundButton(
               icon: Icons.format_list_bulleted_rounded,
@@ -1035,6 +1264,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             heading: heading,
             justify: _prefs.justify && !heading,
             onTapUnit: (u) => _goTo(u, play: true),
+            onLongPressUnit: _onLongPress,
           ),
         ),
       ],
@@ -1179,6 +1409,7 @@ class _BlockText extends StatefulWidget {
     required this.word,
     required this.style,
     required this.onTapUnit,
+    required this.onLongPressUnit,
     this.heading = false,
     this.justify = false,
   });
@@ -1189,6 +1420,9 @@ class _BlockText extends StatefulWidget {
   final ValueListenable<WordMark> word;
   final TextStyle style;
   final ValueChanged<int> onTapUnit;
+
+  /// Press and hold: the sentence, and the word under the finger.
+  final void Function(int unit, String word) onLongPressUnit;
 
   /// A heading being spoken turns amber rather than sitting in a box.
   final bool heading;
@@ -1243,6 +1477,18 @@ class _BlockTextState extends State<_BlockText> {
     widget.onTapUnit(unit);
   }
 
+  void _onLongPress(LongPressStartDetails d) {
+    final render = _paragraphOf(_key.currentContext?.findRenderObject());
+    if (render == null) return;
+    final offset = render.getPositionForOffset(render.globalToLocal(d.globalPosition)).offset;
+    final l = widget.layout;
+    var unit = widget.item.firstUnit;
+    for (var u = widget.item.firstUnit; u < widget.item.firstUnit + widget.item.unitCount; u++) {
+      if (l.unitOffset[u] <= offset) unit = u;
+    }
+    widget.onLongPressUnit(unit, wordAt(widget.item.block!.text, offset));
+  }
+
   /// Text may wrap its paragraph in semantics or selection render objects.
   static RenderParagraph? _paragraphOf(RenderObject? r) {
     if (r == null) return null;
@@ -1263,7 +1509,7 @@ class _BlockTextState extends State<_BlockText> {
     return Semantics(
       button: true,
       hint: 'Double tap to read from here',
-      child: GestureDetector(onTapUp: _onTapUp, child: body),
+      child: GestureDetector(onTapUp: _onTapUp, onLongPressStart: _onLongPress, child: body),
     );
   }
 
@@ -1662,3 +1908,22 @@ String _duration(int minutes) {
 /// Kept so the batch measurement path still has a JSON shape to write.
 String encodeReport(Map<String, Object?> m) =>
     const JsonEncoder.withIndent('  ').convert(m);
+
+/// The word around [offset] in [text] (letters, digits, apostrophes,
+/// hyphens), or empty between words.
+String wordAt(String text, int offset) {
+  final letter = RegExp(r"[\p{L}\p{N}'’-]", unicode: true);
+  bool isLetter(int i) => i >= 0 && i < text.length && letter.hasMatch(text[i]);
+  var i = offset.clamp(0, text.length);
+  if (!isLetter(i) && isLetter(i - 1)) i--;
+  if (!isLetter(i)) return '';
+  var s = i;
+  var e = i;
+  while (isLetter(s - 1)) {
+    s--;
+  }
+  while (isLetter(e)) {
+    e++;
+  }
+  return text.substring(s, e).replaceAll(RegExp(r"^['’-]+|['’-]+$"), '');
+}

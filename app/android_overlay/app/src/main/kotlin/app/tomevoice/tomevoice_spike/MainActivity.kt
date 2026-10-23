@@ -250,6 +250,27 @@ class MainActivity : FlutterActivity() {
                         startActivityForResult(intent, REQ_RESTORE)
                     }
                 }
+                "shareImage" -> {
+                    // A picture in cache/share, with words to go with it.
+                    try {
+                        val file = File(call.argument<String>("path").orEmpty())
+                        val shared = File(ShareProvider.dir(cacheDir), file.name)
+                        if (file.canonicalPath != shared.canonicalPath) file.copyTo(shared, overwrite = true)
+                        val uri = ShareProvider.uriFor("$packageName.share", shared)
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = "image/png"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            call.argument<String>("text")?.let { putExtra(Intent.EXTRA_TEXT, it) }
+                            clipData = android.content.ClipData.newRawUri("", uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("SHARE", e.message ?: "Could not share", null)
+                    }
+                }
+                "shareDir" -> result.success(ShareProvider.dir(cacheDir).absolutePath)
                 "restartApp" -> {
                     // After a restore every store must read the new files; a
                     // fresh process is the one sure way. The process must end

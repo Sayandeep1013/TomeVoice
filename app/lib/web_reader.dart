@@ -6,6 +6,7 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 import 'browser_check.dart';
 import 'library_store.dart';
 import 'reader_screen.dart';
+import 'reading_rules.dart';
 import 'sources/plugin_host.dart';
 import 'sources/source_engine.dart';
 import 'theme.dart';
@@ -77,10 +78,30 @@ class _WebNovelReaderState extends State<WebNovelReader> {
   Object? _error;
   bool _prefetching = false;
 
+  late List<SkipRule> _skip = ReadingRules.instance.skip;
+
   @override
   void initState() {
     super.initState();
+    ReadingRules.instance.changes.addListener(_onRules);
     unawaited(_open(widget.startChapter, autoplay: widget.autoplay));
+  }
+
+  @override
+  void dispose() {
+    ReadingRules.instance.changes.removeListener(_onRules);
+    super.dispose();
+  }
+
+  /// A line rule was added or removed: rebuild the chapters at the saved
+  /// place (the reader saves it as it goes), so the change shows at once.
+  void _onRules() {
+    final skip = ReadingRules.instance.skip;
+    if (identical(skip, _skip)) return;
+    _skip = skip;
+    Future<void>.delayed(const Duration(milliseconds: 1700), () {
+      if (mounted) unawaited(_open(null, autoplay: false));
+    });
   }
 
   /// Make sure chapter [start] (or the saved place) and a few after it are

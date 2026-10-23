@@ -16,6 +16,7 @@ import 'library_store.dart';
 import 'listen_sheet.dart';
 import 'noveldokusha_import.dart';
 import 'prefs.dart';
+import 'rules_screen.dart';
 import 'sources/source_engine.dart';
 import 'sources_screen.dart';
 import 'speech_service.dart';
@@ -315,6 +316,16 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           subtitle: 'Where web novels come from: add source lists, install sites',
                           onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
                             builder: (_) => SourcesScreen(store: SourceEngine.instance.store),
+                          )),
+                        ),
+                        _Link(
+                          icon: Icons.rule_rounded,
+                          title: 'Reading rules',
+                          subtitle: 'Words said your way, and lines left out of web novels',
+                          onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                            builder: (_) => RulesScreen(
+                              bookTitles: {for (final e in idx?.entries ?? const <LibraryEntry>[]) e.id: e.title},
+                            ),
                           )),
                         ),
                         _Link(

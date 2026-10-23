@@ -5,6 +5,7 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'book_actions.dart';
 import 'book_card.dart';
+import 'book_search.dart';
 import 'book_tint.dart';
 import 'library_store.dart';
 import 'listen_sheet.dart';
@@ -109,12 +110,16 @@ class _BookScreenState extends State<BookScreen> {
     return l.chapterOfUnit(l.unitForCursor(_cursor));
   }
 
-  Future<void> _read({required bool play, int? chapter}) async {
+  Future<void> _read({required bool play, int? chapter, int? unit}) async {
     final l = _layout;
     if (l == null) return;
-    final cursor = chapter == null || l.isEmpty
+    final cursor = l.isEmpty
         ? await _store.cursorFor(_entry.id)
-        : cursorOf(l.units[l.chapterFirstUnit[chapter]]);
+        : unit != null
+            ? cursorOf(l.units[unit.clamp(0, l.units.length - 1)])
+            : chapter != null
+                ? cursorOf(l.units[l.chapterFirstUnit[chapter]])
+                : await _store.cursorFor(_entry.id);
     if (!mounted) return;
     await Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => BookTint(
@@ -270,6 +275,20 @@ class _BookScreenState extends State<BookScreen> {
               onTap: () => Navigator.of(context).maybePop(),
             ),
             const Spacer(),
+            if (_layout?.isEmpty == false) ...[
+              RoundButton(
+                icon: Icons.search_rounded,
+                tooltip: 'Search the book',
+                onTap: () => showBookSearch(
+                  context,
+                  layout: _layout!,
+                  chapter: 0,
+                  wholeBook: true,
+                  onPick: (hits, i, _) => _read(play: false, unit: hits[i].unit),
+                ),
+              ),
+              const SizedBox(width: Gap.s),
+            ],
             PopupMenuButton<String>(
               tooltip: 'Book options',
               position: PopupMenuPosition.under,
