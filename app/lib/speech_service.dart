@@ -231,6 +231,39 @@ class SpeechService {
     }
   }
 
+  // ---------------------------------------------------------------- backup
+
+  /// Bytes a backup would hold before compression; -1 if unknown.
+  Future<int> backupSize({required bool includeChapters}) async {
+    try {
+      return (await _channel.invokeMethod<num>('backupSize', {'includeChapters': includeChapters}))?.toInt() ?? -1;
+    } on Object {
+      return -1;
+    }
+  }
+
+  /// Ask where to save, then zip the library there. Null if the save dialog
+  /// was closed; otherwise `files` and `bytes`. Progress arrives on [events]
+  /// as `backupProgress` with `done` and `total`.
+  Future<Map<String, Object?>?> backupLibrary({
+    required String manifest,
+    required bool includeChapters,
+    required String fileName,
+  }) =>
+      _channel.invokeMapMethod<String, Object?>('backupLibrary', {
+        'manifest': manifest,
+        'includeChapters': includeChapters,
+        'fileName': fileName,
+      });
+
+  /// Ask for a backup and unpack it into [staging]. Its manifest's text, or
+  /// null if the picker was closed. Progress: `restoreProgress` with `done`.
+  Future<String?> pickBackup(String staging) =>
+      _channel.invokeMethod<String>('pickBackup', {'staging': staging});
+
+  /// Start the app again in a fresh process (after a restore).
+  Future<void> restartApp() => _quiet('restartApp');
+
   // ---------------------------------------------------------------- import
 
   /// SAF picker, several files at once. Empty if the user cancelled.

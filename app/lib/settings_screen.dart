@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui' as ui;
 import 'dart:ui' show PlatformDispatcher;
 
@@ -7,6 +8,8 @@ import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
+import 'app_update.dart';
+import 'backup_flow.dart';
 import 'brand.dart';
 import 'categories_screen.dart';
 import 'library_store.dart';
@@ -39,6 +42,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProviderStateMixin {
   LibraryIndex? _index;
+  bool _tellUpdates = true;
 
   /// The screen as it looked before a theme change, fading out over the
   /// screen as it looks now: a true cross-fade, where a theme animation
@@ -57,6 +61,9 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     super.initState();
     ListeningPrefs.revision.addListener(_rebuild);
     unawaited(_loadIndex());
+    AppUpdates.enabled(widget.store.root).then((on) {
+      if (mounted) setState(() => _tellUpdates = on);
+    });
   }
 
   @override
@@ -302,6 +309,18 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           )),
                         ),
                         _Link(
+                          icon: Icons.backup_outlined,
+                          title: 'Back up library',
+                          subtitle: 'Your books, places, categories and settings in one file',
+                          onTap: () => runBackup(context, widget.store),
+                        ),
+                        _Link(
+                          icon: Icons.settings_backup_restore_rounded,
+                          title: 'Restore a backup',
+                          subtitle: 'From a TomeVoice backup on this phone or in Drive',
+                          onTap: () => runRestore(context, widget.store),
+                        ),
+                        _Link(
                           icon: Icons.move_to_inbox_outlined,
                           title: 'Import from NovelDokusha',
                           subtitle: 'Bring your web novels across from a NovelDokusha backup (.zip)',
@@ -369,12 +388,23 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                     _Group(
                       title: 'About',
                       children: [
+                        SwitchRow(
+                          title: 'Tell me about new versions',
+                          subtitle: 'Asks GitHub once a day whether a newer TomeVoice is out',
+                          value: _tellUpdates,
+                          padding: EdgeInsets.zero,
+                          onChanged: (v) {
+                            setState(() => _tellUpdates = v);
+                            unawaited(AppUpdates.setEnabled(widget.store.root, v));
+                          },
+                        ),
+                        const SizedBox(height: Gap.s),
                         _Link(
                           icon: Icons.info_outline_rounded,
                           title: 'About TomeVoice',
                           subtitle: 'Version, licences, source code',
                           onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
-                            builder: (_) => const AboutScreen(),
+                            builder: (_) => AboutScreen(root: widget.store.root),
                           )),
                         ),
                       ],
@@ -549,7 +579,10 @@ class _Link extends StatelessWidget {
 
 /// The app, its version, its licence and the licences of what it is made of.
 class AboutScreen extends StatefulWidget {
-  const AboutScreen({super.key});
+  const AboutScreen({super.key, this.root});
+
+  /// The library folder, where the update check keeps its state.
+  final Directory? root;
 
   @override
   State<AboutScreen> createState() => _AboutScreenState();
@@ -557,6 +590,32 @@ class AboutScreen extends StatefulWidget {
 
 class _AboutScreenState extends State<AboutScreen> {
   String? _version;
+  bool _checking = false;
+
+  Future<void> _checkForUpdate() async {
+    final root = widget.root;
+    if (root == null || _checking) return;
+    setState(() => _checking = true);
+    try {
+      final update = await AppUpdates.check(root, force: true);
+      if (!mounted) return;
+      if (update == null) {
+        showSnack(context, 'This is the latest TomeVoice.');
+      } else {
+        showSnack(
+          context,
+          'TomeVoice ${update.version} is out.',
+          long: true,
+          actionLabel: 'Get it',
+          onAction: () => _svc.openUrl(update.url),
+        );
+      }
+    } on Object {
+      if (mounted) showSnack(context, 'Could not reach GitHub. Check the internet connection.');
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
+  }
 
   @override
   void initState() {
@@ -603,6 +662,13 @@ class _AboutScreenState extends State<AboutScreen> {
                             .copyWith(height: 1.5),
                       ),
                       const SizedBox(height: Gap.xl),
+                      if (widget.root != null)
+                        _Link(
+                          icon: Icons.system_update_outlined,
+                          title: _checking ? 'Checking…' : 'Check for updates',
+                          subtitle: 'New versions are published on GitHub',
+                          onTap: _checkForUpdate,
+                        ),
                       _Link(
                         icon: Icons.code_rounded,
                         title: 'Source code',

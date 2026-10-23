@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import 'app_update.dart';
+import 'backup.dart';
 import 'brand.dart';
 import 'browse_screen.dart';
 import 'categories_screen.dart';
@@ -20,6 +22,7 @@ import 'starter.dart';
 import 'updates.dart';
 import 'updates_screen.dart';
 import 'theme.dart';
+import 'ui.dart';
 
 /// The app around the screens: storage and settings are opened once here,
 /// and the menu (top left of the library) moves between them.
@@ -65,8 +68,12 @@ class _HomeShellState extends State<HomeShell> {
           _updates = updates;
         });
       }
+      // A restore that was interrupted leaves its unpacked copy behind.
+      unawaited(clearStaleRestore(Directory(dir)));
       // A new install's first shelf: a classic and two web novels.
       unawaited(Starter.seed(Directory(dir), store, sources));
+      // A newer TomeVoice, said once per version.
+      Future<void>.delayed(const Duration(seconds: 8), () => _tellAboutUpdate(Directory(dir)));
       // New chapters, at most as often as the reader asked, a moment after
       // the shelf is up so opening the app stays quick.
       Future<void>.delayed(const Duration(seconds: 4), () async {
@@ -80,6 +87,20 @@ class _HomeShellState extends State<HomeShell> {
     } on Object catch (e) {
       if (mounted) setState(() => _error = '$e');
     }
+  }
+
+  Future<void> _tellAboutUpdate(Directory root) async {
+    final update = await AppUpdates.check(root);
+    if (update == null || !mounted || await AppUpdates.told(root, update)) return;
+    if (!mounted) return;
+    showSnack(
+      context,
+      'TomeVoice ${update.version} is out.',
+      long: true,
+      actionLabel: 'See what\'s new',
+      onAction: () => const SpeechService().openUrl(update.url),
+    );
+    await AppUpdates.markTold(root, update);
   }
 
   void _go(_Place place) {
@@ -181,7 +202,7 @@ class _HomeShellState extends State<HomeShell> {
               _item(context, Icons.settings_outlined, Icons.settings_rounded, 'Settings',
                   onTap: () => _push((s) => SettingsScreen(store: s))),
               _item(context, Icons.info_outline_rounded, Icons.info_rounded, 'About',
-                  onTap: () => _push((_) => const AboutScreen())),
+                  onTap: () => _push((store) => AboutScreen(root: store.root))),
             ],
           ),
         ),

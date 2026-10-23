@@ -60,6 +60,13 @@ class MainActivity : FlutterActivity() {
     private var imageResult: MethodChannel.Result? = null
     private var pendingOpen: Map<String, String>? = null
 
+    // A backup or restore waiting on Android's file dialog.
+    private var backupResult: MethodChannel.Result? = null
+    private var backupManifest = ""
+    private var backupChapters = true
+    private var restoreResult: MethodChannel.Result? = null
+    private var restoreStaging: File? = null
+
     private var focusRequest: AudioFocusRequest? = null
     private var noisyRegistered = false
     private val noisyReceiver = object : BroadcastReceiver() {
@@ -74,6 +81,8 @@ class MainActivity : FlutterActivity() {
         private const val REQ_PICK = 71
         private const val REQ_NOTIFY = 72
         private const val REQ_IMAGE = 73
+        private const val REQ_BACKUP = 74
+        private const val REQ_RESTORE = 75
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -199,6 +208,57 @@ class MainActivity : FlutterActivity() {
                         }
                     }.start()
                 }
+                "backupSize" -> {
+                    val chapters = call.argument<Boolean>("includeChapters") != false
+                    Thread {
+                        val bytes = try {
+                            LibraryBackup.size(outputDir(), chapters)
+                        } catch (e: Throwable) {
+                            -1L
+                        }
+                        main.post { result.success(bytes) }
+                    }.start()
+                }
+                "backupLibrary" -> {
+                    if (backupResult != null || restoreResult != null) {
+                        result.error("BUSY", "A backup or restore is already running", null)
+                    } else {
+                        backupResult = result
+                        backupManifest = call.argument<String>("manifest").orEmpty()
+                        backupChapters = call.argument<Boolean>("includeChapters") != false
+                        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "application/zip"
+                            putExtra(Intent.EXTRA_TITLE, call.argument<String>("fileName") ?: "TomeVoice-backup.zip")
+                        }
+                        @Suppress("DEPRECATION")
+                        startActivityForResult(intent, REQ_BACKUP)
+                    }
+                }
+                "pickBackup" -> {
+                    if (backupResult != null || restoreResult != null) {
+                        result.error("BUSY", "A backup or restore is already running", null)
+                    } else {
+                        restoreResult = result
+                        restoreStaging = File(call.argument<String>("staging").orEmpty())
+                        // Any type: file managers label zips inconsistently.
+                        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "*/*"
+                        }
+                        @Suppress("DEPRECATION")
+                        startActivityForResult(intent, REQ_RESTORE)
+                    }
+                }
+                "restartApp" -> {
+                    // After a restore every store must read the new files; a
+                    // fresh process is the one sure way.
+                    val intent = Intent(this, MainActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                    startActivity(intent)
+                    result.success(null)
+                    main.postDelayed({ Runtime.getRuntime().exit(0) }, 150)
+                }
                 "keepScreenOn" -> {
                     if (call.argument<Boolean>("on") == true) {
                         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -305,6 +365,65 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun outputDir(): File = getExternalFilesDir(null) ?: filesDir
+
+    /** The file dialog closed: write the zip there, on its own thread. */
+    private fun finishBackup(resultCode: Int, uri: Uri?) {
+        val reply = backupResult ?: return
+        backupResult = null
+        if (resultCode != Activity.RESULT_OK || uri == null) {
+            reply.success(null)
+            return
+        }
+        val manifest = backupManifest
+        val chapters = backupChapters
+        Thread {
+            try {
+                val out = contentResolver.openOutputStream(uri, "wt")
+                    ?: throw IllegalStateException("Android would not open that file for writing")
+                var total = 0L
+                val files = out.use {
+                    LibraryBackup.write(outputDir(), it, manifest, chapters) { done, all ->
+                        total = all
+                        event(mapOf("type" to "backupProgress", "done" to done, "total" to all))
+                    }
+                }
+                main.post { reply.success(mapOf("files" to files, "bytes" to total)) }
+            } catch (e: Throwable) {
+                // Leave no half-written backup behind to be trusted later.
+                try {
+                    android.provider.DocumentsContract.deleteDocument(contentResolver, uri)
+                } catch (_: Throwable) {
+                }
+                main.post { reply.error("BACKUP", e.message ?: "The backup could not be written", null) }
+            }
+        }.start()
+    }
+
+    /** A backup was picked: unpack it into the staging folder. */
+    private fun finishRestore(resultCode: Int, uri: Uri?) {
+        val reply = restoreResult ?: return
+        restoreResult = null
+        val staging = restoreStaging
+        if (resultCode != Activity.RESULT_OK || uri == null || staging == null) {
+            reply.success(null)
+            return
+        }
+        Thread {
+            try {
+                val input = contentResolver.openInputStream(uri)
+                    ?: throw IllegalStateException("Android would not open that file")
+                val manifest = input.use {
+                    LibraryBackup.read(it, staging) { done ->
+                        event(mapOf("type" to "restoreProgress", "done" to done))
+                    }
+                }
+                main.post { reply.success(manifest) }
+            } catch (e: Throwable) {
+                staging.deleteRecursively()
+                main.post { reply.error("RESTORE", e.message ?: "That backup could not be read", null) }
+            }
+        }.start()
+    }
 
     private fun synthDir(): File = File(cacheDir, "tts").apply { mkdirs() }
 
@@ -602,6 +721,14 @@ class MainActivity : FlutterActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_BACKUP) {
+            finishBackup(resultCode, data?.data)
+            return
+        }
+        if (requestCode == REQ_RESTORE) {
+            finishRestore(resultCode, data?.data)
+            return
+        }
         if (requestCode == REQ_IMAGE) {
             val reply = imageResult
             imageResult = null
