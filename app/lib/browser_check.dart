@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'sources/net.dart';
+import 'sources/source_engine.dart';
 import 'sources/plugin_host.dart';
 import 'speech_service.dart';
 import 'theme.dart';
@@ -60,6 +61,18 @@ class SourceProblem extends StatelessWidget {
         ),
       );
     }
+    if (e is MissingSourceException) {
+      return EmptyState(
+        icon: Icons.extension_outlined,
+        title: 'Needs its source',
+        body: '${e.message} The chapters already on the phone still read.',
+        action: FilledButton.icon(
+          onPressed: () => _install(context, e),
+          icon: const Icon(Icons.download_rounded),
+          label: Text('Install ${e.name}'),
+        ),
+      );
+    }
     return EmptyState(
       icon: Icons.cloud_off_rounded,
       title: title,
@@ -74,6 +87,26 @@ class SourceProblem extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// Install the novel's source from the lists already added, then retry.
+  Future<void> _install(BuildContext context, MissingSourceException e) async {
+    final store = SourceEngine.instance.store;
+    try {
+      final listed = (await store.available()).where((p) => p.id == e.pluginId).firstOrNull ??
+          (await store.available(refresh: true)).where((p) => p.id == e.pluginId).firstOrNull;
+      if (listed == null) {
+        if (context.mounted) {
+          showSnack(context, 'None of your source lists has ${e.name}. Add one that does in Sources.', long: true);
+        }
+        return;
+      }
+      if (context.mounted) showSnack(context, 'Installing ${e.name}…');
+      await store.install(listed);
+      onRetry();
+    } on Object catch (err) {
+      if (context.mounted) showSnack(context, friendlyError(err), long: true);
+    }
   }
 }
 

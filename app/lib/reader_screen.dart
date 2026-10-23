@@ -677,6 +677,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                 onPrevChapter: () => _goChapter(-1),
                 onNextChapter: () => _goChapter(1),
                 moreAfter: widget.onReachedEnd != null,
+                progressOf: widget.progressOf,
                 onSeekInChapter: (u) => _goTo(u),
                 onSpeed: () => showListenSheet(context, _listen, focus: ListenFocus.speed),
                 onVoice: () => showListenSheet(context, _listen),
@@ -1155,6 +1156,7 @@ class _PlayerBar extends StatelessWidget {
     required this.onPrevChapter,
     required this.onNextChapter,
     this.moreAfter = false,
+    this.progressOf,
     required this.onSeekInChapter,
     required this.onSpeed,
     required this.onVoice,
@@ -1174,6 +1176,10 @@ class _PlayerBar extends StatelessWidget {
 
   /// Chapters follow the last one here (a web novel's, still on the site).
   final bool moreAfter;
+
+  /// As [ReaderScreen.progressOf]. When set, this layout is only part of
+  /// the work, so the time shown is what is left of the chapter.
+  final double Function(int u)? progressOf;
   final ValueChanged<int> onSeekInChapter;
   final VoidCallback onSpeed;
   final VoidCallback onVoice;
@@ -1196,9 +1202,12 @@ class _PlayerBar extends StatelessWidget {
           final chapter = empty ? 0 : layout.chapterOfUnit(u);
           final (first, count) = empty ? (0, 1) : layout.chapterRange(chapter);
           final inChapter = (u - first).clamp(0, count - 1);
-          final wordsLeft = empty ? 0 : layout.totalWords - layout.wordsBefore[u];
+          final partial = progressOf != null;
+          final end = first + count;
+          final upTo = partial && end < layout.units.length ? layout.wordsBefore[end] : layout.totalWords;
+          final wordsLeft = empty ? 0 : upTo - layout.wordsBefore[u];
           final minutes = (wordsLeft / (165 * speed)).round();
-          final pct = empty ? 0 : (progressFraction(layout.units, u) * 100).round();
+          final pct = empty ? 0 : ((progressOf?.call(u) ?? progressFraction(layout.units, u)) * 100).round();
           return Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -1211,7 +1220,7 @@ class _PlayerBar extends StatelessWidget {
                       // With a sleep timer there is no room for all three.
                       [
                         if (sleepNote == null) '$pct%',
-                        '${_duration(minutes)} LEFT',
+                        partial ? '${_duration(minutes)} LEFT IN CHAPTER' : '${_duration(minutes)} LEFT',
                         if (sleepNote != null) sleepNote!,
                       ].join('  ·  '),
                       textAlign: TextAlign.center,

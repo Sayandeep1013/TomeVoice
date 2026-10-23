@@ -29,7 +29,7 @@ Future<void> fetchChapters(
   for (var i = from; i < from + count && i < info.chapters.length; i++) {
     if (i < 0 || store.hasChapter(id, i)) continue;
     if (plugin == null) {
-      throw SourceException('Install ${info.plugin.name} again in Sources to fetch more chapters.');
+      throw MissingSourceException(info.plugin.id, info.plugin.name);
     }
     onProgress?.call(i);
     final c = info.chapters[i];

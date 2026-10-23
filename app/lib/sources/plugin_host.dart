@@ -51,6 +51,16 @@ class ChallengeException extends SourceException {
   final String url;
 }
 
+/// The novel's site has no source installed, so no more chapters can be
+/// fetched. [pluginId] is what to install (it may not be in any list).
+class MissingSourceException extends SourceException {
+  MissingSourceException(this.pluginId, this.name)
+      : super('$name is not installed, so this chapter cannot be fetched yet.');
+
+  final String pluginId;
+  final String name;
+}
+
 /// Runs LNReader source plugins in one [JsRuntime]: the libraries they use
 /// (lnreader_libs.js), the host that hands them `require` (lnreader_shim.js),
 /// and the plugins themselves, each loaded once and kept.

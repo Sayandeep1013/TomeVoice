@@ -137,4 +137,16 @@ void main() {
     expect(Net.instance.cookieHeader('www.royalroad.com'), contains('cf_clearance=abc'));
     await Net.instance.clearCookies();
   });
+
+  testWidgets('a novel whose source is not installed offers to install it', (tester) async {
+    phone(tester);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SourceProblem(error: MissingSourceException('novelhall', 'Novel Hall'), onRetry: () {}),
+      ),
+    ));
+    expect(find.text('Needs its source'), findsOneWidget);
+    expect(find.text('Install Novel Hall'), findsOneWidget);
+    expect(find.textContaining('already on the phone still read'), findsOneWidget);
+  });
 }
