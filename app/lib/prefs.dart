@@ -29,6 +29,7 @@ class ListeningPrefs {
     this.updateEvery = 'daily',
     this.gridView = true,
     this.sort = LibrarySort.recent,
+    this.bookColours = true,
   })  : voiceByLanguage = voiceByLanguage ?? {},
         voiceByBook = voiceByBook ?? {};
 
@@ -81,6 +82,10 @@ class ListeningPrefs {
 
   /// Order of books in the library.
   LibrarySort sort;
+
+  /// Each book's screens take the colour of its cover, and the library the
+  /// colour of the book being read, instead of the palette's accent.
+  bool bookColours;
 
   static ListeningPrefs? _cached;
   static File? _file;
@@ -153,6 +158,7 @@ class ListeningPrefs {
         'updateEvery': updateEvery,
         'gridView': gridView,
         'sort': sort.name,
+        'bookColours': bookColours,
       };
 
   static ListeningPrefs fromJson(Map<String, Object?> json) => ListeningPrefs(
@@ -183,6 +189,7 @@ class ListeningPrefs {
         updateEvery: json['updateEvery'] as String? ?? 'daily',
         sort: LibrarySort.values.where((m) => m.name == json['sort']).firstOrNull ??
             LibrarySort.recent,
+        bookColours: json['bookColours'] != false,
       );
 }
 

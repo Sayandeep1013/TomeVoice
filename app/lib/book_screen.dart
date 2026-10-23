@@ -5,6 +5,7 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'book_actions.dart';
 import 'book_card.dart';
+import 'book_tint.dart';
 import 'library_store.dart';
 import 'listen_sheet.dart';
 import 'prefs.dart';
@@ -116,13 +117,17 @@ class _BookScreenState extends State<BookScreen> {
         : cursorOf(l.units[l.chapterFirstUnit[chapter]]);
     if (!mounted) return;
     await Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => ReaderScreen(
-        layout: l,
-        store: _store,
-        initialCursor: cursor,
-        autoplay: play,
-        bookDir: _store.bookDir(_entry.id),
-        sourcePath: _entry.sourcePath,
+      builder: (_) => BookTint(
+        bookId: _entry.id,
+        cover: _entry.shownCover,
+        child: ReaderScreen(
+          layout: l,
+          store: _store,
+          initialCursor: cursor,
+          autoplay: play,
+          bookDir: _store.bookDir(_entry.id),
+          sourcePath: _entry.sourcePath,
+        ),
       ),
     ));
     await _refreshEntry();
@@ -396,7 +401,7 @@ class _BookScreenState extends State<BookScreen> {
               ),
               const SizedBox(height: Gap.xs),
               Text(_blurbOpen ? 'Less' : 'More',
-                  style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.amberSoft)),
+                  style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentSoftOf(context))),
             ],
           ),
         ),
@@ -416,7 +421,7 @@ class _BookScreenState extends State<BookScreen> {
           padding: const EdgeInsets.symmetric(horizontal: Gap.l, vertical: 14),
           child: Row(
             children: [
-              Icon(Icons.record_voice_over_rounded, color: Skin.amber),
+              Icon(Icons.record_voice_over_rounded, color: Skin.accentOf(context)),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -435,7 +440,7 @@ class _BookScreenState extends State<BookScreen> {
                   ],
                 ),
               ),
-              Text('Change', style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.amberSoft)),
+              Text('Change', style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentSoftOf(context))),
             ],
           ),
         ),

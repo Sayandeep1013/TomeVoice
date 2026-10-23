@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
+import 'book_tint.dart';
 import 'prefs.dart';
 import 'speech_service.dart';
 import 'theme.dart';
@@ -104,7 +105,7 @@ Future<void> showListenSheet(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => _ReaderSettingsSheet(controller: controller, focus: focus),
+      builder: (_) => carryTint(context, _ReaderSettingsSheet(controller: controller, focus: focus)),
     );
 
 class _ReaderSettingsSheet extends StatefulWidget {
@@ -278,7 +279,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
           padding: const EdgeInsets.symmetric(horizontal: Gap.l, vertical: 14),
           child: Row(
             children: [
-              Icon(Icons.record_voice_over_rounded, color: Skin.amber, size: 22),
+              Icon(Icons.record_voice_over_rounded, color: Skin.accentOf(context), size: 22),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -291,7 +292,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
                   ],
                 ),
               ),
-              Text('Change', style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.amberSoft)),
+              Text('Change', style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentSoftOf(context))),
             ],
           ),
         ),
@@ -634,7 +635,7 @@ class LabeledSlider extends StatelessWidget {
                       style: Skin.ui(size: 14.5, weight: FontWeight.w500, color: Skin.inkSoftOn(context))),
                 ),
                 Text(display,
-                    style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.amberSoft, tabular: true)),
+                    style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentSoftOf(context), tabular: true)),
               ],
             ),
             // No side padding on the slider, so the track starts and ends
@@ -662,7 +663,7 @@ Future<void> showVoicePicker(BuildContext context, ListenController controller) 
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => _VoicePicker(controller: controller),
+      builder: (_) => carryTint(context, _VoicePicker(controller: controller)),
     );
 
 class _VoicePicker extends StatefulWidget {
@@ -827,13 +828,13 @@ class _VoicePickerState extends State<_VoicePicker> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: Gap.l),
       child: Material(
-        color: Skin.amber.withValues(alpha: 0.14),
+        color: Skin.accentOf(context).withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(Radii.row),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(Gap.l, Gap.m, Gap.s, Gap.m),
           child: Row(
             children: [
-              Icon(Icons.record_voice_over_rounded, color: Skin.amber),
+              Icon(Icons.record_voice_over_rounded, color: Skin.accentOf(context)),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -873,7 +874,7 @@ class _VoicePickerState extends State<_VoicePicker> {
       child: AnimatedContainer(
         duration: duration,
         curve: Motion.out,
-        color: Skin.amber.withValues(alpha: selected ? 0.12 : 0),
+        color: Skin.accentOf(context).withValues(alpha: selected ? 0.12 : 0),
         padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.s, Gap.m, Gap.s),
         child: Row(
           children: [
@@ -885,7 +886,7 @@ class _VoicePickerState extends State<_VoicePicker> {
                 selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
                 key: ValueKey(selected),
                 size: 22,
-                color: selected ? Skin.amber : Skin.inkFaintOn(context),
+                color: selected ? Skin.accentOf(context) : Skin.inkFaintOn(context),
               ),
             ),
             const SizedBox(width: 14),
@@ -906,7 +907,7 @@ class _VoicePickerState extends State<_VoicePicker> {
                 onPressed: busy ? null : () => _preview(v),
                 icon: busy
                     ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                    : Icon(Icons.play_circle_outline_rounded, color: Skin.amberSoft, size: 28),
+                    : Icon(Icons.play_circle_outline_rounded, color: Skin.accentSoftOf(context), size: 28),
               ),
           ],
         ),
@@ -949,7 +950,7 @@ class _LanguagePill extends StatelessWidget {
   Widget build(BuildContext context) {
     final duration = Motion.of(context, Motion.standard);
     return TweenAnimationBuilder<Color?>(
-      tween: ColorTween(end: selected ? Skin.amber : Skin.raisedOn(context)),
+      tween: ColorTween(end: selected ? Skin.accentOf(context) : Skin.raisedOn(context)),
       duration: duration,
       curve: Motion.out,
       builder: (context, fill, child) => Material(
@@ -968,7 +969,7 @@ class _LanguagePill extends StatelessWidget {
             style: Skin.ui(
               size: 14,
               weight: selected ? FontWeight.w700 : FontWeight.w500,
-              color: selected ? Skin.onAmber : Skin.inkOn(context),
+              color: selected ? Skin.onAccentOf(context) : Skin.inkOn(context),
             ),
             child: Text(label),
           ),

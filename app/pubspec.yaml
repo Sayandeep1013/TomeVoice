@@ -4,7 +4,7 @@ description: >-
   Markdown and text, and reads them aloud with the owned audio pipeline.
   See docs/16-session-handoff.md.
 publish_to: none
-version: 0.6.0+8
+version: 0.7.0+9
 
 environment:
   sdk: ^3.5.0
@@ -19,6 +19,10 @@ dependencies:
   # Jump to any paragraph of a 17,000-item book without building the ones in
   # between. BSD-3-Clause (Google), GPL-3.0 compatible.
   scrollable_positioned_list: ^0.3.8
+  # Material's colour science (quantizer, scoring, HCT), for a book's accent
+  # from its cover. Already part of Flutter, so "any" takes the version the
+  # SDK pins. Apache-2.0.
+  material_color_utilities: any
   # QuickJS, to run LNReader source plugins (web novels). MIT, as is the
   # QuickJS it vendors. Pinned by commit: a single-maintainer git package,
   # the one Mangayomi uses. Builds through Flutter's native-assets hook.

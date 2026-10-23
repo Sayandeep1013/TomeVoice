@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import 'book_tint.dart';
 import 'library_store.dart';
 import 'theme.dart';
 import 'ui.dart';
@@ -112,7 +113,7 @@ class BookCover extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(width: width * 0.22, height: 2, color: Skin.amber),
+          Container(width: width * 0.22, height: 2, color: Skin.accentOf(context)),
           SizedBox(height: width * 0.08),
           Expanded(
             child: Text(
@@ -256,7 +257,10 @@ class BookRow extends StatelessWidget {
   final bool selecting;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      BookTint(bookId: entry.id, cover: entry.shownCover, child: Builder(builder: _body));
+
+  Widget _body(BuildContext context) {
     final e = entry;
     final facts = [
       e.formatLabel,
@@ -267,7 +271,7 @@ class BookRow extends StatelessWidget {
     final duration = Motion.of(context, Motion.quick);
     // The fill eases between plain and chosen with the border below.
     return TweenAnimationBuilder<Color?>(
-      tween: ColorTween(end: selected ? Skin.amber.withValues(alpha: 0.14) : Skin.capsuleOn(context)),
+      tween: ColorTween(end: selected ? Skin.accentOf(context).withValues(alpha: 0.14) : Skin.capsuleOn(context)),
       duration: duration,
       curve: Motion.out,
       builder: (context, fill, child) => Material(
@@ -285,7 +289,7 @@ class BookRow extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: radius,
             border: Border.all(
-              color: selected ? Skin.amber : Skin.outlineOn(context),
+              color: selected ? Skin.accentOf(context) : Skin.outlineOn(context),
               width: selected ? 1.5 : 1,
             ),
           ),
@@ -343,7 +347,7 @@ class BookRow extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: Skin.meta(context, size: 10.5,
-                                color: e.finished ? Skin.amber : null),
+                                color: e.finished ? Skin.accentOf(context) : null),
                           ),
                         ],
                       ),
@@ -361,7 +365,7 @@ class BookRow extends StatelessWidget {
                         padding: const EdgeInsets.all(Gap.m),
                         child: Icon(
                           selected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-                          color: selected ? Skin.amber : Skin.inkFaintOn(context),
+                          color: selected ? Skin.accentOf(context) : Skin.inkFaintOn(context),
                         ),
                       )
                     : IconButton(
@@ -397,7 +401,10 @@ class BookTile extends StatelessWidget {
   final bool selected;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      BookTint(bookId: entry.id, cover: entry.shownCover, child: Builder(builder: _body));
+
+  Widget _body(BuildContext context) {
     final e = entry;
     final tags = [
       e.formatLabel,
@@ -422,7 +429,7 @@ class BookTile extends StatelessWidget {
               curve: Motion.out,
               decoration: BoxDecoration(
                 borderRadius: radius,
-                border: Border.all(color: selected ? Skin.amber : Colors.transparent, width: 2.5),
+                border: Border.all(color: selected ? Skin.accentOf(context) : Colors.transparent, width: 2.5),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withValues(alpha: 0.25),
@@ -500,7 +507,7 @@ class BookTile extends StatelessWidget {
                       child: _Chosen(
                         selected: selected,
                         child: ColoredBox(
-                          color: Skin.amber.withValues(alpha: 0.30),
+                          color: Skin.accentOf(context).withValues(alpha: 0.30),
                           child: const Align(
                             alignment: Alignment(0, -0.4),
                             child: Icon(Icons.check_circle_rounded, color: Colors.white, size: 34),
@@ -533,10 +540,10 @@ class _StatusBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(
-        color: loud ? Skin.amber : Colors.black.withValues(alpha: 0.55),
+        color: loud ? Skin.accentOf(context) : Colors.black.withValues(alpha: 0.55),
         borderRadius: BorderRadius.circular(Radii.pill),
       ),
-      child: Text(label, style: Skin.meta(context, size: 10, color: loud ? Skin.onAmber : Colors.white)),
+      child: Text(label, style: Skin.meta(context, size: 10, color: loud ? Skin.onAccentOf(context) : Colors.white)),
     );
   }
 }
@@ -577,8 +584,8 @@ class _SelectableCover extends StatelessWidget {
               top: 4,
               child: Container(
                 padding: const EdgeInsets.all(2),
-                decoration: BoxDecoration(color: Skin.amber, shape: BoxShape.circle),
-                child: Icon(Icons.check_rounded, size: 12, color: Skin.onAmber),
+                decoration: BoxDecoration(color: Skin.accentOf(context), shape: BoxShape.circle),
+                child: Icon(Icons.check_rounded, size: 12, color: Skin.onAccentOf(context)),
               ),
             ),
           Positioned.fill(
@@ -586,9 +593,9 @@ class _SelectableCover extends StatelessWidget {
               selected: selected,
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  color: Skin.amber.withValues(alpha: 0.35),
+                  color: Skin.accentOf(context).withValues(alpha: 0.35),
                   borderRadius: BorderRadius.circular((width * 0.07).clamp(4.0, Radii.chip)),
-                  border: Border.all(color: Skin.amber, width: 2),
+                  border: Border.all(color: Skin.accentOf(context), width: 2),
                 ),
                 child: const Center(
                   child: Icon(Icons.check_circle_rounded, color: Colors.white, size: 26),

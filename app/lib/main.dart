@@ -68,7 +68,11 @@ class SpikeApp extends StatelessWidget {
         valueListenable: ListeningPrefs.revision,
         builder: (context, _, __) {
           final prefs = ListeningPrefs.loaded;
-          final palette = Palette.byId(prefs?.paletteId);
+          final follow = (prefs?.bookColours ?? true) ? Skin.followTint : null;
+          final base = Palette.byId(prefs?.paletteId);
+          // With book colours on, the accent is the cover colour of the book
+          // being read; the grounds stay the palette's.
+          final palette = follow == null ? base : base.withTint(follow);
           // Every colour in Skin reads the palette, so set it before the
           // tree below is built.
           Skin.palette = palette;

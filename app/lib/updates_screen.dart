@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'book_card.dart';
+import 'book_tint.dart';
 import 'library_store.dart';
 import 'theme.dart';
 import 'ui.dart';
@@ -63,7 +64,11 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
     final entry = (await widget.store.list()).where((e) => e.id == c.bookId).firstOrNull;
     if (entry == null || !mounted) return;
     await Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => WebNovelReader(store: widget.store, entry: entry, startChapter: c.index),
+      builder: (_) => BookTint(
+        bookId: entry.id,
+        cover: entry.shownCover,
+        child: WebNovelReader(store: widget.store, entry: entry, startChapter: c.index),
+      ),
     ));
   }
 

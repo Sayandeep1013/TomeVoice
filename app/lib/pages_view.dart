@@ -120,7 +120,7 @@ class _PdfPagesViewState extends State<PdfPagesView> {
               child: SizedBox(
                 width: 28,
                 height: 28,
-                child: CircularProgressIndicator(strokeWidth: 2.5, color: Skin.amber),
+                child: CircularProgressIndicator(strokeWidth: 2.5, color: Skin.accentOf(context)),
               ),
             );
           }
@@ -167,7 +167,7 @@ class _PdfPagesViewState extends State<PdfPagesView> {
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(4),
                   border: Border.all(
-                    color: current ? Skin.amber : Colors.transparent,
+                    color: current ? Skin.accentOf(context) : Colors.transparent,
                     width: 3,
                   ),
                   boxShadow: Skin.lift(context),

@@ -8,6 +8,7 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 import 'book_actions.dart';
 import 'book_card.dart';
 import 'book_screen.dart';
+import 'book_tint.dart';
 import 'categories_screen.dart';
 import 'library_store.dart';
 import 'novel_screen.dart';
@@ -236,7 +237,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (!fromShelf) setState(() => _shelfHeroes = false);
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => BookScreen(store: _store, entry: entry),
+        builder: (_) => BookTint(
+          bookId: entry.id,
+          cover: entry.shownCover,
+          child: BookScreen(store: _store, entry: entry),
+        ),
       ),
     );
     if (!fromShelf && mounted) setState(() => _shelfHeroes = true);
@@ -1031,7 +1036,11 @@ class _ContinueDockState extends State<ContinueDock> {
                   controller: _controller,
                   itemCount: books.length,
                   onPageChanged: (p) => setState(() => _page = p),
-                  itemBuilder: (context, i) => _item(context, books[i], onDark),
+                  itemBuilder: (context, i) => BookTint(
+                    bookId: books[i].id,
+                    cover: books[i].shownCover,
+                    child: Builder(builder: (context) => _item(context, books[i], onDark)),
+                  ),
                 ),
               ),
               if (books.length > 1)
@@ -1103,7 +1112,7 @@ class _ContinueDockState extends State<ContinueDock> {
             Tooltip(
               message: 'Continue reading aloud',
               child: Material(
-                color: Skin.amber,
+                color: Skin.accentOf(context),
                 shape: const CircleBorder(),
                 child: InkWell(
                   customBorder: const CircleBorder(),
@@ -1111,7 +1120,7 @@ class _ContinueDockState extends State<ContinueDock> {
                   child: SizedBox(
                     width: 52,
                     height: 52,
-                    child: Icon(Icons.play_arrow_rounded, size: 32, color: Skin.onAmber),
+                    child: Icon(Icons.play_arrow_rounded, size: 32, color: Skin.onAccentOf(context)),
                   ),
                 ),
               ),

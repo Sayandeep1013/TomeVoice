@@ -1,5 +1,8 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show PredictiveBackEvent;
+import 'package:material_color_utilities/material_color_utilities.dart' show Hct;
 
 /// The visual language, in one place.
 ///
@@ -21,6 +24,21 @@ class Skin {
   /// The colour theme in use (Forest, Lavender, Ocean, Black, Paper). The
   /// colours below read from it, so every screen follows a change.
   static Palette palette = Palette.forest;
+
+  /// The cover colour of the book being read, which the whole app follows
+  /// when book colours are on (set by the shell, read by the app's theme).
+  static int? followTint;
+
+  /// The palette for [c]: a book's own inside its [TintScope], otherwise
+  /// the app's.
+  static Palette paletteOf(BuildContext c) =>
+      c.dependOnInheritedWidgetOfExactType<TintScope>()?.palette ?? palette;
+
+  /// The accent where [c] is: the book's on its screens.
+  static Color accentOf(BuildContext c) => paletteOf(c).accent;
+  static Color accentSoftOf(BuildContext c) => paletteOf(c).accentSoft;
+  static Color accentDeepOf(BuildContext c) => paletteOf(c).accentDeep;
+  static Color onAccentOf(BuildContext c) => paletteOf(c).onAccent;
 
   // ---- ground ----------------------------------------------------------
   static Color get mint => palette.day[0];
@@ -183,11 +201,11 @@ class Skin {
 
   /// Wash behind the sentence being spoken.
   static Color sentenceWash(BuildContext c) =>
-      amber.withValues(alpha: isDark(c) ? 0.20 : 0.16);
+      accentOf(c).withValues(alpha: isDark(c) ? 0.20 : 0.16);
 
   /// Stronger wash behind the word being spoken.
   static Color wordWash(BuildContext c) =>
-      amber.withValues(alpha: isDark(c) ? 0.55 : 0.45);
+      accentOf(c).withValues(alpha: isDark(c) ? 0.55 : 0.45);
 
   // ---- shape -----------------------------------------------------------
   static const capsuleRadius = BorderRadius.all(Radius.circular(Radii.pill));
@@ -581,6 +599,31 @@ class Palette {
 
   static Palette byId(String? id) => all.where((p) => p.id == id).firstOrNull ?? forest;
 
+  /// This palette with its accent taken from [seed], a book cover's colour:
+  /// the same grounds, and an accent of the seed's hue at the tones the
+  /// palettes use, so text on it and it on the ground still read. A pale
+  /// seed is given enough colour to be an accent.
+  Palette withTint(int seed) {
+    final hct = Hct.fromInt(seed);
+    final chroma = math.max(hct.chroma, 36.0);
+    Color tone(double t) => Color(Hct.from(hct.hue, chroma, t).toInt());
+    return Palette(
+      id: '${id.split('~').first}~${seed.toRadixString(16)}',
+      label: label,
+      day: day,
+      night: night,
+      accent: tone(66),
+      accentSoft: tone(78),
+      accentDeep: tone(40),
+      onAccent: tone(10),
+      nightCapsule: nightCapsule,
+      nightSheet: nightSheet,
+      dayCapsule: dayCapsule,
+      daySheet: daySheet,
+      only: only,
+    );
+  }
+
   /// The brightness this palette is shown in, given the reader's choice.
   ThemeMode modeFor(ThemeMode chosen) => switch (only) {
         Brightness.dark => ThemeMode.dark,
@@ -886,4 +929,15 @@ class RoundButton extends StatelessWidget {
     );
     return tooltip == null ? button : Tooltip(message: tooltip!, child: button);
   }
+}
+
+/// A part of the app in one book's colours: [palette] is the app's with the
+/// book's accent (see [BookTint]).
+class TintScope extends InheritedWidget {
+  const TintScope({super.key, required this.palette, required super.child});
+
+  final Palette palette;
+
+  @override
+  bool updateShouldNotify(TintScope oldWidget) => oldWidget.palette.id != palette.id;
 }

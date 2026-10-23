@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'app_update.dart';
 import 'backup.dart';
 import 'backup_flow.dart';
+import 'book_tint.dart';
 import 'brand.dart';
 import 'browse_screen.dart';
 import 'categories_screen.dart';
@@ -37,6 +38,35 @@ class HomeShell extends StatefulWidget {
 enum _Place { library, browse, updates, history }
 
 class _HomeShellState extends State<HomeShell> {
+  Timer? _followTimer;
+
+  @override
+  void dispose() {
+    _followTimer?.cancel();
+    _store?.changes.removeListener(_scheduleFollow);
+    super.dispose();
+  }
+
+  /// The app's accent follows the book being read: the one opened last.
+  /// Debounced, since every saved place is a change to the library.
+  void _scheduleFollow() {
+    _followTimer?.cancel();
+    _followTimer = Timer(const Duration(milliseconds: 600), _follow);
+  }
+
+  Future<void> _follow() async {
+    final store = _store;
+    if (store == null) return;
+    final entries = await store.list();
+    final current = entries.where((e) => e.openedAt != null).firstOrNull;
+    final tint = current == null ? 0 : await TintCache.instance.resolve(current.id, current.shownCover);
+    final next = tint == 0 ? null : tint;
+    if (next == Skin.followTint) return;
+    Skin.followTint = next;
+    // The app's theme is rebuilt on this; nothing is saved.
+    ListeningPrefs.revision.value++;
+  }
+
   LibraryStore? _store;
   SourceStore? _sources;
   Updates? _updates;
@@ -61,6 +91,7 @@ class _HomeShellState extends State<HomeShell> {
       await sources.ensure();
       SourceEngine.instance.attach(sources);
       final store = LibraryStore(Directory(dir));
+      await TintCache.instance.attach(Directory(dir));
       final updates = Updates(store);
       if (mounted) {
         setState(() {
@@ -71,6 +102,8 @@ class _HomeShellState extends State<HomeShell> {
       }
       // A restore that was interrupted leaves its unpacked copy behind.
       unawaited(clearStaleRestore(Directory(dir)));
+      store.changes.addListener(_scheduleFollow);
+      unawaited(_follow());
       // A fresh install may be someone moving over: from the older
       // TomeVoice (another app id), or from another phone.
       final fresh = !File('$dir/starter.json').existsSync() && (await store.list()).isEmpty;

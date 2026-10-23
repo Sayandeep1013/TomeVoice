@@ -9,6 +9,7 @@ import 'package:flutter/rendering.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
+import 'book_tint.dart';
 import 'library_store.dart';
 import 'listen_sheet.dart';
 import 'pages_view.dart';
@@ -32,9 +33,13 @@ Future<void> openBook(
   FocusManager.instance.primaryFocus?.unfocus();
   await Navigator.of(context).push(
     MaterialPageRoute<void>(
-      builder: (_) => entry.isWeb
-          ? WebNovelReader(store: store, entry: entry, autoplay: autoplay)
-          : BookLoader(store: store, entry: entry, autoplay: autoplay),
+      builder: (_) => BookTint(
+        bookId: entry.id,
+        cover: entry.shownCover,
+        child: entry.isWeb
+            ? WebNovelReader(store: store, entry: entry, autoplay: autoplay)
+            : BookLoader(store: store, entry: entry, autoplay: autoplay),
+      ),
     ),
   );
 }
@@ -1071,7 +1076,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.my_location_rounded, size: 16, color: Skin.amber),
+                    Icon(Icons.my_location_rounded, size: 16, color: Skin.accentOf(context)),
                     const SizedBox(width: Gap.s),
                     Text('Back to reading',
                         style: Skin.ui(size: 14, weight: FontWeight.w600, color: Skin.onDark(context))),
@@ -1089,14 +1094,14 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (ctx) => _ContentsSheet(
+      builder: (ctx) => carryTint(context, _ContentsSheet(
         layout: _l,
         current: _l.chapterOfUnit(_cursor.value),
         onPick: (chapter) {
           Navigator.pop(ctx);
           unawaited(_goTo(_l.chapterFirstUnit[chapter]));
         },
-      ),
+      )),
     );
   }
 }
@@ -1215,7 +1220,7 @@ class _BlockTextState extends State<_BlockText> {
     final s = l.unitOffset[_current].clamp(0, text.length);
     final e = (s + l.units[_current].text.length).clamp(s, text.length);
     final wash = widget.heading ? Skin.sentenceWash(context).withValues(alpha: 0.08) : Skin.sentenceWash(context);
-    final spoken = widget.heading ? TextStyle(color: Skin.amber) : null;
+    final spoken = widget.heading ? TextStyle(color: Skin.accentOf(context)) : null;
     final spans = <InlineSpan>[
       if (s > 0) TextSpan(text: text.substring(0, s)),
     ];
@@ -1383,7 +1388,7 @@ class _PlayerBar extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 14, color: Skin.amberSoft),
+              Icon(icon, size: 14, color: Skin.accentSoftOf(context)),
               const SizedBox(width: 6),
               Flexible(
                 child: Text(
@@ -1425,10 +1430,10 @@ class _PlayButton extends StatelessWidget {
                     SizedBox(
                       width: 60,
                       height: 60,
-                      child: CircularProgressIndicator(strokeWidth: 2.5, color: Skin.amberSoft),
+                      child: CircularProgressIndicator(strokeWidth: 2.5, color: Skin.accentSoftOf(context)),
                     ),
                   Material(
-                    color: onTap == null ? Skin.amber.withValues(alpha: 0.4) : Skin.amber,
+                    color: onTap == null ? Skin.accentOf(context).withValues(alpha: 0.4) : Skin.accentOf(context),
                     shape: const CircleBorder(),
                     child: InkWell(
                       customBorder: const CircleBorder(),
@@ -1439,7 +1444,7 @@ class _PlayButton extends StatelessWidget {
                         child: Icon(
                           speaking ? Icons.pause_rounded : Icons.play_arrow_rounded,
                           size: 32,
-                          color: Skin.onAmber,
+                          color: Skin.onAccentOf(context),
                         ),
                       ),
                     ),
@@ -1609,7 +1614,7 @@ class ChapterList extends StatelessWidget {
     final title = layout.chapterTitle(c);
     final part = _part.hasMatch(title);
     return Material(
-      color: isCurrent ? Skin.amber.withValues(alpha: 0.14) : Colors.transparent,
+      color: isCurrent ? Skin.accentOf(context).withValues(alpha: 0.14) : Colors.transparent,
       borderRadius: BorderRadius.circular(Radii.row),
       child: InkWell(
         borderRadius: BorderRadius.circular(Radii.row),
@@ -1621,7 +1626,7 @@ class ChapterList extends StatelessWidget {
               SizedBox(
                 width: 40,
                 child: Text('${c + 1}',
-                    style: Skin.meta(context, size: 11.5, color: isCurrent ? Skin.amber : null)),
+                    style: Skin.meta(context, size: 11.5, color: isCurrent ? Skin.accentOf(context) : null)),
               ),
               Expanded(
                 child: part
@@ -1629,16 +1634,16 @@ class ChapterList extends StatelessWidget {
                         title.toUpperCase(),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: Skin.meta(context, size: 12, color: isCurrent ? Skin.amber : Skin.inkSoftOn(context)),
+                        style: Skin.meta(context, size: 12, color: isCurrent ? Skin.accentOf(context) : Skin.inkSoftOn(context)),
                       )
                     : Text(
                         title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: Skin.title(context, size: 17, color: isCurrent ? Skin.amber : null),
+                        style: Skin.title(context, size: 17, color: isCurrent ? Skin.accentOf(context) : null),
                       ),
               ),
-              if (isCurrent) Icon(Icons.graphic_eq_rounded, size: 18, color: Skin.amber),
+              if (isCurrent) Icon(Icons.graphic_eq_rounded, size: 18, color: Skin.accentOf(context)),
             ],
           ),
         ),

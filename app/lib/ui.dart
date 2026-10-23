@@ -46,7 +46,7 @@ class TagChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = accent ? Skin.amber : Skin.inkFaintOn(context);
+    final color = accent ? Skin.accentOf(context) : Skin.inkFaintOn(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
       decoration: BoxDecoration(
@@ -72,7 +72,7 @@ class Progress extends StatelessWidget {
         child: LinearProgressIndicator(
           value: value.clamp(0.0, 1.0),
           minHeight: height,
-          color: Skin.amber,
+          color: Skin.accentOf(context),
           backgroundColor: track ?? Skin.inkOn(context).withValues(alpha: 0.12),
         ),
       );
@@ -189,7 +189,7 @@ class _ChoiceRowState<T> extends State<ChoiceRow<T>> {
                       curve: Motion.out,
                       child: DecoratedBox(
                         decoration: BoxDecoration(
-                          color: Skin.amber,
+                          color: Skin.accentOf(context),
                           borderRadius: BorderRadius.circular(Radii.pill),
                         ),
                       ),
@@ -258,7 +258,7 @@ class _Segment extends StatelessWidget {
               style: Skin.ui(
                 size: 13.5,
                 weight: selected ? FontWeight.w700 : FontWeight.w500,
-                color: selected ? Skin.onAmber : Skin.inkSoftOn(context),
+                color: selected ? Skin.onAccentOf(context) : Skin.inkSoftOn(context),
               ),
               child: Text(
                 label,
@@ -498,7 +498,7 @@ class EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 40, color: Skin.amber.withValues(alpha: 0.85)),
+            Icon(icon, size: 40, color: Skin.accentOf(context).withValues(alpha: 0.85)),
             const SizedBox(height: Gap.l),
             Text(title, textAlign: TextAlign.center, style: Skin.title(context, size: 24)),
             const SizedBox(height: Gap.s),

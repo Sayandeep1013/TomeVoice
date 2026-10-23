@@ -227,6 +227,15 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           selected: _prefs.paletteId,
                           onPick: (id) => _changeTheme(() => _prefs.paletteId = id),
                         ),
+                        const SizedBox(height: Gap.l),
+                        SwitchRow(
+                          title: 'Colours from book covers',
+                          subtitle: 'Each book takes the colour of its cover, and the app the colour '
+                              'of the book you are reading',
+                          value: _prefs.bookColours,
+                          padding: EdgeInsets.zero,
+                          onChanged: (v) => _changeTheme(() => _prefs.bookColours = v),
+                        ),
                         const SizedBox(height: Gap.xl),
                         const SectionTitle('Light or dark'),
                         const SizedBox(height: Gap.m),

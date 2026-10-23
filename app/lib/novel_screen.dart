@@ -6,6 +6,7 @@ import 'package:tomevoice_document/tomevoice_document.dart' show SourceKind;
 
 import 'book_actions.dart';
 import 'book_card.dart';
+import 'book_tint.dart';
 import 'browser_check.dart';
 import 'library_store.dart';
 import 'sources/models.dart';
@@ -44,7 +45,11 @@ class NovelScreen extends StatefulWidget {
     final info = await store.webNovel(e.id);
     if (info == null || !context.mounted) return;
     await Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => NovelScreen(store: store, plugin: info.plugin, path: info.novel.path, name: e.title),
+      builder: (_) => BookTint(
+        bookId: e.id,
+        cover: e.shownCover,
+        child: NovelScreen(store: store, plugin: info.plugin, path: info.novel.path, name: e.title),
+      ),
     ));
   }
 
@@ -211,7 +216,11 @@ class _NovelScreenState extends State<NovelScreen> {
     final e = await _ensureAdded();
     if (e == null || !mounted) return;
     await Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => WebNovelReader(store: _store, entry: e, startChapter: chapter, autoplay: play),
+      builder: (_) => BookTint(
+        bookId: e.id,
+        cover: e.shownCover,
+        child: WebNovelReader(store: _store, entry: e, startChapter: chapter, autoplay: play),
+      ),
     ));
     await _refreshLocal();
   }
@@ -650,7 +659,7 @@ class _NovelScreenState extends State<NovelScreen> {
         else
           OutlinedButton.icon(
             onPressed: () => moveBook(context, _store, e),
-            icon: Icon(Icons.library_add_check_rounded, size: 20, color: Skin.amber),
+            icon: Icon(Icons.library_add_check_rounded, size: 20, color: Skin.accentOf(context)),
             label: const Text('In your library'),
           ),
       ],
@@ -673,7 +682,7 @@ class _NovelScreenState extends State<NovelScreen> {
               ),
               const SizedBox(height: Gap.xs),
               Text(_blurbOpen ? 'Less' : 'More',
-                  style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.amberSoft)),
+                  style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentSoftOf(context))),
             ],
           ),
         ),
@@ -688,9 +697,9 @@ class _NovelScreenState extends State<NovelScreen> {
     final picked = _picked.contains(i);
     return Material(
       color: picked
-          ? Skin.amber.withValues(alpha: 0.26)
+          ? Skin.accentOf(context).withValues(alpha: 0.26)
           : isCurrent
-              ? Skin.amber.withValues(alpha: 0.14)
+              ? Skin.accentOf(context).withValues(alpha: 0.14)
               : Colors.transparent,
       borderRadius: BorderRadius.circular(Radii.row),
       child: InkWell(
@@ -706,9 +715,9 @@ class _NovelScreenState extends State<NovelScreen> {
                 child: picked
                     ? Align(
                         alignment: Alignment.centerLeft,
-                        child: Icon(Icons.check_circle_rounded, size: 22, color: Skin.amber),
+                        child: Icon(Icons.check_circle_rounded, size: 22, color: Skin.accentOf(context)),
                       )
-                    : Text('${i + 1}', style: Skin.meta(context, size: 11.5, color: isCurrent ? Skin.amber : null)),
+                    : Text('${i + 1}', style: Skin.meta(context, size: 11.5, color: isCurrent ? Skin.accentOf(context) : null)),
               ),
               Expanded(
                 child: Column(
@@ -723,7 +732,7 @@ class _NovelScreenState extends State<NovelScreen> {
                         size: 15,
                         weight: isCurrent ? FontWeight.w700 : FontWeight.w500,
                         color: isCurrent
-                            ? Skin.amber
+                            ? Skin.accentOf(context)
                             : read
                                 ? Skin.inkFaintOn(context)
                                 : Skin.inkOn(context),
@@ -733,7 +742,7 @@ class _NovelScreenState extends State<NovelScreen> {
                   ],
                 ),
               ),
-              if (isCurrent) Icon(Icons.graphic_eq_rounded, size: 18, color: Skin.amber),
+              if (isCurrent) Icon(Icons.graphic_eq_rounded, size: 18, color: Skin.accentOf(context)),
               SizedBox(
                 width: 44,
                 child: _fetching.contains(i)
