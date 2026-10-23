@@ -317,7 +317,7 @@ class _Lyrics extends StatelessWidget {
     if (layout.isEmpty) return const SizedBox.shrink();
     final dim = Skin.ui(size: 14, weight: FontWeight.w400, color: Colors.white.withValues(alpha: 0.38))
         .copyWith(height: 1.35);
-    final read = TextStyle(
+    const read = TextStyle(
       fontFamily: 'Newsreader',
       fontSize: 23,
       height: 1.32,
