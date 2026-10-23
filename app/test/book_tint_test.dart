@@ -46,4 +46,16 @@ void main() {
     // Tinting a tinted palette starts from the palette, not the last tint.
     expect(p.withTint(seed).id, p.id);
   });
+
+  test('the widgets get the same accent the app shows', () {
+    const seed = 0xFF8A2A1C; // a deep red cover, like Alice's
+    final app = Palette.forest.withTint(seed);
+    final w = widgetAccents(seed);
+    expect(w, hasLength(4));
+    expect(w[0], app.accent.toARGB32());
+    expect(w[1], app.onAccent.toARGB32());
+    // For white faces: deeper, with white on it.
+    expect(Hct.fromInt(w[2]).tone, lessThan(Hct.fromInt(w[0]).tone));
+    expect(w[3], 0xFFFFFFFF);
+  });
 }

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A TomeVoice widget: the face is one picture drawn by Widgets.kt; the button sits over the play button drawn on it. -->
+<!-- A TomeVoice widget: the face is one picture drawn by Widgets.kt; the buttons sit over the ones drawn on it. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
@@ -20,4 +20,20 @@
         android:layout_marginTop="39dp"
         android:background="@android:color/transparent"
         android:contentDescription="@string/widget_play" />
+    <ImageButton
+        android:id="@+id/widget_prev"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_gravity="top|start"
+        android:background="@android:color/transparent"
+        android:contentDescription="@string/widget_prev"
+        android:visibility="gone" />
+    <ImageButton
+        android:id="@+id/widget_next"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_gravity="top|start"
+        android:background="@android:color/transparent"
+        android:contentDescription="@string/widget_next"
+        android:visibility="gone" />
 </FrameLayout>

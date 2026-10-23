@@ -2,6 +2,8 @@
 <resources>
     <string name="widget_face">The book you are reading</string>
     <string name="widget_play">Play or pause</string>
+    <string name="widget_prev">Previous chapter</string>
+    <string name="widget_next">Next chapter</string>
     <string name="widget_player_small">Now reading: the cover, the title and play</string>
     <string name="widget_player_wide">Now reading: cover, chapter, progress and play</string>
     <string name="widget_streak_small">Your streak and this week</string>

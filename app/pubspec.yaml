@@ -51,6 +51,7 @@ flutter:
     - assets/fonts/OFL-Figtree.txt
     - assets/fonts/OFL-Newsreader.txt
     - assets/fonts/OFL-Literata.txt
+    - assets/fonts/OFL-Doto.txt
     - assets/brand/logo.png
     # The libraries LNReader source plugins use, and TomeVoice's host for
     # them (tools/lnreader_libs builds the first).
@@ -84,3 +85,8 @@ flutter:
     - family: Literata
       fonts:
         - asset: assets/fonts/Literata-Variable.ttf
+    # Dot-matrix numbers on the home-screen widgets (drawn natively from
+    # flutter_assets).
+    - family: Doto
+      fonts:
+        - asset: assets/fonts/Doto-Variable.ttf
