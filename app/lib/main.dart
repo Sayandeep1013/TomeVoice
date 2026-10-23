@@ -71,21 +71,27 @@ class SpikeApp extends StatelessWidget {
           darkTheme: _dark,
           themeMode: ListeningPrefs.loaded?.themeMode ?? ThemeMode.system,
           // Status bar icons dark on the light ground, light on the dark one.
+          // Every field is set: one left out falls back to Android's default,
+          // which for the divider is the separator line above the home bar.
           builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
             value: Skin.isDark(context)
                 ? const SystemUiOverlayStyle(
                     statusBarColor: Colors.transparent,
                     statusBarIconBrightness: Brightness.light,
                     systemNavigationBarColor: Colors.transparent,
+                    systemNavigationBarDividerColor: Colors.transparent,
                     systemNavigationBarIconBrightness: Brightness.light,
                     systemNavigationBarContrastEnforced: false,
+                    systemStatusBarContrastEnforced: false,
                   )
                 : const SystemUiOverlayStyle(
                     statusBarColor: Colors.transparent,
                     statusBarIconBrightness: Brightness.dark,
                     systemNavigationBarColor: Colors.transparent,
+                    systemNavigationBarDividerColor: Colors.transparent,
                     systemNavigationBarIconBrightness: Brightness.dark,
                     systemNavigationBarContrastEnforced: false,
+                    systemStatusBarContrastEnforced: false,
                   ),
             child: child!,
           ),

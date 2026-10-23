@@ -426,3 +426,26 @@ ground needs verification against accessibility targets in both themes.
 
 **Scope.** Applies from Phase 1, when there is real UI. The audio spike is deliberately
 unstyled.
+
+## ADR-018
+**Type and design system: a fashion-magazine set** — Accepted, 2026-10-23. Amends ADR-017.
+
+**Context.** On the phone, Ojuju (titles) and Space Mono (all small labels, letterspaced in
+capitals) read as a hobby project: Ojuju is a display face that tires in lists, and
+monospace labels are slow to read. Every screen also restyled Flutter widgets by hand, with
+13 different corner radii and about 20 paddings, and the Flutter theme was never set, so
+sliders, switches and dialogs fell back to stock Material in places.
+
+**Decision.** Titles in **Bodoni Moda** (a Didone with optical sizes, chosen by the
+developer from a comparison of five pairings), interface in **Figtree**, small labels in
+Figtree capitals with tabular figures, the page in **Newsreader** with Literata, a sans
+and the phone's serif as reader choices. All SIL OFL, bundled, listed on the About screen.
+Spacing from `Gap`, corners from `Radii`, one `ThemeData` built from `Skin` for every
+Material component, and one shared widget for each repeated piece (`ui.dart`).
+
+**Kept from ADR-017.** The forest-to-amber ground, floating capsule controls, one amber
+accent, and type as the subject rather than the interface.
+
+**Consequences.** About 2 MB of fonts (one variable file per family, upright only for the
+page faces since book text has no inline italics). Weights and optical sizes are set with
+font variations, because Flutter does not map `FontWeight` to a variable font's axes.

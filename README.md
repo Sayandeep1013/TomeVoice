@@ -38,8 +38,12 @@ No account. No cloud. Nothing leaves the phone.
 - **Keeps going with the screen off.** Pause and resume from the lock screen,
   notification or headset; it stops for calls and when headphones come out.
 - **Starts where you stopped**, with a sleep timer for listening in bed.
-- **A shelf that tells you what each book is:** cover (the book's own, one you pick, or a
-  plain title cover), author, format, language, listening time and where you left off.
+- **A shelf you can organise.** Cover tiles with format, length and progress on each;
+  your own categories (Reading, Later, or any you make), swiped between; the books you are
+  in the middle of waiting at the bottom with a play button.
+- **A page for every book:** its cover (the book's own, one you pick, or a plain title
+  cover), description, chapters, and the voice it is read in, with a sample to hear first.
+  Play carries on where you stopped; any chapter opens right there.
 - **Gives you the voice controls readers don't:** speed, pitch, the gap between words,
   and pauses at commas, sentences and paragraphs.
 
