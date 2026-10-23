@@ -176,6 +176,9 @@ class VoiceCatalog extends ChangeNotifier {
       ..sort((a, b) {
         final r = a.region.compareTo(b.region);
         if (r != 0) return r;
+        // Natural voices first: someone downloaded them to use them.
+        final n = (isNeural(b.name) ? 1 : 0) - (isNeural(a.name) ? 1 : 0);
+        if (n != 0) return n;
         if (a.variant == 'Default') return -1;
         if (b.variant == 'Default') return 1;
         return a.variant.compareTo(b.variant);

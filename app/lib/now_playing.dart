@@ -322,7 +322,7 @@ class _Backdrop extends StatelessWidget {
 
 /// The sentence before (dim), the one being read (large, its word lit) and
 /// the next (dim). Tap one to read from it.
-class _Lyrics extends StatelessWidget {
+class _Lyrics extends StatefulWidget {
   const _Lyrics({required this.layout, required this.unit, required this.player, required this.onTap});
 
   final ReadingLayout layout;
@@ -331,7 +331,41 @@ class _Lyrics extends StatelessWidget {
   final ValueChanged<int> onTap;
 
   @override
+  State<_Lyrics> createState() => _LyricsState();
+}
+
+class _LyricsState extends State<_Lyrics> {
+  /// Moving on through the book (the text pushes up) or back (down).
+  bool _forward = true;
+
+  @override
+  void didUpdateWidget(_Lyrics old) {
+    super.didUpdateWidget(old);
+    if (widget.unit != old.unit) _forward = widget.unit > old.unit;
+  }
+
+  /// The old sentence leaves first, fading out over the first half; the new
+  /// one rises in after it, so the two never sit on top of each other
+  /// half-faded. Both keep to the top: blocks of different heights don't jump.
+  Widget _push(Widget child, Animation<double> a) {
+    final incoming = child.key == ValueKey(widget.unit);
+    final dir = _forward ? 1.0 : -1.0;
+    // An outgoing child's animation runs backwards, from 1 to 0.
+    final fade = CurvedAnimation(
+      parent: a,
+      curve: incoming ? const Interval(0.35, 1, curve: Curves.easeOut) : const Interval(0.5, 1, curve: Curves.easeIn),
+    );
+    final slide = Tween(begin: Offset(0, (incoming ? 0.1 : -0.1) * dir), end: Offset.zero)
+        .chain(CurveTween(curve: incoming ? Motion.out : Curves.easeIn));
+    return FadeTransition(opacity: fade, child: SlideTransition(position: a.drive(slide), child: child));
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final layout = widget.layout;
+    final unit = widget.unit;
+    final player = widget.player;
+    final onTap = widget.onTap;
     if (layout.isEmpty) return const SizedBox.shrink();
     final dim = Skin.ui(size: 14, weight: FontWeight.w400, color: Colors.white.withValues(alpha: 0.38))
         .copyWith(height: 1.35);
@@ -348,10 +382,12 @@ class _Lyrics extends StatelessWidget {
         );
     return ClipRect(
       child: AnimatedSwitcher(
-        duration: Motion.of(context, Motion.standard),
-        switchInCurve: Motion.out,
-        switchOutCurve: Motion.out,
-        transitionBuilder: fadeRiseUp,
+        duration: Motion.of(context, _sentenceChange),
+        transitionBuilder: _push,
+        layoutBuilder: (current, previous) => Stack(
+          alignment: Alignment.topLeft,
+          children: [...previous, if (current != null) current],
+        ),
         child: Column(
           key: ValueKey(unit),
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -388,14 +424,8 @@ class _Lyrics extends StatelessWidget {
   }
 }
 
-/// The new sentence rises into place as the old one leaves upwards.
-Widget fadeRiseUp(Widget child, Animation<double> animation) => FadeTransition(
-      opacity: animation,
-      child: SlideTransition(
-        position: animation.drive(Tween(begin: const Offset(0, 0.08), end: Offset.zero)),
-        child: child,
-      ),
-    );
+/// Long enough to follow the line upwards; short beside a sentence.
+const _sentenceChange = Duration(milliseconds: 380);
 
 /// A plain cover for a book without a picture: its title on the accent.
 class _DrawnCover extends StatelessWidget {

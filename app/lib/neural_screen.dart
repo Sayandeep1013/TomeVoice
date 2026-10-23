@@ -161,7 +161,9 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
                       const SizedBox(height: Gap.l),
                       SwitchRow(
                         title: 'Offer natural voices',
-                        subtitle: 'Off: only the phone\'s own voices, and nothing to download',
+                        subtitle: _prefs.naturalVoices ?? false
+                            ? 'On: they appear in the voice picker'
+                            : 'Off: only the phone\'s own voices, and nothing to download',
                         value: _prefs.naturalVoices ?? false,
                         padding: EdgeInsets.zero,
                         onChanged: (v) {
