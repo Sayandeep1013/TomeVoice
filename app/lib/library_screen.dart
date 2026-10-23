@@ -501,11 +501,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   left: Gap.m,
                   right: Gap.m,
                   bottom: Gap.m,
-                  child: ContinueDock(
-                    books: reading,
-                    onOpen: (e) => _resume(e),
-                    onPlay: (e) => _resume(e, autoplay: true),
-                    onDetails: _showBook,
+                  // On a wide screen the dock keeps a phone's width, centred,
+                  // instead of a bar a third of the screen tall.
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
+                    heightFactor: 1,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 560),
+                      child: ContinueDock(
+                        books: reading,
+                        onOpen: (e) => _resume(e),
+                        onPlay: (e) => _resume(e, autoplay: true),
+                        onDetails: _showBook,
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -971,7 +980,7 @@ class _ContinueDockState extends State<ContinueDock> {
                   Text(
                     [
                       if (e.where != null && e.where!.toLowerCase() != e.title.toLowerCase()) e.where!,
-                      '${(e.progress * 100).round()}%',
+                      percentLabel(e.progress),
                       if (left.isNotEmpty) '$left left',
                     ].join(' · ').toUpperCase(),
                     maxLines: 1,

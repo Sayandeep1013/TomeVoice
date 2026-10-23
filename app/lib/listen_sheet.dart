@@ -161,7 +161,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
   @override
   Widget build(BuildContext context) {
     final speedOnly = widget.focus == ListenFocus.speed;
-    final maxHeight = MediaQuery.sizeOf(context).height * (speedOnly ? 0.45 : 0.88);
+    final height = MediaQuery.sizeOf(context).height;
     final children = speedOnly
         ? [
             const SectionTitle('Speed'),
@@ -177,15 +177,17 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
             const SizedBox(height: Gap.xl),
             if (_tab == 0) ..._listen(context) else ..._read(context),
           ];
-    return ConstrainedBox(
-      constraints: BoxConstraints(maxHeight: maxHeight),
-      child: ListView(
-        key: const Key('reader-settings'),
-        shrinkWrap: true,
-        padding: const EdgeInsets.fromLTRB(Gap.xl, 0, Gap.xl, Gap.xxl),
-        children: children,
-      ),
+    final list = ListView(
+      key: const Key('reader-settings'),
+      shrinkWrap: speedOnly,
+      padding: const EdgeInsets.fromLTRB(Gap.xl, 0, Gap.xl, Gap.xxl),
+      children: children,
     );
+    // The full sheet keeps one height, so switching between Listen and Read
+    // does not make it jump.
+    return speedOnly
+        ? ConstrainedBox(constraints: BoxConstraints(maxHeight: height * 0.45), child: list)
+        : SizedBox(height: height * 0.8, child: list);
   }
 
   // ---------------------------------------------------------------- listen
@@ -685,7 +687,7 @@ class _VoicePickerState extends State<_VoicePicker> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const SheetHeader('Voices', subtitle: 'Tap ▶ to hear one, tap a name to use it'),
+          const SheetHeader('Voices', subtitle: 'Play to hear one, tap a name to use it'),
           SizedBox(
             height: 44,
             child: ListView(

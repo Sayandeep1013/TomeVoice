@@ -93,23 +93,40 @@ class ChoiceRow<T> extends StatelessWidget {
   final List<(T, String)> options;
   final T? value;
   final ValueChanged<T> onChanged;
+
+  /// The narrowest a segment may be.
   final double minSegment;
+
+  /// Width of [label] as a segment draws it, padding included.
+  static double _segmentWidth(String label) {
+    final painter = TextPainter(
+      text: TextSpan(text: label, style: Skin.ui(size: 13.5, weight: FontWeight.w700)),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout();
+    return painter.width + Gap.m * 2 + 2;
+  }
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
         builder: (context, c) {
-          final fits = c.maxWidth >= options.length * minSegment;
+          // Each segment as wide as its label needs (so "Newsreader" is not
+          // cut to "Newsrea…" beside "Sans"), sharing out what is left over.
+          final widths = [for (final (_, label) in options) _segmentWidth(label).clamp(minSegment, 400.0)];
+          final needed = widths.fold<double>(6, (a, b) => a + b);
+          final fits = needed <= c.maxWidth;
           final segments = [
-            for (final (v, label) in options)
+            for (var i = 0; i < options.length; i++)
               _Segment(
-                label: label,
-                selected: v == value,
-                onTap: () => onChanged(v),
-                expand: fits,
+                label: options[i].$2,
+                selected: options[i].$1 == value,
+                onTap: () => onChanged(options[i].$1),
+                flex: fits ? widths[i].round() : null,
               ),
           ];
           final track = Container(
             padding: const EdgeInsets.all(3),
+            constraints: BoxConstraints(minWidth: c.maxWidth),
             decoration: BoxDecoration(
               color: Skin.raisedOn(context),
               borderRadius: BorderRadius.circular(Radii.pill),
@@ -119,9 +136,17 @@ class ChoiceRow<T> extends StatelessWidget {
               children: segments,
             ),
           );
-          return fits
-              ? track
-              : SingleChildScrollView(scrollDirection: Axis.horizontal, child: track);
+          if (fits) return track;
+          // Too many to fit: the row scrolls, and fades at the edge so it is
+          // plainly more than what shows.
+          return ShaderMask(
+            blendMode: BlendMode.dstIn,
+            shaderCallback: (rect) => const LinearGradient(
+              colors: [Colors.black, Colors.black, Colors.transparent],
+              stops: [0, 0.88, 1],
+            ).createShader(rect),
+            child: SingleChildScrollView(scrollDirection: Axis.horizontal, child: track),
+          );
         },
       );
 }
@@ -131,13 +156,15 @@ class _Segment extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
-    required this.expand,
+    this.flex,
   });
 
   final String label;
   final bool selected;
   final VoidCallback onTap;
-  final bool expand;
+
+  /// Share of the row when the segments fill it; null when it scrolls.
+  final int? flex;
 
   @override
   Widget build(BuildContext context) {
@@ -167,7 +194,7 @@ class _Segment extends StatelessWidget {
         ),
       ),
     );
-    return expand ? Expanded(child: body) : body;
+    return flex == null ? body : Expanded(flex: flex!, child: body);
   }
 }
 

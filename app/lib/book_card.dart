@@ -157,6 +157,10 @@ String relativeDay(DateTime when, {DateTime? now}) {
   return '${when.day} ${months[when.month - 1]}';
 }
 
+/// "34%". A book that has been started never reads "0%".
+String percentLabel(double progress) =>
+    '${progress <= 0 ? 0 : (progress * 100).round().clamp(1, 100)}%';
+
 /// Where the reader stands in [e], in words.
 String progressLine(LibraryEntry e) {
   if (e.finished) return 'Finished';
@@ -165,7 +169,7 @@ String progressLine(LibraryEntry e) {
   if (e.openedAt == null || e.progress <= 0) {
     return 'Not started · added ${relativeDay(e.addedAt)}';
   }
-  final pct = '${(e.progress * 100).round()}%';
+  final pct = percentLabel(e.progress);
   return useful ? '$pct · $where' : '$pct · read ${relativeDay(e.openedAt!)}';
 }
 
@@ -441,7 +445,7 @@ class _StatusBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final e = entry;
     final loud = e.finished || e.progress <= 0;
-    final label = e.finished ? 'DONE' : (e.progress > 0 ? '${(e.progress * 100).round()}%' : 'NEW');
+    final label = e.finished ? 'DONE' : (e.progress > 0 ? percentLabel(e.progress) : 'NEW');
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(

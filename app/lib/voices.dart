@@ -220,6 +220,11 @@ const _languages = {
   'te': 'Telugu', 'th': 'Thai', 'tl': 'Filipino', 'tr': 'Turkish',
   'uk': 'Ukrainian', 'ur': 'Urdu', 'uz': 'Uzbek', 'vi': 'Vietnamese',
   'yue': 'Cantonese', 'zh': 'Chinese', 'zu': 'Zulu',
+  'brx': 'Bodo', 'doi': 'Dogri', 'kok': 'Konkani', 'mai': 'Maithili',
+  'mni': 'Manipuri', 'sat': 'Santali', 'sd': 'Sindhi', 'ks': 'Kashmiri',
+  'sa': 'Sanskrit', 'ps': 'Pashto', 'so': 'Somali', 'ha': 'Hausa',
+  'yo': 'Yoruba', 'ig': 'Igbo', 'mt': 'Maltese', 'lb': 'Luxembourgish',
+  'gd': 'Scottish Gaelic', 'fy': 'Frisian', 'bo': 'Tibetan', 'ug': 'Uyghur',
 };
 
 const _regions = {

@@ -65,9 +65,20 @@ class _HistoryScreenState extends State<HistoryScreen> {
         child: CustomScrollView(
           slivers: [
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(Gap.page, Gap.l, Gap.page, Gap.s),
+              padding: const EdgeInsets.fromLTRB(Gap.m, Gap.s, Gap.page, Gap.s),
               sliver: SliverToBoxAdapter(
-                child: Text('History', style: Skin.title(context, size: 30, weight: FontWeight.w500)),
+                child: Row(
+                  children: [
+                    RoundButton(
+                      icon: Icons.menu_rounded,
+                      tooltip: 'Menu',
+                      size: 42,
+                      onTap: () => Scaffold.maybeOf(context)?.openDrawer(),
+                    ),
+                    const SizedBox(width: Gap.m),
+                    Text('History', style: Skin.title(context, size: 28, weight: FontWeight.w500)),
+                  ],
+                ),
               ),
             ),
             if (_loaded && _entries.isEmpty)

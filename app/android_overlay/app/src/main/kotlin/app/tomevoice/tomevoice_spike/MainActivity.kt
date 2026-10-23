@@ -216,6 +216,22 @@ class MainActivity : FlutterActivity() {
         handleViewIntent(intent)
     }
 
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // Draw into the camera cutout too. Without this, landscape leaves a
+        // dark strip down the cutout side and under the gesture bar, where
+        // the window background shows instead of the app's gradient.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
+    }
+
     override fun onPostResume() {
         super.onPostResume()
         // One key press (keyboard, D-pad, remote) puts Android in keyboard
