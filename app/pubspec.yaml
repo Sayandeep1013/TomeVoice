@@ -47,6 +47,8 @@ flutter:
     - assets/js/lnreader_libs.js
     - assets/js/lnreader_shim.js
     - assets/licenses/third_party.txt
+    # The book a new install starts with (public domain; see starter.dart).
+    - assets/starter/pride-and-prejudice.epub
 
   # Bundled, not fetched at runtime: the app is offline-first, and a reading
   # app whose type disappears without a network is not offline-first.

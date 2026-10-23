@@ -55,3 +55,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ISC License: Permission to use, copy, modify, and/or distribute this software
 for any purpose with or without fee is hereby granted, provided that the above
 copyright notice and this permission notice appear in all copies.
+
+--------------------------------------------------------------------------------
+Pride and Prejudice (the book a new install starts with)
+Jane Austen, 1813; cover by Hugh Thomson, 1894. Public domain.
+The eBook is Project Gutenberg's #1342, unchanged, distributed free of charge
+under the Project Gutenberg License included in the book itself
+(https://www.gutenberg.org/policy/license.html).

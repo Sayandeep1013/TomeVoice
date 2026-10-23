@@ -16,6 +16,7 @@ import 'sources/source_engine.dart';
 import 'sources/source_store.dart';
 import 'sources_screen.dart';
 import 'speech_service.dart';
+import 'starter.dart';
 import 'updates.dart';
 import 'updates_screen.dart';
 import 'theme.dart';
@@ -64,6 +65,8 @@ class _HomeShellState extends State<HomeShell> {
           _updates = updates;
         });
       }
+      // A new install's first shelf: a classic and two web novels.
+      unawaited(Starter.seed(Directory(dir), store, sources));
       // New chapters, at most as often as the reader asked, a moment after
       // the shelf is up so opening the app stays quick.
       Future<void>.delayed(const Duration(seconds: 4), () async {
