@@ -467,8 +467,11 @@ into Dart. Plugins run in a pool of background isolates.
 lightnovelwp and readnovelfull families. Own JSON selector rules: we would own every site's
 breakage. NovelDokusha's scrapers: dead sites, no maintainer.
 
-**Rights.** TomeVoice ships no list of sites. Users add source lists themselves, as in
-LNReader and Mihon; the Sources screen says the sites belong to their owners.
+**Rights.** TomeVoice ships no scrapers of its own. A new install starts with LNReader's
+public plugin list already added (the developer's call, 2026-10-23: an empty Sources screen
+left new users nothing to do), so its sites can be installed at once; the list can be
+removed, and any other LNReader-format list added. The Sources screen says the sites belong
+to their owners.
 
 **Consequences.** About 3 MB more APK (QuickJS, the bundle). QuickJS's native build cannot
 run on the developer's Windows PC without MSVC, so local checks stub the engine and CI tests

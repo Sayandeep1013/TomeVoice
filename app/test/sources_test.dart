@@ -177,6 +177,15 @@ void main() {
     expect(SourceNovel.fromJs({'genres': 'Action, RomanceDrama'}, path: 'p').genres, ['Action', 'Romance', 'Drama']);
   });
 
+  test("a new install starts with LNReader's list; removing it is remembered", () async {
+    final dir = Directory.systemTemp.createTempSync('tv_repos');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final store = SourceStore(dir);
+    expect(await store.repos(), SourceStore.builtIn);
+    await store.removeRepo(SourceStore.builtIn.single);
+    expect(await SourceStore(dir).repos(), isEmpty);
+  });
+
   test('versions compare numerically', () {
     expect(compareVersions('1.2.10', '1.2.9'), greaterThan(0));
     expect(compareVersions('2.0', '2.0.0'), 0);
@@ -219,7 +228,7 @@ void main() {
       await server.close(force: true);
       dir.deleteSync(recursive: true);
     });
-    final store = SourceStore(dir);
+    final store = SourceStore(dir, defaults: const []);
 
     await expectLater(store.addRepo('$base/nothing.json'), throwsA(isA<FormatException>()));
     expect(await store.addRepo('$base/plugins.min.json'), 2);
@@ -318,7 +327,7 @@ void main() {
         ],
       }));
     final store = LibraryStore(dir);
-    final report = await importNovelDokushaJson(store, SourceStore(dir), json.path);
+    final report = await importNovelDokushaJson(store, SourceStore(dir, defaults: const []), json.path);
     expect(report.novels, 1);
     expect(report.chapters, 1);
     expect(report.unmatched, ['Lord of Mysteries'], reason: 'no source for that site is installed');

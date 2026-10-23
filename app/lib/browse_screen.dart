@@ -151,7 +151,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
                 style: Skin.ui(size: 15, weight: FontWeight.w500, color: Skin.inkOn(context)),
                 decoration: InputDecoration(
                   prefixIcon: const Icon(Icons.travel_explore_rounded, size: 20),
-                  hintText: _installed.isEmpty ? 'Add sources to search' : 'Search every source',
+                  hintText: _installed.isEmpty ? 'Install sources to search' : 'Search every source',
                   suffixIcon: searching
                       ? IconButton(
                           tooltip: 'Clear',
@@ -174,12 +174,13 @@ class _BrowseScreenState extends State<BrowseScreen> {
                         child: EmptyState(
                           icon: Icons.travel_explore_rounded,
                           title: 'Find web novels',
-                          body: 'Add a source list and install the sites you read. Then search them all '
+                          body: 'Install the sites you read from the list in Sources, or bring your own list. '
+                              'Then search them all '
                               'from here, add novels to your library, and listen to them like any book.',
                           action: FilledButton.icon(
                             onPressed: _openSources,
                             icon: const Icon(Icons.extension_outlined),
-                            label: const Text('Add sources'),
+                            label: const Text('Install sources'),
                           ),
                         ),
                       ),

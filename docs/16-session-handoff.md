@@ -17,7 +17,7 @@ everything below. The plan these follow is `docs/roadmap.html`.
 | Library | Cover tiles with a translucent info band (list view optional); categories as swipeable pages; long-press multi-select, move, remove; a continue dock at the bottom |
 | Book page | Details, description (EPUB `dc:description`, parsed v5), category, per-book voice with a sample, chapters |
 | Reader | Listen/Read settings sheet; voice picker with readable names and spoken samples; fades under the bars; ornament pictures drawn in the page's ink; keep screen on |
-| Web novels | LNReader plugins in QuickJS ([ADR-019](10-decisions-adr.md#adr-019)): Sources (repos, install/update), Browse (global search, per-source feeds), novel page, reading with chapters fetched ahead |
+| Web novels | LNReader plugins in QuickJS ([ADR-019](10-decisions-adr.md#adr-019)): Sources (LNReader's list built in, own lists addable, install/update), Browse (global search, per-source feeds), novel page (pull to check for new chapters, per-chapter and batch downloads), reading with chapters fetched ahead |
 | Updates | New chapters checked on app open (off/12 h/daily/2 days/weekly) and from the Updates screen. Not yet a background job |
 | Import | NovelDokusha backup zip (SQLite read in Kotlin) -> web novels with downloaded chapters and place |
 | Animation | Fade-through transitions with predictive back, cover hero, staggered entrances, sliding choices, theme cross-fade |

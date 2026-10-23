@@ -10,14 +10,25 @@ import 'net.dart';
 /// Repositories and installed sources, kept under `<root>/sources/`.
 ///
 /// A repository is a URL to a plugin index in LNReader's format: a JSON
-/// list of `{id, name, site, lang, version, url, iconUrl}`. TomeVoice ships
-/// with none; the reader adds the ones they want, the way LNReader and Mihon
-/// work. Installing a plugin downloads its code, so browsing and reading
-/// work from the copy on the phone.
+/// list of `{id, name, site, lang, version, url, iconUrl}`. A new install
+/// starts with LNReader's own list ([builtIn]), so there is something to
+/// install at once; readers can remove it and add any others. Installing a
+/// plugin downloads its code, so browsing and reading work from the copy on
+/// the phone.
 class SourceStore {
-  SourceStore(Directory root) : dir = Directory('${root.path}/sources');
+  SourceStore(Directory root, {this.defaults = builtIn}) : dir = Directory('${root.path}/sources');
+
+  /// LNReader's plugin list: some 300 sites in many languages, kept up to
+  /// date by its community.
+  static const builtIn = [
+    'https://raw.githubusercontent.com/LNReader/lnreader-plugins/plugins/v3.0.0/.dist/plugins.min.json',
+  ];
 
   final Directory dir;
+
+  /// The lists a new install starts with. Once the reader adds or removes
+  /// one, their own choice is kept instead.
+  final List<String> defaults;
 
   /// Bumped when repositories or installed sources change.
   final changes = ValueNotifier<int>(0);
@@ -41,9 +52,9 @@ class SourceStore {
         return [for (final r in jsonDecode(await _reposFile.readAsString()) as List) r.toString()];
       }
     } on Object {
-      // Fall through to none.
+      // A broken file: start again from the built-in list.
     }
-    return const [];
+    return defaults;
   }
 
   /// Add [url] after checking it really is a plugin index. Returns how many

@@ -44,11 +44,13 @@ No account. No cloud. Your books never leave the phone.
 - **A page for every book:** its cover (the book's own, one you pick, or a plain title
   cover), description, chapters, and the voice it is read in, with a sample to hear first.
   Play carries on where you stopped; any chapter opens right there.
-- **Web novels too.** Add an LNReader source list, search every site you installed at once,
+- **Web novels too.** Install sites from LNReader's source list (there from the start) or
+  bring your own list, search every site you installed at once,
   add a novel to your library and listen to it like a book: chapters are fetched as you go,
   new ones are checked for, and sites behind Cloudflare are read through the phone's own
-  browser engine. Your NovelDokusha library can be imported from its backup. TomeVoice
-  ships no list of sites ([ADR-019](docs/10-decisions-adr.md#adr-019)).
+  browser engine. Download single chapters or whole novels to listen offline. Your
+  NovelDokusha library can be imported from its backup
+  ([ADR-019](docs/10-decisions-adr.md#adr-019)).
 - **Five colour themes:** Forest, Lavender, Ocean, Black for OLED screens, and Paper.
 - **Gives you the voice controls readers don't:** speed, pitch, the gap between words,
   and pauses at commas, sentences and paragraphs.

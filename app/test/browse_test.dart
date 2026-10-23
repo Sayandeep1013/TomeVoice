@@ -55,12 +55,12 @@ void main() {
   testWidgets('Browse with no sources says how to get some', (tester) async {
     phone(tester);
     final store = LibraryStore(tmp);
-    final sources = SourceStore(tmp);
+    final sources = SourceStore(tmp, defaults: const []);
     await tester.pumpWidget(MaterialApp(home: Scaffold(body: BrowseScreen(store: store, sources: sources))));
     await settle(tester, () => find.text('Find web novels').evaluate().isNotEmpty);
 
     expect(find.text('Find web novels'), findsOneWidget);
-    await tester.tap(find.text('Add sources'));
+    await tester.tap(find.text('Install sources'));
     await settle(tester, () => find.byType(SourcesScreen).evaluate().isNotEmpty);
     expect(find.byType(SourcesScreen), findsOneWidget);
     expect(find.text('Add a source list'), findsOneWidget);
@@ -101,6 +101,11 @@ void main() {
       expect(find.text('Chapter $i'), findsOneWidget);
     }
     expect(find.byIcon(Icons.offline_pin_rounded), findsOneWidget, reason: 'only chapter 1 is downloaded');
+    // Every other chapter has its own download button.
+    for (var i = 2; i <= 4; i++) {
+      expect(find.byTooltip('Download chapter $i'), findsOneWidget);
+    }
+    expect(find.byTooltip('Download chapter 1'), findsNothing);
 
     // Newest first, on a tap.
     await tester.tap(find.byTooltip('Newest first'));

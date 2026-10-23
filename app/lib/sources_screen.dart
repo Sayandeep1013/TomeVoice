@@ -168,7 +168,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
                         Padding(
                           padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.m),
                           child: Text(
-                            'Add the address of a source list to find web novels. TomeVoice reads lists in '
+                            'No source lists. Add the address of one to find web novels: TomeVoice reads lists in '
                             'LNReader\'s format, so any LNReader plugin repository works. The sites belong to '
                             'their owners; add only lists you trust.',
                             style: Skin.ui(size: 14.5, weight: FontWeight.w400, color: Skin.inkSoftOn(context))

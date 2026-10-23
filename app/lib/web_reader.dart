@@ -15,19 +15,22 @@ import 'ui.dart';
 const _ahead = 3;
 
 /// Fetch chapters [from] .. [from + count - 1] of web novel [id] that are not
-/// on the phone yet. [onProgress] hears each one as it starts.
+/// on the phone yet. [onProgress] hears each one as it starts; [stop], asked
+/// before each, ends the run early.
 Future<void> fetchChapters(
   LibraryStore store,
   String id,
   int from, {
   int count = _ahead,
   void Function(int chapter)? onProgress,
+  bool Function()? stop,
 }) async {
   final info = await store.webNovel(id);
   if (info == null) return;
   final plugin = await SourceEngine.instance.store.installedById(info.plugin.id);
   for (var i = from; i < from + count && i < info.chapters.length; i++) {
     if (i < 0 || store.hasChapter(id, i)) continue;
+    if (stop?.call() ?? false) return;
     if (plugin == null) {
       throw MissingSourceException(info.plugin.id, info.plugin.name);
     }

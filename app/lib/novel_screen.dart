@@ -64,6 +64,10 @@ class _NovelScreenState extends State<NovelScreen> {
   bool _newestFirst = false;
   bool _blurbOpen = false;
   String? _downloading;
+  bool _stopDownload = false;
+
+  /// Chapters being downloaded one by one from their rows.
+  final _fetching = <int>{};
 
   @override
   void initState() {
@@ -89,7 +93,9 @@ class _NovelScreenState extends State<NovelScreen> {
     });
   }
 
-  Future<void> _load() async {
+  /// [pulled]: the reader pulled the page down to check for new chapters,
+  /// so say what came of it.
+  Future<void> _load({bool pulled = false}) async {
     await _refreshLocal();
     // What is on the phone first, so the page fills at once.
     final stored = await _store.webNovel(_id);
@@ -105,6 +111,15 @@ class _NovelScreenState extends State<NovelScreen> {
       final plugin = await SourceEngine.instance.store.installedById(widget.plugin.id) ?? widget.plugin;
       final fresh = await SourceEngine.instance.novel(plugin, widget.path);
       if (!mounted) return;
+      final before = stored?.chapters.length ?? _chapters.length;
+      final added = fresh.chapters.length - before;
+      if (pulled) {
+        showSnack(context, switch (added) {
+          > 1 => '$added new chapters.',
+          1 => 'One new chapter.',
+          _ => 'No new chapters yet.',
+        });
+      }
       setState(() {
         _novel = fresh;
         if (fresh.chapters.isNotEmpty) _chapters = fresh.chapters;
@@ -120,6 +135,7 @@ class _NovelScreenState extends State<NovelScreen> {
         _loading = false;
         if (stored == null) _error = e;
       });
+      if (pulled && stored != null) showSnack(context, friendlyError(e), long: true);
     }
   }
 
@@ -169,19 +185,60 @@ class _NovelScreenState extends State<NovelScreen> {
     await _refreshLocal();
   }
 
-  Future<void> _download(int count) async {
+  /// Download [count] chapters from [from] (the place reached, by default)
+  /// that are not on the phone yet, with progress and a Stop.
+  Future<void> _download(int count, {int? from}) async {
+    if (_downloading != null) return;
     final e = await _ensureAdded(announce: false);
-    if (e == null) return;
-    final from = _current < 0 ? 0 : _current;
+    if (e == null || !mounted) return;
+    final start = from ?? (_current < 0 ? 0 : _current);
+    final wanted = [
+      for (var i = start; i < start + count && i < _chapters.length; i++)
+        if (!_downloaded.contains(i)) i,
+    ];
+    if (wanted.isEmpty) {
+      showSnack(context, 'Those chapters are already on the phone.');
+      return;
+    }
+    var done = 0;
+    _stopDownload = false;
+    setState(() => _downloading = 'Getting ready…');
     try {
-      await fetchChapters(_store, _id, from, count: count, onProgress: (c) {
-        if (mounted) setState(() => _downloading = 'Downloading chapter ${c + 1}…');
-      });
-      if (mounted) showSnack(context, 'Downloaded. Those chapters open offline now.');
+      await fetchChapters(
+        _store,
+        _id,
+        start,
+        count: count,
+        stop: () => _stopDownload,
+        onProgress: (c) {
+          done++;
+          if (mounted) setState(() => _downloading = 'Downloading $done of ${wanted.length} · chapter ${c + 1}');
+          unawaited(_refreshLocal());
+        },
+      );
+      if (mounted) {
+        showSnack(
+            context, _stopDownload ? 'Stopped. What came down reads offline.' : 'Downloaded. Those chapters read offline now.');
+      }
     } on Object catch (err) {
       if (mounted) showSnack(context, '$err', long: true);
     } finally {
       if (mounted) setState(() => _downloading = null);
+      await _refreshLocal();
+    }
+  }
+
+  /// One chapter, from the download button on its row.
+  Future<void> _downloadOne(int i) async {
+    final e = await _ensureAdded();
+    if (e == null || !mounted) return;
+    setState(() => _fetching.add(i));
+    try {
+      await fetchChapters(_store, _id, i, count: 1);
+    } on Object catch (err) {
+      if (mounted) showSnack(context, '$err', long: true);
+    } finally {
+      if (mounted) setState(() => _fetching.remove(i));
       await _refreshLocal();
     }
   }
@@ -211,7 +268,7 @@ class _NovelScreenState extends State<NovelScreen> {
         child: SafeArea(
           bottom: false,
           child: RefreshIndicator(
-            onRefresh: _load,
+            onRefresh: () => _load(pulled: true),
             child: CustomScrollView(
               slivers: [
                 SliverToBoxAdapter(child: _topBar(context)),
@@ -263,7 +320,11 @@ class _NovelScreenState extends State<NovelScreen> {
                         children: [
                           const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
                           const SizedBox(width: Gap.m),
-                          Text(_downloading!, style: Skin.label(context)),
+                          Expanded(child: Text(_downloading!, style: Skin.label(context))),
+                          TextButton(
+                            onPressed: _stopDownload ? null : () => setState(() => _stopDownload = true),
+                            child: const Text('Stop'),
+                          ),
                         ],
                       ),
                     ),
@@ -328,6 +389,8 @@ class _NovelScreenState extends State<NovelScreen> {
                     await _download(10);
                   case 'download50':
                     await _download(50);
+                  case 'downloadAll':
+                    await _download(_chapters.length, from: 0);
                   case 'move':
                     if (e != null) await moveBook(context, _store, e);
                   case 'cover':
@@ -341,6 +404,11 @@ class _NovelScreenState extends State<NovelScreen> {
                 const PopupMenuItem(value: 'browser', child: Text('Open in browser')),
                 const PopupMenuItem(value: 'download10', child: Text('Download next 10 chapters')),
                 const PopupMenuItem(value: 'download50', child: Text('Download next 50 chapters')),
+                if (_chapters.length > _downloaded.length)
+                  PopupMenuItem(
+                    value: 'downloadAll',
+                    child: Text('Download all (${_chapters.length - _downloaded.length} to go)'),
+                  ),
                 if (_entry != null) ...[
                   const PopupMenuItem(value: 'move', child: Text('Move to…')),
                   const PopupMenuItem(value: 'cover', child: Text('Change cover')),
@@ -514,8 +582,23 @@ class _NovelScreenState extends State<NovelScreen> {
                 ),
               ),
               if (isCurrent) Icon(Icons.graphic_eq_rounded, size: 18, color: Skin.amber),
-              if (have && !isCurrent)
-                Icon(Icons.offline_pin_rounded, size: 18, color: Skin.inkFaintOn(context)),
+              SizedBox(
+                width: 44,
+                child: _fetching.contains(i)
+                    ? const Center(
+                        child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                      )
+                    : have
+                        ? Tooltip(
+                            message: 'On the phone',
+                            child: Icon(Icons.offline_pin_rounded, size: 20, color: Skin.inkFaintOn(context)),
+                          )
+                        : IconButton(
+                            tooltip: 'Download chapter ${i + 1}',
+                            icon: Icon(Icons.download_for_offline_outlined, size: 22, color: Skin.inkSoftOn(context)),
+                            onPressed: () => _downloadOne(i),
+                          ),
+              ),
             ],
           ),
         ),
