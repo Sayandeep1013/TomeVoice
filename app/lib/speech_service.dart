@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
+import 'neural_voices.dart';
+
 /// Everything that talks to the platform, plus the decoding that has to happen
 /// before the pure-Dart pipeline can be handed anything.
 ///
@@ -102,6 +104,16 @@ class SpeechService {
     // later one.
     await previous.timeout(const Duration(seconds: 20), onTimeout: () {});
     try {
+      // A natural voice is made here, not by the phone's speech engine.
+      final natural = neuralVoiceFor(voiceName);
+      if (natural != null) {
+        return await NeuralEngine.instance.synthesise(
+          voice: natural,
+          text: text,
+          speed: rate,
+          outDir: Directory.systemTemp.path,
+        );
+      }
       final raw = await _channel.invokeMapMethod<String, Object?>('synthesise', {
         'text': text,
         'engineId': engineId,

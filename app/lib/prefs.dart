@@ -16,6 +16,7 @@ class ListeningPrefs {
     this.presetId = 'natural',
     Map<String, String>? voiceByLanguage,
     Map<String, String>? voiceByBook,
+    Map<String, String>? dialogueByBook,
     this.engineId,
     this.textSize = 19,
     this.pdfPages = false,
@@ -30,8 +31,10 @@ class ListeningPrefs {
     this.gridView = true,
     this.sort = LibrarySort.recent,
     this.bookColours = true,
+    this.naturalVoices,
   })  : voiceByLanguage = voiceByLanguage ?? {},
-        voiceByBook = voiceByBook ?? {};
+        voiceByBook = voiceByBook ?? {},
+        dialogueByBook = dialogueByBook ?? {};
 
   /// Bumped on every change, so the app (theme) and open screens can follow.
   static final revision = ValueNotifier<int>(0);
@@ -45,6 +48,10 @@ class ListeningPrefs {
 
   /// Book id -> voice name, for a book given its own voice on its page.
   final Map<String, String> voiceByBook;
+
+  /// Book id -> the voice its dialogue (words in quotation marks) is read
+  /// in, when not the narrator's.
+  final Map<String, String> dialogueByBook;
   String? engineId;
 
   /// Size of the book's text, in logical pixels.
@@ -86,6 +93,10 @@ class ListeningPrefs {
   /// Each book's screens take the colour of its cover, and the library the
   /// colour of the book being read, instead of the palette's accent.
   bool bookColours;
+
+  /// Natural voices: null until the reader has been asked, then whether
+  /// they want them offered. Declined, the app never suggests them.
+  bool? naturalVoices;
 
   static ListeningPrefs? _cached;
   static File? _file;
@@ -145,6 +156,7 @@ class ListeningPrefs {
         'presetId': presetId,
         'voiceByLanguage': voiceByLanguage,
         'voiceByBook': voiceByBook,
+        'dialogueByBook': dialogueByBook,
         'engineId': engineId,
         'textSize': textSize,
         'pdfPages': pdfPages,
@@ -159,6 +171,7 @@ class ListeningPrefs {
         'gridView': gridView,
         'sort': sort.name,
         'bookColours': bookColours,
+        if (naturalVoices != null) 'naturalVoices': naturalVoices,
       };
 
   static ListeningPrefs fromJson(Map<String, Object?> json) => ListeningPrefs(
@@ -168,6 +181,10 @@ class ListeningPrefs {
         presetId: json['presetId'] as String?,
         voiceByLanguage: {
           for (final e in (json['voiceByLanguage'] as Map? ?? const {}).entries)
+            e.key.toString(): e.value.toString(),
+        },
+        dialogueByBook: {
+          for (final e in (json['dialogueByBook'] as Map? ?? const {}).entries)
             e.key.toString(): e.value.toString(),
         },
         voiceByBook: {
@@ -190,6 +207,7 @@ class ListeningPrefs {
         sort: LibrarySort.values.where((m) => m.name == json['sort']).firstOrNull ??
             LibrarySort.recent,
         bookColours: json['bookColours'] != false,
+        naturalVoices: json['naturalVoices'] as bool?,
       );
 }
 

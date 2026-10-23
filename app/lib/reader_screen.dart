@@ -300,6 +300,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       voiceNameOf: () => _listen.voiceName,
       pauseAfter: _pauseAfter,
       respell: (text) => respell(text, ReadingRules.instance.sayFor(_book.id)),
+      dialogueVoiceOf: () => _listen.dialogueVoice,
     )..onFinished = _onFinished;
     _player.unit.addListener(() => _cursor.value = _player.unit.value);
     _player.state.addListener(_onPlayState);

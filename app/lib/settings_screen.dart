@@ -14,6 +14,7 @@ import 'brand.dart';
 import 'categories_screen.dart';
 import 'library_store.dart';
 import 'listen_sheet.dart';
+import 'neural_screen.dart';
 import 'noveldokusha_import.dart';
 import 'prefs.dart';
 import 'rules_screen.dart';
@@ -298,6 +299,14 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
                         ),
                         const SizedBox(height: Gap.l),
+                        _Link(
+                          icon: Icons.auto_awesome_rounded,
+                          title: 'Natural voices',
+                          subtitle: 'Voices that sound like people, made on your phone',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(builder: (_) => const NeuralVoicesScreen()),
+                          ),
+                        ),
                         _Link(
                           icon: Icons.record_voice_over_outlined,
                           title: 'Voices',

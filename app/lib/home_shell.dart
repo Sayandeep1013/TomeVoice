@@ -14,6 +14,7 @@ import 'history_screen.dart';
 import 'library_screen.dart';
 import 'library_store.dart';
 import 'marks.dart';
+import 'neural_voices.dart';
 import 'prefs.dart';
 import 'reader_screen.dart';
 import 'reading_rules.dart';
@@ -130,6 +131,7 @@ class _HomeShellState extends State<HomeShell> {
       await ReadingRules.instance.attach(Directory(dir));
       await MarkStore.instance.attach(Directory(dir));
       await StatsStore.instance.attach(Directory(dir));
+      NeuralVoices.instance.attach(Directory(dir));
       StatsStore.instance.onSaved = _scheduleWidgets;
       final updates = Updates(store);
       if (mounted) {

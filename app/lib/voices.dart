@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import 'neural_voices.dart';
 import 'speech_service.dart';
 
 /// One system voice, with the names people actually read.
@@ -116,6 +117,16 @@ class VoiceCatalog extends ChangeNotifier {
     }
   }
 
+  /// The phone's voices and the natural voices downloaded to it.
+  List<VoiceInfo> get all => [
+        ...voices,
+        for (final v in NeuralVoices.instance.installedVoices)
+          VoiceInfo(name: v.voiceName, locale: v.locale, quality: 500, networkRequired: false, installed: true),
+      ];
+
+  /// A natural voice was downloaded or removed.
+  void neuralChanged() => notifyListeners();
+
   Future<void> switchEngine(String id) async {
     if (id == engineId) return;
     engineId = id;
@@ -127,7 +138,7 @@ class VoiceCatalog extends ChangeNotifier {
 
   VoiceInfo? byName(String? name) {
     if (name == null) return null;
-    for (final v in voices) {
+    for (final v in all) {
       if (v.name == name) return v;
     }
     return null;
@@ -146,7 +157,7 @@ class VoiceCatalog extends ChangeNotifier {
   /// Voices for [language], installed and offline first, then by quality.
   List<VoiceInfo> forLanguage(String language) {
     final list = [
-      for (final v in voices)
+      for (final v in all)
         if (v.language == language) v,
     ];
     int score(VoiceInfo v) =>
@@ -177,6 +188,8 @@ class VoiceCatalog extends ChangeNotifier {
   /// the engine's default stays "Default voice", and an engine that already
   /// names its voices keeps those names.
   String friendlyName(VoiceInfo v) {
+    final natural = neuralVoiceFor(v.name);
+    if (natural != null) return '${natural.name} · natural';
     if (v.variant == 'Default') return 'Default voice';
     if (!RegExp(r'^[A-Z0-9]{2,5}$').hasMatch(v.variant)) return v.variant;
     final same = [
@@ -189,7 +202,7 @@ class VoiceCatalog extends ChangeNotifier {
 
   /// Languages that have at least one voice, by display name.
   List<String> languages() {
-    final set = {for (final v in voices) v.language};
+    final set = {for (final v in all) v.language};
     return set.toList()
       ..sort((a, b) => languageName(a).compareTo(languageName(b)));
   }
