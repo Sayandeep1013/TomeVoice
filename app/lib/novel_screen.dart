@@ -458,34 +458,47 @@ class _NovelScreenState extends State<NovelScreen> {
               children: [
                 IconButton(
                   tooltip: 'Cancel',
+                  visualDensity: VisualDensity.compact,
                   icon: Icon(Icons.close_rounded, color: onDark),
                   onPressed: () => setState(_picked.clear),
                 ),
                 Expanded(
                   child: Text(
                     '${_picked.length} selected',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: Skin.ui(size: 15, weight: FontWeight.w700, color: onDark),
                   ),
                 ),
                 IconButton(
                   tooltip: 'Select all',
+                  visualDensity: VisualDensity.compact,
                   icon: Icon(Icons.select_all_rounded, color: onDark),
                   onPressed: _picked.length == _chapters.length
                       ? null
                       : () => setState(() => _picked.addAll([for (var i = 0; i < _chapters.length; i++) i])),
                 ),
                 IconButton(
+                  visualDensity: VisualDensity.compact,
                   tooltip: toDrop == 0 ? 'Remove download' : 'Remove $toDrop download${toDrop == 1 ? '' : 's'}',
                   icon: Icon(Icons.delete_outline_rounded, color: toDrop == 0 ? onDark.withValues(alpha: 0.3) : onDark),
                   onPressed: toDrop == 0 ? null : _removePicked,
                 ),
                 const SizedBox(width: Gap.xs),
-                // Its own width first: as a Flexible beside the Expanded count
-                // it was squeezed to "Dow...".
+                // Its own width first (as a Flexible beside the Expanded count
+                // it was squeezed to "Dow..."), with a cap so a large font
+                // shortens the label instead of overflowing the bar.
                 FilledButton.icon(
                   onPressed: toGet == 0 || _downloading != null ? null : _downloadPicked,
                   icon: const Icon(Icons.download_rounded, size: 20),
-                  label: Text(toGet == 0 ? 'On the phone' : 'Download $toGet', maxLines: 1),
+                  label: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 112),
+                    child: Text(
+                      toGet == 0 ? 'On the phone' : 'Download $toGet',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                 ),
               ],
             ),
