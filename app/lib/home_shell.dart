@@ -4,13 +4,19 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import 'brand.dart';
+import 'browse_screen.dart';
 import 'categories_screen.dart';
 import 'history_screen.dart';
 import 'library_screen.dart';
 import 'library_store.dart';
 import 'prefs.dart';
 import 'settings_screen.dart';
+import 'sources/source_engine.dart';
+import 'sources/source_store.dart';
+import 'sources_screen.dart';
 import 'speech_service.dart';
+import 'updates.dart';
+import 'updates_screen.dart';
 import 'theme.dart';
 
 /// The app around the screens: storage and settings are opened once here,
@@ -22,10 +28,12 @@ class HomeShell extends StatefulWidget {
   State<HomeShell> createState() => _HomeShellState();
 }
 
-enum _Place { library, history }
+enum _Place { library, browse, updates, history }
 
 class _HomeShellState extends State<HomeShell> {
   LibraryStore? _store;
+  SourceStore? _sources;
+  Updates? _updates;
   String? _error;
   _Place _place = _Place.library;
 
@@ -40,7 +48,28 @@ class _HomeShellState extends State<HomeShell> {
       final dir = await const SpeechService().outputDir();
       if (dir == null) throw const FileSystemException('No storage');
       await ListeningPrefs.load(dir);
-      if (mounted) setState(() => _store = LibraryStore(Directory(dir)));
+      final sources = SourceStore(Directory(dir));
+      await sources.ensure();
+      SourceEngine.instance.attach(sources);
+      final store = LibraryStore(Directory(dir));
+      final updates = Updates(store);
+      if (mounted) {
+        setState(() {
+          _store = store;
+          _sources = sources;
+          _updates = updates;
+        });
+      }
+      // New chapters, at most as often as the reader asked, a moment after
+      // the shelf is up so opening the app stays quick.
+      Future<void>.delayed(const Duration(seconds: 4), () async {
+        final every = UpdateEvery.byName(ListeningPrefs.loaded?.updateEvery);
+        try {
+          await updates.checkIfDue(every);
+        } on Object {
+          // A failed check simply runs again next time.
+        }
+      });
     } on Object catch (e) {
       if (mounted) setState(() => _error = '$e');
     }
@@ -79,6 +108,8 @@ class _HomeShellState extends State<HomeShell> {
         index: _place.index,
         children: [
           LibraryScreen(store: store),
+          BrowseScreen(store: store, sources: _sources!),
+          UpdatesScreen(store: store, updates: _updates!),
           HistoryScreen(store: store),
         ],
       );
@@ -123,6 +154,10 @@ class _HomeShellState extends State<HomeShell> {
               ),
               _item(context, Icons.auto_stories_outlined, Icons.auto_stories_rounded, 'Library',
                   selected: _place == _Place.library, onTap: () => _go(_Place.library)),
+              _item(context, Icons.travel_explore_rounded, Icons.travel_explore_rounded, 'Browse',
+                  selected: _place == _Place.browse, onTap: () => _go(_Place.browse)),
+              _item(context, Icons.new_releases_outlined, Icons.new_releases_rounded, 'Updates',
+                  selected: _place == _Place.updates, onTap: () => _go(_Place.updates)),
               _item(context, Icons.history_rounded, Icons.history_rounded, 'History',
                   selected: _place == _Place.history, onTap: () => _go(_Place.history)),
               const Padding(
@@ -131,6 +166,11 @@ class _HomeShellState extends State<HomeShell> {
               ),
               _item(context, Icons.folder_copy_outlined, Icons.folder_copy_rounded, 'Categories',
                   onTap: () => _push((s) => CategoriesScreen(store: s))),
+              _item(context, Icons.extension_outlined, Icons.extension_rounded, 'Sources',
+                  onTap: () {
+                    final sources = _sources;
+                    if (sources != null) _push((_) => SourcesScreen(store: sources));
+                  }),
               _item(context, Icons.settings_outlined, Icons.settings_rounded, 'Settings',
                   onTap: () => _push((s) => SettingsScreen(store: s))),
               _item(context, Icons.info_outline_rounded, Icons.info_rounded, 'About',

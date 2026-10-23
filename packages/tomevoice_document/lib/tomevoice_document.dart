@@ -13,6 +13,7 @@ export 'src/formats/office.dart';
 export 'src/formats/pdf.dart';
 export 'src/formats/rtf.dart';
 export 'src/formats/text.dart';
+export 'src/formats/web.dart';
 export 'src/image_size.dart';
 export 'src/ingest.dart';
 export 'src/language.dart';

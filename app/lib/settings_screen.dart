@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
 import 'brand.dart';
@@ -9,9 +11,12 @@ import 'categories_screen.dart';
 import 'library_store.dart';
 import 'listen_sheet.dart';
 import 'prefs.dart';
+import 'sources/source_engine.dart';
+import 'sources_screen.dart';
 import 'speech_service.dart';
 import 'theme.dart';
 import 'ui.dart';
+import 'updates.dart';
 import 'voices.dart';
 
 const _svc = SpeechService();
@@ -30,8 +35,18 @@ class SettingsScreen extends StatefulWidget {
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProviderStateMixin {
   LibraryIndex? _index;
+
+  /// The screen as it looked before a theme change, fading out over the
+  /// screen as it looks now: a true cross-fade, where a theme animation
+  /// alone would snap every colour the app draws itself.
+  ui.Image? _before;
+  final _screen = GlobalKey();
+  late final _fade = AnimationController(vsync: this, duration: Motion.page)
+    ..addStatusListener((s) {
+      if (s == AnimationStatus.completed) _forgetBefore();
+    });
 
   ListeningPrefs get _prefs => ListeningPrefs.loaded ?? ListeningPrefs.memory;
 
@@ -44,6 +59,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
+    _fade.dispose();
+    _before?.dispose();
     _sampleTimer?.cancel();
     ListeningPrefs.revision.removeListener(_rebuild);
     super.dispose();
@@ -61,6 +78,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _change(void Function() f) {
     setState(f);
     _prefs.save();
+  }
+
+  /// A change of palette or of light and dark, cross-faded.
+  void _changeTheme(void Function() f) {
+    final boundary = _screen.currentContext?.findRenderObject();
+    if (!Motion.reduced(context) && boundary is RenderRepaintBoundary) {
+      try {
+        final shot = boundary.toImageSync(pixelRatio: MediaQuery.devicePixelRatioOf(context));
+        _before?.dispose();
+        _before = shot;
+        _fade.forward(from: 0);
+      } on Object {
+        // No picture, no cross-fade: the change still happens.
+      }
+    }
+    _change(f);
+  }
+
+  void _forgetBefore() {
+    if (!mounted) return;
+    setState(() {
+      _before?.dispose();
+      _before = null;
+    });
   }
 
   Timer? _sampleTimer;
@@ -92,6 +133,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final idx = _index;
     final active = SpeechPreset.all.where((p) => p.id == _prefs.presetId).firstOrNull;
+    final before = _before;
+    return Stack(
+      children: [
+        RepaintBoundary(key: _screen, child: _body(context, idx, active)),
+        if (before != null)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: FadeTransition(
+                opacity: ReverseAnimation(_fade.drive(CurveTween(curve: Motion.emphasized))),
+                child: RawImage(image: before, fit: BoxFit.fill),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _body(BuildContext context, LibraryIndex? idx, SpeechPreset? active) {
     return Scaffold(
       body: DecoratedBox(
         decoration: BoxDecoration(gradient: Skin.ground(context)),
@@ -113,7 +172,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         const SizedBox(height: Gap.m),
                         _PaletteSwatches(
                           selected: _prefs.paletteId,
-                          onPick: (id) => _change(() => _prefs.paletteId = id),
+                          onPick: (id) => _changeTheme(() => _prefs.paletteId = id),
                         ),
                         const SizedBox(height: Gap.xl),
                         const SectionTitle('Light or dark'),
@@ -126,7 +185,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               (ThemeMode.dark, 'Dark'),
                             ],
                             value: _prefs.themeMode,
-                            onChanged: (m) => _change(() => _prefs.themeMode = m),
+                            onChanged: (m) => _changeTheme(() => _prefs.themeMode = m),
                           )
                         else
                           Text(
@@ -188,6 +247,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _Group(
                       title: 'Library',
                       children: [
+                        _Link(
+                          icon: Icons.extension_outlined,
+                          title: 'Sources',
+                          subtitle: 'Where web novels come from: add source lists, install sites',
+                          onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                            builder: (_) => SourcesScreen(store: SourceEngine.instance.store),
+                          )),
+                        ),
+                        const SizedBox(height: Gap.l),
+                        const SectionTitle('Check for new chapters'),
+                        const SizedBox(height: Gap.m),
+                        ChoiceRow<String>(
+                          options: [for (final u in UpdateEvery.values) (u.name, u.label.replaceAll('Every ', ''))],
+                          value: UpdateEvery.byName(_prefs.updateEvery).name,
+                          minSegment: 76,
+                          onChanged: (v) => _change(() => _prefs.updateEvery = v),
+                        ),
+                        const SizedBox(height: Gap.xs),
+                        Text(
+                          'Web novels in your library are checked when TomeVoice opens, at most this often.',
+                          style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
+                        ),
+                        const SizedBox(height: Gap.l),
                         _Link(
                           icon: Icons.folder_copy_outlined,
                           title: 'Categories',

@@ -10,6 +10,7 @@ import 'book_card.dart';
 import 'book_screen.dart';
 import 'categories_screen.dart';
 import 'library_store.dart';
+import 'novel_screen.dart';
 import 'prefs.dart';
 import 'reader_screen.dart';
 import 'settings_screen.dart';
@@ -53,6 +54,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
   bool _searching = false;
   final _selected = <String>{};
   final _searchController = TextEditingController();
+
+  /// When each shelf (category, in list or covers) first showed: its books
+  /// ease in that once, never again on a rebuild or a swipe back.
+  final _introduced = <String, DateTime>{};
+
+  /// Off while a book page opens from the Continue dock, so the cover does
+  /// not fly in from a tile somewhere on the shelf behind it.
+  bool _shelfHeroes = true;
 
   /// Files handed over by "Open with" arrive both as an event and as the
   /// pending-open value; whichever reaches us second is ignored.
@@ -214,14 +223,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
-  /// A book's page: details, voice, chapters, Play.
-  Future<void> _showBook(LibraryEntry entry) async {
+  /// A book's page: details, voice, chapters, Play. Its cover flies from
+  /// the shelf unless [fromShelf] is false.
+  Future<void> _showBook(LibraryEntry entry, {bool fromShelf = true}) async {
     FocusManager.instance.primaryFocus?.unfocus();
+    // A web novel's page lists every chapter on the site, not only the ones
+    // fetched so far.
+    if (entry.isWeb) {
+      await NovelScreen.openEntry(context, _store, entry);
+      return;
+    }
+    if (!fromShelf) setState(() => _shelfHeroes = false);
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => BookScreen(store: _store, entry: entry),
       ),
     );
+    if (!fromShelf && mounted) setState(() => _shelfHeroes = true);
     await _refresh();
   }
 
@@ -413,7 +431,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xs, Gap.s, Gap.s),
-            child: _CategoryTabs(index: idx, current: _page, onPick: _goToPage, onManage: _manageCategories),
+            child: _CategoryTabs(
+              index: idx,
+              current: _page,
+              pages: _pages,
+              onPick: _goToPage,
+              onManage: _manageCategories,
+            ),
           ),
           Expanded(
             child: PageView.builder(
@@ -423,9 +447,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
               itemBuilder: (context, p) {
                 final c = categories[p];
                 final books = _sorted(idx.inCategory(c.id));
+                final since = _introduced.putIfAbsent('${c.id}/${_prefs.gridView}', DateTime.now);
                 return books.isEmpty
                     ? _emptyCategory(context, c.name)
-                    : _books(context, books, bottomPad: showDock ? 120 : Gap.xl);
+                    : _books(context, books, bottomPad: showDock ? 120 : Gap.xl, since: since);
               },
             ),
           ),
@@ -453,71 +478,100 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 children: [
                   Padding(
                     padding: const EdgeInsets.fromLTRB(Gap.m, Gap.s, Gap.m, Gap.s),
-                    child: _selecting ? _selectionBar(context) : _header(context),
+                    child: AnimatedSwitcher(
+                      duration: Motion.of(context, Motion.standard),
+                      switchInCurve: Motion.out,
+                      switchOutCurve: Motion.out,
+                      transitionBuilder: fadeRise,
+                      child: _selecting
+                          ? KeyedSubtree(key: const ValueKey('selecting'), child: _selectionBar(context))
+                          : KeyedSubtree(key: const ValueKey('header'), child: _header(context)),
+                    ),
                   ),
-                  if (_searching)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
-                      child: SearchField(
-                        hint: 'Search your books',
-                        controller: _searchController,
-                        autofocus: true,
-                        onChanged: (v) => setState(() => _query = v),
-                        onClear: _closeSearch,
-                      ),
+                  _unfold(
+                    context,
+                    _searching
+                        ? Padding(
+                            key: const ValueKey('search'),
+                            padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
+                            child: SearchField(
+                              hint: 'Search your books',
+                              controller: _searchController,
+                              autofocus: true,
+                              onChanged: (v) => setState(() => _query = v),
+                              onClear: _closeSearch,
+                            ),
+                          )
+                        : null,
+                  ),
+                  _unfold(
+                    context,
+                    _importing == null
+                        ? null
+                        : Padding(
+                            key: const ValueKey('importing'),
+                            padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.m),
+                            child: _importCard(context, _importing!),
+                          ),
+                  ),
+                  // Books fade out as they scroll under the dock. The content
+                  // itself fades, so the real ground shows through: a painted
+                  // band never matched the diagonal ground and read as a bar.
+                  Expanded(
+                    child: HeroMode(
+                      enabled: _shelfHeroes,
+                      child: showDock
+                          ? ShaderMask(
+                              blendMode: BlendMode.dstIn,
+                              shaderCallback: (rect) => LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: const [Colors.black, Colors.black, Colors.transparent],
+                                stops: [0, (1 - 130 / rect.height).clamp(0.0, 1.0), 1],
+                              ).createShader(rect),
+                              child: body,
+                            )
+                          : body,
                     ),
-                  if (_importing != null)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.m),
-                      child: _importCard(context, _importing!),
-                    ),
-                  Expanded(child: body),
+                  ),
                 ],
               ),
-              if (showDock) ...[
-                // Books scroll under the dock; fade them so it reads as a
-                // floating control, not something lying on a row.
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  height: 110,
-                  child: IgnorePointer(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Skin.groundFoot(context).withValues(alpha: 0),
-                            Skin.groundFoot(context).withValues(alpha: 0.94),
-                          ],
+              Positioned(
+                left: Gap.m,
+                right: Gap.m,
+                bottom: Gap.m,
+                // The dock rises from the foot of the screen and sinks back
+                // into it. It only moves: fading it would fade its blur too,
+                // which is the expensive kind of fade.
+                child: AnimatedSwitcher(
+                  duration: Motion.of(context, Motion.page),
+                  reverseDuration: Motion.of(context, Motion.standard),
+                  switchInCurve: Motion.out,
+                  switchOutCurve: Motion.out,
+                  transitionBuilder: (child, animation) => SlideTransition(
+                    position: animation.drive(Tween(begin: const Offset(0, 1.5), end: Offset.zero)),
+                    child: child,
+                  ),
+                  child: !showDock
+                      ? const SizedBox.shrink()
+                      // On a wide screen the dock keeps a phone's width,
+                      // centred, instead of a bar a third of the screen tall.
+                      : Align(
+                          key: const ValueKey('dock'),
+                          alignment: Alignment.bottomCenter,
+                          heightFactor: 1,
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 560),
+                            child: ContinueDock(
+                              books: reading,
+                              onOpen: (e) => _resume(e),
+                              onPlay: (e) => _resume(e, autoplay: true),
+                              onDetails: (e) => _showBook(e, fromShelf: false),
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                  ),
                 ),
-                Positioned(
-                  left: Gap.m,
-                  right: Gap.m,
-                  bottom: Gap.m,
-                  // On a wide screen the dock keeps a phone's width, centred,
-                  // instead of a bar a third of the screen tall.
-                  child: Align(
-                    alignment: Alignment.bottomCenter,
-                    heightFactor: 1,
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 560),
-                      child: ContinueDock(
-                        books: reading,
-                        onOpen: (e) => _resume(e),
-                        onPlay: (e) => _resume(e, autoplay: true),
-                        onDetails: _showBook,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ],
           ),
         ),
@@ -525,7 +579,24 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  Widget _books(BuildContext context, List<LibraryEntry> books, {Widget? header, required double bottomPad}) {
+  /// Something that unfolds below the header ([child]) or folds away (null).
+  Widget _unfold(BuildContext context, Widget? child) => AnimatedSwitcher(
+        duration: Motion.of(context, Motion.standard),
+        switchInCurve: Motion.out,
+        switchOutCurve: Motion.out,
+        transitionBuilder: revealDown,
+        child: child ?? const SizedBox(width: double.infinity),
+      );
+
+  /// The books as covers or rows. With [since], the first rows ease in (see
+  /// [Entrance]).
+  Widget _books(
+    BuildContext context,
+    List<LibraryEntry> books, {
+    Widget? header,
+    required double bottomPad,
+    DateTime? since,
+  }) {
     final landscape = MediaQuery.orientationOf(context) == Orientation.landscape;
     return CustomScrollView(
       key: PageStorageKey('shelf-${books.length}-${_prefs.gridView}'),
@@ -548,11 +619,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
               ),
               delegate: SliverChildBuilderDelegate(childCount: books.length, (context, i) {
                 final e = books[i];
-                return BookTile(
-                  entry: e,
-                  selected: _selected.contains(e.id),
-                  onOpen: () => _selecting ? _toggle(e) : _showBook(e),
-                  onLongPress: () => _toggle(e),
+                return Entrance(
+                  index: i,
+                  since: since,
+                  child: BookTile(
+                    entry: e,
+                    selected: _selected.contains(e.id),
+                    onOpen: () => _selecting ? _toggle(e) : _showBook(e),
+                    onLongPress: () => _toggle(e),
+                  ),
                 );
               }),
             ),
@@ -565,13 +640,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
               separatorBuilder: (_, __) => const SizedBox(height: 10),
               itemBuilder: (context, i) {
                 final e = books[i];
-                return BookRow(
-                  entry: e,
-                  selecting: _selecting,
-                  selected: _selected.contains(e.id),
-                  onOpen: () => _selecting ? _toggle(e) : _showBook(e),
-                  onMenu: () => _bookMenu(e),
-                  onLongPress: () => _toggle(e),
+                return Entrance(
+                  index: i,
+                  since: since,
+                  child: BookRow(
+                    entry: e,
+                    selecting: _selecting,
+                    selected: _selected.contains(e.id),
+                    onOpen: () => _selecting ? _toggle(e) : _showBook(e),
+                    onMenu: () => _bookMenu(e),
+                    onLongPress: () => _toggle(e),
+                  ),
                 );
               },
             ),
@@ -776,19 +855,32 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 }
 
-/// The library's shelves, as a row of pills with their book counts.
+/// The library's shelves, as a row of pills with their book counts. The
+/// amber passes from pill to pill with the shelf as it is swiped.
 class _CategoryTabs extends StatelessWidget {
   const _CategoryTabs({
     required this.index,
     required this.current,
+    required this.pages,
     required this.onPick,
     required this.onManage,
   });
 
   final LibraryIndex index;
   final int current;
+
+  /// The shelves' pager: where it stands between two pages is how far the
+  /// amber has passed from one pill to the next.
+  final PageController pages;
   final ValueChanged<int> onPick;
   final VoidCallback onManage;
+
+  double get _position {
+    if (!pages.hasClients || pages.positions.length != 1) return current.toDouble();
+    final p = pages.position;
+    if (!p.hasPixels || !p.hasContentDimensions) return current.toDouble();
+    return pages.page ?? current.toDouble();
+  }
 
   @override
   Widget build(BuildContext context) => SizedBox(
@@ -796,14 +888,27 @@ class _CategoryTabs extends StatelessWidget {
     child: Row(
       children: [
         Expanded(
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            children: [
-              for (var i = 0; i < index.categories.length; i++) ...[
-                _tab(context, i, index.categories[i], index.inCategory(index.categories[i].id).length),
-                const SizedBox(width: Gap.s),
-              ],
-            ],
+          // Only these pills rebuild as the shelf moves, never the books.
+          child: ListenableBuilder(
+            listenable: pages,
+            builder: (context, _) {
+              final at = _position;
+              return ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  for (var i = 0; i < index.categories.length; i++) ...[
+                    _tab(
+                      context,
+                      i,
+                      index.categories[i],
+                      index.inCategory(index.categories[i].id).length,
+                      (1 - (at - i).abs()).clamp(0.0, 1.0),
+                    ),
+                    const SizedBox(width: Gap.s),
+                  ],
+                ],
+              );
+            },
           ),
         ),
         IconButton(
@@ -815,13 +920,14 @@ class _CategoryTabs extends StatelessWidget {
     ),
   );
 
-  Widget _tab(BuildContext context, int i, Category c, int count) {
+  /// Pill [i]; [t] is how much it is the current one, from 0 to 1.
+  Widget _tab(BuildContext context, int i, Category c, int count, double t) {
     final selected = i == current;
     return Semantics(
       selected: selected,
       button: true,
       child: Material(
-        color: selected ? Skin.amber : Skin.capsuleOn(context),
+        color: Color.lerp(Skin.capsuleOn(context), Skin.amber, t),
         borderRadius: BorderRadius.circular(Radii.pill),
         child: InkWell(
           borderRadius: BorderRadius.circular(Radii.pill),
@@ -834,11 +940,12 @@ class _CategoryTabs extends StatelessWidget {
               children: [
                 Text(
                   c.name,
+                  // The weight follows too, so the label never jumps.
                   style: Skin.ui(
                     size: 14,
-                    weight: selected ? FontWeight.w700 : FontWeight.w600,
-                    color: selected ? Skin.onAmber : Skin.inkOn(context),
-                  ),
+                    weight: t >= 0.5 ? FontWeight.w700 : FontWeight.w600,
+                    color: Color.lerp(Skin.inkOn(context), Skin.onAmber, t),
+                  ).copyWith(fontVariations: [FontVariation('wght', 600 + 100 * t)]),
                 ),
                 const SizedBox(width: 6),
                 Text(
@@ -847,7 +954,7 @@ class _CategoryTabs extends StatelessWidget {
                     size: 12.5,
                     weight: FontWeight.w600,
                     tabular: true,
-                    color: selected ? Skin.onAmber.withValues(alpha: 0.7) : Skin.inkFaintOn(context),
+                    color: Color.lerp(Skin.inkFaintOn(context), Skin.onAmber.withValues(alpha: 0.7), t),
                   ),
                 ),
               ],

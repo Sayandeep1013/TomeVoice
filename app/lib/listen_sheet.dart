@@ -175,7 +175,35 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
               onChanged: (t) => setState(() => _tab = t),
             ),
             const SizedBox(height: Gap.xl),
-            if (_tab == 0) ..._listen(context) else ..._read(context),
+            // A fade-through: one tab's settings fade away, then the other's
+            // fade in, drifting from the side of the tab that was tapped.
+            AnimatedSwitcher(
+              duration: Motion.of(context, Motion.page),
+              switchInCurve: const Interval(0.35, 1, curve: Curves.easeOutCubic),
+              switchOutCurve: const Interval(0.6, 1),
+              layoutBuilder: (current, previous) => Stack(
+                alignment: Alignment.topCenter,
+                children: [...previous, if (current != null) current],
+              ),
+              transitionBuilder: (child, animation) {
+                final arriving = child.key == ValueKey(_tab);
+                final side = _tab == 1 ? 1.0 : -1.0;
+                return FadeTransition(
+                  opacity: animation,
+                  child: SlideTransition(
+                    position: animation.drive(
+                      Tween(begin: Offset((arriving ? side : -side) * 0.06, 0), end: Offset.zero),
+                    ),
+                    child: child,
+                  ),
+                );
+              },
+              child: Column(
+                key: ValueKey(_tab),
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: _tab == 0 ? _listen(context) : _read(context),
+              ),
+            ),
           ];
     final list = ListView(
       key: const Key('reader-settings'),
@@ -300,20 +328,6 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
   }
 
   Widget _fineTuneSection(BuildContext context) {
-    final p = _s.punctuation;
-    Widget row(String label, double value, double min, double max, String unit,
-            PipelineSettings Function(double) apply,
-            {int decimals = 0}) =>
-        LabeledSlider(
-          label: label,
-          value: value,
-          min: min,
-          max: max,
-          display: '${value.toStringAsFixed(decimals)}$unit',
-          onChanged: (v) => _set(apply(v), restart: false),
-          onChangeEnd: (v) => _set(apply(v), restart: true),
-        );
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -336,49 +350,80 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
                 ),
                 AnimatedRotation(
                   turns: _fineTune ? 0.5 : 0,
-                  duration: const Duration(milliseconds: 200),
+                  duration: Motion.of(context, Motion.standard),
+                  curve: Motion.emphasized,
                   child: Icon(Icons.expand_more_rounded, color: Skin.inkSoftOn(context)),
                 ),
               ],
             ),
           ),
         ),
-        if (_fineTune) ...[
-          const SizedBox(height: Gap.s),
-          row('Pitch', _s.pitchSemitones, -12, 12, ' st', (v) => _s.copyWith(pitchSemitones: v), decimals: 1),
-          row('Space between words', _s.wordGapMs.toDouble(), 0, 500, ' ms',
-              (v) => _s.copyWith(wordGapMs: v.round())),
-          row('Pause at commas', p.commaMs.toDouble(), 0, 800, ' ms',
-              (v) => _s.copyWith(punctuation: p.copyWith(commaMs: v.round()))),
-          row('Pause between sentences', _s.sentencePauseMs.toDouble(), 0, 2000, ' ms',
-              (v) => _s.copyWith(sentencePauseMs: v.round())),
-          row('Pause between paragraphs', _s.paragraphPauseMs.toDouble(), 0, 3000, ' ms',
-              (v) => _s.copyWith(paragraphPauseMs: v.round())),
-          row('Volume', _s.volume, 0, 1, '', (v) => _s.copyWith(volume: v), decimals: 2),
-          SwitchRow(
-            title: 'Even out loudness',
-            value: _s.normaliseLoudness,
-            padding: EdgeInsets.zero,
-            onChanged: (v) => _set(_s.copyWith(normaliseLoudness: v), restart: true),
+        // Unfolds below its heading, and folds back with its sliders still
+        // drawn rather than vanishing first.
+        AnimatedSwitcher(
+          duration: Motion.of(context, Motion.page),
+          switchInCurve: Motion.emphasized,
+          switchOutCurve: Motion.emphasized,
+          transitionBuilder: revealDown,
+          child: _fineTune ? _fineTuneBody(context) : const SizedBox(width: double.infinity),
+        ),
+      ],
+    );
+  }
+
+  Widget _fineTuneBody(BuildContext context) {
+    final p = _s.punctuation;
+    Widget row(String label, double value, double min, double max, String unit,
+            PipelineSettings Function(double) apply,
+            {int decimals = 0}) =>
+        LabeledSlider(
+          label: label,
+          value: value,
+          min: min,
+          max: max,
+          display: '${value.toStringAsFixed(decimals)}$unit',
+          onChanged: (v) => _set(apply(v), restart: false),
+          onChangeEnd: (v) => _set(apply(v), restart: true),
+        );
+
+    return Column(
+      key: const ValueKey('fine-tune'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: Gap.s),
+        row('Pitch', _s.pitchSemitones, -12, 12, ' st', (v) => _s.copyWith(pitchSemitones: v), decimals: 1),
+        row('Space between words', _s.wordGapMs.toDouble(), 0, 500, ' ms',
+            (v) => _s.copyWith(wordGapMs: v.round())),
+        row('Pause at commas', p.commaMs.toDouble(), 0, 800, ' ms',
+            (v) => _s.copyWith(punctuation: p.copyWith(commaMs: v.round()))),
+        row('Pause between sentences', _s.sentencePauseMs.toDouble(), 0, 2000, ' ms',
+            (v) => _s.copyWith(sentencePauseMs: v.round())),
+        row('Pause between paragraphs', _s.paragraphPauseMs.toDouble(), 0, 3000, ' ms',
+            (v) => _s.copyWith(paragraphPauseMs: v.round())),
+        row('Volume', _s.volume, 0, 1, '', (v) => _s.copyWith(volume: v), decimals: 2),
+        SwitchRow(
+          title: 'Even out loudness',
+          value: _s.normaliseLoudness,
+          padding: EdgeInsets.zero,
+          onChanged: (v) => _set(_s.copyWith(normaliseLoudness: v), restart: true),
+        ),
+        const SizedBox(height: Gap.s),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: () {
+              final natural = SpeechPreset.all.first;
+              setState(() {
+                _prefs.settings = natural.settings.copyWith(speedScale: _s.speedScale);
+                _prefs.presetId = natural.id;
+              });
+              _prefs.save();
+              widget.controller.changedAudibly();
+            },
+            icon: const Icon(Icons.restart_alt_rounded, size: 18),
+            label: const Text('Reset to Natural'),
           ),
-          const SizedBox(height: Gap.s),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: () {
-                final natural = SpeechPreset.all.first;
-                setState(() {
-                  _prefs.settings = natural.settings.copyWith(speedScale: _s.speedScale);
-                  _prefs.presetId = natural.id;
-                });
-                _prefs.save();
-                widget.controller.changedAudibly();
-              },
-              icon: const Icon(Icons.restart_alt_rounded, size: 18),
-              label: const Text('Reset to Natural'),
-            ),
-          ),
-        ],
+        ),
       ],
     );
   }
@@ -819,17 +864,27 @@ class _VoicePickerState extends State<_VoicePicker> {
   Widget _voiceRow(BuildContext context, VoiceInfo v, {required bool selected}) {
     final note = _availability(v);
     final busy = _previewing == v.name;
+    final duration = Motion.of(context, Motion.standard);
     return InkWell(
       onTap: () => _choose(v),
-      child: Container(
-        color: selected ? Skin.amber.withValues(alpha: 0.12) : null,
+      // The wash moves from the old voice to the new one rather than jumping.
+      child: AnimatedContainer(
+        duration: duration,
+        curve: Motion.out,
+        color: Skin.amber.withValues(alpha: selected ? 0.12 : 0),
         padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.s, Gap.m, Gap.s),
         child: Row(
           children: [
-            Icon(
-              selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
-              size: 22,
-              color: selected ? Skin.amber : Skin.inkFaintOn(context),
+            AnimatedSwitcher(
+              duration: duration,
+              switchInCurve: Motion.out,
+              switchOutCurve: Motion.out,
+              child: Icon(
+                selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+                key: ValueKey(selected),
+                size: 22,
+                color: selected ? Skin.amber : Skin.inkFaintOn(context),
+              ),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -889,25 +944,36 @@ class _LanguagePill extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Material(
-        color: selected ? Skin.amber : Skin.raisedOn(context),
+  Widget build(BuildContext context) {
+    final duration = Motion.of(context, Motion.standard);
+    return TweenAnimationBuilder<Color?>(
+      tween: ColorTween(end: selected ? Skin.amber : Skin.raisedOn(context)),
+      duration: duration,
+      curve: Motion.out,
+      builder: (context, fill, child) => Material(
+        color: fill,
         borderRadius: BorderRadius.circular(Radii.pill),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(Radii.pill),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            child: Text(
-              label,
-              style: Skin.ui(
-                size: 14,
-                weight: selected ? FontWeight.w700 : FontWeight.w500,
-                color: selected ? Skin.onAmber : Skin.inkOn(context),
-              ),
+        child: child,
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(Radii.pill),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: AnimatedDefaultTextStyle(
+            duration: duration,
+            curve: Motion.out,
+            style: Skin.ui(
+              size: 14,
+              weight: selected ? FontWeight.w700 : FontWeight.w500,
+              color: selected ? Skin.onAmber : Skin.inkOn(context),
             ),
+            child: Text(label),
           ),
         ),
-      );
+      ),
+    );
+  }
 }
 
 String _availability(VoiceInfo v) {

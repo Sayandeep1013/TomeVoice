@@ -18,6 +18,7 @@ import 'speech_service.dart';
 import 'theme.dart';
 import 'ui.dart';
 import 'voices.dart';
+import 'web_reader.dart';
 
 const _svc = SpeechService();
 
@@ -31,7 +32,9 @@ Future<void> openBook(
   FocusManager.instance.primaryFocus?.unfocus();
   await Navigator.of(context).push(
     MaterialPageRoute<void>(
-      builder: (_) => BookLoader(store: store, entry: entry, autoplay: autoplay),
+      builder: (_) => entry.isWeb
+          ? WebNovelReader(store: store, entry: entry, autoplay: autoplay)
+          : BookLoader(store: store, entry: entry, autoplay: autoplay),
     ),
   );
 }
@@ -167,12 +170,31 @@ class ReaderScreen extends StatefulWidget {
     this.autoplay = false,
     this.bookDir,
     this.sourcePath,
+    this.onReachedEnd,
+    this.onChapterChanged,
+    this.progressOf,
+    this.endLabel,
   });
 
   final ReadingLayout layout;
   final LibraryStore? store;
   final ReadingCursor initialCursor;
   final bool autoplay;
+
+  /// The end of what is here was reached (a web novel whose next chapters
+  /// are still on the site). [playing] says whether to carry on aloud. When
+  /// null, the end is the end of the book.
+  final Future<void> Function({required bool playing})? onReachedEnd;
+
+  /// The section (chapter number) being read changed.
+  final ValueChanged<int>? onChapterChanged;
+
+  /// How far through the whole work unit [u] is; defaults to the share of
+  /// this layout read so far.
+  final double Function(int u)? progressOf;
+
+  /// The button at the end of the page when [onReachedEnd] is set.
+  final String? endLabel;
 
   /// Where the book's pictures were stored at import.
   final String? bookDir;
@@ -442,6 +464,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   void _onFinished() {
     unawaited(_persist());
+    final more = widget.onReachedEnd;
+    if (more != null) {
+      unawaited(more(playing: true));
+      return;
+    }
     if (mounted) {
       _snack('Finished. That is the end of the book.');
     }
@@ -508,7 +535,17 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   // --------------------------------------------------------------- cursor
 
+  int _lastSection = -1;
+
   void _onCursor() {
+    final changed = widget.onChapterChanged;
+    if (changed != null && !_l.isEmpty) {
+      final section = _l.units[_cursor.value.clamp(0, _l.units.length - 1)].sectionIndex;
+      if (section != _lastSection) {
+        _lastSection = section;
+        changed(section);
+      }
+    }
     if (_sleep == SleepChoice.chapterEnd &&
         _sleepChapter >= 0 &&
         _l.chapterOfUnit(_cursor.value) != _sleepChapter) {
@@ -568,7 +605,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       await store.saveCursor(
         _book.id,
         cursorOf(_l.units[u]),
-        progressFraction(_l.units, u),
+        widget.progressOf?.call(u) ?? progressFraction(_l.units, u),
         where: _l.chapterTitle(_l.unitChapter[u]),
       );
     } on Object {
@@ -748,13 +785,14 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       child: NotificationListener<ScrollNotification>(
         onNotification: _onScrollNotification,
         child: ScrollablePositionedList.builder(
-          itemCount: _l.items.length,
+          // One more item at the end when there is more to fetch: the way on.
+          itemCount: _l.items.length + (widget.onReachedEnd == null ? 0 : 1),
           itemScrollController: _scroll,
           itemPositionsListener: _positions,
           initialScrollIndex: initial,
           initialAlignment: initial == 0 ? 0 : 0.12,
           padding: EdgeInsets.fromLTRB(_prefs.margin, 16, _prefs.margin, 120),
-          itemBuilder: (context, i) => _item(context, i),
+          itemBuilder: (context, i) => i == _l.items.length ? _more(context) : _item(context, i),
         ),
       ),
     );
@@ -828,6 +866,21 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       ],
     );
   }
+
+  /// The end of what has been fetched: carry on to the next chapter.
+  Widget _more(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: Gap.xxl),
+        child: Center(
+          child: FilledButton.icon(
+            onPressed: () {
+              final s = _player.state.value;
+              unawaited(widget.onReachedEnd!(playing: s == PlayState.playing || s == PlayState.loading));
+            },
+            icon: const Icon(Icons.arrow_forward_rounded),
+            label: Text(widget.endLabel ?? 'Next chapter'),
+          ),
+        ),
+      );
 
   /// A picture from the book, at its natural size up to the column width.
   /// Its space is reserved from the stored pixel size, so the text the voice

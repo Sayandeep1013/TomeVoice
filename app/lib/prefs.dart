@@ -26,6 +26,7 @@ class ListeningPrefs {
     this.keepScreenOn = false,
     this.themeMode = ThemeMode.system,
     this.paletteId = 'forest',
+    this.updateEvery = 'daily',
     this.gridView = true,
     this.sort = LibrarySort.recent,
   })  : voiceByLanguage = voiceByLanguage ?? {},
@@ -71,6 +72,9 @@ class ListeningPrefs {
 
   /// The colour theme: forest, lavender, ocean, black or paper.
   String paletteId;
+
+  /// How often web novels are checked for new chapters (see UpdateEvery).
+  String updateEvery;
 
   /// The library as a grid of covers instead of a list.
   bool gridView;
@@ -146,6 +150,7 @@ class ListeningPrefs {
         'keepScreenOn': keepScreenOn,
         'themeMode': themeMode.name,
         'palette': paletteId,
+        'updateEvery': updateEvery,
         'gridView': gridView,
         'sort': sort.name,
       };
@@ -175,6 +180,7 @@ class ListeningPrefs {
             ThemeMode.system,
         gridView: json['gridView'] as bool? ?? true,
         paletteId: json['palette'] as String? ?? 'forest',
+        updateEvery: json['updateEvery'] as String? ?? 'daily',
         sort: LibrarySort.values.where((m) => m.name == json['sort']).firstOrNull ??
             LibrarySort.recent,
       );

@@ -134,6 +134,68 @@ class BookCover extends StatelessWidget {
   }
 }
 
+/// A cover that flies between the shelf and the book's own page, so opening
+/// a book reads as the same object coming closer. Only the shelf and the
+/// book page use it: a screen must not show two covers of one book with it.
+class CoverHero extends StatelessWidget {
+  const CoverHero({super.key, required this.entry, required this.child, this.titled = true});
+
+  final LibraryEntry entry;
+  final Widget child;
+
+  /// Whether this cover, if made from the title, shows the title (see
+  /// [BookCover.titled]); the flight cross-fades between the two looks.
+  final bool titled;
+
+  static Object tag(String bookId) => 'cover-$bookId';
+
+  @override
+  Widget build(BuildContext context) {
+    if (Motion.reduced(context)) return child;
+    return Hero(
+      tag: tag(entry.id),
+      transitionOnUserGestures: true,
+      flightShuttleBuilder: _flight,
+      child: child,
+    );
+  }
+
+  /// The cover in flight, drawn at whatever size the flight has reached
+  /// rather than scaled from either end, so its corners and type stay true.
+  static Widget _flight(
+    BuildContext flightContext,
+    Animation<double> animation,
+    HeroFlightDirection direction,
+    BuildContext fromContext,
+    BuildContext toContext,
+  ) {
+    final from = fromContext.findAncestorWidgetOfExactType<CoverHero>();
+    final to = toContext.findAncestorWidgetOfExactType<CoverHero>();
+    // The animation is the upper screen's: 1 is its look, 0 the shelf's.
+    final upper = direction == HeroFlightDirection.push ? to : from;
+    final lower = direction == HeroFlightDirection.push ? from : to;
+    final entry = (upper ?? lower)?.entry;
+    if (entry == null) return const SizedBox.shrink();
+    return LayoutBuilder(
+      builder: (context, c) {
+        Widget cover(bool titled) => BookCover(entry: entry, width: c.maxWidth, titled: titled);
+        final upperTitled = upper?.titled ?? true;
+        final lowerTitled = lower?.titled ?? true;
+        // A real picture looks the same either way; only a made cover
+        // differs, and then the two cross-fade.
+        if (upperTitled == lowerTitled || entry.shownCover != null) return cover(upperTitled);
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            cover(lowerTitled),
+            FadeTransition(opacity: animation, child: cover(upperTitled)),
+          ],
+        );
+      },
+    );
+  }
+}
+
 /// Listening time for [words] at normal speed, as "7 H 40 M".
 String listenLength(int words) {
   if (words <= 0) return '';
@@ -202,15 +264,24 @@ class BookRow extends StatelessWidget {
       if (e.wordCount > 0) listenLength(e.wordCount),
     ];
     final radius = BorderRadius.circular(Radii.row + 4);
-    return Material(
-      color: selected ? Skin.amber.withValues(alpha: 0.14) : Skin.capsuleOn(context),
-      borderRadius: radius,
-      clipBehavior: Clip.antiAlias,
+    final duration = Motion.of(context, Motion.quick);
+    // The fill eases between plain and chosen with the border below.
+    return TweenAnimationBuilder<Color?>(
+      tween: ColorTween(end: selected ? Skin.amber.withValues(alpha: 0.14) : Skin.capsuleOn(context)),
+      duration: duration,
+      curve: Motion.out,
+      builder: (context, fill, child) => Material(
+        color: fill,
+        borderRadius: radius,
+        clipBehavior: Clip.antiAlias,
+        child: child,
+      ),
       child: InkWell(
         onTap: onOpen,
         onLongPress: onLongPress ?? onMenu,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
+          duration: duration,
+          curve: Motion.out,
           decoration: BoxDecoration(
             borderRadius: radius,
             border: Border.all(
@@ -280,20 +351,26 @@ class BookRow extends StatelessWidget {
                   ),
                 ),
               ),
-              if (selecting)
-                Padding(
-                  padding: const EdgeInsets.all(Gap.m),
-                  child: Icon(
-                    selected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-                    color: selected ? Skin.amber : Skin.inkFaintOn(context),
-                  ),
-                )
-              else
-                IconButton(
-                  tooltip: 'More',
-                  onPressed: onMenu,
-                  icon: Icon(Icons.more_vert_rounded, color: Skin.inkSoftOn(context)),
-                ),
+              AnimatedSwitcher(
+                duration: duration,
+                switchInCurve: Motion.out,
+                switchOutCurve: Motion.out,
+                child: selecting
+                    ? Padding(
+                        key: ValueKey(selected),
+                        padding: const EdgeInsets.all(Gap.m),
+                        child: Icon(
+                          selected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                          color: selected ? Skin.amber : Skin.inkFaintOn(context),
+                        ),
+                      )
+                    : IconButton(
+                        key: const ValueKey('more'),
+                        tooltip: 'More',
+                        onPressed: onMenu,
+                        icon: Icon(Icons.more_vert_rounded, color: Skin.inkSoftOn(context)),
+                      ),
+              ),
             ],
           ),
         ),
@@ -341,7 +418,8 @@ class BookTile extends StatelessWidget {
           builder: (context, c) {
             final w = c.maxWidth;
             return AnimatedContainer(
-              duration: const Duration(milliseconds: 160),
+              duration: Motion.of(context, Motion.quick),
+              curve: Motion.out,
               decoration: BoxDecoration(
                 borderRadius: radius,
                 border: Border.all(color: selected ? Skin.amber : Colors.transparent, width: 2.5),
@@ -358,7 +436,11 @@ class BookTile extends StatelessWidget {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    BookCover(entry: e, width: w, shadow: false, titled: false),
+                    CoverHero(
+                      entry: e,
+                      titled: false,
+                      child: BookCover(entry: e, width: w, shadow: false, titled: false),
+                    ),
                     // The band: clear at the top, dark enough at the foot for
                     // white text on any cover.
                     Positioned(
@@ -414,8 +496,9 @@ class BookTile extends StatelessWidget {
                       ),
                     ),
                     Positioned(left: 7, top: 7, child: _StatusBadge(entry: e)),
-                    if (selected)
-                      Positioned.fill(
+                    Positioned.fill(
+                      child: _Chosen(
+                        selected: selected,
                         child: ColoredBox(
                           color: Skin.amber.withValues(alpha: 0.30),
                           child: const Align(
@@ -424,6 +507,7 @@ class BookTile extends StatelessWidget {
                           ),
                         ),
                       ),
+                    ),
                   ],
                 ),
               ),
@@ -486,7 +570,7 @@ class _SelectableCover extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Stack(
         children: [
-          BookCover(entry: entry, width: width),
+          CoverHero(entry: entry, child: BookCover(entry: entry, width: width)),
           if (entry.finished)
             Positioned(
               right: 4,
@@ -497,8 +581,9 @@ class _SelectableCover extends StatelessWidget {
                 child: Icon(Icons.check_rounded, size: 12, color: Skin.onAmber),
               ),
             ),
-          if (selected)
-            Positioned.fill(
+          Positioned.fill(
+            child: _Chosen(
+              selected: selected,
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   color: Skin.amber.withValues(alpha: 0.35),
@@ -510,6 +595,25 @@ class _SelectableCover extends StatelessWidget {
                 ),
               ),
             ),
+          ),
         ],
+      );
+}
+
+/// The mark over a chosen book, fading in and out rather than blinking.
+class _Chosen extends StatelessWidget {
+  const _Chosen({required this.selected, required this.child});
+
+  final bool selected;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+        child: AnimatedOpacity(
+          opacity: selected ? 1 : 0,
+          duration: Motion.of(context, Motion.quick),
+          curve: Motion.out,
+          child: child,
+        ),
       );
 }

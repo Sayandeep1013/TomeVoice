@@ -6,6 +6,8 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:tomevoice_document/tomevoice_document.dart';
 
+import 'sources/models.dart';
+import 'sources/net.dart';
 import 'speech_service.dart';
 
 /// Bumped when ingestion improves enough that stored books should be parsed
@@ -124,6 +126,109 @@ class LibraryStore {
     ]);
   }
 
+  // ------------------------------------------------------------ web novels
+
+  /// A web novel's id: stable for the same novel on the same source.
+  static String webId(String pluginId, String path) =>
+      'web-${bookIdOf(Uint8List.fromList(utf8.encode('$pluginId|$path')))}';
+
+  /// Add a web novel from [plugin] (details and chapter list in [novel]).
+  /// Its cover is fetched once; chapters are fetched as they are read.
+  Future<LibraryEntry> addWebNovel(PluginInfo plugin, SourceNovel novel, {String? category}) async {
+    await ensure();
+    final id = webId(plugin.id, novel.path);
+    final dir = Directory(bookDir(id))..createSync(recursive: true);
+    final info = WebNovelInfo(plugin: plugin, novel: novel, chapters: novel.chapters, checkedAt: DateTime.now());
+    await File('${dir.path}/novel.json').writeAsString(jsonEncode(info.toJson()));
+    String? cover;
+    final url = novel.cover;
+    if (url != null && url.startsWith('http')) {
+      try {
+        final r = await Net.instance.request(url, headers: {'Referer': plugin.site});
+        if (r.ok && r.bytes.length > 200) {
+          final img = Directory('${dir.path}/img')..createSync(recursive: true);
+          final f = File('${img.path}/cover${_imageExt(r.headers['content-type'], url)}');
+          await f.writeAsBytes(r.bytes);
+          cover = f.path;
+        }
+      } on Object {
+        // A drawn cover will do.
+      }
+    }
+    final existing = await list();
+    final previous = existing.where((e) => e.id == id).firstOrNull;
+    final entry = LibraryEntry(
+      id: id,
+      title: novel.name.isEmpty ? 'Untitled' : novel.name,
+      authors: [if (novel.author != null) novel.author!],
+      source: SourceKind.web,
+      wordCount: 0,
+      sourcePath: '',
+      addedAt: previous?.addedAt ?? DateTime.now(),
+      openedAt: previous?.openedAt,
+      cursor: previous?.cursor ?? ReadingCursor.zero,
+      progress: previous?.progress ?? 0,
+      where: previous?.where,
+      language: languageCodeOf(plugin.lang),
+      cover: cover ?? previous?.cover,
+      coverMode: previous?.coverMode ?? CoverMode.auto,
+      customCover: previous?.customCover,
+      category: previous?.category ?? category ?? _defaultCategory,
+      plugin: plugin.id,
+      novelPath: novel.path,
+      chapterCount: novel.chapters.length,
+    );
+    await _write([entry, for (final e in existing) if (e.id != id) e]);
+    return entry;
+  }
+
+  /// The stored details and chapter list of web novel [id].
+  Future<WebNovelInfo?> webNovel(String id) async {
+    final f = File('${bookDir(id)}/novel.json');
+    if (!await f.exists()) return null;
+    try {
+      return WebNovelInfo.fromJson(Map<String, Object?>.from(jsonDecode(await f.readAsString()) as Map));
+    } on Object {
+      return null;
+    }
+  }
+
+  /// Replace a web novel's chapter list (after checking for new chapters).
+  Future<void> saveWebChapters(String id, List<ChapterItem> chapters) async {
+    final info = await webNovel(id);
+    if (info == null) return;
+    final next = info.copyWith(chapters: chapters, checkedAt: DateTime.now());
+    await File('${bookDir(id)}/novel.json').writeAsString(jsonEncode(next.toJson()));
+    final entries = await list();
+    await _write([for (final e in entries) e.id == id ? e.copyWith(chapterCount: chapters.length) : e]);
+  }
+
+  /// Whether chapter [index] of web novel [id] is on the phone.
+  bool hasChapter(String id, int index) => File(_chapterFile(id, index)).existsSync();
+
+  /// Chapter numbers of [id] already on the phone.
+  Set<int> downloadedChapters(String id) {
+    final dir = Directory('${bookDir(id)}/ch');
+    if (!dir.existsSync()) return const {};
+    return {
+      for (final f in dir.listSync().whereType<File>())
+        if (int.tryParse(f.uri.pathSegments.last.split('.').first) case final n?) n,
+    };
+  }
+
+  /// Keep a fetched chapter, parsed, so it opens offline from now on.
+  Future<void> saveChapter(String id, int index, String title, String html, {String? language}) async {
+    final path = _chapterFile(id, index);
+    await Isolate.run(() {
+      final section = webChapterSection(index: index, title: title, html: html, language: language);
+      File(path)
+        ..createSync(recursive: true)
+        ..writeAsStringSync(jsonEncode(section.toJson()));
+    });
+  }
+
+  String _chapterFile(String id, int index) => '${bookDir(id)}/ch/$index.json';
+
   /// Take [id] off the history (and the Continue card) without touching the
   /// place it is saved at.
   Future<void> forgetOpened(String id) async {
@@ -201,6 +306,10 @@ class LibraryStore {
   Future<ReadingLayout> loadLayout(String id) async {
     final entries = await list();
     final entry = entries.where((e) => e.id == id).firstOrNull;
+    if (entry != null && entry.isWeb) {
+      final dir = bookDir(id);
+      return Isolate.run(() => _loadWebSync(dir, id));
+    }
     final job = (
       booksDir: _booksDir.path,
       id: id,
@@ -413,6 +522,40 @@ String? coverFileOf(String dir, Book book) {
   return cover == null ? null : '$dir/img/${imageFileName(cover)}';
 }
 
+/// A web novel as one book: every chapter in order, the fetched ones with
+/// their text, the rest empty (and so skipped by the reader).
+ReadingLayout _loadWebSync(String dir, String id) {
+  final info = WebNovelInfo.fromJson(
+    Map<String, Object?>.from(jsonDecode(File('$dir/novel.json').readAsStringSync()) as Map),
+  );
+  final sections = <Section>[];
+  for (var i = 0; i < info.chapters.length; i++) {
+    final title = info.chapters[i].name;
+    final f = File('$dir/ch/$i.json');
+    Section? s;
+    if (f.existsSync()) {
+      try {
+        s = Section.fromJson(Map<String, Object?>.from(jsonDecode(f.readAsStringSync()) as Map));
+      } on Object {
+        s = null;
+      }
+    }
+    sections.add(s ?? pendingWebChapter(index: i, title: title));
+  }
+  final cover = File('$dir/img').existsSync()
+      ? Directory('$dir/img').listSync().whereType<File>().where((f) => f.path.contains('cover')).firstOrNull?.path
+      : null;
+  return ReadingLayout.build(webNovelBook(
+    id: id,
+    title: info.novel.name,
+    authors: [if (info.novel.author != null) info.novel.author!],
+    language: languageCodeOf(info.plugin.lang),
+    cover: cover,
+    description: info.novel.summary,
+    sections: sections,
+  ));
+}
+
 ReadingLayout _loadLayoutSync(_LoadJob job) {
   final dir = '${job.booksDir}/${job.id}';
   final parsed = File('$dir/parsed.json');
@@ -530,6 +673,9 @@ class LibraryEntry {
     this.coverMode = CoverMode.auto,
     this.customCover,
     this.category,
+    this.plugin,
+    this.novelPath,
+    this.chapterCount = 0,
   });
 
   final String id;
@@ -559,6 +705,15 @@ class LibraryEntry {
   /// The category id it sits in; null means the shelf's default.
   final String? category;
 
+  /// For a web novel: the source plugin it comes from and its path there.
+  final String? plugin;
+  final String? novelPath;
+
+  /// For a web novel: how many chapters the source lists.
+  final int chapterCount;
+
+  bool get isWeb => source == SourceKind.web;
+
   /// The picture to show, or null for a cover drawn from the title.
   String? get shownCover => switch (coverMode) {
         CoverMode.plain => null,
@@ -580,6 +735,7 @@ class LibraryEntry {
         SourceKind.text => 'TXT',
         SourceKind.markdown => 'MD',
         SourceKind.unknown => 'TEXT',
+        SourceKind.web => 'WEB',
         _ => source.name.toUpperCase(),
       };
 
@@ -598,6 +754,7 @@ class LibraryEntry {
     String? customCover,
     bool clearCustomCover = false,
     String? category,
+    int? chapterCount,
   }) =>
       LibraryEntry(
         id: id,
@@ -616,6 +773,9 @@ class LibraryEntry {
         coverMode: coverMode ?? this.coverMode,
         customCover: clearCustomCover ? null : (customCover ?? this.customCover),
         category: category ?? this.category,
+        plugin: plugin,
+        novelPath: novelPath,
+        chapterCount: chapterCount ?? this.chapterCount,
       );
 
   Map<String, Object?> toJson() => {
@@ -635,6 +795,9 @@ class LibraryEntry {
         if (coverMode != CoverMode.auto) 'coverMode': coverMode.name,
         if (customCover != null) 'customCover': customCover,
         if (category != null) 'category': category,
+        if (plugin != null) 'plugin': plugin,
+        if (novelPath != null) 'novelPath': novelPath,
+        if (chapterCount > 0) 'chapterCount': chapterCount,
       };
 
   static LibraryEntry fromJson(Map<String, Object?> json) => LibraryEntry(
@@ -665,6 +828,9 @@ class LibraryEntry {
         ),
         customCover: json['customCover'] as String?,
         category: json['category'] as String?,
+        plugin: json['plugin'] as String?,
+        novelPath: json['novelPath'] as String?,
+        chapterCount: json['chapterCount'] as int? ?? 0,
       );
 }
 
@@ -740,3 +906,82 @@ Book specimenBook() => ingestString(
       filename: 'specimen.txt',
       title: 'Specimen',
     );
+
+/// What TomeVoice keeps about a web novel: where it comes from, its details,
+/// and the chapter list as the source last gave it.
+class WebNovelInfo {
+  const WebNovelInfo({required this.plugin, required this.novel, required this.chapters, this.checkedAt});
+
+  final PluginInfo plugin;
+
+  /// Details only (name, cover, author, summary, status, genres); the
+  /// chapters are in [chapters].
+  final SourceNovel novel;
+  final List<ChapterItem> chapters;
+
+  /// When the chapter list was last fetched.
+  final DateTime? checkedAt;
+
+  WebNovelInfo copyWith({List<ChapterItem>? chapters, DateTime? checkedAt}) => WebNovelInfo(
+        plugin: plugin,
+        novel: novel,
+        chapters: chapters ?? this.chapters,
+        checkedAt: checkedAt ?? this.checkedAt,
+      );
+
+  Map<String, Object?> toJson() => {
+        'plugin': plugin.toJson(),
+        'novel': {
+          'path': novel.path,
+          'name': novel.name,
+          if (novel.cover != null) 'cover': novel.cover,
+          if (novel.author != null) 'author': novel.author,
+          if (novel.summary != null) 'summary': novel.summary,
+          if (novel.status != null) 'status': novel.status,
+          'genres': novel.genres.join(', '),
+        },
+        'chapters': [for (final c in chapters) c.toJson()],
+        if (checkedAt != null) 'checkedAt': checkedAt!.toIso8601String(),
+      };
+
+  static WebNovelInfo fromJson(Map<String, Object?> j) {
+    final n = Map<String, Object?>.from(j['novel'] as Map? ?? const {});
+    return WebNovelInfo(
+      plugin: PluginInfo.fromJson(Map<String, Object?>.from(j['plugin'] as Map? ?? const {})) ??
+          const PluginInfo(id: '', name: '', site: '', lang: 'English', version: '0', url: ''),
+      novel: SourceNovel.fromJs(n, path: n['path'] as String? ?? ''),
+      chapters: [
+        for (final c in (j['chapters'] as List? ?? const []))
+          ChapterItem.fromJson(Map<String, Object?>.from(c as Map)),
+      ],
+      checkedAt: DateTime.tryParse(j['checkedAt'] as String? ?? ''),
+    );
+  }
+}
+
+/// A source's language name ("English", "Русский") as a language code.
+String languageCodeOf(String name) {
+  final n = name.replaceAll(String.fromCharCode(0x200E), '').trim().toLowerCase();
+  const names = {
+    'english': 'en', 'русский': 'ru', 'russian': 'ru', 'español': 'es', 'spanish': 'es',
+    'français': 'fr', 'french': 'fr', 'português': 'pt', 'portuguese': 'pt', 'türkçe': 'tr',
+    'turkish': 'tr', 'indonesia': 'id', 'indonesian': 'id', 'bahasa indonesia': 'id',
+    '中文': 'zh', 'chinese': 'zh', '日本語': 'ja', 'japanese': 'ja', '한국어': 'ko', 'korean': 'ko',
+    'tiếng việt': 'vi', 'vietnamese': 'vi', 'ไทย': 'th', 'thai': 'th', 'українська': 'uk',
+    'ukrainian': 'uk', 'polski': 'pl', 'polish': 'pl', 'العربية': 'ar', 'arabic': 'ar',
+    'deutsch': 'de', 'german': 'de', 'italiano': 'it', 'italian': 'it',
+  };
+  return names[n] ?? 'en';
+}
+
+String _imageExt(String? contentType, String url) {
+  final t = (contentType ?? '').toLowerCase();
+  if (t.contains('png')) return '.png';
+  if (t.contains('webp')) return '.webp';
+  if (t.contains('gif')) return '.gif';
+  final u = url.toLowerCase().split('?').first;
+  for (final e in const ['.png', '.webp', '.gif', '.jpeg']) {
+    if (u.endsWith(e)) return e;
+  }
+  return '.jpg';
+}

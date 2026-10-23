@@ -66,6 +66,41 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
     await _save(rest);
   }
 
+  /// A row being dragged: lifted a touch with a soft shadow in its own
+  /// rounded shape (the default is a square Material shadow), and set down
+  /// the same way.
+  Widget _lifted(Widget child, int index, Animation<double> animation) => AnimatedBuilder(
+        animation: animation,
+        child: child,
+        builder: (context, child) {
+          final t = Motion.out.transform(animation.value);
+          return Transform.scale(
+            scale: 1 + 0.02 * t,
+            child: Stack(
+              children: [
+                // The row's own box: the item carries the gap below it.
+                Positioned.fill(
+                  bottom: Gap.s,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(Radii.row),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: (Skin.isDark(context) ? 0.4 : 0.16) * t),
+                          blurRadius: 18 * t,
+                          offset: Offset(0, 6 * t),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                child!,
+              ],
+            ),
+          );
+        },
+      );
+
   @override
   Widget build(BuildContext context) {
     final idx = _index;
@@ -90,6 +125,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                     : ReorderableListView.builder(
                         padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.xl),
                         itemCount: idx.categories.length,
+                        proxyDecorator: _lifted,
                         onReorderItem: (from, to) {
                           final list = [...idx.categories];
                           list.insert(to, list.removeAt(from));

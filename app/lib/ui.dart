@@ -80,8 +80,8 @@ class Progress extends StatelessWidget {
 
 /// One choice among a few, as a single row of segments. Falls back to a
 /// scrolling row of pills when the options do not fit, so nothing ever wraps
-/// onto a second line.
-class ChoiceRow<T> extends StatelessWidget {
+/// onto a second line. The highlight slides to the chosen segment.
+class ChoiceRow<T> extends StatefulWidget {
   const ChoiceRow({
     super.key,
     required this.options,
@@ -108,20 +108,42 @@ class ChoiceRow<T> extends StatelessWidget {
   }
 
   @override
+  State<ChoiceRow<T>> createState() => _ChoiceRowState<T>();
+}
+
+class _ChoiceRowState<T> extends State<ChoiceRow<T>> {
+  /// Where the highlight last stood, so that when nothing is chosen (a
+  /// speed between presets) it fades out where it was instead of jumping.
+  int _last = 0;
+
+  @override
   Widget build(BuildContext context) => LayoutBuilder(
         builder: (context, c) {
+          final options = widget.options;
           // Each segment as wide as its label needs (so "Newsreader" is not
           // cut to "Newsrea…" beside "Sans"), sharing out what is left over.
-          final widths = [for (final (_, label) in options) _segmentWidth(label).clamp(minSegment, 400.0)];
+          final widths = [
+            for (final (_, label) in options) ChoiceRow._segmentWidth(label).clamp(widget.minSegment, 400.0),
+          ];
           final needed = widths.fold<double>(6, (a, b) => a + b);
           final fits = needed <= c.maxWidth;
+          // Where each segment is laid out, for the highlight behind it.
+          final flexes = [for (final w in widths) w.round()];
+          final flexSum = flexes.fold<int>(0, (a, b) => a + b);
+          final spans = fits ? [for (final f in flexes) (c.maxWidth - 6) * f / flexSum] : widths;
+          final selected = options.indexWhere((o) => o.$1 == widget.value);
+          if (selected >= 0) _last = selected;
+          final at = options.isEmpty ? 0 : _last.clamp(0, options.length - 1);
+          final left = spans.take(at).fold<double>(0, (a, b) => a + b);
+          final duration = Motion.of(context, Motion.standard);
           final segments = [
             for (var i = 0; i < options.length; i++)
               _Segment(
                 label: options[i].$2,
-                selected: options[i].$1 == value,
-                onTap: () => onChanged(options[i].$1),
-                flex: fits ? widths[i].round() : null,
+                selected: i == selected,
+                onTap: () => widget.onChanged(options[i].$1),
+                flex: fits ? flexes[i] : null,
+                width: fits ? null : widths[i],
               ),
           ];
           final track = Container(
@@ -131,9 +153,33 @@ class ChoiceRow<T> extends StatelessWidget {
               color: Skin.raisedOn(context),
               borderRadius: BorderRadius.circular(Radii.pill),
             ),
-            child: Row(
-              mainAxisSize: fits ? MainAxisSize.max : MainAxisSize.min,
-              children: segments,
+            child: Stack(
+              children: [
+                if (options.isNotEmpty)
+                  AnimatedPositioned(
+                    duration: duration,
+                    curve: Motion.emphasized,
+                    left: left,
+                    width: spans[at],
+                    top: 0,
+                    bottom: 0,
+                    child: AnimatedOpacity(
+                      opacity: selected >= 0 ? 1 : 0,
+                      duration: duration,
+                      curve: Motion.out,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: Skin.amber,
+                          borderRadius: BorderRadius.circular(Radii.pill),
+                        ),
+                      ),
+                    ),
+                  ),
+                Row(
+                  mainAxisSize: fits ? MainAxisSize.max : MainAxisSize.min,
+                  children: segments,
+                ),
+              ],
             ),
           );
           if (fits) return track;
@@ -157,6 +203,7 @@ class _Segment extends StatelessWidget {
     required this.selected,
     required this.onTap,
     this.flex,
+    this.width,
   });
 
   final String label;
@@ -166,35 +213,45 @@ class _Segment extends StatelessWidget {
   /// Share of the row when the segments fill it; null when it scrolls.
   final int? flex;
 
+  /// Width when the row scrolls, so the highlight knows where it is.
+  final double? width;
+
   @override
   Widget build(BuildContext context) {
+    // The fill is the highlight sliding behind the row; the label only
+    // changes colour.
     final body = Semantics(
       selected: selected,
       button: true,
       child: Material(
-        color: selected ? Skin.amber : Colors.transparent,
+        type: MaterialType.transparency,
         borderRadius: BorderRadius.circular(Radii.pill),
         child: InkWell(
           borderRadius: BorderRadius.circular(Radii.pill),
           onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: Gap.m, vertical: 9),
-            child: Text(
-              label,
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            child: AnimatedDefaultTextStyle(
+              duration: Motion.of(context, Motion.standard),
+              curve: Motion.out,
               style: Skin.ui(
                 size: 13.5,
                 weight: selected ? FontWeight.w700 : FontWeight.w500,
                 color: selected ? Skin.onAmber : Skin.inkSoftOn(context),
+              ),
+              child: Text(
+                label,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ),
         ),
       ),
     );
-    return flex == null ? body : Expanded(flex: flex!, child: body);
+    if (flex != null) return Expanded(flex: flex!, child: body);
+    return width == null ? body : SizedBox(width: width, child: body);
   }
 }
 
@@ -228,11 +285,19 @@ class StepperControl extends StatelessWidget {
             iconColor: onMinus == null ? Skin.inkFaintOn(context) : Skin.inkOn(context),
           ),
           Expanded(
-            child: Text(
-              value,
-              textAlign: TextAlign.center,
-              style: valueStyle ??
-                  Skin.ui(size: 22, weight: FontWeight.w700, color: Skin.inkOn(context), tabular: true),
+            // The new value rises into place as the old one leaves.
+            child: AnimatedSwitcher(
+              duration: Motion.of(context, Motion.quick),
+              switchInCurve: Motion.out,
+              switchOutCurve: Motion.out,
+              transitionBuilder: fadeRise,
+              child: Text(
+                value,
+                key: ValueKey((value, valueStyle?.fontSize, valueStyle?.fontFamily)),
+                textAlign: TextAlign.center,
+                style: valueStyle ??
+                    Skin.ui(size: 22, weight: FontWeight.w700, color: Skin.inkOn(context), tabular: true),
+              ),
             ),
           ),
           RoundButton(
@@ -573,6 +638,112 @@ Future<bool> confirm(
       ),
     ) ==
     true;
+
+// ---- motion --------------------------------------------------------------
+
+/// An [AnimatedSwitcher] transition: the new child fades in while rising a
+/// little; the old one fades out the same way.
+Widget fadeRise(Widget child, Animation<double> animation) => FadeTransition(
+      opacity: animation,
+      child: SlideTransition(
+        position: animation.drive(Tween(begin: const Offset(0, 0.15), end: Offset.zero)),
+        child: child,
+      ),
+    );
+
+/// An [AnimatedSwitcher] transition for something that opens below what is
+/// above it (a search field, a progress card): it unfolds downwards and
+/// fades in, and folds away the same way.
+Widget revealDown(Widget child, Animation<double> animation) =>
+    FadeTransition(opacity: animation, child: _Reveal(animation: animation, child: child));
+
+class _Reveal extends AnimatedWidget {
+  const _Reveal({required Animation<double> animation, required this.child}) : super(listenable: animation);
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => ClipRect(
+        child: Align(
+          alignment: Alignment.topCenter,
+          heightFactor: (listenable as Animation<double>).value.clamp(0.0, 1.0),
+          child: child,
+        ),
+      );
+}
+
+/// Fades and lifts [child] into place the first time a list shows, each row
+/// a beat after the one before. A row built later (scrolled to, or rebuilt)
+/// is simply there: lists do not animate while you scroll them.
+class Entrance extends StatefulWidget {
+  const Entrance({super.key, required this.index, required this.since, required this.child});
+
+  /// The row's place in the list.
+  final int index;
+
+  /// When the list first showed; null for no entrance at all.
+  final DateTime? since;
+
+  final Widget child;
+
+  /// Rows built more than this after [since] are being scrolled to.
+  static const window = Duration(milliseconds: 400);
+
+  @override
+  State<Entrance> createState() => _EntranceState();
+}
+
+class _EntranceState extends State<Entrance> with SingleTickerProviderStateMixin {
+  AnimationController? _controller;
+  CurvedAnimation? _curve;
+  Animation<double> get _t => _curve ?? kAlwaysCompleteAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    final since = widget.since;
+    if (since == null || DateTime.now().difference(since) > Entrance.window) return;
+    // At most eight beats, so a long list does not keep the last rows waiting.
+    final delay = 35.0 * widget.index.clamp(0, 8);
+    final total = delay + Motion.page.inMilliseconds;
+    final controller = AnimationController(vsync: this, duration: Duration(milliseconds: total.round()));
+    _controller = controller;
+    _curve = CurvedAnimation(parent: controller, curve: Interval(delay / total, 1, curve: Motion.out));
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final controller = _controller;
+    if (controller == null || controller.isAnimating || controller.isCompleted) return;
+    if (Motion.reduced(context)) {
+      controller.value = 1;
+    } else {
+      controller.forward();
+    }
+  }
+
+  @override
+  void dispose() {
+    _curve?.dispose();
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // A row with no entrance gets no layers either: most rows are these.
+    if (_controller == null) return widget.child;
+    return FadeTransition(
+      opacity: _t,
+      child: AnimatedBuilder(
+        animation: _t,
+        child: widget.child,
+        builder: (context, child) => Transform.translate(offset: Offset(0, 14 * (1 - _t.value)), child: child),
+      ),
+    );
+  }
+}
 
 /// The top of a pushed screen: a round back button and the screen's title.
 class ScreenTopBar extends StatelessWidget {

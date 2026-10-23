@@ -16,6 +16,9 @@ enum SourceKind {
   odt,
   fb2,
   mobi,
+
+  /// A web novel, its chapters fetched from a site.
+  web,
   unknown,
 }
 

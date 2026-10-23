@@ -25,6 +25,7 @@ import 'package:tomevoice_spike/reader_screen.dart';
 import 'package:tomevoice_spike/settings_screen.dart';
 import 'package:tomevoice_spike/speech_service.dart';
 import 'package:tomevoice_spike/theme.dart';
+import 'package:tomevoice_spike/ui.dart';
 import 'package:tomevoice_spike/voices.dart';
 
 const _channel = MethodChannel('tomevoice/tts');
@@ -738,12 +739,89 @@ void main() {
       await finish(tester);
     });
 
+    testWidgets('the cover flies from the shelf to the book page and back', (tester) async {
+      final made = await pumpShelf(tester);
+      final tag = CoverHero.tag(made.first.id);
+      Finder heroes() => find.byWidgetPredicate((w) => w is Hero && w.tag == tag);
+
+      expect(heroes(), findsOneWidget, reason: 'one cover per book on the shelf');
+      await tester.tap(find.text('alpha'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 120));
+      // Mid-flight the cover is drawn above both screens, outside either hero.
+      final flying = find.byType(BookCover).evaluate().where((e) => e.findAncestorWidgetOfExactType<Hero>() == null);
+      expect(flying, isNotEmpty, reason: 'the cover is in flight');
+
+      await settleIo(tester, until: () => find.text('Chapter 2').evaluate().isNotEmpty);
+      expect(find.byType(BookScreen), findsOneWidget);
+      expect(heroes(), findsOneWidget, reason: 'the book page has the one cover under that tag');
+
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      expect(find.byType(BookScreen), findsNothing);
+      expect(find.byType(BookTile), findsNWidgets(2), reason: 'the shelf is back, cover in place');
+      await finish(tester);
+    });
+
     testWidgets('a book being read waits at the bottom, one tap from playing', (tester) async {
       await pumpShelf(tester, openFirst: true);
       expect(find.byType(ContinueDock), findsOneWidget);
       expect(find.byTooltip('Continue reading aloud'), findsOneWidget);
       expect(find.textContaining('30%'), findsWidgets);
       await finish(tester);
+    });
+  });
+
+  group('motion', () {
+    Future<void> pumpChoice(WidgetTester tester, {required bool still}) async {
+      var value = 'One';
+      await tester.pumpWidget(MaterialApp(
+        theme: Skin.themeFor(Palette.forest, Brightness.light),
+        home: Builder(
+          builder: (context) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(disableAnimations: still),
+            child: Scaffold(
+              body: Center(
+                child: SizedBox(
+                  width: 360,
+                  child: StatefulBuilder(
+                    builder: (context, setState) => ChoiceRow<String>(
+                      options: const [('One', 'One'), ('Two', 'Two'), ('Three', 'Three')],
+                      value: value,
+                      onChanged: (v) => setState(() => value = v),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ));
+    }
+
+    double highlight(WidgetTester tester) => tester
+        .getCenter(find.descendant(of: find.byType(AnimatedPositioned), matching: find.byType(DecoratedBox)))
+        .dx;
+
+    testWidgets('a choice slides its highlight to the tapped segment', (tester) async {
+      await pumpChoice(tester, still: false);
+      final from = highlight(tester);
+      expect(from, closeTo(tester.getCenter(find.text('One')).dx, 1));
+
+      await tester.tap(find.text('Three'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 80));
+      final to = tester.getCenter(find.text('Three')).dx;
+      expect(highlight(tester), allOf(greaterThan(from + 1), lessThan(to - 1)), reason: 'on its way');
+      await tester.pumpAndSettle();
+      expect(highlight(tester), closeTo(to, 1));
+    });
+
+    testWidgets('with animations off the highlight moves at once', (tester) async {
+      await pumpChoice(tester, still: true);
+      await tester.tap(find.text('Two'));
+      await tester.pump();
+      expect(highlight(tester), closeTo(tester.getCenter(find.text('Two')).dx, 1));
     });
   });
 

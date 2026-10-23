@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show PredictiveBackEvent;
 
 /// The visual language, in one place.
 ///
@@ -12,7 +13,8 @@ import 'package:flutter/material.dart';
 /// * Newsreader (or Literata, a sans, or the phone's serif) for the page.
 ///
 /// One accent, amber, used sparingly. Spacing comes from [Gap], corners from
-/// [Radii]; nothing else should invent its own.
+/// [Radii], durations and curves from [Motion]; nothing else should invent
+/// its own.
 class Skin {
   const Skin._();
 
@@ -437,6 +439,17 @@ class Skin {
         ),
         textStyle: uiStyle(12.5, FontWeight.w500, dark ? nightInk : cream),
       ),
+      // One way of arriving on a screen, everywhere.
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: CalmPageTransitionsBuilder(),
+          TargetPlatform.iOS: CalmPageTransitionsBuilder(),
+          TargetPlatform.macOS: CalmPageTransitionsBuilder(),
+          TargetPlatform.windows: CalmPageTransitionsBuilder(),
+          TargetPlatform.linux: CalmPageTransitionsBuilder(),
+          TargetPlatform.fuchsia: CalmPageTransitionsBuilder(),
+        },
+      ),
     );
   }
 
@@ -607,6 +620,155 @@ class Radii {
   static const double pill = 999;
 }
 
+/// The only durations and curves the interface moves with: quick, calm and
+/// never bouncy. Things settle (ease out) rather than spring.
+class Motion {
+  const Motion._();
+
+  /// A press, a check appearing, a colour changing.
+  static const quick = Duration(milliseconds: 150);
+
+  /// A control changing state: a segment sliding, a header swapping.
+  static const standard = Duration(milliseconds: 220);
+
+  /// A screen arriving, a sheet's content changing.
+  static const page = Duration(milliseconds: 300);
+
+  /// Arriving and settling.
+  static const Curve out = Curves.easeOutCubic;
+
+  /// Moving from one place to another.
+  static const Curve emphasized = Curves.easeInOutCubicEmphasized;
+
+  /// Whether the phone is set to remove animations.
+  static bool reduced(BuildContext c) => MediaQuery.maybeDisableAnimationsOf(c) ?? false;
+
+  /// [d], or no time at all when the phone is set to remove animations.
+  static Duration of(BuildContext c, Duration d) => reduced(c) ? Duration.zero : d;
+}
+
+/// A fade-through: the screen below fades away, then the new one fades in
+/// while settling from a touch smaller. Every screen shares the same ground,
+/// so nothing slides across it; only what is on it changes.
+///
+/// Android's predictive back still works: during the gesture the screen
+/// shrinks and fades with the finger, showing the one below.
+class CalmPageTransitionsBuilder extends PageTransitionsBuilder {
+  const CalmPageTransitionsBuilder();
+
+  @override
+  Duration get transitionDuration => Motion.page;
+
+  @override
+  Duration get reverseTransitionDuration => const Duration(milliseconds: 250);
+
+  // Arriving: after the screen below has gone (the first 30%).
+  static const _arrive = Interval(0.3, 1, curve: Curves.easeOutCubic);
+  // Leaving: gone in the first 30%, so the screen below can come back.
+  static const _leave = Interval(0.7, 1);
+  static final _arriveScale = Tween<double>(begin: 0.96, end: 1).chain(CurveTween(curve: _arrive));
+  static final _leaveScale = Tween<double>(begin: 0.96, end: 1).chain(CurveTween(curve: _leave));
+  static final _gestureScale = Tween<double>(begin: 0.9, end: 1);
+  // The screen below, while another arrives on top / leaves it.
+  static final _makeWay = Tween<double>(begin: 1, end: 0).chain(CurveTween(curve: const Interval(0, 0.3)));
+  static final _comeBack =
+      Tween<double>(begin: 1, end: 0).chain(CurveTween(curve: const Interval(0, 0.7, curve: Curves.easeInCubic)));
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    // Called on every frame of either animation, so the choice below follows
+    // the gesture and the direction as they change.
+    final gesture = route.popGestureInProgress;
+    final reduced = Motion.reduced(context);
+    final leaving = animation.status == AnimationStatus.reverse;
+    final Animation<double> opacity;
+    final Animation<double> scale;
+    if (gesture) {
+      opacity = animation;
+      scale = animation.drive(_gestureScale);
+    } else if (reduced) {
+      // A short cross-fade, nothing moving.
+      opacity = animation.drive(CurveTween(curve: leaving ? const Interval(0.5, 1) : const Interval(0, 0.5)));
+      scale = kAlwaysCompleteAnimation;
+    } else {
+      opacity = animation.drive(CurveTween(curve: leaving ? _leave : _arrive));
+      scale = animation.drive(leaving ? _leaveScale : _arriveScale);
+    }
+    final Animation<double> below = gesture || reduced
+        ? kAlwaysCompleteAnimation
+        : secondaryAnimation.drive(secondaryAnimation.status == AnimationStatus.reverse ? _comeBack : _makeWay);
+    return _BackGesture(
+      route: route,
+      // While this screen has faded for one above it, the ground shows
+      // instead of black.
+      child: DecoratedBox(
+        decoration: below.value < 1 ? BoxDecoration(gradient: Skin.ground(context)) : const BoxDecoration(),
+        child: FadeTransition(
+          opacity: below,
+          child: FadeTransition(
+            opacity: opacity,
+            child: ScaleTransition(scale: scale, child: child),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Hands Android's back gesture to [route], so the screen follows the finger
+/// and the one below shows before letting go.
+class _BackGesture extends StatefulWidget {
+  const _BackGesture({required this.route, required this.child});
+
+  final PageRoute<dynamic> route;
+  final Widget child;
+
+  @override
+  State<_BackGesture> createState() => _BackGestureState();
+}
+
+class _BackGestureState extends State<_BackGesture> with WidgetsBindingObserver {
+  bool get _enabled => widget.route.isCurrent && widget.route.popGestureEnabled;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  bool handleStartBackGesture(PredictiveBackEvent backEvent) {
+    if (backEvent.isButtonEvent || !_enabled) return false;
+    widget.route.handleStartBackGesture(progress: 1 - backEvent.progress);
+    return true;
+  }
+
+  @override
+  void handleUpdateBackGestureProgress(PredictiveBackEvent backEvent) =>
+      widget.route.handleUpdateBackGestureProgress(progress: 1 - backEvent.progress);
+
+  @override
+  void handleCancelBackGesture() => widget.route.handleCancelBackGesture();
+
+  @override
+  void handleCommitBackGesture() => widget.route.handleCommitBackGesture();
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
 /// The typeface the book's own text is set in.
 enum BookFont {
   newsreader('Newsreader', 'Newsreader'),
@@ -624,8 +786,9 @@ enum BookFont {
 }
 
 /// A floating capsule. The single chrome primitive: pills, circular buttons and
-/// the bottom bar are all this with different padding.
-class Capsule extends StatelessWidget {
+/// the bottom bar are all this with different padding. One that can be
+/// tapped gives a little under the finger.
+class Capsule extends StatefulWidget {
   const Capsule({
     super.key,
     required this.child,
@@ -644,24 +807,44 @@ class Capsule extends StatelessWidget {
   final BorderRadius? radius;
 
   @override
+  State<Capsule> createState() => _CapsuleState();
+}
+
+class _CapsuleState extends State<Capsule> {
+  bool _down = false;
+
+  @override
   Widget build(BuildContext context) {
-    final r = radius ?? Skin.capsuleRadius;
+    final r = widget.radius ?? Skin.capsuleRadius;
     final body = Container(
-      padding: padding,
+      padding: widget.padding,
       decoration: BoxDecoration(
         borderRadius: r,
-        border: border ? Border.all(color: Skin.outlineOn(context), width: 1) : null,
+        border: widget.border ? Border.all(color: Skin.outlineOn(context), width: 1) : null,
       ),
-      child: child,
+      child: widget.child,
     );
-    return Material(
-      color: color ?? Skin.capsuleOn(context),
+    final capsule = Material(
+      color: widget.color ?? Skin.capsuleOn(context),
       borderRadius: r,
       clipBehavior: Clip.antiAlias,
       elevation: 0,
       // Only wrap a well when this capsule is itself a target. Nested InkWells
       // (play inside the bottom bar, Remove inside a row) steal or swallow taps.
-      child: onTap == null ? body : InkWell(onTap: onTap, child: body),
+      child: widget.onTap == null
+          ? body
+          : InkWell(
+              onTap: widget.onTap,
+              onHighlightChanged: (down) => setState(() => _down = down),
+              child: body,
+            ),
+    );
+    if (widget.onTap == null) return capsule;
+    return AnimatedScale(
+      scale: _down ? 0.96 : 1,
+      duration: Motion.of(context, Motion.quick),
+      curve: Motion.out,
+      child: capsule,
     );
   }
 }

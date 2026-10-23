@@ -291,7 +291,7 @@ class _BookScreenState extends State<BookScreen> {
       children: [
         GestureDetector(
           onTap: () => changeCover(context, _store, _entry),
-          child: BookCover(entry: e, width: 112),
+          child: CoverHero(entry: e, child: BookCover(entry: e, width: 112)),
         ),
         const SizedBox(width: Gap.l),
         Expanded(

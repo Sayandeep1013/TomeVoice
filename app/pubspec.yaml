@@ -4,7 +4,7 @@ description: >-
   Markdown and text, and reads them aloud with the owned audio pipeline.
   See docs/16-session-handoff.md.
 publish_to: none
-version: 0.3.0+4
+version: 0.4.0+5
 
 environment:
   sdk: ^3.5.0
@@ -19,6 +19,13 @@ dependencies:
   # Jump to any paragraph of a 17,000-item book without building the ones in
   # between. BSD-3-Clause (Google), GPL-3.0 compatible.
   scrollable_positioned_list: ^0.3.8
+  # QuickJS, to run LNReader source plugins (web novels). MIT, as is the
+  # QuickJS it vendors. Pinned by commit: a single-maintainer git package,
+  # the one Mangayomi uses. Builds through Flutter's native-assets hook.
+  flutter_qjs:
+    git:
+      url: https://github.com/kodjodevf/flutter_qjs.git
+      ref: b64d2e3a8b2bf3b32ab4c3acef34a11636d5b87f
 
 dev_dependencies:
   flutter_test:
@@ -35,6 +42,11 @@ flutter:
     - assets/fonts/OFL-Newsreader.txt
     - assets/fonts/OFL-Literata.txt
     - assets/brand/logo.png
+    # The libraries LNReader source plugins use, and TomeVoice's host for
+    # them (tools/lnreader_libs builds the first).
+    - assets/js/lnreader_libs.js
+    - assets/js/lnreader_shim.js
+    - assets/licenses/third_party.txt
 
   # Bundled, not fetched at runtime: the app is offline-first, and a reading
   # app whose type disappears without a network is not offline-first.

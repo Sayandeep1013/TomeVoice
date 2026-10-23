@@ -44,6 +44,11 @@ void _registerFontLicences() {
         await rootBundle.loadString('assets/fonts/OFL-$file.txt'),
       );
     }
+    // The engine and libraries web-novel sources run on.
+    yield LicenseEntryWithLineBreaks(
+      const ['QuickJS', 'cheerio', 'htmlparser2', 'parse5', 'dayjs', 'core-js', 'LNReader plugins'],
+      await rootBundle.loadString('assets/licenses/third_party.txt'),
+    );
   });
 }
 
@@ -77,6 +82,10 @@ class SpikeApp extends StatelessWidget {
           theme: Skin.themeFor(palette, Brightness.light),
           darkTheme: Skin.themeFor(palette, Brightness.dark),
           themeMode: mode,
+          // Palette and light/dark changes ease across rather than snap
+          // (Settings also cross-fades its whole screen when you pick one).
+          themeAnimationDuration: Motion.page,
+          themeAnimationCurve: Motion.emphasized,
           // Status bar icons dark on the light ground, light on the dark one.
           // Every field is set: one left out falls back to Android's default,
           // which for the divider is the separator line above the home bar.
