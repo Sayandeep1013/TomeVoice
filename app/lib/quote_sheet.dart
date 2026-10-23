@@ -3,7 +3,6 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'book_tint.dart';
 import 'theme.dart';
-import 'ui.dart';
 
 /// What to keep: [count] sentences from [first], and a note if one was written.
 class QuoteChoice {
