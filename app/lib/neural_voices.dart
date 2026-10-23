@@ -97,7 +97,11 @@ class NeuralVoices extends ChangeNotifier {
       }
       await sink.close();
       // Unpacking a few hundred files takes a moment: off the screen's isolate.
-      await Isolate.run(() => _unpack(tmp.path, folder(v).path));
+      // Only the two paths go across: a closure that held this object (and
+      // so the screens listening to it) cannot be sent to another isolate.
+      final from = tmp.path;
+      final into = folder(v).path;
+      await Isolate.run(() => _unpack(from, into));
       downloading.remove(v.id);
       notifyListeners();
     } on Object {

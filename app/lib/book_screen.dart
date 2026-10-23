@@ -162,7 +162,8 @@ class _BookScreenState extends State<BookScreen> {
         engineId: _prefs.engineId ?? _catalog.engineId,
       );
     } on Object catch (e) {
-      if (mounted) showSnack(context, 'Could not play a sample: $e');
+      debugPrint('Voice sample failed: $e');
+      if (mounted) showSnack(context, 'That voice could not play a sample. Try another.');
     }
   }
 

@@ -122,7 +122,8 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     try {
       files = await _svc.pickDocuments();
     } on Object catch (e) {
-      if (mounted) showSnack(context, '$e');
+      debugPrint('File picker failed: $e');
+      if (mounted) showSnack(context, 'The file picker could not open. Try again.');
       return;
     }
     if (files.isEmpty || !mounted) return;

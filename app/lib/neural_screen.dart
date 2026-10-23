@@ -76,7 +76,16 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
       if (mounted) showSnack(context, '${v.name} is ready. Pick it in a book\'s voices.');
       unawaited(_test(v));
     } on Object catch (e) {
-      if (mounted) showSnack(context, 'The download stopped: ${e is SocketException ? 'no connection' : e}', long: true);
+      debugPrint('Natural voice ${v.id}: download failed: $e');
+      if (mounted) {
+        showSnack(
+          context,
+          e is SocketException || e is HttpException
+              ? 'The download stopped. Check the internet connection and try again.'
+              : 'The voice could not be set up on this phone. Try again, or pick another voice.',
+          long: true,
+        );
+      }
     }
   }
 
@@ -87,7 +96,8 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
       final r = await NeuralEngine.instance.measure(v, Directory.systemTemp.path);
       if (mounted) setState(() => _speed[v.id] = r);
     } on Object catch (e) {
-      if (mounted) showSnack(context, 'The test failed: $e', long: true);
+      debugPrint('Natural voice ${v.id}: speed test failed: $e');
+      if (mounted) showSnack(context, 'The voice did not work on this phone. Remove it, or try another.', long: true);
     } finally {
       if (mounted) setState(() => _testing = null);
     }

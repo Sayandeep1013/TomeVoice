@@ -433,7 +433,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         engineId: _prefs.engineId ?? _catalog.engineId,
       );
     } on Object catch (e) {
-      _snack('Could not play a sample: $e');
+      debugPrint('Voice sample failed: $e');
+      _snack('That voice could not play a sample. Try another.');
     }
   }
 

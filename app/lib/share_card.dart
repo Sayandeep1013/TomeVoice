@@ -159,7 +159,8 @@ class _ShareSheetState extends State<_ShareSheet> {
       await file.writeAsBytes(png.buffer.asUint8List());
       await _svc.shareImage(file.path, text: '“${widget.mark.text}” — ${widget.mark.bookTitle}');
     } on Object catch (e) {
-      if (mounted) showSnack(context, 'Could not share it: $e');
+      debugPrint('Sharing a quote failed: $e');
+      if (mounted) showSnack(context, 'The picture could not be shared. Try again, or copy the words.');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
