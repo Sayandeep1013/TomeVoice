@@ -4,6 +4,20 @@
 
 ---
 
+## 0a. Later the same day: branch `media-card` (not merged yet)
+
+- **Media card** (the shade's player, Android 13+): the TomeVoice mark top left (the old
+  small icon was a play/pause sign the wrong way round), the cover as its picture and
+  colours, a seek bar through the chapter (words at 165 wpm), a speed button (0.75 to 2x,
+  icons drawn from Figtree), previous/next by chapter. Moving from the card while paused
+  keeps it up ("parked"). Verified on the phone: all of it except dragging the seek bar.
+- **Verified on the phone:** per-chapter download, long-press multi-select, batch download
+  with progress and Stop, removing picked downloads.
+- **Fixed from that testing:** a novel whose source is not installed (Deep Sea Embers,
+  ReadNovelFull) showed a raw `PathNotFoundException` on pull-to-check; it now offers
+  Install. The pick bar's button no longer reads "Dow...".
+- The phone has this branch's CI build installed.
+
 ## 0. Checkpoint (2026-10-23, end of session)
 
 **Stopped here on purpose** (the developer needed the machine). Everything is on `main`
