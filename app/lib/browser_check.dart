@@ -67,7 +67,9 @@ class SourceProblem extends StatelessWidget {
         title: 'Needs its source',
         body: '${e.message} The chapters already on the phone still read.',
         action: FilledButton.icon(
-          onPressed: () => _install(context, e),
+          onPressed: () async {
+            if (await installMissingSource(context, e)) onRetry();
+          },
           icon: const Icon(Icons.download_rounded),
           label: Text('Install ${e.name}'),
         ),
@@ -89,24 +91,27 @@ class SourceProblem extends StatelessWidget {
     );
   }
 
-  /// Install the novel's source from the lists already added, then retry.
-  Future<void> _install(BuildContext context, MissingSourceException e) async {
-    final store = SourceEngine.instance.store;
-    try {
-      final listed = (await store.available()).where((p) => p.id == e.pluginId).firstOrNull ??
-          (await store.available(refresh: true)).where((p) => p.id == e.pluginId).firstOrNull;
-      if (listed == null) {
-        if (context.mounted) {
-          showSnack(context, 'None of your source lists has ${e.name}. Add one that does in Sources.', long: true);
-        }
-        return;
+}
+
+/// Install the novel's source from the lists already added. True when it
+/// was installed, so the caller can try again.
+Future<bool> installMissingSource(BuildContext context, MissingSourceException e) async {
+  final store = SourceEngine.instance.store;
+  try {
+    final listed = (await store.available()).where((p) => p.id == e.pluginId).firstOrNull ??
+        (await store.available(refresh: true)).where((p) => p.id == e.pluginId).firstOrNull;
+    if (listed == null) {
+      if (context.mounted) {
+        showSnack(context, 'None of your source lists has ${e.name}. Add one that does in Sources.', long: true);
       }
-      if (context.mounted) showSnack(context, 'Installing ${e.name}…');
-      await store.install(listed);
-      onRetry();
-    } on Object catch (err) {
-      if (context.mounted) showSnack(context, friendlyError(err), long: true);
+      return false;
     }
+    if (context.mounted) showSnack(context, 'Installing ${e.name}…');
+    await store.install(listed);
+    return true;
+  } on Object catch (err) {
+    if (context.mounted) showSnack(context, friendlyError(err), long: true);
+    return false;
   }
 }
 

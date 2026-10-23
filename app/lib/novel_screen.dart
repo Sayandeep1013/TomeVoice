@@ -10,6 +10,7 @@ import 'browser_check.dart';
 import 'library_store.dart';
 import 'sources/models.dart';
 import 'sources/net.dart';
+import 'sources/plugin_host.dart';
 import 'sources/source_engine.dart';
 import 'speech_service.dart';
 import 'theme.dart';
@@ -118,7 +119,8 @@ class _NovelScreenState extends State<NovelScreen> {
     }
     // Then the site, for fresh details and new chapters.
     try {
-      final plugin = await SourceEngine.instance.store.installedById(widget.plugin.id) ?? widget.plugin;
+      final plugin = await SourceEngine.instance.store.installedById(widget.plugin.id);
+      if (plugin == null) throw MissingSourceException(widget.plugin.id, widget.plugin.name);
       final fresh = await SourceEngine.instance.novel(plugin, widget.path);
       if (!mounted) return;
       final before = stored?.chapters.length ?? _chapters.length;
@@ -145,8 +147,27 @@ class _NovelScreenState extends State<NovelScreen> {
         _loading = false;
         if (stored == null) _error = e;
       });
-      if (pulled && stored != null) showSnack(context, friendlyError(e), long: true);
+      if (pulled && stored != null) _problem(e);
     }
+  }
+
+  /// A failed check or download, said in a snack; a missing source comes
+  /// with a button to install it.
+  void _problem(Object e) {
+    if (e is! MissingSourceException) {
+      showSnack(context, friendlyError(e), long: true);
+      return;
+    }
+    showSnack(
+      context,
+      '${e.name} is not installed, so new chapters cannot be checked or downloaded. '
+      'The chapters on the phone still read.',
+      long: true,
+      actionLabel: 'Install',
+      onAction: () async {
+        if (await installMissingSource(context, e) && mounted) await _load(pulled: true);
+      },
+    );
   }
 
   /// In the library already, or added now (to the default category).
@@ -229,7 +250,7 @@ class _NovelScreenState extends State<NovelScreen> {
             context, _stopDownload ? 'Stopped. What came down reads offline.' : 'Downloaded. Those chapters read offline now.');
       }
     } on Object catch (err) {
-      if (mounted) showSnack(context, '$err', long: true);
+      if (mounted) _problem(err);
     } finally {
       if (mounted) setState(() => _downloading = null);
       await _refreshLocal();
@@ -263,7 +284,7 @@ class _NovelScreenState extends State<NovelScreen> {
     try {
       await fetchChapters(_store, _id, i, count: 1);
     } on Object catch (err) {
-      if (mounted) showSnack(context, '$err', long: true);
+      if (mounted) _problem(err);
     } finally {
       if (mounted) setState(() => _fetching.remove(i));
       await _refreshLocal();
@@ -459,16 +480,12 @@ class _NovelScreenState extends State<NovelScreen> {
                   onPressed: toDrop == 0 ? null : _removePicked,
                 ),
                 const SizedBox(width: Gap.xs),
-                Flexible(
-                  child: FilledButton.icon(
-                    onPressed: toGet == 0 || _downloading != null ? null : _downloadPicked,
-                    icon: const Icon(Icons.download_rounded, size: 20),
-                    label: Text(
-                      toGet == 0 ? 'On the phone' : 'Download $toGet',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
+                // Its own width first: as a Flexible beside the Expanded count
+                // it was squeezed to "Dow...".
+                FilledButton.icon(
+                  onPressed: toGet == 0 || _downloading != null ? null : _downloadPicked,
+                  icon: const Icon(Icons.download_rounded, size: 20),
+                  label: Text(toGet == 0 ? 'On the phone' : 'Download $toGet', maxLines: 1),
                 ),
               ],
             ),

@@ -593,13 +593,23 @@ class SheetHeader extends StatelessWidget {
 }
 
 /// A short message at the bottom of the screen, styled by the theme.
-void showSnack(BuildContext context, String text, {bool long = false, double lift = 0}) {
+void showSnack(
+  BuildContext context,
+  String text, {
+  bool long = false,
+  double lift = 0,
+  String? actionLabel,
+  VoidCallback? onAction,
+}) {
   final messenger = ScaffoldMessenger.maybeOf(context);
   if (messenger == null) return;
   messenger
     ..hideCurrentSnackBar()
     ..showSnackBar(SnackBar(
       content: Text(text),
+      action: actionLabel == null || onAction == null
+          ? null
+          : SnackBarAction(label: actionLabel, onPressed: onAction),
       // A margin is only allowed on a floating bar; say so here rather than
       // relying on the theme.
       behavior: SnackBarBehavior.floating,
