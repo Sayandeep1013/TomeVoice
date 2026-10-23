@@ -166,7 +166,7 @@ class _HistoryRow extends StatelessWidget {
             IconButton(
               tooltip: 'Read aloud from here',
               onPressed: onPlay,
-              icon: const Icon(Icons.play_circle_fill_rounded, color: Skin.amber, size: 34),
+              icon: Icon(Icons.play_circle_fill_rounded, color: Skin.amber, size: 34),
             ),
             PopupMenuButton<String>(
               tooltip: 'Options',

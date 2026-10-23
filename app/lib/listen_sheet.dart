@@ -250,7 +250,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
           padding: const EdgeInsets.symmetric(horizontal: Gap.l, vertical: 14),
           child: Row(
             children: [
-              const Icon(Icons.record_voice_over_rounded, color: Skin.amber, size: 22),
+              Icon(Icons.record_voice_over_rounded, color: Skin.amber, size: 22),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -786,7 +786,7 @@ class _VoicePickerState extends State<_VoicePicker> {
           padding: const EdgeInsets.fromLTRB(Gap.l, Gap.m, Gap.s, Gap.m),
           child: Row(
             children: [
-              const Icon(Icons.record_voice_over_rounded, color: Skin.amber),
+              Icon(Icons.record_voice_over_rounded, color: Skin.amber),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -849,7 +849,7 @@ class _VoicePickerState extends State<_VoicePicker> {
                 onPressed: busy ? null : () => _preview(v),
                 icon: busy
                     ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.play_circle_outline_rounded, color: Skin.amberSoft, size: 28),
+                    : Icon(Icons.play_circle_outline_rounded, color: Skin.amberSoft, size: 28),
               ),
           ],
         ),

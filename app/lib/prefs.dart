@@ -25,6 +25,7 @@ class ListeningPrefs {
     this.justify = false,
     this.keepScreenOn = false,
     this.themeMode = ThemeMode.system,
+    this.paletteId = 'forest',
     this.gridView = true,
     this.sort = LibrarySort.recent,
   })  : voiceByLanguage = voiceByLanguage ?? {},
@@ -67,6 +68,9 @@ class ListeningPrefs {
 
   /// Light, dark, or the phone's choice.
   ThemeMode themeMode;
+
+  /// The colour theme: forest, lavender, ocean, black or paper.
+  String paletteId;
 
   /// The library as a grid of covers instead of a list.
   bool gridView;
@@ -141,6 +145,7 @@ class ListeningPrefs {
         'justify': justify,
         'keepScreenOn': keepScreenOn,
         'themeMode': themeMode.name,
+        'palette': paletteId,
         'gridView': gridView,
         'sort': sort.name,
       };
@@ -169,6 +174,7 @@ class ListeningPrefs {
         themeMode: ThemeMode.values.where((m) => m.name == json['themeMode']).firstOrNull ??
             ThemeMode.system,
         gridView: json['gridView'] as bool? ?? true,
+        paletteId: json['palette'] as String? ?? 'forest',
         sort: LibrarySort.values.where((m) => m.name == json['sort']).firstOrNull ??
             LibrarySort.recent,
       );

@@ -906,7 +906,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.my_location_rounded, size: 16, color: Skin.amber),
+                    Icon(Icons.my_location_rounded, size: 16, color: Skin.amber),
                     const SizedBox(width: Gap.s),
                     Text('Back to reading',
                         style: Skin.ui(size: 14, weight: FontWeight.w600, color: Skin.onDark(context))),
@@ -1050,7 +1050,7 @@ class _BlockTextState extends State<_BlockText> {
     final s = l.unitOffset[_current].clamp(0, text.length);
     final e = (s + l.units[_current].text.length).clamp(s, text.length);
     final wash = widget.heading ? Skin.sentenceWash(context).withValues(alpha: 0.08) : Skin.sentenceWash(context);
-    final spoken = widget.heading ? const TextStyle(color: Skin.amber) : null;
+    final spoken = widget.heading ? TextStyle(color: Skin.amber) : null;
     final spans = <InlineSpan>[
       if (s > 0) TextSpan(text: text.substring(0, s)),
     ];
@@ -1245,7 +1245,7 @@ class _PlayButton extends StatelessWidget {
                 clipBehavior: Clip.none,
                 children: [
                   if (state == PlayState.loading)
-                    const SizedBox(
+                    SizedBox(
                       width: 60,
                       height: 60,
                       child: CircularProgressIndicator(strokeWidth: 2.5, color: Skin.amberSoft),
@@ -1461,7 +1461,7 @@ class ChapterList extends StatelessWidget {
                         style: Skin.title(context, size: 17, color: isCurrent ? Skin.amber : null),
                       ),
               ),
-              if (isCurrent) const Icon(Icons.graphic_eq_rounded, size: 18, color: Skin.amber),
+              if (isCurrent) Icon(Icons.graphic_eq_rounded, size: 18, color: Skin.amber),
             ],
           ),
         ),

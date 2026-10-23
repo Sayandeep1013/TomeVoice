@@ -24,6 +24,7 @@ import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/reader_screen.dart';
 import 'package:tomevoice_spike/settings_screen.dart';
 import 'package:tomevoice_spike/speech_service.dart';
+import 'package:tomevoice_spike/theme.dart';
 import 'package:tomevoice_spike/voices.dart';
 
 const _channel = MethodChannel('tomevoice/tts');
@@ -756,6 +757,26 @@ void main() {
         await tester.scrollUntilVisible(find.text(title), 300, scrollable: list);
         expect(find.text(title), findsOneWidget, reason: title);
       }
+      await finish(tester);
+    });
+
+    testWidgets('a colour theme can be picked; Black and Paper fix the brightness', (tester) async {
+      phone(tester);
+      await tester.pumpWidget(MaterialApp(home: SettingsScreen(store: LibraryStore(_tmp))));
+      await settleIo(tester);
+      for (final name in ['Forest', 'Lavender', 'Ocean', 'Black', 'Paper']) {
+        expect(find.text(name), findsOneWidget, reason: name);
+      }
+      await tester.tap(find.text('Lavender'));
+      await tester.pumpAndSettle();
+      expect(ListeningPrefs.memory.paletteId, 'lavender');
+      expect(Palette.lavender.modeFor(ThemeMode.light), ThemeMode.light);
+      expect(Palette.black.modeFor(ThemeMode.light), ThemeMode.dark);
+      expect(Palette.paper.modeFor(ThemeMode.dark), ThemeMode.light);
+
+      await tester.tap(find.text('Black'));
+      await tester.pumpAndSettle();
+      expect(find.text('Black is always dark.'), findsOneWidget);
       await finish(tester);
     });
 

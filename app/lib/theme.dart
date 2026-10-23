@@ -16,11 +16,15 @@ import 'package:flutter/material.dart';
 class Skin {
   const Skin._();
 
+  /// The colour theme in use (Forest, Lavender, Ocean, Black, Paper). The
+  /// colours below read from it, so every screen follows a change.
+  static Palette palette = Palette.forest;
+
   // ---- ground ----------------------------------------------------------
-  static const mint = Color(0xFFBFD8C6);
-  static const mintDeep = Color(0xFFA9CBB6);
-  static const cream = Color(0xFFEBE0CE);
-  static const peach = Color(0xFFE7D3BF);
+  static Color get mint => palette.day[0];
+  static Color get mintDeep => palette.day[1];
+  static Color get cream => palette.day[2];
+  static Color get peach => palette.day[3];
 
   // ---- ink -------------------------------------------------------------
   static const ink = Color(0xFF14170F);
@@ -28,33 +32,34 @@ class Skin {
   static const inkFaint = Color(0xFF6B7466);
 
   // ---- chrome ----------------------------------------------------------
-  static const capsule = Color(0xF2FFFFFF);
+  static Color get capsule => palette.dayCapsule;
   static const capsuleEdge = Color(0x1A14170F);
   static const dark = Color(0xFF1C1F17);
   static const darkSoft = Color(0xFF2A2E24);
 
   // ---- accent ----------------------------------------------------------
-  static const amber = Color(0xFFE07B39);
-  static const amberSoft = Color(0xFFF2A05B);
+  // The accent is amber in Forest; the names stay for every palette.
+  static Color get amber => palette.accent;
+  static Color get amberSoft => palette.accentSoft;
 
-  /// Text on an amber fill.
-  static const onAmber = Color(0xFF1A120B);
+  /// Text on an accent fill.
+  static Color get onAmber => palette.onAccent;
 
   // ---- dark theme ------------------------------------------------------
   //
   // Not an inversion. The light ground travels mint -> cream, so the dark one
   // travels deep forest -> warm ember through the same diagonal.
-  static const nightTop = Color(0xFF16241C);
-  static const nightMid = Color(0xFF1F3128);
-  static const nightWarm = Color(0xFF33291F);
-  static const nightBottom = Color(0xFF3D2E1F);
+  static Color get nightTop => palette.night[0];
+  static Color get nightMid => palette.night[1];
+  static Color get nightWarm => palette.night[2];
+  static Color get nightBottom => palette.night[3];
   static const nightInk = Color(0xFFF2EADA);
   static const nightInkSoft = Color(0xFFB9B2A0);
   static const nightInkFaint = Color(0xFF948E80);
-  static const nightCapsule = Color(0xF23A4238);
+  static Color get nightCapsule => palette.nightCapsule;
 
   /// Sheets, the player, the Continue card: the deepest surface.
-  static const nightSheet = Color(0xFF0E120C);
+  static Color get nightSheet => palette.nightSheet;
 
   static bool isDark(BuildContext c) =>
       Theme.of(c).brightness == Brightness.dark;
@@ -62,19 +67,15 @@ class Skin {
   /// The diagonal wash everything sits on.
   static LinearGradient ground(BuildContext c) => groundFor(Theme.of(c).brightness);
 
-  static LinearGradient groundFor(Brightness b) => b == Brightness.dark
-      ? const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [nightTop, nightMid, nightWarm, nightBottom],
-          stops: [0.0, 0.30, 0.72, 1.0],
-        )
-      : const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [mint, mintDeep, cream, peach],
-          stops: [0.0, 0.28, 0.72, 1.0],
-        );
+  static LinearGradient groundFor(Brightness b, [Palette? p]) {
+    final pal = p ?? palette;
+    return LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: b == Brightness.dark ? pal.night : pal.day,
+      stops: b == Brightness.dark ? const [0.0, 0.30, 0.72, 1.0] : const [0.0, 0.28, 0.72, 1.0],
+    );
+  }
 
   /// The colour at the foot of the ground: the navigation bar sits on it, so
   /// the bottom of the screen has no seam.
@@ -202,12 +203,26 @@ class Skin {
   /// Everything Material draws by itself (sliders, switches, sheets, dialogs,
   /// snack bars, menus, fields, the navigation bar) takes its look from here,
   /// so no screen has to restyle a widget by hand.
+  static final _themes = <String, ThemeData>{};
+
+  /// The Flutter theme for [p] in [b], built once.
+  static ThemeData themeFor(Palette p, Brightness b) => _themes.putIfAbsent('${p.id}/${b.name}', () {
+        final previous = palette;
+        palette = p;
+        try {
+          return theme(b);
+        } finally {
+          palette = previous;
+        }
+      });
+
   static ThemeData theme(Brightness b) {
     final dark = b == Brightness.dark;
+    final deep = palette.accentDeep;
     final inkColor = dark ? nightInk : ink;
     final soft = dark ? nightInkSoft : inkSoft;
     final faint = dark ? nightInkFaint : inkFaint;
-    final sheet = dark ? nightSheet : const Color(0xFFF7F1E6);
+    final sheet = dark ? nightSheet : palette.daySheet;
     final outline = dark ? Colors.white.withValues(alpha: 0.10) : capsuleEdge;
     final scheme = ColorScheme.fromSeed(seedColor: amber, brightness: b).copyWith(
       primary: amber,
@@ -217,8 +232,8 @@ class Skin {
       surface: sheet,
       onSurface: inkColor,
       onSurfaceVariant: soft,
-      surfaceContainerHighest: dark ? const Color(0xFF26302A) : const Color(0xFFEFE6D6),
-      surfaceContainerHigh: dark ? const Color(0xFF1C241F) : const Color(0xFFF3EBDD),
+      surfaceContainerHighest: Color.lerp(sheet, dark ? Colors.white : inkColor, dark ? 0.12 : 0.05),
+      surfaceContainerHigh: Color.lerp(sheet, dark ? Colors.white : inkColor, dark ? 0.07 : 0.03),
       surfaceContainer: sheet,
       surfaceContainerLow: sheet,
       surfaceContainerLowest: sheet,
@@ -278,7 +293,7 @@ class Skin {
         fillColor: WidgetStateProperty.resolveWith(
           (s) => s.contains(WidgetState.selected) ? amber : Colors.transparent,
         ),
-        checkColor: const WidgetStatePropertyAll(onAmber),
+        checkColor: WidgetStatePropertyAll(onAmber),
         side: BorderSide(color: faint, width: 1.5),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
       ),
@@ -315,7 +330,7 @@ class Skin {
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: dark ? const Color(0xFF26302A) : dark2,
+        backgroundColor: dark ? Color.lerp(sheet, Colors.white, 0.12) : dark2,
         contentTextStyle: uiStyle(14, FontWeight.w500, dark ? nightInk : cream),
         actionTextColor: amberSoft,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.row)),
@@ -346,7 +361,7 @@ class Skin {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(Radii.pill),
-          borderSide: const BorderSide(color: amber, width: 1.4),
+          borderSide: BorderSide(color: amber, width: 1.4),
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
@@ -361,7 +376,7 @@ class Skin {
         iconTheme: WidgetStateProperty.resolveWith(
           (s) => IconThemeData(
             size: 24,
-            color: s.contains(WidgetState.selected) ? (dark ? amberSoft : const Color(0xFFB4561C)) : soft,
+            color: s.contains(WidgetState.selected) ? (dark ? amberSoft : deep) : soft,
           ),
         ),
         labelTextStyle: WidgetStateProperty.resolveWith(
@@ -383,7 +398,7 @@ class Skin {
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: dark ? amberSoft : const Color(0xFFB4561C),
+          foregroundColor: dark ? amberSoft : deep,
           shape: pill,
           textStyle: uiStyle(15, FontWeight.w700),
         ),
@@ -417,7 +432,7 @@ class Skin {
       ),
       tooltipTheme: TooltipThemeData(
         decoration: BoxDecoration(
-          color: dark ? const Color(0xFF26302A) : dark2,
+          color: dark ? Color.lerp(sheet, Colors.white, 0.12) : dark2,
           borderRadius: BorderRadius.circular(Radii.chip),
         ),
         textStyle: uiStyle(12.5, FontWeight.w500, dark ? nightInk : cream),
@@ -426,6 +441,139 @@ class Skin {
   }
 
   static const dark2 = Color(0xFF232820);
+}
+
+/// A colour theme: the ground the app sits on by day and by night, its
+/// surfaces, and its one accent. Type, spacing and shape stay the same in
+/// every palette.
+class Palette {
+  const Palette({
+    required this.id,
+    required this.label,
+    required this.day,
+    required this.night,
+    required this.accent,
+    required this.accentSoft,
+    required this.accentDeep,
+    required this.onAccent,
+    required this.nightCapsule,
+    required this.nightSheet,
+    this.dayCapsule = const Color(0xF2FFFFFF),
+    this.daySheet = const Color(0xFFF7F1E6),
+    this.only,
+  });
+
+  final String id;
+  final String label;
+
+  /// The light ground, top left to bottom right.
+  final List<Color> day;
+
+  /// The dark ground, top left to bottom right.
+  final List<Color> night;
+
+  /// Buttons, the spoken word, the selected choice.
+  final Color accent;
+
+  /// The accent on dark surfaces, where the full one is too heavy.
+  final Color accentSoft;
+
+  /// The accent as text on a light ground, where the full one is too pale.
+  final Color accentDeep;
+
+  /// Text on an accent fill.
+  final Color onAccent;
+  final Color nightCapsule;
+  final Color nightSheet;
+  final Color dayCapsule;
+  final Color daySheet;
+
+  /// A palette that only exists in one brightness (Black, Paper).
+  final Brightness? only;
+
+  static const forest = Palette(
+    id: 'forest',
+    label: 'Forest',
+    day: [Color(0xFFBFD8C6), Color(0xFFA9CBB6), Color(0xFFEBE0CE), Color(0xFFE7D3BF)],
+    night: [Color(0xFF16241C), Color(0xFF1F3128), Color(0xFF33291F), Color(0xFF3D2E1F)],
+    accent: Color(0xFFE07B39),
+    accentSoft: Color(0xFFF2A05B),
+    accentDeep: Color(0xFFB4561C),
+    onAccent: Color(0xFF1A120B),
+    nightCapsule: Color(0xF23A4238),
+    nightSheet: Color(0xFF0E120C),
+  );
+
+  static const lavender = Palette(
+    id: 'lavender',
+    label: 'Lavender',
+    day: [Color(0xFFDCD3F2), Color(0xFFCFC3EC), Color(0xFFEDE3F0), Color(0xFFEAD7E4)],
+    night: [Color(0xFF1C1830), Color(0xFF28213F), Color(0xFF35263F), Color(0xFF3D2A40)],
+    accent: Color(0xFFB48CF2),
+    accentSoft: Color(0xFFCBAEFF),
+    accentDeep: Color(0xFF6E4BC7),
+    onAccent: Color(0xFF1A1229),
+    nightCapsule: Color(0xF2403A55),
+    nightSheet: Color(0xFF120F1D),
+    daySheet: Color(0xFFF6F2FB),
+  );
+
+  static const ocean = Palette(
+    id: 'ocean',
+    label: 'Ocean',
+    day: [Color(0xFFC9DFE6), Color(0xFFB5D3DE), Color(0xFFE3E4DA), Color(0xFFE6D8C8)],
+    night: [Color(0xFF0E1D25), Color(0xFF15303C), Color(0xFF1C2B33), Color(0xFF25303A)],
+    accent: Color(0xFFE8805E),
+    accentSoft: Color(0xFFF2A385),
+    accentDeep: Color(0xFFB5532F),
+    onAccent: Color(0xFF1F0F0A),
+    nightCapsule: Color(0xF2324650),
+    nightSheet: Color(0xFF0A151B),
+    daySheet: Color(0xFFF3F5F2),
+  );
+
+  /// True black for OLED screens: the pixels are off.
+  static const black = Palette(
+    id: 'black',
+    label: 'Black',
+    day: [Color(0xFF000000), Color(0xFF000000), Color(0xFF050505), Color(0xFF0A0A0A)],
+    night: [Color(0xFF000000), Color(0xFF000000), Color(0xFF050505), Color(0xFF0A0A0A)],
+    accent: Color(0xFFE07B39),
+    accentSoft: Color(0xFFF2A05B),
+    accentDeep: Color(0xFFB4561C),
+    onAccent: Color(0xFF1A120B),
+    nightCapsule: Color(0xF21A1A1A),
+    nightSheet: Color(0xFF121212),
+    only: Brightness.dark,
+  );
+
+  /// Warm sepia, for reading by day.
+  static const paper = Palette(
+    id: 'paper',
+    label: 'Paper',
+    day: [Color(0xFFF3EBDD), Color(0xFFEFE4D1), Color(0xFFF2E7D5), Color(0xFFEADBC3)],
+    night: [Color(0xFF16241C), Color(0xFF1F3128), Color(0xFF33291F), Color(0xFF3D2E1F)],
+    accent: Color(0xFFB5652B),
+    accentSoft: Color(0xFFD98B4E),
+    accentDeep: Color(0xFF8F4A1C),
+    onAccent: Color(0xFFFBF3E6),
+    nightCapsule: Color(0xF23A4238),
+    nightSheet: Color(0xFF0E120C),
+    dayCapsule: Color(0xF2FFFDF7),
+    daySheet: Color(0xFFFBF6EC),
+    only: Brightness.light,
+  );
+
+  static const all = [forest, lavender, ocean, black, paper];
+
+  static Palette byId(String? id) => all.where((p) => p.id == id).firstOrNull ?? forest;
+
+  /// The brightness this palette is shown in, given the reader's choice.
+  ThemeMode modeFor(ThemeMode chosen) => switch (only) {
+        Brightness.dark => ThemeMode.dark,
+        Brightness.light => ThemeMode.light,
+        null => chosen,
+      };
 }
 
 /// The only spacings the interface uses.

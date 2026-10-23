@@ -1001,7 +1001,7 @@ class _ContinueDockState extends State<ContinueDock> {
                 child: InkWell(
                   customBorder: const CircleBorder(),
                   onTap: () => widget.onPlay(e),
-                  child: const SizedBox(
+                  child: SizedBox(
                     width: 52,
                     height: 52,
                     child: Icon(Icons.play_arrow_rounded, size: 32, color: Skin.onAmber),

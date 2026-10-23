@@ -416,7 +416,7 @@ class _BookScreenState extends State<BookScreen> {
           padding: const EdgeInsets.symmetric(horizontal: Gap.l, vertical: 14),
           child: Row(
             children: [
-              const Icon(Icons.record_voice_over_rounded, color: Skin.amber),
+              Icon(Icons.record_voice_over_rounded, color: Skin.amber),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(

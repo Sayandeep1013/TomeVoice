@@ -111,15 +111,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         const SectionTitle('Theme'),
                         const SizedBox(height: Gap.m),
-                        ChoiceRow<ThemeMode>(
-                          options: const [
-                            (ThemeMode.system, 'Phone'),
-                            (ThemeMode.light, 'Light'),
-                            (ThemeMode.dark, 'Dark'),
-                          ],
-                          value: _prefs.themeMode,
-                          onChanged: (m) => _change(() => _prefs.themeMode = m),
+                        _PaletteSwatches(
+                          selected: _prefs.paletteId,
+                          onPick: (id) => _change(() => _prefs.paletteId = id),
                         ),
+                        const SizedBox(height: Gap.xl),
+                        const SectionTitle('Light or dark'),
+                        const SizedBox(height: Gap.m),
+                        if (Palette.byId(_prefs.paletteId).only == null)
+                          ChoiceRow<ThemeMode>(
+                            options: const [
+                              (ThemeMode.system, 'Phone'),
+                              (ThemeMode.light, 'Light'),
+                              (ThemeMode.dark, 'Dark'),
+                            ],
+                            value: _prefs.themeMode,
+                            onChanged: (m) => _change(() => _prefs.themeMode = m),
+                          )
+                        else
+                          Text(
+                            '${Palette.byId(_prefs.paletteId).label} is always '
+                            '${Palette.byId(_prefs.paletteId).only == Brightness.dark ? 'dark' : 'light'}.',
+                            style: Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
+                          ),
                       ],
                     ),
                     _Group(
@@ -236,6 +250,95 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The colour themes, each drawn as a little card of its own ground and
+/// accent, in the brightness it would show in now.
+class _PaletteSwatches extends StatelessWidget {
+  const _PaletteSwatches({required this.selected, required this.onPick});
+
+  final String selected;
+  final ValueChanged<String> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Skin.isDark(context);
+    // All five in one row, so none hides off the side.
+    return Row(
+      children: [
+        for (final (i, p) in Palette.all.indexed) ...[
+          if (i > 0) const SizedBox(width: Gap.s),
+          Expanded(child: _swatch(context, p, p.only ?? (dark ? Brightness.dark : Brightness.light))),
+        ],
+      ],
+    );
+  }
+
+  Widget _swatch(BuildContext context, Palette p, Brightness b) {
+    final on = p.id == selected;
+    final ink = b == Brightness.dark ? Skin.nightInk : Skin.ink;
+    return Semantics(
+      button: true,
+      selected: on,
+      label: '${p.label} theme',
+      child: GestureDetector(
+        onTap: () => onPick(p.id),
+        child: Column(
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              height: 76,
+              padding: const EdgeInsets.all(7),
+              decoration: BoxDecoration(
+                gradient: Skin.groundFor(b, p),
+                borderRadius: BorderRadius.circular(Radii.row),
+                border: Border.all(
+                  color: on ? p.accent : Skin.outlineOn(context),
+                  width: on ? 2.5 : 1,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  FractionallySizedBox(
+                    widthFactor: 0.6,
+                    child: Container(height: 4, decoration: BoxDecoration(color: ink.withValues(alpha: 0.7), borderRadius: BorderRadius.circular(2))),
+                  ),
+                  const SizedBox(height: 5),
+                  FractionallySizedBox(
+                    widthFactor: 0.85,
+                    child: Container(height: 4, decoration: BoxDecoration(color: ink.withValues(alpha: 0.35), borderRadius: BorderRadius.circular(2))),
+                  ),
+                  const Spacer(),
+                  Align(
+                    alignment: Alignment.bottomRight,
+                    child: Container(
+                      width: 18,
+                      height: 18,
+                      decoration: BoxDecoration(color: p.accent, shape: BoxShape.circle),
+                      child: on ? Icon(Icons.check_rounded, size: 13, color: p.onAccent) : null,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              p.label,
+              maxLines: 1,
+              overflow: TextOverflow.fade,
+              softWrap: false,
+              style: Skin.ui(
+                size: 13,
+                weight: on ? FontWeight.w700 : FontWeight.w500,
+                color: on ? Skin.inkOn(context) : Skin.inkSoftOn(context),
+              ),
+            ),
+          ],
         ),
       ),
     );

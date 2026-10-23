@@ -493,8 +493,8 @@ class _SelectableCover extends StatelessWidget {
               top: 4,
               child: Container(
                 padding: const EdgeInsets.all(2),
-                decoration: const BoxDecoration(color: Skin.amber, shape: BoxShape.circle),
-                child: const Icon(Icons.check_rounded, size: 12, color: Skin.onAmber),
+                decoration: BoxDecoration(color: Skin.amber, shape: BoxShape.circle),
+                child: Icon(Icons.check_rounded, size: 12, color: Skin.onAmber),
               ),
             ),
           if (selected)

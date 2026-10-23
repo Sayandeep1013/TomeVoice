@@ -172,7 +172,7 @@ Future<void> changeCover(BuildContext context, LibraryStore store, LibraryEntry 
                 const SizedBox(height: Gap.m),
                 OutlinedButton.icon(
                   onPressed: () => Navigator.pop(ctx, (CoverMode.custom, true)),
-                  icon: const Icon(Icons.add_photo_alternate_outlined, size: 18, color: Skin.amber),
+                  icon: Icon(Icons.add_photo_alternate_outlined, size: 18, color: Skin.amber),
                   label: const Text('Choose a different picture'),
                 ),
               ],

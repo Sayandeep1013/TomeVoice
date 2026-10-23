@@ -58,18 +58,25 @@ void _registerFontLicences() {
 class SpikeApp extends StatelessWidget {
   const SpikeApp({super.key});
 
-  static final _light = Skin.theme(Brightness.light);
-  static final _dark = Skin.theme(Brightness.dark);
-
   @override
   Widget build(BuildContext context) => ValueListenableBuilder<int>(
         valueListenable: ListeningPrefs.revision,
-        builder: (context, _, __) => MaterialApp(
+        builder: (context, _, __) {
+          final prefs = ListeningPrefs.loaded;
+          final palette = Palette.byId(prefs?.paletteId);
+          // Every colour in Skin reads the palette, so set it before the
+          // tree below is built.
+          Skin.palette = palette;
+          return _app(palette, palette.modeFor(prefs?.themeMode ?? ThemeMode.system));
+        },
+      );
+
+  Widget _app(Palette palette, ThemeMode mode) => MaterialApp(
           title: 'TomeVoice',
           debugShowCheckedModeBanner: false,
-          theme: _light,
-          darkTheme: _dark,
-          themeMode: ListeningPrefs.loaded?.themeMode ?? ThemeMode.system,
+          theme: Skin.themeFor(palette, Brightness.light),
+          darkTheme: Skin.themeFor(palette, Brightness.dark),
+          themeMode: mode,
           // Status bar icons dark on the light ground, light on the dark one.
           // Every field is set: one left out falls back to Android's default,
           // which for the divider is the separator line above the home bar.
@@ -96,8 +103,7 @@ class SpikeApp extends StatelessWidget {
             child: child!,
           ),
           home: const _ModeGate(),
-        ),
-      );
+        );
 }
 
 class _ModeGate extends StatefulWidget {
