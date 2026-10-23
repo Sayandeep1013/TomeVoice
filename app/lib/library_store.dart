@@ -920,7 +920,7 @@ Book specimenBook() => ingestString(
       'the audio you hear.\n\n'
       'Open the library and import an EPUB, a PDF, a Word file or plain '
       'text. Playback walks sentence by sentence so a chapter is not one '
-      'giant utterance. Tap any sentence to start reading from there.',
+      'giant utterance. Press and hold any sentence, then Read from here.',
       filename: 'specimen.txt',
       title: 'Specimen',
     );

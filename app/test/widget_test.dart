@@ -340,6 +340,7 @@ void main() {
       final before = MarkStore.instance.all.length;
       await tester.longPress(find.textContaining('Pack my box').first);
       await tester.pumpAndSettle();
+      expect(find.text('Read from here'), findsOneWidget);
       expect(find.text('Save as a quote'), findsOneWidget);
       expect(find.text('Bookmark here'), findsOneWidget);
       expect(find.textContaining('Fix how'), findsOneWidget);
@@ -372,16 +373,22 @@ void main() {
       await finish(tester);
     });
 
-    testWidgets('tapping a paragraph reads from there', (tester) async {
+    testWidgets('press and hold, Read from here, reads from there; a tap does not', (tester) async {
       await pumpReader(tester, specimenBook());
-      final target = find.textContaining('Tap any sentence');
+      final target = find.textContaining('Press and hold any sentence');
       await tester.dragUntilVisible(target, find.byType(ScrollablePositionedList), const Offset(0, -200));
       await tester.pumpAndSettle();
+      final before = washed(tester);
       await tester.tap(target);
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(washed(tester), before);
+      await tester.longPress(target);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Read from here'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
       expect(washed(tester), anyOf(startsWith('Open the library'),
-          startsWith('Playback walks'), startsWith('Tap any sentence')));
+          startsWith('Playback walks'), startsWith('Press and hold any sentence')));
       await finish(tester);
     });
 

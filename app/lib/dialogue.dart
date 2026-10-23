@@ -70,6 +70,24 @@ Float32List resample(Float32List audio, int from, int to) {
   return out;
 }
 
+/// 16-bit PCM [pcm] at [from] Hz, as 16-bit PCM at [to] Hz.
+Uint8List resamplePcm16(Uint8List pcm, int from, int to) {
+  if (from == to || pcm.isEmpty) return pcm;
+  // A view needs an even offset; a copy has one.
+  final bytes = pcm.offsetInBytes.isEven ? pcm : Uint8List.fromList(pcm);
+  final ints = Int16List.view(bytes.buffer, bytes.offsetInBytes, bytes.lengthInBytes ~/ 2);
+  final f = Float32List(ints.length);
+  for (var i = 0; i < ints.length; i++) {
+    f[i] = ints[i] / 32768;
+  }
+  final r = resample(f, from, to);
+  final out = Int16List(r.length);
+  for (var i = 0; i < r.length; i++) {
+    out[i] = (r[i] * 32768).round().clamp(-32768, 32767);
+  }
+  return out.buffer.asUint8List();
+}
+
 /// Say [text] with its dialogue in [dialogueVoice] and the rest in
 /// [narrator]: each stretch made on its own and joined, with no gap, into
 /// one WAV like a single voice returns. Word positions are estimated over
@@ -106,7 +124,10 @@ Future<Map<String, Object?>> speakWithDialogue({
     pieces.add(WavCodec.decode(await file.readAsBytes()));
     await file.delete();
   }
-  final rate0 = pieces.first.sampleRate;
+  // At the narrator's rate, so this sentence matches the ones around it
+  // (not at whichever voice happened to speak first).
+  final narration = [for (var k = 0; k < parts.length; k++) if (!parts[k].spoken) pieces[k]];
+  final rate0 = (narration.isEmpty ? pieces.first : narration.first).sampleRate;
   final joined = <double>[
     for (final p in pieces) ...resample(p.samples, p.sampleRate, rate0),
   ];
