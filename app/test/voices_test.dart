@@ -50,7 +50,9 @@ void main() {
     expect(neuralVoiceFor('neural:en_GB-alan-medium')?.name, 'Alan');
     expect(neuralVoiceFor('neural:nobody'), isNull);
     for (final v in neuralVoices) {
-      expect(v.url, endsWith('vits-piper-${v.id}-fp16.tar.bz2'));
+      // Full precision: the fp16 models crash ONNX Runtime on the phone.
+      expect(v.url, endsWith('vits-piper-${v.id}.tar.bz2'));
+      expect(v.sizeMb, v.hd ? 110 : 64);
     }
   });
 }
