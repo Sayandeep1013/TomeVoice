@@ -805,8 +805,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     }
   }
 
+  /// The player's height, so a message shows above it instead of over it.
+  final _barKey = GlobalKey();
+  double get _barLift => (_barKey.currentContext?.findRenderObject() as RenderBox?)?.size.height ?? 0;
+
   void _snack(String text) {
-    if (mounted) showSnack(context, text);
+    if (mounted) showSnack(context, text, lift: _barLift);
   }
 
   // ----------------------------------------------------- keep and share
@@ -832,6 +836,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     showSnack(
       context,
       said,
+      lift: _barLift,
       actionLabel: 'Undo',
       onAction: () => unawaited(MarkStore.instance.remove(mark.id)),
     );
@@ -1007,6 +1012,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     // one row, so the text keeps the height.
     final rail = size.width > size.height && size.height < 600;
     final bar = _PlayerBar(
+      key: _barKey,
       layout: _l,
       cursor: _cursor,
       player: _player,
@@ -1068,6 +1074,26 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
               ? Stack(
                   children: [
                     reading,
+                    // The text fades out before the dock, instead of showing
+                    // in the gap beneath it.
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      height: 96,
+                      child: IgnorePointer(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [Skin.groundFoot(context).withValues(alpha: 0), Skin.groundFoot(context)],
+                              stops: const [0, 0.55],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                     Positioned(left: 0, right: 0, bottom: 0, child: Center(child: bar)),
                   ],
                 )
@@ -1595,6 +1621,7 @@ class _BlockTextState extends State<_BlockText> {
 /// The player: what is playing, how fast, in whose voice, and the controls.
 class _PlayerBar extends StatelessWidget {
   const _PlayerBar({
+    super.key,
     required this.layout,
     required this.cursor,
     required this.player,
@@ -1728,55 +1755,64 @@ class _PlayerBar extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               _handle(context, below: 2),
+              // Three parts: the book at the left and the options at the
+              // right share what is left equally, so the controls sit in the
+              // very middle of the bar.
               Row(
                 children: [
-                  Semantics(
-                    button: true,
-                    label: 'Open Now Playing',
-                    child: GestureDetector(
-                      onTap: onExpand,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(6),
-                        child: SizedBox(
-                          width: 40,
-                          height: 58,
-                          child: cover == null
-                              ? ColoredBox(
-                                  color: Skin.accentOf(context).withValues(alpha: 0.35),
-                                  child: Icon(Icons.menu_book_rounded, size: 18, color: onDark),
-                                )
-                              : Image.file(File(cover!), fit: BoxFit.cover, cacheWidth: 120, gaplessPlayback: true),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: Gap.m),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
+                    child: Row(
                       children: [
-                        Text(
-                          empty ? title : layout.chapterTitle(at.chapter),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Skin.ui(size: 13.5, weight: FontWeight.w600, color: onDark),
+                        Semantics(
+                          button: true,
+                          label: 'Open Now Playing',
+                          child: GestureDetector(
+                            onTap: onExpand,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(6),
+                              child: SizedBox(
+                                width: 40,
+                                height: 58,
+                                child: cover == null
+                                    ? ColoredBox(
+                                        color: Skin.accentOf(context).withValues(alpha: 0.35),
+                                        child: Icon(Icons.menu_book_rounded, size: 18, color: onDark),
+                                      )
+                                    : Image.file(File(cover!), fit: BoxFit.cover, cacheWidth: 120, gaplessPlayback: true),
+                              ),
+                            ),
+                          ),
                         ),
-                        Text(
-                          [if (sleepNote == null) '${at.pct}%', left.toUpperCase(), if (sleepNote != null) sleepNote!]
-                              .join('  ·  '),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Skin.meta(context, color: onDark.withValues(alpha: 0.62), size: 10),
+                        const SizedBox(width: Gap.m),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                empty ? title : layout.chapterTitle(at.chapter),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Skin.ui(size: 13.5, weight: FontWeight.w600, color: onDark),
+                              ),
+                              Text(
+                                [if (sleepNote == null) '${at.pct}%', left.toUpperCase(), if (sleepNote != null) sleepNote!]
+                                    .join('  ·  '),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Skin.meta(context, color: onDark.withValues(alpha: 0.62), size: 10),
+                              ),
+                              ChapterScrubber(
+                                value: at.count <= 1 ? 0 : inChapter / (at.count - 1),
+                                onSeek: at.count <= 1 ? null : (f) => onSeekInChapter(at.first + (f * (at.count - 1)).round()),
+                              ),
+                            ],
+                          ),
                         ),
-                        ChapterScrubber(
-                          value: at.count <= 1 ? 0 : inChapter / (at.count - 1),
-                          onSeek: at.count <= 1 ? null : (f) => onSeekInChapter(at.first + (f * (at.count - 1)).round()),
-                        ),
+                        const SizedBox(width: Gap.l),
                       ],
                     ),
                   ),
-                  const SizedBox(width: Gap.xs),
                   _icon(context, Icons.skip_previous_rounded, 'Previous chapter', at.chapter > 0 ? onPrevChapter : null),
                   _icon(context, Icons.fast_rewind_rounded, 'Previous sentence', u > 0 ? onPrevSentence : null),
                   PlayButton(player: player, onTap: empty ? null : onPlay),
@@ -1784,13 +1820,24 @@ class _PlayerBar extends StatelessWidget {
                       u < layout.units.length - 1 ? onNextSentence : null),
                   _icon(context, Icons.skip_next_rounded, 'Next chapter',
                       at.chapter < layout.chapters.length - 1 || moreAfter ? onNextChapter : null),
-                  const SizedBox(width: Gap.s),
-                  _chip(context, '${trimSpeed(speed)}×', Icons.speed_rounded, onSpeed, tooltip: 'Speed'),
-                  if (onSleep != null)
-                    _small(context, sleepNote == null ? Icons.bedtime_outlined : Icons.bedtime_rounded, 'Sleep timer',
-                        onSleep!, lit: sleepNote != null),
-                  if (onSave != null) _small(context, Icons.bookmark_add_outlined, 'Save this line', onSave!),
-                  _chip(context, voiceLabel, Icons.record_voice_over_rounded, onVoice, tooltip: 'Voice'),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: Gap.l),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          _chip(context, '${trimSpeed(speed)}×', Icons.speed_rounded, onSpeed, tooltip: 'Speed'),
+                          if (onSleep != null)
+                            _small(context, sleepNote == null ? Icons.bedtime_outlined : Icons.bedtime_rounded,
+                                'Sleep timer', onSleep!, lit: sleepNote != null),
+                          if (onSave != null) _small(context, Icons.bookmark_add_outlined, 'Save this line', onSave!),
+                          Flexible(
+                            child: _chip(context, voiceLabel, Icons.record_voice_over_rounded, onVoice, tooltip: 'Voice'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ],

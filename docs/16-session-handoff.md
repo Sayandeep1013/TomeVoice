@@ -1,10 +1,67 @@
 # 16 — Session Handoff
 
-**As of 2026-10-23.** Everything needed to pick this up cold.
+**As of 2026-10-24.** Everything needed to pick this up cold.
 
 ---
 
-## 0. Checkpoint (2026-10-23, evening): v0.5.0
+## 0. Checkpoint (2026-10-24): 1.0 merged, release after the last phone checks
+
+Released since v0.5.0: **0.5.1** (backup and restore, update check), **0.6.0** (the
+permanent app id `app.tomevoice`, a 32-bit APK), **0.7.0** (book colours from covers,
+Now Playing, landscape), **0.8.0** (search, Saved quotes and bookmarks with share cards,
+pronunciation fixes, skip-line rules). **0.9 and 1.0 are merged into `main`** (PR #1) but
+not yet tagged: stats and streaks, home-screen widgets, natural voices, dialogue voice,
+and the fixes below. All other branches were merged and deleted; work continues on
+`v1.0-release`. The plan with every decision is [road-to-1.0.html](road-to-1.0.html).
+
+- **Natural voices** (`neural_voices.dart`, `neural_screen.dart`): Piper models through
+  sherpa_onnx **1.13.8** (2.0 drops espeak; keep the pin). Use the **full-precision**
+  archives (`vits-piper-<id>.tar.bz2`, 64 MB, 110 MB for HD): the fp16 ones abort ONNX
+  Runtime on the phone (`Failed to find kernel for com.microsoft.Gelu ... float16`).
+  Voices live in `files/voices/piper-<id>`; anything else there is cleared on start.
+  Unpacking streams bz2 to a tar beside it and then file by file (24 MB at most; reading
+  it whole took 184 MB). Only path strings may cross into `Isolate.run`: a closure that
+  holds the ChangeNotifier fails to send. Off unless chosen: a warning before any
+  download, a speed test after, Remove and Remove all.
+- **Measured on the developer's phone** (Nothing A059, *Alice* at 2×, 60 s): idle 0.3% CPU
+  and 213 MB; Google voice about 20% of a core (app plus Google's TTS process) and about
+  404 MB together; **Kristin 70% average (bursts to 158%) and 537 MB**, at 10.9× real
+  time. Battery over a long session is not measured.
+- **Widgets** (`Widgets.kt`): drawn as one bitmap per face, to the design in
+  road-to-1.0.html, in the design's own units (the 176-unit 2 × 2, the 360 × 176 card)
+  scaled as one piece. The Nothing launcher's 2 × 2 is **136 dp**, its 4 × 3 about 210 dp
+  (the large layout starts at 190). Numbers and labels in **Doto** (bundled, OFL). The
+  accent is the app's own: `tints.json` now carries `accents` per book (tone 66 and its
+  ink for dark faces, tone 40 and white for light; `widgetAccents` in `book_tint.dart`).
+  Tap targets are moved over the drawn buttons with `setViewLayout*` (Android 12+). The
+  wide and large players have chapter back and next (`ACTION_PREV/NEXT` to the service).
+  Picker previews in `drawable-nodpi` were drawn from the same code.
+- **APK size:** about 27 MB. One CPU's native code per APK (`TV_ABIS` in CI, jniLibs
+  excludes in `prepare_android.py`; `abiFilters` alone was ignored) and compressed native
+  libraries (`useLegacyPackaging`).
+- **Since 0.8, also:** Undo on every save and a Remove button in Saved; press and hold in
+  Now Playing opens the reader's menu; a book's and a novel's page keep Back, Search and
+  the menu pinned (`PinnedBar` in `ui.dart`); landscape puts the player in a floating
+  dock over the text (`_PlayerBar.dock`), with the text capped at a 720 dp line; Now
+  Playing's sentence change pushes up instead of cross-fading; a choice row too wide to
+  fit scrolls inside a pill that keeps its round ends; updates install from the app
+  (`update_flow.dart`: downloads the release's APK for the phone's CPU into cache/share,
+  opens Android's installer through `ShareProvider`; `REQUEST_INSTALL_PACKAGES`).
+- **Verified on the phone:** the media card, backup and restore, the move to the new app
+  id, book colours and Now Playing, search, Saved, pronunciation, the rules screen,
+  Stats, the player widget (play, pause, progress, the new design), and a natural voice
+  (download, speed test, reading, CPU and memory).
+- **Not yet verified on the phone (next):** the build from `main` with Undo, Now Playing's
+  menu, the pinned bars, the landscape dock and the pill rows; the dialogue voice; the
+  streak widget; installing an update (needs a release newer than the one installed, so
+  after 1.0 is out).
+- **Then:** tag and release **v1.0.0** (notes drafted), and delete `/sdcard/ui.xml` on
+  the phone (left by the UI dumps).
+- **On the phone:** the old app `app.tomevoice.tomevoice_spike` is still installed and
+  can be uninstalled. TomeVoice's notification permission was denied once; it asks again
+  when reading starts.
+
+## 0a. Earlier checkpoint (2026-10-23, evening): v0.5.0
 
 Everything is on `main` and released as **v0.5.0**. The `media-card` branch was merged
 and deleted.

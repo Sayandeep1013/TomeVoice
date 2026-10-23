@@ -413,7 +413,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
         ChoiceRow<String?>(
           options: [for (final p in SpeechPreset.all) (p.id, p.label)],
           value: _prefs.presetId,
-          minSegment: 200,
+          minSegment: 96,
           onChanged: (id) {
             final p = SpeechPreset.all.firstWhere((x) => x.id == id);
             setState(() {
