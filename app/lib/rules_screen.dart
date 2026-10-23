@@ -240,7 +240,7 @@ class _RulesScreenState extends State<RulesScreen> {
                     SectionTitle('Pronunciations', note: say.isEmpty ? null : '${say.length}'),
                     const SizedBox(height: Gap.s),
                     if (say.isEmpty)
-                      _hint(context, 'Press and hold a word while reading, then Fix pronunciation.')
+                      _hint(context, "Press and hold a word while reading, then Fix how it's said.")
                     else
                       for (final r in say)
                         _row(

@@ -237,7 +237,7 @@ class _SearchSheetState extends State<_SearchSheet> {
               child: Text(
                 [
                   if (_busy) 'Searching…' else if (_query.trim().length >= 2) _count(_hits.length),
-                  if (_whole && have < all) 'Searched the $have of $all chapters on the phone',
+                  if (_whole && have < all) 'Searched $have of $all chapters (the ones on the phone)',
                 ].join(' · ').toUpperCase(),
                 style: Skin.meta(context, size: 10.5),
               ),

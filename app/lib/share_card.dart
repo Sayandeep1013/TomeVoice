@@ -138,6 +138,9 @@ class _ShareSheet extends StatefulWidget {
 
 class _ShareSheetState extends State<_ShareSheet> {
   final _card = GlobalKey();
+
+  /// The card's layout width; shared pictures are 1080 pixels wide.
+  static const _cardWidth = 360.0;
   CardShape _shape = CardShape.post;
   bool _busy = false;
 
@@ -147,7 +150,7 @@ class _ShareSheetState extends State<_ShareSheet> {
     setState(() => _busy = true);
     try {
       // 1080 pixels wide, whatever the preview's size on screen.
-      final image = await boundary.toImage(pixelRatio: 1080 / boundary.size.width);
+      final image = await boundary.toImage(pixelRatio: 1080 / _cardWidth);
       final png = await image.toByteData(format: ui.ImageByteFormat.png);
       image.dispose();
       final dir = await _svc.shareDir();
@@ -178,12 +181,19 @@ class _ShareSheetState extends State<_ShareSheet> {
               onChanged: (s) => setState(() => _shape = s),
             ),
             const SizedBox(height: Gap.l),
+            // Always laid out at the same size, so a long quote fits the
+            // same way on every phone; the preview is that, scaled to fit.
             Center(
               child: ConstrainedBox(
                 constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.55, maxWidth: 360),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(Radii.card / 2),
-                  child: RepaintBoundary(key: _card, child: card),
+                child: FittedBox(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(Radii.card / 2),
+                    child: RepaintBoundary(
+                      key: _card,
+                      child: SizedBox(width: _cardWidth, height: _cardWidth / _shape.ratio, child: card),
+                    ),
+                  ),
                 ),
               ),
             ),

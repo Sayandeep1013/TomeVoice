@@ -70,6 +70,8 @@ void main() {
       const t = "He said, “Zorian’s idea—no.”";
       expect(wordAt(t, t.indexOf('Zorian') + 2), 'Zorian’s');
       expect(wordAt(t, t.indexOf(',')), 'said');
+      expect(wordAt('one two', 3), 'one', reason: 'a space means the word beside it');
+      expect(wordAt('—   —', 2), '');
       expect(wordAt(t, t.indexOf('idea') + 4), 'idea');
     });
   });
