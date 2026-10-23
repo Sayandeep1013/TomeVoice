@@ -252,12 +252,16 @@ class MainActivity : FlutterActivity() {
                 }
                 "restartApp" -> {
                     // After a restore every store must read the new files; a
-                    // fresh process is the one sure way.
-                    val intent = Intent(this, MainActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-                    startActivity(intent)
+                    // fresh process is the one sure way. The process must end
+                    // at once: given time, the new activity starts in this
+                    // process and dies with it (found on the phone).
                     result.success(null)
-                    main.postDelayed({ Runtime.getRuntime().exit(0) }, 150)
+                    startActivity(
+                        Intent.makeRestartActivityTask(
+                            android.content.ComponentName(this, MainActivity::class.java)
+                        )
+                    )
+                    Runtime.getRuntime().exit(0)
                 }
                 "keepScreenOn" -> {
                     if (call.argument<Boolean>("on") == true) {
