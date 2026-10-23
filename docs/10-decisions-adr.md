@@ -449,3 +449,27 @@ accent, and type as the subject rather than the interface.
 **Consequences.** About 2 MB of fonts (one variable file per family, upright only for the
 page faces since book text has no inline italics). Weights and optical sizes are set with
 font variations, because Flutter does not map `FontWeight` to a variable font's axes.
+
+## ADR-019
+**Web novels run LNReader's source plugins in QuickJS** — Accepted, 2026-10-23.
+
+**Context.** The developer wants NovelDokusha's flow (search sites, add a novel, get new
+chapters) in TomeVoice. NovelDokusha hard-codes 26 Kotlin scrapers; half of their English
+sites are dead or hijacked in 2026, and the project is unmaintained.
+
+**Decision.** Run LNReader plugins (MIT, 319 sources, fixed by their community almost
+daily) in an embedded QuickJS (`kodjodevf/flutter_qjs`, pinned by commit). Give them the
+real libraries they are written against (cheerio 1.0.0-rc.12, htmlparser2, dayjs), bundled
+once with esbuild, plus a host shim with LNReader's `require`. Only fetch and storage cross
+into Dart. Plugins run in a pool of background isolates.
+
+**Rejected.** Mangayomi's Dart re-implementation of cheerio: it breaks the madara,
+lightnovelwp and readnovelfull families. Own JSON selector rules: we would own every site's
+breakage. NovelDokusha's scrapers: dead sites, no maintainer.
+
+**Rights.** TomeVoice ships no list of sites. Users add source lists themselves, as in
+LNReader and Mihon; the Sources screen says the sites belong to their owners.
+
+**Consequences.** About 3 MB more APK (QuickJS, the bundle). QuickJS's native build cannot
+run on the developer's Windows PC without MSVC, so local checks stub the engine and CI tests
+it (handoff finding 16).
