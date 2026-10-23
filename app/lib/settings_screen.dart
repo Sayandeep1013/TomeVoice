@@ -177,9 +177,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         _Link(
                           icon: Icons.folder_copy_outlined,
                           title: 'Categories',
-                          subtitle: idx == null
-                              ? null
-                              : idx.categories.map((c) => c.name).join(', '),
+                          subtitle: idx?.categories.map((c) => c.name).join(', '),
                           onTap: () async {
                             await Navigator.of(context).push(MaterialPageRoute<void>(
                               builder: (_) => CategoriesScreen(store: widget.store),

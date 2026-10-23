@@ -161,9 +161,8 @@ class _BookScreenState extends State<BookScreen> {
     final l = _layout;
     final e = _entry;
     final idx = _index;
-    final category = idx == null
-        ? null
-        : idx.categories.where((c) => c.id == e.categoryIn(idx.categories, idx.defaultCategory)).firstOrNull;
+    final category =
+        idx?.categories.where((c) => c.id == e.categoryIn(idx.categories, idx.defaultCategory)).firstOrNull;
     final chapters = l == null ? const <int>[] : [for (var c = 0; c < l.chapters.length; c++) c];
     final list = l == null
         ? null
@@ -263,9 +262,8 @@ class _BookScreenState extends State<BookScreen> {
                     await _store.saveCursor(_entry.id, ReadingCursor.zero, 0);
                     await _refreshEntry();
                   case 'remove':
-                    if (mounted && await removeBook(context, _store, _entry) && mounted) {
-                      Navigator.of(context).maybePop();
-                    }
+                    final nav = Navigator.of(context);
+                    if (await removeBook(context, _store, _entry)) await nav.maybePop();
                 }
               },
               itemBuilder: (_) => [

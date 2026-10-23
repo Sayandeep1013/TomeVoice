@@ -685,7 +685,7 @@ class _VoicePickerState extends State<_VoicePicker> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SheetHeader('Voices', subtitle: 'Tap ▶ to hear one, tap a name to use it'),
+          const SheetHeader('Voices', subtitle: 'Tap ▶ to hear one, tap a name to use it'),
           SizedBox(
             height: 44,
             child: ListView(
