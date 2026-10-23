@@ -623,7 +623,9 @@ void showSnack(
       // A margin is only allowed on a floating bar; say so here rather than
       // relying on the theme.
       behavior: SnackBarBehavior.floating,
-      duration: Duration(seconds: long ? 8 : 3),
+      // A message with a button (Undo) would otherwise stay until dismissed.
+      persist: false,
+      duration: Duration(seconds: long ? 8 : (onAction == null ? 3 : 4)),
       margin: EdgeInsets.fromLTRB(Gap.l, 0, Gap.l, Gap.l + lift),
     ));
 }

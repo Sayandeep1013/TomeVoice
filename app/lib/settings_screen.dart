@@ -286,7 +286,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                         ChoiceRow<String?>(
                           options: [for (final p in SpeechPreset.all) (p.id, p.label)],
                           value: _prefs.presetId,
-                          minSegment: 200,
+                          minSegment: 96,
                           onChanged: (id) {
                             final p = SpeechPreset.all.firstWhere((x) => x.id == id);
                             _change(() {
