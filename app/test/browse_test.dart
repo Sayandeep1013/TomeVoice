@@ -154,4 +154,56 @@ void main() {
     expect(find.text('Install Novel Hall'), findsOneWidget);
     expect(find.textContaining('already on the phone still read'), findsOneWidget);
   });
+
+  testWidgets('chapters can be picked by a long press, then downloaded or removed together', (tester) async {
+    phone(tester);
+    final store = LibraryStore(tmp);
+    const plugin = PluginInfo(id: 'fake', name: 'Fake Site', site: 'https://fake.site/', lang: 'English', version: '1', url: 'u');
+    final id = LibraryStore.webId('fake', 'novel/1');
+    await tester.runAsync(() async {
+      await store.addWebNovel(
+        plugin,
+        SourceNovel(
+          path: 'novel/1',
+          name: 'Shadow',
+          chapters: [for (var i = 0; i < 4; i++) ChapterItem(name: 'Chapter ${i + 1}', path: 'ch/$i')],
+        ),
+      );
+      await store.saveChapter(id, 0, 'Chapter 1', '<p>Words to read in the first chapter.</p>');
+    });
+    await tester.pumpWidget(MaterialApp(
+      home: NovelScreen(store: store, plugin: plugin, path: 'novel/1', name: 'Shadow'),
+    ));
+    await settle(tester, () => find.text('Chapter 4').evaluate().isNotEmpty);
+
+    await tester.longPress(find.text('Chapter 2'));
+    await tester.pumpAndSettle();
+    expect(find.text('1 selected'), findsOneWidget);
+    expect(find.text('Download 1'), findsOneWidget);
+
+    // While picking, a tap adds a chapter instead of opening it.
+    await tester.tap(find.text('Chapter 1'));
+    await tester.pumpAndSettle();
+    expect(find.text('2 selected'), findsOneWidget);
+    expect(find.text('Download 1'), findsOneWidget, reason: 'chapter 1 is on the phone already');
+
+    await tester.tap(find.byTooltip('Remove 1 download'));
+    await settle(tester, () => find.text('Removed the download.').evaluate().isNotEmpty);
+    expect(store.hasChapter(id, 0), isFalse);
+    expect(find.text('2 selected'), findsNothing);
+    expect(find.byIcon(Icons.offline_pin_rounded), findsNothing);
+
+    // Select all, then Cancel leaves picking without leaving the page.
+    await tester.pump(const Duration(seconds: 6)); // the snack bar times out
+    await tester.pumpAndSettle();
+    await tester.longPress(find.text('Chapter 3'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Select all'));
+    await tester.pumpAndSettle();
+    expect(find.text('4 selected'), findsOneWidget);
+    await tester.tap(find.byTooltip('Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('4 selected'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
 }

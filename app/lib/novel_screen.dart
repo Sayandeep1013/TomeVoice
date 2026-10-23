@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:tomevoice_document/tomevoice_document.dart' show SourceKind;
 
 import 'book_actions.dart';
@@ -68,6 +69,15 @@ class _NovelScreenState extends State<NovelScreen> {
 
   /// Chapters being downloaded one by one from their rows.
   final _fetching = <int>{};
+
+  /// Chapters picked by a long press, for downloading or removing together.
+  final _picked = <int>{};
+  bool get _picking => _picked.isNotEmpty;
+
+  void _toggle(int i) {
+    HapticFeedback.selectionClick();
+    setState(() => _picked.contains(i) ? _picked.remove(i) : _picked.add(i));
+  }
 
   @override
   void initState() {
@@ -186,36 +196,34 @@ class _NovelScreenState extends State<NovelScreen> {
   }
 
   /// Download [count] chapters from [from] (the place reached, by default)
-  /// that are not on the phone yet, with progress and a Stop.
+  /// that are not on the phone yet.
   Future<void> _download(int count, {int? from}) async {
-    if (_downloading != null) return;
-    final e = await _ensureAdded(announce: false);
-    if (e == null || !mounted) return;
     final start = from ?? (_current < 0 ? 0 : _current);
-    final wanted = [
-      for (var i = start; i < start + count && i < _chapters.length; i++)
-        if (!_downloaded.contains(i)) i,
-    ];
+    await _downloadList([for (var i = start; i < start + count && i < _chapters.length; i++) i]);
+  }
+
+  /// Download those of [chapters] not on the phone yet, in order, with
+  /// progress and a Stop.
+  Future<void> _downloadList(Iterable<int> chapters) async {
+    if (_downloading != null) return;
+    final wanted = [for (final i in chapters) if (!_downloaded.contains(i)) i]..sort();
     if (wanted.isEmpty) {
       showSnack(context, 'Those chapters are already on the phone.');
       return;
     }
-    var done = 0;
+    final e = await _ensureAdded(announce: false);
+    if (e == null || !mounted) return;
     _stopDownload = false;
     setState(() => _downloading = 'Getting ready…');
     try {
-      await fetchChapters(
-        _store,
-        _id,
-        start,
-        count: count,
-        stop: () => _stopDownload,
-        onProgress: (c) {
-          done++;
-          if (mounted) setState(() => _downloading = 'Downloading $done of ${wanted.length} · chapter ${c + 1}');
-          unawaited(_refreshLocal());
-        },
-      );
+      for (var n = 0; n < wanted.length && !_stopDownload; n++) {
+        final c = wanted[n];
+        if (mounted) {
+          setState(() => _downloading = 'Downloading ${n + 1} of ${wanted.length} · chapter ${c + 1}');
+        }
+        await fetchChapters(_store, _id, c, count: 1);
+        unawaited(_refreshLocal());
+      }
       if (mounted) {
         showSnack(
             context, _stopDownload ? 'Stopped. What came down reads offline.' : 'Downloaded. Those chapters read offline now.');
@@ -225,6 +233,25 @@ class _NovelScreenState extends State<NovelScreen> {
     } finally {
       if (mounted) setState(() => _downloading = null);
       await _refreshLocal();
+    }
+  }
+
+  /// The picked chapters that are not on the phone, downloaded.
+  Future<void> _downloadPicked() async {
+    final picked = {..._picked};
+    setState(_picked.clear);
+    await _downloadList(picked);
+  }
+
+  /// The picked chapters' downloaded text, taken off the phone.
+  Future<void> _removePicked() async {
+    final gone = _picked.where(_downloaded.contains).toList();
+    setState(_picked.clear);
+    if (gone.isEmpty) return;
+    await _store.deleteChapters(_id, gone);
+    await _refreshLocal();
+    if (mounted) {
+      showSnack(context, gone.length == 1 ? 'Removed the download.' : 'Removed ${gone.length} downloads.');
     }
   }
 
@@ -262,103 +289,187 @@ class _NovelScreenState extends State<NovelScreen> {
         ..clear()
         ..addAll(reversed);
     }
-    return Scaffold(
-      body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
-        child: SafeArea(
-          bottom: false,
-          child: RefreshIndicator(
-            onRefresh: () => _load(pulled: true),
-            child: CustomScrollView(
-              slivers: [
-                SliverToBoxAdapter(child: _topBar(context)),
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(Gap.page, Gap.s, Gap.page, 0),
-                  sliver: SliverToBoxAdapter(child: _hero(context, novel)),
-                ),
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
-                  sliver: SliverToBoxAdapter(child: _actions(context)),
-                ),
-                if (novel?.summary != null)
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
-                    sliver: SliverToBoxAdapter(child: _blurb(context, novel!.summary!)),
-                  ),
-                if (novel != null && novel.genres.isNotEmpty)
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(Gap.page, Gap.l, Gap.page, 0),
-                    sliver: SliverToBoxAdapter(
-                      child: Wrap(spacing: 6, runSpacing: 6, children: [for (final g in novel.genres) TagChip(g)]),
-                    ),
-                  ),
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xxl, Gap.s, Gap.s),
-                  sliver: SliverToBoxAdapter(
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: SectionTitle(
-                            'Chapters',
-                            note: _chapters.isEmpty ? null : '${_chapters.length}',
+    return PopScope(
+      canPop: !_picking,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) setState(_picked.clear);
+      },
+      child: Scaffold(
+        body: DecoratedBox(
+          decoration: BoxDecoration(gradient: Skin.ground(context)),
+          child: SafeArea(
+            bottom: false,
+            child: Stack(
+              children: [
+                RefreshIndicator(
+                  onRefresh: () => _load(pulled: true),
+                  child: CustomScrollView(
+                    slivers: [
+                      SliverToBoxAdapter(child: _topBar(context)),
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(Gap.page, Gap.s, Gap.page, 0),
+                        sliver: SliverToBoxAdapter(child: _hero(context, novel)),
+                      ),
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
+                        sliver: SliverToBoxAdapter(child: _actions(context)),
+                      ),
+                      if (novel?.summary != null)
+                        SliverPadding(
+                          padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
+                          sliver: SliverToBoxAdapter(child: _blurb(context, novel!.summary!)),
+                        ),
+                      if (novel != null && novel.genres.isNotEmpty)
+                        SliverPadding(
+                          padding: const EdgeInsets.fromLTRB(Gap.page, Gap.l, Gap.page, 0),
+                          sliver: SliverToBoxAdapter(
+                            child: Wrap(spacing: 6, runSpacing: 6, children: [for (final g in novel.genres) TagChip(g)]),
                           ),
                         ),
-                        IconButton(
-                          tooltip: _newestFirst ? 'Oldest first' : 'Newest first',
-                          onPressed: () => setState(() => _newestFirst = !_newestFirst),
-                          icon: Icon(_newestFirst ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded),
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xxl, Gap.s, Gap.s),
+                        sliver: SliverToBoxAdapter(
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: SectionTitle(
+                                  'Chapters',
+                                  note: _chapters.isEmpty ? null : '${_chapters.length}',
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: _newestFirst ? 'Oldest first' : 'Newest first',
+                                onPressed: () => setState(() => _newestFirst = !_newestFirst),
+                                icon: Icon(_newestFirst ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded),
+                              ),
+                            ],
+                          ),
                         ),
-                      ],
+                      ),
+                      if (_downloading != null)
+                        SliverPadding(
+                          padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
+                          sliver: SliverToBoxAdapter(
+                            child: Row(
+                              children: [
+                                const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                                const SizedBox(width: Gap.m),
+                                Expanded(child: Text(_downloading!, style: Skin.label(context))),
+                                TextButton(
+                                  onPressed: _stopDownload ? null : () => setState(() => _stopDownload = true),
+                                  child: const Text('Stop'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      if (_error != null)
+                        SliverPadding(
+                          padding: const EdgeInsets.all(Gap.page),
+                          sliver: SliverToBoxAdapter(
+                            child: SourceProblem(
+                              error: _error!,
+                              onRetry: _load,
+                              more: OutlinedButton(onPressed: _openInBrowser, child: const Text('Open in browser')),
+                            ),
+                          ),
+                        )
+                      else if (_loading && _chapters.isEmpty)
+                        const SliverToBoxAdapter(
+                          child: Padding(
+                            padding: EdgeInsets.all(Gap.xxl),
+                            child: Center(child: CircularProgressIndicator()),
+                          ),
+                        )
+                      else
+                        SliverPadding(
+                          padding: const EdgeInsets.symmetric(horizontal: Gap.xs),
+                          sliver: SliverFixedExtentList(
+                            itemExtent: 60,
+                            delegate: SliverChildBuilderDelegate(
+                              childCount: order.length,
+                              (context, i) => _chapterRow(context, order[i]),
+                            ),
+                          ),
+                        ),
+                      SliverToBoxAdapter(
+                        child: SizedBox(height: Gap.xxl + 72 + MediaQuery.viewPaddingOf(context).bottom),
+                      ),
+                    ],
+                  ),
+                ),
+                Positioned(
+                  left: Gap.m,
+                  right: Gap.m,
+                  bottom: Gap.m + MediaQuery.viewPaddingOf(context).bottom,
+                  child: AnimatedSwitcher(
+                    duration: Motion.of(context, Motion.standard),
+                    switchInCurve: Motion.out,
+                    switchOutCurve: Motion.out,
+                    transitionBuilder: fadeRise,
+                    child: _picking ? _pickBar(context) : const SizedBox.shrink(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// What can be done with the picked chapters.
+  Widget _pickBar(BuildContext context) {
+    final toGet = _picked.where((i) => !_downloaded.contains(i)).length;
+    final toDrop = _picked.length - toGet;
+    final onDark = Skin.onDark(context);
+    return Center(
+      key: const ValueKey('picking'),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: Material(
+          color: Skin.darkOn(context),
+          elevation: 6,
+          borderRadius: BorderRadius.circular(Radii.card + 4),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(Gap.xs, Gap.xs, Gap.s, Gap.xs),
+            child: Row(
+              children: [
+                IconButton(
+                  tooltip: 'Cancel',
+                  icon: Icon(Icons.close_rounded, color: onDark),
+                  onPressed: () => setState(_picked.clear),
+                ),
+                Expanded(
+                  child: Text(
+                    '${_picked.length} selected',
+                    style: Skin.ui(size: 15, weight: FontWeight.w700, color: onDark),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Select all',
+                  icon: Icon(Icons.select_all_rounded, color: onDark),
+                  onPressed: _picked.length == _chapters.length
+                      ? null
+                      : () => setState(() => _picked.addAll([for (var i = 0; i < _chapters.length; i++) i])),
+                ),
+                IconButton(
+                  tooltip: toDrop == 0 ? 'Remove download' : 'Remove $toDrop download${toDrop == 1 ? '' : 's'}',
+                  icon: Icon(Icons.delete_outline_rounded, color: toDrop == 0 ? onDark.withValues(alpha: 0.3) : onDark),
+                  onPressed: toDrop == 0 ? null : _removePicked,
+                ),
+                const SizedBox(width: Gap.xs),
+                Flexible(
+                  child: FilledButton.icon(
+                    onPressed: toGet == 0 || _downloading != null ? null : _downloadPicked,
+                    icon: const Icon(Icons.download_rounded, size: 20),
+                    label: Text(
+                      toGet == 0 ? 'On the phone' : 'Download $toGet',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ),
-                if (_downloading != null)
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
-                    sliver: SliverToBoxAdapter(
-                      child: Row(
-                        children: [
-                          const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-                          const SizedBox(width: Gap.m),
-                          Expanded(child: Text(_downloading!, style: Skin.label(context))),
-                          TextButton(
-                            onPressed: _stopDownload ? null : () => setState(() => _stopDownload = true),
-                            child: const Text('Stop'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                if (_error != null)
-                  SliverPadding(
-                    padding: const EdgeInsets.all(Gap.page),
-                    sliver: SliverToBoxAdapter(
-                      child: SourceProblem(
-                        error: _error!,
-                        onRetry: _load,
-                        more: OutlinedButton(onPressed: _openInBrowser, child: const Text('Open in browser')),
-                      ),
-                    ),
-                  )
-                else if (_loading && _chapters.isEmpty)
-                  const SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.all(Gap.xxl),
-                      child: Center(child: CircularProgressIndicator()),
-                    ),
-                  )
-                else
-                  SliverPadding(
-                    padding: const EdgeInsets.symmetric(horizontal: Gap.xs),
-                    sliver: SliverFixedExtentList(
-                      itemExtent: 60,
-                      delegate: SliverChildBuilderDelegate(
-                        childCount: order.length,
-                        (context, i) => _chapterRow(context, order[i]),
-                      ),
-                    ),
-                  ),
-                SliverToBoxAdapter(child: SizedBox(height: Gap.xxl + MediaQuery.viewPaddingOf(context).bottom)),
               ],
             ),
           ),
@@ -544,19 +655,30 @@ class _NovelScreenState extends State<NovelScreen> {
     final read = _current >= 0 && i < _current;
     final have = _downloaded.contains(i);
     final release = _shortDate(c.releaseTime);
+    final picked = _picked.contains(i);
     return Material(
-      color: isCurrent ? Skin.amber.withValues(alpha: 0.14) : Colors.transparent,
+      color: picked
+          ? Skin.amber.withValues(alpha: 0.26)
+          : isCurrent
+              ? Skin.amber.withValues(alpha: 0.14)
+              : Colors.transparent,
       borderRadius: BorderRadius.circular(Radii.row),
       child: InkWell(
         borderRadius: BorderRadius.circular(Radii.row),
-        onTap: () => _read(chapter: i),
+        onTap: () => _picking ? _toggle(i) : _read(chapter: i),
+        onLongPress: () => _toggle(i),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: Gap.m),
           child: Row(
             children: [
               SizedBox(
                 width: 48,
-                child: Text('${i + 1}', style: Skin.meta(context, size: 11.5, color: isCurrent ? Skin.amber : null)),
+                child: picked
+                    ? Align(
+                        alignment: Alignment.centerLeft,
+                        child: Icon(Icons.check_circle_rounded, size: 22, color: Skin.amber),
+                      )
+                    : Text('${i + 1}', style: Skin.meta(context, size: 11.5, color: isCurrent ? Skin.amber : null)),
               ),
               Expanded(
                 child: Column(

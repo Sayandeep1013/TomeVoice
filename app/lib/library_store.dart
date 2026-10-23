@@ -229,6 +229,18 @@ class LibraryStore {
 
   String _chapterFile(String id, int index) => '${bookDir(id)}/ch/$index.json';
 
+  /// Take the downloaded text of chapters [indexes] of [id] off the phone.
+  /// They stay in the chapter list and are fetched again when read.
+  Future<void> deleteChapters(String id, Iterable<int> indexes) async {
+    for (final i in indexes) {
+      try {
+        await File(_chapterFile(id, i)).delete();
+      } on FileSystemException {
+        // Not downloaded.
+      }
+    }
+  }
+
   /// Take [id] off the history (and the Continue card) without touching the
   /// place it is saved at.
   Future<void> forgetOpened(String id) async {
