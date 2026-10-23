@@ -187,7 +187,7 @@ class _BookScreenState extends State<BookScreen> {
     final wide = size.width > size.height && size.width >= 720;
     final bottomGap = SliverToBoxAdapter(child: SizedBox(height: Gap.xxl + MediaQuery.viewPaddingOf(context).bottom));
     final info = <Widget>[
-      SliverToBoxAdapter(child: _topBar(context)),
+      PinnedBar(child: _topBar(context)),
       SliverPadding(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.s, Gap.page, 0),
         sliver: SliverToBoxAdapter(child: _hero(context, category)),

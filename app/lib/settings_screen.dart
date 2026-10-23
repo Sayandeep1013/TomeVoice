@@ -25,6 +25,7 @@ import 'speech_service.dart';
 import 'theme.dart';
 import 'ui.dart';
 import 'updates.dart';
+import 'update_flow.dart';
 import 'voices.dart';
 
 const _svc = SpeechService();
@@ -649,8 +650,8 @@ class _AboutScreenState extends State<AboutScreen> {
           context,
           'TomeVoice ${update.version} is out.',
           long: true,
-          actionLabel: 'Get it',
-          onAction: () => _svc.openUrl(update.url),
+          actionLabel: 'Install',
+          onAction: () => unawaited(offerUpdate(context, update)),
         );
       }
     } on Object {

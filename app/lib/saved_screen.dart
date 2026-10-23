@@ -217,12 +217,23 @@ class _SavedScreenState extends State<SavedScreen> {
                         ],
                       ),
                     ),
-                    if (m.kind == MarkKind.quote)
-                      IconButton(
-                        tooltip: 'Share',
-                        icon: Icon(Icons.ios_share_rounded, size: 20, color: Skin.accentOf(context)),
-                        onPressed: () => showQuoteShare(context, m, cover: book?.shownCover, author: book?.authorLine),
-                      ),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (m.kind == MarkKind.quote)
+                          IconButton(
+                            tooltip: 'Share',
+                            icon: Icon(Icons.ios_share_rounded, size: 20, color: Skin.accentOf(context)),
+                            onPressed: () => showQuoteShare(context, m, cover: book?.shownCover, author: book?.authorLine),
+                          ),
+                        // Swiping away works too, but nothing on screen says so.
+                        IconButton(
+                          tooltip: 'Remove',
+                          icon: Icon(Icons.delete_outline_rounded, size: 20, color: Skin.inkFaintOn(context)),
+                          onPressed: () => unawaited(_delete(m)),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),

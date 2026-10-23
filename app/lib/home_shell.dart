@@ -32,6 +32,7 @@ import 'updates.dart';
 import 'updates_screen.dart';
 import 'theme.dart';
 import 'ui.dart';
+import 'update_flow.dart';
 
 /// The app around the screens: storage and settings are opened once here,
 /// and the menu (top left of the library) moves between them.
@@ -191,8 +192,8 @@ class _HomeShellState extends State<HomeShell> {
       context,
       'TomeVoice ${update.version} is out.',
       long: true,
-      actionLabel: 'See what\'s new',
-      onAction: () => const SpeechService().openUrl(update.url),
+      actionLabel: 'Install',
+      onAction: () => unawaited(offerUpdate(context, update)),
     );
     await AppUpdates.markTold(root, update);
   }

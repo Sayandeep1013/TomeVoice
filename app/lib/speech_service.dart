@@ -276,6 +276,14 @@ class SpeechService {
   /// Where pictures to share are written (served to other apps from there).
   Future<String?> shareDir() => _channel.invokeMethod<String>('shareDir');
 
+  /// Whether this app runs as 64-bit code (so wants the 64-bit APK).
+  Future<bool> is64Bit() async => await _channel.invokeMethod<bool>('is64Bit') ?? true;
+
+  /// Open Android's installer for the APK at [path] (in [shareDir]):
+  /// "started", or "permission" when Android first has to be told TomeVoice
+  /// may install apps (its setting is opened instead).
+  Future<String?> installApk(String path) => _channel.invokeMethod<String>('installApk', {'path': path});
+
   /// Android's share sheet for the picture at [path], with [text] beside it.
   Future<void> shareImage(String path, {String? text}) =>
       _channel.invokeMethod<void>('shareImage', {'path': path, 'text': text});

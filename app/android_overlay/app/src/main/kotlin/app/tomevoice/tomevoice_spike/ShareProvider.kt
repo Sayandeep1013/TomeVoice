@@ -12,7 +12,8 @@ import java.io.FileNotFoundException
 
 /**
  * Hands a picture made in the app (a quote card) to the app it is shared
- * with, read-only and only for that share.
+ * with, or a downloaded update to Android's installer: read-only and only
+ * for that one use.
  *
  * Android will not let a file path cross apps; a content:// address served
  * from here does. Only files in cache/share are served, so nothing else in
@@ -44,8 +45,11 @@ class ShareProvider : ContentProvider() {
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor =
         ParcelFileDescriptor.open(fileFor(uri), ParcelFileDescriptor.MODE_READ_ONLY)
 
-    override fun getType(uri: Uri): String =
-        if (uri.lastPathSegment?.endsWith(".png") == true) "image/png" else "application/octet-stream"
+    override fun getType(uri: Uri): String = when {
+        uri.lastPathSegment?.endsWith(".png") == true -> "image/png"
+        uri.lastPathSegment?.endsWith(".apk") == true -> "application/vnd.android.package-archive"
+        else -> "application/octet-stream"
+    }
 
     // Some apps ask for the name and size before reading.
     override fun query(

@@ -274,6 +274,31 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "shareDir" -> result.success(ShareProvider.dir(cacheDir).absolutePath)
+                "is64Bit" -> result.success(android.os.Process.is64Bit())
+                "installApk" -> {
+                    // A downloaded update (in cache/share) to Android's
+                    // installer, which asks the reader to confirm. The first
+                    // time, Android must be told TomeVoice may install apps.
+                    if (!packageManager.canRequestPackageInstalls()) {
+                        startActivity(
+                            Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
+                                .setData(android.net.Uri.parse("package:$packageName"))
+                        )
+                        result.success("permission")
+                    } else {
+                        try {
+                            val file = File(call.argument<String>("path").orEmpty())
+                            val uri = ShareProvider.uriFor("$packageName.share", file)
+                            startActivity(Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(uri, "application/vnd.android.package-archive")
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            })
+                            result.success("started")
+                        } catch (e: Exception) {
+                            result.error("install", e.message, null)
+                        }
+                    }
+                }
                 "widgetLaunch" -> {
                     result.success(pendingWidget)
                     pendingWidget = null

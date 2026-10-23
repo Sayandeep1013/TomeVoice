@@ -325,7 +325,7 @@ class _NovelScreenState extends State<NovelScreen> {
       child: SizedBox(height: Gap.xxl + 72 + MediaQuery.viewPaddingOf(context).bottom),
     );
     final info = <Widget>[
-      SliverToBoxAdapter(child: _topBar(context)),
+      PinnedBar(child: _topBar(context)),
       SliverPadding(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.s, Gap.page, 0),
         sliver: SliverToBoxAdapter(child: _hero(context, novel)),
