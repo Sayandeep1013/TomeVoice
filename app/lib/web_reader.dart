@@ -186,6 +186,7 @@ class _WebNovelReaderState extends State<WebNovelReader> {
         onReachedEnd: _onEnd,
         onChapterChanged: _onChapter,
         progressOf: _progress,
+        positionOf: (u) => '${layout.units[u].sectionIndex + 1}/$_total',
         endLabel: layout.isEmpty || layout.units.last.sectionIndex + 1 >= _total ? 'Check for new chapters' : 'Next chapter',
       );
     }

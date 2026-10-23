@@ -174,6 +174,7 @@ class ReaderScreen extends StatefulWidget {
     this.onChapterChanged,
     this.progressOf,
     this.endLabel,
+    this.positionOf,
   });
 
   final ReadingLayout layout;
@@ -195,6 +196,10 @@ class ReaderScreen extends StatefulWidget {
 
   /// The button at the end of the page when [onReachedEnd] is set.
   final String? endLabel;
+
+  /// "12/340" for unit [u] in the whole work, when this layout holds only
+  /// part of it (a web novel's downloaded chapters).
+  final String Function(int u)? positionOf;
 
   /// Where the book's pictures were stored at import.
   final String? bookDir;
@@ -444,6 +449,14 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   void _goChapter(int delta) {
+    final more = widget.onReachedEnd;
+    if (delta > 0 && more != null && _l.chapterOfUnit(_cursor.value) >= _l.chapters.length - 1) {
+      // Past what is here: the next chapters are still on the site.
+      final s = _player.state.value;
+      unawaited(_persist());
+      unawaited(more(playing: s == PlayState.playing || s == PlayState.loading));
+      return;
+    }
     final c = (_l.chapterOfUnit(_cursor.value) + delta).clamp(0, _l.chapters.length - 1);
     unawaited(_goTo(_l.chapterFirstUnit[c]));
   }
@@ -663,6 +676,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                 onNextSentence: () => _goTo(_cursor.value + 1),
                 onPrevChapter: () => _goChapter(-1),
                 onNextChapter: () => _goChapter(1),
+                moreAfter: widget.onReachedEnd != null,
                 onSeekInChapter: (u) => _goTo(u),
                 onSpeed: () => showListenSheet(context, _listen, focus: ListenFocus.speed),
                 onVoice: () => showListenSheet(context, _listen),
@@ -713,8 +727,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                         builder: (context, u, _) {
                           final c = _l.chapterOfUnit(u);
                           return Text(
-                            _l.chapters.length > 1
-                                ? '${_l.chapterTitle(c)}  ·  ${c + 1}/${_l.chapters.length}'
+                            _l.chapters.length > 1 || widget.positionOf != null
+                                ? '${_l.chapterTitle(c)}  ·  ${widget.positionOf?.call(u) ?? '${c + 1}/${_l.chapters.length}'}'
                                     .toUpperCase()
                                 : (_book.metadata.authorLine.isEmpty
                                     ? _book.source.name.toUpperCase()
@@ -1140,6 +1154,7 @@ class _PlayerBar extends StatelessWidget {
     required this.onNextSentence,
     required this.onPrevChapter,
     required this.onNextChapter,
+    this.moreAfter = false,
     required this.onSeekInChapter,
     required this.onSpeed,
     required this.onVoice,
@@ -1156,6 +1171,9 @@ class _PlayerBar extends StatelessWidget {
   final VoidCallback onNextSentence;
   final VoidCallback onPrevChapter;
   final VoidCallback onNextChapter;
+
+  /// Chapters follow the last one here (a web novel's, still on the site).
+  final bool moreAfter;
   final ValueChanged<int> onSeekInChapter;
   final VoidCallback onSpeed;
   final VoidCallback onVoice;
@@ -1222,7 +1240,7 @@ class _PlayerBar extends StatelessWidget {
                   _icon(context, Icons.fast_forward_rounded, 'Next sentence',
                       u < layout.units.length - 1 ? onNextSentence : null),
                   _icon(context, Icons.skip_next_rounded, 'Next chapter',
-                      chapter < layout.chapters.length - 1 ? onNextChapter : null),
+                      chapter < layout.chapters.length - 1 || moreAfter ? onNextChapter : null),
                 ],
               ),
             ],

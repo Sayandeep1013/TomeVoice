@@ -170,6 +170,16 @@ class SourceNovel {
   /// Plugins whose chapter list is paged say how many pages there are.
   final int? totalPages;
 
+  /// "AdventureFantasyMystery", as some sites' tag links read when their
+  /// text is joined, as the words it was. Only when every part is a word
+  /// of four letters or more, so "LitRPG" and "GameLit" stay whole.
+  static List<String> unglue(String genre) {
+    if (genre.contains(' ')) return [genre];
+    final parts = genre.split(RegExp(r'(?<=[a-z])(?=[A-Z])'));
+    if (parts.length < 2 || parts.any((p) => p.length < 4)) return [genre];
+    return parts;
+  }
+
   static SourceNovel fromJs(Object? o, {required String path}) {
     final m = o is Map ? o : const {};
     final genres = m['genres'];
@@ -181,7 +191,10 @@ class SourceNovel {
       summary: _clean(m['summary']),
       status: _clean(m['status']),
       genres: genres is String
-          ? [for (final g in genres.split(RegExp(r'\s*,\s*'))) if (g.isNotEmpty) g]
+          ? [
+              for (final g in genres.split(RegExp(r'\s*,\s*')))
+                if (g.isNotEmpty) ...unglue(g),
+            ]
           : genres is List
               ? [for (final g in genres) g.toString()]
               : const [],

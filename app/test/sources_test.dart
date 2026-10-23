@@ -160,6 +160,14 @@ void main() {
     expect(jsonDecode(stored['last'] as String)['value'], 'novel/1');
   });
 
+  test('tag names a site ran together are split, short ones kept whole', () {
+    expect(SourceNovel.unglue('AdventureFantasyMystery'), ['Adventure', 'Fantasy', 'Mystery']);
+    expect(SourceNovel.unglue('LitRPG'), ['LitRPG']);
+    expect(SourceNovel.unglue('GameLit'), ['GameLit']);
+    expect(SourceNovel.unglue('Slice of Life'), ['Slice of Life']);
+    expect(SourceNovel.fromJs({'genres': 'Action, RomanceDrama'}, path: 'p').genres, ['Action', 'Romance', 'Drama']);
+  });
+
   test('versions compare numerically', () {
     expect(compareVersions('1.2.10', '1.2.9'), greaterThan(0));
     expect(compareVersions('2.0', '2.0.0'), 0);
