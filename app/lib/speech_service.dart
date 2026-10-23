@@ -268,6 +268,18 @@ class SpeechService {
   Future<void> shareImage(String path, {String? text}) =>
       _channel.invokeMethod<void>('shareImage', {'path': path, 'text': text});
 
+  /// What a tapped widget asked for (`book`, `play`, `page`), once.
+  Future<Map<String, Object?>?> widgetLaunch() async {
+    try {
+      return await _channel.invokeMapMethod<String, Object?>('widgetLaunch');
+    } on Object {
+      return null;
+    }
+  }
+
+  /// Redraw the home-screen widgets (the library or stats changed).
+  Future<void> refreshWidgets() => _quiet('refreshWidgets');
+
   /// Start the app again in a fresh process (after a restore).
   Future<void> restartApp() => _quiet('restartApp');
 

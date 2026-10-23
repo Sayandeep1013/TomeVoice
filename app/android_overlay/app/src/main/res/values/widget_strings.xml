@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_face">The book you are reading</string>
+    <string name="widget_play">Play or pause</string>
+    <string name="widget_player_small">Now reading: the cover, the title and play</string>
+    <string name="widget_player_wide">Now reading: cover, chapter, progress and play</string>
+    <string name="widget_streak_small">Your streak and this week</string>
+    <string name="widget_streak_wide">Your streak and eighteen weeks of days</string>
+</resources>

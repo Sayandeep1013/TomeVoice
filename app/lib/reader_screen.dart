@@ -25,6 +25,7 @@ import 'share_card.dart';
 import 'sources/source_engine.dart';
 import 'scheduler.dart';
 import 'speech_service.dart';
+import 'stats.dart';
 import 'theme.dart';
 import 'ui.dart';
 import 'voices.dart';
@@ -262,6 +263,13 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// This book in the library (web source, author), once looked up.
   LibraryEntry? _entry;
 
+  /// Reading time: counted every [_tick] as listening (playing) or reading
+  /// (scrolled in the last minute), from the time actually passed.
+  Timer? _statsTimer;
+  DateTime _lastTick = DateTime.now();
+  DateTime? _lastScroll;
+  int _statsUnit = -1;
+
   /// Search matches being stepped through, and which one is shown.
   List<SearchHit> _hits = const [];
   int _hit = 0;
@@ -303,6 +311,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     ReadingRules.instance.changes.addListener(_onRules);
     unawaited(_loadPrefs());
     unawaited(_loadCover());
+    _statsTimer = Timer.periodic(const Duration(seconds: 15), (_) => _countTime());
     if (widget.autoplay) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _togglePlay());
     }
@@ -365,6 +374,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _persistTimer?.cancel();
     _restartTimer?.cancel();
     _sleepTimer?.cancel();
+    _statsTimer?.cancel();
+    _countTime();
+    unawaited(StatsStore.instance.flush());
     unawaited(_persist());
     unawaited(_events?.cancel());
     _catalog.removeListener(_onCatalog);
@@ -379,6 +391,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
       unawaited(_persist());
+      _countTime();
+      unawaited(StatsStore.instance.flush());
     }
   }
 
@@ -687,7 +701,32 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   int _lastSection = -1;
 
+  /// Time since the last count, to listening or reading. A gap longer than a
+  /// tick (the phone asleep with nothing playing) is not counted.
+  void _countTime() {
+    final now = DateTime.now();
+    final passed = now.difference(_lastTick);
+    _lastTick = now;
+    if (passed > const Duration(seconds: 20) || _l.isEmpty) return;
+    if (_player.isPlaying) {
+      StatsStore.instance.addTime(_book.id, passed, listening: true);
+    } else if (_lastScroll != null && now.difference(_lastScroll!) < const Duration(minutes: 1)) {
+      StatsStore.instance.addTime(_book.id, passed, listening: false);
+    }
+  }
+
+  /// A sentence heard to its end (reading moved on by one while playing),
+  /// and a chapter finished (the next one begun).
+  void _countProgress(int u) {
+    final prev = _statsUnit;
+    _statsUnit = u;
+    if (prev < 0 || u != prev + 1 || !_player.isPlaying || _l.isEmpty) return;
+    StatsStore.instance.addWords(_l.wordsBefore[u] - _l.wordsBefore[prev]);
+    if (_l.chapterOfUnit(u) == _l.chapterOfUnit(prev) + 1) StatsStore.instance.addChapter();
+  }
+
   void _onCursor() {
+    _countProgress(_cursor.value);
     final changed = widget.onChapterChanged;
     if (changed != null && !_l.isEmpty) {
       final section = _l.units[_cursor.value.clamp(0, _l.units.length - 1)].sectionIndex;
@@ -736,6 +775,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   bool _onScrollNotification(ScrollNotification n) {
+    if (n is ScrollUpdateNotification && n.dragDetails != null) _lastScroll = DateTime.now();
     if (n is ScrollStartNotification && n.dragDetails != null && !_programmaticScroll) {
       _detached.value = true;
     }

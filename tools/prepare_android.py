@@ -63,6 +63,62 @@ SERVICE = """        <service
             android:foregroundServiceType="mediaPlayback" />
 """
 
+# The home-screen widgets (Widgets.kt) and the screen that picks a widget's book.
+WIDGETS = """        <receiver
+            android:name=".PlayerWidget"
+            android:exported="true"
+            android:label="Now reading">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_player_small_info" />
+        </receiver>
+        <receiver
+            android:name=".PlayerWidgetWide"
+            android:exported="true"
+            android:label="Now reading (wide)">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_player_wide_info" />
+        </receiver>
+        <receiver
+            android:name=".StreakWidget"
+            android:exported="true"
+            android:label="Streak">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_streak_small_info" />
+        </receiver>
+        <receiver
+            android:name=".StreakWidgetWide"
+            android:exported="true"
+            android:label="Streak (wide)">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_streak_wide_info" />
+        </receiver>
+        <activity
+            android:name=".WidgetConfigActivity"
+            android:exported="true"
+            android:label="Show on the widget"
+            android:theme="@android:style/Theme.DeviceDefault.Dialog">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+"""
+
 # Serves pictures made to share (quote cards) to the app they are shared with.
 PROVIDER = """        <provider
             android:name=".ShareProvider"
@@ -126,6 +182,10 @@ def patch_manifest(path: Path) -> str:
             raise SystemExit("manifest: no </application>")
         text = text.replace("</application>", SERVICE + "    </application>", 1)
         notes.append("service")
+
+    if ".PlayerWidget" not in text:
+        text = text.replace("</application>", WIDGETS + "    </application>", 1)
+        notes.append("widgets")
 
     if ".ShareProvider" not in text:
         text = text.replace("</application>", PROVIDER + "    </application>", 1)
