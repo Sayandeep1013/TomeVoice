@@ -278,6 +278,20 @@ class MainActivity : FlutterActivity() {
                     result.success(pendingWidget)
                     pendingWidget = null
                 }
+                "pinWidget" -> {
+                    // Ask the launcher to put a widget on the home screen
+                    // (Android shows its own "Add to home screen" sheet).
+                    val mgr = getSystemService(android.appwidget.AppWidgetManager::class.java)
+                    val cls = when (call.argument<String>("kind")) {
+                        "playerWide" -> PlayerWidgetWide::class.java
+                        "streak" -> StreakWidget::class.java
+                        "streakWide" -> StreakWidgetWide::class.java
+                        else -> PlayerWidget::class.java
+                    }
+                    val ok = Build.VERSION.SDK_INT >= 26 && mgr != null && mgr.isRequestPinAppWidgetSupported &&
+                        mgr.requestPinAppWidget(android.content.ComponentName(this, cls), null, null)
+                    result.success(ok)
+                }
                 "refreshWidgets" -> {
                     Widgets.refreshAll(this)
                     result.success(null)

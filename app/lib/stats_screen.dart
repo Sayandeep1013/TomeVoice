@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'book_card.dart';
 import 'library_store.dart';
+import 'speech_service.dart';
 import 'stats.dart';
 import 'theme.dart';
 import 'ui.dart';
@@ -119,6 +120,12 @@ class _StatsScreenState extends State<StatsScreen> {
                       const SizedBox(height: Gap.s),
                       for (final e in top.take(5)) _bookRow(context, e.key, e.value),
                     ],
+                    const SizedBox(height: Gap.l),
+                    OutlinedButton.icon(
+                      onPressed: () => addWidget(context, 'streak'),
+                      icon: const Icon(Icons.widgets_outlined, size: 18),
+                      label: const Text('Put the streak on your home screen'),
+                    ),
                     const SizedBox(height: Gap.l),
                     Text(
                       'A day counts toward the streak with ${StatsStore.goal.inMinutes} minutes of listening or reading. '
@@ -327,4 +334,17 @@ class _DaysPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_DaysPainter old) => old.days.join() != days.join() || old.color != color;
+}
+
+/// Ask the launcher to add a TomeVoice widget ([kind]: player, playerWide,
+/// streak, streakWide), or say how to add one by hand.
+Future<void> addWidget(BuildContext context, String kind) async {
+  final ok = await const SpeechService().pinWidget(kind);
+  if (!ok && context.mounted) {
+    showSnack(
+      context,
+      'Press and hold an empty spot on your home screen, then Widgets → TomeVoice.',
+      long: true,
+    );
+  }
 }

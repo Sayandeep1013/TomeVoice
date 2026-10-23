@@ -289,6 +289,16 @@ class SpeechService {
     }
   }
 
+  /// Ask the launcher to add a widget: player, playerWide, streak or
+  /// streakWide. False when the launcher cannot.
+  Future<bool> pinWidget(String kind) async {
+    try {
+      return await _channel.invokeMethod<bool>('pinWidget', {'kind': kind}) ?? false;
+    } on Object {
+      return false;
+    }
+  }
+
   /// Redraw the home-screen widgets (the library or stats changed).
   Future<void> refreshWidgets() => _quiet('refreshWidgets');
 

@@ -20,6 +20,7 @@ import 'prefs.dart';
 import 'rules_screen.dart';
 import 'sources/source_engine.dart';
 import 'sources_screen.dart';
+import 'stats_screen.dart' show addWidget;
 import 'speech_service.dart';
 import 'theme.dart';
 import 'ui.dart';
@@ -412,6 +413,18 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           minSegment: 84,
                           onChanged: (v) => _change(() => _prefs.sort = v),
                         ),
+                      ],
+                    ),
+                    _Group(
+                      title: 'Home screen',
+                      children: [
+                        for (final (kind, icon, title, sub) in const [
+                          ('player', Icons.album_outlined, 'Now reading', 'The cover in a ring of dots, and play'),
+                          ('playerWide', Icons.view_agenda_outlined, 'Now reading, wide', 'Cover, chapter, progress and play'),
+                          ('streak', Icons.local_fire_department_outlined, 'Streak', 'Your streak and this week'),
+                          ('streakWide', Icons.grid_view_rounded, 'Streak, wide', 'Your streak and eighteen weeks'),
+                        ])
+                          _Link(icon: icon, title: title, subtitle: sub, onTap: () => addWidget(context, kind)),
                       ],
                     ),
                     _Group(
