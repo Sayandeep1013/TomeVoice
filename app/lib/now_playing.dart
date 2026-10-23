@@ -78,10 +78,23 @@ class NowPlayingScreen extends StatelessWidget {
             SafeArea(
               child: OrientationBuilder(
                 builder: (context, orientation) => orientation == Orientation.landscape
-                    ? Row(
+                    ? Stack(
                         children: [
-                          Expanded(flex: 2, child: Center(child: _art(context))),
-                          Expanded(flex: 3, child: _panel(context, compact: true)),
+                          Row(
+                            children: [
+                              Expanded(flex: 2, child: Center(child: _art(context))),
+                              Expanded(flex: 3, child: _panel(context, compact: true)),
+                            ],
+                          ),
+                          Positioned(
+                            left: Gap.xs,
+                            top: Gap.xs,
+                            child: IconButton(
+                              tooltip: 'Close',
+                              onPressed: () => Navigator.of(context).maybePop(),
+                              icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 32, color: Colors.white),
+                            ),
+                          ),
                         ],
                       )
                     : Column(
