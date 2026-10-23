@@ -4,7 +4,39 @@
 
 ---
 
-## 0. Checkpoint (2026-10-24): 1.0 merged, release after the last phone checks
+## 0. Checkpoint (2026-10-24, night): 1.0.1 released
+
+**1.0.0 and 1.0.1 are released** (1.0.1 is Latest). 1.0.1 added widening a quote and a
+note on it (`quote_sheet.dart`), Saved on each book's and novel's page
+(`BookSavedSection`), hearing a natural voice's Piper sample before downloading it
+(`NeuralVoice.sampleUrl`, native `playUrl`), and the fixes from three audits (security,
+bugs, UI). **Installing an update from inside the app was verified on the phone,
+1.0.0 to 1.0.1**: the offer, the download, Android's one-time "Allow from this source",
+the installer, a Play Protect scan ("looks safe"), and the app reopening on 1.0.1 with
+the library intact.
+
+- **New safeguards:** user data files are written beside and renamed over, one write at
+  a time (`safe_file.dart`); restored book ids must look like book ids
+  (`LibraryStore.isBookId`); `app_update.json` is never backed up or restored, only
+  APKs from this repository's releases are offered, and `installApk` refuses an APK that
+  is not this package (and this key, when Android can read it).
+- **Audit findings not fixed yet (next):**
+  - The library, including `sources/cookies.json` and plugin JS, is on external app
+    storage. Android 11+ isolates it, but on 8-10 an app with storage permission could
+    read cookies or change plugins. Move `sources/` and `app_update.json` to `filesDir`.
+  - CI supply chain: commit `pubspec.lock` and use `--enforce-lockfile`, pin actions
+    by SHA, give the token `contents: read` except for releasing, and decode the
+    signing key just before `flutter build`.
+  - Web-novel plugins share one QuickJS context and one cookie jar, with no host
+    limits. Isolate them per plugin, send cookies only to their site, and block
+    private addresses.
+  - Library index mutations are serialised per write but not per read-modify-write,
+    so a lost update is still possible in a narrow race.
+  - Minor UI: edge-fade ShaderMasks over whole lists (scroll cost), the Undo snack
+    over Now Playing's scrubber, the shelf's scroll key including the book count, and
+    week bars at very large text.
+
+## 0-. Earlier the same day: 1.0 merged, release after the last phone checks
 
 Released since v0.5.0: **0.5.1** (backup and restore, update check), **0.6.0** (the
 permanent app id `app.tomevoice`, a 32-bit APK), **0.7.0** (book colours from covers,
