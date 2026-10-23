@@ -4,24 +4,42 @@
 
 ---
 
-## 0a. Later the same day: branch `media-card` (not merged yet)
+## 0. Checkpoint (2026-10-23, evening): v0.5.0
 
-- **Media card** (the shade's player, Android 13+): the TomeVoice mark top left (the old
-  small icon was a play/pause sign the wrong way round), the cover as its picture and
-  colours, a seek bar through the chapter (words at 165 wpm), a speed button (0.75 to 2x,
-  icons drawn from Figtree), previous/next by chapter. Moving from the card while paused
-  keeps it up ("parked"). Verified on the phone: all of it except dragging the seek bar.
-- **Verified on the phone:** per-chapter download, long-press multi-select, batch download
-  with progress and Stop, removing picked downloads.
-- **Fixed from that testing:** a novel whose source is not installed (Deep Sea Embers,
-  ReadNovelFull) showed a raw `PathNotFoundException` on pull-to-check; it now offers
-  Install. The pick bar's button no longer reads "Dow...".
-- The phone has this branch's CI build installed.
+Everything is on `main` and released as **v0.5.0**. The `media-card` branch was merged
+and deleted.
 
-## 0. Checkpoint (2026-10-23, end of session)
+- **Media card** (the shade's and lock screen's player, Android 13+), drawn from the
+  MediaSession by the system (`ReadAloudService.kt`):
+  - the TomeVoice mark top left (`ic_stat_tomevoice`). The old small icon was a play or
+    pause sign the wrong way round, and it read as a second button.
+  - the cover as its picture; the system takes the card's colours from it. Decoded once
+    per book, at most 480 px on its long side, RGB_565 (the session crosses processes).
+  - a seek bar through the chapter, estimated from words at 165 wpm and the speed (the
+    same estimate as "time left" under the player). Dragging maps back to a sentence.
+  - a speed button (custom action) stepping through `speedPresets` (0.75 to 2x). Its
+    icons are the numbers, drawn from Figtree into `drawable-*dpi/ic_speed_*.png`;
+    other speeds show the Material speed icon.
+  - previous/next by chapter. Previous restarts the chapter after its first 3 seconds.
+  - moving from the card while paused stops the player, but the card stays up, paused,
+    at the new place (`_parked` in `reader_screen.dart`).
+  - a new sentence only updates the playback state; the notification is rebuilt only
+    when what it shows changes. The notification permission is asked once per launch.
+- **Verified on the phone:** all of the card except dragging its seek bar; per-chapter
+  download, long-press multi-select, batch download with progress and Stop, and removing
+  picked downloads.
+- **Fixed from that testing:** a novel whose source is not installed (there: Deep Sea
+  Embers, from ReadNovelFull) showed a raw `PathNotFoundException` when pulled to check.
+  The novel page now raises `MissingSourceException`, and checks and downloads say so
+  with an Install button (`installMissingSource` in `browser_check.dart`). The chapter
+  pick bar's button no longer reads "Dow...".
+- **Still not verified on a device:** the fresh-install shelf (`starter.dart`).
+- **Next:** the ideas and priorities in [17-step-back-review.md](17-step-back-review.md).
 
-**Stopped here on purpose** (the developer needed the machine). Everything is on `main`
-and released as **v0.4.0**; `m1-new-look` equals `main`.
+## 0b. Earlier checkpoint (2026-10-23, v0.4.0)
+
+**Stopped here on purpose** (the developer needed the machine). Everything was on `main`
+and released as **v0.4.0**; `m1-new-look` equalled `main`.
 
 - **On the developer's phone** (Nothing A059, adb `00158351M001200`): v0.4.0 installed. Their
   library is their own; do not reorganise it, and never re-add "Reborn In A World of Chastity
@@ -43,7 +61,8 @@ and released as **v0.4.0**; `m1-new-look` equals `main`.
 - **Not verified on a device:**
   - first-run seeding (`starter.dart`), which needs a fresh install and could not be tested
     without wiping the phone; the bundled EPUB import is unit-tested
-  - chapter multi-select and per-chapter downloads on the real phone (widget-tested)
+  - chapter multi-select and per-chapter downloads on the real phone (widget-tested;
+    since verified, see section 0)
 - **Open, next session:**
   1. Check the fresh-install shelf on a second device or an emulator.
   2. The priorities in [17-step-back-review.md](17-step-back-review.md), starting with the
@@ -53,6 +72,9 @@ and released as **v0.4.0**; `m1-new-look` equals `main`.
   CI: `gh workflow run build.yml --ref <branch>`).
 
 ## 1. Where the project is
+
+**As of 2026-10-23, evening** (v0.5.0): the media card above, and the fixes from testing
+on the phone.
 
 **As of 2026-10-23** (v0.4.0, branch `m1-new-look`, merged to `main` for the release): a
 full interface pass, web novels from LNReader sources, and new-chapter updates, on top of
@@ -83,7 +105,7 @@ gaplessly, follows the voice word by word, and keeps going with the screen off.
 | Android TTS adapter | **One warm engine** for engines, voices and synthesis. Callbacks filtered by utterance id; `cancelSynthesis` aborts a sentence on seek |
 | Player | **Streaming `AudioTrack`** (`PcmPlayer.kt`). Gapless, real pause/resume, position from the playback head |
 | Scheduler | Keeps ~10 s queued ahead. Highlight = hardware position, not a timer. DSP on a background isolate |
-| Screen off | **`ReadAloudService`** (mediaPlayback foreground service) + MediaSession: notification, lock screen, headset buttons |
+| Screen off | **`ReadAloudService`** (mediaPlayback foreground service) + MediaSession: notification, lock screen, headset buttons. Since v0.5.0 the media card has the cover, a chapter seek bar and a speed button |
 | Document Model + ingest | **EPUB, PDF, DOCX, ODT, MOBI/AZW/AZW3 (PalmDOC), FB2, RTF, HTML, MD, TXT.** Script-based language detection |
 | Segmentation | Multilingual (danda, CJK, Arabic stops); sentences capped at 280 chars at a clause boundary |
 | Library | Import/parse/load on background isolates. Compact `parsed.json` v2 (Clown 15 MB -> 4.9 MB). Older books re-parsed once on open |

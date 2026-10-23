@@ -69,3 +69,45 @@ and signed in CI.
 4. Emulator integration tests in CI, starting with the fresh-install shelf.
 5. Neural voices.
 6. Long-novel layout windowing, source migration, file splits.
+
+## After v0.5.0: ideas that would make it better
+
+Proposed to the developer at the v0.5.0 release; none is started. The list above still
+comes first where it protects users' libraries (the id, backup).
+
+**Listening**
+
+- **Pronunciation fixes.** A "say this as that" list, per book and global. Web novels are
+  full of names the system voice mangles, and this is the most common complaint about TTS
+  readers. A substitution before synthesis, with the word timings mapped back.
+- **Cleaner web chapters.** Many chapters open by repeating their title ("44. A Show of
+  Trust", then "Chapter 044 A Show of Trust"), and some carry translator notes or "read
+  this at site X" lines. Skip a first line that repeats the title, and allow per-source
+  rules for the rest.
+- **Neural voices** (already item 5 above). Still the biggest single lift.
+- **Dialogue in a second voice.** Quoted speech read in another voice. Sentences are
+  already synthesised one by one, so this is a split at quotes plus a voice choice.
+- **Sleep timer, softer.** Fade out over the last 30 seconds; shake the phone to add ten
+  minutes.
+- **Android Auto and Wear.** A `MediaBrowserService` on top of the existing session puts
+  the library in the car.
+
+**Keeping things**
+
+- **Bookmarks, highlights and quotes.** Long-press a sentence, or tap a button while
+  listening, to keep it; a Notes screen per book; share a quote as a picture on the
+  book's cover colours.
+- **Search inside a book.**
+- **Listening stats.** Time listened per day, chapters finished, a streak.
+
+**Look and feel**
+
+- **A Now Playing screen.** Swipe up the player bar: the cover large, the background
+  tinted by it (as the media card now is), and the sentence being read set large and
+  scrolling, like lyrics.
+- **Each book in its own colours.** The book page and player bar take an accent from the
+  cover.
+- **A home-screen widget.** Cover, chapter and play.
+- **Landscape and tablets.** The player bar as a side rail in landscape (it fills half the
+  screen now); two panes on tablets.
+- **A "System" theme** from the wallpaper (Material You), beside the five palettes.

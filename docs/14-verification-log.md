@@ -78,6 +78,19 @@ word-gap inserted 46,080, which turned an open-ended hunt into a five-minute dia
 
 ---
 
+## Pass 3 on 2026-10-23 (device, v0.5.0)
+
+Nothing A059, Android 16 (API 36), Nothing OS media card.
+
+| # | Claim | Result |
+|---|---|---|
+| 23 | On Android 13+ the shade's media card is drawn from the MediaSession: PlaybackState actions and custom actions, metadata title, artist and art | **Confirmed.** The notification's Stop action does not appear; the speed custom action does, beside next |
+| 24 | The card's top-left icon is the notification's small icon | **Confirmed.** It showed `ic_media_play` while playing (the old code had them swapped), which the developer read as a second play button. Now the app's mark |
+| 25 | The card takes its colours from `METADATA_KEY_ALBUM_ART` | **Confirmed** with a cover in blues: the card's buttons and text followed it |
+| 26 | A seek bar appears with `ACTION_SEEK_TO` and a positive `METADATA_KEY_DURATION` | **Confirmed.** Dragging it was not tried on the device |
+
+---
+
 ## Claims deliberately **not** yet verified
 
 Recorded so their status is not mistaken for verified fact.

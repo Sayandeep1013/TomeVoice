@@ -43,7 +43,9 @@ No account. No cloud. Your books never leave the phone.
 - **Follows along.** The sentence being read is marked and the word under the voice is
   highlighted, timed from the audio itself.
 - **Keeps going with the screen off.** Pause and resume from the lock screen,
-  notification or headset; it stops for calls and when headphones come out.
+  notification or headset; it stops for calls and when headphones come out. The media
+  player in the notification shade shows the book's cover in its colours, a bar through
+  the chapter you can drag, a speed button, and skips by chapter.
 - **Starts where you stopped**, with a sleep timer for listening in bed.
 - **A shelf you can organise.** Cover tiles with format, length and progress on each;
   your own categories (Reading, Later, or any you make), swiped between; the books you are

@@ -57,6 +57,14 @@ Constraints to respect:
   not be designed.
 - The notification must be genuinely useful — title, chapter, play/pause, ±30 s or
   ±sentence, and a close action.
+  - *As built (v0.5.0):* on Android 13+ the card in the shade is drawn from the
+    MediaSession, not from the notification's actions. Its controls are the
+    PlaybackState's: play/pause, previous/next (by chapter), a seek bar through the
+    chapter (`ACTION_SEEK_TO` plus `METADATA_KEY_DURATION`), and up to two custom actions
+    (here, speed). The picture is `METADATA_KEY_ALBUM_ART`, and the card takes its colours
+    from it. The notification's small icon is drawn top left, so it must be the app's
+    mark, not a state. The notification's own actions (with Stop) still serve Android 12
+    and older.
 
 **MediaSession.** A `MediaSession` gives us lock-screen controls, Bluetooth headset
 buttons, Android Auto, Wear, and the system media output switcher. It also makes the
