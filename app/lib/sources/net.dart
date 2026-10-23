@@ -6,7 +6,7 @@ import 'dart:typed_data';
 /// [e] in words a reader understands: no "SocketException" on screen.
 String friendlyError(Object e) {
   if (e is SocketException) return 'Could not reach the site. Check the internet connection.';
-  if (e is HandshakeException || e is TlsException) return 'The site's secure connection failed.';
+  if (e is HandshakeException || e is TlsException) return "The site's secure connection failed.";
   if (e is TimeoutException) return 'The site took too long to answer.';
   if (e is HttpException) return 'The site answered with an error (${e.message}).';
   final s = '$e';
