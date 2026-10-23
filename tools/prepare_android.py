@@ -139,6 +139,8 @@ def patch_manifest(path: Path) -> str:
     return "manifest: " + (", ".join(notes) if notes else "already patched")
 
 
+APPLICATION_ID = "app.tomevoice"
+
 SIGNING_BLOCK = """    signingConfigs {
         create("tomevoice") {
             storeFile = file(System.getenv("TV_KEYSTORE"))
@@ -156,6 +158,13 @@ def patch_gradle(path: Path, signing: bool) -> str:
     text = path.read_text(encoding="utf-8")
     original = text
     notes = []
+
+    # The id Android knows the app by. Changed once, in 0.6, from the
+    # template's app.tomevoice.tomevoice_spike; it must never change again,
+    # or every install becomes a different app with an empty library.
+    text, n = re.subn(r'applicationId\s*=\s*"[^"]*"', f'applicationId = "{APPLICATION_ID}"', text)
+    if n:
+        notes.append(f"applicationId {APPLICATION_ID}")
 
     # Kotlin DSL uses `minSdk = flutter.minSdkVersion`, Groovy uses
     # `minSdkVersion flutter.minSdkVersion`. Handle both, plus already-numeric

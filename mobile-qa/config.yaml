@@ -1,4 +1,4 @@
-app_id: app.tomevoice.tomevoice_spike
+app_id: app.tomevoice
 platform: android
 notes: >-
   Local-first reader. No account, no backend. APKs come from GitHub Actions

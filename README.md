@@ -78,12 +78,21 @@ anything that needs an account or a server.
 ## Install (Android)
 
 1. Download `TomeVoice-<version>.apk` from the latest
-   [Release](https://github.com/Sayandeep1013/TomeVoice/releases/latest).
-2. Open it on your phone and allow installs from your browser or file manager when asked
-   (or `adb install -r TomeVoice-<version>.apk`). Updates install over the old version
-   and keep your library.
-3. Open it, tap **Add books**, pick one or more files. Or open a book from any file
-   manager with TomeVoice.
+   [Release](https://github.com/Sayandeep1013/TomeVoice/releases/latest). On an older or
+   Android Go phone that says *App not installed*, take `TomeVoice-<version>-32bit.apk`
+   instead.
+2. Open it on your phone and allow installs from your browser or file manager when asked.
+   If Play Protect calls it an unknown app, tap **More details → Install anyway**:
+   TomeVoice isn't in the Play Store, so Google hasn't scanned it. (Or
+   `adb install -r TomeVoice-<version>.apk`.) Updates install over the old version and
+   keep your library, and TomeVoice tells you when one is out.
+3. Open it. A few books are already on the shelf; tap **Add books** to add your own, or
+   open a book from any file manager with TomeVoice.
+
+**Coming from 0.5 or earlier?** From 0.6 TomeVoice has its permanent app id, so Android
+installs it as a new app beside the old one. In the old app, update to 0.5.1 and use
+**Settings → Back up library**. Install the new version, tap **Restore** when it offers
+(or Settings → Restore a backup), check your books, then uninstall the old one.
 
 Every push to `main` also builds an APK in
 [Actions](https://github.com/Sayandeep1013/TomeVoice/actions/workflows/build.yml).

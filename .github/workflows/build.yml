@@ -170,6 +170,7 @@ jobs:
           test -f android/app/proguard-rules.pro
           test -f android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
           grep -E "minSdk|targetSdk" android/app/build.gradle.kts
+          grep -q 'applicationId = "app.tomevoice"' android/app/build.gradle.kts
 
       - name: Resolve dependencies
         working-directory: app
@@ -185,13 +186,29 @@ jobs:
 
       # Release, not debug: a debug build runs Dart unoptimised (JIT with
       # asserts) and was several times slower at everything the user touches.
-      # arm64 only: every phone this is installed on is arm64, and one ABI is
-      # a smaller APK and a faster build.
+      # Two APKs, one per CPU kind, built separately rather than with
+      # --split-per-abi, which renumbers version codes: the 64-bit one is
+      # what nearly every phone takes; the 32-bit one is for older and
+      # Android Go phones.
+      - name: Build release APK (32-bit phones)
+        working-directory: app
+        env:
+          TV_KEYSTORE_PASSWORD: ${{ secrets.TV_KEYSTORE_PASSWORD }}
+        run: |
+          flutter build apk --release --target-platform android-arm
+          cp build/app/outputs/flutter-apk/app-release.apk "$RUNNER_TEMP/app-release-32bit.apk"
+
       - name: Build release APK
         working-directory: app
         env:
           TV_KEYSTORE_PASSWORD: ${{ secrets.TV_KEYSTORE_PASSWORD }}
         run: flutter build apk --release --target-platform android-arm64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tomevoice-apk-32bit
+          path: ${{ runner.temp }}/app-release-32bit.apk
+          if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
         with:
@@ -207,6 +224,8 @@ jobs:
           TAG: ${{ inputs.release_tag }}
         run: |
           apk="TomeVoice-${TAG#v}.apk"
+          old="TomeVoice-${TAG#v}-32bit.apk"
           cp app/build/app/outputs/flutter-apk/app-release.apk "$apk"
-          gh release upload "$TAG" "$apk" --clobber --repo "$GITHUB_REPOSITORY"
+          cp "$RUNNER_TEMP/app-release-32bit.apk" "$old"
+          gh release upload "$TAG" "$apk" "$old" --clobber --repo "$GITHUB_REPOSITORY"
           gh release edit "$TAG" --draft=false --latest --repo "$GITHUB_REPOSITORY"

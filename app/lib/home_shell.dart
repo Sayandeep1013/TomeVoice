@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'app_update.dart';
 import 'backup.dart';
+import 'backup_flow.dart';
 import 'brand.dart';
 import 'browse_screen.dart';
 import 'categories_screen.dart';
@@ -70,6 +71,10 @@ class _HomeShellState extends State<HomeShell> {
       }
       // A restore that was interrupted leaves its unpacked copy behind.
       unawaited(clearStaleRestore(Directory(dir)));
+      // A fresh install may be someone moving over: from the older
+      // TomeVoice (another app id), or from another phone.
+      final fresh = !File('$dir/starter.json').existsSync() && (await store.list()).isEmpty;
+      if (fresh) Future<void>.delayed(const Duration(seconds: 3), () => _offerRestore(store));
       // A new install's first shelf: a classic and two web novels.
       unawaited(Starter.seed(Directory(dir), store, sources));
       // A newer TomeVoice, said once per version.
@@ -87,6 +92,17 @@ class _HomeShellState extends State<HomeShell> {
     } on Object catch (e) {
       if (mounted) setState(() => _error = '$e');
     }
+  }
+
+  void _offerRestore(LibraryStore store) {
+    if (!mounted) return;
+    showSnack(
+      context,
+      'Moving from another phone or an older TomeVoice? Restore your backup.',
+      long: true,
+      actionLabel: 'Restore',
+      onAction: () => runRestore(context, store),
+    );
   }
 
   Future<void> _tellAboutUpdate(Directory root) async {

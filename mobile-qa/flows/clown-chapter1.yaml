@@ -1,4 +1,4 @@
-﻿appId: app.tomevoice.tomevoice_spike
+﻿appId: app.tomevoice
 ---
 - tapOn: "Next chapter"
 - tapOn: "Previous chapter"
