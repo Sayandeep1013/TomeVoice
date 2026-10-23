@@ -284,6 +284,7 @@ nav.toc a:hover { border-color: var(--accent); }
   <span class="eyebrow">TomeVoice · plan after v0.5.0 · 23 October 2026</span>
   <h1>Road to 1.0</h1>
   <p class="lede">Everything you picked, how each piece would be built in this codebase, and what I need from you. Six releases. Sharing comes first, because people are installing 0.5 now.</p>
+  <p class="small"><strong>Status, 24 October:</strong> 0.5.1 to 0.8 are released. 0.9 and 1.0 are built and merged into <code>main</code>; 1.0.0 is tagged after the last checks on the phone. Changes from the plan are noted in each section.</p>
 
   <div class="roles">
     <div class="role">
@@ -707,6 +708,7 @@ nav.toc a:hover { border-color: var(--accent); }
     </table>
   </div>
   <p>The phone's voices stay the default and cost nothing. A neural voice is an opt-in download in the voice picker: <em>Download a better voice · 63 MB</em>, with a sample first. Before any of this is built, one Piper voice runs on your phone for 30 minutes to measure speed, memory and battery. If the numbers are bad, we stop there.</p>
+  <p><strong>Measured on your phone</strong> (<em>Alice</em> at 2×, one minute each): the Google voice uses about 20% of one core and about 404 MB across the app and Google's speech app; Kristin uses 70% on average, in bursts up to 158%, and 537 MB, and makes speech 10.9 times faster than it plays, so it never falls behind. Seven Piper voices shipped (Kokoro did not): the full-precision models, 64 MB each and 110 MB for the two HD ones, because the half-size ones crash the engine on phones. They are off until you choose them, with a warning first and Remove all in Settings.</p>
 </section>
 
 <!-- ===================================================== DIALOGUE -->

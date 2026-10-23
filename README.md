@@ -40,6 +40,13 @@ No account. No cloud. Your books never leave the phone.
   or shown as their real pages; chapters are found even when a file does not list them.
 - **Reads it aloud** with the voices already on your phone, picking one in the book's
   language — a Bengali book gets a Bengali voice.
+- **Natural voices, if you want them.** Seven English voices that sound like people
+  (Piper), made on the phone with no internet once downloaded. They are off unless you
+  choose one: each is a 64 MB download (110 MB for HD) and works the phone harder, about
+  three times the processor of a built-in voice, so TomeVoice says so before anything
+  downloads, tests how fast your phone runs it, and removes them all with one tap.
+- **Dialogue in a second voice.** Pick one, and words inside quotation marks are read
+  by it while the narrator reads the rest.
 - **Follows along.** The sentence being read is marked and the word under the voice is
   highlighted, timed from the audio itself.
 - **Keeps going with the screen off.** Pause and resume from the lock screen,
@@ -47,9 +54,21 @@ No account. No cloud. Your books never leave the phone.
   player in the notification shade shows the book's cover in its colours, a bar through
   the chapter you can drag, a speed button, and skips by chapter.
 - **Starts where you stopped**, with a sleep timer for listening in bed.
+- **Now Playing.** Swipe the player up for the cover and the words going by like song
+  lyrics. Every book takes its colours from its cover, here and on its pages. Turned on
+  its side, the text keeps the screen and the player floats beneath it.
+- **Find and keep.** Search the chapter or the whole book. Press and hold a line to save
+  it as a quote, bookmark it, copy it, or share it as a picture in the book's colours
+  (with Undo if you saved by mistake); they wait in **Saved**. Fix how a name is said,
+  for one book or all, and in web novels leave out site notices and credits.
+- **Listening stats and streaks.** Your week, the last twenty weeks as dots, and a streak
+  for every day you listen for five minutes.
+- **Home-screen widgets.** The book you are reading, its cover in a ring that fills as you
+  go, with play (and chapter skips on the wider ones); and your streak. Every size, in the
+  book's colours.
 - **Your library in one file.** Back it up to Downloads or Drive and restore it on a new
   phone, adding to what is there or replacing it. TomeVoice also tells you when a new
-  version is out.
+  version is out, and installs it for you (Android asks you to confirm).
 - **A shelf you can organise.** Cover tiles with format, length and progress on each;
   your own categories (Reading, Later, or any you make), swiped between; the books you are
   in the middle of waiting at the bottom with a play button.
@@ -85,7 +104,8 @@ anything that needs an account or a server.
    If Play Protect calls it an unknown app, tap **More details → Install anyway**:
    TomeVoice isn't in the Play Store, so Google hasn't scanned it. (Or
    `adb install -r TomeVoice-<version>.apk`.) Updates install over the old version and
-   keep your library, and TomeVoice tells you when one is out.
+   keep your library. From 1.0 TomeVoice offers each new version itself: tap **Install**,
+   then confirm Android's prompt.
 3. Open it. A few books are already on the shelf; tap **Add books** to add your own, or
    open a book from any file manager with TomeVoice.
 
