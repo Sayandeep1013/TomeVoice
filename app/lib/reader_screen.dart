@@ -12,7 +12,9 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 import 'book_tint.dart';
 import 'library_store.dart';
 import 'listen_sheet.dart';
+import 'now_playing.dart';
 import 'pages_view.dart';
+import 'player_controls.dart';
 import 'prefs.dart';
 import 'scheduler.dart';
 import 'speech_service.dart';
@@ -301,7 +303,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     try {
       final entry = (await store.list()).where((e) => e.id == _book.id).firstOrNull;
       if (!mounted) return;
-      _cover = entry?.shownCover;
+      setState(() => _cover = entry?.shownCover);
       _updateSession(force: true);
     } on Object {
       // The card goes without a picture.
@@ -736,59 +738,114 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
-        child: SafeArea(
-          child: Column(
+    final bar = _PlayerBar(
+      layout: _l,
+      cursor: _cursor,
+      player: _player,
+      speed: _prefs.settings.speedScale,
+      voiceLabel: _voiceLabel(),
+      sleepNote: _sleepNote,
+      onPlay: _togglePlay,
+      onPrevSentence: () => _goTo(_cursor.value - 1),
+      onNextSentence: () => _goTo(_cursor.value + 1),
+      onPrevChapter: () => _goChapter(-1),
+      onNextChapter: () => _goChapter(1),
+      moreAfter: widget.onReachedEnd != null,
+      progressOf: widget.progressOf,
+      onSeekInChapter: (u) => _goTo(u),
+      onSpeed: () => showListenSheet(context, _listen, focus: ListenFocus.speed),
+      onVoice: () => showListenSheet(context, _listen),
+      onExpand: _openNowPlaying,
+    );
+    final size = MediaQuery.sizeOf(context);
+    // A phone on its side: the player as a rail down the right, so the text
+    // keeps the height (the bar used to take half of it).
+    final rail = size.width > size.height && size.height < 600;
+    final reading = Column(
+      children: [
+        _topBar(context),
+        Expanded(
+          child: Stack(
             children: [
-              _topBar(context),
-              Expanded(
-                child: Stack(
-                  children: [
-                    Positioned.fill(
-                      child: _showPages
-                          ? PdfPagesView(
-                              path: widget.sourcePath!,
-                              layout: _l,
-                              cursor: _cursor,
-                              detached: _detached,
-                              onTapPage: (page) => _goTo(_l.unitForPage(page), play: true),
-                            )
-                          : _text(context),
-                    ),
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 10,
-                      child: Center(child: _backToReading(context)),
-                    ),
-                  ],
-                ),
+              Positioned.fill(
+                child: _showPages
+                    ? PdfPagesView(
+                        path: widget.sourcePath!,
+                        layout: _l,
+                        cursor: _cursor,
+                        detached: _detached,
+                        onTapPage: (page) => _goTo(_l.unitForPage(page), play: true),
+                      )
+                    : _text(context),
               ),
-              _PlayerBar(
-                layout: _l,
-                cursor: _cursor,
-                player: _player,
-                speed: _prefs.settings.speedScale,
-                voiceLabel: _voiceLabel(),
-                sleepNote: _sleepNote,
-                onPlay: _togglePlay,
-                onPrevSentence: () => _goTo(_cursor.value - 1),
-                onNextSentence: () => _goTo(_cursor.value + 1),
-                onPrevChapter: () => _goChapter(-1),
-                onNextChapter: () => _goChapter(1),
-                moreAfter: widget.onReachedEnd != null,
-                progressOf: widget.progressOf,
-                onSeekInChapter: (u) => _goTo(u),
-                onSpeed: () => showListenSheet(context, _listen, focus: ListenFocus.speed),
-                onVoice: () => showListenSheet(context, _listen),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 10,
+                child: Center(child: _backToReading(context)),
               ),
             ],
           ),
         ),
+        if (!rail) bar,
+      ],
+    );
+    return Scaffold(
+      body: DecoratedBox(
+        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        child: SafeArea(
+          child: rail
+              ? Row(
+                  children: [
+                    Expanded(child: reading),
+                    SizedBox(
+                      width: 340,
+                      child: Center(
+                        child: SingleChildScrollView(padding: const EdgeInsets.only(top: Gap.m), child: bar),
+                      ),
+                    ),
+                  ],
+                )
+              : reading,
+        ),
       ),
     );
+  }
+
+  /// The book filling the screen, its words like lyrics.
+  void _openNowPlaying() {
+    final from = context;
+    unawaited(Navigator.of(context).push(PageRouteBuilder<void>(
+      transitionDuration: Motion.of(context, Motion.page),
+      reverseTransitionDuration: Motion.of(context, Motion.standard),
+      pageBuilder: (ctx, _, __) => carryTint(
+        from,
+        NowPlayingScreen(
+          title: _book.metadata.title,
+          cover: _cover,
+          layout: _l,
+          cursor: _cursor,
+          player: _player,
+          speed: () => _prefs.settings.speedScale,
+          voiceLabel: _voiceLabel,
+          sleepNote: () => _sleepNote,
+          onPlay: _togglePlay,
+          onGoTo: (u) => _goTo(u),
+          onPrevChapter: () => _goChapter(-1),
+          onNextChapter: () => _goChapter(1),
+          moreAfter: widget.onReachedEnd != null,
+          onSpeed: () => showListenSheet(ctx, _listen, focus: ListenFocus.speed),
+          onVoice: () => showListenSheet(ctx, _listen),
+          onSleep: () => showListenSheet(ctx, _listen),
+        ),
+      ),
+      transitionsBuilder: (ctx, animation, _, child) => SlideTransition(
+        position: animation.drive(
+          Tween(begin: const Offset(0, 1), end: Offset.zero).chain(CurveTween(curve: Motion.emphasized)),
+        ),
+        child: child,
+      ),
+    )));
   }
 
   String _voiceLabel() {
@@ -1262,6 +1319,7 @@ class _PlayerBar extends StatelessWidget {
     required this.onSeekInChapter,
     required this.onSpeed,
     required this.onVoice,
+    required this.onExpand,
   });
 
   final ReadingLayout layout;
@@ -1286,8 +1344,18 @@ class _PlayerBar extends StatelessWidget {
   final VoidCallback onSpeed;
   final VoidCallback onVoice;
 
+  /// Open Now Playing: swipe the bar up, or tap its handle.
+  final VoidCallback onExpand;
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => GestureDetector(
+        onVerticalDragEnd: (d) {
+          if ((d.primaryVelocity ?? 0) < -250) onExpand();
+        },
+        child: _bar(context),
+      );
+
+  Widget _bar(BuildContext context) {
     final onDark = Skin.onDark(context);
     return Container(
       margin: const EdgeInsets.fromLTRB(Gap.m, 0, Gap.m, Gap.m),
@@ -1313,6 +1381,27 @@ class _PlayerBar extends StatelessWidget {
           return Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Semantics(
+                button: true,
+                label: 'Open Now Playing',
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onExpand,
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Center(
+                      child: Container(
+                        width: 36,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: onDark.withValues(alpha: 0.28),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
               Row(
                 children: [
                   _chip(context, '${trimSpeed(speed)}×', Icons.speed_rounded, onSpeed,
@@ -1336,7 +1425,7 @@ class _PlayerBar extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 6),
-              _ChapterScrubber(
+              ChapterScrubber(
                 value: count <= 1 ? 0 : inChapter / (count - 1),
                 onSeek: count <= 1 ? null : (f) => onSeekInChapter(first + (f * (count - 1)).round()),
               ),
@@ -1347,7 +1436,7 @@ class _PlayerBar extends StatelessWidget {
                       chapter > 0 ? onPrevChapter : null),
                   _icon(context, Icons.fast_rewind_rounded, 'Previous sentence',
                       u > 0 ? onPrevSentence : null),
-                  _PlayButton(player: player, onTap: empty ? null : onPlay),
+                  PlayButton(player: player, onTap: empty ? null : onPlay),
                   _icon(context, Icons.fast_forward_rounded, 'Next sentence',
                       u < layout.units.length - 1 ? onNextSentence : null),
                   _icon(context, Icons.skip_next_rounded, 'Next chapter',
@@ -1404,95 +1493,6 @@ class _PlayerBar extends StatelessWidget {
       ),
     );
   }
-}
-
-class _PlayButton extends StatelessWidget {
-  const _PlayButton({required this.player, required this.onTap});
-
-  final PlaybackScheduler player;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) => ValueListenableBuilder<PlayState>(
-        valueListenable: player.state,
-        builder: (context, state, _) {
-          final speaking = state == PlayState.playing || state == PlayState.loading;
-          return Tooltip(
-            message: speaking ? 'Pause' : 'Play',
-            child: SizedBox(
-              width: 62,
-              height: 62,
-              child: Stack(
-                alignment: Alignment.center,
-                clipBehavior: Clip.none,
-                children: [
-                  if (state == PlayState.loading)
-                    SizedBox(
-                      width: 60,
-                      height: 60,
-                      child: CircularProgressIndicator(strokeWidth: 2.5, color: Skin.accentSoftOf(context)),
-                    ),
-                  Material(
-                    color: onTap == null ? Skin.accentOf(context).withValues(alpha: 0.4) : Skin.accentOf(context),
-                    shape: const CircleBorder(),
-                    child: InkWell(
-                      customBorder: const CircleBorder(),
-                      onTap: onTap,
-                      child: SizedBox(
-                        width: 54,
-                        height: 54,
-                        child: Icon(
-                          speaking ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                          size: 32,
-                          color: Skin.onAccentOf(context),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      );
-}
-
-/// Position within the chapter. Drag or tap to jump.
-class _ChapterScrubber extends StatefulWidget {
-  const _ChapterScrubber({required this.value, required this.onSeek});
-
-  final double value;
-  final ValueChanged<double>? onSeek;
-
-  @override
-  State<_ChapterScrubber> createState() => _ChapterScrubberState();
-}
-
-class _ChapterScrubberState extends State<_ChapterScrubber> {
-  double? _drag;
-
-  @override
-  Widget build(BuildContext context) => SliderTheme(
-        data: SliderTheme.of(context).copyWith(
-          inactiveTrackColor: Skin.onDark(context).withValues(alpha: 0.14),
-          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-          overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-        ),
-        child: SizedBox(
-          height: 26,
-          child: Slider(
-            value: (_drag ?? widget.value).clamp(0.0, 1.0),
-            semanticFormatterCallback: (v) => 'Chapter position ${(v * 100).round()} percent',
-            onChanged: widget.onSeek == null ? null : (v) => setState(() => _drag = v),
-            onChangeEnd: widget.onSeek == null
-                ? null
-                : (v) {
-                    setState(() => _drag = null);
-                    widget.onSeek!(v);
-                  },
-          ),
-        ),
-      );
 }
 
 class _ContentsSheet extends StatefulWidget {

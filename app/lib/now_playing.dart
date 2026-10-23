@@ -1,0 +1,399 @@
+import 'dart:io';
+import 'dart:ui' as ui;
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:tomevoice_document/tomevoice_document.dart';
+
+import 'listen_sheet.dart' show trimSpeed;
+import 'player_controls.dart';
+import 'prefs.dart';
+import 'scheduler.dart';
+import 'theme.dart';
+
+/// The book filling the screen while it is read: the cover over a blur of
+/// itself in the book's colour, and the words scrolling like lyrics, the
+/// sentence being read set large with the word under the voice lit.
+///
+/// Opened by swiping up on the reader's player bar; swipe down to close.
+/// Everything it shows and does belongs to the reader, which hands it the
+/// same listenables and actions as its player bar.
+class NowPlayingScreen extends StatelessWidget {
+  const NowPlayingScreen({
+    super.key,
+    required this.title,
+    required this.cover,
+    required this.layout,
+    required this.cursor,
+    required this.player,
+    required this.speed,
+    required this.voiceLabel,
+    required this.sleepNote,
+    required this.onPlay,
+    required this.onGoTo,
+    required this.onPrevChapter,
+    required this.onNextChapter,
+    required this.moreAfter,
+    required this.onSpeed,
+    required this.onVoice,
+    required this.onSleep,
+  });
+
+  final String title;
+
+  /// The shown cover picture, or null for a book without one.
+  final String? cover;
+  final ReadingLayout layout;
+  final ValueListenable<int> cursor;
+  final PlaybackScheduler player;
+
+  /// Read when shown, so a change made from a sheet shows at once.
+  final double Function() speed;
+  final String Function() voiceLabel;
+  final String? Function() sleepNote;
+  final VoidCallback onPlay;
+  final ValueChanged<int> onGoTo;
+  final VoidCallback onPrevChapter;
+  final VoidCallback onNextChapter;
+
+  /// Chapters follow the last one here (a web novel's, still on the site).
+  final bool moreAfter;
+  final VoidCallback onSpeed;
+  final VoidCallback onVoice;
+  final VoidCallback onSleep;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Skin.accentOf(context);
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: GestureDetector(
+        onVerticalDragEnd: (d) {
+          if ((d.primaryVelocity ?? 0) > 300) Navigator.of(context).maybePop();
+        },
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _Backdrop(cover: cover, accent: accent),
+            SafeArea(
+              child: OrientationBuilder(
+                builder: (context, orientation) => orientation == Orientation.landscape
+                    ? Row(
+                        children: [
+                          Expanded(flex: 2, child: Center(child: _art(context))),
+                          Expanded(flex: 3, child: _panel(context, compact: true)),
+                        ],
+                      )
+                    : Column(
+                        children: [
+                          _closeBar(context),
+                          Expanded(flex: 5, child: Center(child: _art(context))),
+                          Expanded(flex: 6, child: _panel(context, compact: false)),
+                        ],
+                      ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _closeBar(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(Gap.s, Gap.xs, Gap.s, 0),
+        child: Row(
+          children: [
+            IconButton(
+              tooltip: 'Close',
+              onPressed: () => Navigator.of(context).maybePop(),
+              icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 32, color: Colors.white),
+            ),
+            Expanded(
+              child: Text(
+                'NOW READING',
+                textAlign: TextAlign.center,
+                style: Skin.meta(context, color: Colors.white.withValues(alpha: 0.7)),
+              ),
+            ),
+            const SizedBox(width: 48),
+          ],
+        ),
+      );
+
+  Widget _art(BuildContext context) => Padding(
+        padding: const EdgeInsets.all(Gap.l),
+        child: AspectRatio(
+          aspectRatio: 2 / 3,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(Radii.card),
+              boxShadow: const [BoxShadow(color: Color(0x99000000), blurRadius: 32, offset: Offset(0, 16))],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(Radii.card),
+              child: cover == null
+                  ? _DrawnCover(title: title)
+                  : Image.file(File(cover!), fit: BoxFit.cover, cacheWidth: 600, gaplessPlayback: true),
+            ),
+          ),
+        ),
+      );
+
+  Widget _panel(BuildContext context, {required bool compact}) => Padding(
+        padding: EdgeInsets.fromLTRB(Gap.xl, compact ? Gap.l : 0, Gap.xl, Gap.l),
+        child: ListenableBuilder(
+          listenable: Listenable.merge([cursor, ListeningPrefs.revision]),
+          builder: (context, _) {
+            final u = cursor.value.clamp(0, layout.units.isEmpty ? 0 : layout.units.length - 1);
+            final empty = layout.isEmpty;
+            final chapter = empty ? 0 : layout.chapterOfUnit(u);
+            final (first, count) = empty ? (0, 1) : layout.chapterRange(chapter);
+            final inChapter = (u - first).clamp(0, count - 1);
+            final end = first + count;
+            final wordsLeft = empty ? 0 : (end < layout.units.length ? layout.wordsBefore[end] : layout.totalWords) -
+                layout.wordsBefore[u];
+            final minutes = (wordsLeft / (165 * speed())).round();
+            final sleep = sleepNote();
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Skin.title(context, size: 24, color: Colors.white),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  empty ? '' : layout.chapterTitle(chapter).toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Skin.meta(context, color: Colors.white.withValues(alpha: 0.62)),
+                ),
+                const SizedBox(height: Gap.m),
+                Expanded(child: _Lyrics(layout: layout, unit: u, player: player, onTap: onGoTo)),
+                const SizedBox(height: Gap.s),
+                ChapterScrubber(
+                  value: count <= 1 ? 0 : inChapter / (count - 1),
+                  onSeek: count <= 1 ? null : (f) => onGoTo(first + (f * (count - 1)).round()),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: Text(
+                    [
+                      minutes < 1 ? 'UNDER A MINUTE LEFT' : '${_duration(minutes)} LEFT IN CHAPTER',
+                      if (sleep != null) sleep,
+                    ].join('  ·  '),
+                    textAlign: TextAlign.end,
+                    style: Skin.meta(context, size: 10.5, color: Colors.white.withValues(alpha: 0.55)),
+                  ),
+                ),
+                const SizedBox(height: Gap.s),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _icon(Icons.skip_previous_rounded, 'Previous chapter', chapter > 0 ? onPrevChapter : null),
+                    _icon(Icons.fast_rewind_rounded, 'Previous sentence', u > 0 ? () => onGoTo(u - 1) : null),
+                    PlayButton(player: player, onTap: empty ? null : onPlay),
+                    _icon(Icons.fast_forward_rounded, 'Next sentence',
+                        u < layout.units.length - 1 ? () => onGoTo(u + 1) : null),
+                    _icon(Icons.skip_next_rounded, 'Next chapter',
+                        chapter < layout.chapters.length - 1 || moreAfter ? onNextChapter : null),
+                  ],
+                ),
+                const SizedBox(height: Gap.m),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _chip(context, '${trimSpeed(speed())}×', Icons.speed_rounded, onSpeed),
+                    _chip(context, sleep == null ? 'Sleep' : 'Sleep on', Icons.bedtime_outlined, onSleep),
+                    _chip(context, voiceLabel(), Icons.record_voice_over_rounded, onVoice),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
+      );
+
+  Widget _icon(IconData icon, String tip, VoidCallback? onTap) => IconButton(
+        tooltip: tip,
+        onPressed: onTap,
+        iconSize: 30,
+        color: Colors.white,
+        disabledColor: Colors.white.withValues(alpha: 0.25),
+        icon: Icon(icon),
+      );
+
+  Widget _chip(BuildContext context, String label, IconData icon, VoidCallback onTap) => Flexible(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 3),
+          child: Material(
+            color: Colors.white.withValues(alpha: 0.10),
+            shape: const StadiumBorder(),
+            child: InkWell(
+              customBorder: const StadiumBorder(),
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: Gap.m, vertical: 9),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, size: 15, color: Skin.accentSoftOf(context)),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Skin.ui(size: 13, weight: FontWeight.w600, color: Colors.white),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+}
+
+String _duration(int minutes) {
+  if (minutes < 60) return '${minutes}M';
+  final h = minutes ~/ 60;
+  final m = minutes % 60;
+  return m == 0 ? '${h}H' : '${h}H ${m}M';
+}
+
+/// The cover blurred to colour, under a scrim that keeps white text legible,
+/// washed with the book's accent. Without a cover, the accent alone.
+class _Backdrop extends StatelessWidget {
+  const _Backdrop({required this.cover, required this.accent});
+
+  final String? cover;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) => Stack(
+        fit: StackFit.expand,
+        children: [
+          ColoredBox(color: Color.lerp(accent, Colors.black, 0.72)!),
+          if (cover != null)
+            ImageFiltered(
+              imageFilter: ui.ImageFilter.blur(sigmaX: 36, sigmaY: 36, tileMode: TileMode.clamp),
+              // A small decode is all a blur needs, and keeps it cheap.
+              child: Image.file(File(cover!), fit: BoxFit.cover, cacheWidth: 96, gaplessPlayback: true),
+            ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withValues(alpha: 0.30),
+                  Color.lerp(accent, Colors.black, 0.80)!.withValues(alpha: 0.78),
+                  Colors.black.withValues(alpha: 0.92),
+                ],
+                stops: const [0, 0.55, 1],
+              ),
+            ),
+          ),
+        ],
+      );
+}
+
+/// The sentence before (dim), the one being read (large, its word lit) and
+/// the next (dim). Tap one to read from it.
+class _Lyrics extends StatelessWidget {
+  const _Lyrics({required this.layout, required this.unit, required this.player, required this.onTap});
+
+  final ReadingLayout layout;
+  final int unit;
+  final PlaybackScheduler player;
+  final ValueChanged<int> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    if (layout.isEmpty) return const SizedBox.shrink();
+    final dim = Skin.ui(size: 14, weight: FontWeight.w400, color: Colors.white.withValues(alpha: 0.38))
+        .copyWith(height: 1.35);
+    final read = TextStyle(
+      fontFamily: 'Newsreader',
+      fontSize: 23,
+      height: 1.32,
+      color: Colors.white,
+    );
+    Widget line(int u, TextStyle style, int maxLines) => GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => onTap(u),
+          child: Text(layout.units[u].text, maxLines: maxLines, overflow: TextOverflow.ellipsis, style: style),
+        );
+    return ClipRect(
+      child: AnimatedSwitcher(
+        duration: Motion.of(context, Motion.standard),
+        switchInCurve: Motion.out,
+        switchOutCurve: Motion.out,
+        transitionBuilder: fadeRiseUp,
+        child: Column(
+          key: ValueKey(unit),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (unit > 0) line(unit - 1, dim, 2),
+            const SizedBox(height: Gap.s),
+            Flexible(
+              child: ValueListenableBuilder<WordMark>(
+                valueListenable: player.word,
+                builder: (context, word, _) {
+                  final text = layout.units[unit].text;
+                  final on = word.unit == unit && word.start >= 0 && word.end > word.start;
+                  final ws = on ? word.start.clamp(0, text.length) : 0;
+                  final we = on ? word.end.clamp(ws, text.length) : 0;
+                  return Text.rich(
+                    TextSpan(children: [
+                      TextSpan(text: text.substring(0, ws)),
+                      if (on)
+                        TextSpan(text: text.substring(ws, we), style: TextStyle(color: Skin.accentSoftOf(context))),
+                      TextSpan(text: text.substring(we)),
+                    ]),
+                    style: read,
+                    overflow: TextOverflow.fade,
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: Gap.s),
+            if (unit + 1 < layout.units.length) line(unit + 1, dim, 2),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The new sentence rises into place as the old one leaves upwards.
+Widget fadeRiseUp(Widget child, Animation<double> animation) => FadeTransition(
+      opacity: animation,
+      child: SlideTransition(
+        position: animation.drive(Tween(begin: const Offset(0, 0.08), end: Offset.zero)),
+        child: child,
+      ),
+    );
+
+/// A plain cover for a book without a picture: its title on the accent.
+class _DrawnCover extends StatelessWidget {
+  const _DrawnCover({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) => ColoredBox(
+        color: Color.lerp(Skin.accentOf(context), Colors.black, 0.35)!,
+        child: Padding(
+          padding: const EdgeInsets.all(Gap.l),
+          child: Align(
+            alignment: Alignment.bottomLeft,
+            child: Text(title, style: Skin.title(context, size: 22, color: Colors.white)),
+          ),
+        ),
+      );
+}

@@ -177,68 +177,84 @@ class _BookScreenState extends State<BookScreen> {
             current: e.progress > 0 ? _currentChapter : -1,
             onPick: (c) => _read(play: false, chapter: c),
           );
+    final size = MediaQuery.sizeOf(context);
+    final wide = size.width > size.height && size.width >= 720;
+    final bottomGap = SliverToBoxAdapter(child: SizedBox(height: Gap.xxl + MediaQuery.viewPaddingOf(context).bottom));
+    final info = <Widget>[
+      SliverToBoxAdapter(child: _topBar(context)),
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(Gap.page, Gap.s, Gap.page, 0),
+        sliver: SliverToBoxAdapter(child: _hero(context, category)),
+      ),
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
+        sliver: SliverToBoxAdapter(child: _actions(context)),
+      ),
+      if (l?.book.metadata.description != null)
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
+          sliver: SliverToBoxAdapter(child: _blurb(context, l!.book.metadata.description!)),
+        ),
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
+        sliver: SliverToBoxAdapter(child: _voice(context)),
+      ),
+    ];
+    final chapterList = <Widget>[
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xxl, Gap.page, Gap.s),
+        sliver: SliverToBoxAdapter(
+          child: SectionTitle(
+            'Chapters',
+            note: l == null ? null : '${l.chapters.length} ${l.chapters.length == 1 ? 'chapter' : 'chapters'}',
+          ),
+        ),
+      ),
+      if (_error != null)
+        SliverPadding(
+          padding: const EdgeInsets.all(Gap.page),
+          sliver: SliverToBoxAdapter(
+            child: Text('$_error', style: Skin.label(context, size: 14)),
+          ),
+        )
+      else if (list == null)
+        const SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.all(Gap.xxl),
+            child: Center(child: CircularProgressIndicator()),
+          ),
+        )
+      else
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: Gap.xs),
+          sliver: SliverFixedExtentList(
+            itemExtent: 56,
+            delegate: SliverChildBuilderDelegate(
+              childCount: chapters.length,
+              (context, i) => list.chapterRow(context, chapters[i]),
+            ),
+          ),
+        ),
+    ];
     return Scaffold(
       body: DecoratedBox(
         decoration: BoxDecoration(gradient: Skin.ground(context)),
         child: SafeArea(
           bottom: false,
-          child: CustomScrollView(
-            slivers: [
-              SliverToBoxAdapter(child: _topBar(context)),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(Gap.page, Gap.s, Gap.page, 0),
-                sliver: SliverToBoxAdapter(child: _hero(context, category)),
-              ),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
-                sliver: SliverToBoxAdapter(child: _actions(context)),
-              ),
-              if (l?.book.metadata.description != null)
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
-                  sliver: SliverToBoxAdapter(child: _blurb(context, l!.book.metadata.description!)),
-                ),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
-                sliver: SliverToBoxAdapter(child: _voice(context)),
-              ),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xxl, Gap.page, Gap.s),
-                sliver: SliverToBoxAdapter(
-                  child: SectionTitle(
-                    'Chapters',
-                    note: l == null ? null : '${l.chapters.length} ${l.chapters.length == 1 ? 'chapter' : 'chapters'}',
-                  ),
-                ),
-              ),
-              if (_error != null)
-                SliverPadding(
-                  padding: const EdgeInsets.all(Gap.page),
-                  sliver: SliverToBoxAdapter(
-                    child: Text('$_error', style: Skin.label(context, size: 14)),
-                  ),
-                )
-              else if (list == null)
-                const SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.all(Gap.xxl),
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
-                )
-              else
-                SliverPadding(
-                  padding: const EdgeInsets.symmetric(horizontal: Gap.xs),
-                  sliver: SliverFixedExtentList(
-                    itemExtent: 56,
-                    delegate: SliverChildBuilderDelegate(
-                      childCount: chapters.length,
-                      (context, i) => list.chapterRow(context, chapters[i]),
+          // Landscape on a phone: details beside the chapters, each scrolling
+          // on its own, instead of one long column of which little shows.
+          child: wide
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 420,
+                      child: CustomScrollView(slivers: [...info, bottomGap]),
                     ),
-                  ),
-                ),
-              SliverToBoxAdapter(child: SizedBox(height: Gap.xxl + MediaQuery.viewPaddingOf(context).bottom)),
-            ],
-          ),
+                    Expanded(child: CustomScrollView(slivers: [...chapterList, bottomGap])),
+                  ],
+                )
+              : CustomScrollView(slivers: [...info, ...chapterList, bottomGap]),
         ),
       ),
     );

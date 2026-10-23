@@ -319,6 +319,102 @@ class _NovelScreenState extends State<NovelScreen> {
         ..clear()
         ..addAll(reversed);
     }
+    final size = MediaQuery.sizeOf(context);
+    final wide = size.width > size.height && size.width >= 720;
+    final bottomGap = SliverToBoxAdapter(
+      child: SizedBox(height: Gap.xxl + 72 + MediaQuery.viewPaddingOf(context).bottom),
+    );
+    final info = <Widget>[
+      SliverToBoxAdapter(child: _topBar(context)),
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(Gap.page, Gap.s, Gap.page, 0),
+        sliver: SliverToBoxAdapter(child: _hero(context, novel)),
+      ),
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
+        sliver: SliverToBoxAdapter(child: _actions(context)),
+      ),
+      if (novel?.summary != null)
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
+          sliver: SliverToBoxAdapter(child: _blurb(context, novel!.summary!)),
+        ),
+      if (novel != null && novel.genres.isNotEmpty)
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(Gap.page, Gap.l, Gap.page, 0),
+          sliver: SliverToBoxAdapter(
+            child: Wrap(spacing: 6, runSpacing: 6, children: [for (final g in novel.genres) TagChip(g)]),
+          ),
+        ),
+    ];
+    final chapterList = <Widget>[
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xxl, Gap.s, Gap.s),
+        sliver: SliverToBoxAdapter(
+          child: Row(
+            children: [
+              Expanded(
+                child: SectionTitle(
+                  'Chapters',
+                  note: _chapters.isEmpty ? null : '${_chapters.length}',
+                ),
+              ),
+              IconButton(
+                tooltip: _newestFirst ? 'Oldest first' : 'Newest first',
+                onPressed: () => setState(() => _newestFirst = !_newestFirst),
+                icon: Icon(_newestFirst ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded),
+              ),
+            ],
+          ),
+        ),
+      ),
+      if (_downloading != null)
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
+          sliver: SliverToBoxAdapter(
+            child: Row(
+              children: [
+                const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                const SizedBox(width: Gap.m),
+                Expanded(child: Text(_downloading!, style: Skin.label(context))),
+                TextButton(
+                  onPressed: _stopDownload ? null : () => setState(() => _stopDownload = true),
+                  child: const Text('Stop'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      if (_error != null)
+        SliverPadding(
+          padding: const EdgeInsets.all(Gap.page),
+          sliver: SliverToBoxAdapter(
+            child: SourceProblem(
+              error: _error!,
+              onRetry: _load,
+              more: OutlinedButton(onPressed: _openInBrowser, child: const Text('Open in browser')),
+            ),
+          ),
+        )
+      else if (_loading && _chapters.isEmpty)
+        const SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.all(Gap.xxl),
+            child: Center(child: CircularProgressIndicator()),
+          ),
+        )
+      else
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: Gap.xs),
+          sliver: SliverFixedExtentList(
+            itemExtent: 60,
+            delegate: SliverChildBuilderDelegate(
+              childCount: order.length,
+              (context, i) => _chapterRow(context, order[i]),
+            ),
+          ),
+        ),
+    ];
     return PopScope(
       canPop: !_picking,
       onPopInvokedWithResult: (didPop, _) {
@@ -331,103 +427,25 @@ class _NovelScreenState extends State<NovelScreen> {
             bottom: false,
             child: Stack(
               children: [
-                RefreshIndicator(
-                  onRefresh: () => _load(pulled: true),
-                  child: CustomScrollView(
-                    slivers: [
-                      SliverToBoxAdapter(child: _topBar(context)),
-                      SliverPadding(
-                        padding: const EdgeInsets.fromLTRB(Gap.page, Gap.s, Gap.page, 0),
-                        sliver: SliverToBoxAdapter(child: _hero(context, novel)),
-                      ),
-                      SliverPadding(
-                        padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
-                        sliver: SliverToBoxAdapter(child: _actions(context)),
-                      ),
-                      if (novel?.summary != null)
-                        SliverPadding(
-                          padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
-                          sliver: SliverToBoxAdapter(child: _blurb(context, novel!.summary!)),
+                // Landscape on a phone: details beside the chapters.
+                if (wide)
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(width: 420, child: CustomScrollView(slivers: [...info, bottomGap])),
+                      Expanded(
+                        child: RefreshIndicator(
+                          onRefresh: () => _load(pulled: true),
+                          child: CustomScrollView(slivers: [...chapterList, bottomGap]),
                         ),
-                      if (novel != null && novel.genres.isNotEmpty)
-                        SliverPadding(
-                          padding: const EdgeInsets.fromLTRB(Gap.page, Gap.l, Gap.page, 0),
-                          sliver: SliverToBoxAdapter(
-                            child: Wrap(spacing: 6, runSpacing: 6, children: [for (final g in novel.genres) TagChip(g)]),
-                          ),
-                        ),
-                      SliverPadding(
-                        padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xxl, Gap.s, Gap.s),
-                        sliver: SliverToBoxAdapter(
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: SectionTitle(
-                                  'Chapters',
-                                  note: _chapters.isEmpty ? null : '${_chapters.length}',
-                                ),
-                              ),
-                              IconButton(
-                                tooltip: _newestFirst ? 'Oldest first' : 'Newest first',
-                                onPressed: () => setState(() => _newestFirst = !_newestFirst),
-                                icon: Icon(_newestFirst ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      if (_downloading != null)
-                        SliverPadding(
-                          padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
-                          sliver: SliverToBoxAdapter(
-                            child: Row(
-                              children: [
-                                const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-                                const SizedBox(width: Gap.m),
-                                Expanded(child: Text(_downloading!, style: Skin.label(context))),
-                                TextButton(
-                                  onPressed: _stopDownload ? null : () => setState(() => _stopDownload = true),
-                                  child: const Text('Stop'),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      if (_error != null)
-                        SliverPadding(
-                          padding: const EdgeInsets.all(Gap.page),
-                          sliver: SliverToBoxAdapter(
-                            child: SourceProblem(
-                              error: _error!,
-                              onRetry: _load,
-                              more: OutlinedButton(onPressed: _openInBrowser, child: const Text('Open in browser')),
-                            ),
-                          ),
-                        )
-                      else if (_loading && _chapters.isEmpty)
-                        const SliverToBoxAdapter(
-                          child: Padding(
-                            padding: EdgeInsets.all(Gap.xxl),
-                            child: Center(child: CircularProgressIndicator()),
-                          ),
-                        )
-                      else
-                        SliverPadding(
-                          padding: const EdgeInsets.symmetric(horizontal: Gap.xs),
-                          sliver: SliverFixedExtentList(
-                            itemExtent: 60,
-                            delegate: SliverChildBuilderDelegate(
-                              childCount: order.length,
-                              (context, i) => _chapterRow(context, order[i]),
-                            ),
-                          ),
-                        ),
-                      SliverToBoxAdapter(
-                        child: SizedBox(height: Gap.xxl + 72 + MediaQuery.viewPaddingOf(context).bottom),
                       ),
                     ],
+                  )
+                else
+                  RefreshIndicator(
+                    onRefresh: () => _load(pulled: true),
+                    child: CustomScrollView(slivers: [...info, ...chapterList, bottomGap]),
                   ),
-                ),
                 Positioned(
                   left: Gap.m,
                   right: Gap.m,

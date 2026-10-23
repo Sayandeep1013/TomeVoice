@@ -296,6 +296,38 @@ void main() {
       await finish(tester);
     });
 
+    testWidgets('swiping the player up opens Now Playing; close goes back', (tester) async {
+      await pumpReader(tester, specimenBook());
+      await tester.fling(find.byTooltip('Speed'), const Offset(0, -300), 1500);
+      await tester.pumpAndSettle();
+      expect(find.text('NOW READING'), findsOneWidget);
+      // The sentence to be read, large, in the reading face.
+      final now = tester.widgetList<Text>(find.textContaining('quick brown fox'))
+          .where((t) => (t.style?.fontSize ?? 0) > 20);
+      expect(now, isNotEmpty);
+
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pumpAndSettle();
+      expect(find.text('NOW READING'), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('on its side, the player is a rail beside the text', (tester) async {
+      tester.view.physicalSize = const Size(2392, 1080);
+      tester.view.devicePixelRatio = 2.75;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(useMaterial3: true, brightness: Brightness.light),
+        home: ReaderScreen(layout: ReadingLayout.build(specimenBook())),
+      ));
+      await tester.pumpAndSettle();
+      final width = tester.view.physicalSize.width / tester.view.devicePixelRatio;
+      expect(tester.getCenter(find.byTooltip('Play')).dx, greaterThan(width * 0.6));
+      // The text keeps most of the height: it starts near the top.
+      expect(tester.getTopLeft(find.textContaining('quick brown fox').first).dy, lessThan(200));
+      await finish(tester);
+    });
+
     testWidgets('book text is set in the reading face', (tester) async {
       await pumpReader(tester, specimenBook());
       final text = tester.widget<Text>(find.textContaining('quick brown fox').first);
