@@ -442,16 +442,15 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('CHAPTER 3222'), findsOneWidget);
-      final top = [for (final t in tester.widgetList<Text>(find.byType(Text))) if ((t.data ?? '').contains('/')) t.data];
-      debugPrint('top line: $top');
       expect(find.textContaining('CHAPTER 2: BETA  ·  3222/'), findsOneWidget);
       expect(find.text('Back to reading'), findsOneWidget);
-      // The place being read has not moved.
-      expect(washed(tester), 'Chapter 1: Alpha');
+      // The place being read is off screen, where it was.
+      expect(washed(tester), isEmpty);
 
       await tester.tap(find.byTooltip('Play'));
       await tester.pump(const Duration(milliseconds: 600));
       expect(find.textContaining('CHAPTER 1: ALPHA  ·  3221/'), findsOneWidget);
+      expect(washed(tester), 'Chapter 1: Alpha');
       await finish(tester);
     });
   });
