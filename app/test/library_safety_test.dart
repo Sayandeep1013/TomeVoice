@@ -37,7 +37,9 @@ void main() {
 
   test('an unreadable library list is kept aside, not written over', () async {
     File('${tmp.path}/library.json').writeAsStringSync('{"books": [ {"id": "cut sho');
-    expect(await store.list(), isEmpty);
+    // As the app finds it when it next starts.
+    final fresh = LibraryStore(tmp);
+    expect(await fresh.list(), isEmpty);
     expect(File('${tmp.path}/library.json.broken').readAsStringSync(), contains('cut sho'));
   });
 

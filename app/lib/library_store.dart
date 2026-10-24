@@ -42,16 +42,34 @@ class LibraryStore {
     await _booksDir.create(recursive: true);
   }
 
-  /// Changes to the index run one at a time. Each reads the list and writes
-  /// it back; two at once (a place being saved while a book is imported)
-  /// would each write over the other's change, and a book could vanish from
-  /// the shelf.
-  Future<void> _editing = Future<void>.value();
+  /// The index, read from disk once and then kept here: every change is
+  /// made to this copy in one step, with nothing awaited between reading it
+  /// and changing it, then written out. Two changes at once (a place being
+  /// saved while a book is imported) can no longer each write over the
+  /// other, which could make a book vanish from the shelf.
+  LibraryIndex? _known;
 
-  Future<T> _edit<T>(Future<T> Function() change) {
-    final run = _editing.then((_) => change());
-    _editing = run.then<void>((_) {}, onError: (Object _) {});
-    return run;
+  /// Set while a backup is being restored: library.json is being replaced
+  /// on disk, and this copy must not be written back over it.
+  bool _held = false;
+
+  /// Stop writing the index (a restore is replacing it).
+  void hold() => _held = true;
+
+  /// Write again, reading the index afresh (the restore did not happen).
+  void release() {
+    _held = false;
+    _known = null;
+  }
+
+  /// Change the books in one step: [change] gets the current list and
+  /// returns the new one.
+  Future<void> _change(List<LibraryEntry> Function(List<LibraryEntry> entries) change) async {
+    await index();
+    if (_held) return;
+    final next = change([..._known!.entries])..sort((a, b) => b.lastTouched.compareTo(a.lastTouched));
+    _known = LibraryIndex(entries: next, categories: _categories, defaultCategory: _defaultCategory);
+    await _write(next);
   }
 
   // Categories as last read or written; every public method reads the index
@@ -60,10 +78,17 @@ class LibraryStore {
   String _defaultCategory = Category.defaults.first.id;
 
   /// Books, most recently opened first.
-  Future<List<LibraryEntry>> list() async => (await index()).entries;
+  Future<List<LibraryEntry>> list() async => [...(await index()).entries];
 
   /// Books plus the shelf's categories.
   Future<LibraryIndex> index() async {
+    final known = _known;
+    if (known != null) return known;
+    final read = await _readIndex();
+    return _known ??= read;
+  }
+
+  Future<LibraryIndex> _readIndex() async {
     await ensure();
     var entries = <LibraryEntry>[];
     if (await _indexFile.exists()) {
@@ -117,16 +142,15 @@ class LibraryStore {
   /// category that no longer exists move to the first one.
   Future<void> saveCategories(List<Category> categories, {String? defaultCategory}) async {
     if (categories.isEmpty) return;
-    await _edit(() async {
-      final entries = await list();
+    await _change((entries) {
       _categories = List.unmodifiable(categories);
       final d = defaultCategory ?? _defaultCategory;
       _defaultCategory = categories.any((c) => c.id == d) ? d : categories.first.id;
       final ids = {for (final c in categories) c.id};
-      await _write([
+      return [
         for (final e in entries)
           e.category == null || ids.contains(e.category) ? e : e.copyWith(category: categories.first.id),
-      ]);
+      ];
     });
   }
 
@@ -139,12 +163,9 @@ class LibraryStore {
   }
 
   /// Put [ids] in [categoryId].
-  Future<void> moveBooks(Set<String> ids, String categoryId) => _edit(() async {
-        final entries = await list();
-        await _write([
-          for (final e in entries) ids.contains(e.id) ? e.copyWith(category: categoryId) : e,
-        ]);
-      });
+  Future<void> moveBooks(Set<String> ids, String categoryId) => _change((entries) => [
+        for (final e in entries) ids.contains(e.id) ? e.copyWith(category: categoryId) : e,
+      ]);
 
   // ------------------------------------------------------------ web novels
 
@@ -175,10 +196,10 @@ class LibraryStore {
         // A drawn cover will do.
       }
     }
-    return _edit(() async {
-      final existing = await list();
+    late LibraryEntry entry;
+    await _change((existing) {
       final previous = existing.where((e) => e.id == id).firstOrNull;
-      final entry = LibraryEntry(
+      entry = LibraryEntry(
         id: id,
         title: novel.name.isEmpty ? 'Untitled' : novel.name,
         authors: [if (novel.author != null) novel.author!],
@@ -199,9 +220,9 @@ class LibraryStore {
         novelPath: novel.path,
         chapterCount: novel.chapters.length,
       );
-      await _write([entry, for (final e in existing) if (e.id != id) e]);
-      return entry;
+      return [entry, for (final e in existing) if (e.id != id) e];
     });
+    return entry;
   }
 
   /// The stored details and chapter list of web novel [id].
@@ -221,10 +242,7 @@ class LibraryStore {
     if (info == null) return;
     final next = info.copyWith(chapters: chapters, checkedAt: DateTime.now());
     await writeSafely(File('${bookDir(id)}/novel.json'), jsonEncode(next.toJson()));
-    await _edit(() async {
-      final entries = await list();
-      await _write([for (final e in entries) e.id == id ? e.copyWith(chapterCount: chapters.length) : e]);
-    });
+    await _change((entries) => [for (final e in entries) e.id == id ? e.copyWith(chapterCount: chapters.length) : e]);
   }
 
   /// Whether chapter [index] of web novel [id] is on the phone.
@@ -243,11 +261,7 @@ class LibraryStore {
   /// Keep a fetched chapter, parsed, so it opens offline from now on.
   Future<void> saveChapter(String id, int index, String title, String html, {String? language}) async {
     final path = _chapterFile(id, index);
-    await Isolate.run(() {
-      final section = webChapterSection(index: index, title: title, html: html, language: language);
-      File(path).parent.createSync(recursive: true);
-      _writeWholeSync(File(path), jsonEncode(section.toJson()));
-    });
+    await _runSaveChapter(path, index, title, html, language);
   }
 
   String _chapterFile(String id, int index) => '${bookDir(id)}/ch/$index.json';
@@ -266,10 +280,8 @@ class LibraryStore {
 
   /// Take [id] off the history (and the Continue card) without touching the
   /// place it is saved at.
-  Future<void> forgetOpened(String id) => _edit(() async {
-        final entries = await list();
-        await _write([for (final e in entries) e.id == id ? e.copyWith(clearOpened: true) : e]);
-      });
+  Future<void> forgetOpened(String id) =>
+      _change((entries) => [for (final e in entries) e.id == id ? e.copyWith(clearOpened: true) : e]);
 
   /// Import [file]: parse it off the UI thread, store the source and the
   /// parsed book, and add it to the index. Re-importing a book keeps its
@@ -307,10 +319,10 @@ class LibraryStore {
     );
     final entry = await _runImport(job);
 
-    final merged = await _edit(() async {
-      final existing = await list();
+    late LibraryEntry merged;
+    await _change((existing) {
       final previous = existing.where((e) => e.id == entry.id).firstOrNull;
-      final merged = previous == null
+      merged = previous == null
           ? entry.copyWith(category: _defaultCategory)
           : entry
               .copyWith(
@@ -321,12 +333,11 @@ class LibraryStore {
                 category: previous.category,
               )
               .withCover(previous.coverMode, previous.customCover);
-      await _write([
+      return [
         merged,
         for (final e in existing)
           if (e.id != entry.id) e,
-      ]);
-      return merged;
+      ];
     });
 
     // The picker's copy is now a duplicate of books/<id>/source.*.
@@ -346,7 +357,7 @@ class LibraryStore {
     final entry = entries.where((e) => e.id == id).firstOrNull;
     if (entry != null && entry.isWeb) {
       final dir = bookDir(id);
-      return Isolate.run(() => _loadWebSync(dir, id));
+      return _runLoadWeb(dir, id);
     }
     final job = (
       booksDir: _booksDir.path,
@@ -357,13 +368,10 @@ class LibraryStore {
     // Books imported before covers were stored get theirs on first open.
     final cover = coverFileOf(bookDir(id), layout.book);
     if (entry != null && entry.cover != cover && cover != null) {
-      await _edit(() async {
-        final now = await list();
-        await _write([
-          for (final e in now)
-            if (e.id == id) e.copyWith(cover: cover) else e,
-        ]);
-      });
+      await _change((now) => [
+            for (final e in now)
+              if (e.id == id) e.copyWith(cover: cover) else e,
+          ]);
     }
     return layout;
   }
@@ -388,18 +396,15 @@ class LibraryStore {
       }
       custom = dest;
     }
-    return _edit(() async {
-      final entries = await list();
-      LibraryEntry? updated;
-      await _write([
-        for (final e in entries)
-          if (e.id == id)
-            updated = e.withCover(mode, custom ?? e.customCover)
-          else
-            e,
-      ]);
-      return updated;
-    });
+    LibraryEntry? updated;
+    await _change((entries) => [
+          for (final e in entries)
+            if (e.id == id)
+              updated = e.withCover(mode, custom ?? e.customCover)
+            else
+              e,
+        ]);
+    return updated;
   }
 
   /// Folder holding a book's source, parsed text and pictures.
@@ -449,31 +454,24 @@ class LibraryStore {
       File('${dir.path}/cursor.json'),
       jsonEncode({'cursor': cursor.toJson(), 'progress': progress}),
     );
-    await _edit(() async {
-      final entries = await list();
-      if (entries.every((e) => e.id != id)) return;
-      await _write([
-        for (final e in entries)
-          if (e.id == id)
-            e.copyWith(
-              cursor: cursor,
-              progress: progress,
-              openedAt: DateTime.now(),
-              where: where,
-            )
-          else
-            e,
-      ]);
-    });
+    await _change((entries) => [
+          for (final e in entries)
+            if (e.id == id)
+              e.copyWith(
+                cursor: cursor,
+                progress: progress,
+                openedAt: DateTime.now(),
+                where: where,
+              )
+            else
+              e,
+        ]);
   }
 
   Future<void> remove(String id) async {
     final dir = Directory(bookDir(id));
     if (await dir.exists()) await dir.delete(recursive: true);
-    await _edit(() async {
-      final entries = await list();
-      await _write([for (final e in entries) if (e.id != id) e]);
-    });
+    await _change((entries) => [for (final e in entries) if (e.id != id) e]);
   }
 
   static Future<String> _head(File f) async {
@@ -499,6 +497,15 @@ class LibraryStore {
 Future<LibraryEntry> _runImport(_ImportJob job) => Isolate.run(() => _importSync(job));
 
 Future<ReadingLayout> _runLoad(_LoadJob job) => Isolate.run(() => _loadLayoutSync(job));
+
+Future<ReadingLayout> _runLoadWeb(String dir, String id) => Isolate.run(() => _loadWebSync(dir, id));
+
+Future<void> _runSaveChapter(String path, int index, String title, String html, String? language) =>
+    Isolate.run(() {
+      final section = webChapterSection(index: index, title: title, html: html, language: language);
+      File(path).parent.createSync(recursive: true);
+      _writeWholeSync(File(path), jsonEncode(section.toJson()));
+    });
 
 typedef _ImportJob = ({
   String booksDir,

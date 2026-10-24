@@ -162,6 +162,9 @@ Future<void> runRestore(BuildContext context, LibraryStore store) async {
   }
   if (!context.mounted) return;
   unawaited(_progressDialog(context, how == 'add' ? 'Adding to your library' : 'Restoring', progress));
+  // Nothing may write the old book list back over the restored one before
+  // the app starts again.
+  store.hold();
   try {
     if (how == 'add') {
       await addToLibrary(store.root, staged);
@@ -169,6 +172,7 @@ Future<void> runRestore(BuildContext context, LibraryStore store) async {
       await replaceLibrary(store.root, staged);
     }
   } on Object catch (e) {
+    store.release();
     await staged.discard();
     if (!context.mounted) return;
     Navigator.of(context, rootNavigator: true).pop();
