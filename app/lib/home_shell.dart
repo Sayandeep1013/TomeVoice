@@ -49,6 +49,12 @@ class _HomeShellState extends State<HomeShell> {
   Timer? _followTimer;
   Timer? _widgetTimer;
   StreamSubscription<Map<String, Object?>>? _widgetEvents;
+  AppLifecycleListener? _lifecycle;
+  bool _offering = false;
+
+  /// The version offered since the app started: once a run is enough, even
+  /// if Android's installer was backed out of.
+  String? _offered;
 
   /// The widgets show the library and the streak: redraw them a moment after
   /// a change (places are saved often while reading).
@@ -80,6 +86,7 @@ class _HomeShellState extends State<HomeShell> {
     _followTimer?.cancel();
     _widgetTimer?.cancel();
     unawaited(_widgetEvents?.cancel());
+    _lifecycle?.dispose();
     _store?.changes.removeListener(_scheduleFollow);
     super.dispose();
   }
@@ -156,8 +163,9 @@ class _HomeShellState extends State<HomeShell> {
       if (fresh) Future<void>.delayed(const Duration(seconds: 3), () => _offerRestore(store));
       // A new install's first shelf: a classic and two web novels.
       unawaited(Starter.seed(Directory(dir), store, sources));
-      // A newer TomeVoice, said once per version.
-      Future<void>.delayed(const Duration(seconds: 8), () => _tellAboutUpdate(Directory(dir)));
+      // A newer TomeVoice: on opening, and on coming back to the app.
+      Future<void>.delayed(const Duration(seconds: 8), () => _offerUpdate(Directory(dir)));
+      _lifecycle = AppLifecycleListener(onResume: () => unawaited(_offerUpdate(Directory(dir))));
       // New chapters, at most as often as the reader asked, a moment after
       // the shelf is up so opening the app stays quick.
       Future<void>.delayed(const Duration(seconds: 4), () async {
@@ -184,18 +192,23 @@ class _HomeShellState extends State<HomeShell> {
     );
   }
 
-  Future<void> _tellAboutUpdate(Directory root) async {
-    final update = await AppUpdates.check(root);
-    if (update == null || !mounted || await AppUpdates.told(root, update)) return;
-    if (!mounted) return;
-    showSnack(
-      context,
-      'TomeVoice ${update.version} is out.',
-      long: true,
-      actionLabel: 'Install',
-      onAction: () => unawaited(offerUpdate(context, update)),
-    );
-    await AppUpdates.markTold(root, update);
+  /// A newer TomeVoice, offered in a dialog unless the reader skipped it or
+  /// put it off. Asked on opening and on coming back to the app; GitHub is
+  /// asked at most every few hours (see AppUpdates.check).
+  Future<void> _offerUpdate(Directory root) async {
+    if (_offering) return;
+    _offering = true;
+    try {
+      final update = await AppUpdates.check(root);
+      if (update == null || update.version == _offered || !mounted) return;
+      if (!await AppUpdates.shouldOffer(root, update) || !mounted) return;
+      _offered = update.version;
+      await offerUpdate(context, update, root: root);
+    } on Object {
+      // The next opening asks again.
+    } finally {
+      _offering = false;
+    }
   }
 
   void _go(_Place place) {

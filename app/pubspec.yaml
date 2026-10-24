@@ -4,7 +4,7 @@ description: >-
   Markdown and text, and reads them aloud with the owned audio pipeline.
   See docs/16-session-handoff.md.
 publish_to: none
-version: 1.0.4+16
+version: 1.0.5+17
 
 environment:
   sdk: ^3.5.0

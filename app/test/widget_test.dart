@@ -13,6 +13,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
+import 'package:tomevoice_spike/app_update.dart';
 import 'package:tomevoice_spike/book_card.dart';
 import 'package:tomevoice_spike/book_screen.dart';
 import 'package:tomevoice_spike/brand.dart';
@@ -28,6 +29,7 @@ import 'package:tomevoice_spike/settings_screen.dart';
 import 'package:tomevoice_spike/sources/models.dart';
 import 'package:tomevoice_spike/speech_service.dart';
 import 'package:tomevoice_spike/theme.dart';
+import 'package:tomevoice_spike/update_flow.dart';
 import 'package:tomevoice_spike/ui.dart';
 import 'package:tomevoice_spike/voices.dart';
 
@@ -892,6 +894,58 @@ void main() {
       expect(find.byType(ContinueDock), findsOneWidget);
       expect(find.byTooltip('Continue reading aloud'), findsOneWidget);
       expect(find.textContaining('30%'), findsWidgets);
+      await finish(tester);
+    });
+  });
+
+  group('app updates', () {
+    const update = AppUpdate(
+      version: '1.0.5',
+      url: 'https://github.com/Sayandeep1013/TomeVoice/releases/tag/v1.0.5',
+      title: 'TomeVoice 1.0.5',
+      apk64: 'https://github.com/Sayandeep1013/TomeVoice/releases/download/v1.0.5/TomeVoice-1.0.5.apk',
+      bytes64: 12 * 1024 * 1024,
+    );
+
+    Future<void> pumpOffer(WidgetTester tester) async {
+      phone(tester);
+      await tester.pumpWidget(MaterialApp(
+        theme: Skin.themeFor(Palette.forest, Brightness.light),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => offerUpdate(context, update, root: _tmp),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await settleIo(tester, until: () => find.text('New version available').evaluate().isNotEmpty);
+    }
+
+    testWidgets('opening the app offers a new version, which can be skipped', (tester) async {
+      await pumpOffer(tester);
+      expect(find.text('New version available'), findsOneWidget);
+      expect(find.textContaining('TomeVoice 1.0.5 is ready. A 12 MB download'), findsOneWidget);
+      for (final label in ["What's new", 'Skip this version', 'Later', 'Install']) {
+        expect(find.text(label), findsOneWidget, reason: label);
+      }
+      await tester.tap(find.text('Skip this version'));
+      await settleIo(tester);
+      expect(find.text('New version available'), findsNothing);
+      expect(await tester.runAsync(() => AppUpdates.shouldOffer(_tmp, update)), isFalse);
+      await finish(tester);
+    });
+
+    testWidgets('Later puts the offer off', (tester) async {
+      await pumpOffer(tester);
+      await tester.tap(find.text('Later'));
+      await settleIo(tester);
+      expect(find.text('New version available'), findsNothing);
+      expect(await tester.runAsync(() => AppUpdates.shouldOffer(_tmp, update)), isFalse);
+      final inFourDays = DateTime.now().add(const Duration(days: 4));
+      expect(await tester.runAsync(() => AppUpdates.shouldOffer(_tmp, update, now: inFourDays)), isTrue);
       await finish(tester);
     });
   });
