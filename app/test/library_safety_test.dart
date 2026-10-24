@@ -105,6 +105,29 @@ void main() {
       await expectFiledByChapter();
     });
 
+    test('a title the site has since corrected still finds its place, and keeps the next one', () async {
+      // Shadow Slave: "Chapter 3115 Dark and Sinister" became "... Siniste"
+      // in the list. Matched by its exact title only, it stayed put, and
+      // the chapter moving onto its place was lost.
+      final odd = listOf(['A', 'B', 'X', 'Chapter 3 Dark and Sinister', 'D']);
+      final fixed = listOf(['A', 'B', 'Chapter 3 Dark and Siniste', 'D', 'E']);
+      final other = (await store.addWebNovel(plugin, SourceNovel(path: 'other', name: 'Other', chapters: odd))).id;
+      for (final i in [3, 4]) {
+        await store.saveChapter(other, i, odd[i].name, '<p>The words of ${odd[i].name}.</p>');
+      }
+      final file = File('${tmp.path}/books/$other/novel.json');
+      final json = jsonDecode(file.readAsStringSync()) as Map<String, Object?>;
+      json
+        ..remove('filed')
+        ..['chapters'] = [for (final c in fixed) c.toJson()];
+      file.writeAsStringSync(jsonEncode(json));
+      await store.settleWebChapters(other);
+      final sections = (await store.loadLayout(other)).book.sections;
+      expect(sections[2].blocks.map((b) => b.text), contains('The words of Chapter 3 Dark and Sinister.'));
+      expect(sections[3].blocks.map((b) => b.text), contains('The words of D.'));
+      expect(store.downloadedChapters(other), {2, 3});
+    });
+
     test('a list cut short by the site does not replace the stored one', () {
       expect(replacesChapterList(before, before), isFalse);
       expect(replacesChapterList(before, after), isTrue);

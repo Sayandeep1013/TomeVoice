@@ -280,8 +280,8 @@ class LibraryStore {
     try {
       final info = await webNovel(id);
       if (info == null || info.filed) return info;
-      final moves = await _runFindMisfiled(bookDir(id), [for (final c in info.chapters) c.name]);
-      await _refile(id, moves);
+      final moves = await _runSettle(bookDir(id), [for (final c in info.chapters) c.name]);
+      await _followMoves(id, moves);
       final next = info.copyWith(filed: true);
       await writeSafely(File('${bookDir(id)}/novel.json'), jsonEncode(next.toJson()));
       return next;
@@ -295,6 +295,12 @@ class LibraryStore {
   Future<void> _refile(String id, Map<int, int> moves) async {
     if (moves.isEmpty) return;
     await _runMoveChapters(bookDir(id), moves);
+    await _followMoves(id, moves);
+  }
+
+  /// The saved place and saved quotes of [id], after its downloads moved.
+  Future<void> _followMoves(String id, Map<int, int> moves) async {
+    if (moves.isEmpty) return;
     final cursor = await cursorFor(id);
     final to = _follow(moves, cursor.sectionIndex);
     if (to != cursor.sectionIndex) {
@@ -574,8 +580,7 @@ Future<void> _runSaveChapter(String path, int index, String title, String html, 
 
 Future<void> _runMoveChapters(String dir, Map<int, int> moves) => Isolate.run(() => _moveChaptersSync(dir, moves));
 
-Future<Map<int, int>> _runFindMisfiled(String dir, List<String> names) =>
-    Isolate.run(() => _findMisfiledSync(dir, names));
+Future<Map<int, int>> _runSettle(String dir, List<String> names) => Isolate.run(() => _settleSync(dir, names));
 
 /// Where each chapter of [before] is in [after], for those that moved (-1:
 /// no longer listed).
@@ -600,30 +605,97 @@ int _follow(Map<int, int> moves, int c) {
   return c;
 }
 
-/// Downloads under [dir]/ch whose saved title is not the list's title for
-/// their place ([names]), with the place that title has in the list (the
-/// nearest, should a title be listed twice). A download left half moved
-/// (`.moving`) is put back too.
-Map<int, int> _findMisfiledSync(String dir, List<String> names) {
+/// Put each download under [dir]/ch back under its own chapter of [names]
+/// (the list as it is now), by the title it was saved with: the same title
+/// (the nearest, should one be listed twice), else the nearby title most
+/// like it (a site that fixed a typo, "Siniste" for "Sinister", or gave a
+/// title its missing number). Where two downloads want one place the surer
+/// match keeps it; a download that matches nothing stays where it is.
+/// Returns the moves made, old place to new (-1: dropped).
+Map<int, int> _settleSync(String dir, List<String> names) {
   final ch = Directory('$dir/ch');
   if (!ch.existsSync()) return const {};
   final placesOf = <String, List<int>>{};
   for (var j = 0; j < names.length; j++) {
     (placesOf[names[j]] ??= []).add(j);
   }
-  final moves = <int, int>{};
+  // Every download by place; one left half moved by an earlier run counts
+  // as at its place, unless that place has its file.
+  final files = <int, File>{};
   for (final f in ch.listSync().whereType<File>()) {
     final name = f.uri.pathSegments.last;
     final n = int.tryParse(name.split('.').first);
-    final moving = name.endsWith('.json.moving');
-    if (n == null || !(moving || name.endsWith('.json'))) continue;
-    final title = _savedTitle(f);
-    if (!moving && (title == null || (n < names.length && names[n] == title))) continue;
-    final places = placesOf[title];
-    final to = places?.reduce((a, b) => (a - n).abs() <= (b - n).abs() ? a : b);
-    if (to != null || moving) moves[n] = to ?? n;
+    if (n == null) continue;
+    if (name.endsWith('.json')) {
+      files[n] = f;
+    } else if (name.endsWith('.json.moving')) {
+      files.putIfAbsent(n, () => f);
+    }
   }
+  // Where each wants to be, and how sure that is: 2 the same title, 1 a
+  // like one, 0 nothing better than where it is.
+  final want = <int, (int, int)>{};
+  for (final MapEntry(key: n, value: f) in files.entries) {
+    final title = _savedTitle(f);
+    final places = title == null ? null : placesOf[title];
+    final like = title == null || places != null ? null : _likeTitle(title, names, n);
+    if (places != null) {
+      want[n] = (places.reduce((a, b) => (a - n).abs() <= (b - n).abs() ? a : b), 2);
+    } else if (like != null) {
+      want[n] = (like, 1);
+    } else {
+      want[n] = (n, 0);
+    }
+  }
+  final holder = <int, int>{};
+  for (final MapEntry(key: n, value: (to, sure)) in want.entries) {
+    final other = holder[to];
+    if (other == null) {
+      holder[to] = n;
+      continue;
+    }
+    final (_, otherSure) = want[other]!;
+    if (sure > otherSure || (sure == otherSure && (n - to).abs() < (other - to).abs())) holder[to] = n;
+  }
+  final placeOf = {for (final MapEntry(key: to, value: n) in holder.entries) n: to};
+  final moves = <int, int>{
+    for (final n in files.keys)
+      if (placeOf[n] != n || files[n]!.path.endsWith('.moving')) n: placeOf[n] ?? -1,
+  };
+  final parked = <int, File>{};
+  for (final MapEntry(key: n, value: to) in moves.entries) {
+    final f = files[n]!;
+    if (to < 0) {
+      f.deleteSync();
+    } else {
+      parked[n] = f.path.endsWith('.moving') ? f : f.renameSync('${ch.path}/$n.json.moving');
+    }
+  }
+  for (final MapEntry(key: n, value: f) in parked.entries) {
+    f.renameSync('${ch.path}/${moves[n]}.json');
+  }
+  moves.removeWhere((n, to) => n == to);
   return moves;
+}
+
+/// The place near [n] whose title in [names] is most like [title]: most of
+/// their words (and numbers) the same, "Chapter" aside.
+int? _likeTitle(String title, List<String> names, int n) {
+  Set<String> words(String t) =>
+      t.toLowerCase().split(RegExp(r'[^a-z0-9]+')).where((w) => w.isNotEmpty && w != 'chapter').toSet();
+  final mine = words(title);
+  if (mine.isEmpty) return null;
+  int? best;
+  var bestScore = 0.5;
+  for (var j = math.max(0, n - 8); j < math.min(names.length, n + 9); j++) {
+    final theirs = words(names[j]);
+    final score = mine.intersection(theirs).length / mine.union(theirs).length;
+    if (score > bestScore || (score == bestScore && best != null && (j - n).abs() < (best - n).abs())) {
+      best = j;
+      bestScore = score;
+    }
+  }
+  return best;
 }
 
 /// The title a downloaded chapter was saved with (near the start of its
