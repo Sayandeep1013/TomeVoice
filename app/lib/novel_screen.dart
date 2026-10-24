@@ -2,12 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:tomevoice_document/tomevoice_document.dart' show SourceKind;
+import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor, SourceKind, cursorOf;
 
 import 'book_actions.dart';
 import 'book_card.dart';
+import 'book_search.dart';
 import 'book_tint.dart';
 import 'browser_check.dart';
+import 'chapter_finder.dart';
 import 'library_store.dart';
 import 'saved_screen.dart';
 import 'sources/models.dart';
@@ -71,10 +73,6 @@ class _NovelScreenState extends State<NovelScreen> {
   bool _loading = true;
   bool _newestFirst = false;
   bool _blurbOpen = false;
-
-  /// "Find a chapter": its number or words from its title.
-  String _query = '';
-  final _find = TextEditingController();
   String? _downloading;
   bool _stopDownload = false;
 
@@ -103,7 +101,6 @@ class _NovelScreenState extends State<NovelScreen> {
     // second one beside it).
     _stopDownload = true;
     _store.changes.removeListener(_refreshLocal);
-    _find.dispose();
     super.dispose();
   }
 
@@ -236,17 +233,51 @@ class _NovelScreenState extends State<NovelScreen> {
     }
   }
 
-  Future<void> _openReader({int? chapter, bool play = false}) async {
+  Future<void> _openReader({int? chapter, ReadingCursor? at, bool play = false}) async {
     final e = await _ensureAdded();
     if (e == null || !mounted) return;
     await Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => BookTint(
         bookId: e.id,
         cover: e.shownCover,
-        child: WebNovelReader(store: _store, entry: e, startChapter: chapter, autoplay: play),
+        child: WebNovelReader(store: _store, entry: e, startChapter: chapter, at: at, autoplay: play),
       ),
     ));
     await _refreshLocal();
+  }
+
+  /// Find a chapter by its number or words from its title, and read it.
+  Future<void> _findChapter() async {
+    final picked = await showChapterFinder(
+      context,
+      titles: [for (final c in _chapters) c.name],
+      current: _current,
+      onPhone: _downloaded,
+      heading: 'Find a chapter',
+      autofocus: true,
+    );
+    if (picked != null && mounted) await _read(chapter: picked);
+  }
+
+  /// Find words in the chapters on the phone, and read from the one picked.
+  Future<void> _findPassage() async {
+    final layout = await _store.loadLayout(_id);
+    if (!mounted) return;
+    if (layout.isEmpty) {
+      showSnack(context, 'Download some chapters first: a passage is found in the chapters on the phone.');
+      return;
+    }
+    await showBookSearch(
+      context,
+      layout: layout,
+      chapter: 0,
+      wholeBook: true,
+      onPick: (hits, i, _) {
+        if (_opening) return;
+        _opening = true;
+        unawaited(_openReader(at: cursorOf(layout.units[hits[i].unit])).whenComplete(() => _opening = false));
+      },
+    );
   }
 
   /// Download [count] chapters from [from] (the place reached, by default)
@@ -336,11 +367,7 @@ class _NovelScreenState extends State<NovelScreen> {
   @override
   Widget build(BuildContext context) {
     final novel = _novel;
-    final q = _query.trim().toLowerCase();
-    final order = [
-      for (var i = 0; i < _chapters.length; i++)
-        if (q.isEmpty || '${i + 1}' == q || _chapters[i].name.toLowerCase().contains(q)) i,
-    ];
+    final order = [for (var i = 0; i < _chapters.length; i++) i];
     if (_newestFirst) {
       final reversed = order.reversed.toList();
       order
@@ -401,28 +428,6 @@ class _NovelScreenState extends State<NovelScreen> {
           ),
         ),
       ),
-      if (_chapters.length > 20)
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
-          sliver: SliverToBoxAdapter(
-            child: SearchField(
-              controller: _find,
-              hint: 'Find a chapter',
-              onChanged: (v) => setState(() => _query = v),
-              onClear: _query.isEmpty
-                  ? null
-                  : () {
-                      _find.clear();
-                      setState(() => _query = '');
-                    },
-            ),
-          ),
-        ),
-      if (q.isNotEmpty && order.isEmpty)
-        SliverPadding(
-          padding: const EdgeInsets.all(Gap.page),
-          sliver: SliverToBoxAdapter(child: Text('No chapters match.', style: Skin.label(context, size: 15))),
-        ),
       if (_downloading != null)
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
@@ -600,6 +605,10 @@ class _NovelScreenState extends State<NovelScreen> {
               onTap: () => Navigator.of(context).maybePop(),
             ),
             const Spacer(),
+            if (_chapters.isNotEmpty) ...[
+              RoundButton(icon: Icons.search_rounded, tooltip: 'Find a chapter', onTap: _findChapter),
+              const SizedBox(width: Gap.s),
+            ],
             PopupMenuButton<String>(
               tooltip: 'Novel options',
               position: PopupMenuPosition.under,
@@ -608,6 +617,8 @@ class _NovelScreenState extends State<NovelScreen> {
                 switch (v) {
                   case 'browser':
                     await _openInBrowser();
+                  case 'passage':
+                    await _findPassage();
                   case 'download10':
                     await _download(10);
                   case 'download50':
@@ -624,6 +635,8 @@ class _NovelScreenState extends State<NovelScreen> {
                 }
               },
               itemBuilder: (_) => [
+                if (_entry != null && _downloaded.isNotEmpty)
+                  const PopupMenuItem(value: 'passage', child: Text('Find a passage')),
                 const PopupMenuItem(value: 'browser', child: Text('Open in browser')),
                 const PopupMenuItem(value: 'download10', child: Text('Download next 10 chapters')),
                 const PopupMenuItem(value: 'download50', child: Text('Download next 50 chapters')),

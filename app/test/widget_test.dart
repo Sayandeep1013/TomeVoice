@@ -16,6 +16,7 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 import 'package:tomevoice_spike/book_card.dart';
 import 'package:tomevoice_spike/book_screen.dart';
 import 'package:tomevoice_spike/brand.dart';
+import 'package:tomevoice_spike/chapter_finder.dart';
 import 'package:tomevoice_spike/library_screen.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/main.dart';
@@ -29,7 +30,6 @@ import 'package:tomevoice_spike/speech_service.dart';
 import 'package:tomevoice_spike/theme.dart';
 import 'package:tomevoice_spike/ui.dart';
 import 'package:tomevoice_spike/voices.dart';
-import 'package:tomevoice_spike/web_reader.dart';
 
 const _channel = MethodChannel('tomevoice/tts');
 
@@ -274,8 +274,10 @@ void main() {
           until: () =>
               find.text('Chapters').evaluate().isNotEmpty &&
               find.byType(CircularProgressIndicator).evaluate().isEmpty);
+      expect(find.byTooltip('Find a chapter'), findsOneWidget);
       await tester.tap(find.byTooltip('Book options'));
       await tester.pumpAndSettle();
+      expect(find.text('Find a passage'), findsOneWidget);
       await tester.tap(find.text('Change cover'));
       await tester.pumpAndSettle();
       expect(find.text('Choose a different picture'), findsOneWidget);
@@ -996,7 +998,7 @@ void main() {
             onPressed: () async => picked = await showModalBottomSheet<int>(
               context: context,
               isScrollControlled: true,
-              builder: (_) => WebContentsSheet(chapters: chapters, downloaded: const {3}, current: 1),
+              builder: (_) => ChapterFinder(titles: [for (final c in chapters) c.name], onPhone: const {3}, current: 1),
             ),
             child: const Text('open'),
           ),

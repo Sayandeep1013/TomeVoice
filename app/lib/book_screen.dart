@@ -7,6 +7,7 @@ import 'book_actions.dart';
 import 'book_card.dart';
 import 'book_search.dart';
 import 'book_tint.dart';
+import 'chapter_finder.dart';
 import 'library_store.dart';
 import 'saved_screen.dart';
 import 'listen_sheet.dart';
@@ -283,6 +284,33 @@ class _BookScreenState extends State<BookScreen> {
     );
   }
 
+  /// Find a chapter by its number or words from its title, and read it.
+  Future<void> _findChapter() async {
+    final l = _layout;
+    if (l == null || l.isEmpty) return;
+    final picked = await showChapterFinder(
+      context,
+      titles: [for (var c = 0; c < l.chapters.length; c++) l.chapterTitle(c)],
+      current: _currentChapter,
+      heading: 'Find a chapter',
+      autofocus: true,
+    );
+    if (picked != null && mounted) await _read(play: false, chapter: picked);
+  }
+
+  /// Find a line or a quote remembered, anywhere in the book, and read from it.
+  Future<void> _findPassage() async {
+    final l = _layout;
+    if (l == null || l.isEmpty) return;
+    await showBookSearch(
+      context,
+      layout: l,
+      chapter: 0,
+      wholeBook: true,
+      onPick: (hits, i, _) => _read(play: false, unit: hits[i].unit),
+    );
+  }
+
   Widget _topBar(BuildContext context) => Padding(
         padding: const EdgeInsets.fromLTRB(Gap.m, Gap.s, Gap.m, 0),
         child: Row(
@@ -294,17 +322,7 @@ class _BookScreenState extends State<BookScreen> {
             ),
             const Spacer(),
             if (_layout?.isEmpty == false) ...[
-              RoundButton(
-                icon: Icons.search_rounded,
-                tooltip: 'Search the book',
-                onTap: () => showBookSearch(
-                  context,
-                  layout: _layout!,
-                  chapter: 0,
-                  wholeBook: true,
-                  onPick: (hits, i, _) => _read(play: false, unit: hits[i].unit),
-                ),
-              ),
+              RoundButton(icon: Icons.search_rounded, tooltip: 'Find a chapter', onTap: _findChapter),
               const SizedBox(width: Gap.s),
             ],
             PopupMenuButton<String>(
@@ -312,6 +330,8 @@ class _BookScreenState extends State<BookScreen> {
               position: PopupMenuPosition.under,
               onSelected: (v) async {
                 switch (v) {
+                  case 'passage':
+                    await _findPassage();
                   case 'cover':
                     await changeCover(context, _store, _entry);
                   case 'move':
@@ -325,6 +345,7 @@ class _BookScreenState extends State<BookScreen> {
                 }
               },
               itemBuilder: (_) => [
+                if (_layout?.isEmpty == false) const PopupMenuItem(value: 'passage', child: Text('Find a passage')),
                 const PopupMenuItem(value: 'cover', child: Text('Change cover')),
                 const PopupMenuItem(value: 'move', child: Text('Move to…')),
                 if (_entry.progress > 0)
