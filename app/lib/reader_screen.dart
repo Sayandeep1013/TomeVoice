@@ -1330,16 +1330,30 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                           final looking = _detached.value && !_l.isEmpty;
                           final c = looking ? _viewChapter.value : _l.chapterOfUnit(_cursor.value);
                           final u = looking ? _l.chapterFirstUnit[c] : _cursor.value;
-                          return Text(
-                            _l.chapters.length > 1 || widget.positionOf != null
-                                ? '${_l.chapterTitle(c)}  ·  ${widget.positionOf?.call(u) ?? '${_chapterNumber(c)}/${_l.chapters.length}'}'
-                                    .toUpperCase()
-                                : (_book.metadata.authorLine.isEmpty
-                                    ? _book.source.name.toUpperCase()
-                                    : _book.metadata.authorLine.toUpperCase()),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Skin.meta(context, size: 10.5),
+                          final style = Skin.meta(context, size: 10.5);
+                          if (!(_l.chapters.length > 1 || widget.positionOf != null)) {
+                            return Text(
+                              _book.metadata.authorLine.isEmpty
+                                  ? _book.source.name.toUpperCase()
+                                  : _book.metadata.authorLine.toUpperCase(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: style,
+                            );
+                          }
+                          // A long title gives way; the count always shows.
+                          return Row(
+                            children: [
+                              Flexible(
+                                child: Text(_l.chapterTitle(c).toUpperCase(),
+                                    maxLines: 1, overflow: TextOverflow.ellipsis, style: style),
+                              ),
+                              Text(
+                                '  ·  ${widget.positionOf?.call(u) ?? '${_chapterNumber(c)}/${_l.chapters.length}'}',
+                                maxLines: 1,
+                                style: style,
+                              ),
+                            ],
                           );
                         },
                       ),
@@ -1435,9 +1449,14 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             padding: EdgeInsets.only(top: i == 0 ? 8 : 56, bottom: 12),
             child: Row(
               children: [
-                Text('CHAPTER ${_chapterNumber(item.chapter)}',
-                    style: Skin.meta(context, size: 11, color: accent).copyWith(fontWeight: FontWeight.w600)),
-                const SizedBox(width: Gap.m),
+                // A title that carries its own number ("Chapter 3222
+                // Liberation") is not given a second one: a site's list
+                // can be one off from its titles.
+                if (!_digit.hasMatch(_l.chapterTitle(item.chapter))) ...[
+                  Text('CHAPTER ${_chapterNumber(item.chapter)}',
+                      style: Skin.meta(context, size: 11, color: accent).copyWith(fontWeight: FontWeight.w600)),
+                  const SizedBox(width: Gap.m),
+                ],
                 Expanded(child: Container(height: 1, color: accent.withValues(alpha: 0.35))),
               ],
             ),
@@ -1605,6 +1624,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       );
 
   int _chapterNumber(int c) => widget.chapterNumberOf?.call(c) ?? c + 1;
+
+  static final _digit = RegExp(r'[0-9]');
 
   void _openContents() {
     if (_l.chapters.isEmpty) return;
