@@ -41,13 +41,17 @@ class AppUpdate {
 /// Whether there is a newer TomeVoice on GitHub.
 ///
 /// TomeVoice is not in a store, so nothing else tells people a new version is
-/// out. Once a day the app asks GitHub for the latest release: one request,
-/// no account, nothing sent but the request itself. It can be turned off.
+/// out. Every few hours the app asks GitHub for the latest release: one
+/// request, no account, nothing sent but the request itself. It can be
+/// turned off.
 class AppUpdates {
   AppUpdates._();
 
   static const releasesApi = 'https://api.github.com/repos/Sayandeep1013/TomeVoice/releases/latest';
-  static const _every = Duration(hours: 24);
+  static const _every = Duration(hours: 6);
+
+  /// How long Later keeps a release from being offered again.
+  static const snooze = Duration(days: 3);
 
   /// The newer release, once one has been seen.
   static final available = ValueNotifier<AppUpdate?>(null);
@@ -77,7 +81,7 @@ class AppUpdates {
   static Future<void> setEnabled(Directory root, bool on) async =>
       _write(root, {...await _read(root), 'enabled': on});
 
-  /// Ask GitHub, at most once a day unless [force]. Returns the newer release,
+  /// Ask GitHub, at most every six hours unless [force]. Returns the newer release,
   /// or null when this is the latest (or the check could not run and [force]
   /// is false).
   static Future<AppUpdate?> check(Directory root, {bool force = false}) async {
@@ -102,12 +106,29 @@ class AppUpdates {
     return update;
   }
 
-  /// Whether the reader was already told about [update].
-  static Future<bool> told(Directory root, AppUpdate update) async =>
-      (await _read(root))['told'] == update.version;
+  /// Whether to offer [update] on its own: not when the reader skipped that
+  /// version, nor within [snooze] of putting it off. A newer release than
+  /// the one put off is offered at once.
+  static Future<bool> shouldOffer(Directory root, AppUpdate update, {DateTime? now}) async {
+    final state = await _read(root);
+    if (state['skipped'] == update.version) return false;
+    final later = (state['later'] as Map?)?.cast<String, Object?>();
+    if (later == null || later['version'] != update.version) return true;
+    final until = DateTime.tryParse(later['until'] as String? ?? '');
+    final at = now ?? DateTime.now();
+    // Nor for ever, if the clock was wound back.
+    return until == null || !at.isBefore(until) || until.difference(at) > snooze;
+  }
 
-  static Future<void> markTold(Directory root, AppUpdate update) async =>
-      _write(root, {...await _read(root), 'told': update.version});
+  /// Later: offer [update] again in [snooze].
+  static Future<void> putOff(Directory root, AppUpdate update, {DateTime? now}) async => _write(root, {
+        ...await _read(root),
+        'later': {'version': update.version, 'until': (now ?? DateTime.now()).add(snooze).toIso8601String()},
+      });
+
+  /// Skip this version: never offer [update] on its own again.
+  static Future<void> skip(Directory root, AppUpdate update) async =>
+      _write(root, {...await _read(root), 'skipped': update.version});
 
   static Future<Map<String, Object?>?> _fetch() async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);

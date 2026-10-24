@@ -434,7 +434,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                       children: [
                         SwitchRow(
                           title: 'Tell me about new versions',
-                          subtitle: 'Asks GitHub once a day whether a newer TomeVoice is out',
+                          subtitle: 'Asks GitHub every few hours whether a newer TomeVoice is out',
                           value: _tellUpdates,
                           padding: EdgeInsets.zero,
                           onChanged: (v) {
@@ -646,13 +646,7 @@ class _AboutScreenState extends State<AboutScreen> {
       if (update == null) {
         showSnack(context, 'This is the latest TomeVoice.');
       } else {
-        showSnack(
-          context,
-          'TomeVoice ${update.version} is out.',
-          long: true,
-          actionLabel: 'Install',
-          onAction: () => unawaited(offerUpdate(context, update)),
-        );
+        unawaited(offerUpdate(context, update));
       }
     } on Object {
       if (mounted) showSnack(context, 'Could not reach GitHub. Check the internet connection.');

@@ -14,36 +14,61 @@ const _svc = SpeechService();
 /// this phone (64- or 32-bit) and opens Android's installer, which asks for
 /// one last tap; apps from outside a store cannot skip that. A release
 /// without an APK attached opens its page instead.
-Future<void> offerUpdate(BuildContext context, AppUpdate update) async {
+///
+/// With [root], the app is offering it unasked, as it opens: the reader can
+/// skip this version, and Later (or tapping beside the dialog) waits a few
+/// days before offering it again.
+Future<void> offerUpdate(BuildContext context, AppUpdate update, {Directory? root}) async {
   final is64 = await _svc.is64Bit();
   final apk = is64 ? update.apk64 : update.apk32;
   if (!context.mounted) return;
-  if (apk == null) {
+  if (apk == null && root == null) {
     await _svc.openUrl(update.url);
     return;
   }
   final size = update.sizeMb(is64: is64);
-  final go = await showDialog<bool>(
+  final choice = await showDialog<String>(
     context: context,
     builder: (ctx) => AlertDialog(
-      title: Text('TomeVoice ${update.version}'),
-      content: Text(
-        '${size == null ? 'Download' : 'A $size MB download'}, then Android asks you to confirm the update. '
-        'Your library and settings stay as they are.',
+      title: Text(root == null ? 'TomeVoice ${update.version}' : 'New version available'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${root == null ? '' : 'TomeVoice ${update.version} is ready. '}'
+            '${size == null ? 'Download' : 'A $size MB download'}, then Android asks you to confirm the update. '
+            'Your library and settings stay as they are.',
+          ),
+          const SizedBox(height: Gap.s),
+          // Links rather than buttons: four buttons do not fit across a phone.
+          Wrap(
+            children: [
+              TextButton(
+                onPressed: () => unawaited(_svc.openUrl(update.url)),
+                child: const Text("What's new"),
+              ),
+              if (root != null)
+                TextButton(onPressed: () => Navigator.pop(ctx, 'skip'), child: const Text('Skip this version')),
+            ],
+          ),
+        ],
       ),
       actions: [
-        TextButton(
-          onPressed: () {
-            unawaited(_svc.openUrl(update.url));
-          },
-          child: const Text("What's new"),
-        ),
-        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Later')),
-        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Install')),
+        TextButton(onPressed: () => Navigator.pop(ctx, 'later'), child: const Text('Later')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, 'install'), child: const Text('Install')),
       ],
     ),
   );
-  if (go != true || !context.mounted) return;
+  if (root != null) {
+    if (choice == 'skip') await AppUpdates.skip(root, update);
+    if (choice == null || choice == 'later') await AppUpdates.putOff(root, update);
+  }
+  if (choice != 'install' || !context.mounted) return;
+  if (apk == null) {
+    await _svc.openUrl(update.url);
+    return;
+  }
 
   final progress = ValueNotifier<double?>(null);
   var cancelled = false;

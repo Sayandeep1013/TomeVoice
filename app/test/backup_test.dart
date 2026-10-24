@@ -169,4 +169,22 @@ void main() {
     expect(compareVersions('0.5.1', '0.6.0'), lessThan(0));
     expect(compareVersions('1.0.0+7', '1.0.0'), 0);
   });
+
+  test('a new version is offered until skipped, and Later waits three days', () async {
+    const v5 = AppUpdate(version: '1.0.5', url: 'u', title: 't');
+    const v6 = AppUpdate(version: '1.0.6', url: 'u', title: 't');
+    final now = DateTime(2026, 10, 24, 18);
+    expect(await AppUpdates.shouldOffer(root, v5, now: now), isTrue);
+
+    await AppUpdates.putOff(root, v5, now: now);
+    expect(await AppUpdates.shouldOffer(root, v5, now: now.add(const Duration(days: 2))), isFalse);
+    expect(await AppUpdates.shouldOffer(root, v5, now: now.add(const Duration(days: 3))), isTrue);
+    expect(await AppUpdates.shouldOffer(root, v6, now: now), isTrue, reason: 'a newer one is offered at once');
+    expect(await AppUpdates.shouldOffer(root, v5, now: now.subtract(const Duration(days: 30))), isTrue,
+        reason: 'a clock wound back does not put it off for ever');
+
+    await AppUpdates.skip(root, v5);
+    expect(await AppUpdates.shouldOffer(root, v5, now: now.add(const Duration(days: 30))), isFalse);
+    expect(await AppUpdates.shouldOffer(root, v6, now: now), isTrue, reason: 'the next release asks again');
+  });
 }
