@@ -427,7 +427,13 @@ void main() {
 
     testWidgets('looking ahead names the chapter on screen; Play goes back to the voice', (tester) async {
       phone(tester);
-      final layout = ReadingLayout.build(chaptered);
+      // Long enough that the second chapter can sit at the top of the screen.
+      final para = List.filled(30, 'A long paragraph of the story goes on here for a while.').join(' ');
+      final layout = ReadingLayout.build(ingestString(
+        '# Chapter 1: Alpha\n\n${List.filled(12, para).join('\n\n')}\n\n'
+        '# Chapter 2: Beta\n\n${List.filled(12, para).join('\n\n')}',
+        filename: 'novel.md',
+      ));
       await tester.pumpWidget(MaterialApp(
         theme: ThemeData(useMaterial3: true, brightness: Brightness.light),
         // A web novel's numbers, and the second chapter looked ahead to.
