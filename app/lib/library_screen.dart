@@ -64,6 +64,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
   /// not fly in from a tile somewhere on the shelf behind it.
   bool _shelfHeroes = true;
 
+  final _shelfKey = GlobalKey();
+
   /// Files handed over by "Open with" arrive both as an event and as the
   /// pending-open value; whichever reaches us second is ignored.
   final _handled = <String>{};
@@ -524,6 +526,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   // Books fade out as they scroll under the dock. The content
                   // itself fades, so the real ground shows through: a painted
                   // band never matched the diagonal ground and read as a bar.
+                  // The key carries the shelf across the dock's mask coming
+                  // and going (selecting a book hides the dock): rebuilt
+                  // fresh, the pages would snap back to the first category.
                   Expanded(
                     child: HeroMode(
                       enabled: _shelfHeroes,
@@ -536,9 +541,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 colors: const [Colors.black, Colors.black, Colors.transparent],
                                 stops: [0, (1 - 130 / rect.height).clamp(0.0, 1.0), 1],
                               ).createShader(rect),
-                              child: body,
+                              child: KeyedSubtree(key: _shelfKey, child: body),
                             )
-                          : body,
+                          : KeyedSubtree(key: _shelfKey, child: body),
                     ),
                   ),
                 ],

@@ -824,6 +824,22 @@ void main() {
       expect(find.text('New category…'), findsOneWidget);
       await finish(tester);
     });
+
+    testWidgets('selecting a book on another category stays on that category', (tester) async {
+      // A book being read shows the Continue dock, which selecting hides.
+      await pumpShelf(tester, openFirst: true, secondToLater: true);
+      expect(find.byType(ContinueDock), findsOneWidget);
+      await tester.fling(find.byType(PageView).first, const Offset(-500, 0), 1500);
+      await tester.pumpAndSettle();
+      expect(find.text('beta'), findsOneWidget);
+
+      await tester.longPress(find.text('beta'));
+      await tester.pumpAndSettle();
+      expect(find.text('1 selected'), findsOneWidget);
+      expect(find.text('beta'), findsOneWidget, reason: 'still on Later, not back on Reading');
+      expect(find.text('alpha'), findsNothing);
+      await finish(tester);
+    });
   });
 
   group('book page', () {
