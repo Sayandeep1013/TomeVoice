@@ -15,16 +15,18 @@ it reads to you — sentence by sentence, the spoken word highlighted, on the de
 with the screen off if you like.
 
 <p align="center">
-  <img src="docs/images/library.png" width="240" alt="The library as cover tiles, each with its format, language, listening time and progress on a translucent band">
+  <img src="docs/images/library.png" width="240" alt="The library's Later shelf as cover tiles, each with its format, language and progress, and the book being read waiting at the bottom with a play button">
   &nbsp;
-  <img src="docs/images/book.png" width="240" alt="A book's page: the cover, category, Continue and Read, the voice chosen for this book, and its chapters with the current one marked">
+  <img src="docs/images/book.png" width="240" alt="Alice in Wonderland's page in the colours of its cover: Find a chapter and the book's menu at the top, Continue and Read, the voice chosen for this book, and its chapters with the current one marked">
   &nbsp;
-  <img src="docs/images/reader.png" width="240" alt="Reading Alice in Wonderland aloud: the spoken sentence and word highlighted, and the player bar">
+  <img src="docs/images/reader.png" width="240" alt="Reading Shadow Slave aloud: the spoken sentence and word highlighted, the chapter and 2000/3224 at the top, and the player">
 </p>
 <p align="center">
-  <img src="docs/images/sources.png" width="240" alt="Sources: LNReader's list built in, the installed sites, and hundreds more to install by language">
+  <img src="docs/images/novel.png" width="240" alt="Shadow Slave's page: the web novel's site, status and 3224 chapters, the place reached, Continue and Read, and the chapters with the downloaded ones ticked">
   &nbsp;
-  <img src="docs/images/settings.png" width="240" alt="Settings: five colour themes, light or dark, and the reading type, spacing and margins">
+  <img src="docs/images/find-chapter.png" width="240" alt="Find a chapter: typing shadow narrows Shadow Slave's 3224 chapters to those with it in their title">
+  &nbsp;
+  <img src="docs/images/settings.png" width="240" alt="Settings: five colour themes, colours from book covers, and the reading type, size, spacing and margins">
 </p>
 
 No account. No cloud. Your books never leave the phone.
@@ -57,7 +59,9 @@ No account. No cloud. Your books never leave the phone.
 - **Now Playing.** Swipe the player up for the cover and the words going by like song
   lyrics. Every book takes its colours from its cover, here and on its pages. Turned on
   its side, the text keeps the screen and the player floats beneath it.
-- **Find and keep.** Search the chapter or the whole book. Press and hold a line to save
+- **Find and keep.** Find a chapter by its number or title (type 2000 in a 3,000-chapter
+  web novel and it is the only one left), or find a passage, a line you remember, in the
+  chapter or the whole book. Press and hold a line to save
   it as a quote, bookmark it, copy it, or share it as a picture in the book's colours
   (with Undo if you saved by mistake); they wait in **Saved**. Fix how a name is said,
   for one book or all, and in web novels leave out site notices and credits.
