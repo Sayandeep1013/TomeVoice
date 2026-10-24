@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
+import 'book_tint.dart';
 import 'browser_check.dart';
 import 'library_store.dart';
 import 'reader_screen.dart';
 import 'reading_rules.dart';
+import 'sources/models.dart';
 import 'sources/plugin_host.dart';
 import 'sources/source_engine.dart';
 import 'theme.dart';
@@ -201,6 +203,24 @@ class _WebNovelReaderState extends State<WebNovelReader> {
     }
   }
 
+  /// Every chapter the site lists, not only those on the phone: the one
+  /// picked is fetched if need be and read from its start (aloud, if
+  /// [playing]).
+  Future<void> _contents(BuildContext readerContext, {required int section, required bool playing}) async {
+    final info = await _store.webNovel(_id);
+    if (info == null || !readerContext.mounted) return;
+    final picked = await showModalBottomSheet<int>(
+      context: readerContext,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (ctx) => carryTint(
+        readerContext,
+        WebContentsSheet(chapters: info.chapters, downloaded: _store.downloadedChapters(_id), current: section),
+      ),
+    );
+    if (picked != null && mounted) await _open(picked, autoplay: playing);
+  }
+
   double _progress(int u) {
     final l = _layout;
     if (l == null || l.isEmpty || _total == 0) return 0;
@@ -227,6 +247,7 @@ class _WebNovelReaderState extends State<WebNovelReader> {
         positionOf: (u) => '${layout.units[u].sectionIndex + 1}/$_total',
         chapterNumberOf: (c) => layout.chapters[c] + 1,
         viewSection: _view,
+        openContents: _contents,
         endLabel: layout.isEmpty || layout.units.last.sectionIndex + 1 >= _total ? 'Check for new chapters' : 'Next chapter',
       );
     }
@@ -258,6 +279,116 @@ class _WebNovelReaderState extends State<WebNovelReader> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A web novel's contents: every chapter the site lists, with the one being
+/// read marked and those on the phone shown, and Find a chapter by its
+/// number or words from its title. Pops the chapter picked.
+class WebContentsSheet extends StatefulWidget {
+  const WebContentsSheet({super.key, required this.chapters, required this.downloaded, required this.current});
+
+  final List<ChapterItem> chapters;
+  final Set<int> downloaded;
+  final int current;
+
+  @override
+  State<WebContentsSheet> createState() => _WebContentsSheetState();
+}
+
+class _WebContentsSheetState extends State<WebContentsSheet> {
+  static const _rowHeight = 58.0;
+  String _query = '';
+  late final _controller = ScrollController(
+    initialScrollOffset: ((widget.current - 2) * _rowHeight).clamp(0, double.infinity).toDouble(),
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final all = widget.chapters;
+    final q = _query.trim().toLowerCase();
+    final rows = [
+      for (var i = 0; i < all.length; i++)
+        if (q.isEmpty || '${i + 1}' == q || all[i].name.toLowerCase().contains(q)) i,
+    ];
+    final accent = Skin.accentOf(context);
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.75,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SheetHeader(
+              'Contents',
+              trailing: Text('${all.length} ${all.length == 1 ? 'CHAPTER' : 'CHAPTERS'}', style: Skin.meta(context)),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(Gap.l, 0, Gap.l, Gap.s),
+              child: SearchField(hint: 'Find a chapter', onChanged: (v) => setState(() => _query = v)),
+            ),
+            Expanded(
+              child: rows.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.all(Gap.xl),
+                      child: Text('No chapters match.', style: Skin.label(context, size: 15)),
+                    )
+                  : ListView.builder(
+                      controller: q.isEmpty ? _controller : null,
+                      padding: const EdgeInsets.fromLTRB(Gap.m, 0, Gap.m, Gap.xl),
+                      itemExtent: _rowHeight,
+                      itemCount: rows.length,
+                      itemBuilder: (context, n) {
+                        final i = rows[n];
+                        final isCurrent = i == widget.current;
+                        return Material(
+                          color: isCurrent ? accent.withValues(alpha: 0.14) : Colors.transparent,
+                          borderRadius: BorderRadius.circular(Radii.row),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(Radii.row),
+                            onTap: () => Navigator.pop(context, i),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: Gap.m),
+                              child: Row(
+                                children: [
+                                  SizedBox(
+                                    width: 48,
+                                    child: Text('${i + 1}',
+                                        style: Skin.meta(context, size: 11.5, color: isCurrent ? accent : null)),
+                                  ),
+                                  Expanded(
+                                    child: Text(
+                                      all[i].name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Skin.title(context, size: 17, color: isCurrent ? accent : null),
+                                    ),
+                                  ),
+                                  if (isCurrent)
+                                    Icon(Icons.graphic_eq_rounded, size: 18, color: accent)
+                                  else if (widget.downloaded.contains(i))
+                                    Tooltip(
+                                      message: 'On the phone',
+                                      child: Icon(Icons.offline_pin_rounded, size: 18, color: Skin.inkFaintOn(context)),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
         ),
       ),
     );

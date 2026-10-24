@@ -24,10 +24,12 @@ import 'package:tomevoice_spike/pages_view.dart';
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/reader_screen.dart';
 import 'package:tomevoice_spike/settings_screen.dart';
+import 'package:tomevoice_spike/sources/models.dart';
 import 'package:tomevoice_spike/speech_service.dart';
 import 'package:tomevoice_spike/theme.dart';
 import 'package:tomevoice_spike/ui.dart';
 import 'package:tomevoice_spike/voices.dart';
+import 'package:tomevoice_spike/web_reader.dart';
 
 const _channel = MethodChannel('tomevoice/tts');
 
@@ -982,5 +984,34 @@ void main() {
       expect(named('en-us-language'), 'Default voice');
       catalog.voices = const [];
     });
+  });
+
+  testWidgets('the contents of a web novel list every chapter and find one by number or title', (tester) async {
+    final chapters = [for (var i = 1; i <= 400; i++) ChapterItem(name: 'Chapter $i Title $i', path: 'c$i')];
+    int? picked;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => TextButton(
+            onPressed: () async => picked = await showModalBottomSheet<int>(
+              context: context,
+              isScrollControlled: true,
+              builder: (_) => WebContentsSheet(chapters: chapters, downloaded: const {3}, current: 1),
+            ),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(find.text('400 CHAPTERS'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), '322');
+    await tester.pumpAndSettle();
+    expect(find.text('Chapter 322 Title 322'), findsOneWidget);
+    await tester.tap(find.text('Chapter 322 Title 322'));
+    await tester.pumpAndSettle();
+    expect(picked, 321);
   });
 }
