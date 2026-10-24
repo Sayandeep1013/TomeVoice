@@ -78,6 +78,10 @@ class _WebNovelReaderState extends State<WebNovelReader> {
   Object? _error;
   bool _prefetching = false;
 
+  /// The chapter (section) to show on opening when the reader looked ahead
+  /// past the fetched chapters; null opens at the place being read.
+  int? _view;
+
   late List<SkipRule> _skip = ReadingRules.instance.skip;
 
   @override
@@ -106,7 +110,8 @@ class _WebNovelReaderState extends State<WebNovelReader> {
 
   /// Make sure chapter [start] (or the saved place) and a few after it are
   /// here, then (re)build the book and show it there.
-  Future<void> _open(int? start, {required bool autoplay}) async {
+  /// With [keepPlace], [start] is only shown: the place being read stays.
+  Future<void> _open(int? start, {required bool autoplay, bool keepPlace = false}) async {
     setState(() {
       _error = null;
       _status = 'Opening…';
@@ -120,7 +125,7 @@ class _WebNovelReaderState extends State<WebNovelReader> {
         if (mounted) setState(() => _status = 'Fetching chapter ${c + 1}…');
       });
       final layout = await _store.loadLayout(_id);
-      if (start != null && !layout.isEmpty) {
+      if (start != null && !keepPlace && !layout.isEmpty) {
         final unit = layout.units.indexWhere((u) => u.sectionIndex == start);
         if (unit >= 0) cursor = cursorOf(layout.units[unit]);
       }
@@ -129,6 +134,7 @@ class _WebNovelReaderState extends State<WebNovelReader> {
         _layout = layout;
         _cursor = cursor;
         _autoplay = autoplay;
+        _view = keepPlace ? start : null;
         _generation++;
         _status = null;
       });
@@ -157,7 +163,7 @@ class _WebNovelReaderState extends State<WebNovelReader> {
   }
 
   /// The end of the fetched chapters: get the next ones and carry on.
-  Future<void> _onEnd({required bool playing}) async {
+  Future<void> _onEnd({required bool playing, bool browse = false}) async {
     final layout = _layout;
     if (layout == null || layout.isEmpty) return;
     final current = layout.units.last.sectionIndex;
@@ -166,7 +172,7 @@ class _WebNovelReaderState extends State<WebNovelReader> {
       if (mounted) showSnack(context, 'That is the latest chapter so far. New ones appear when the site adds them.');
       return;
     }
-    await _open(next, autoplay: playing);
+    await _open(next, autoplay: playing, keepPlace: browse);
   }
 
   /// Ask the source for the chapter list again. True if it grew.
@@ -211,6 +217,8 @@ class _WebNovelReaderState extends State<WebNovelReader> {
         onChapterChanged: _onChapter,
         progressOf: _progress,
         positionOf: (u) => '${layout.units[u].sectionIndex + 1}/$_total',
+        chapterNumberOf: (c) => layout.chapters[c] + 1,
+        viewSection: _view,
         endLabel: layout.isEmpty || layout.units.last.sectionIndex + 1 >= _total ? 'Check for new chapters' : 'Next chapter',
       );
     }

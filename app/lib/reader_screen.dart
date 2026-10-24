@@ -198,6 +198,8 @@ class ReaderScreen extends StatefulWidget {
     this.progressOf,
     this.endLabel,
     this.positionOf,
+    this.chapterNumberOf,
+    this.viewSection,
   });
 
   final ReadingLayout layout;
@@ -206,9 +208,11 @@ class ReaderScreen extends StatefulWidget {
   final bool autoplay;
 
   /// The end of what is here was reached (a web novel whose next chapters
-  /// are still on the site). [playing] says whether to carry on aloud. When
-  /// null, the end is the end of the book.
-  final Future<void> Function({required bool playing})? onReachedEnd;
+  /// are still on the site). [playing] says whether to carry on aloud;
+  /// [browse], that the reader is only looking ahead (the button at the end
+  /// of the page), so the place being read stays where it is. When null,
+  /// the end is the end of the book.
+  final Future<void> Function({required bool playing, bool browse})? onReachedEnd;
 
   /// The section (chapter number) being read changed.
   final ValueChanged<int>? onChapterChanged;
@@ -223,6 +227,14 @@ class ReaderScreen extends StatefulWidget {
   /// "12/340" for unit [u] in the whole work, when this layout holds only
   /// part of it (a web novel's downloaded chapters).
   final String Function(int u)? positionOf;
+
+  /// The number a chapter goes by (a web novel's 3222, not its place among
+  /// the chapters on the phone); defaults to its place in this layout.
+  final int Function(int chapter)? chapterNumberOf;
+
+  /// Open showing this section (a chapter looked ahead to) instead of the
+  /// place being read, which stays where it is until Play.
+  final int? viewSection;
 
   /// Where the book's pictures were stored at import.
   final String? bookDir;
@@ -241,6 +253,21 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   late final ValueNotifier<int> _cursor =
       ValueNotifier(_l.isEmpty ? 0 : _l.unitForCursor(widget.initialCursor));
   final _detached = ValueNotifier<bool>(false);
+
+  /// The chapter at the top of the screen. While the reader looks around
+  /// (detached), the top bar names it instead of the one being read.
+  late final _viewChapter = ValueNotifier<int>(_l.chapterOfUnit(_cursor.value));
+  late final _topLine = Listenable.merge([_cursor, _detached, _viewChapter]);
+
+  /// The item the list opens at: the place being read, or the chapter asked
+  /// to be shown.
+  late final int _startItem = () {
+    if (_l.isEmpty) return 0;
+    final cursorItem = _l.unitItem[_cursor.value.clamp(0, _l.units.length - 1)];
+    final view = widget.viewSection;
+    final c = view == null ? -1 : _l.chapters.indexOf(view);
+    return c < 0 ? cursorItem : _l.chapterFirstItem[c];
+  }();
   final _scroll = ItemScrollController();
   final _positions = ItemPositionsListener.create();
 
@@ -307,6 +334,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _player.unit.addListener(() => _cursor.value = _player.unit.value);
     _player.state.addListener(_onPlayState);
     _cursor.addListener(_onCursor);
+    _positions.itemPositions.addListener(_onPositions);
+    if (!_l.isEmpty && _startItem != _l.unitItem[_cursor.value.clamp(0, _l.units.length - 1)]) {
+      _detached.value = true;
+      _viewChapter.value = _l.items[_startItem].chapter;
+    }
     _catalog.addListener(_onCatalog);
     unawaited(_catalog.ensureLoaded());
     _events = SpeechService.events.listen(_onPlatformEvent);
@@ -316,7 +348,15 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     unawaited(_loadCover());
     _statsTimer = Timer.periodic(const Duration(seconds: 15), (_) => _countTime());
     if (widget.autoplay) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _togglePlay());
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        // Looking ahead while it reads: carry on aloud where it was, and
+        // leave the page where the reader is looking.
+        if (_detached.value && !_l.isEmpty) {
+          unawaited(_player.play(_cursor.value));
+        } else {
+          unawaited(_togglePlay());
+        }
+      });
     }
   }
 
@@ -402,8 +442,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _catalog.removeListener(_onCatalog);
     unawaited(_svc.session(active: false));
     _player.dispose();
+    _positions.itemPositions.removeListener(_onPositions);
     _cursor.dispose();
     _detached.dispose();
+    _viewChapter.dispose();
     super.dispose();
   }
 
@@ -530,6 +572,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         _follow();
         await _player.play(_cursor.value);
       case PlayState.paused:
+        // Scrolled away to look around: Play goes back to the voice first.
+        if (_detached.value) _follow();
         await _player.resume();
       case PlayState.playing:
       case PlayState.loading:
@@ -819,6 +863,22 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     unawaited(_scroll
         .scrollTo(index: item, alignment: alignment, duration: duration, curve: Curves.easeInOutCubic)
         .whenComplete(() => _programmaticScroll = false));
+  }
+
+  /// Track the chapter at the top of the screen as the page moves.
+  void _onPositions() {
+    if (_l.isEmpty) return;
+    ItemPosition? top;
+    for (final p in _positions.itemPositions.value) {
+      if (p.index >= _l.items.length || p.itemTrailingEdge <= 0.12) continue;
+      if (top == null || p.index < top.index) top = p;
+    }
+    if (top == null) return;
+    final c = _l.items[top.index].chapter;
+    if (c == _viewChapter.value) return;
+    _viewChapter.value = c;
+    // Fetch ahead of where the reader is looking, too.
+    if (_detached.value) widget.onChapterChanged?.call(_l.chapters[c]);
   }
 
   bool _onScrollNotification(ScrollNotification n) {
@@ -1261,13 +1321,17 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                         overflow: TextOverflow.ellipsis,
                         style: Skin.title(context, size: 18),
                       ),
-                      ValueListenableBuilder<int>(
-                        valueListenable: _cursor,
-                        builder: (context, u, _) {
-                          final c = _l.chapterOfUnit(u);
+                      ListenableBuilder(
+                        listenable: _topLine,
+                        builder: (context, _) {
+                          // The chapter on screen while looking around; the
+                          // one being read otherwise.
+                          final looking = _detached.value && !_l.isEmpty;
+                          final c = looking ? _viewChapter.value : _l.chapterOfUnit(_cursor.value);
+                          final u = looking ? _l.chapterFirstUnit[c] : _cursor.value;
                           return Text(
                             _l.chapters.length > 1 || widget.positionOf != null
-                                ? '${_l.chapterTitle(c)}  ·  ${widget.positionOf?.call(u) ?? '${c + 1}/${_l.chapters.length}'}'
+                                ? '${_l.chapterTitle(c)}  ·  ${widget.positionOf?.call(u) ?? '${_chapterNumber(c)}/${_l.chapters.length}'}'
                                     .toUpperCase()
                                 : (_book.metadata.authorLine.isEmpty
                                     ? _book.source.name.toUpperCase()
@@ -1330,7 +1394,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         ),
       );
     }
-    final initial = _l.unitItem[_cursor.value.clamp(0, _l.units.length - 1)];
+    final initial = _startItem;
     // A wide screen keeps a comfortable line (about 70 characters), centred.
     final side = math.max(_prefs.margin, (MediaQuery.sizeOf(context).width - 720) / 2);
     // Text fades out under the top bar and the player instead of being cut
@@ -1362,16 +1426,18 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   Widget _item(BuildContext context, int i) {
     final item = _l.items[i];
     final chapterStart = i == _l.chapterFirstItem[item.chapter];
+    // Every chapter opens the same way, in the book's colour, so a chapter
+    // start is never scrolled past unnoticed.
+    final accent = Skin.accentOf(context);
     final label = chapterStart && _l.chapters.length > 1
         ? Padding(
-            padding: EdgeInsets.only(top: i == 0 ? 8 : 44, bottom: 10),
+            padding: EdgeInsets.only(top: i == 0 ? 8 : 56, bottom: 12),
             child: Row(
               children: [
-                Text('CHAPTER ${item.chapter + 1}', style: Skin.meta(context, size: 10.5)),
+                Text('CHAPTER ${_chapterNumber(item.chapter)}',
+                    style: Skin.meta(context, size: 11, color: accent).copyWith(fontWeight: FontWeight.w600)),
                 const SizedBox(width: Gap.m),
-                Expanded(
-                  child: Container(height: 1, color: Skin.inkFaintOn(context).withValues(alpha: 0.25)),
-                ),
+                Expanded(child: Container(height: 1, color: accent.withValues(alpha: 0.35))),
               ],
             ),
           )
@@ -1395,7 +1461,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           Padding(
             padding: const EdgeInsets.only(bottom: 18),
             child: Text(item.title ?? '',
-                style: Skin.title(context, size: 30 * _prefs.textSize / 19, weight: FontWeight.w500)),
+                style: Skin.title(context, size: 30 * _prefs.textSize / 19, weight: FontWeight.w500)
+                    .copyWith(color: accent)),
           ),
         ],
       );
@@ -1405,7 +1472,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final scale = _prefs.textSize / 19;
     final style = heading
         ? Skin.title(context, size: (chapterStart ? 30 : 22) * scale, weight: FontWeight.w500)
-            .copyWith(height: 1.2)
+            .copyWith(height: 1.2, color: chapterStart ? accent : null)
         : Skin.page(context, size: _prefs.textSize, font: _prefs.bookFont, height: _prefs.lineHeight);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1419,7 +1486,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             cursor: _cursor,
             word: _player.word,
             style: style,
-            heading: heading,
+            heading: heading && !chapterStart,
             justify: _prefs.justify && !heading,
             onTapUnit: (u) => _goTo(u, play: true),
             onLongPressUnit: _onLongPress,
@@ -1434,9 +1501,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         padding: const EdgeInsets.symmetric(vertical: Gap.xxl),
         child: Center(
           child: FilledButton.icon(
-            onPressed: () {
+            onPressed: () async {
               final s = _player.state.value;
-              unawaited(widget.onReachedEnd!(playing: s == PlayState.playing || s == PlayState.loading));
+              final playing = s == PlayState.playing || s == PlayState.loading;
+              // Looking ahead: the place being read is saved and kept.
+              await _persist();
+              unawaited(widget.onReachedEnd!(playing: playing, browse: true));
             },
             icon: const Icon(Icons.arrow_forward_rounded),
             label: Text(widget.endLabel ?? 'Next chapter'),
@@ -1533,6 +1603,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         ),
       );
 
+  int _chapterNumber(int c) => widget.chapterNumberOf?.call(c) ?? c + 1;
+
   void _openContents() {
     if (_l.chapters.isEmpty) return;
     showModalBottomSheet<void>(
@@ -1541,6 +1613,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       useSafeArea: true,
       builder: (ctx) => carryTint(context, _ContentsSheet(
         layout: _l,
+        numberOf: _chapterNumber,
         current: _l.chapterOfUnit(_cursor.value),
         onPick: (chapter) {
           Navigator.pop(ctx);
@@ -2056,11 +2129,13 @@ class _PlayerBar extends StatelessWidget {
 class _ContentsSheet extends StatefulWidget {
   const _ContentsSheet({
     required this.layout,
+    required this.numberOf,
     required this.current,
     required this.onPick,
   });
 
   final ReadingLayout layout;
+  final int Function(int chapter) numberOf;
   final int current;
   final ValueChanged<int> onPick;
 
@@ -2087,7 +2162,7 @@ class _ContentsSheetState extends State<_ContentsSheet> {
     final q = _query.trim().toLowerCase();
     final rows = [
       for (var c = 0; c < l.chapters.length; c++)
-        if (q.isEmpty || l.chapterTitle(c).toLowerCase().contains(q) || '${c + 1}' == q) c,
+        if (q.isEmpty || l.chapterTitle(c).toLowerCase().contains(q) || '${widget.numberOf(c)}' == q) c,
     ];
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
@@ -2118,6 +2193,7 @@ class _ContentsSheetState extends State<_ContentsSheet> {
                     )
                   : ChapterList(
                       layout: l,
+                      numberOf: widget.numberOf,
                       chapters: rows,
                       current: widget.current,
                       controller: q.isEmpty ? _controller : null,
@@ -2141,12 +2217,16 @@ class ChapterList extends StatelessWidget {
     required this.chapters,
     required this.current,
     required this.onPick,
+    this.numberOf,
     this.controller,
     this.rowHeight = 56,
     this.shrinkWrap = false,
   });
 
   final ReadingLayout layout;
+
+  /// The number shown for a chapter; its place in [layout] by default.
+  final int Function(int chapter)? numberOf;
   final List<int> chapters;
   final int current;
   final ValueChanged<int> onPick;
@@ -2183,7 +2263,7 @@ class ChapterList extends StatelessWidget {
             children: [
               SizedBox(
                 width: 40,
-                child: Text('${c + 1}',
+                child: Text('${numberOf?.call(c) ?? c + 1}',
                     style: Skin.meta(context, size: 11.5, color: isCurrent ? Skin.accentOf(context) : null)),
               ),
               Expanded(

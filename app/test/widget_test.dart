@@ -424,6 +424,28 @@ void main() {
       expect(washed(tester), 'Chapter 2: Beta');
       await finish(tester);
     });
+
+    testWidgets('looking ahead names the chapter on screen; Play goes back to the voice', (tester) async {
+      phone(tester);
+      final layout = ReadingLayout.build(chaptered);
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(useMaterial3: true, brightness: Brightness.light),
+        // A web novel's numbers, and the second chapter looked ahead to.
+        home: ReaderScreen(layout: layout, chapterNumberOf: (c) => c + 3221, viewSection: layout.chapters[1]),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('CHAPTER 3222'), findsOneWidget);
+      expect(find.textContaining('CHAPTER 2: BETA  ·  3222/'), findsOneWidget);
+      expect(find.text('Back to reading'), findsOneWidget);
+      // The place being read has not moved.
+      expect(washed(tester), 'Chapter 1: Alpha');
+
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(find.textContaining('CHAPTER 1: ALPHA  ·  3221/'), findsOneWidget);
+      await finish(tester);
+    });
   });
 
   group('pictures and pages', () {
