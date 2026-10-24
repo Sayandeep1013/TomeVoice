@@ -620,7 +620,7 @@ Map<int, int> _findMisfiledSync(String dir, List<String> names) {
     final title = _savedTitle(f);
     if (!moving && (title == null || (n < names.length && names[n] == title))) continue;
     final places = placesOf[title];
-    final to = places == null ? null : places.reduce((a, b) => (a - n).abs() <= (b - n).abs() ? a : b);
+    final to = places?.reduce((a, b) => (a - n).abs() <= (b - n).abs() ? a : b);
     if (to != null || moving) moves[n] = to ?? n;
   }
   return moves;
