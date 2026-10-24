@@ -406,6 +406,8 @@ void main() {
       await pumpReader(tester, chaptered);
       expect(find.textContaining('Chapter 1: Alpha'), findsWidgets);
       expect(find.text('Title sheet'), findsNothing);
+      // A title with its own number gets no second one above it.
+      expect(find.text('CHAPTER 2'), findsNothing);
 
       await tester.tap(find.byTooltip('Next chapter'));
       await tester.pumpAndSettle();
@@ -422,6 +424,37 @@ void main() {
       await tester.tap(find.text('Chapter 2: Beta').last);
       await tester.pumpAndSettle();
       expect(washed(tester), 'Chapter 2: Beta');
+      await finish(tester);
+    });
+
+    testWidgets('looking ahead names the chapter on screen; Play goes back to the voice', (tester) async {
+      phone(tester);
+      // Long enough that the second chapter can sit at the top of the screen.
+      final para = List.filled(30, 'A long paragraph of the story goes on here for a while.').join(' ');
+      final layout = ReadingLayout.build(ingestString(
+        '# Alpha\n\n${List.filled(12, para).join('\n\n')}\n\n'
+        '# Beta\n\n${List.filled(12, para).join('\n\n')}',
+        filename: 'novel.md',
+      ));
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(useMaterial3: true, brightness: Brightness.light),
+        // A web novel's numbers, and the second chapter looked ahead to.
+        home: ReaderScreen(layout: layout, chapterNumberOf: (c) => c + 3221, viewSection: layout.chapters[1]),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('CHAPTER 3222'), findsOneWidget);
+      expect(find.text('BETA'), findsOneWidget);
+      expect(find.textContaining('3222/'), findsOneWidget);
+      expect(find.text('Back to reading'), findsOneWidget);
+      // The place being read is off screen, where it was.
+      expect(washed(tester), isEmpty);
+
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(find.text('ALPHA'), findsOneWidget);
+      expect(find.textContaining('3221/'), findsOneWidget);
+      expect(washed(tester), 'Alpha');
       await finish(tester);
     });
   });

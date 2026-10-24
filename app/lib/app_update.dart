@@ -164,7 +164,13 @@ class AppUpdates {
 /// [url] if it is an APK attached to one of TomeVoice's own releases; null
 /// otherwise, so nothing else is ever offered for install.
 String? _ours(Object? url) =>
-    url is String && url.startsWith('https://github.com/Sayandeep1013/TomeVoice/releases/download/') ? url : null;
+    url is String &&
+            url.startsWith('https://github.com/Sayandeep1013/TomeVoice/releases/download/') &&
+            // No "..": it would lead out of TomeVoice's releases once resolved.
+            !url.contains('..') &&
+            !url.contains('%')
+        ? url
+        : null;
 
 /// Compare "0.10.1" with "0.9" as versions: negative, zero or positive.
 /// Anything after a "+" or "-" (build numbers, "-beta") is ignored.
