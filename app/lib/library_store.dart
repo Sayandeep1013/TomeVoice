@@ -142,7 +142,7 @@ class LibraryStore {
     final id = webId(plugin.id, novel.path);
     final dir = Directory(bookDir(id))..createSync(recursive: true);
     final info = WebNovelInfo(plugin: plugin, novel: novel, chapters: novel.chapters, checkedAt: DateTime.now());
-    await File('${dir.path}/novel.json').writeAsString(jsonEncode(info.toJson()));
+    await writeSafely(File('${dir.path}/novel.json'), jsonEncode(info.toJson()));
     String? cover;
     final url = novel.cover;
     if (url != null && url.startsWith('http')) {
@@ -201,7 +201,7 @@ class LibraryStore {
     final info = await webNovel(id);
     if (info == null) return;
     final next = info.copyWith(chapters: chapters, checkedAt: DateTime.now());
-    await File('${bookDir(id)}/novel.json').writeAsString(jsonEncode(next.toJson()));
+    await writeSafely(File('${bookDir(id)}/novel.json'), jsonEncode(next.toJson()));
     final entries = await list();
     await _write([for (final e in entries) e.id == id ? e.copyWith(chapterCount: chapters.length) : e]);
   }
@@ -389,7 +389,7 @@ class LibraryStore {
   static bool isBookId(String id) => _bookId.hasMatch(id);
 
   Future<ReadingCursor> cursorFor(String id) async {
-    final file = File('${_booksDir.path}/$id/cursor.json');
+    final file = File('${bookDir(id)}/cursor.json');
     try {
       if (await file.exists()) {
         final raw = jsonDecode(await file.readAsString());
@@ -416,9 +416,10 @@ class LibraryStore {
     String? where,
   }) async {
     await ensure();
-    final dir = Directory('${_booksDir.path}/$id');
+    final dir = Directory(bookDir(id));
     await dir.create(recursive: true);
-    await File('${dir.path}/cursor.json').writeAsString(
+    await writeSafely(
+      File('${dir.path}/cursor.json'),
       jsonEncode({'cursor': cursor.toJson(), 'progress': progress}),
     );
     final entries = await list();
@@ -438,7 +439,7 @@ class LibraryStore {
   }
 
   Future<void> remove(String id) async {
-    final dir = Directory('${_booksDir.path}/$id');
+    final dir = Directory(bookDir(id));
     if (await dir.exists()) await dir.delete(recursive: true);
     final entries = await list();
     await _write([for (final e in entries) if (e.id != id) e]);

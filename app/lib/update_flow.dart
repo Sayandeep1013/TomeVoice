@@ -47,6 +47,8 @@ Future<void> offerUpdate(BuildContext context, AppUpdate update) async {
 
   final progress = ValueNotifier<double?>(null);
   var cancelled = false;
+  // Stops the download at once, even while nothing is arriving.
+  final stop = Completer<void>();
   // Captured now: the dialog is closed through it even if this screen goes.
   final nav = Navigator.of(context, rootNavigator: true);
   unawaited(showDialog<void>(
@@ -57,7 +59,13 @@ Future<void> offerUpdate(BuildContext context, AppUpdate update) async {
       child: AlertDialog(
         title: Text('Downloading ${update.version}'),
         actions: [
-          TextButton(onPressed: () => cancelled = true, child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              cancelled = true;
+              if (!stop.isCompleted) stop.complete();
+            },
+            child: const Text('Cancel'),
+          ),
         ],
         content: ValueListenableBuilder<double?>(
           valueListenable: progress,
@@ -77,7 +85,7 @@ Future<void> offerUpdate(BuildContext context, AppUpdate update) async {
   String? file;
   String? failed;
   try {
-    file = await _download(apk, 'TomeVoice-${update.version}.apk', progress, () => cancelled);
+    file = await _download(apk, 'TomeVoice-${update.version}.apk', progress, stop.future);
   } on Object {
     failed = cancelled ? null : 'The download did not finish. Check the internet connection and try again.';
   }
@@ -120,36 +128,41 @@ Future<void> _install(BuildContext context, String path) async {
 }
 
 /// Fetch [url] into the folder the installer can read, as [name]. Stops when
-/// [cancelled] says so, or after 30 seconds with nothing arriving.
-Future<String> _download(String url, String name, ValueNotifier<double?> progress, bool Function() cancelled) async {
+/// [stop] completes, or after 30 seconds with nothing arriving.
+Future<String> _download(String url, String name, ValueNotifier<double?> progress, Future<void> stop) async {
   final dir = await _svc.shareDir();
   if (dir == null) throw const FileSystemException('No room for the download');
   final out = File('$dir/$name');
   final part = File('${out.path}.part');
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 20);
+  // Closing the client ends whatever it is waiting for with an error.
+  unawaited(stop.then((_) => client.close(force: true)));
+  IOSink? sink;
   try {
     final req = await client.getUrl(Uri.parse(url));
     req.headers.set(HttpHeaders.userAgentHeader, 'TomeVoice');
-    final res = await req.close();
+    final res = await req.close().timeout(const Duration(seconds: 30));
     if (res.statusCode != 200) throw HttpException('HTTP ${res.statusCode}');
     final total = res.contentLength;
-    final sink = part.openWrite();
+    sink = part.openWrite();
     var got = 0;
     await for (final chunk in res.timeout(const Duration(seconds: 30))) {
-      if (cancelled()) {
-        await sink.close();
-        throw const HttpException('Cancelled');
-      }
       sink.add(chunk);
       got += chunk.length;
       if (total > 0) progress.value = got / total;
     }
     await sink.close();
+    sink = null;
     if (total > 0 && got != total) throw const HttpException('The download was cut short');
     await part.rename(out.path);
     return out.path;
   } finally {
     client.close(force: true);
+    try {
+      await sink?.close();
+    } on Object {
+      // Already failed; the part file goes below.
+    }
     if (await part.exists()) await part.delete();
   }
 }
