@@ -870,7 +870,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (_l.isEmpty) return;
     ItemPosition? top;
     for (final p in _positions.itemPositions.value) {
-      if (p.index >= _l.items.length || p.itemTrailingEdge <= 0.12) continue;
+      // What crosses a line a fifth of the way down (below the top bar).
+      if (p.index >= _l.items.length || p.itemTrailingEdge <= 0.2) continue;
       if (top == null || p.index < top.index) top = p;
     }
     if (top == null) return;

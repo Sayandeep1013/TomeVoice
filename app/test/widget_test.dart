@@ -442,6 +442,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('CHAPTER 3222'), findsOneWidget);
+      final top = [for (final t in tester.widgetList<Text>(find.byType(Text))) if ((t.data ?? '').contains('/')) t.data];
+      debugPrint('top line: $top');
       expect(find.textContaining('CHAPTER 2: BETA  ·  3222/'), findsOneWidget);
       expect(find.text('Back to reading'), findsOneWidget);
       // The place being read has not moved.
