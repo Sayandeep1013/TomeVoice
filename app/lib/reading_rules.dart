@@ -77,7 +77,13 @@ class ReadingRules {
         );
       }
     } on Object {
-      // Start with none.
+      // Start with none, keeping the unreadable file as rules.json.broken
+      // (the next save would write over a person's pronunciations).
+      try {
+        if (f.existsSync()) f.renameSync('${f.path}.broken');
+      } on Object {
+        // Nothing to keep.
+      }
     }
     return (const [], const []);
   }

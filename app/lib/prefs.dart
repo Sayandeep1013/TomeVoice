@@ -117,7 +117,9 @@ class ListeningPrefs {
         );
       }
     } on Object {
-      // A corrupt prefs file is not worth refusing to open a book over.
+      // A corrupt prefs file is not worth refusing to open a book over; it
+      // is kept beside as prefs.json.broken.
+      await setAside(file);
     }
     _cached = prefs;
     revision.value++;

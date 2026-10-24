@@ -91,7 +91,10 @@ class StatsStore {
         changes.value++;
       }
     } on Object {
-      // Start counting afresh.
+      // Start counting afresh, keeping the unreadable file beside as
+      // stats.json.broken (the next save would write over it).
+      _days.clear();
+      await setAside(_file);
     }
   }
 
