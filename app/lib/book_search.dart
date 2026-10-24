@@ -190,7 +190,7 @@ class _SearchSheetState extends State<_SearchSheet> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const SheetHeader('Search'),
+            const SheetHeader('Find a passage'),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: Gap.xl),
               child: SearchField(

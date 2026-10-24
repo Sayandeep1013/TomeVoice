@@ -57,6 +57,20 @@ class Mark {
         note: note == null || note.trim().isEmpty ? null : note.trim(),
       );
 
+  /// The same mark at [place].
+  Mark movedTo(ReadingCursor place) => Mark(
+        id: id,
+        bookId: bookId,
+        bookTitle: bookTitle,
+        kind: kind,
+        at: place,
+        text: text,
+        created: created,
+        span: span,
+        chapter: chapter,
+        note: note,
+      );
+
   Map<String, Object?> toJson() => {
         'id': id,
         'book': bookId,
@@ -108,6 +122,7 @@ class MarkStore {
 
   Future<void> attach(Directory root) async {
     _file = File('${root.path}/marks.json');
+    _all = const [];
     try {
       if (await _file!.exists()) {
         final raw = jsonDecode(await _file!.readAsString()) as List;
@@ -163,6 +178,21 @@ class MarkStore {
   /// Put back a mark just removed (Undo).
   Future<void> restore(Mark mark) async {
     _all = [mark, ..._all]..sort((a, b) => b.created.compareTo(a.created));
+    await _save();
+  }
+
+  /// Web novel [bookId]'s downloads were filed again (its list changed on
+  /// the site): each mark goes to where its chapter is now, [to].
+  Future<void> moveChapters(String bookId, int Function(int chapter) to) async {
+    var moved = false;
+    final next = <Mark>[];
+    for (final m in _all) {
+      final c = m.bookId == bookId ? to(m.at.sectionIndex) : m.at.sectionIndex;
+      moved |= c != m.at.sectionIndex;
+      next.add(c == m.at.sectionIndex ? m : m.movedTo(m.at.copyWith(sectionIndex: c)));
+    }
+    if (!moved) return;
+    _all = next;
     await _save();
   }
 

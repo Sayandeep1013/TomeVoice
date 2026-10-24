@@ -200,6 +200,7 @@ class ReaderScreen extends StatefulWidget {
     this.positionOf,
     this.chapterNumberOf,
     this.viewSection,
+    this.openContents,
   });
 
   final ReadingLayout layout;
@@ -216,6 +217,11 @@ class ReaderScreen extends StatefulWidget {
 
   /// The section (chapter number) being read changed.
   final ValueChanged<int>? onChapterChanged;
+
+  /// Contents of the whole work, for one longer than [layout] (a web
+  /// novel's chapters, downloaded or not), in place of [layout]'s own.
+  /// [section] is the chapter being read; [playing], whether aloud.
+  final void Function(BuildContext context, {required int section, required bool playing})? openContents;
 
   /// How far through the whole work unit [u] is; defaults to the share of
   /// this layout read so far.
@@ -1628,6 +1634,17 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   static final _digit = RegExp(r'[0-9]');
 
   void _openContents() {
+    final whole = widget.openContents;
+    if (whole != null && !_l.isEmpty) {
+      final s = _player.state.value;
+      unawaited(_persist());
+      whole(
+        context,
+        section: _l.units[_cursor.value.clamp(0, _l.units.length - 1)].sectionIndex,
+        playing: s == PlayState.playing || s == PlayState.loading,
+      );
+      return;
+    }
     if (_l.chapters.isEmpty) return;
     showModalBottomSheet<void>(
       context: context,

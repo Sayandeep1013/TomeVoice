@@ -2,12 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:tomevoice_document/tomevoice_document.dart' show SourceKind;
+import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor, SourceKind, cursorOf;
 
 import 'book_actions.dart';
 import 'book_card.dart';
+import 'book_search.dart';
 import 'book_tint.dart';
 import 'browser_check.dart';
+import 'chapter_finder.dart';
 import 'library_store.dart';
 import 'saved_screen.dart';
 import 'sources/models.dart';
@@ -116,9 +118,9 @@ class _NovelScreenState extends State<NovelScreen> {
   /// [pulled]: the reader pulled the page down to check for new chapters,
   /// so say what came of it.
   Future<void> _load({bool pulled = false}) async {
-    await _refreshLocal();
     // What is on the phone first, so the page fills at once.
-    final stored = await _store.webNovel(_id);
+    final stored = await _store.settleWebChapters(_id);
+    await _refreshLocal();
     if (stored != null && mounted) {
       setState(() {
         _novel = stored.novel;
@@ -141,15 +143,17 @@ class _NovelScreenState extends State<NovelScreen> {
           _ => 'No new chapters yet.',
         });
       }
+      // The rows open the reader by their place in the list, so they show
+      // the list the reader has: the site's, once it is stored.
+      final take = stored == null ? fresh.chapters.isNotEmpty : replacesChapterList(stored.chapters, fresh.chapters);
+      if (stored != null && take) await _store.saveWebChapters(_id, fresh.chapters);
+      if (!mounted) return;
       setState(() {
         _novel = fresh;
-        if (fresh.chapters.isNotEmpty) _chapters = fresh.chapters;
+        if (take) _chapters = fresh.chapters;
         _loading = false;
         _error = null;
       });
-      if (stored != null && fresh.chapters.length > stored.chapters.length) {
-        await _store.saveWebChapters(_id, fresh.chapters);
-      }
     } on Object catch (e) {
       if (!mounted) return;
       setState(() {
@@ -229,17 +233,51 @@ class _NovelScreenState extends State<NovelScreen> {
     }
   }
 
-  Future<void> _openReader({int? chapter, bool play = false}) async {
+  Future<void> _openReader({int? chapter, ReadingCursor? at, bool play = false}) async {
     final e = await _ensureAdded();
     if (e == null || !mounted) return;
     await Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => BookTint(
         bookId: e.id,
         cover: e.shownCover,
-        child: WebNovelReader(store: _store, entry: e, startChapter: chapter, autoplay: play),
+        child: WebNovelReader(store: _store, entry: e, startChapter: chapter, at: at, autoplay: play),
       ),
     ));
     await _refreshLocal();
+  }
+
+  /// Find a chapter by its number or words from its title, and read it.
+  Future<void> _findChapter() async {
+    final picked = await showChapterFinder(
+      context,
+      titles: [for (final c in _chapters) c.name],
+      current: _current,
+      onPhone: _downloaded,
+      heading: 'Find a chapter',
+      autofocus: true,
+    );
+    if (picked != null && mounted) await _read(chapter: picked);
+  }
+
+  /// Find words in the chapters on the phone, and read from the one picked.
+  Future<void> _findPassage() async {
+    final layout = await _store.loadLayout(_id);
+    if (!mounted) return;
+    if (layout.isEmpty) {
+      showSnack(context, 'Download some chapters first: a passage is found in the chapters on the phone.');
+      return;
+    }
+    await showBookSearch(
+      context,
+      layout: layout,
+      chapter: 0,
+      wholeBook: true,
+      onPick: (hits, i, _) {
+        if (_opening) return;
+        _opening = true;
+        unawaited(_openReader(at: cursorOf(layout.units[hits[i].unit])).whenComplete(() => _opening = false));
+      },
+    );
   }
 
   /// Download [count] chapters from [from] (the place reached, by default)
@@ -567,6 +605,10 @@ class _NovelScreenState extends State<NovelScreen> {
               onTap: () => Navigator.of(context).maybePop(),
             ),
             const Spacer(),
+            if (_chapters.isNotEmpty) ...[
+              RoundButton(icon: Icons.search_rounded, tooltip: 'Find a chapter', onTap: _findChapter),
+              const SizedBox(width: Gap.s),
+            ],
             PopupMenuButton<String>(
               tooltip: 'Novel options',
               position: PopupMenuPosition.under,
@@ -575,6 +617,8 @@ class _NovelScreenState extends State<NovelScreen> {
                 switch (v) {
                   case 'browser':
                     await _openInBrowser();
+                  case 'passage':
+                    await _findPassage();
                   case 'download10':
                     await _download(10);
                   case 'download50':
@@ -591,6 +635,8 @@ class _NovelScreenState extends State<NovelScreen> {
                 }
               },
               itemBuilder: (_) => [
+                if (_entry != null && _downloaded.isNotEmpty)
+                  const PopupMenuItem(value: 'passage', child: Text('Find a passage')),
                 const PopupMenuItem(value: 'browser', child: Text('Open in browser')),
                 const PopupMenuItem(value: 'download10', child: Text('Download next 10 chapters')),
                 const PopupMenuItem(value: 'download50', child: Text('Download next 50 chapters')),

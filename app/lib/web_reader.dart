@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'browser_check.dart';
+import 'chapter_finder.dart';
 import 'library_store.dart';
 import 'reader_screen.dart';
 import 'reading_rules.dart';
@@ -51,6 +52,7 @@ class WebNovelReader extends StatefulWidget {
     required this.store,
     required this.entry,
     this.startChapter,
+    this.at,
     this.autoplay = false,
   });
 
@@ -59,6 +61,9 @@ class WebNovelReader extends StatefulWidget {
 
   /// Open at this chapter instead of the saved place.
   final int? startChapter;
+
+  /// Open at this sentence (a passage found in the text) instead.
+  final ReadingCursor? at;
   final bool autoplay;
 
   @override
@@ -88,7 +93,7 @@ class _WebNovelReaderState extends State<WebNovelReader> {
   void initState() {
     super.initState();
     ReadingRules.instance.changes.addListener(_onRules);
-    unawaited(_open(widget.startChapter, autoplay: widget.autoplay));
+    unawaited(_open(widget.at?.sectionIndex ?? widget.startChapter, autoplay: widget.autoplay, at: widget.at));
   }
 
   @override
@@ -111,13 +116,14 @@ class _WebNovelReaderState extends State<WebNovelReader> {
   /// Make sure chapter [start] (or the saved place) and a few after it are
   /// here, then (re)build the book and show it there.
   /// With [keepPlace], [start] is only shown: the place being read stays.
-  Future<void> _open(int? start, {required bool autoplay, bool keepPlace = false}) async {
+  /// [at], a sentence in [start], opens there rather than at its start.
+  Future<void> _open(int? start, {required bool autoplay, bool keepPlace = false, ReadingCursor? at}) async {
     setState(() {
       _error = null;
       _status = 'Opening…';
     });
     try {
-      final info = await _store.webNovel(_id);
+      final info = await _store.settleWebChapters(_id);
       _total = info?.chapters.length ?? 0;
       var cursor = await _store.cursorFor(_id);
       final from = start ?? cursor.sectionIndex;
@@ -125,7 +131,9 @@ class _WebNovelReaderState extends State<WebNovelReader> {
         if (mounted) setState(() => _status = 'Fetching chapter ${c + 1}…');
       });
       final layout = await _store.loadLayout(_id);
-      if (start != null && !keepPlace && !layout.isEmpty) {
+      if (at != null) {
+        cursor = at;
+      } else if (start != null && !keepPlace && !layout.isEmpty) {
         final unit = layout.units.indexWhere((u) => u.sectionIndex == start);
         if (unit >= 0) cursor = cursorOf(layout.units[unit]);
       }
@@ -167,30 +175,53 @@ class _WebNovelReaderState extends State<WebNovelReader> {
     final layout = _layout;
     if (layout == null || layout.isEmpty) return;
     final current = layout.units.last.sectionIndex;
-    final next = current + 1;
-    if (next >= _total && !await _refreshChapters()) {
-      if (mounted) showSnack(context, 'That is the latest chapter so far. New ones appear when the site adds them.');
-      return;
+    var next = current + 1;
+    if (next >= _total) {
+      final after = await _refreshChapters(current);
+      if (after == null) {
+        if (mounted) showSnack(context, 'That is the latest chapter so far. New ones appear when the site adds them.');
+        return;
+      }
+      next = after;
     }
     await _open(next, autoplay: playing, keepPlace: browse);
   }
 
-  /// Ask the source for the chapter list again. True if it grew.
-  Future<bool> _refreshChapters() async {
+  /// Ask the source for the chapter list again. If it grew, the chapter
+  /// after [current] (which may have moved in the new list); else null.
+  Future<int?> _refreshChapters(int current) async {
     try {
       final info = await _store.webNovel(_id);
-      if (info == null) return false;
+      if (info == null) return null;
       final plugin = await SourceEngine.instance.store.installedById(info.plugin.id);
-      if (plugin == null) return false;
+      if (plugin == null) return null;
       if (mounted) showSnack(context, 'Checking for new chapters…');
       final fresh = await SourceEngine.instance.novel(plugin, info.novel.path);
-      if (fresh.chapters.length <= info.chapters.length) return false;
+      if (!replacesChapterList(info.chapters, fresh.chapters)) return null;
       await _store.saveWebChapters(_id, fresh.chapters);
       _total = fresh.chapters.length;
-      return true;
+      final path = info.chapters.elementAtOrNull(current)?.path;
+      final now = fresh.chapters.indexWhere((c) => c.path == path);
+      final after = (now < 0 ? current : now) + 1;
+      return after < _total ? after : null;
     } on Object {
-      return false;
+      return null;
     }
+  }
+
+  /// Every chapter the site lists, not only those on the phone: the one
+  /// picked is fetched if need be and read from its start (aloud, if
+  /// [playing]).
+  Future<void> _contents(BuildContext readerContext, {required int section, required bool playing}) async {
+    final info = await _store.webNovel(_id);
+    if (info == null || !readerContext.mounted) return;
+    final picked = await showChapterFinder(
+      readerContext,
+      titles: [for (final c in info.chapters) c.name],
+      onPhone: _store.downloadedChapters(_id),
+      current: section,
+    );
+    if (picked != null && mounted) await _open(picked, autoplay: playing);
   }
 
   double _progress(int u) {
@@ -219,6 +250,7 @@ class _WebNovelReaderState extends State<WebNovelReader> {
         positionOf: (u) => '${layout.units[u].sectionIndex + 1}/$_total',
         chapterNumberOf: (c) => layout.chapters[c] + 1,
         viewSection: _view,
+        openContents: _contents,
         endLabel: layout.isEmpty || layout.units.last.sectionIndex + 1 >= _total ? 'Check for new chapters' : 'Next chapter',
       );
     }
@@ -236,7 +268,7 @@ class _WebNovelReaderState extends State<WebNovelReader> {
                       ? SourceProblem(
                           error: _error!,
                           title: 'Could not open this chapter',
-                          onRetry: () => _open(widget.startChapter, autoplay: widget.autoplay),
+                          onRetry: () => _open(widget.at?.sectionIndex ?? widget.startChapter, autoplay: widget.autoplay, at: widget.at),
                         )
                       : Column(
                           mainAxisSize: MainAxisSize.min,
