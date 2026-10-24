@@ -71,6 +71,10 @@ class _NovelScreenState extends State<NovelScreen> {
   bool _loading = true;
   bool _newestFirst = false;
   bool _blurbOpen = false;
+
+  /// "Find a chapter": its number or words from its title.
+  String _query = '';
+  final _find = TextEditingController();
   String? _downloading;
   bool _stopDownload = false;
 
@@ -99,6 +103,7 @@ class _NovelScreenState extends State<NovelScreen> {
     // second one beside it).
     _stopDownload = true;
     _store.changes.removeListener(_refreshLocal);
+    _find.dispose();
     super.dispose();
   }
 
@@ -116,9 +121,9 @@ class _NovelScreenState extends State<NovelScreen> {
   /// [pulled]: the reader pulled the page down to check for new chapters,
   /// so say what came of it.
   Future<void> _load({bool pulled = false}) async {
-    await _refreshLocal();
     // What is on the phone first, so the page fills at once.
-    final stored = await _store.webNovel(_id);
+    final stored = await _store.settleWebChapters(_id);
+    await _refreshLocal();
     if (stored != null && mounted) {
       setState(() {
         _novel = stored.novel;
@@ -141,15 +146,17 @@ class _NovelScreenState extends State<NovelScreen> {
           _ => 'No new chapters yet.',
         });
       }
+      // The rows open the reader by their place in the list, so they show
+      // the list the reader has: the site's, once it is stored.
+      final take = stored == null ? fresh.chapters.isNotEmpty : replacesChapterList(stored.chapters, fresh.chapters);
+      if (stored != null && take) await _store.saveWebChapters(_id, fresh.chapters);
+      if (!mounted) return;
       setState(() {
         _novel = fresh;
-        if (fresh.chapters.isNotEmpty) _chapters = fresh.chapters;
+        if (take) _chapters = fresh.chapters;
         _loading = false;
         _error = null;
       });
-      if (stored != null && fresh.chapters.length > stored.chapters.length) {
-        await _store.saveWebChapters(_id, fresh.chapters);
-      }
     } on Object catch (e) {
       if (!mounted) return;
       setState(() {
@@ -329,7 +336,11 @@ class _NovelScreenState extends State<NovelScreen> {
   @override
   Widget build(BuildContext context) {
     final novel = _novel;
-    final order = [for (var i = 0; i < _chapters.length; i++) i];
+    final q = _query.trim().toLowerCase();
+    final order = [
+      for (var i = 0; i < _chapters.length; i++)
+        if (q.isEmpty || '${i + 1}' == q || _chapters[i].name.toLowerCase().contains(q)) i,
+    ];
     if (_newestFirst) {
       final reversed = order.reversed.toList();
       order
@@ -390,6 +401,28 @@ class _NovelScreenState extends State<NovelScreen> {
           ),
         ),
       ),
+      if (_chapters.length > 20)
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
+          sliver: SliverToBoxAdapter(
+            child: SearchField(
+              controller: _find,
+              hint: 'Find a chapter',
+              onChanged: (v) => setState(() => _query = v),
+              onClear: _query.isEmpty
+                  ? null
+                  : () {
+                      _find.clear();
+                      setState(() => _query = '');
+                    },
+            ),
+          ),
+        ),
+      if (q.isNotEmpty && order.isEmpty)
+        SliverPadding(
+          padding: const EdgeInsets.all(Gap.page),
+          sliver: SliverToBoxAdapter(child: Text('No chapters match.', style: Skin.label(context, size: 15))),
+        ),
       if (_downloading != null)
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),

@@ -1,11 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:tomevoice_document/tomevoice_document.dart';
 
+import 'marks.dart';
 import 'safe_file.dart';
 import 'sources/models.dart';
 import 'sources/net.dart';
@@ -179,8 +181,15 @@ class LibraryStore {
     await ensure();
     final id = webId(plugin.id, novel.path);
     final dir = Directory(bookDir(id))..createSync(recursive: true);
-    final info = WebNovelInfo(plugin: plugin, novel: novel, chapters: novel.chapters, checkedAt: DateTime.now());
-    await writeSafely(File('${dir.path}/novel.json'), jsonEncode(info.toJson()));
+    // Added again (from Browse): its downloads follow the list as it is now.
+    final before = await settleWebChapters(id);
+    final info = WebNovelInfo(
+        plugin: plugin, novel: novel, chapters: novel.chapters, checkedAt: DateTime.now(), filed: true);
+    if (before == null) {
+      await writeSafely(File('${dir.path}/novel.json'), jsonEncode(info.toJson()));
+    } else {
+      await _replaceChapters(id, before, info);
+    }
     String? cover;
     final url = novel.cover;
     if (url != null && url.startsWith('http')) {
@@ -238,11 +247,66 @@ class LibraryStore {
 
   /// Replace a web novel's chapter list (after checking for new chapters).
   Future<void> saveWebChapters(String id, List<ChapterItem> chapters) async {
-    final info = await webNovel(id);
+    final info = await settleWebChapters(id);
     if (info == null) return;
-    final next = info.copyWith(chapters: chapters, checkedAt: DateTime.now());
-    await writeSafely(File('${bookDir(id)}/novel.json'), jsonEncode(next.toJson()));
+    await _replaceChapters(id, info, info.copyWith(chapters: chapters, checkedAt: DateTime.now()));
     await _change((entries) => [for (final e in entries) e.id == id ? e.copyWith(chapterCount: chapters.length) : e]);
+  }
+
+  /// Write [next] over [before]. Downloads, the saved place and saved quotes
+  /// are filed by a chapter's place in the list, so when the site put an
+  /// entry in or took one out earlier on, they move with their chapter. The
+  /// list is marked unsettled until they have, so a stop half way is put
+  /// right the next time the novel opens.
+  Future<void> _replaceChapters(String id, WebNovelInfo before, WebNovelInfo next) async {
+    final file = File('${bookDir(id)}/novel.json');
+    final moves = _movesByPath(before.chapters, next.chapters);
+    await writeSafely(file, jsonEncode(next.copyWith(filed: moves.isEmpty).toJson()));
+    if (moves.isEmpty) return;
+    await _refile(id, moves);
+    await writeSafely(file, jsonEncode(next.copyWith(filed: true).toJson()));
+  }
+
+  final _settling = <String, Future<WebNovelInfo?>>{};
+
+  /// Web novel [id]'s details, with every download filed under its own
+  /// chapter. Builds up to 1.0.2 left downloads where they were when a
+  /// site's list shifted (an entry taken out earlier on), so tapping
+  /// chapter 3222 opened 3221: once per novel, each download is matched to
+  /// its place again by the title it was saved with.
+  Future<WebNovelInfo?> settleWebChapters(String id) => _settling[id] ??= _settle(id);
+
+  Future<WebNovelInfo?> _settle(String id) async {
+    try {
+      final info = await webNovel(id);
+      if (info == null || info.filed) return info;
+      final moves = await _runFindMisfiled(bookDir(id), [for (final c in info.chapters) c.name]);
+      await _refile(id, moves);
+      final next = info.copyWith(filed: true);
+      await writeSafely(File('${bookDir(id)}/novel.json'), jsonEncode(next.toJson()));
+      return next;
+    } finally {
+      _settling.remove(id);
+    }
+  }
+
+  /// Move [id]'s downloads by [moves] (old chapter to new; -1, no longer
+  /// listed), and the saved place and saved quotes with them.
+  Future<void> _refile(String id, Map<int, int> moves) async {
+    if (moves.isEmpty) return;
+    await _runMoveChapters(bookDir(id), moves);
+    final cursor = await cursorFor(id);
+    final to = _follow(moves, cursor.sectionIndex);
+    if (to != cursor.sectionIndex) {
+      final moved = cursor.copyWith(sectionIndex: to);
+      final entry = (await index()).entries.where((e) => e.id == id).firstOrNull;
+      await writeSafely(
+        File('${bookDir(id)}/cursor.json'),
+        jsonEncode({'cursor': moved.toJson(), 'progress': entry?.progress ?? 0}),
+      );
+      await _change((entries) => [for (final e in entries) e.id == id ? e.copyWith(cursor: moved) : e]);
+    }
+    await MarkStore.instance.moveChapters(id, (c) => _follow(moves, c));
   }
 
   /// Whether chapter [index] of web novel [id] is on the phone.
@@ -254,7 +318,8 @@ class LibraryStore {
     if (!dir.existsSync()) return const {};
     return {
       for (final f in dir.listSync().whereType<File>())
-        if (int.tryParse(f.uri.pathSegments.last.split('.').first) case final n?) n,
+        if (f.path.endsWith('.json'))
+          if (int.tryParse(f.uri.pathSegments.last.split('.').first) case final n?) n,
     };
   }
 
@@ -507,6 +572,111 @@ Future<void> _runSaveChapter(String path, int index, String title, String html, 
       _writeWholeSync(File(path), jsonEncode(section.toJson()));
     });
 
+Future<void> _runMoveChapters(String dir, Map<int, int> moves) => Isolate.run(() => _moveChaptersSync(dir, moves));
+
+Future<Map<int, int>> _runFindMisfiled(String dir, List<String> names) =>
+    Isolate.run(() => _findMisfiledSync(dir, names));
+
+/// Where each chapter of [before] is in [after], for those that moved (-1:
+/// no longer listed).
+Map<int, int> _movesByPath(List<ChapterItem> before, List<ChapterItem> after) {
+  final at = <String, int>{};
+  for (var j = after.length - 1; j >= 0; j--) {
+    at[after[j].path] = j;
+  }
+  return {
+    for (var i = 0; i < before.length; i++)
+      if (at[before[i].path] != i) i: at[before[i].path] ?? -1,
+  };
+}
+
+/// Where old chapter [c] is now; one no longer listed hands on to the next
+/// one that is.
+int _follow(Map<int, int> moves, int c) {
+  for (var k = c; k < c + 50; k++) {
+    final to = moves[k] ?? k;
+    if (to >= 0) return to;
+  }
+  return c;
+}
+
+/// Downloads under [dir]/ch whose saved title is not the list's title for
+/// their place ([names]), with the place that title has in the list (the
+/// nearest, should a title be listed twice). A download left half moved
+/// (`.moving`) is put back too.
+Map<int, int> _findMisfiledSync(String dir, List<String> names) {
+  final ch = Directory('$dir/ch');
+  if (!ch.existsSync()) return const {};
+  final placesOf = <String, List<int>>{};
+  for (var j = 0; j < names.length; j++) {
+    (placesOf[names[j]] ??= []).add(j);
+  }
+  final moves = <int, int>{};
+  for (final f in ch.listSync().whereType<File>()) {
+    final name = f.uri.pathSegments.last;
+    final n = int.tryParse(name.split('.').first);
+    final moving = name.endsWith('.json.moving');
+    if (n == null || !(moving || name.endsWith('.json'))) continue;
+    final title = _savedTitle(f);
+    if (!moving && (title == null || (n < names.length && names[n] == title))) continue;
+    final places = placesOf[title];
+    final to = places == null ? null : places.reduce((a, b) => (a - n).abs() <= (b - n).abs() ? a : b);
+    if (to != null || moving) moves[n] = to ?? n;
+  }
+  return moves;
+}
+
+/// The title a downloaded chapter was saved with (near the start of its
+/// file, so only that much is read).
+String? _savedTitle(File f) {
+  try {
+    final raf = f.openSync();
+    final String head;
+    try {
+      head = utf8.decode(raf.readSync(2048), allowMalformed: true);
+    } finally {
+      raf.closeSync();
+    }
+    final m = RegExp(r'"title":("(?:[^"\\]|\\.)*")').firstMatch(head);
+    if (m != null) return jsonDecode(m.group(1)!) as String;
+    return (jsonDecode(f.readAsStringSync()) as Map)['title'] as String?;
+  } on Object {
+    return null;
+  }
+}
+
+/// Move downloads by [moves]: all out of the way first, then each to its
+/// place, so a chain of moves never lands on a file still to go. One whose
+/// place already holds that chapter (or that is no longer listed) goes.
+void _moveChaptersSync(String dir, Map<int, int> moves) {
+  final ch = '$dir/ch';
+  for (final from in moves.keys) {
+    final f = File('$ch/$from.json');
+    if (f.existsSync()) f.renameSync('$ch/$from.json.moving');
+  }
+  for (final MapEntry(key: from, value: to) in moves.entries) {
+    final f = File('$ch/$from.json.moving');
+    if (!f.existsSync()) continue;
+    if (to < 0 || File('$ch/$to.json').existsSync()) {
+      f.deleteSync();
+    } else {
+      f.renameSync('$ch/$to.json');
+    }
+  }
+}
+
+/// Whether [fresh], a chapter list just fetched, should replace [stored]:
+/// it differs, and is not a copy cut short (a site that failed part way
+/// through its list would otherwise take downloads with it).
+bool replacesChapterList(List<ChapterItem> stored, List<ChapterItem> fresh) {
+  if (fresh.isEmpty || fresh.length < stored.length - math.max(3, stored.length ~/ 50)) return false;
+  if (fresh.length != stored.length) return true;
+  for (var i = 0; i < fresh.length; i++) {
+    if (fresh[i].path != stored[i].path || fresh[i].name != stored[i].name) return true;
+  }
+  return false;
+}
+
 typedef _ImportJob = ({
   String booksDir,
   String sourcePath,
@@ -615,6 +785,8 @@ ReadingLayout _loadWebSync(String dir, String id) {
       } on Object {
         s = null;
       }
+      // Moved here from another place (the list shifted): its place now.
+      if (s != null && s.index != i) s = Section(id: 'ch$i', index: i, title: s.title, blocks: s.blocks);
     }
     sections.add(s ?? pendingWebChapter(index: i, title: title));
   }
@@ -994,7 +1166,13 @@ Book specimenBook() => ingestString(
 /// What TomeVoice keeps about a web novel: where it comes from, its details,
 /// and the chapter list as the source last gave it.
 class WebNovelInfo {
-  const WebNovelInfo({required this.plugin, required this.novel, required this.chapters, this.checkedAt});
+  const WebNovelInfo({
+    required this.plugin,
+    required this.novel,
+    required this.chapters,
+    this.checkedAt,
+    this.filed = false,
+  });
 
   final PluginInfo plugin;
 
@@ -1006,11 +1184,16 @@ class WebNovelInfo {
   /// When the chapter list was last fetched.
   final DateTime? checkedAt;
 
-  WebNovelInfo copyWith({List<ChapterItem>? chapters, DateTime? checkedAt}) => WebNovelInfo(
+  /// Every download is known to be filed under its own chapter (see
+  /// LibraryStore.settleWebChapters).
+  final bool filed;
+
+  WebNovelInfo copyWith({List<ChapterItem>? chapters, DateTime? checkedAt, bool? filed}) => WebNovelInfo(
         plugin: plugin,
         novel: novel,
         chapters: chapters ?? this.chapters,
         checkedAt: checkedAt ?? this.checkedAt,
+        filed: filed ?? this.filed,
       );
 
   Map<String, Object?> toJson() => {
@@ -1026,6 +1209,7 @@ class WebNovelInfo {
         },
         'chapters': [for (final c in chapters) c.toJson()],
         if (checkedAt != null) 'checkedAt': checkedAt!.toIso8601String(),
+        if (filed) 'filed': true,
       };
 
   static WebNovelInfo fromJson(Map<String, Object?> j) {
@@ -1039,6 +1223,7 @@ class WebNovelInfo {
           ChapterItem.fromJson(Map<String, Object?>.from(c as Map)),
       ],
       checkedAt: DateTime.tryParse(j['checkedAt'] as String? ?? ''),
+      filed: j['filed'] == true,
     );
   }
 }

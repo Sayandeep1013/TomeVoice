@@ -150,7 +150,7 @@ class Updates {
               added.add(NewChapter(bookId: e.id, title: e.title, index: n, name: c.name, foundAt: now));
             }
           }
-          if (added.isNotEmpty) {
+          if (added.isNotEmpty && replacesChapterList(info.chapters, fresh.chapters)) {
             await store.saveWebChapters(e.id, fresh.chapters);
             log.insertAll(0, added.reversed);
             found += added.length;

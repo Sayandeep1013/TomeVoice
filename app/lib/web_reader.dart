@@ -117,7 +117,7 @@ class _WebNovelReaderState extends State<WebNovelReader> {
       _status = 'Opening…';
     });
     try {
-      final info = await _store.webNovel(_id);
+      final info = await _store.settleWebChapters(_id);
       _total = info?.chapters.length ?? 0;
       var cursor = await _store.cursorFor(_id);
       final from = start ?? cursor.sectionIndex;
@@ -167,29 +167,37 @@ class _WebNovelReaderState extends State<WebNovelReader> {
     final layout = _layout;
     if (layout == null || layout.isEmpty) return;
     final current = layout.units.last.sectionIndex;
-    final next = current + 1;
-    if (next >= _total && !await _refreshChapters()) {
-      if (mounted) showSnack(context, 'That is the latest chapter so far. New ones appear when the site adds them.');
-      return;
+    var next = current + 1;
+    if (next >= _total) {
+      final after = await _refreshChapters(current);
+      if (after == null) {
+        if (mounted) showSnack(context, 'That is the latest chapter so far. New ones appear when the site adds them.');
+        return;
+      }
+      next = after;
     }
     await _open(next, autoplay: playing, keepPlace: browse);
   }
 
-  /// Ask the source for the chapter list again. True if it grew.
-  Future<bool> _refreshChapters() async {
+  /// Ask the source for the chapter list again. If it grew, the chapter
+  /// after [current] (which may have moved in the new list); else null.
+  Future<int?> _refreshChapters(int current) async {
     try {
       final info = await _store.webNovel(_id);
-      if (info == null) return false;
+      if (info == null) return null;
       final plugin = await SourceEngine.instance.store.installedById(info.plugin.id);
-      if (plugin == null) return false;
+      if (plugin == null) return null;
       if (mounted) showSnack(context, 'Checking for new chapters…');
       final fresh = await SourceEngine.instance.novel(plugin, info.novel.path);
-      if (fresh.chapters.length <= info.chapters.length) return false;
+      if (!replacesChapterList(info.chapters, fresh.chapters)) return null;
       await _store.saveWebChapters(_id, fresh.chapters);
       _total = fresh.chapters.length;
-      return true;
+      final path = info.chapters.elementAtOrNull(current)?.path;
+      final now = fresh.chapters.indexWhere((c) => c.path == path);
+      final after = (now < 0 ? current : now) + 1;
+      return after < _total ? after : null;
     } on Object {
-      return false;
+      return null;
     }
   }
 
