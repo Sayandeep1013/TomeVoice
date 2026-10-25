@@ -53,7 +53,7 @@ object Widgets {
     /** Redraw every TomeVoice widget (the library or playback changed). */
     fun refreshAll(ctx: Context) {
         val mgr = AppWidgetManager.getInstance(ctx)
-        for (cls in listOf(PlayerWidget::class.java, PlayerWidgetWide::class.java, StreakWidget::class.java, StreakWidgetWide::class.java)) {
+        for (cls in listOf(PlayerWidget::class.java, PlayerStampWidget::class.java, PlayerWidgetWide::class.java, StreakWidget::class.java, StreakWidgetWide::class.java)) {
             val ids = mgr.getAppWidgetIds(ComponentName(ctx, cls))
             if (ids.isEmpty()) continue
             val provider = cls.getDeclaredConstructor().newInstance() as BaseWidget
@@ -270,6 +270,35 @@ object Widgets {
         return bmp to c
     }
 
+    /**
+     * A postage stamp of [w] x [h]: perforated all round with holes of radius
+     * [hole] (the wallpaper shows through them), one at each corner.
+     */
+    fun stampFace(w: Int, h: Int, look: Look, hole: Float): Pair<Bitmap, Canvas> {
+        val bmp = Bitmap.createBitmap(max(w, 1), max(h, 1), Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        val fw = w.toFloat()
+        val fh = h.toFloat()
+        val body = Path().apply { addRect(0f, 0f, fw, fh, Path.Direction.CW) }
+        val holes = Path()
+        // Holes a little under two across apart, so the teeth are a hole wide.
+        fun along(length: Float, at: (Float) -> Unit) {
+            val n = max(2, (length / (hole * 3.6f)).roundToInt())
+            for (i in 0..n) at(length * i / n)
+        }
+        along(fw) { x ->
+            holes.addCircle(x, 0f, hole, Path.Direction.CW)
+            holes.addCircle(x, fh, hole, Path.Direction.CW)
+        }
+        along(fh) { y ->
+            holes.addCircle(0f, y, hole, Path.Direction.CW)
+            holes.addCircle(fw, y, hole, Path.Direction.CW)
+        }
+        body.op(holes, Path.Op.DIFFERENCE)
+        c.drawPath(body, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = look.ground })
+        return bmp to c
+    }
+
     fun cover(path: String?, size: Int): Bitmap? = try {
         if (path == null) null else {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -440,11 +469,18 @@ abstract class BaseWidget : AppWidgetProvider() {
     open fun defaultWidthDp() = 160
     open fun defaultHeightDp() = 160
 
+    /** Cut like a postage stamp instead of a rounded card. */
+    open val stamp = false
+
     // ---- drawing in dp ----------------------------------------------------
 
     /** A face of [w] x [h] dp, and a canvas that draws in dp. */
     fun canvas(w: Float, h: Float, u: Float, look: Widgets.Look): Pair<Bitmap, Canvas> {
-        val (bmp, c) = Widgets.face((w * u).toInt(), (h * u).toInt(), look, 24 * u)
+        val (bmp, c) = if (stamp) {
+            Widgets.stampFace((w * u).toInt(), (h * u).toInt(), look, (min(w, h) * 0.024f).coerceIn(2.6f, 4.2f) * u)
+        } else {
+            Widgets.face((w * u).toInt(), (h * u).toInt(), look, 24 * u)
+        }
         c.scale(u, u)
         return bmp to c
     }
@@ -576,9 +612,11 @@ open class PlayerWidget : BaseWidget() {
         play(c, w - pad - r, pad + 56.8f * s + r, r, u, look)
         val labelSize = 11.8f * s
         val labelBase = h - 13.6f * s - labelSize * 0.2f
-        dotText(c, label(pct, left), pad, labelBase, labelSize, look.dim, w - 2 * pad, look)
+        // In from the edge a little, in line with the ring.
+        val tx = pad + 6f * s
+        dotText(c, label(pct, left), tx, labelBase, labelSize, look.dim, w - tx - pad, look)
         val titleBase = labelBase - labelSize * 0.8f - 4.8f * s - 16f * s * 0.3f
-        text(c, book.title, pad, titleBase, 16f * s, look.bodoni, look.ink, w - 2 * pad)
+        text(c, book.title, tx, titleBase, 16f * s, look.bodoni, look.ink, w - tx - pad)
     }
 
     /** 4 x 2: the cover, the title and chapter, a row of dots, the time left and the controls. */
@@ -668,6 +706,11 @@ open class PlayerWidget : BaseWidget() {
             if (running) Widgets.service(ctx, id * 8 + 5, ReadAloudService.ACTION_NEXT) else Widgets.openApp(ctx, id * 8 + 6, book?.id, false, null),
         )
     }
+}
+
+/** Now reading, cut like a postage stamp: the same widget, another edge. */
+class PlayerStampWidget : PlayerWidget() {
+    override val stamp = true
 }
 
 /** Now reading, offered wide: the same widget, a wider start. */

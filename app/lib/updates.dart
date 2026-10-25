@@ -124,8 +124,14 @@ class Updates {
   /// Ask every web novel's source for its chapter list. Finished novels and
   /// ones whose source is no longer installed are skipped. Returns how many
   /// new chapters were found.
-  Future<int> checkAll({bool skipCompleted = true}) async {
-    if (running.value) return 0;
+  Future<int> checkAll({bool skipCompleted = true}) =>
+      // A pull while the check on opening still runs waits for that one, so
+      // the spinner stays until it ends and the count is the real one.
+      _checking ??= _checkAll(skipCompleted).whenComplete(() => _checking = null);
+
+  Future<int>? _checking;
+
+  Future<int> _checkAll(bool skipCompleted) async {
     running.value = true;
     var found = 0;
     try {

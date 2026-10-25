@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart';
@@ -303,8 +304,8 @@ class SpeechService {
     }
   }
 
-  /// Ask the launcher to add a widget: player, playerWide, streak or
-  /// streakWide. False when the launcher cannot.
+  /// Ask the launcher to add a widget: player, playerStamp, playerWide,
+  /// streak or streakWide. False when the launcher cannot.
   Future<bool> pinWidget(String kind) async {
     try {
       return await _channel.invokeMethod<bool>('pinWidget', {'kind': kind}) ?? false;
@@ -579,6 +580,7 @@ class RenderedSpeech {
     required this.speechFrames,
     required this.totalFrames,
     required this.timings,
+    required this.levels,
   });
 
   final Uint8List pcm;
@@ -588,6 +590,32 @@ class RenderedSpeech {
   final int speechFrames;
   final int totalFrames;
   final List<WordTiming> timings;
+
+  /// How loud the voice is, every [speechLevelMs]: see [speechLevels].
+  final Uint8List levels;
+}
+
+/// The step of [RenderedSpeech.levels].
+const speechLevelMs = 20;
+
+/// How loud [samples] are, 0 to 255 for each [speechLevelMs]: on a decibel
+/// scale, as the ear hears it, from -50 dB (nothing) to -10 dB (full voice).
+/// What the glow behind the player rises and falls with.
+Uint8List speechLevels(List<double> samples, int sampleRate) {
+  final step = math.max(1, sampleRate * speechLevelMs ~/ 1000);
+  final out = Uint8List((samples.length + step - 1) ~/ step);
+  for (var k = 0; k < out.length; k++) {
+    final from = k * step;
+    final to = math.min(samples.length, from + step);
+    var sum = 0.0;
+    for (var i = from; i < to; i++) {
+      sum += samples[i] * samples[i];
+    }
+    if (sum <= 0) continue;
+    final db = 10 * math.log(sum / (to - from)) / math.ln10;
+    out[k] = ((db + 50) / 40 * 255).clamp(0, 255).round();
+  }
+  return out;
 }
 
 /// Say [text] once in [voiceName], through the same pipeline as reading, so
@@ -600,10 +628,18 @@ Future<void> speakSample({
   String? engineId,
 }) async {
   const svc = SpeechService();
-  final native = await svc.synthesise(text: text, engineId: engineId, voiceName: voiceName);
+  // Speed and pitch as the scheduler gives them: to the engine. The DSP
+  // stretch resamples, so a 1.5x sample came out squeaky and too fast.
+  final native = await svc.synthesise(
+    text: text,
+    engineId: engineId,
+    voiceName: voiceName,
+    rate: settings.speedScale,
+    pitch: SpeechService.semitonesToPitch(settings.pitchSemitones),
+  );
   final r = await renderInBackground(
     native: native,
-    settings: settings.copyWith(text: text),
+    settings: settings.copyWith(speedScale: 1.0, sentencePauseMs: 0, text: text),
     pauseAfterMs: 0,
   );
   await svc.stopPlayback();
@@ -657,6 +693,7 @@ RenderedSpeech _render(
     speechFrames: audio.frameCount,
     totalFrames: audio.frameCount + pause,
     timings: result.wordTimings,
+    levels: speechLevels(audio.samples, audio.sampleRate),
   );
 }
 

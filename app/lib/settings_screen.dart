@@ -422,6 +422,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                       children: [
                         for (final (kind, icon, title, sub) in const [
                           ('player', Icons.album_outlined, 'Now reading', 'The cover in a ring of dots, and play'),
+                          ('playerStamp', Icons.local_post_office_outlined, 'Now reading, stamp', 'The same, cut like a postage stamp'),
                           ('playerWide', Icons.view_agenda_outlined, 'Now reading, wide', 'Cover, chapter, progress and play'),
                           ('streak', Icons.local_fire_department_outlined, 'Streak', 'Your streak and this week'),
                           ('streakWide', Icons.grid_view_rounded, 'Streak, wide', 'Your streak and eighteen weeks'),

@@ -32,12 +32,13 @@ class WordMark {
 }
 
 class _Chunk {
-  _Chunk(this.unit, this.start, this.speechFrames, this.totalFrames, this.timings);
+  _Chunk(this.unit, this.start, this.speechFrames, this.totalFrames, this.timings, this.levels);
   final int unit;
   final int start;
   final int speechFrames;
   final int totalFrames;
   final List<WordTiming> timings;
+  final Uint8List levels;
   int get end => start + totalFrames;
 }
 
@@ -86,6 +87,10 @@ class PlaybackScheduler {
   final state = ValueNotifier<PlayState>(PlayState.idle);
   final unit = ValueNotifier<int>(0);
   final word = ValueNotifier<WordMark>(WordMark.none);
+
+  /// How loud the voice is at the playback head, 0 to 1 (the glow behind
+  /// the player follows it).
+  final level = ValueNotifier<double>(0);
 
   /// Last error worth showing, cleared on the next play.
   final error = ValueNotifier<String?>(null);
@@ -144,6 +149,7 @@ class PlaybackScheduler {
     await _reset();
     state.value = PlayState.idle;
     word.value = WordMark.none;
+    level.value = 0;
   }
 
   void dispose() {
@@ -153,6 +159,7 @@ class PlaybackScheduler {
     state.dispose();
     unit.dispose();
     word.dispose();
+    level.dispose();
     error.dispose();
   }
 
@@ -252,7 +259,8 @@ class PlaybackScheduler {
                     source: t.source,
                   ),
         ];
-        _chunks.add(_Chunk(i, start, at(r.speechFrames), to == r.sampleRate ? r.totalFrames : pcm.length ~/ 2, timings));
+        _chunks.add(_Chunk(i, start, at(r.speechFrames), to == r.sampleRate ? r.totalFrames : pcm.length ~/ 2, timings,
+            r.levels));
         _next = i + 1;
         failures = 0;
       } on PlatformException catch (e) {
@@ -295,6 +303,7 @@ class PlaybackScheduler {
         return;
       }
       if (pos >= _queuedEnd) {
+        level.value = 0;
         if (_fillDone) {
           await _finish(gen);
         } else if (state.value == PlayState.playing) {
@@ -328,6 +337,8 @@ class PlaybackScheduler {
           ? WordMark.none
           : WordMark(c.unit, c.timings[w].charStart, c.timings[w].charEnd);
       if (word.value != mark) word.value = mark;
+      final at = rel * 1000 ~/ (_rate * speechLevelMs);
+      level.value = at >= 0 && at < c.levels.length ? c.levels[at] / 255 : 0;
     } on Object {
       // A missed tick is invisible; the next one catches up.
     } finally {
@@ -341,6 +352,7 @@ class PlaybackScheduler {
     _ticker = null;
     state.value = PlayState.idle;
     word.value = WordMark.none;
+    level.value = 0;
     await service.stopPlayback();
     if (error.value == null) onFinished?.call();
   }
