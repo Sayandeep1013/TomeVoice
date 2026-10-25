@@ -279,6 +279,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     return c < 0 ? cursorItem : _l.chapterFirstItem[c];
   }();
   final _scroll = ItemScrollController();
+
+  /// Scrolls the page by a distance, for travelling far.
+  final _offsets = ScrollOffsetController();
+
+  /// The page's height on screen, for travelling far.
+  double _viewport = 600;
   final _positions = ItemPositionsListener.create();
 
   late final PlaybackScheduler _player;
@@ -881,28 +887,27 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         .whenComplete(() => _programmaticScroll = false));
   }
 
-  /// A long way to [item]: the text fades out, the page jumps to just short
-  /// of it, and glides the rest of the way as the text comes back, so the
-  /// move reads as going there, not a cut.
+  /// A long way to [item]: it scrolls there the way a short way does, up
+  /// to a voice above what is on screen and down to one below. The text fades
+  /// out for a moment while the page jumps to a screen short of the sentence,
+  /// on the side it is coming from, then it scrolls the rest of the way by
+  /// distance as the text comes back. (The list cannot scroll through the
+  /// hundreds of paragraphs between, and asked to scroll to one it has not
+  /// laid out, it cross-faded two copies of the text.)
   Future<void> _travel(int item, double alignment) async {
-    // Always a little below where it will rest, so it glides up into place.
-    // Above the top edge it is not laid out, and the list took it to be far
-    // off again and cross-faded two copies of the text.
-    const lead = 0.3;
+    final shown = _positions.itemPositions.value;
+    final up = shown.isNotEmpty && shown.map((p) => p.index).reduce(math.min) > item;
+    final way = up ? -1.0 : 1.0;
     _veiled.value = true;
     await Future<void>.delayed(_veil);
     if (!mounted || !_scroll.isAttached) return;
-    _scroll.jumpTo(index: item, alignment: alignment + lead);
-    // Let the list lay the sentence out before gliding: asked at once, it
-    // still thinks the sentence is far off and cross-fades two copies of the
-    // text instead (seen frame by frame on the phone).
+    _scroll.jumpTo(index: item, alignment: alignment + way);
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted || !_scroll.isAttached) return;
     _veiled.value = false;
-    await _scroll.scrollTo(
-      index: item,
-      alignment: alignment,
-      duration: const Duration(milliseconds: 460),
+    await _offsets.animateScroll(
+      offset: way * _viewport,
+      duration: const Duration(milliseconds: 520),
       curve: Motion.out,
     );
   }
@@ -1518,15 +1523,21 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       ).createShader(rect),
       child: NotificationListener<ScrollNotification>(
         onNotification: _onScrollNotification,
-        child: ScrollablePositionedList.builder(
-          // One more item at the end when there is more to fetch: the way on.
-          itemCount: _l.items.length + (widget.onReachedEnd == null ? 0 : 1),
-          itemScrollController: _scroll,
-          itemPositionsListener: _positions,
-          initialScrollIndex: initial,
-          initialAlignment: initial == 0 ? 0 : 0.12,
-          padding: EdgeInsets.fromLTRB(side, 16, side, 120),
-          itemBuilder: (context, i) => i == _l.items.length ? _more(context) : _item(context, i),
+        child: LayoutBuilder(
+          builder: (context, box) {
+            _viewport = box.maxHeight;
+            return ScrollablePositionedList.builder(
+              // One more item at the end when there is more to fetch: the way on.
+              itemCount: _l.items.length + (widget.onReachedEnd == null ? 0 : 1),
+              itemScrollController: _scroll,
+              scrollOffsetController: _offsets,
+              itemPositionsListener: _positions,
+              initialScrollIndex: initial,
+              initialAlignment: initial == 0 ? 0 : 0.12,
+              padding: EdgeInsets.fromLTRB(side, 16, side, 120),
+              itemBuilder: (context, i) => i == _l.items.length ? _more(context) : _item(context, i),
+            );
+          },
         ),
       ),
     );
