@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 
@@ -311,6 +312,8 @@ Future<void> _workerMain(SendPort out) async {
         tts = null;
         loaded = null;
         final dir = m['dir'] as String;
+        // Before the engine starts its threads: they take this priority.
+        _yieldToScreen();
         tts = sherpa.OfflineTts(sherpa.OfflineTtsConfig(
           model: sherpa.OfflineTtsModelConfig(
             vits: sherpa.OfflineTtsVitsModelConfig(
@@ -325,6 +328,7 @@ Future<void> _workerMain(SendPort out) async {
         ));
         loaded = model;
       }
+      _yieldToScreen();
       final audio = tts!.generate(text: m['text'] as String, sid: 0, speed: (m['speed'] as num).toDouble());
       final path = m['out'] as String;
       File(path).writeAsBytesSync(wavBytes(audio.samples, audio.sampleRate));
@@ -334,6 +338,25 @@ Future<void> _workerMain(SendPort out) async {
     }
   }
 }
+
+/// Lower the calling thread's priority (Linux nice 10; threads it starts
+/// inherit it). Speech is made seconds ahead of the voice, so it can wait a
+/// moment while the screen moves: at the UI's own priority its four threads
+/// took the fast cores in bursts, and scrolling and animations dropped
+/// frames whenever a natural voice was reading.
+void _yieldToScreen() {
+  if (!Platform.isAndroid) return;
+  try {
+    _setpriority(0 /* PRIO_PROCESS: one thread, by its id */, _gettid(), 10);
+  } on Object {
+    // Nothing worse than before.
+  }
+}
+
+final _libc = DynamicLibrary.open('libc.so');
+final _gettid = _libc.lookupFunction<Int32 Function(), int Function()>('gettid');
+final _setpriority =
+    _libc.lookupFunction<Int32 Function(Int32, Uint32, Int32), int Function(int, int, int)>('setpriority');
 
 /// Float samples as a 16-bit mono WAV.
 Uint8List wavBytes(Float32List samples, int sampleRate) {
