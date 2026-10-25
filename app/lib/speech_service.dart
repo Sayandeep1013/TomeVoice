@@ -600,10 +600,18 @@ Future<void> speakSample({
   String? engineId,
 }) async {
   const svc = SpeechService();
-  final native = await svc.synthesise(text: text, engineId: engineId, voiceName: voiceName);
+  // Speed and pitch as the scheduler gives them: to the engine. The DSP
+  // stretch resamples, so a 1.5x sample came out squeaky and too fast.
+  final native = await svc.synthesise(
+    text: text,
+    engineId: engineId,
+    voiceName: voiceName,
+    rate: settings.speedScale,
+    pitch: SpeechService.semitonesToPitch(settings.pitchSemitones),
+  );
   final r = await renderInBackground(
     native: native,
-    settings: settings.copyWith(text: text),
+    settings: settings.copyWith(speedScale: 1.0, sentencePauseMs: 0, text: text),
     pauseAfterMs: 0,
   );
   await svc.stopPlayback();
