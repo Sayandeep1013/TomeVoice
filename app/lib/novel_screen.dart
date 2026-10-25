@@ -389,18 +389,36 @@ class _NovelScreenState extends State<NovelScreen> {
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
         sliver: SliverToBoxAdapter(child: _actions(context)),
       ),
-      if (novel?.summary != null)
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
-          sliver: SliverToBoxAdapter(child: _blurb(context, novel!.summary!)),
-        ),
-      if (novel != null && novel.genres.isNotEmpty)
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(Gap.page, Gap.l, Gap.page, 0),
-          sliver: SliverToBoxAdapter(
-            child: Wrap(spacing: 6, runSpacing: 6, children: [for (final g in novel.genres) TagChip(g)]),
+      // The site's details open in as they arrive, instead of pushing the
+      // chapters down in one jump.
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, 0),
+        sliver: SliverToBoxAdapter(
+          child: growIn(
+            context,
+            novel?.summary == null
+                ? null
+                : Padding(
+                    padding: const EdgeInsets.only(top: Gap.xl),
+                    child: _blurb(context, novel!.summary!),
+                  ),
           ),
         ),
+      ),
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, 0),
+        sliver: SliverToBoxAdapter(
+          child: growIn(
+            context,
+            novel == null || novel.genres.isEmpty
+                ? null
+                : Padding(
+                    padding: const EdgeInsets.only(top: Gap.l),
+                    child: Wrap(spacing: 6, runSpacing: 6, children: [for (final g in novel.genres) TagChip(g)]),
+                  ),
+          ),
+        ),
+      ),
       if (_entry != null)
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
@@ -428,23 +446,31 @@ class _NovelScreenState extends State<NovelScreen> {
           ),
         ),
       ),
-      if (_downloading != null)
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
-          sliver: SliverToBoxAdapter(
-            child: Row(
-              children: [
-                const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-                const SizedBox(width: Gap.m),
-                Expanded(child: Text(_downloading!, style: Skin.label(context))),
-                TextButton(
-                  onPressed: _stopDownload ? null : () => setState(() => _stopDownload = true),
-                  child: const Text('Stop'),
-                ),
-              ],
-            ),
+      // The download line opens and closes instead of shifting the list.
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, 0),
+        sliver: SliverToBoxAdapter(
+          child: growIn(
+            context,
+            _downloading == null
+                ? null
+                : Padding(
+                    padding: const EdgeInsets.only(bottom: Gap.s),
+                    child: Row(
+                      children: [
+                        const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                        const SizedBox(width: Gap.m),
+                        Expanded(child: Text(_downloading!, style: Skin.label(context))),
+                        TextButton(
+                          onPressed: _stopDownload ? null : () => setState(() => _stopDownload = true),
+                          child: const Text('Stop'),
+                        ),
+                      ],
+                    ),
+                  ),
           ),
         ),
+      ),
       if (_error != null)
         SliverPadding(
           padding: const EdgeInsets.all(Gap.page),
@@ -464,13 +490,17 @@ class _NovelScreenState extends State<NovelScreen> {
           ),
         )
       else
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: Gap.xs),
-          sliver: SliverFixedExtentList(
-            itemExtent: 60,
-            delegate: SliverChildBuilderDelegate(
-              childCount: order.length,
-              (context, i) => _chapterRow(context, order[i]),
+        // Fades in over the spinner, and again when the order turns round.
+        SliverFadeIn(
+          key: ValueKey(_newestFirst),
+          sliver: SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: Gap.xs),
+            sliver: SliverFixedExtentList(
+              itemExtent: 60,
+              delegate: SliverChildBuilderDelegate(
+                childCount: order.length,
+                (context, i) => _chapterRow(context, order[i]),
+              ),
             ),
           ),
         ),
@@ -785,13 +815,21 @@ class _NovelScreenState extends State<NovelScreen> {
     final have = _downloaded.contains(i);
     final release = _shortDate(c.releaseTime);
     final picked = _picked.contains(i);
-    return Material(
-      color: picked
-          ? Skin.accentOf(context).withValues(alpha: 0.26)
-          : isCurrent
-              ? Skin.accentOf(context).withValues(alpha: 0.14)
-              : Colors.transparent,
-      borderRadius: BorderRadius.circular(Radii.row),
+    // Picking a row washes it in and out instead of switching its colour.
+    return TweenAnimationBuilder<Color?>(
+      tween: ColorTween(
+        end: picked
+            ? Skin.accentOf(context).withValues(alpha: 0.26)
+            : isCurrent
+                ? Skin.accentOf(context).withValues(alpha: 0.14)
+                : Skin.accentOf(context).withValues(alpha: 0),
+      ),
+      duration: Motion.of(context, Motion.quick),
+      builder: (context, wash, child) => Material(
+        color: wash,
+        borderRadius: BorderRadius.circular(Radii.row),
+        child: child,
+      ),
       child: InkWell(
         borderRadius: BorderRadius.circular(Radii.row),
         onTap: () => _picking ? _toggle(i) : _read(chapter: i),
@@ -802,12 +840,21 @@ class _NovelScreenState extends State<NovelScreen> {
             children: [
               SizedBox(
                 width: 48,
-                child: picked
-                    ? Align(
-                        alignment: Alignment.centerLeft,
-                        child: Icon(Icons.check_circle_rounded, size: 22, color: Skin.accentOf(context)),
-                      )
-                    : Text('${i + 1}', style: Skin.meta(context, size: 11.5, color: isCurrent ? Skin.accentOf(context) : null)),
+                child: _swap(
+                  context,
+                  picked
+                      ? Align(
+                          key: const ValueKey('picked'),
+                          alignment: Alignment.centerLeft,
+                          child: Icon(Icons.check_circle_rounded, size: 22, color: Skin.accentOf(context)),
+                        )
+                      : Align(
+                          key: const ValueKey('number'),
+                          alignment: Alignment.centerLeft,
+                          child: Text('${i + 1}',
+                              style: Skin.meta(context, size: 11.5, color: isCurrent ? Skin.accentOf(context) : null)),
+                        ),
+                ),
               ),
               Expanded(
                 child: Column(
@@ -835,20 +882,27 @@ class _NovelScreenState extends State<NovelScreen> {
               if (isCurrent) Icon(Icons.graphic_eq_rounded, size: 18, color: Skin.accentOf(context)),
               SizedBox(
                 width: 44,
-                child: _fetching.contains(i)
-                    ? const Center(
-                        child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-                      )
-                    : have
-                        ? Tooltip(
-                            message: 'On the phone',
-                            child: Icon(Icons.offline_pin_rounded, size: 20, color: Skin.inkFaintOn(context)),
-                          )
-                        : IconButton(
-                            tooltip: 'Download chapter ${i + 1}',
-                            icon: Icon(Icons.download_for_offline_outlined, size: 22, color: Skin.inkSoftOn(context)),
-                            onPressed: () => _downloadOne(i),
-                          ),
+                // Download, then the spinner, then the tick, each turning into the next.
+                child: _swap(
+                  context,
+                  _fetching.contains(i)
+                      ? const Center(
+                          key: ValueKey('fetching'),
+                          child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                        )
+                      : have
+                          ? Tooltip(
+                              key: const ValueKey('have'),
+                              message: 'On the phone',
+                              child: Icon(Icons.offline_pin_rounded, size: 20, color: Skin.inkFaintOn(context)),
+                            )
+                          : IconButton(
+                              key: const ValueKey('download'),
+                              tooltip: 'Download chapter ${i + 1}',
+                              icon: Icon(Icons.download_for_offline_outlined, size: 22, color: Skin.inkSoftOn(context)),
+                              onPressed: () => _downloadOne(i),
+                            ),
+                ),
               ),
             ],
           ),
@@ -856,6 +910,17 @@ class _NovelScreenState extends State<NovelScreen> {
       ),
     );
   }
+
+  /// One small mark turning into another: a fade and a little growth.
+  static Widget _swap(BuildContext context, Widget child) => AnimatedSwitcher(
+        duration: Motion.of(context, Motion.quick),
+        switchInCurve: Motion.out,
+        transitionBuilder: (child, a) => FadeTransition(
+          opacity: a,
+          child: ScaleTransition(scale: Tween(begin: 0.8, end: 1.0).animate(a), child: child),
+        ),
+        child: child,
+      );
 
   static String? _shortDate(String? raw) {
     if (raw == null || raw.isEmpty) return null;
@@ -924,7 +989,8 @@ class NetworkCover extends StatelessWidget {
           if (Net.instance.cookieHeader(Uri.parse(u).host) case final cookie?) 'Cookie': cookie,
         },
         errorBuilder: (_, __, ___) => fallback,
-        loadingBuilder: (context, child, progress) => progress == null ? child : fallback,
+        // Fades in over the drawn cover as it arrives, instead of a swap.
+        frameBuilder: fadeInOver(fallback),
       ),
     );
   }

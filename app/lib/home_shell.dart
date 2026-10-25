@@ -258,7 +258,12 @@ class _HomeShellState extends State<HomeShell> {
       },
       child: Scaffold(
         drawer: _drawer(context),
-        body: body,
+        // The library arrives from the opening lockup, and each place picked
+        // in the drawer, the way a new screen does: over the same ground.
+        body: DecoratedBox(
+          decoration: BoxDecoration(gradient: Skin.ground(context)),
+          child: FadeIn(key: ValueKey(store == null), trigger: _place, child: body),
+        ),
       ),
     );
   }

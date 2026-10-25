@@ -264,10 +264,19 @@ class _BrowseScreenState extends State<BrowseScreen> {
               SourceIcon(plugin: r.plugin, size: 28),
               const SizedBox(width: Gap.m),
               Expanded(child: Text(r.plugin.name, style: Skin.title(context, size: 18))),
-              if (!r.done)
-                const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-              else if (items != null)
-                Text('${items.length}', style: Skin.meta(context)),
+              AnimatedSwitcher(
+                duration: Motion.of(context, Motion.quick),
+                child: !r.done
+                    ? const SizedBox(
+                        key: ValueKey('wait'),
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : items != null
+                        ? Text('${items.length}', key: const ValueKey('count'), style: Skin.meta(context))
+                        : const SizedBox.shrink(),
+              ),
               if (items != null && items.isNotEmpty)
                 IconButton(
                   tooltip: 'More from ${r.plugin.name}',
@@ -282,34 +291,43 @@ class _BrowseScreenState extends State<BrowseScreen> {
             ],
           ),
         ),
-        if (r.error != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: Gap.page),
-            child: SourceProblemLine(error: r.error!, onRetry: () => _retry(r)),
-          )
-        else if (items != null && items.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: Gap.page),
-            child: Text('Nothing found here.', style: Skin.label(context, size: 13, color: Skin.inkFaintOn(context))),
-          )
-        else if (items != null)
-          SizedBox(
-            height: 196,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: Gap.page),
-              itemCount: items.length,
-              separatorBuilder: (_, __) => const SizedBox(width: Gap.m),
-              itemBuilder: (context, i) => SizedBox(
-                width: 112,
-                child: RemoteNovelTile(
-                  item: items[i],
-                  referer: r.plugin.site,
-                  onTap: () => _openNovel(r.plugin, items[i]),
-                ),
-              ),
-            ),
-          ),
+        // What the source answered opens in under its name, instead of the
+        // rows below jumping as each source replies.
+        growIn(
+          context,
+          r.error != null
+              ? Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: Gap.page),
+                  child: SourceProblemLine(error: r.error!, onRetry: () => _retry(r)),
+                )
+              : items == null
+                  ? null
+                  : items.isEmpty
+                      ? Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: Gap.page),
+                          child: Text(
+                            'Nothing found here.',
+                            style: Skin.label(context, size: 13, color: Skin.inkFaintOn(context)),
+                          ),
+                        )
+                      : SizedBox(
+                          height: 196,
+                          child: ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            padding: const EdgeInsets.symmetric(horizontal: Gap.page),
+                            itemCount: items.length,
+                            separatorBuilder: (_, __) => const SizedBox(width: Gap.m),
+                            itemBuilder: (context, i) => SizedBox(
+                              width: 112,
+                              child: RemoteNovelTile(
+                                item: items[i],
+                                referer: r.plugin.site,
+                                onTap: () => _openNovel(r.plugin, items[i]),
+                              ),
+                            ),
+                          ),
+                        ),
+        ),
       ],
     );
   }

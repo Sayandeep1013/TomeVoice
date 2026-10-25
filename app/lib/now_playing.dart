@@ -13,6 +13,7 @@ import 'prefs.dart';
 import 'reader_screen.dart' show wordAt;
 import 'scheduler.dart';
 import 'theme.dart';
+import 'ui.dart';
 import 'voice_glow.dart';
 
 /// The book filling the screen while it is read: the cover over a blur of
@@ -200,11 +201,21 @@ class NowPlayingScreen extends StatelessWidget {
                   style: Skin.title(context, size: 24, color: Colors.white),
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  empty ? '' : layout.chapterTitle(chapter).toUpperCase(),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Skin.meta(context, color: Colors.white.withValues(alpha: 0.62)),
+                // A new chapter's name rises into place.
+                AnimatedSwitcher(
+                  duration: Motion.of(context, Motion.standard),
+                  transitionBuilder: fadeRise,
+                  layoutBuilder: (current, previous) => Stack(
+                    alignment: Alignment.centerLeft,
+                    children: [...previous, if (current != null) current],
+                  ),
+                  child: Text(
+                    empty ? '' : layout.chapterTitle(chapter).toUpperCase(),
+                    key: ValueKey(chapter),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Skin.meta(context, color: Colors.white.withValues(alpha: 0.62)),
+                  ),
                 ),
                 const SizedBox(height: Gap.m),
                 Expanded(child: _Passage(layout: layout, unit: u, player: player, onTap: onGoTo, onHold: onHold)),

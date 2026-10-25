@@ -210,11 +210,20 @@ class _BookScreenState extends State<BookScreen> {
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
         sliver: SliverToBoxAdapter(child: _actions(context)),
       ),
-      if (l?.book.metadata.description != null)
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
-          sliver: SliverToBoxAdapter(child: _blurb(context, l!.book.metadata.description!)),
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, 0),
+        sliver: SliverToBoxAdapter(
+          child: growIn(
+            context,
+            l?.book.metadata.description == null
+                ? null
+                : Padding(
+                    padding: const EdgeInsets.only(top: Gap.xl),
+                    child: _blurb(context, l!.book.metadata.description!),
+                  ),
+          ),
         ),
+      ),
       SliverPadding(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
         sliver: SliverToBoxAdapter(child: _voice(context)),
@@ -249,13 +258,15 @@ class _BookScreenState extends State<BookScreen> {
           ),
         )
       else
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: Gap.xs),
-          sliver: SliverFixedExtentList(
-            itemExtent: 56,
-            delegate: SliverChildBuilderDelegate(
-              childCount: chapters.length,
-              (context, i) => list.chapterRow(context, chapters[i]),
+        SliverFadeIn(
+          sliver: SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: Gap.xs),
+            sliver: SliverFixedExtentList(
+              itemExtent: 56,
+              delegate: SliverChildBuilderDelegate(
+                childCount: chapters.length,
+                (context, i) => list.chapterRow(context, chapters[i]),
+              ),
             ),
           ),
         ),

@@ -1226,32 +1226,44 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           child: Stack(
             children: [
               Positioned.fill(
-                child: _showPages
-                    ? PdfPagesView(
-                        path: widget.sourcePath!,
-                        layout: _l,
-                        cursor: _cursor,
-                        detached: _detached,
-                        onTapPage: (page) => _goTo(_l.unitForPage(page), play: true),
-                      )
-                    : ValueListenableBuilder<bool>(
-                        valueListenable: _veiled,
-                        builder: (context, veiled, text) => AnimatedOpacity(
-                          opacity: veiled ? 0 : 1,
-                          // Out quickly, back as it glides in.
-                          duration: veiled ? _veil : Motion.standard,
-                          curve: veiled ? Curves.easeIn : Motion.out,
-                          child: text,
+                // Pages and text fade into each other's place.
+                child: FadeIn(
+                  key: ValueKey(_showPages),
+                  child: _showPages
+                      ? PdfPagesView(
+                          path: widget.sourcePath!,
+                          layout: _l,
+                          cursor: _cursor,
+                          detached: _detached,
+                          onTapPage: (page) => _goTo(_l.unitForPage(page), play: true),
+                        )
+                      : ValueListenableBuilder<bool>(
+                          valueListenable: _veiled,
+                          builder: (context, veiled, text) => AnimatedOpacity(
+                            opacity: veiled ? 0 : 1,
+                            // Out quickly, back as it glides in.
+                            duration: veiled ? _veil : Motion.standard,
+                            curve: veiled ? Curves.easeIn : Motion.out,
+                            child: text,
+                          ),
+                          child: _text(context),
                         ),
-                        child: _text(context),
-                      ),
+                ),
               ),
               Positioned(
                 left: 0,
                 right: 0,
                 // Above the dock when it floats over the text.
                 bottom: rail ? 112 : 10,
-                child: Center(child: _hits.isEmpty ? _backToReading(context) : _matches(context)),
+                child: Center(
+                  child: AnimatedSwitcher(
+                    duration: Motion.of(context, Motion.standard),
+                    transitionBuilder: fadeRise,
+                    child: _hits.isEmpty
+                        ? KeyedSubtree(key: const ValueKey('back'), child: _backToReading(context))
+                        : KeyedSubtree(key: const ValueKey('matches'), child: _matches(context)),
+                  ),
+                ),
               ),
             ],
           ),
@@ -1408,18 +1420,28 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                             );
                           }
                           // A long title gives way; the count always shows.
-                          return Row(
-                            children: [
-                              Flexible(
-                                child: Text(_l.chapterTitle(c).toUpperCase(),
-                                    maxLines: 1, overflow: TextOverflow.ellipsis, style: style),
-                              ),
-                              Text(
-                                '  ·  ${widget.positionOf?.call(u) ?? '${_chapterNumber(c)}/${_l.chapters.length}'}',
-                                maxLines: 1,
-                                style: style,
-                              ),
-                            ],
+                          // A new chapter's name rises into place.
+                          return AnimatedSwitcher(
+                            duration: Motion.of(context, Motion.standard),
+                            transitionBuilder: fadeRise,
+                            layoutBuilder: (current, previous) => Stack(
+                              alignment: Alignment.centerLeft,
+                              children: [...previous, if (current != null) current],
+                            ),
+                            child: Row(
+                              key: ValueKey(c),
+                              children: [
+                                Flexible(
+                                  child: Text(_l.chapterTitle(c).toUpperCase(),
+                                      maxLines: 1, overflow: TextOverflow.ellipsis, style: style),
+                                ),
+                                Text(
+                                  '  ·  ${widget.positionOf?.call(u) ?? '${_chapterNumber(c)}/${_l.chapters.length}'}',
+                                  maxLines: 1,
+                                  style: style,
+                                ),
+                              ],
+                            ),
                           );
                         },
                       ),

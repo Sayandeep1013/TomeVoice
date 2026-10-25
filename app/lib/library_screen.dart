@@ -429,6 +429,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       body = _books(
         context,
         found,
+        shelf: 'search',
         header: Padding(
           padding: const EdgeInsets.only(bottom: Gap.s),
           child: Eyebrow(found.isEmpty ? 'Nothing matches "${_query.trim()}"' : '${found.length} found'),
@@ -459,7 +460,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 final since = _introduced.putIfAbsent('${c.id}/${_prefs.gridView}', DateTime.now);
                 return books.isEmpty
                     ? _emptyCategory(context, c.name)
-                    : _books(context, books, bottomPad: showDock ? 120 : Gap.xl, since: since);
+                    : _books(context, books, shelf: c.id, bottomPad: showDock ? 120 : Gap.xl, since: since);
               },
             ),
           ),
@@ -601,17 +602,19 @@ class _LibraryScreenState extends State<LibraryScreen> {
       );
 
   /// The books as covers or rows. With [since], the first rows ease in (see
-  /// [Entrance]).
+  /// [Entrance]). [shelf] keeps each shelf's place apart (a category, or the
+  /// search), and kept when a book comes or goes.
   Widget _books(
     BuildContext context,
     List<LibraryEntry> books, {
+    required String shelf,
     Widget? header,
     required double bottomPad,
     DateTime? since,
   }) {
     final landscape = MediaQuery.orientationOf(context) == Orientation.landscape;
     return CustomScrollView(
-      key: PageStorageKey('shelf-${books.length}-${_prefs.gridView}'),
+      key: PageStorageKey('shelf-$shelf-${_prefs.gridView}'),
       slivers: [
         if (header != null)
           SliverPadding(
@@ -1029,7 +1032,9 @@ class _ContinueDockState extends State<ContinueDock> {
       borderRadius: BorderRadius.circular(Radii.card),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: Container(
+        child: AnimatedContainer(
+          duration: Motion.of(context, Motion.standard),
+          curve: Motion.out,
           height: books.length > 1 ? 96 : 88,
           decoration: BoxDecoration(
             color: Skin.darkOn(context).withValues(alpha: 0.86),
@@ -1039,14 +1044,19 @@ class _ContinueDockState extends State<ContinueDock> {
           child: Column(
             children: [
               Expanded(
-                child: PageView.builder(
-                  controller: _controller,
-                  itemCount: books.length,
-                  onPageChanged: (p) => setState(() => _page = p),
-                  itemBuilder: (context, i) => BookTint(
-                    bookId: books[i].id,
-                    cover: books[i].shownCover,
-                    child: Builder(builder: (context) => _item(context, books[i], onDark)),
+                // Another book come to the front fades in, rather than
+                // the dock changing under the finger.
+                child: FadeIn(
+                  trigger: books.isEmpty ? null : books.first.id,
+                  child: PageView.builder(
+                    controller: _controller,
+                    itemCount: books.length,
+                    onPageChanged: (p) => setState(() => _page = p),
+                    itemBuilder: (context, i) => BookTint(
+                      bookId: books[i].id,
+                      cover: books[i].shownCover,
+                      child: Builder(builder: (context) => _item(context, books[i], onDark)),
+                    ),
                   ),
                 ),
               ),

@@ -71,6 +71,10 @@ class BookCover extends StatelessWidget {
                 fit: BoxFit.cover,
                 // A full-size cover is megabytes of pixels for a thumbnail.
                 cacheWidth: (width * dpr).round(),
+                // Fades in over the drawn cover; a cover that changes does
+                // not blink through blank.
+                frameBuilder: fadeInOver(generated),
+                gaplessPlayback: true,
                 errorBuilder: (_, __, ___) => generated,
               ),
       ),
