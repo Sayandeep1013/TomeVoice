@@ -460,7 +460,9 @@ void main() {
       expect(washed(tester), isEmpty);
 
       await tester.tap(find.byTooltip('Play'));
+      // The page travels back: a fade, a frame to lay it out, a glide.
       await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump(const Duration(milliseconds: 400));
       expect(find.text('ALPHA'), findsOneWidget);
       expect(find.textContaining('3221/'), findsOneWidget);
       expect(washed(tester), 'Alpha');
