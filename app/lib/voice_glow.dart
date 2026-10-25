@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -9,7 +10,7 @@ import 'theme.dart';
 
 /// A soft glow rising from the foot of the box while the voice reads, as
 /// tall and bright as the voice is loud at that moment, like breath on cold
-/// glass. Lobes in the book's colours drift slowly along it.
+/// glass. One haze in the book's colours, its top swelling slowly.
 ///
 /// It fades in when reading starts, sinks to an ember between sentences and
 /// fades out on pause. Nothing is drawn when the phone is set to remove
@@ -131,56 +132,56 @@ class _GlowPainter extends CustomPainter {
     if (shown <= 0 || size.isEmpty) return;
     final voice = state._voice;
     final t = state._time;
-    // An ember while the voice draws breath; full when it is loud.
-    final energy = 0.16 + 0.84 * voice;
-    // Light grounds take colour, they do not give light: less of it, laid on.
-    final strength = (dark ? 0.62 : 0.4) * shown;
-    final blend = dark ? BlendMode.plus : BlendMode.srcOver;
     final w = size.width;
     final h = size.height;
+    // An ember while the voice draws breath; full when it is loud.
+    final energy = 0.18 + 0.82 * voice;
+    // Light grounds take colour, they do not give light: less of it, laid on.
+    final strength = ((dark ? 0.72 : 0.45) * shown).clamp(0.0, 1.0);
+    final blur = h * 0.14;
+    final box = Offset.zero & size;
 
-    for (var i = 0; i < colours.length; i++) {
-      final k = i / (colours.length - 1);
-      // Each lobe drifts at its own pace and breathes a little out of step.
-      final drift = math.sin(t * (0.23 + 0.07 * i) + i * 1.9) * w * 0.07;
-      final breath = 0.82 + 0.18 * math.sin(t * (1.3 + 0.21 * i) + i * 2.4);
-      final cx = w * (0.1 + 0.8 * k) + drift;
-      final rx = w * 0.3;
-      final ry = h * (0.3 + 0.7 * energy * breath);
-      final alpha = (strength * (0.55 + 0.45 * energy) * (i == 2 ? 1.0 : 0.85)).clamp(0.0, 1.0);
-      canvas.save();
-      canvas.translate(cx, h);
-      canvas.scale(1, ry / rx);
-      canvas.drawCircle(
-        Offset.zero,
-        rx,
-        Paint()
-          ..blendMode = blend
-          ..shader = RadialGradient(
-            colors: [
-              colours[i].withValues(alpha: alpha),
-              colours[i].withValues(alpha: alpha * 0.35),
-              colours[i].withValues(alpha: 0),
-            ],
-            stops: const [0, 0.45, 1],
-          ).createShader(Rect.fromCircle(center: Offset.zero, radius: rx)),
-      );
-      canvas.restore();
+    // One haze whose top is a slow swell of long waves, so no part of it
+    // stands apart; it runs past the sides so the blur does not thin there.
+    final haze = Path()..moveTo(-blur * 2, h + blur);
+    const steps = 32;
+    for (var i = 0; i <= steps; i++) {
+      final x = -blur * 2 + (w + blur * 4) * i / steps;
+      final k = x / w;
+      final swell = 0.62 +
+          0.22 * math.sin(k * math.pi * 2 + t * 0.35) +
+          0.16 * math.sin(k * math.pi * 3.3 - t * 0.5 + 1.3);
+      haze.lineTo(x, h - h * 0.8 * energy * swell);
     }
+    haze
+      ..lineTo(w + blur * 2, h + blur)
+      ..close();
 
-    // The bright seam along the foot the glow rises from.
-    final seam = Rect.fromLTWH(0, h - 3, w, 3);
-    canvas.drawRect(
-      seam,
+    canvas.saveLayer(
+      box,
       Paint()
-        ..blendMode = blend
-        ..shader = LinearGradient(
-          colors: [
-            for (final c in colours)
-              c.withValues(alpha: (strength * (0.35 + 0.65 * voice)).clamp(0.0, 1.0)),
-          ],
-        ).createShader(seam),
+        ..blendMode = dark ? BlendMode.plus : BlendMode.srcOver
+        ..imageFilter = ui.ImageFilter.blur(sigmaX: blur, sigmaY: blur, tileMode: TileMode.decal),
     );
+    canvas.drawPath(
+      haze,
+      Paint()
+        ..shader = LinearGradient(colors: [for (final c in colours) c.withValues(alpha: strength)])
+            .createShader(box),
+    );
+    // Brightest at the foot, thinning to nothing as it rises.
+    canvas.drawRect(
+      box,
+      Paint()
+        ..blendMode = BlendMode.dstIn
+        ..shader = const LinearGradient(
+          begin: Alignment.bottomCenter,
+          end: Alignment.topCenter,
+          colors: [Color(0xFFFFFFFF), Color(0x8CFFFFFF), Color(0x00FFFFFF)],
+          stops: [0, 0.4, 1],
+        ).createShader(box),
+    );
+    canvas.restore();
   }
 
   @override

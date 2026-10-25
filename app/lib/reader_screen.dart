@@ -1177,6 +1177,13 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       onSleep: () => showListenSheet(context, _listen),
       onSave: () => unawaited(_save(MarkKind.quote)),
     );
+    final glow = Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      height: rail ? 200 : 340,
+      child: VoiceGlow(level: _player.level, state: _player.state),
+    );
     final reading = Column(
       children: [
         _topBar(context),
@@ -1193,14 +1200,6 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                         onTapPage: (page) => _goTo(_l.unitForPage(page), play: true),
                       )
                     : _text(context),
-              ),
-              // The voice, rising from the player as it reads.
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                height: 150,
-                child: VoiceGlow(level: _player.level, state: _player.state),
               ),
               Positioned(
                 left: 0,
@@ -1226,6 +1225,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         child: SafeArea(
           child: Stack(
                   children: [
+                    // The voice, glowing out from behind the player as it
+                    // reads; the text and the player sit over it.
+                    if (!rail) glow,
                     reading,
                     // The text fades out before the dock, instead of showing
                     // in the gap beneath it.
@@ -1248,6 +1250,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                         ),
                       ),
                     ),
+                    if (rail) glow,
                     if (rail) Positioned(left: 0, right: 0, bottom: 0, child: Center(child: bar)),
                   ],
                 ),
