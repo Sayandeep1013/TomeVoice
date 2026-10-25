@@ -261,6 +261,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       ValueNotifier(_l.isEmpty ? 0 : _l.unitForCursor(widget.initialCursor));
   final _detached = ValueNotifier<bool>(false);
 
+  /// The text faded out for a moment, while it travels a long way to the voice.
+  final _veiled = ValueNotifier<bool>(false);
+
   /// The chapter at the top of the screen. While the reader looks around
   /// (detached), the top bar names it instead of the one being read.
   late final _viewChapter = ValueNotifier<int>(_l.chapterOfUnit(_cursor.value));
@@ -452,6 +455,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _positions.itemPositions.removeListener(_onPositions);
     _cursor.dispose();
     _detached.dispose();
+    _veiled.dispose();
     _viewChapter.dispose();
     super.dispose();
   }
@@ -860,17 +864,44 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     }
     _programmaticScroll = true;
     final duration = Motion.of(context, const Duration(milliseconds: 360));
-    // Far away (not laid out) or motion turned down: go straight there. The
-    // list would otherwise cross-fade two copies of the text.
-    if (shown == null || duration == Duration.zero) {
+    // Motion turned down: go straight there.
+    if (duration == Duration.zero) {
       _scroll.jumpTo(index: item, alignment: alignment);
       _programmaticScroll = false;
+      return;
+    }
+    // Far away (not laid out): the list's own long scroll cross-fades two
+    // copies of the text, and a plain jump is a cut. Travel instead.
+    if (shown == null) {
+      unawaited(_travel(item, alignment).whenComplete(() => _programmaticScroll = false));
       return;
     }
     unawaited(_scroll
         .scrollTo(index: item, alignment: alignment, duration: duration, curve: Curves.easeInOutCubic)
         .whenComplete(() => _programmaticScroll = false));
   }
+
+  /// A long way to [item]: the text fades out, the page jumps to just short
+  /// of it on the side it is coming from, and glides the rest of the way as
+  /// the text comes back, so the move reads as going there, not a cut.
+  Future<void> _travel(int item, double alignment) async {
+    final shown = _positions.itemPositions.value;
+    final from = shown.isEmpty ? item : shown.first.index;
+    final lead = from < item ? 0.35 : -0.35;
+    _veiled.value = true;
+    await Future<void>.delayed(_veil);
+    if (!mounted || !_scroll.isAttached) return;
+    _scroll.jumpTo(index: item, alignment: alignment + lead);
+    _veiled.value = false;
+    await _scroll.scrollTo(
+      index: item,
+      alignment: alignment,
+      duration: const Duration(milliseconds: 460),
+      curve: Motion.out,
+    );
+  }
+
+  static const _veil = Duration(milliseconds: 120);
 
   /// Track the chapter at the top of the screen as the page moves.
   void _onPositions() {
@@ -1203,7 +1234,17 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                         detached: _detached,
                         onTapPage: (page) => _goTo(_l.unitForPage(page), play: true),
                       )
-                    : _text(context),
+                    : ValueListenableBuilder<bool>(
+                        valueListenable: _veiled,
+                        builder: (context, veiled, text) => AnimatedOpacity(
+                          opacity: veiled ? 0 : 1,
+                          // Out quickly, back as it glides in.
+                          duration: veiled ? _veil : Motion.standard,
+                          curve: veiled ? Curves.easeIn : Motion.out,
+                          child: text,
+                        ),
+                        child: _text(context),
+                      ),
               ),
               Positioned(
                 left: 0,

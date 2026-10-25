@@ -458,6 +458,12 @@ class MainActivity : FlutterActivity() {
                 layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
         }
+        // Turning the phone cross-fades. Android's own turn rotates a picture
+        // of the old screen, and before Flutter has drawn at the new size it
+        // showed the old frame squeezed into the new shape for a moment.
+        window.attributes = window.attributes.apply {
+            rotationAnimation = WindowManager.LayoutParams.ROTATION_ANIMATION_CROSSFADE
+        }
     }
 
     override fun onPostResume() {
