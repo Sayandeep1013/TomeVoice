@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'listen_sheet.dart' show trimSpeed;
@@ -14,8 +16,8 @@ import 'theme.dart';
 import 'voice_glow.dart';
 
 /// The book filling the screen while it is read: the cover over a blur of
-/// itself in the book's colour, and the words scrolling like lyrics, the
-/// sentence being read set large with the word under the voice lit.
+/// itself in the book's colour, and the page around the voice, the sentence
+/// being read lit and the word under the voice in the accent.
 ///
 /// Opened by swiping up on the reader's player bar; swipe down to close.
 /// Everything it shows and does belongs to the reader, which hands it the
@@ -119,8 +121,8 @@ class NowPlayingScreen extends StatelessWidget {
                     : Column(
                         children: [
                           _closeBar(context),
-                          Expanded(flex: 5, child: Center(child: _art(context))),
-                          Expanded(flex: 6, child: _panel(context, compact: false)),
+                          Expanded(flex: 4, child: Center(child: _art(context))),
+                          Expanded(flex: 7, child: _panel(context, compact: false)),
                         ],
                       ),
               ),
@@ -203,7 +205,7 @@ class NowPlayingScreen extends StatelessWidget {
                   style: Skin.meta(context, color: Colors.white.withValues(alpha: 0.62)),
                 ),
                 const SizedBox(height: Gap.m),
-                Expanded(child: _Lyrics(layout: layout, unit: u, player: player, onTap: onGoTo, onHold: onHold)),
+                Expanded(child: _Passage(layout: layout, unit: u, player: player, onTap: onGoTo, onHold: onHold)),
                 const SizedBox(height: Gap.s),
                 ChapterScrubber(
                   value: count <= 1 ? 0 : inChapter / (count - 1),
@@ -339,10 +341,13 @@ class _Backdrop extends StatelessWidget {
       );
 }
 
-/// The sentence before (dim), the one being read (large, its word lit) and
-/// the next (dim). Tap one to read from it.
-class _Lyrics extends StatefulWidget {
-  const _Lyrics({required this.layout, required this.unit, required this.player, required this.onTap, required this.onHold});
+/// The book around the voice, set as a page: whole paragraphs, the sentence
+/// being read in full white with its word lit, the rest dimmed. It glides to
+/// keep the voice on one line a little above the middle of the window, and
+/// fades away above and below it. Tap a sentence to read from it; press and
+/// hold for a word.
+class _Passage extends StatefulWidget {
+  const _Passage({required this.layout, required this.unit, required this.player, required this.onTap, required this.onHold});
 
   final ReadingLayout layout;
   final int unit;
@@ -351,123 +356,254 @@ class _Lyrics extends StatefulWidget {
   final void Function(int unit, String word) onHold;
 
   @override
-  State<_Lyrics> createState() => _LyricsState();
+  State<_Passage> createState() => _PassageState();
 }
 
-class _LyricsState extends State<_Lyrics> {
-  /// Moving on through the book (the text pushes up) or back (down).
-  bool _forward = true;
+class _PassageState extends State<_Passage> {
+  /// Where the voice is kept, as a share of the window from its top.
+  static const _focus = 0.4;
+
+  /// Characters of whole paragraphs kept above and below the voice; the
+  /// window is laid out afresh once it comes within [_margin] of an end.
+  static const _reach = 2400;
+  static const _margin = 900;
+
+  final _scroll = ScrollController();
+  final _content = GlobalKey();
+
+  /// Each paragraph's text, by its first unit.
+  final _keys = <int, GlobalKey>{};
+
+  /// The units set out: whole paragraphs, [_from] up to [_to].
+  int _from = 0;
+  int _to = 0;
+
+  /// Jump to the voice instead of gliding: the page was just laid out.
+  bool _jump = true;
+  double _height = 0;
+
+  ReadingLayout get _l => widget.layout;
 
   @override
-  void didUpdateWidget(_Lyrics old) {
-    super.didUpdateWidget(old);
-    if (widget.unit != old.unit) _forward = widget.unit > old.unit;
+  void initState() {
+    super.initState();
+    _place(widget.unit);
   }
 
-  /// The old sentence leaves first, fading out over the first half; the new
-  /// one rises in after it, so the two never sit on top of each other
-  /// half-faded. Both keep to the top: blocks of different heights don't jump.
-  Widget _push(Widget child, Animation<double> a) => AnimatedBuilder(
-        animation: a,
-        child: child,
-        builder: (context, child) {
-          // Arriving or leaving is read from the animation as it runs: the
-          // switcher keeps the transition it built for a child when it
-          // arrived, also while that child leaves (its animation then runs
-          // backwards, from 1 to 0).
-          final leaving = a.status == AnimationStatus.reverse || a.status == AnimationStatus.dismissed;
-          final dir = _forward ? 1.0 : -1.0;
-          final t = a.value;
-          final opacity = leaving
-              ? const Interval(0.5, 1, curve: Curves.easeIn).transform(t)
-              : const Interval(0.35, 1, curve: Curves.easeOut).transform(t);
-          final dy = leaving ? -0.1 * dir * (1 - Curves.easeIn.transform(t)) : 0.1 * dir * (1 - Motion.out.transform(t));
-          return Opacity(opacity: opacity, child: FractionalTranslation(translation: Offset(0, dy), child: child));
+  @override
+  void didUpdateWidget(_Passage old) {
+    super.didUpdateWidget(old);
+    final u = widget.unit;
+    if (old.layout != _l ||
+        u < _from ||
+        u >= _to ||
+        (_from > 0 && _chars(_from, u) < _margin) ||
+        (_to < _l.units.length && _chars(u + 1, _to) < _margin)) {
+      _place(u);
+    }
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  int _chars(int a, int b) {
+    var n = 0;
+    for (var i = a; i < b; i++) {
+      n += _l.units[i].text.length;
+    }
+    return n;
+  }
+
+  /// The paragraph holding unit [u]: its first unit, and the one after its last.
+  (int, int) _paragraph(int u) {
+    final item = _l.unitItem[u];
+    var a = u;
+    while (a > 0 && _l.unitItem[a - 1] == item) {
+      a--;
+    }
+    var b = u + 1;
+    while (b < _l.units.length && _l.unitItem[b] == item) {
+      b++;
+    }
+    return (a, b);
+  }
+
+  /// Set out the paragraphs around unit [u], out to [_reach] characters each way.
+  void _place(int u) {
+    _keys.clear();
+    _jump = true;
+    if (_l.isEmpty) {
+      _from = _to = 0;
+      return;
+    }
+    var (a, b) = _paragraph(u.clamp(0, _l.units.length - 1));
+    var before = 0;
+    while (a > 0 && before < _reach) {
+      final (pa, _) = _paragraph(a - 1);
+      before += _chars(pa, a);
+      a = pa;
+    }
+    var after = 0;
+    while (b < _l.units.length && after < _reach) {
+      final (_, pb) = _paragraph(b);
+      after += _chars(b, pb);
+      b = pb;
+    }
+    _from = a;
+    _to = b;
+  }
+
+  /// Where unit [u] starts in the text of the paragraph beginning at [a].
+  int _startIn(int a, int u) {
+    var n = 0;
+    for (var i = a; i < u; i++) {
+      n += _l.units[i].text.length + 1;
+    }
+    return n;
+  }
+
+  /// The unit at [local] in the paragraph [a] to [b], and the offset in its text.
+  (int, int)? _unitAt(int a, int b, GlobalKey key, Offset local) {
+    final text = key.currentContext?.findRenderObject();
+    if (text is! RenderParagraph) return null;
+    final at = text.getPositionForOffset(local).offset;
+    var start = 0;
+    for (var i = a; i < b; i++) {
+      final len = _l.units[i].text.length;
+      if (at <= start + len || i == b - 1) return (i, (at - start).clamp(0, len));
+      start += len + 1;
+    }
+    return null;
+  }
+
+  /// Bring the voice to the focus line: a glide, or a jump after a new layout.
+  void _follow() {
+    if (!mounted || !_scroll.hasClients) return;
+    final u = widget.unit;
+    if (u < _from || u >= _to) return;
+    final (a, _) = _paragraph(u);
+    final text = _keys[a]?.currentContext?.findRenderObject();
+    final content = _content.currentContext?.findRenderObject();
+    if (text is! RenderParagraph || content is! RenderBox) return;
+    final start = _startIn(a, u);
+    final boxes = text.getBoxesForSelection(
+      TextSelection(baseOffset: start, extentOffset: start + _l.units[u].text.length),
+    );
+    if (boxes.isEmpty) return;
+    final top = text.localToGlobal(Offset(0, boxes.first.top), ancestor: content).dy;
+    final bottom = text.localToGlobal(Offset(0, boxes.last.bottom), ancestor: content).dy;
+    // The sentence's middle on the focus line; a long one starts just below
+    // the fade at the top instead, so its end stays in the window.
+    final at = bottom - top > _height * 0.5 ? top - _height * 0.22 : (top + bottom) / 2 - _height * _focus;
+    final target = at.clamp(0.0, _scroll.position.maxScrollExtent);
+    final jump = _jump || Motion.reduced(context);
+    _jump = false;
+    if ((target - _scroll.offset).abs() < 1) return;
+    if (jump) {
+      _scroll.jumpTo(target);
+    } else {
+      unawaited(_scroll.animateTo(target, duration: const Duration(milliseconds: 520), curve: Motion.out));
+    }
+  }
+
+  List<InlineSpan> _sentence(BuildContext context, int i, bool current, WordMark word) {
+    final text = _l.units[i].text;
+    if (!current) return [TextSpan(text: text)];
+    final on = word.unit == i && word.start >= 0 && word.end > word.start;
+    final ws = on ? word.start.clamp(0, text.length) : 0;
+    final we = on ? word.end.clamp(ws, text.length) : 0;
+    return [
+      TextSpan(
+        style: const TextStyle(color: Colors.white),
+        children: [
+          TextSpan(text: text.substring(0, ws)),
+          if (on) TextSpan(text: text.substring(ws, we), style: TextStyle(color: Skin.accentSoftOf(context))),
+          TextSpan(text: text.substring(we)),
+        ],
+      ),
+    ];
+  }
+
+  Widget _para(BuildContext context, int a, int b) {
+    final key = _keys.putIfAbsent(a, GlobalKey.new);
+    final heading = _l.units[a].role == BlockRole.heading;
+    final dim = Colors.white.withValues(alpha: 0.4);
+    final style = heading
+        ? Skin.title(context, size: 21, color: dim)
+        : TextStyle(fontFamily: 'Newsreader', fontSize: 19, height: 1.5, color: dim);
+    final u = widget.unit;
+    final current = u >= a && u < b;
+    Widget text(WordMark word) => Text.rich(
+          TextSpan(children: [
+            for (var i = a; i < b; i++) ...[
+              if (i > a) const TextSpan(text: ' '),
+              ..._sentence(context, i, current && i == u, word),
+            ],
+          ]),
+          key: key,
+          style: style,
+        );
+    return Padding(
+      padding: EdgeInsets.only(bottom: heading ? Gap.m : Gap.l),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapUp: (d) {
+          final at = _unitAt(a, b, key, d.localPosition);
+          if (at != null) widget.onTap(at.$1);
         },
-      );
+        onLongPressStart: (d) {
+          final at = _unitAt(a, b, key, d.localPosition);
+          if (at != null) widget.onHold(at.$1, wordAt(_l.units[at.$1].text, at.$2));
+        },
+        // Only the paragraph being read follows the word.
+        child: current
+            ? ValueListenableBuilder<WordMark>(
+                valueListenable: widget.player.word,
+                builder: (context, word, _) => text(word),
+              )
+            : text(WordMark.none),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final layout = widget.layout;
-    final unit = widget.unit;
-    final player = widget.player;
-    final onTap = widget.onTap;
-    final onHold = widget.onHold;
-    if (layout.isEmpty) return const SizedBox.shrink();
-    final dim = Skin.ui(size: 14, weight: FontWeight.w400, color: Colors.white.withValues(alpha: 0.38))
-        .copyWith(height: 1.35);
-    const read = TextStyle(
-      fontFamily: 'Newsreader',
-      fontSize: 23,
-      height: 1.32,
-      color: Colors.white,
-    );
-    Widget line(int u, TextStyle style, int maxLines) => GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () => onTap(u),
-          onLongPress: () => onHold(u, ''),
-          child: Text(layout.units[u].text, maxLines: maxLines, overflow: TextOverflow.ellipsis, style: style),
-        );
+    if (_l.isEmpty) return const SizedBox.shrink();
+    final paragraphs = <Widget>[];
+    for (var a = _from; a < _to;) {
+      final (_, b) = _paragraph(a);
+      paragraphs.add(_para(context, a, b));
+      a = b;
+    }
     return LayoutBuilder(
       builder: (context, box) {
-        // Too short for three lines (a small screen on its side): only the
-        // one being read, so it is never squeezed out.
-        final roomy = box.maxHeight >= 160;
-        return ClipRect(
-          child: AnimatedSwitcher(
-            duration: Motion.of(context, _sentenceChange),
-            transitionBuilder: _push,
-            layoutBuilder: (current, previous) => Stack(
-              alignment: Alignment.topLeft,
-              children: [...previous, if (current != null) current],
-            ),
+        if (box.maxHeight != _height) {
+          _height = box.maxHeight;
+          _jump = true;
+        }
+        WidgetsBinding.instance.addPostFrameCallback((_) => _follow());
+        return ShaderMask(
+          blendMode: BlendMode.dstIn,
+          shaderCallback: (r) => const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0x00FFFFFF), Color(0xFFFFFFFF), Color(0xFFFFFFFF), Color(0x00FFFFFF)],
+            stops: [0, 0.2, 0.78, 1],
+          ).createShader(r),
+          child: SingleChildScrollView(
+            controller: _scroll,
+            // It follows the voice; a drag is left to the screen (down closes it).
+            physics: const NeverScrollableScrollPhysics(),
             child: Column(
-              key: ValueKey(unit),
-              crossAxisAlignment: CrossAxisAlignment.start,
+              key: _content,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (roomy && unit > 0) line(unit - 1, dim, 2),
-                const SizedBox(height: Gap.s),
-                Flexible(
-                  // Press and hold: the word under the finger, found as the
-                  // reader finds it.
-                  child: LayoutBuilder(
-                    builder: (context, box) => GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onLongPressStart: (d) {
-                        final text = layout.units[unit].text;
-                        final painter = TextPainter(
-                          text: TextSpan(text: text, style: read),
-                          textDirection: TextDirection.ltr,
-                          textScaler: MediaQuery.textScalerOf(context),
-                        )..layout(maxWidth: box.maxWidth);
-                        final at = painter.getPositionForOffset(d.localPosition).offset;
-                        painter.dispose();
-                        onHold(unit, wordAt(text, at));
-                      },
-                      child: ValueListenableBuilder<WordMark>(
-                        valueListenable: player.word,
-                        builder: (context, word, _) {
-                          final text = layout.units[unit].text;
-                          final on = word.unit == unit && word.start >= 0 && word.end > word.start;
-                          final ws = on ? word.start.clamp(0, text.length) : 0;
-                          final we = on ? word.end.clamp(ws, text.length) : 0;
-                          return Text.rich(
-                            TextSpan(children: [
-                              TextSpan(text: text.substring(0, ws)),
-                              if (on)
-                                TextSpan(text: text.substring(ws, we), style: TextStyle(color: Skin.accentSoftOf(context))),
-                              TextSpan(text: text.substring(we)),
-                            ]),
-                            style: read,
-                            overflow: TextOverflow.fade,
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: Gap.s),
-                if (roomy && unit + 1 < layout.units.length) line(unit + 1, dim, 2),
+                SizedBox(height: box.maxHeight * _focus),
+                ...paragraphs,
+                SizedBox(height: box.maxHeight * (1 - _focus)),
               ],
             ),
           ),
@@ -476,9 +612,6 @@ class _LyricsState extends State<_Lyrics> {
     );
   }
 }
-
-/// Long enough to follow the line upwards; short beside a sentence.
-const _sentenceChange = Duration(milliseconds: 380);
 
 /// A plain cover for a book without a picture: its title on the accent.
 class _DrawnCover extends StatelessWidget {
