@@ -42,7 +42,7 @@ class _VoiceGlowState extends State<VoiceGlow> {
   int _last = 0;
 
   /// False while another screen covers this one.
-  ValueListenable<bool>? _visible;
+  bool _current = true;
 
   /// Seconds since the glow last woke, for the drift.
   double _time = 0;
@@ -66,7 +66,7 @@ class _VoiceGlowState extends State<VoiceGlow> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _visible = TickerMode.getNotifier(context);
+    _current = ModalRoute.isCurrentOf(context) ?? true;
   }
 
   @override
@@ -112,7 +112,7 @@ class _VoiceGlowState extends State<VoiceGlow> {
       _timer = null;
     }
     // Under another screen, or the app away: keep time, draw nothing.
-    if ((_visible?.value ?? true) && WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+    if (_current && WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
       _paint.value++;
     }
   }
