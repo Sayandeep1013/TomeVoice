@@ -9,7 +9,7 @@
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
     android:initialLayout="@layout/widget_small"
-    android:previewImage="@drawable/widget_preview_player_small"
+    android:previewImage="@drawable/widget_preview_player_stamp"
     android:description="@string/widget_player_stamp"
     android:updatePeriodMillis="1800000"
     android:configure="app.tomevoice.tomevoice_spike.WidgetConfigActivity"
