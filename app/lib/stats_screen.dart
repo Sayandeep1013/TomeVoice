@@ -336,8 +336,8 @@ class _DaysPainter extends CustomPainter {
   bool shouldRepaint(_DaysPainter old) => old.days.join() != days.join() || old.color != color;
 }
 
-/// Ask the launcher to add a TomeVoice widget ([kind]: player, playerWide,
-/// streak, streakWide), or say how to add one by hand.
+/// Ask the launcher to add a TomeVoice widget ([kind]: player, playerStamp,
+/// playerWide, streak, streakWide), or say how to add one by hand.
 Future<void> addWidget(BuildContext context, String kind) async {
   final ok = await const SpeechService().pinWidget(kind);
   if (!ok && context.mounted) {

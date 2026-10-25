@@ -77,6 +77,17 @@ WIDGETS = """        <receiver
                 android:resource="@xml/widget_player_small_info" />
         </receiver>
         <receiver
+            android:name=".PlayerStampWidget"
+            android:exported="true"
+            android:label="Now reading (stamp)">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_player_stamp_info" />
+        </receiver>
+        <receiver
             android:name=".PlayerWidgetWide"
             android:exported="true"
             android:label="Now reading (wide)">

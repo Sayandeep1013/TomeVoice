@@ -53,7 +53,7 @@ object Widgets {
     /** Redraw every TomeVoice widget (the library or playback changed). */
     fun refreshAll(ctx: Context) {
         val mgr = AppWidgetManager.getInstance(ctx)
-        for (cls in listOf(PlayerWidget::class.java, PlayerWidgetWide::class.java, StreakWidget::class.java, StreakWidgetWide::class.java)) {
+        for (cls in listOf(PlayerWidget::class.java, PlayerStampWidget::class.java, PlayerWidgetWide::class.java, StreakWidget::class.java, StreakWidgetWide::class.java)) {
             val ids = mgr.getAppWidgetIds(ComponentName(ctx, cls))
             if (ids.isEmpty()) continue
             val provider = cls.getDeclaredConstructor().newInstance() as BaseWidget
@@ -587,8 +587,6 @@ abstract class BaseWidget : AppWidgetProvider() {
 open class PlayerWidget : BaseWidget() {
     override val layout = R.layout.widget_small
 
-    override val stamp = true
-
     override fun render(ctx: Context, id: Int, w: Float, h: Float, u: Float): Bitmap {
         val book = Widgets.book(ctx, id)
         val look = Widgets.Look(ctx, book?.tint ?: 0, book?.accents)
@@ -718,6 +716,11 @@ open class PlayerWidget : BaseWidget() {
             if (running) Widgets.service(ctx, id * 8 + 5, ReadAloudService.ACTION_NEXT) else Widgets.openApp(ctx, id * 8 + 6, book?.id, false, null),
         )
     }
+}
+
+/** Now reading, cut like a postage stamp: the same widget, another edge. */
+class PlayerStampWidget : PlayerWidget() {
+    override val stamp = true
 }
 
 /** Now reading, offered wide: the same widget, a wider start. */

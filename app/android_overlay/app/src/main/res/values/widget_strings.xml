@@ -5,6 +5,7 @@
     <string name="widget_prev">Previous chapter</string>
     <string name="widget_next">Next chapter</string>
     <string name="widget_player_small">Now reading: the cover, the title and play</string>
+    <string name="widget_player_stamp">Now reading, cut like a postage stamp</string>
     <string name="widget_player_wide">Now reading: cover, chapter, progress and play</string>
     <string name="widget_streak_small">Your streak and this week</string>
     <string name="widget_streak_wide">Your streak and eighteen weeks of days</string>

@@ -353,6 +353,7 @@ class MainActivity : FlutterActivity() {
                     val mgr = getSystemService(android.appwidget.AppWidgetManager::class.java)
                     val cls = when (call.argument<String>("kind")) {
                         "playerWide" -> PlayerWidgetWide::class.java
+                        "playerStamp" -> PlayerStampWidget::class.java
                         "streak" -> StreakWidget::class.java
                         "streakWide" -> StreakWidgetWide::class.java
                         else -> PlayerWidget::class.java
