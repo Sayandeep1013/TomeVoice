@@ -272,8 +272,7 @@ object Widgets {
 
     /**
      * A postage stamp of [w] x [h]: perforated all round with holes of radius
-     * [hole] (the wallpaper shows through them), one at each corner, and a
-     * hairline frame inside the teeth.
+     * [hole] (the wallpaper shows through them), one at each corner.
      */
     fun stampFace(w: Int, h: Int, look: Look, hole: Float): Pair<Bitmap, Canvas> {
         val bmp = Bitmap.createBitmap(max(w, 1), max(h, 1), Bitmap.Config.ARGB_8888)
@@ -297,15 +296,6 @@ object Widgets {
         }
         body.op(holes, Path.Op.DIFFERENCE)
         c.drawPath(body, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = look.ground })
-        val inset = hole * 2.1f
-        c.drawRoundRect(
-            RectF(inset, inset, fw - inset, fh - inset), hole * 0.6f, hole * 0.6f,
-            Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                style = Paint.Style.STROKE
-                strokeWidth = max(1f, hole * 0.22f)
-                color = look.off
-            },
-        )
         return bmp to c
     }
 
@@ -622,7 +612,7 @@ open class PlayerWidget : BaseWidget() {
         play(c, w - pad - r, pad + 56.8f * s + r, r, u, look)
         val labelSize = 11.8f * s
         val labelBase = h - 13.6f * s - labelSize * 0.2f
-        // In from the edge a little, clear of the stamp's frame.
+        // In from the edge a little, in line with the ring.
         val tx = pad + 6f * s
         dotText(c, label(pct, left), tx, labelBase, labelSize, look.dim, w - tx - pad, look)
         val titleBase = labelBase - labelSize * 0.8f - 4.8f * s - 16f * s * 0.3f
