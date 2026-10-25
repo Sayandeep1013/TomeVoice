@@ -84,6 +84,8 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
       child: SafeArea(
         bottom: false,
         child: RefreshIndicator(
+          // A pull counts even when it starts a little way down the list.
+          triggerMode: RefreshIndicatorTriggerMode.anywhere,
           onRefresh: _check,
           child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),

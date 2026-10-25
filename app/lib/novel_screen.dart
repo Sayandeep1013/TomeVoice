@@ -495,6 +495,8 @@ class _NovelScreenState extends State<NovelScreen> {
                       SizedBox(width: 420, child: CustomScrollView(slivers: [...info, bottomGap])),
                       Expanded(
                         child: RefreshIndicator(
+                          // A pull counts even when it starts a little way down the list.
+                          triggerMode: RefreshIndicatorTriggerMode.anywhere,
                           onRefresh: () => _load(pulled: true),
                           child: CustomScrollView(slivers: [...chapterList, bottomGap]),
                         ),
@@ -503,6 +505,8 @@ class _NovelScreenState extends State<NovelScreen> {
                   )
                 else
                   RefreshIndicator(
+                    // A pull counts even when it starts a little way down the list.
+                    triggerMode: RefreshIndicatorTriggerMode.anywhere,
                     onRefresh: () => _load(pulled: true),
                     child: CustomScrollView(slivers: [...info, ...chapterList, bottomGap]),
                   ),
