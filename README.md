@@ -28,6 +28,11 @@ with the screen off if you like.
   &nbsp;
   <img src="docs/images/settings.png" width="240" alt="Settings: five colour themes, colours from book covers, and the reading type, size, spacing and margins">
 </p>
+<p align="center">
+  <img src="docs/images/now-playing.png" width="240" alt="Now Playing: Red Rising's cover above the page around the voice, the sentence being read lit and its word in the cover's red, the paragraphs before and after fading away, and a soft glow behind the controls">
+  &nbsp;
+  <img src="docs/images/now-playing-landscape.png" width="520" alt="Now Playing on its side: the cover beside the page, the sentence being read lit, the chapter bar and the controls">
+</p>
 
 No account. No cloud. Your books never leave the phone.
 
@@ -56,9 +61,12 @@ No account. No cloud. Your books never leave the phone.
   player in the notification shade shows the book's cover in its colours, a bar through
   the chapter you can drag, a speed button, and skips by chapter.
 - **Starts where you stopped**, with a sleep timer for listening in bed.
-- **Now Playing.** Swipe the player up for the cover and the words going by like song
-  lyrics. Every book takes its colours from its cover, here and on its pages. Turned on
-  its side, the text keeps the screen and the player floats beneath it.
+- **Now Playing.** Swipe the player up for the cover and the page around the voice: the
+  sentence being read lit and its word in the book's colour, the paragraphs before and
+  after fading away as it glides along. A soft glow rises behind the player as the
+  voice speaks, as bright as it is loud. Every book takes its colours from its cover,
+  here and on its pages. Turned on its side, the cover sits beside the page, and in the
+  reader the text keeps the screen with the player floating beneath it.
 - **Find and keep.** Find a chapter by its number or title (type 2000 in a 3,000-chapter
   web novel and it is the only one left), or find a passage, a line you remember, in the
   chapter or the whole book. Press and hold a line to save
@@ -68,8 +76,8 @@ No account. No cloud. Your books never leave the phone.
 - **Listening stats and streaks.** Your week, the last twenty weeks as dots, and a streak
   for every day you listen for five minutes.
 - **Home-screen widgets.** The book you are reading, its cover in a ring that fills as you
-  go, with play (and chapter skips on the wider ones); and your streak. Every size, in the
-  book's colours.
+  go, with play (and chapter skips on the wider ones), also cut like a postage stamp;
+  and your streak. Every size, in the book's colours.
 - **Your library in one file.** Back it up to Downloads or Drive and restore it on a new
   phone, adding to what is there or replacing it. TomeVoice also tells you when a new
   version is out, and installs it for you (Android asks you to confirm).
