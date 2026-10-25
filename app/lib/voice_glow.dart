@@ -1,9 +1,8 @@
+import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 
 import 'scheduler.dart';
 import 'theme.dart';
@@ -14,7 +13,13 @@ import 'theme.dart';
 ///
 /// It fades in when reading starts, sinks to an ember between sentences and
 /// fades out on pause. Nothing is drawn when the phone is set to remove
-/// animations, and the ticker only runs while there is something to show.
+/// animations.
+///
+/// Kept cheap, as it runs the whole time a book is read: soft gradients
+/// rather than a blur, redrawn about thirty times a second (the loudness
+/// itself only changes every 40 ms), and not at all while it cannot be seen.
+/// A blurred layer redrawn every frame competed with everything else on the
+/// screen, and scrolling and transitions dropped frames.
 class VoiceGlow extends StatefulWidget {
   const VoiceGlow({super.key, required this.level, required this.state, this.dark});
 
@@ -30,10 +35,14 @@ class VoiceGlow extends StatefulWidget {
   State<VoiceGlow> createState() => _VoiceGlowState();
 }
 
-class _VoiceGlowState extends State<VoiceGlow> with SingleTickerProviderStateMixin {
-  late final Ticker _ticker = createTicker(_frame);
+class _VoiceGlowState extends State<VoiceGlow> {
+  Timer? _timer;
+  final _clock = Stopwatch();
   final _paint = ValueNotifier<int>(0);
-  Duration _last = Duration.zero;
+  int _last = 0;
+
+  /// False while another screen covers this one.
+  ValueListenable<bool>? _visible;
 
   /// Seconds since the glow last woke, for the drift.
   double _time = 0;
@@ -55,6 +64,12 @@ class _VoiceGlowState extends State<VoiceGlow> with SingleTickerProviderStateMix
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _visible = TickerMode.getNotifier(context);
+  }
+
+  @override
   void didUpdateWidget(VoiceGlow old) {
     super.didUpdateWidget(old);
     if (old.state != widget.state) {
@@ -66,21 +81,25 @@ class _VoiceGlowState extends State<VoiceGlow> with SingleTickerProviderStateMix
   @override
   void dispose() {
     widget.state.removeListener(_wake);
-    _ticker.dispose();
+    _timer?.cancel();
     _paint.dispose();
     super.dispose();
   }
 
   void _wake() {
-    if (_reading && !_ticker.isActive) {
-      _last = Duration.zero;
-      _ticker.start();
+    if (_reading && _timer == null) {
+      _clock
+        ..reset()
+        ..start();
+      _last = 0;
+      _timer = Timer.periodic(const Duration(milliseconds: 33), (_) => _step());
     }
   }
 
-  void _frame(Duration elapsed) {
-    final dt = ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0, 0.1);
-    _last = elapsed;
+  void _step() {
+    final now = _clock.elapsedMicroseconds;
+    final dt = ((now - _last) / 1e6).clamp(0.0, 0.1);
+    _last = now;
     _time += dt;
     final target = _reading ? widget.level.value : 0.0;
     // Time constants: 70 ms rising, 320 ms falling, 450 ms to come and go.
@@ -89,9 +108,13 @@ class _VoiceGlowState extends State<VoiceGlow> with SingleTickerProviderStateMix
     if (!_reading && _shown < 0.004) {
       _shown = 0;
       _voice = 0;
-      _ticker.stop();
+      _timer?.cancel();
+      _timer = null;
     }
-    _paint.value++;
+    // Under another screen, or the app away: keep time, draw nothing.
+    if ((_visible?.value ?? true) && WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+      _paint.value++;
+    }
   }
 
   @override
@@ -141,52 +164,47 @@ class _GlowPainter extends CustomPainter {
     final h = size.height;
     // An ember while the voice draws breath; full when it is loud.
     final energy = 0.18 + 0.82 * voice;
-    // Light grounds take colour, they do not give light: less of it, laid on.
-    final strength = ((dark ? 0.72 : 0.45) * shown).clamp(0.0, 1.0);
-    final blur = h * 0.14;
-    final box = Offset.zero & size;
-
-    // One haze whose top is a slow swell of long waves, so no part of it
-    // stands apart; it runs past the sides so the blur does not thin there.
-    final haze = Path()..moveTo(-blur * 2, h + blur);
-    const steps = 32;
-    for (var i = 0; i <= steps; i++) {
-      final x = -blur * 2 + (w + blur * 4) * i / steps;
-      final k = x / w;
+    // Light grounds take colour, they do not give light: less of it.
+    final strength = ((dark ? 0.75 : 0.48) * shown).clamp(0.0, 1.0);
+    // Nine wide, soft lobes along the foot, each overlapping four others,
+    // their heights following one slow swell: together one haze, with no
+    // lobe standing apart and no blur to pay for.
+    const lobes = 9;
+    final rx = w * 0.32;
+    for (var i = 0; i < lobes; i++) {
+      final k = -0.1 + 1.2 * i / (lobes - 1);
       final swell = 0.62 +
           0.22 * math.sin(k * math.pi * 2 + t * 0.35) +
           0.16 * math.sin(k * math.pi * 3.3 - t * 0.5 + 1.3);
-      haze.lineTo(x, h - h * 0.8 * energy * swell);
+      final ry = math.max(h * 0.12, h * 0.85 * energy * swell);
+      final colour = _along(k.clamp(0.0, 1.0));
+      final a = strength * 0.42;
+      canvas.save();
+      canvas.translate(w * k, h);
+      canvas.scale(1, ry / rx);
+      canvas.drawCircle(
+        Offset.zero,
+        rx,
+        Paint()
+          ..shader = RadialGradient(
+            colors: [
+              colour.withValues(alpha: a),
+              colour.withValues(alpha: a * 0.55),
+              colour.withValues(alpha: a * 0.18),
+              colour.withValues(alpha: 0),
+            ],
+            stops: const [0, 0.35, 0.65, 1],
+          ).createShader(Rect.fromCircle(center: Offset.zero, radius: rx)),
+      );
+      canvas.restore();
     }
-    haze
-      ..lineTo(w + blur * 2, h + blur)
-      ..close();
+  }
 
-    canvas.saveLayer(
-      box,
-      Paint()
-        ..blendMode = dark ? BlendMode.plus : BlendMode.srcOver
-        ..imageFilter = ui.ImageFilter.blur(sigmaX: blur, sigmaY: blur, tileMode: TileMode.decal),
-    );
-    canvas.drawPath(
-      haze,
-      Paint()
-        ..shader = LinearGradient(colors: [for (final c in colours) c.withValues(alpha: strength)])
-            .createShader(box),
-    );
-    // Brightest at the foot, thinning to nothing as it rises.
-    canvas.drawRect(
-      box,
-      Paint()
-        ..blendMode = BlendMode.dstIn
-        ..shader = const LinearGradient(
-          begin: Alignment.bottomCenter,
-          end: Alignment.topCenter,
-          colors: [Color(0xFFFFFFFF), Color(0x8CFFFFFF), Color(0x00FFFFFF)],
-          stops: [0, 0.4, 1],
-        ).createShader(box),
-    );
-    canvas.restore();
+  /// The colour [k] of the way along the foot.
+  Color _along(double k) {
+    final x = k * (colours.length - 1);
+    final i = x.floor().clamp(0, colours.length - 2);
+    return Color.lerp(colours[i], colours[i + 1], x - i)!;
   }
 
   @override

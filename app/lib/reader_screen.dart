@@ -892,6 +892,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     await Future<void>.delayed(_veil);
     if (!mounted || !_scroll.isAttached) return;
     _scroll.jumpTo(index: item, alignment: alignment + lead);
+    // Let the list lay the sentence out before gliding: asked at once, it
+    // still thinks the sentence is far off and cross-fades two copies of the
+    // text instead (seen frame by frame on the phone).
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || !_scroll.isAttached) return;
     _veiled.value = false;
     await _scroll.scrollTo(
       index: item,
