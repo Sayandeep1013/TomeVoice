@@ -882,12 +882,13 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   /// A long way to [item]: the text fades out, the page jumps to just short
-  /// of it on the side it is coming from, and glides the rest of the way as
-  /// the text comes back, so the move reads as going there, not a cut.
+  /// of it, and glides the rest of the way as the text comes back, so the
+  /// move reads as going there, not a cut.
   Future<void> _travel(int item, double alignment) async {
-    final shown = _positions.itemPositions.value;
-    final from = shown.isEmpty ? item : shown.first.index;
-    final lead = from < item ? 0.35 : -0.35;
+    // Always a little below where it will rest, so it glides up into place.
+    // Above the top edge it is not laid out, and the list took it to be far
+    // off again and cross-faded two copies of the text.
+    const lead = 0.3;
     _veiled.value = true;
     await Future<void>.delayed(_veil);
     if (!mounted || !_scroll.isAttached) return;
