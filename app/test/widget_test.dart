@@ -308,10 +308,13 @@ void main() {
       await tester.fling(find.byTooltip('Speed'), const Offset(0, -300), 1500);
       await tester.pumpAndSettle();
       expect(find.text('NOW READING'), findsOneWidget);
-      // The sentence to be read, large, in the reading face.
-      final now = tester.widgetList<Text>(find.textContaining('quick brown fox'))
-          .where((t) => (t.style?.fontSize ?? 0) > 20);
-      expect(now, isNotEmpty);
+      // The page around the voice, the sentence to be read lit in it.
+      bool lit(InlineSpan? s) =>
+          s is TextSpan &&
+          ((s.style?.color == Colors.white && s.toPlainText().contains('quick brown fox')) ||
+              (s.children ?? const []).any(lit));
+
+      expect(tester.widgetList<Text>(find.textContaining('quick brown fox')).any((t) => lit(t.textSpan)), isTrue);
 
       await tester.tap(find.byTooltip('Close'));
       await tester.pumpAndSettle();
