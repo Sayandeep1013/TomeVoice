@@ -29,6 +29,7 @@ import 'speech_service.dart';
 import 'stats.dart';
 import 'theme.dart';
 import 'ui.dart';
+import 'voice_glow.dart';
 import 'voices.dart';
 import 'web_reader.dart';
 
@@ -1192,6 +1193,14 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                         onTapPage: (page) => _goTo(_l.unitForPage(page), play: true),
                       )
                     : _text(context),
+              ),
+              // The voice, rising from the player as it reads.
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: 150,
+                child: VoiceGlow(level: _player.level, state: _player.state),
               ),
               Positioned(
                 left: 0,

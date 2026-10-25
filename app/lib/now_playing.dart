@@ -11,6 +11,7 @@ import 'prefs.dart';
 import 'reader_screen.dart' show wordAt;
 import 'scheduler.dart';
 import 'theme.dart';
+import 'voice_glow.dart';
 
 /// The book filling the screen while it is read: the cover over a blur of
 /// itself in the book's colour, and the words scrolling like lyrics, the
@@ -85,6 +86,14 @@ class NowPlayingScreen extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             _Backdrop(cover: cover, accent: accent),
+            // The voice, rising from the foot of the screen as it reads.
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: 300,
+              child: VoiceGlow(level: player.level, state: player.state, dark: true),
+            ),
             SafeArea(
               child: OrientationBuilder(
                 builder: (context, orientation) => orientation == Orientation.landscape
