@@ -1236,13 +1236,14 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                     if (!rail) glow,
                     reading,
                     // The text fades out before the dock, instead of showing
-                    // in the gap beneath it.
+                    // in the gap beneath it. Out to the screen's edges like
+                    // the glow: stopping at the safe area, its edge showed.
                     if (rail)
                     Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      height: 96,
+                      left: -insets.left,
+                      right: -insets.right,
+                      bottom: -insets.bottom,
+                      height: 96 + insets.bottom,
                       child: IgnorePointer(
                         child: DecoratedBox(
                           decoration: BoxDecoration(

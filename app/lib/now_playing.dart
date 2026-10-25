@@ -93,7 +93,9 @@ class NowPlayingScreen extends StatelessWidget {
               left: 0,
               right: 0,
               bottom: 0,
-              height: 300,
+              // About a third of the screen: on its side a fixed height
+              // flooded most of it.
+              height: (MediaQuery.sizeOf(context).height * 0.34).clamp(120, 300).toDouble(),
               child: VoiceGlow(level: player.level, state: player.state, dark: true),
             ),
             SafeArea(
