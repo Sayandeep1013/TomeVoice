@@ -71,11 +71,17 @@ class Progress extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ClipRRect(
         borderRadius: BorderRadius.circular(height),
-        child: LinearProgressIndicator(
-          value: value.clamp(0.0, 1.0),
-          minHeight: height,
-          color: Skin.accentOf(context),
-          backgroundColor: track ?? Skin.inkOn(context).withValues(alpha: 0.12),
+        // Moves to a new value instead of stepping to it.
+        child: TweenAnimationBuilder<double>(
+          tween: Tween(end: value.clamp(0.0, 1.0)),
+          duration: Motion.of(context, Motion.standard),
+          curve: Motion.out,
+          builder: (context, v, _) => LinearProgressIndicator(
+            value: v,
+            minHeight: height,
+            color: Skin.accentOf(context),
+            backgroundColor: track ?? Skin.inkOn(context).withValues(alpha: 0.12),
+          ),
         ),
       );
 }
@@ -691,6 +697,118 @@ Future<bool> confirm(
     true;
 
 // ---- motion --------------------------------------------------------------
+
+/// [child] fading in (and settling from a touch smaller) when it first
+/// shows, and again whenever [trigger] changes, without being rebuilt: a new
+/// screen in the same place arrives the way a pushed one does.
+class FadeIn extends StatefulWidget {
+  const FadeIn({super.key, this.trigger, required this.child});
+
+  final Object? trigger;
+  final Widget child;
+
+  @override
+  State<FadeIn> createState() => _FadeInState();
+}
+
+class _FadeInState extends State<FadeIn> with SingleTickerProviderStateMixin {
+  late final _controller = AnimationController(vsync: this, duration: Motion.page);
+  late final _t = CurvedAnimation(parent: _controller, curve: Motion.out);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (Motion.reduced(context)) {
+      _controller.value = 1;
+    } else if (_controller.status == AnimationStatus.dismissed) {
+      _controller.forward();
+    }
+  }
+
+  @override
+  void didUpdateWidget(FadeIn old) {
+    super.didUpdateWidget(old);
+    if (old.trigger != widget.trigger && !Motion.reduced(context)) _controller.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _t.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => FadeTransition(
+        opacity: _t,
+        child: ScaleTransition(scale: Tween(begin: 0.98, end: 1.0).animate(_t), child: widget.child),
+      );
+}
+
+/// A sliver fading in when it first shows: a list taking the place of a
+/// spinner arrives instead of snapping in.
+class SliverFadeIn extends StatefulWidget {
+  const SliverFadeIn({super.key, required this.sliver});
+
+  final Widget sliver;
+
+  @override
+  State<SliverFadeIn> createState() => _SliverFadeInState();
+}
+
+class _SliverFadeInState extends State<SliverFadeIn> with SingleTickerProviderStateMixin {
+  late final _controller = AnimationController(vsync: this, duration: Motion.page);
+  late final _t = CurvedAnimation(parent: _controller, curve: Motion.out);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (Motion.reduced(context)) {
+      _controller.value = 1;
+    } else if (_controller.status == AnimationStatus.dismissed) {
+      _controller.forward();
+    }
+  }
+
+  @override
+  void dispose() {
+    _t.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => SliverFadeTransition(opacity: _t, sliver: widget.sliver);
+}
+
+/// Room for [child] that opens and closes smoothly as it comes and goes
+/// (null: nothing), the child fading in as it does, instead of pushing what
+/// is below it down in one jump.
+Widget growIn(BuildContext context, Widget? child) => AnimatedSize(
+      duration: Motion.of(context, Motion.standard),
+      curve: Motion.out,
+      alignment: Alignment.topCenter,
+      child: child == null ? const SizedBox(width: double.infinity) : FadeIn(child: child),
+    );
+
+/// An [Image.frameBuilder] that fades the picture in over [under] (what shows
+/// while it decodes) instead of popping over it; one already in memory shows
+/// at once.
+ImageFrameBuilder fadeInOver(Widget under) => (context, child, frame, sync) {
+      if (sync) return child;
+      return Stack(
+        fit: StackFit.passthrough,
+        children: [
+          under,
+          AnimatedOpacity(
+            opacity: frame == null ? 0 : 1,
+            duration: Motion.of(context, Motion.standard),
+            curve: Motion.out,
+            child: child,
+          ),
+        ],
+      );
+    };
 
 /// An [AnimatedSwitcher] transition: the new child fades in while rising a
 /// little; the old one fades out the same way.

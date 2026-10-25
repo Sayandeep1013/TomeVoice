@@ -308,10 +308,13 @@ void main() {
       await tester.fling(find.byTooltip('Speed'), const Offset(0, -300), 1500);
       await tester.pumpAndSettle();
       expect(find.text('NOW READING'), findsOneWidget);
-      // The sentence to be read, large, in the reading face.
-      final now = tester.widgetList<Text>(find.textContaining('quick brown fox'))
-          .where((t) => (t.style?.fontSize ?? 0) > 20);
-      expect(now, isNotEmpty);
+      // The page around the voice, the sentence to be read lit in it.
+      bool lit(InlineSpan? s) =>
+          s is TextSpan &&
+          ((s.style?.color == Colors.white && s.toPlainText().contains('quick brown fox')) ||
+              (s.children ?? const []).any(lit));
+
+      expect(tester.widgetList<Text>(find.textContaining('quick brown fox')).any((t) => lit(t.textSpan)), isTrue);
 
       await tester.tap(find.byTooltip('Close'));
       await tester.pumpAndSettle();
@@ -457,7 +460,10 @@ void main() {
       expect(washed(tester), isEmpty);
 
       await tester.tap(find.byTooltip('Play'));
+      // The page travels back: a fade, a jump, a frame, then it scrolls up.
       await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 700));
       expect(find.text('ALPHA'), findsOneWidget);
       expect(find.textContaining('3221/'), findsOneWidget);
       expect(washed(tester), 'Alpha');

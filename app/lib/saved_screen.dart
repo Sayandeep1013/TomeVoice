@@ -123,24 +123,28 @@ class _SavedScreenState extends State<SavedScreen> {
                   child: SearchField(hint: 'Search what you saved', onChanged: (v) => setState(() => _query = v)),
                 ),
               Expanded(
-                child: marks.isEmpty
-                    ? EmptyState(
-                        icon: _kind == MarkKind.quote ? Icons.format_quote_rounded : Icons.bookmark_border_rounded,
-                        title: q.isNotEmpty
-                            ? 'Nothing matches'
-                            : (_kind == MarkKind.quote ? 'No quotes yet' : 'No bookmarks yet'),
-                        body: q.isNotEmpty
-                            ? 'Try other words.'
-                            : 'Press and hold a sentence while reading, or tap Save on the player or the lock '
-                                'screen while listening.',
-                      )
-                    : ListView(
-                        padding: EdgeInsets.fromLTRB(
-                            Gap.page, 0, Gap.page, Gap.xxl + MediaQuery.viewPaddingOf(context).bottom),
-                        children: [
-                          for (final entry in byBook.entries) ..._group(context, entry.key, entry.value),
-                        ],
-                      ),
+                // Quotes and bookmarks fade into each other's place.
+                child: FadeIn(
+                  trigger: _kind,
+                  child: marks.isEmpty
+                      ? EmptyState(
+                          icon: _kind == MarkKind.quote ? Icons.format_quote_rounded : Icons.bookmark_border_rounded,
+                          title: q.isNotEmpty
+                              ? 'Nothing matches'
+                              : (_kind == MarkKind.quote ? 'No quotes yet' : 'No bookmarks yet'),
+                          body: q.isNotEmpty
+                              ? 'Try other words.'
+                              : 'Press and hold a sentence while reading, or tap Save on the player or the lock '
+                                  'screen while listening.',
+                        )
+                      : ListView(
+                          padding: EdgeInsets.fromLTRB(
+                              Gap.page, 0, Gap.page, Gap.xxl + MediaQuery.viewPaddingOf(context).bottom),
+                          children: [
+                            for (final entry in byBook.entries) ..._group(context, entry.key, entry.value),
+                          ],
+                        ),
+                ),
               ),
             ],
           ),

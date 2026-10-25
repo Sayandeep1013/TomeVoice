@@ -236,8 +236,17 @@ class _WebNovelReaderState extends State<WebNovelReader> {
   @override
   Widget build(BuildContext context) {
     final layout = _layout;
-    if (layout != null && _status == null && _error == null) {
-      return ReaderScreen(
+    final reading = layout != null && _status == null && _error == null;
+    // Each reader (or the wait for one) fades in over the same ground. The
+    // old one goes at once: kept for a cross-fade, its player stopping would
+    // silence the new one, already reading.
+    return DecoratedBox(
+      decoration: BoxDecoration(gradient: Skin.ground(context)),
+      child: FadeIn(key: ValueKey(reading ? _generation : -1), child: reading ? _reader(layout) : _wait(context)),
+    );
+  }
+
+  Widget _reader(ReadingLayout layout) => ReaderScreen(
         key: ValueKey(_generation),
         layout: layout,
         store: _store,
@@ -253,37 +262,36 @@ class _WebNovelReaderState extends State<WebNovelReader> {
         openContents: _contents,
         endLabel: layout.isEmpty || layout.units.last.sectionIndex + 1 >= _total ? 'Check for new chapters' : 'Next chapter',
       );
-    }
-    return Scaffold(
-      body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
-        child: SafeArea(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              ScreenTopBar(title: widget.entry.title, onBack: () => Navigator.of(context).maybePop()),
-              Expanded(
-                child: Center(
-                  child: _error != null
-                      ? SourceProblem(
-                          error: _error!,
-                          title: 'Could not open this chapter',
-                          onRetry: () => _open(widget.at?.sectionIndex ?? widget.startChapter, autoplay: widget.autoplay, at: widget.at),
-                        )
-                      : Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const CircularProgressIndicator(),
-                            const SizedBox(height: Gap.l),
-                            Text(_status ?? '', style: Skin.label(context, size: 15)),
-                          ],
-                        ),
+
+  Widget _wait(BuildContext context) => Scaffold(
+        body: DecoratedBox(
+          decoration: BoxDecoration(gradient: Skin.ground(context)),
+          child: SafeArea(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ScreenTopBar(title: widget.entry.title, onBack: () => Navigator.of(context).maybePop()),
+                Expanded(
+                  child: Center(
+                    child: _error != null
+                        ? SourceProblem(
+                            error: _error!,
+                            title: 'Could not open this chapter',
+                            onRetry: () => _open(widget.at?.sectionIndex ?? widget.startChapter, autoplay: widget.autoplay, at: widget.at),
+                          )
+                        : Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const CircularProgressIndicator(),
+                              const SizedBox(height: Gap.l),
+                              Text(_status ?? '', style: Skin.label(context, size: 15)),
+                            ],
+                          ),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-      ),
-    );
-  }
+      );
 }

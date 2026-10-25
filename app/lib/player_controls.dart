@@ -27,12 +27,19 @@ class PlayButton extends StatelessWidget {
                 alignment: Alignment.center,
                 clipBehavior: Clip.none,
                 children: [
-                  if (state == PlayState.loading)
-                    SizedBox(
-                      width: 60,
-                      height: 60,
-                      child: CircularProgressIndicator(strokeWidth: 2.5, color: Skin.accentSoftOf(context)),
-                    ),
+                  // The ring fades in and out rather than popping, and is
+                  // gone (not spinning unseen) once it has.
+                  AnimatedSwitcher(
+                    duration: Motion.of(context, Motion.quick),
+                    child: state == PlayState.loading
+                        ? SizedBox(
+                            key: const ValueKey('ring'),
+                            width: 60,
+                            height: 60,
+                            child: CircularProgressIndicator(strokeWidth: 2.5, color: Skin.accentSoftOf(context)),
+                          )
+                        : const SizedBox(width: 60, height: 60),
+                  ),
                   Material(
                     color: onTap == null ? Skin.accentOf(context).withValues(alpha: 0.4) : Skin.accentOf(context),
                     shape: const CircleBorder(),
@@ -42,10 +49,21 @@ class PlayButton extends StatelessWidget {
                       child: SizedBox(
                         width: 54,
                         height: 54,
-                        child: Icon(
-                          speaking ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                          size: 32,
-                          color: Skin.onAccentOf(context),
+                        // Play and pause turn into each other: a fade and a
+                        // little growth, the press answered at once.
+                        child: AnimatedSwitcher(
+                          duration: Motion.of(context, Motion.quick),
+                          switchInCurve: Motion.out,
+                          transitionBuilder: (child, a) => FadeTransition(
+                            opacity: a,
+                            child: ScaleTransition(scale: Tween(begin: 0.7, end: 1.0).animate(a), child: child),
+                          ),
+                          child: Icon(
+                            speaking ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                            key: ValueKey(speaking),
+                            size: 32,
+                            color: Skin.onAccentOf(context),
+                          ),
                         ),
                       ),
                     ),
@@ -81,16 +99,23 @@ class _ChapterScrubberState extends State<ChapterScrubber> {
         ),
         child: SizedBox(
           height: 26,
-          child: Slider(
-            value: (_drag ?? widget.value).clamp(0.0, 1.0),
-            semanticFormatterCallback: (v) => 'Chapter position ${(v * 100).round()} percent',
-            onChanged: widget.onSeek == null ? null : (v) => setState(() => _drag = v),
-            onChangeEnd: widget.onSeek == null
-                ? null
-                : (v) {
-                    setState(() => _drag = null);
-                    widget.onSeek!(v);
-                  },
+          // The thumb glides from sentence to sentence instead of stepping;
+          // under a finger it follows at once.
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(end: (_drag ?? widget.value).clamp(0.0, 1.0)),
+            duration: _drag != null ? Duration.zero : Motion.of(context, Motion.standard),
+            curve: Motion.out,
+            builder: (context, value, _) => Slider(
+              value: value.clamp(0.0, 1.0),
+              semanticFormatterCallback: (v) => 'Chapter position ${(v * 100).round()} percent',
+              onChanged: widget.onSeek == null ? null : (v) => setState(() => _drag = v),
+              onChangeEnd: widget.onSeek == null
+                  ? null
+                  : (v) {
+                      setState(() => _drag = null);
+                      widget.onSeek!(v);
+                    },
+            ),
           ),
         ),
       );

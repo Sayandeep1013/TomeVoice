@@ -860,80 +860,84 @@ class _VoicePickerState extends State<_VoicePicker> {
           ),
           const SizedBox(height: Gap.s),
           Flexible(
-            child: !_catalog.loaded
-                ? const Padding(
-                    padding: EdgeInsets.all(Gap.xl),
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                : voices.isEmpty
-                    ? _noVoices(context)
-                    : ListView(
-                        shrinkWrap: true,
-                        padding: const EdgeInsets.only(bottom: Gap.xl),
-                        children: [
-                          // The voice in use, on its own; the list below keeps
-                          // its order and marks it where it stands.
-                          if (current != null) ...[
-                            const Padding(
-                              padding: EdgeInsets.fromLTRB(Gap.xl, Gap.s, Gap.xl, Gap.s),
-                              child: Eyebrow('In use'),
-                            ),
-                            _selectedCard(context, current),
-                            const SizedBox(height: Gap.s),
-                          ],
-                          if (_language == 'en' && ListeningPrefs.loaded?.naturalVoices != false)
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(Gap.l, Gap.s, Gap.l, 0),
-                              child: SheetAction(
-                                icon: Icons.auto_awesome_rounded,
-                                label: 'Natural voices',
-                                detail: 'Voices that sound like people, downloaded once, made on your phone',
-                                onTap: () => Navigator.of(context).push(
-                                  MaterialPageRoute<void>(builder: (_) => const NeuralVoicesScreen()),
+            // Another language's voices (or the list after loading) fade in.
+            child: FadeIn(
+              trigger: '${_catalog.loaded}/$_language',
+              child: !_catalog.loaded
+                  ? const Padding(
+                      padding: EdgeInsets.all(Gap.xl),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  : voices.isEmpty
+                      ? _noVoices(context)
+                      : ListView(
+                          shrinkWrap: true,
+                          padding: const EdgeInsets.only(bottom: Gap.xl),
+                          children: [
+                            // The voice in use, on its own; the list below keeps
+                            // its order and marks it where it stands.
+                            if (current != null) ...[
+                              const Padding(
+                                padding: EdgeInsets.fromLTRB(Gap.xl, Gap.s, Gap.xl, Gap.s),
+                                child: Eyebrow('In use'),
+                              ),
+                              _selectedCard(context, current),
+                              const SizedBox(height: Gap.s),
+                            ],
+                            if (_language == 'en' && ListeningPrefs.loaded?.naturalVoices != false)
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(Gap.l, Gap.s, Gap.l, 0),
+                                child: SheetAction(
+                                  icon: Icons.auto_awesome_rounded,
+                                  label: 'Natural voices',
+                                  detail: 'Voices that sound like people, downloaded once, made on your phone',
+                                  onTap: () => Navigator.of(context).push(
+                                    MaterialPageRoute<void>(builder: (_) => const NeuralVoicesScreen()),
+                                  ),
                                 ),
                               ),
-                            ),
-                          for (final group in byRegion.entries) ...[
-                            if (byRegion.length > 1 || group.key.isNotEmpty)
+                            for (final group in byRegion.entries) ...[
+                              if (byRegion.length > 1 || group.key.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.l, Gap.xl, Gap.xs),
+                                  child: Eyebrow(group.key.isEmpty ? languageName(_language) : group.key),
+                                ),
+                              for (final v in group.value) _voiceRow(context, v, selected: v.name == selected),
+                            ],
+                            if (_catalog.engines.length > 1) ...[
+                              const Padding(
+                                padding: EdgeInsets.fromLTRB(Gap.xl, Gap.xl, Gap.xl, Gap.s),
+                                child: Eyebrow('Speech engine'),
+                              ),
                               Padding(
-                                padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.l, Gap.xl, Gap.xs),
-                                child: Eyebrow(group.key.isEmpty ? languageName(_language) : group.key),
+                                padding: const EdgeInsets.symmetric(horizontal: Gap.xl),
+                                child: ChoiceRow<String?>(
+                                  options: [
+                                    for (final e in _catalog.engines)
+                                      (e['name'], (e['label'] ?? '').isEmpty ? e['name']! : e['label']!),
+                                  ],
+                                  value: _catalog.engineId,
+                                  minSegment: 120,
+                                  onChanged: (id) async {
+                                    _prefs.engineId = id;
+                                    _prefs.save();
+                                    await _catalog.switchEngine(id!);
+                                    widget.controller.onChanged(restart: true);
+                                  },
+                                ),
                               ),
-                            for (final v in group.value) _voiceRow(context, v, selected: v.name == selected),
-                          ],
-                          if (_catalog.engines.length > 1) ...[
-                            const Padding(
-                              padding: EdgeInsets.fromLTRB(Gap.xl, Gap.xl, Gap.xl, Gap.s),
-                              child: Eyebrow('Speech engine'),
-                            ),
+                            ],
                             Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: Gap.xl),
-                              child: ChoiceRow<String?>(
-                                options: [
-                                  for (final e in _catalog.engines)
-                                    (e['name'], (e['label'] ?? '').isEmpty ? e['name']! : e['label']!),
-                                ],
-                                value: _catalog.engineId,
-                                minSegment: 120,
-                                onChanged: (id) async {
-                                  _prefs.engineId = id;
-                                  _prefs.save();
-                                  await _catalog.switchEngine(id!);
-                                  widget.controller.onChanged(restart: true);
-                                },
+                              padding: const EdgeInsets.fromLTRB(Gap.l, Gap.l, Gap.l, 0),
+                              child: TextButton.icon(
+                                onPressed: () => const SpeechService().openTtsSettings(),
+                                icon: const Icon(Icons.download_rounded, size: 18),
+                                label: const Text('Get more voices in phone settings'),
                               ),
                             ),
                           ],
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(Gap.l, Gap.l, Gap.l, 0),
-                            child: TextButton.icon(
-                              onPressed: () => const SpeechService().openTtsSettings(),
-                              icon: const Icon(Icons.download_rounded, size: 18),
-                              label: const Text('Get more voices in phone settings'),
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+            ),
           ),
         ],
       ),

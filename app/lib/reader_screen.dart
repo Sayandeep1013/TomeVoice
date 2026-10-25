@@ -261,6 +261,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       ValueNotifier(_l.isEmpty ? 0 : _l.unitForCursor(widget.initialCursor));
   final _detached = ValueNotifier<bool>(false);
 
+  /// The text faded out for a moment, while it travels a long way to the voice.
+  final _veiled = ValueNotifier<bool>(false);
+
   /// The chapter at the top of the screen. While the reader looks around
   /// (detached), the top bar names it instead of the one being read.
   late final _viewChapter = ValueNotifier<int>(_l.chapterOfUnit(_cursor.value));
@@ -276,6 +279,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     return c < 0 ? cursorItem : _l.chapterFirstItem[c];
   }();
   final _scroll = ItemScrollController();
+
+  /// Scrolls the page by a distance, for travelling far.
+  final _offsets = ScrollOffsetController();
+
+  /// The page's height on screen, for travelling far.
+  double _viewport = 600;
   final _positions = ItemPositionsListener.create();
 
   late final PlaybackScheduler _player;
@@ -452,6 +461,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _positions.itemPositions.removeListener(_onPositions);
     _cursor.dispose();
     _detached.dispose();
+    _veiled.dispose();
     _viewChapter.dispose();
     super.dispose();
   }
@@ -860,17 +870,49 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     }
     _programmaticScroll = true;
     final duration = Motion.of(context, const Duration(milliseconds: 360));
-    // Far away (not laid out) or motion turned down: go straight there. The
-    // list would otherwise cross-fade two copies of the text.
-    if (shown == null || duration == Duration.zero) {
+    // Motion turned down: go straight there.
+    if (duration == Duration.zero) {
       _scroll.jumpTo(index: item, alignment: alignment);
       _programmaticScroll = false;
+      return;
+    }
+    // Far away (not laid out): the list's own long scroll cross-fades two
+    // copies of the text, and a plain jump is a cut. Travel instead.
+    if (shown == null) {
+      unawaited(_travel(item, alignment).whenComplete(() => _programmaticScroll = false));
       return;
     }
     unawaited(_scroll
         .scrollTo(index: item, alignment: alignment, duration: duration, curve: Curves.easeInOutCubic)
         .whenComplete(() => _programmaticScroll = false));
   }
+
+  /// A long way to [item]: it scrolls there the way a short way does, up
+  /// to a voice above what is on screen and down to one below. The text fades
+  /// out for a moment while the page jumps to a screen short of the sentence,
+  /// on the side it is coming from, then it scrolls the rest of the way by
+  /// distance as the text comes back. (The list cannot scroll through the
+  /// hundreds of paragraphs between, and asked to scroll to one it has not
+  /// laid out, it cross-faded two copies of the text.)
+  Future<void> _travel(int item, double alignment) async {
+    final shown = _positions.itemPositions.value;
+    final up = shown.isNotEmpty && shown.map((p) => p.index).reduce(math.min) > item;
+    final way = up ? -1.0 : 1.0;
+    _veiled.value = true;
+    await Future<void>.delayed(_veil);
+    if (!mounted || !_scroll.isAttached) return;
+    _scroll.jumpTo(index: item, alignment: alignment + way);
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || !_scroll.isAttached) return;
+    _veiled.value = false;
+    await _offsets.animateScroll(
+      offset: way * _viewport,
+      duration: const Duration(milliseconds: 520),
+      curve: Motion.out,
+    );
+  }
+
+  static const _veil = Duration(milliseconds: 120);
 
   /// Track the chapter at the top of the screen as the page moves.
   void _onPositions() {
@@ -1177,6 +1219,17 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       onSleep: () => showListenSheet(context, _listen),
       onSave: () => unawaited(_save(MarkKind.quote)),
     );
+    // Out to the screen's own edges, past the safe area (the camera's side,
+    // the gesture bar): ending inside the screen, the haze showed a hard edge.
+    final insets = MediaQuery.paddingOf(context);
+    final glow = Positioned(
+      left: -insets.left,
+      right: -insets.right,
+      bottom: -insets.bottom,
+      // Tall enough to rise clear of the player card at a speaking voice.
+      height: (rail ? 240 : 600) + insets.bottom,
+      child: VoiceGlow(level: _player.level, state: _player.state),
+    );
     final reading = Column(
       children: [
         _topBar(context),
@@ -1184,30 +1237,44 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           child: Stack(
             children: [
               Positioned.fill(
-                child: _showPages
-                    ? PdfPagesView(
-                        path: widget.sourcePath!,
-                        layout: _l,
-                        cursor: _cursor,
-                        detached: _detached,
-                        onTapPage: (page) => _goTo(_l.unitForPage(page), play: true),
-                      )
-                    : _text(context),
-              ),
-              // The voice, rising from the player as it reads.
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                height: 150,
-                child: VoiceGlow(level: _player.level, state: _player.state),
+                // Pages and text fade into each other's place.
+                child: FadeIn(
+                  key: ValueKey(_showPages),
+                  child: _showPages
+                      ? PdfPagesView(
+                          path: widget.sourcePath!,
+                          layout: _l,
+                          cursor: _cursor,
+                          detached: _detached,
+                          onTapPage: (page) => _goTo(_l.unitForPage(page), play: true),
+                        )
+                      : ValueListenableBuilder<bool>(
+                          valueListenable: _veiled,
+                          builder: (context, veiled, text) => AnimatedOpacity(
+                            opacity: veiled ? 0 : 1,
+                            // Out quickly, back as it glides in.
+                            duration: veiled ? _veil : Motion.standard,
+                            curve: veiled ? Curves.easeIn : Motion.out,
+                            child: text,
+                          ),
+                          child: _text(context),
+                        ),
+                ),
               ),
               Positioned(
                 left: 0,
                 right: 0,
                 // Above the dock when it floats over the text.
                 bottom: rail ? 112 : 10,
-                child: Center(child: _hits.isEmpty ? _backToReading(context) : _matches(context)),
+                child: Center(
+                  child: AnimatedSwitcher(
+                    duration: Motion.of(context, Motion.standard),
+                    transitionBuilder: fadeRise,
+                    child: _hits.isEmpty
+                        ? KeyedSubtree(key: const ValueKey('back'), child: _backToReading(context))
+                        : KeyedSubtree(key: const ValueKey('matches'), child: _matches(context)),
+                  ),
+                ),
               ),
             ],
           ),
@@ -1225,16 +1292,22 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         decoration: BoxDecoration(gradient: Skin.ground(context)),
         child: SafeArea(
           child: Stack(
+                  // The glow reaches past the safe area.
+                  clipBehavior: Clip.none,
                   children: [
+                    // The voice, glowing out from behind the player as it
+                    // reads; the text and the player sit over it.
+                    if (!rail) glow,
                     reading,
                     // The text fades out before the dock, instead of showing
-                    // in the gap beneath it.
+                    // in the gap beneath it. Out to the screen's edges like
+                    // the glow: stopping at the safe area, its edge showed.
                     if (rail)
                     Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      height: 96,
+                      left: -insets.left,
+                      right: -insets.right,
+                      bottom: -insets.bottom,
+                      height: 96 + insets.bottom,
                       child: IgnorePointer(
                         child: DecoratedBox(
                           decoration: BoxDecoration(
@@ -1248,6 +1321,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                         ),
                       ),
                     ),
+                    if (rail) glow,
                     if (rail) Positioned(left: 0, right: 0, bottom: 0, child: Center(child: bar)),
                   ],
                 ),
@@ -1357,18 +1431,28 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                             );
                           }
                           // A long title gives way; the count always shows.
-                          return Row(
-                            children: [
-                              Flexible(
-                                child: Text(_l.chapterTitle(c).toUpperCase(),
-                                    maxLines: 1, overflow: TextOverflow.ellipsis, style: style),
-                              ),
-                              Text(
-                                '  ·  ${widget.positionOf?.call(u) ?? '${_chapterNumber(c)}/${_l.chapters.length}'}',
-                                maxLines: 1,
-                                style: style,
-                              ),
-                            ],
+                          // A new chapter's name rises into place.
+                          return AnimatedSwitcher(
+                            duration: Motion.of(context, Motion.standard),
+                            transitionBuilder: fadeRise,
+                            layoutBuilder: (current, previous) => Stack(
+                              alignment: Alignment.centerLeft,
+                              children: [...previous, if (current != null) current],
+                            ),
+                            child: Row(
+                              key: ValueKey(c),
+                              children: [
+                                Flexible(
+                                  child: Text(_l.chapterTitle(c).toUpperCase(),
+                                      maxLines: 1, overflow: TextOverflow.ellipsis, style: style),
+                                ),
+                                Text(
+                                  '  ·  ${widget.positionOf?.call(u) ?? '${_chapterNumber(c)}/${_l.chapters.length}'}',
+                                  maxLines: 1,
+                                  style: style,
+                                ),
+                              ],
+                            ),
                           );
                         },
                       ),
@@ -1439,15 +1523,21 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       ).createShader(rect),
       child: NotificationListener<ScrollNotification>(
         onNotification: _onScrollNotification,
-        child: ScrollablePositionedList.builder(
-          // One more item at the end when there is more to fetch: the way on.
-          itemCount: _l.items.length + (widget.onReachedEnd == null ? 0 : 1),
-          itemScrollController: _scroll,
-          itemPositionsListener: _positions,
-          initialScrollIndex: initial,
-          initialAlignment: initial == 0 ? 0 : 0.12,
-          padding: EdgeInsets.fromLTRB(side, 16, side, 120),
-          itemBuilder: (context, i) => i == _l.items.length ? _more(context) : _item(context, i),
+        child: LayoutBuilder(
+          builder: (context, box) {
+            _viewport = box.maxHeight;
+            return ScrollablePositionedList.builder(
+              // One more item at the end when there is more to fetch: the way on.
+              itemCount: _l.items.length + (widget.onReachedEnd == null ? 0 : 1),
+              itemScrollController: _scroll,
+              scrollOffsetController: _offsets,
+              itemPositionsListener: _positions,
+              initialScrollIndex: initial,
+              initialAlignment: initial == 0 ? 0 : 0.12,
+              padding: EdgeInsets.fromLTRB(side, 16, side, 120),
+              itemBuilder: (context, i) => i == _l.items.length ? _more(context) : _item(context, i),
+            );
+          },
         ),
       ),
     );
