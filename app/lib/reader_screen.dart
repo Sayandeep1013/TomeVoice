@@ -1177,12 +1177,15 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       onSleep: () => showListenSheet(context, _listen),
       onSave: () => unawaited(_save(MarkKind.quote)),
     );
+    // Out to the screen's own edges, past the safe area (the camera's side,
+    // the gesture bar): ending inside the screen, the haze showed a hard edge.
+    final insets = MediaQuery.paddingOf(context);
     final glow = Positioned(
-      left: 0,
-      right: 0,
-      bottom: 0,
+      left: -insets.left,
+      right: -insets.right,
+      bottom: -insets.bottom,
       // Tall enough to rise clear of the player card at a speaking voice.
-      height: rail ? 240 : 600,
+      height: (rail ? 240 : 600) + insets.bottom,
       child: VoiceGlow(level: _player.level, state: _player.state),
     );
     final reading = Column(
@@ -1225,6 +1228,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         decoration: BoxDecoration(gradient: Skin.ground(context)),
         child: SafeArea(
           child: Stack(
+                  // The glow reaches past the safe area.
+                  clipBehavior: Clip.none,
                   children: [
                     // The voice, glowing out from behind the player as it
                     // reads; the text and the player sit over it.
