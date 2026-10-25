@@ -1181,7 +1181,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       left: 0,
       right: 0,
       bottom: 0,
-      height: rail ? 200 : 340,
+      // Tall enough to rise clear of the player card at a speaking voice.
+      height: rail ? 240 : 600,
       child: VoiceGlow(level: _player.level, state: _player.state),
     );
     final reading = Column(

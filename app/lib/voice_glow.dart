@@ -99,7 +99,13 @@ class _VoiceGlowState extends State<VoiceGlow> with SingleTickerProviderStateMix
     if (Motion.reduced(context)) return const SizedBox.shrink();
     final accent = Skin.accentOf(context);
     final hsl = HSLColor.fromColor(accent);
-    Color turn(double degrees) => hsl.withHue((hsl.hue + degrees) % 360).toColor();
+    // Hues close around the accent, all at one lightness: an even haze with
+    // no colour brighter than the rest to stand out as a patch.
+    Color tone(double degrees) => hsl
+        .withHue((hsl.hue + degrees) % 360)
+        .withSaturation(math.min(1, hsl.saturation * 0.8 + 0.2))
+        .withLightness(0.62)
+        .toColor();
     final dark = widget.dark ?? Theme.of(context).brightness == Brightness.dark;
     return IgnorePointer(
       child: RepaintBoundary(
@@ -108,8 +114,7 @@ class _VoiceGlowState extends State<VoiceGlow> with SingleTickerProviderStateMix
           painter: _GlowPainter(
             repaint: _paint,
             state: this,
-            // The accent in the middle, its neighbours on the wheel around it.
-            colours: [turn(-34), accent, Skin.accentSoftOf(context), accent, turn(34)],
+            colours: [tone(-24), tone(-8), tone(0), tone(8), tone(24)],
             dark: dark,
           ),
         ),
