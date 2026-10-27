@@ -55,7 +55,11 @@ Future<ImportReport> importNovelDokushaJson(
     final b = books[n];
     onProgress?.call(b.title, n, books.length);
     final host = _bareHost(b.url);
-    final plugin = candidates.where((p) => _bareHost(p.site) == host).firstOrNull ??
+    // A book NovelDokusha imported from a file: its text is all there is.
+    final local = b.url.startsWith('local://');
+    final plugin = local
+        ? _localBooks
+        : candidates.where((p) => _bareHost(p.site) == host).firstOrNull ??
         PluginInfo(
           id: 'noveldokusha:$host',
           name: Uri.tryParse(b.url)?.host ?? host,
@@ -64,11 +68,12 @@ Future<ImportReport> importNovelDokushaJson(
           version: '0',
           url: '',
         );
-    if (plugin.url.isEmpty) unmatched.add(b.title);
+    if (plugin.url.isEmpty && !local) unmatched.add(b.title);
     String rel(String url) => _relative(url, plugin.site);
     final novel = SourceNovel(
       path: rel(b.url),
-      name: b.title,
+      name: local ? _tidyFileName(b.title) : b.title,
+      status: local ? 'Completed' : null,
       cover: b.cover.isEmpty ? null : b.cover,
       summary: b.description.isEmpty ? null : b.description,
       chapters: [for (final c in b.chapters) ChapterItem(name: c.title, path: rel(c.url))],
@@ -122,6 +127,23 @@ List<_NdBook> _parse(String path) {
           ],
         ),
   ];
+}
+
+/// Where NovelDokusha's local books come from: no site, nothing to update.
+const _localBooks = PluginInfo(
+  id: 'noveldokusha:local',
+  name: 'NovelDokusha',
+  site: '',
+  lang: 'English',
+  version: '0',
+  url: '',
+);
+
+/// "A_Game_of_Thrones_A_Song_of_Ice_and_Fire_1.epub" as a title.
+String _tidyFileName(String name) {
+  var t = name.replaceAll(RegExp(r'\.(epub|pdf|txt|mobi|azw3?)$', caseSensitive: false), '');
+  t = t.replaceAll('_', ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+  return t.isEmpty ? name : t;
 }
 
 String _bareHost(String url) {

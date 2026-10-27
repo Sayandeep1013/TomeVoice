@@ -12,8 +12,8 @@ import java.util.zip.ZipFile
  * novels in its library, their chapters and any downloaded chapter text to a
  * JSON file for the Dart side to import, and returns that file's path.
  *
- * Local books (EPUBs it imported) are left out: TomeVoice opens those files
- * directly.
+ * Its local books (EPUBs imported into it, "local://") come too: their text
+ * is in the backup, and the files they came from may be gone.
  */
 object NovelDokushaImport {
     fun read(zipPath: String, cache: File): String {
@@ -34,7 +34,7 @@ object NovelDokushaImport {
                 ).use { c ->
                     while (c.moveToNext()) {
                         val url = c.getString(1) ?: continue
-                        if (!url.startsWith("http")) continue
+                        if (!url.startsWith("http") && !url.startsWith("local://")) continue
                         val book = JSONObject()
                             .put("title", c.getString(0) ?: "")
                             .put("url", url)
