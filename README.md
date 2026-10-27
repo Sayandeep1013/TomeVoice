@@ -68,8 +68,10 @@ No account. No cloud. Your books never leave the phone.
   chapter and the page count. Four papers: the app's colours, Ink, Papyrus and a dim
   Dusk for the dark. Where you read is where you are: scrolling or turning on without the
   voice moves your place, and Play starts there. After a jump from Contents or a search,
-  one tap takes you back. Paragraphs can be spaced or indented like a printed book, the
-  phone's bars can be hidden, and **Aa** in the reader sets the page.
+  one tap takes you back. Bookmark a page with the ribbon at the top (it shows in the
+  page's corner; hold it for every bookmark in the book). Paragraphs can be spaced or
+  indented like a printed book, the phone's bars can be hidden, and **Aa** in the reader
+  sets the page.
 - **Keeps reading when you leave the book.** Back goes to your library while the voice
   reads on; pause it from the library's player or the notification, and open the book
   again to find it still reading (Settings → Listening, on by default).

@@ -831,6 +831,24 @@ void main() {
       await finish(tester);
     });
 
+    testWidgets('a jump while paused leaves a way back', (tester) async {
+      withSound();
+      final store = LibraryStore(_tmp);
+      final nav = await pumpShelf(tester);
+      unawaited(nav.push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(layout: ReadingLayout.build(chaptered), store: store))));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.byTooltip('Pause'));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.byKey(const ValueKey('contents')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Chapter 2: Beta').last);
+      await tester.pumpAndSettle();
+      expect(find.text('Back to where you were'), findsOneWidget);
+      await finish(tester);
+    });
+
     testWidgets('another book played stops the one in the background; off, Back stops', (tester) async {
       withSound();
       final store = LibraryStore(_tmp);

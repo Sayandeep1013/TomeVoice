@@ -1277,7 +1277,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   /// Jump, remembering where the reader was so they can go back.
   void _jump(int unit) {
-    if (!_listening && unit != _cursor.value) {
+    // Not while the voice reads (Back to reading is the way back then); a
+    // pause counts as reading here, as the jump ends it and with it that way.
+    if (!_player.isPlaying && unit != _cursor.value) {
       setState(() => _returnTo = _cursor.value);
     }
     unawaited(_goTo(unit));
