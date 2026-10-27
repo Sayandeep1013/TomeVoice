@@ -4,9 +4,9 @@
 
 ---
 
-## 0++. Checkpoint (2026-10-27, evening): phone voices as Google plays them (1.0.10)
+## 0++. Checkpoint (2026-10-27, evening): phone voices as Google plays them (1.1)
 
-Branch `phone-voices-and-language`, released as **1.0.10**.
+Branch `phone-voices-and-language`, released as **1.1** (1.1.0).
 
 - **Why Google's Bengali voice sounded worse in TomeVoice than in Google's settings.**
   Same voice name (`bn-in-x-bnd-local`), same downloaded pack, but logcat
