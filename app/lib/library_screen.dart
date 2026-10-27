@@ -720,19 +720,23 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
                 crossAxisSpacing: 14,
                 childAspectRatio: 2 / 3,
               ),
-              delegate: SliverChildBuilderDelegate(childCount: books.length, findChildIndexCallback: find, (context, i) {
-                final e = books[i];
-                return enter(
-                  i,
-                  e,
-                  BookTile(
-                    entry: e,
-                    selected: _selected.contains(e.id),
-                    onOpen: () => _selecting ? _toggle(e) : _showBook(e),
-                    onLongPress: () => _toggle(e),
-                  ),
-                );
-              }),
+              delegate: SliverChildBuilderDelegate(
+                childCount: books.length,
+                findChildIndexCallback: find,
+                (context, i) {
+                  final e = books[i];
+                  return enter(
+                    i,
+                    e,
+                    BookTile(
+                      entry: e,
+                      selected: _selected.contains(e.id),
+                      onOpen: () => _selecting ? _toggle(e) : _showBook(e),
+                      onLongPress: () => _toggle(e),
+                    ),
+                  );
+                },
+              ),
             ),
           )
         else
