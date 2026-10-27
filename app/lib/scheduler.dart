@@ -98,7 +98,22 @@ class PlaybackScheduler {
   /// Called when the end of the book has been spoken.
   VoidCallback? onFinished;
 
+  /// Told before any scheduler starts reading (and before a voice sample,
+  /// with null): a book read on in the background stops for it, as two
+  /// cannot share the one audio stream.
+  static void Function(PlaybackScheduler? next)? beforePlay;
+
   static const _ahead = Duration(seconds: 10);
+
+  /// Time to make a character of speech, learnt from the sentences made so
+  /// far (null until one is). A heavy voice on a slow phone needs far more
+  /// warning than a light one: a fixed 3 s let a long sentence of an HD
+  /// voice start too late and run the voice dry (seen on the phone).
+  double? _msPerChar;
+
+  /// How long the last sentence took to make, for the log when the voice
+  /// runs dry (how a slow phone or voice shows itself).
+  ({int ms, int speechMs, bool urgent})? _lastMade;
 
   int _gen = 0;
   final _chunks = <_Chunk>[];
@@ -121,6 +136,7 @@ class PlaybackScheduler {
   /// Start speaking at [from], discarding anything queued.
   Future<void> play(int from) async {
     if (units.isEmpty) return;
+    beforePlay?.call(this);
     final gen = await _reset();
     if (gen != _gen) return;
     _next = from.clamp(0, units.length - 1);
@@ -153,9 +169,12 @@ class PlaybackScheduler {
   }
 
   void dispose() {
+    // An idle scheduler (another book's page, never played) leaves the
+    // stream alone: a book may be reading in the background.
+    final owned = active;
     _gen++;
     _ticker?.cancel();
-    unawaited(service.stopPlayback());
+    if (owned) unawaited(service.stopPlayback());
     state.dispose();
     unit.dispose();
     word.dispose();
@@ -190,8 +209,21 @@ class PlaybackScheduler {
 
   int get _queuedEnd => _chunks.isEmpty ? 0 : _chunks.last.end;
 
+  /// A line with something in it to say: a letter or a digit, in any script.
+  static final _sayable = RegExp(r'[\p{L}\p{N}]', unicode: true);
+
+  /// The voice failed for want of the internet (an online voice): worth
+  /// asking again before calling it a failure.
+  static bool _offline(PlatformException e) =>
+      e.code == 'TTS_TIMEOUT' ||
+      (e.code == 'TTS_ERROR' && (e.message?.contains('code -6)') == true || e.message?.contains('code -7)') == true));
+
+  static const offlineHint = 'The voice needs the internet and could not reach it. Try again, or pick a voice '
+      "that works offline (or download this language's voice in the phone's speech settings).";
+
   Future<void> _fill(int gen) async {
     var failures = 0;
+    var retries = 0;
     while (gen == _gen) {
       if (_next >= units.length) break;
       final ahead = _queuedEnd - _position;
@@ -202,6 +234,21 @@ class PlaybackScheduler {
       final i = _next;
       final said = respell?.call(units[i].text) ?? Respelled.same(units[i].text);
       final text = said.text;
+      // A line with nothing to say ("।।।", "* * *", a lone full stop) is
+      // passed over: an online voice could time out on it, and three such
+      // lines in a row stopped the book.
+      if (!_sayable.hasMatch(text)) {
+        _next = i + 1;
+        continue;
+      }
+      // Little queued for the time this sentence will take (starting, or
+      // the voice catching up): make it at full priority. Well ahead, with
+      // twice that to spare and a second and a half more: let the screen
+      // go first.
+      final perChar = _msPerChar;
+      final aheadMs = ahead * 1000 ~/ _rate;
+      final urgent = _chunks.isEmpty || perChar == null || aheadMs < text.length * perChar * 2 + 1500;
+      final watch = Stopwatch()..start();
       try {
         final s = settingsFor(text);
         final dialogue = dialogueVoiceOf?.call();
@@ -214,6 +261,7 @@ class PlaybackScheduler {
                 voiceName: voiceNameOf(),
                 rate: s.speedScale,
                 pitch: SpeechService.semitonesToPitch(s.pitchSemitones),
+                urgent: urgent,
               )
             : await speakWithDialogue(
                 svc: service,
@@ -225,6 +273,7 @@ class PlaybackScheduler {
                 engineId: engineIdOf(),
                 rate: s.speedScale,
                 pitch: SpeechService.semitonesToPitch(s.pitchSemitones),
+                urgent: urgent,
               );
         if (gen != _gen) {
           // Made for a start that was overtaken: nobody will hear it.
@@ -261,8 +310,17 @@ class PlaybackScheduler {
         ];
         _chunks.add(_Chunk(i, start, at(r.speechFrames), to == r.sampleRate ? r.totalFrames : pcm.length ~/ 2, timings,
             r.levels));
+        final took = watch.elapsedMilliseconds;
+        _lastMade = (ms: took, speechMs: r.speechFrames * 1000 ~/ r.sampleRate, urgent: urgent);
+        if (text.length >= 20) {
+          final per = took / text.length;
+          // The slower of what was learnt and this one leads, so a slow
+          // stretch is answered at once and forgotten gradually.
+          _msPerChar = perChar == null || per > perChar ? per : perChar * 0.8 + per * 0.2;
+        }
         _next = i + 1;
         failures = 0;
+        retries = 0;
       } on PlatformException catch (e) {
         if (gen != _gen) return;
         if (e.code == 'TTS_STOPPED') return;
@@ -271,11 +329,20 @@ class PlaybackScheduler {
           _next = i + 1;
           continue;
         }
+        // An online voice out of reach: the same sentence again, after a
+        // breath, twice, before it counts.
+        final offline = _offline(e);
+        if (offline && retries < 2) {
+          retries++;
+          await Future<void>.delayed(Duration(milliseconds: 700 * retries));
+          continue;
+        }
+        retries = 0;
         // One unspeakable line ("* * *") should not end the book.
         failures++;
         _next = i + 1;
         if (failures >= 3) {
-          error.value = e.message ?? e.code;
+          error.value = offline ? offlineHint : e.message ?? e.code;
           break;
         }
       } on Object catch (e) {
@@ -309,6 +376,11 @@ class PlaybackScheduler {
         } else if (state.value == PlayState.playing) {
           // Ran dry: synthesis is behind. Say so instead of looking frozen.
           state.value = PlayState.loading;
+          final m = _lastMade;
+          if (m != null) {
+            debugPrint('TomeVoice: the voice ran dry; the last sentence took ${m.ms} ms to make '
+                '${m.speechMs} ms of speech${m.urgent ? '' : ' (low priority)'}');
+          }
         }
         return;
       }

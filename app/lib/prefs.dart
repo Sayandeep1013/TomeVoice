@@ -18,6 +18,8 @@ class ListeningPrefs {
     Map<String, String>? voiceByLanguage,
     Map<String, String>? voiceByBook,
     Map<String, String>? dialogueByBook,
+    Map<String, bool>? newestFirstByNovel,
+    this.newestFirst = false,
     this.engineId,
     this.textSize = 19,
     this.pdfPages = false,
@@ -25,6 +27,14 @@ class ListeningPrefs {
     this.lineHeight = 1.6,
     this.margin = 22,
     this.justify = false,
+    this.indent = false,
+    this.pages = false,
+    this.pageTurn = 'curl',
+    this.pageTone = 'app',
+    this.tapToTurn = true,
+    this.volumeKeys = false,
+    this.fullScreen = false,
+    this.keepReading = true,
     this.keepScreenOn = false,
     this.themeMode = ThemeMode.system,
     this.paletteId = 'forest',
@@ -35,7 +45,8 @@ class ListeningPrefs {
     this.naturalVoices,
   })  : voiceByLanguage = voiceByLanguage ?? {},
         voiceByBook = voiceByBook ?? {},
-        dialogueByBook = dialogueByBook ?? {};
+        dialogueByBook = dialogueByBook ?? {},
+        newestFirstByNovel = newestFirstByNovel ?? {};
 
   /// Bumped on every change, so the app (theme) and open screens can follow.
   static final revision = ValueNotifier<int>(0);
@@ -53,6 +64,24 @@ class ListeningPrefs {
   /// Book id -> the voice its dialogue (words in quotation marks) is read
   /// in, when not the narrator's.
   final Map<String, String> dialogueByBook;
+
+  /// Web novel id -> whether its page lists the newest chapter first, as
+  /// the reader last turned it.
+  final Map<String, bool> newestFirstByNovel;
+
+  /// The order last chosen on any novel's page: a novel not turned yet
+  /// opens this way.
+  bool newestFirst;
+
+  /// Whether the chapters of novel [id] are listed newest first.
+  bool newestFirstFor(String id) => newestFirstByNovel[id] ?? newestFirst;
+
+  void setNewestFirst(String id, bool value) {
+    newestFirstByNovel[id] = value;
+    newestFirst = value;
+    save();
+  }
+
   String? engineId;
 
   /// Size of the book's text, in logical pixels.
@@ -72,6 +101,35 @@ class ListeningPrefs {
 
   /// Justified text instead of ragged right.
   bool justify;
+
+  /// Paragraphs as in a printed book: the first line indented and no gap
+  /// between them, instead of a line's gap.
+  bool indent;
+
+  /// The book in pages turned one at a time, instead of one long scroll.
+  bool pages;
+
+  /// How a page turns: curl (over like paper), slide, or none (see
+  /// PageTurn).
+  String pageTurn;
+
+  /// The page under the text: the app's colours, ink, papyrus or dusk (see
+  /// PageTone).
+  String pageTone;
+
+  /// A tap near the left or right edge turns the page.
+  bool tapToTurn;
+
+  /// The volume keys turn pages (while nothing is being read aloud, when
+  /// they still change the volume).
+  bool volumeKeys;
+
+  /// The phone's status and navigation bars hidden while reading.
+  bool fullScreen;
+
+  /// Leaving a book while it is read aloud does not stop it: the voice reads
+  /// on, paused from the library's player or the card in the shade.
+  bool keepReading;
 
   /// Keep the display awake while a book is open.
   bool keepScreenOn;
@@ -160,6 +218,8 @@ class ListeningPrefs {
         'voiceByLanguage': voiceByLanguage,
         'voiceByBook': voiceByBook,
         'dialogueByBook': dialogueByBook,
+        'newestFirstByNovel': newestFirstByNovel,
+        'newestFirst': newestFirst,
         'engineId': engineId,
         'textSize': textSize,
         'pdfPages': pdfPages,
@@ -167,6 +227,14 @@ class ListeningPrefs {
         'lineHeight': lineHeight,
         'margin': margin,
         'justify': justify,
+        'indent': indent,
+        'pages': pages,
+        'pageTurn': pageTurn,
+        'pageTone': pageTone,
+        'tapToTurn': tapToTurn,
+        'volumeKeys': volumeKeys,
+        'fullScreen': fullScreen,
+        'keepReading': keepReading,
         'keepScreenOn': keepScreenOn,
         'themeMode': themeMode.name,
         'palette': paletteId,
@@ -194,6 +262,11 @@ class ListeningPrefs {
           for (final e in (json['voiceByBook'] as Map? ?? const {}).entries)
             e.key.toString(): e.value.toString(),
         },
+        newestFirstByNovel: {
+          for (final e in (json['newestFirstByNovel'] as Map? ?? const {}).entries)
+            if (e.value is bool) e.key.toString(): e.value as bool,
+        },
+        newestFirst: json['newestFirst'] == true,
         engineId: json['engineId'] as String?,
         textSize: ((json['textSize'] as num?)?.toDouble() ?? 19).clamp(14, 30).toDouble(),
         pdfPages: json['pdfPages'] == true,
@@ -201,6 +274,14 @@ class ListeningPrefs {
         lineHeight: ((json['lineHeight'] as num?)?.toDouble() ?? 1.6).clamp(1.3, 2.0).toDouble(),
         margin: ((json['margin'] as num?)?.toDouble() ?? 22).clamp(8, 48).toDouble(),
         justify: json['justify'] == true,
+        indent: json['indent'] == true,
+        pages: json['pages'] == true,
+        pageTurn: json['pageTurn'] as String? ?? 'curl',
+        pageTone: json['pageTone'] as String? ?? 'app',
+        tapToTurn: json['tapToTurn'] != false,
+        volumeKeys: json['volumeKeys'] == true,
+        fullScreen: json['fullScreen'] == true,
+        keepReading: json['keepReading'] != false,
         keepScreenOn: json['keepScreenOn'] == true,
         themeMode: ThemeMode.values.where((m) => m.name == json['themeMode']).firstOrNull ??
             ThemeMode.system,

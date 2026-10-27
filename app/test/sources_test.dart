@@ -7,6 +7,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tomevoice_document/tomevoice_document.dart' show SourceKind;
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/noveldokusha_import.dart';
 import 'package:tomevoice_spike/sources/models.dart';
@@ -340,5 +341,48 @@ void main() {
     final layout = await store.loadLayout(e.id);
     expect(layout.units.map((u) => u.text), contains('Zhou Mingrui woke up & looked around.'));
     expect(json.existsSync(), isFalse, reason: 'the temporary file is cleaned up');
+  });
+
+  test("NovelDokusha's local books come across from the text in the backup", () async {
+    final dir = Directory.systemTemp.createTempSync('tv_nd_local');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final json = File('${dir.path}/nd.json')
+      ..writeAsStringSync(jsonEncode({
+        'books': [
+          {
+            'title': 'A_Game_of_Thrones_A_Song_of_Ice_and_Fire_1.epub',
+            'url': 'local://A_Game_of_Thrones_A_Song_of_Ice_and_Fire_1.epub',
+            'completed': false,
+            'lastReadChapter': null,
+            'cover': '',
+            'description': '',
+            'chapters': [
+              {
+                'title': 'Prologue',
+                'url': 'local://A_Game_of_Thrones_A_Song_of_Ice_and_Fire_1.epub/0',
+                'read': false,
+                'body': 'We should start back, Gared urged as the woods began to grow dark around them.',
+              },
+            ],
+          },
+        ],
+      }));
+    final store = LibraryStore(dir);
+    // An earlier import brought it in as a web novel; that copy goes.
+    await store.addWebNovel(
+      const PluginInfo(id: 'noveldokusha:local', name: 'NovelDokusha', site: '', lang: 'English', version: '0', url: ''),
+      const SourceNovel(path: 'local://A_Game_of_Thrones_A_Song_of_Ice_and_Fire_1.epub', name: 'old'),
+    );
+    final report = await importNovelDokushaJson(store, SourceStore(dir, defaults: const []), json.path);
+    expect(report.novels, 1);
+    expect(report.chapters, 1);
+    expect(report.unmatched, isEmpty, reason: 'a local book has no site to install');
+    final e = (await store.list()).single;
+    expect(e.isWeb, isFalse, reason: 'a book, not a web novel');
+    expect(e.source, SourceKind.epub);
+    expect(e.title, 'A Game of Thrones A Song of Ice and Fire 1');
+    final layout = await store.loadLayout(e.id);
+    expect(layout.units.map((u) => u.text).join(' '), contains('Gared urged'));
+    expect(layout.chapterTitle(0), 'Prologue');
   });
 }

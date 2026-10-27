@@ -6,7 +6,9 @@
 // is tested in packages/tomevoice_audio and ingestion in
 // packages/tomevoice_document, where they run without Flutter.
 
+import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -20,8 +22,13 @@ import 'package:tomevoice_spike/brand.dart';
 import 'package:tomevoice_spike/chapter_finder.dart';
 import 'package:tomevoice_spike/library_screen.dart';
 import 'package:tomevoice_spike/library_store.dart';
+import 'package:tomevoice_spike/listening_session.dart';
 import 'package:tomevoice_spike/main.dart';
 import 'package:tomevoice_spike/marks.dart';
+import 'package:tomevoice_spike/neural_voices.dart' show wavBytes;
+import 'package:tomevoice_spike/page_curl.dart';
+import 'package:tomevoice_spike/page_tone.dart';
+import 'package:tomevoice_spike/paged_view.dart';
 import 'package:tomevoice_spike/pages_view.dart';
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/reader_screen.dart';
@@ -471,6 +478,305 @@ void main() {
     });
   });
 
+  group('reading without the voice', () {
+    /// Two chapters long enough to scroll and to fill several pages.
+    ReadingLayout longBook() {
+      final para = List.filled(30, 'A long paragraph of the story goes on here for a while.').join(' ');
+      return ReadingLayout.build(ingestString(
+        '# Alpha\n\n${List.filled(12, para).join('\n\n')}\n\n'
+        '# Beta\n\nBeta opens here. ${List.filled(12, para).join('\n\n')}',
+        filename: 'novel.md',
+      ));
+    }
+
+    Future<void> pumpLong(WidgetTester tester, ReadingLayout layout) async {
+      phone(tester);
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(useMaterial3: true, brightness: Brightness.light),
+        home: ReaderScreen(layout: layout),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('scrolling on moves the place, with no way back to a voice', (tester) async {
+      final layout = longBook();
+      await pumpLong(tester, layout);
+      expect(find.textContaining('1/2'), findsOneWidget);
+      await tester.fling(find.byType(ScrollablePositionedList), const Offset(0, -3000), 3000);
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      // Read on by scrolling: there is no voice to go back to, the place is
+      // where the reader is, and the wash does not follow the eyes about.
+      expect(find.text('Back to reading').hitTestable(), findsNothing);
+      expect(washed(tester), isEmpty);
+      final beta = find.text('Beta', findRichText: true);
+      await tester.dragUntilVisible(beta, find.byType(ScrollablePositionedList), const Offset(0, -600), maxIteration: 100);
+      await tester.pumpAndSettle();
+      // Bring the new chapter's first lines up to where the eye reads.
+      final top = tester.getTopLeft(find.byType(ScrollablePositionedList)).dy;
+      await tester.drag(find.byType(ScrollablePositionedList), Offset(0, top + 40 - tester.getTopLeft(beta).dy));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('2/2'), findsOneWidget);
+      // Play reads from there.
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(washed(tester), isNotEmpty);
+      await finish(tester);
+    });
+
+    testWidgets('pages: a tap at the side turns, the middle shows the bars', (tester) async {
+      ListeningPrefs.memory.pages = true;
+      final layout = longBook();
+      await pumpLong(tester, layout);
+      expect(find.byType(PagedBook), findsOneWidget);
+      expect(find.textContaining(RegExp(r'^1 / \d+$')), findsOneWidget);
+      expect(find.textContaining('MIN LEFT IN CHAPTER'), findsOneWidget);
+
+      final size = tester.getSize(find.byType(PagedBook));
+      final middle = tester.getCenter(find.byType(PagedBook));
+      await tester.tapAt(Offset(size.width - 20, middle.dy));
+      await tester.pumpAndSettle();
+      expect(find.textContaining(RegExp(r'^2 / \d+$')), findsOneWidget);
+      await tester.tapAt(Offset(20, middle.dy));
+      await tester.pumpAndSettle();
+      expect(find.textContaining(RegExp(r'^1 / \d+$')), findsOneWidget);
+
+      // The bars are hidden over the page until the middle is tapped.
+      final play = find.byTooltip('Play');
+      expect(tester.widget<IgnorePointer>(find.ancestor(of: play, matching: find.byType(IgnorePointer)).first).ignoring,
+          isTrue);
+      await tester.tapAt(middle);
+      await tester.pumpAndSettle();
+      expect(tester.widget<IgnorePointer>(find.ancestor(of: play, matching: find.byType(IgnorePointer)).first).ignoring,
+          isFalse);
+      await finish(tester);
+    });
+
+    testWidgets('pages turn into the next chapter and back', (tester) async {
+      ListeningPrefs.memory.pages = true;
+      ListeningPrefs.memory.pageTurn = 'none';
+      final layout = longBook();
+      await pumpLong(tester, layout);
+      final total = int.parse(RegExp(r'/ (\d+)$')
+          .firstMatch(tester.widget<Text>(find.textContaining(RegExp(r'^1 / \d+$'))).data!)!
+          .group(1)!);
+      final size = tester.getSize(find.byType(PagedBook));
+      final y = tester.getCenter(find.byType(PagedBook)).dy;
+      for (var i = 0; i < total; i++) {
+        await tester.tapAt(Offset(size.width - 20, y));
+        await tester.pumpAndSettle();
+      }
+      expect(find.text('BETA'), findsWidgets);
+      expect(find.textContaining('2/2'), findsOneWidget);
+      await tester.tapAt(Offset(20, y));
+      await tester.pumpAndSettle();
+      expect(find.text('$total / $total'), findsOneWidget);
+      expect(find.textContaining('1/2'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('a page curls over: half turned, the next shows beneath', (tester) async {
+      ListeningPrefs.memory.pages = true;
+      await pumpLong(tester, longBook());
+      expect(find.byType(PageCurl), findsOneWidget);
+      final size = tester.getSize(find.byType(PagedBook));
+      final y = tester.getCenter(find.byType(PagedBook)).dy;
+      await tester.tapAt(Offset(size.width - 20, y));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 280));
+      // Mid-turn: the turning page, its back and the page beneath.
+      expect(find.textContaining(RegExp(r'^1 / \d+$')), findsWidgets);
+      expect(find.textContaining(RegExp(r'^2 / \d+$')), findsWidgets);
+      expect(find.byType(ClipPath), findsWidgets);
+      await tester.pumpAndSettle();
+      expect(find.textContaining(RegExp(r'^1 / \d+$')), findsNothing);
+      expect(find.textContaining(RegExp(r'^2 / \d+$')), findsOneWidget);
+      // A drag back turns it back.
+      await tester.dragFrom(Offset(60, y), Offset(size.width * 0.8, 0));
+      await tester.pumpAndSettle();
+      expect(find.textContaining(RegExp(r'^1 / \d+$')), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('on its side, two pages lie open and turn together', (tester) async {
+      ListeningPrefs.memory.pages = true;
+      tester.view.physicalSize = const Size(2340, 1080);
+      tester.view.devicePixelRatio = 2.75;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(useMaterial3: true, brightness: Brightness.light),
+        home: ReaderScreen(layout: longBook()),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.textContaining(RegExp(r'^1 / \d+$')), findsOneWidget);
+      expect(find.textContaining(RegExp(r'^2 / \d+$')), findsOneWidget);
+      final box = tester.getRect(find.byType(PagedBook));
+      await tester.tapAt(Offset(box.right - 30, box.center.dy));
+      await tester.pumpAndSettle();
+      expect(find.textContaining(RegExp(r'^3 / \d+$')), findsOneWidget);
+      expect(find.textContaining(RegExp(r'^4 / \d+$')), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('a page tone lays its paper under the text', (tester) async {
+      ListeningPrefs.memory.pageTone = 'papyrus';
+      await pumpLong(tester, longBook());
+      expect(find.byType(PageGround), findsOneWidget);
+      ListeningPrefs.memory
+        ..pageTone = 'app'
+        ..save();
+      await tester.pumpAndSettle();
+      expect(find.byType(PageGround), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('pages and scroll keep the place between them', (tester) async {
+      final layout = longBook();
+      await pumpLong(tester, layout);
+      await tester.tap(find.byTooltip('Contents'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Beta').last);
+      await tester.pumpAndSettle();
+      // A jump while reading leaves a way back.
+      expect(find.text('Back to where you were'), findsOneWidget);
+
+      ListeningPrefs.memory
+        ..pages = true
+        ..save();
+      await tester.pumpAndSettle();
+      expect(find.byType(PagedBook), findsOneWidget);
+      expect(find.textContaining('2/2'), findsOneWidget);
+
+      ListeningPrefs.memory
+        ..pages = false
+        ..save();
+      await tester.pumpAndSettle();
+      expect(find.byType(PagedBook), findsNothing);
+      expect(find.textContaining('2/2'), findsOneWidget);
+
+      await tester.tap(find.text('Back to where you were'));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('1/2'), findsOneWidget);
+      expect(find.text('Back to where you were'), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('indented paragraphs have no gap and an indent', (tester) async {
+      final blankLine = String.fromCharCodes([10, 10]);
+      ListeningPrefs.memory.indent = true;
+      final layout = ReadingLayout.build(ingestString(
+        ['# Alpha', 'The first paragraph.', 'The second paragraph.', 'The third paragraph.'].join(blankLine),
+        filename: 'short.md',
+      ));
+      await pumpLong(tester, layout);
+      // The second paragraph of a chapter opens with the indent's space.
+      final indents = find.byWidgetPredicate((w) => w is SizedBox && w.width != null && w.width! > 20 && w.height == null);
+      expect(indents, findsWidgets);
+      await finish(tester);
+    });
+  });
+
+  group('reading on after leaving', () {
+    /// The speech mock, but with sound: every sentence a short silent WAV,
+    /// and the playback head never moving, so a book stays in mid-reading.
+    void withSound() {
+      var n = 0;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(_channel, (call) async {
+        _calls.add(call.method);
+        return switch (call.method) {
+          'synthesise' => () {
+              final f = File('${_tmp.path}/s${n++}.wav')..writeAsBytesSync(wavBytes(Float32List(2400), 24000));
+              return <String, Object?>{'wavPath': f.path, 'engineId': 'test', 'rangeEvents': const []};
+            }(),
+          'outputDir' => _tmp.path,
+          'playerPosition' => 0,
+          'playerEnqueue' => 0,
+          'listEngines' => const [],
+          'listVoices' => const [],
+          _ => null,
+        };
+      });
+    }
+
+    Future<NavigatorState> pumpShelf(WidgetTester tester) async {
+      phone(tester);
+      final nav = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(MaterialApp(navigatorKey: nav, home: const Scaffold(body: Text('Shelf'))));
+      return nav.currentState!;
+    }
+
+    testWidgets('back while it reads: the voice reads on; the book opened again takes it back', (tester) async {
+      withSound();
+      final store = LibraryStore(_tmp);
+      final layout = ReadingLayout.build(specimenBook());
+      final nav = await pumpShelf(tester);
+      unawaited(nav.push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(layout: layout, store: store))));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byTooltip('Pause'), findsOneWidget);
+
+      await nav.maybePop();
+      await tester.pumpAndSettle();
+      expect(find.text('Shelf'), findsOneWidget);
+      final bg = BackgroundReading.current.value;
+      expect(bg, isNotNull, reason: 'Back did not stop the voice');
+      expect(bg!.bookId, layout.book.id);
+      expect(bg.playing, isTrue);
+      final player = bg.player;
+
+      // Paused and played again from outside the book (the library's player).
+      await bg.pause();
+      expect(bg.playingNow.value, isFalse);
+      await bg.resume();
+      expect(bg.playingNow.value, isTrue);
+
+      // The book again: the same voice, still reading, taken back.
+      unawaited(nav.push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(layout: layout, store: store))));
+      await tester.pumpAndSettle();
+      expect(BackgroundReading.current.value, isNull);
+      expect(find.byTooltip('Pause'), findsOneWidget);
+      expect(player.isPlaying, isTrue);
+      await player.stop();
+      await finish(tester);
+    });
+
+    testWidgets('another book played stops the one in the background; off, Back stops', (tester) async {
+      withSound();
+      final store = LibraryStore(_tmp);
+      final a = ReadingLayout.build(specimenBook());
+      final b = ReadingLayout.build(chaptered);
+      final nav = await pumpShelf(tester);
+      unawaited(nav.push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(layout: a, store: store))));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump(const Duration(milliseconds: 300));
+      await nav.maybePop();
+      await tester.pumpAndSettle();
+      expect(BackgroundReading.current.value?.bookId, a.book.id);
+
+      // Another book opened: the first reads on until this one plays.
+      unawaited(nav.push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(layout: b, store: store))));
+      await tester.pumpAndSettle();
+      expect(BackgroundReading.current.value?.bookId, a.book.id);
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(BackgroundReading.current.value, isNull);
+
+      // With the setting off, Back stops it.
+      ListeningPrefs.memory.keepReading = false;
+      await nav.maybePop();
+      await tester.pumpAndSettle();
+      expect(BackgroundReading.current.value, isNull);
+      await finish(tester);
+    });
+  });
+
   group('pictures and pages', () {
     Book illustrated() {
       const text = 'The map below shows the whole of the kingdom and its seven '
@@ -544,6 +850,38 @@ void main() {
       await finish(tester);
     });
 
+    testWidgets("a PDF's real pages turn like a book's", (tester) async {
+      phone(tester);
+      ListeningPrefs.memory
+        ..pages = true
+        ..pdfPages = true;
+      final book = ingestPdfText(id: 'p', pages: [
+        'First page text is long enough to be a real page of a book, honestly.',
+        'Second page text is also long enough to count as a page of a book.',
+      ]);
+      await tester.pumpWidget(MaterialApp(
+        home: ReaderScreen(layout: ReadingLayout.build(book), sourcePath: '${_tmp.path}/b.pdf'),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.byType(PdfPagesView), findsOneWidget);
+      expect(find.byType(PageCurl), findsOneWidget);
+      final box = tester.getRect(find.byType(PageCurl));
+      await tester.tapAt(Offset(box.right - 10, box.center.dy));
+      await tester.pumpAndSettle();
+      // Turned by hand while nothing is read aloud: the place is page two.
+      // Back to text, scrolled: Play reads from the page turned to.
+      ListeningPrefs.memory
+        ..pages = false
+        ..pdfPages = false
+        ..save();
+      await tester.pumpAndSettle();
+      expect(washed(tester), isEmpty);
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(washed(tester), startsWith('Second page'));
+      await finish(tester);
+    });
+
     testWidgets('only PDFs offer the page view', (tester) async {
       await pumpReader(tester, specimenBook());
       expect(find.byTooltip('Show the real pages'), findsNothing);
@@ -564,7 +902,7 @@ void main() {
   group('listening sheet', () {
     testWidgets('has speed, voice, style and fine-tune', (tester) async {
       await pumpReader(tester, specimenBook());
-      await tester.tap(find.byTooltip('Listening settings'));
+      await tester.tap(find.byTooltip('Voice'));
       await tester.pumpAndSettle();
 
       expect(find.text('Speed'), findsOneWidget);
@@ -594,7 +932,7 @@ void main() {
 
     testWidgets('picking a voice keeps the list in place and says something', (tester) async {
       await pumpReader(tester, specimenBook());
-      await tester.tap(find.byTooltip('Listening settings'));
+      await tester.tap(find.byTooltip('Voice'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Change').first); // The voice; the second is for dialogue.
       await tester.pumpAndSettle();
@@ -616,9 +954,35 @@ void main() {
       await finish(tester);
     });
 
+    testWidgets('a language or voice is found by typing', (tester) async {
+      await pumpReader(tester, specimenBook());
+      await tester.tap(find.byTooltip('Voice'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Change').first);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.widgetWithText(TextField, 'Find a language or voice'), 'arab');
+      await tester.pumpAndSettle();
+      // The Arabic voice, from another language than the book's.
+      expect(find.text('ARABIC'), findsWidgets);
+      expect(find.text('IN USE'), findsNothing);
+
+      await tester.enterText(find.widgetWithText(TextField, 'arab'), 'english online');
+      await tester.pumpAndSettle();
+      expect(find.textContaining('English'), findsWidgets);
+
+      await tester.enterText(find.widgetWithText(TextField, 'english online'), 'klingon');
+      await tester.pumpAndSettle();
+      expect(find.textContaining('No voice or language goes by'), findsOneWidget);
+      await tester.tap(find.byTooltip('Clear'));
+      await tester.pumpAndSettle();
+      expect(find.text('IN USE'), findsOneWidget);
+      await finish(tester);
+    });
+
     testWidgets('a sleep timer shows on the player', (tester) async {
       await pumpReader(tester, specimenBook());
-      await tester.tap(find.byTooltip('Listening settings'));
+      await tester.tap(find.byTooltip('Voice'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('30 min'));
       await tester.pumpAndSettle();
@@ -630,7 +994,7 @@ void main() {
 
     testWidgets('a style changes the settings that are spoken', (tester) async {
       await pumpReader(tester, specimenBook());
-      await tester.tap(find.byTooltip('Listening settings'));
+      await tester.tap(find.byTooltip('Voice'));
       await tester.pumpAndSettle();
 
       await tester.ensureVisible(find.text('Dyslexia'));

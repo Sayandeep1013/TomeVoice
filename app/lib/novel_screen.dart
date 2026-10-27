@@ -11,6 +11,7 @@ import 'book_tint.dart';
 import 'browser_check.dart';
 import 'chapter_finder.dart';
 import 'library_store.dart';
+import 'prefs.dart';
 import 'saved_screen.dart';
 import 'sources/models.dart';
 import 'sources/net.dart';
@@ -62,6 +63,7 @@ class NovelScreen extends StatefulWidget {
 
 class _NovelScreenState extends State<NovelScreen> {
   LibraryStore get _store => widget.store;
+  ListeningPrefs get _prefs => ListeningPrefs.loaded ?? ListeningPrefs.memory;
   late final String _id = LibraryStore.webId(widget.plugin.id, widget.path);
 
   SourceNovel? _novel;
@@ -71,7 +73,9 @@ class _NovelScreenState extends State<NovelScreen> {
   int _current = -1;
   Object? _error;
   bool _loading = true;
-  bool _newestFirst = false;
+  /// Newest chapter first: remembered for this novel (and, for novels not
+  /// turned yet, the order chosen last).
+  late bool _newestFirst = _prefs.newestFirstFor(_id);
   bool _blurbOpen = false;
   String? _downloading;
   bool _stopDownload = false;
@@ -92,6 +96,7 @@ class _NovelScreenState extends State<NovelScreen> {
   void initState() {
     super.initState();
     _store.changes.addListener(_refreshLocal);
+    _store.placeChanges.addListener(_placeSaved);
     unawaited(_load());
   }
 
@@ -101,7 +106,15 @@ class _NovelScreenState extends State<NovelScreen> {
     // second one beside it).
     _stopDownload = true;
     _store.changes.removeListener(_refreshLocal);
+    _store.placeChanges.removeListener(_placeSaved);
     super.dispose();
+  }
+
+  /// A place saved. While the reader covers this page (it saves every second
+  /// or so) nothing here is seen, so nothing is done: the page catches up
+  /// when the reader closes (see _openReader).
+  void _placeSaved() {
+    if (mounted && TickerMode.getValuesNotifier(context).value.enabled) unawaited(_refreshLocal());
   }
 
   Future<void> _refreshLocal() async {
@@ -439,7 +452,10 @@ class _NovelScreenState extends State<NovelScreen> {
               ),
               IconButton(
                 tooltip: _newestFirst ? 'Oldest first' : 'Newest first',
-                onPressed: () => setState(() => _newestFirst = !_newestFirst),
+                onPressed: () {
+                  setState(() => _newestFirst = !_newestFirst);
+                  _prefs.setNewestFirst(_id, _newestFirst);
+                },
                 icon: Icon(_newestFirst ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded),
               ),
             ],

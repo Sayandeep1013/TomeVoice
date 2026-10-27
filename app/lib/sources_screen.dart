@@ -26,6 +26,11 @@ class _SourcesScreenState extends State<SourcesScreen> {
   List<PluginInfo> _available = const [];
   Map<String, PluginInfo> _updates = const {};
   bool _loading = true;
+
+  /// When the lists were first read. Until then "No source lists" is not
+  /// said (it showed for a moment on every opening); after, the sources
+  /// ease in under the lists (they popped in under the spinner).
+  DateTime? _loadedAt;
   String? _language;
   String _query = '';
   final _busy = <String>{};
@@ -64,6 +69,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
       };
       _language ??= _defaultLanguage(available);
       _loading = false;
+      _loadedAt ??= DateTime.now();
     });
   }
 
@@ -135,6 +141,8 @@ class _SourcesScreenState extends State<SourcesScreen> {
             (q.isNotEmpty ? p.name.toLowerCase().contains(q) || p.site.toLowerCase().contains(q) : p.lang == _language))
           p,
     ];
+    var row = 0;
+    Widget arrive(Widget child) => Entrance(index: row++, since: _loadedAt, child: child);
     return Scaffold(
       body: DecoratedBox(
         decoration: BoxDecoration(gradient: Skin.ground(context)),
@@ -164,7 +172,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
                     padding: EdgeInsets.fromLTRB(0, 0, 0, Gap.xxl + MediaQuery.viewPaddingOf(context).bottom),
                     children: [
                       _section('Source lists'),
-                      if (_repos.isEmpty)
+                      if (_loadedAt != null && _repos.isEmpty)
                         Padding(
                           padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.m),
                           child: Text(
@@ -195,11 +203,11 @@ class _SourcesScreenState extends State<SourcesScreen> {
                         ),
                       ),
                       if (_installed.isNotEmpty) ...[
-                        _section('Installed', note: '${_installed.length}'),
-                        for (final p in _installed) _installedRow(context, p),
+                        arrive(_section('Installed', note: '${_installed.length}')),
+                        for (final p in _installed) arrive(_installedRow(context, p)),
                       ],
                       if (_available.isNotEmpty) ...[
-                        _section('Available', note: '${_available.length - installedIds.length}'),
+                        arrive(_section('Available', note: '${_available.length - installedIds.length}')),
                         Padding(
                           padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
                           child: SearchField(
@@ -223,7 +231,8 @@ class _SourcesScreenState extends State<SourcesScreen> {
                               onChanged: (l) => setState(() => _language = l),
                             ),
                           ),
-                        for (final p in shown) _availableRow(context, p),
+                        for (final p in shown) arrive(_availableRow(context, p)),
+
                         if (shown.isEmpty)
                           Padding(
                             padding: const EdgeInsets.all(Gap.page),

@@ -6,7 +6,8 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart' show Clipboard, ClipboardData, HapticFeedback;
+import 'package:flutter/services.dart'
+    show Clipboard, ClipboardData, HapticFeedback, SystemChrome, SystemUiMode, SystemUiOverlayStyle;
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
@@ -14,8 +15,12 @@ import 'book_tint.dart';
 import 'library_store.dart';
 import 'book_search.dart';
 import 'listen_sheet.dart';
+import 'listening_session.dart';
 import 'marks.dart';
+import 'neural_voices.dart';
 import 'now_playing.dart';
+import 'page_tone.dart';
+import 'paged_view.dart';
 import 'pages_view.dart';
 import 'player_controls.dart';
 import 'prefs.dart';
@@ -91,24 +96,57 @@ class _BookLoaderState extends State<BookLoader> {
     return (layout, cursor);
   }();
 
+  /// The reader's first frame is heavy (every paragraph on screen laid
+  /// out): it waits for the page to finish sliding in, so the two do not
+  /// share frames and the slide does not stutter.
+  bool _arrived = false;
+  Animation<double>? _arriving;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_arrived || _arriving != null) return;
+    final a = ModalRoute.of(context)?.animation;
+    if (a == null || a.isCompleted) {
+      _arrived = true;
+      return;
+    }
+    _arriving = a..addStatusListener(_onArrival);
+  }
+
+  void _onArrival(AnimationStatus status) {
+    if (status != AnimationStatus.completed) return;
+    _arriving?.removeStatusListener(_onArrival);
+    if (mounted) setState(() => _arrived = true);
+  }
+
+  @override
+  void dispose() {
+    _arriving?.removeStatusListener(_onArrival);
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) => FutureBuilder(
         future: _load,
         builder: (context, snap) {
           final data = snap.data;
-          if (data != null) {
-            return ReaderScreen(
-              layout: data.$1,
-              store: widget.store,
-              initialCursor: data.$2,
-              autoplay: widget.autoplay,
-              bookDir: widget.store.bookDir(widget.entry.id),
-              sourcePath: widget.entry.sourcePath,
-            );
-          }
-          return _ReaderSkeleton(
-            title: widget.entry.title,
-            error: snap.hasError ? '${snap.error}' : null,
+          // The book fades in over the frame it opened with.
+          return FadeIn(
+            key: ValueKey(data != null && _arrived),
+            child: data != null && _arrived
+                ? ReaderScreen(
+                    layout: data.$1,
+                    store: widget.store,
+                    initialCursor: data.$2,
+                    autoplay: widget.autoplay,
+                    bookDir: widget.store.bookDir(widget.entry.id),
+                    sourcePath: widget.entry.sourcePath,
+                  )
+                : _ReaderSkeleton(
+                    title: widget.entry.title,
+                    error: snap.hasError ? '${snap.error}' : null,
+                  ),
           );
         },
       );
@@ -264,6 +302,42 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// The text faded out for a moment, while it travels a long way to the voice.
   final _veiled = ValueNotifier<bool>(false);
 
+  /// The sentence washed on the page: the place, while it is read aloud,
+  /// and when the book opens (where you left off); -1 once the reader has
+  /// read on without the voice, when a wash moving with the eyes would only
+  /// be in the way.
+  final _marked = ValueNotifier<int>(-1);
+  bool _placeShown = true;
+
+  /// Set while the place follows the reader's eyes, so the page is not
+  /// moved to it: it is already where they are looking.
+  bool _quiet = false;
+
+  /// A drag began while nothing was being read aloud: once the page
+  /// settles, the place moves to what is being read.
+  bool _eyes = false;
+  Timer? _eyesTimer;
+
+  /// Where the reader was before a jump (Contents, a search match), while
+  /// reading without the voice: "Back to where you were".
+  int? _returnTo;
+
+  /// Pages: turned from outside, and the reader's bars shown over them.
+  final _paged = PagedController();
+  final _chrome = ValueNotifier<bool>(false);
+
+  /// The first sentence of the page shown, in pages.
+  int? _pageUnit;
+
+  /// Where pages open (the place on screen when they were turned on), and
+  /// where the scrolling page opens when it comes back from them.
+  int? _pageStart;
+  int? _scrollFrom;
+  bool _wasPaged = false;
+  Object? _layoutKey;
+  bool _fullScreen = false;
+  bool _volumeKeys = false;
+
   /// The chapter at the top of the screen. While the reader looks around
   /// (detached), the top bar names it instead of the one being read.
   late final _viewChapter = ValueNotifier<int>(_l.chapterOfUnit(_cursor.value));
@@ -290,7 +364,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   late final PlaybackScheduler _player;
   ListeningPrefs _prefs = ListeningPrefs.memory;
   final _catalog = VoiceCatalog.instance;
-  late final String _language = _primaryLanguage(_book.metadata.language);
+  late final String _language = primaryLanguage(_book.metadata.language);
 
   StreamSubscription<Map<String, Object?>>? _events;
   Timer? _persistTimer;
@@ -336,20 +410,30 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _player = PlaybackScheduler(
-      service: _svc,
-      units: _l.units,
-      settingsFor: (text) => _prefs.settings.copyWith(text: text),
-      engineIdOf: () => _prefs.engineId ?? _catalog.engineId,
-      voiceNameOf: () => _listen.voiceName,
-      pauseAfter: _pauseAfter,
-      respell: (text) => respell(text, ReadingRules.instance.sayFor(_book.id)),
-      dialogueVoiceOf: () => _listen.dialogueVoice,
-      quoteOpenAt: _quoteOpenAt,
-    )..onFinished = _onFinished;
-    _player.unit.addListener(() => _cursor.value = _player.unit.value);
+    // This book reading on in the background: take its voice back, still
+    // reading, so opening the book again does not break the flow.
+    final bg = BackgroundReading.current.value;
+    final back = bg != null && bg.bookId == _book.id ? bg.takeBack(_l) : null;
+    var resumeAt = -1;
+    if (bg != null && bg.bookId == _book.id && back == null) {
+      // Its chapters changed meanwhile (a web novel): start again here.
+      final u = bg.unitIn(_l);
+      if (bg.playing) resumeAt = u;
+      _cursor.value = u;
+      unawaited(bg.stop());
+    }
+    _player = back?.player ??
+        readingScheduler(layout: _l, prefs: () => _prefs, language: _language, bookId: _book.id, service: _svc);
+    _player.onFinished = _onFinished;
+    if (back != null) {
+      _cursor.value = _player.unit.value;
+      _restoreSleep(back.sleep, back.sleepAt, back.sleepChapter);
+    }
+    _player.unit.addListener(_onPlayerUnit);
     _player.state.addListener(_onPlayState);
+    _cursor.addListener(_syncMarked);
     _cursor.addListener(_onCursor);
+    _syncMarked();
     _positions.itemPositions.addListener(_onPositions);
     if (!_l.isEmpty && _startItem != _l.unitItem[_cursor.value.clamp(0, _l.units.length - 1)]) {
       _detached.value = true;
@@ -363,7 +447,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     unawaited(_loadPrefs());
     unawaited(_loadCover());
     _statsTimer = Timer.periodic(const Duration(seconds: 15), (_) => _countTime());
-    if (widget.autoplay) {
+    if (resumeAt >= 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_player.play(_cursor.value));
+      });
+    } else if (widget.autoplay && back == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         // Looking ahead while it reads: carry on aloud where it was, and
         // leave the page where the reader is looking.
@@ -376,17 +464,54 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     }
   }
 
+  void _onPlayerUnit() => _cursor.value = _player.unit.value;
+
+  /// The sleep timer as the background reading left it.
+  void _restoreSleep(SleepChoice choice, DateTime? at, int chapter) {
+    _sleep = choice;
+    _sleepAt = at;
+    _sleepChapter = chapter;
+    if (at != null) {
+      _sleepTimer = Timer(at.difference(DateTime.now()), () => _sleepNow('Sleep timer: paused.'));
+      _sleepTick = Timer.periodic(const Duration(seconds: 30), (_) {
+        if (mounted && _sleepAt != null) setState(() {});
+      });
+    }
+  }
+
+  /// The page is being left by Back (not replaced by another chapter's).
+  bool _leaving = false;
+
+  /// Reading aloud goes on without this page: back goes to the library and
+  /// the voice reads on there (Settings > Listening).
+  bool get _readsOn =>
+      _leaving && _prefs.keepReading && _player.state.value != PlayState.idle && !_l.isEmpty && widget.store != null;
+
   Future<void> _loadPrefs() async {
     final dir = widget.store?.root.path;
     if (dir == null) return;
     final p = await ListeningPrefs.load(dir);
     if (!mounted) return;
     setState(() => _prefs = p);
+    _wasPaged = _inPages;
+    _layoutKey = _layoutOf(p);
     _applyScreenOn();
+    _applyReadingMode();
+    _warmVoice();
     if (p.engineId != null && p.engineId != _catalog.engineId) {
       await _catalog.ensureLoaded();
       await _catalog.switchEngine(p.engineId!);
     }
+  }
+
+  /// A natural voice is loaded while the page settles, so Play does not
+  /// wait for it (a second or two, longer for HD, the first time).
+  void _warmVoice() {
+    final natural = neuralVoiceFor(_listen.voiceName);
+    if (natural == null) return;
+    Timer(const Duration(milliseconds: 1200), () {
+      if (mounted && _player.state.value == PlayState.idle) unawaited(NeuralEngine.instance.warm(natural));
+    });
   }
 
   Future<void> _loadCover() async {
@@ -421,7 +546,77 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   void _onPrefs() {
     if (!mounted) return;
     _applyScreenOn();
+    final paged = _inPages;
+    if (paged != _wasPaged) {
+      // Pages open at what is on screen; the scroll comes back at the page.
+      if (paged) {
+        _pageStart = _detached.value ? (_unitAtEyes() ?? _cursor.value) : _cursor.value;
+      } else {
+        _scrollFrom = _l.unitItem[(_pageUnit ?? _cursor.value).clamp(0, _l.units.length - 1)];
+      }
+      _wasPaged = paged;
+      _chrome.value = false;
+    } else if (!paged && _layoutOf(_prefs) != _layoutKey) {
+      _keepAnchor();
+    }
+    _layoutKey = _layoutOf(_prefs);
+    _applyReadingMode();
     setState(() {});
+  }
+
+  /// What moves the scrolling page's lines when it changes.
+  static Object _layoutOf(ListeningPrefs p) =>
+      Object.hash(p.textSize, p.bookFont, p.lineHeight, p.margin, p.justify, p.indent);
+
+  /// Text reflowing for a new size, font or spacing: the paragraph at the
+  /// top of the screen stays where it is. (The list keeps an item of its
+  /// own choosing in place, and the text slid away under the reader.)
+  void _keepAnchor() {
+    if (_l.isEmpty || !_scroll.isAttached || _programmaticScroll) return;
+    ItemPosition? top;
+    for (final p in _positions.itemPositions.value) {
+      if (p.index >= _l.items.length || p.itemTrailingEdge <= 0) continue;
+      if (top == null || p.index < top.index) top = p;
+    }
+    final at = top;
+    if (at == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.isAttached) return;
+      if (_listening && !_detached.value) {
+        _reveal(_cursor.value);
+      } else {
+        _scroll.jumpTo(index: at.index, alignment: at.itemLeadingEdge);
+      }
+    });
+  }
+
+  /// The book in pages (not a PDF's real pages).
+  bool get _inPages => _prefs.pages && !_showPages && !_l.isEmpty;
+
+  /// The voice is reading, or paused in the middle of it.
+  bool get _listening => _player.state.value != PlayState.idle;
+
+  /// Full screen and the volume keys, as the prefs and the moment ask. The
+  /// keys turn pages only while nothing is read aloud: then they are for
+  /// the volume.
+  void _applyReadingMode() {
+    final full = _prefs.fullScreen;
+    if (full != _fullScreen) {
+      _fullScreen = full;
+      unawaited(SystemChrome.setEnabledSystemUIMode(full ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge));
+    }
+    final keys = _prefs.volumeKeys && _inPages && !_player.isPlaying;
+    if (keys != _volumeKeys) {
+      _volumeKeys = keys;
+      unawaited(_svc.volumeKeysTurnPages(keys));
+    }
+  }
+
+  void _syncMarked() => _marked.value = _placeShown ? _cursor.value : -1;
+
+  void _showPlace(bool on) {
+    _placeShown = on;
+    _syncMarked();
   }
 
   /// Now Playing, while it is open over this reader, and the navigator it is on.
@@ -443,6 +638,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       });
     }
     _sleepTick?.cancel();
+    _eyesTimer?.cancel();
+    if (_fullScreen) unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
+    if (_volumeKeys) unawaited(_svc.volumeKeysTurnPages(false));
     WidgetsBinding.instance.removeObserver(this);
     ListeningPrefs.revision.removeListener(_onPrefs);
     ReadingRules.instance.changes.removeListener(_onRules);
@@ -456,12 +654,35 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     unawaited(_persist());
     unawaited(_events?.cancel());
     _catalog.removeListener(_onCatalog);
-    unawaited(_svc.session(active: false));
-    _player.dispose();
+    if (_readsOn) {
+      _player.unit.removeListener(_onPlayerUnit);
+      _player.state.removeListener(_onPlayState);
+      _player.onFinished = null;
+      BackgroundReading.adopt(
+        player: _player,
+        layout: _l,
+        store: widget.store!,
+        bookId: _book.id,
+        title: _book.metadata.title,
+        cover: _cover,
+        language: _language,
+        web: widget.onReachedEnd != null,
+        sleepAt: _sleepAt,
+        sleepChapter: _sleepChapter,
+        sleep: _sleep,
+      );
+    } else {
+      // Only a page whose voice was on the card takes the card away: an idle
+      // page of another book must not end one reading in the background.
+      if (_sessionState != PlayState.idle) unawaited(_svc.session(active: false));
+      _player.dispose();
+    }
     _positions.itemPositions.removeListener(_onPositions);
     _cursor.dispose();
     _detached.dispose();
     _veiled.dispose();
+    _marked.dispose();
+    _chrome.dispose();
     _viewChapter.dispose();
     super.dispose();
   }
@@ -570,16 +791,6 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     return null;
   }
 
-  int _pauseAfter(int i) {
-    final s = _prefs.settings;
-    if (i + 1 >= _l.units.length) return s.sentencePauseMs;
-    final here = _l.units[i];
-    final next = _l.units[i + 1];
-    if (_l.unitChapter[i] != _l.unitChapter[i + 1]) return s.paragraphPauseMs + 400;
-    if (next.blockId != here.blockId) return s.paragraphPauseMs;
-    return s.sentencePauseMs;
-  }
-
   // ------------------------------------------------------------- playback
 
   Future<void> _togglePlay() async {
@@ -603,6 +814,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   Future<void> _goTo(int unit, {bool play = false}) async {
     if (_l.isEmpty) return;
     final next = unit.clamp(0, _l.units.length - 1);
+    _showPlace(true);
     _cursor.value = next;
     _follow();
     final state = _player.state.value;
@@ -656,6 +868,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   void _onPlayState() {
     final s = _player.state.value;
     if (s == PlayState.playing || s == PlayState.loading) _parked = false;
+    if (s != PlayState.idle) {
+      if (!_placeShown) _showPlace(true);
+      if (_returnTo != null && mounted) setState(() => _returnTo = null);
+    }
+    _applyReadingMode();
     final err = _player.error.value;
     if (s == PlayState.idle && err != null && mounted) {
       _snack('Reading stopped: $err');
@@ -699,7 +916,13 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   void _onPlatformEvent(Map<String, Object?> e) {
+    // Another book reads on in the background: the card, the headset and the
+    // phone's audio are its, not this idle page's.
+    final bg = BackgroundReading.current.value;
+    if (bg != null && e['type'] != 'pageKey' && _player.state.value == PlayState.idle) return;
     switch (e['type']) {
+      case 'pageKey':
+        if (_inPages) _paged.turn((e['delta'] as num?)?.toInt() ?? 1);
       case 'noisy':
       case 'focusLoss':
         unawaited(_player.pause());
@@ -832,7 +1055,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     }
     _schedulePersist();
     _updateSession();
-    if (!_detached.value) _reveal(_cursor.value);
+    if (!_detached.value && !_quiet) _reveal(_cursor.value);
   }
 
   /// Resume following the voice. [force] scrolls even if the paragraph is
@@ -844,6 +1067,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   /// Scroll so the sentence being read is in view, unless it already is.
   void _reveal(int unit, {bool force = false}) {
+    if (_inPages) {
+      _paged.showUnit(unit);
+      return;
+    }
     if (_l.isEmpty || !_scroll.isAttached) return;
     final u = unit.clamp(0, _l.units.length - 1);
     final item = _l.unitItem[u];
@@ -869,7 +1096,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       }
     }
     _programmaticScroll = true;
-    final duration = Motion.of(context, const Duration(milliseconds: 360));
+    final duration = Motion.of(context, Motion.follow);
     // Motion turned down: go straight there.
     if (duration == Duration.zero) {
       _scroll.jumpTo(index: item, alignment: alignment);
@@ -907,7 +1134,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _veiled.value = false;
     await _offsets.animateScroll(
       offset: way * _viewport,
-      duration: const Duration(milliseconds: 520),
+      duration: Motion.of(context, Motion.travel),
       curve: Motion.out,
     );
   }
@@ -933,10 +1160,110 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   bool _onScrollNotification(ScrollNotification n) {
     if (n is ScrollUpdateNotification && n.dragDetails != null) _lastScroll = DateTime.now();
+    if (n is ScrollStartNotification) _eyesTimer?.cancel();
     if (n is ScrollStartNotification && n.dragDetails != null && !_programmaticScroll) {
-      _detached.value = true;
+      // Listening, a scroll is a look around: the voice keeps its place.
+      // Reading, the place goes where the reader does.
+      if (_listening) {
+        _detached.value = true;
+      } else {
+        _eyes = true;
+      }
+    }
+    if (n is ScrollEndNotification && _eyes) {
+      _eyesTimer?.cancel();
+      _eyesTimer = Timer(const Duration(milliseconds: 250), _placeFromEyes);
     }
     return false;
+  }
+
+  /// Reading without the voice: the sentence at the top of what is being
+  /// read becomes the place, saved as it would be by the voice. Before,
+  /// only the voice moved it, and a book read by scrolling reopened where
+  /// it was last heard.
+  void _placeFromEyes() {
+    _eyes = false;
+    if (!mounted || _listening || _l.isEmpty) return;
+    final u = _unitAtEyes();
+    if (u != null) _moveQuietly(u);
+  }
+
+  void _moveQuietly(int u) {
+    _detached.value = false;
+    _placeShown = false;
+    _quiet = true;
+    _cursor.value = u.clamp(0, _l.units.length - 1);
+    _quiet = false;
+    _syncMarked();
+  }
+
+  /// The sentence crossing a line just under the top bar, where the eye
+  /// starts reading; in a long paragraph, estimated from its share of it.
+  int? _unitAtEyes() {
+    if (_l.isEmpty) return null;
+    const line = 0.12;
+    ItemPosition? at, below;
+    for (final p in _positions.itemPositions.value) {
+      if (p.index >= _l.items.length) continue;
+      if (p.itemLeadingEdge <= line && p.itemTrailingEdge > line) at = p;
+      if (p.itemLeadingEdge > line && (below == null || p.index < below.index)) below = p;
+    }
+    final p = at ?? below;
+    if (p == null) return null;
+    final item = _l.items[p.index];
+    if (p != at || item.unitCount == 0) return item.firstUnit.clamp(0, _l.units.length - 1);
+    final text = item.block?.text ?? '';
+    final frac = ((line - p.itemLeadingEdge) / (p.itemTrailingEdge - p.itemLeadingEdge)).clamp(0.0, 1.0);
+    final offset = (frac * text.length).round();
+    var unit = item.firstUnit;
+    for (var u = item.firstUnit; u < item.firstUnit + item.unitCount; u++) {
+      if (_l.unitOffset[u] <= offset) unit = u;
+    }
+    return unit;
+  }
+
+  /// A page came to rest. Turned by hand while listening, it is a look
+  /// around; while reading, the place goes with it.
+  void _onPage(int unit, {required bool byHand}) {
+    _pageUnit = unit;
+    _viewChapter.value = _l.chapterOfUnit(unit);
+    if (!byHand) return;
+    if (_chrome.value) _chrome.value = false;
+    _lastScroll = DateTime.now();
+    if (_listening) {
+      _detached.value = true;
+    } else {
+      _moveQuietly(unit);
+    }
+  }
+
+  /// A PDF's page turned to: as a text page is (see [_onPage]).
+  void _onPdfPage(int page, {required bool byHand}) {
+    if (!byHand || _l.isEmpty) return;
+    _lastScroll = DateTime.now();
+    if (_listening) {
+      _detached.value = true;
+    } else {
+      _moveQuietly(_l.unitForPage(page));
+    }
+  }
+
+  /// Press and hold on a page: the sentence and the word under the finger.
+  void _onHoldAt(int item, int offset) {
+    final it = _l.items[item];
+    var unit = it.firstUnit;
+    for (var u = it.firstUnit; u < it.firstUnit + it.unitCount; u++) {
+      if (_l.unitOffset[u] <= offset) unit = u;
+    }
+    unawaited(_onLongPress(unit, wordAt(it.block?.text ?? '', offset)));
+  }
+
+  /// Jump, remembering where the reader was so they can go back.
+  void _jump(int unit) {
+    if (!_listening && unit != _cursor.value) {
+      setState(() => _returnTo = _cursor.value);
+    }
+    unawaited(_goTo(unit));
   }
 
   void _schedulePersist() {
@@ -958,19 +1285,6 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     } on Object {
       // Losing a position save is not worth an error on screen.
     }
-  }
-
-  /// Whether a quotation is still open where sentence [u] begins, counted
-  /// over its paragraph's text before it: an odd number of straight quotes,
-  /// or more opening curly marks than closing ones.
-  bool _quoteOpenAt(int u) {
-    if (u < 0 || u >= _l.units.length) return false;
-    final text = _l.items[_l.unitItem[u]].block?.text ?? '';
-    final before = text.substring(0, _l.unitOffset[u].clamp(0, text.length));
-    final straight = '"'.allMatches(before).length;
-    final opens = RegExp('[“«「]').allMatches(before).length;
-    final closes = RegExp('[”»」]').allMatches(before).length;
-    return straight.isOdd || opens > closes;
   }
 
   /// The player's height, so a message shows above it instead of over it.
@@ -1023,6 +1337,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final web = _entry?.plugin != null;
     final picked = await showModalBottomSheet<String>(
       context: context,
+      sheetAnimationStyle: sheetMotion(context),
       useSafeArea: true,
       isScrollControlled: true,
       builder: (ctx) => carryTint(
@@ -1137,7 +1452,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           _hitQuery = query;
         });
         _detached.value = false;
-        unawaited(_goTo(hits[i].unit));
+        _jump(hits[i].unit);
       },
     ));
   }
@@ -1230,79 +1545,30 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       height: (rail ? 240 : 600) + insets.bottom,
       child: VoiceGlow(level: _player.level, state: _player.state),
     );
-    final reading = Column(
-      children: [
-        _topBar(context),
-        Expanded(
-          child: Stack(
-            children: [
-              Positioned.fill(
-                // Pages and text fade into each other's place.
-                child: FadeIn(
-                  key: ValueKey(_showPages),
-                  child: _showPages
-                      ? PdfPagesView(
-                          path: widget.sourcePath!,
-                          layout: _l,
-                          cursor: _cursor,
-                          detached: _detached,
-                          onTapPage: (page) => _goTo(_l.unitForPage(page), play: true),
-                        )
-                      : ValueListenableBuilder<bool>(
-                          valueListenable: _veiled,
-                          builder: (context, veiled, text) => AnimatedOpacity(
-                            opacity: veiled ? 0 : 1,
-                            // Out quickly, back as it glides in.
-                            duration: veiled ? _veil : Motion.standard,
-                            curve: veiled ? Curves.easeIn : Motion.out,
-                            child: text,
-                          ),
-                          child: _text(context),
-                        ),
-                ),
-              ),
-              Positioned(
-                left: 0,
-                right: 0,
-                // Above the dock when it floats over the text.
-                bottom: rail ? 112 : 10,
-                child: Center(
-                  child: AnimatedSwitcher(
-                    duration: Motion.of(context, Motion.standard),
-                    transitionBuilder: fadeRise,
-                    child: _hits.isEmpty
-                        ? KeyedSubtree(key: const ValueKey('back'), child: _backToReading(context))
-                        : KeyedSubtree(key: const ValueKey('matches'), child: _matches(context)),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (!rail) bar,
-      ],
-    );
+    final paged = _inPages;
+    final reading = paged ? _pagedReading(context, bar, rail) : _scrollReading(context, bar, rail);
     return PopScope(
       canPop: _hits.isEmpty,
       onPopInvokedWithResult: (didPop, _) {
+        if (didPop) _leaving = true;
         if (!didPop) setState(() => _hits = const []);
       },
       child: Scaffold(
-      body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
-        child: SafeArea(
+      body: _ground(
+        context,
+        SafeArea(
           child: Stack(
                   // The glow reaches past the safe area.
                   clipBehavior: Clip.none,
                   children: [
                     // The voice, glowing out from behind the player as it
                     // reads; the text and the player sit over it.
-                    if (!rail) glow,
+                    if (!rail || paged) glow,
                     reading,
                     // The text fades out before the dock, instead of showing
                     // in the gap beneath it. Out to the screen's edges like
                     // the glow: stopping at the safe area, its edge showed.
-                    if (rail)
+                    if (rail && !paged)
                     Positioned(
                       left: -insets.left,
                       right: -insets.right,
@@ -1321,13 +1587,287 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                         ),
                       ),
                     ),
-                    if (rail) glow,
-                    if (rail) Positioned(left: 0, right: 0, bottom: 0, child: Center(child: bar)),
+                    if (rail && !paged) glow,
+                    if (rail && !paged) Positioned(left: 0, right: 0, bottom: 0, child: Center(child: bar)),
                   ],
                 ),
         ),
       ),
       ),
+    );
+  }
+
+  /// The page's tone (a PDF's real pages keep their own paper).
+  PageTone get _tone => PageTone.byId(_prefs.pageTone);
+
+  /// The ground under everything: the app's, or the page tone's paper, with
+  /// the phone's bars drawn to suit it.
+  Widget _ground(BuildContext context, Widget child) {
+    final tone = _tone;
+    if (tone.isApp) return DecoratedBox(decoration: BoxDecoration(gradient: Skin.ground(context)), child: child);
+    final icons = tone.dark ? Brightness.light : Brightness.dark;
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: icons,
+        systemNavigationBarIconBrightness: icons,
+      ),
+      child: PageGround(tone: tone, child: child),
+    );
+  }
+
+  /// The book as one long page, the top bar above it and the player below.
+  Widget _scrollReading(BuildContext context, Widget bar, bool rail) {
+    return Column(
+      children: [
+        _topBar(context),
+        Expanded(
+          child: Stack(
+            children: [
+              Positioned.fill(
+                // Pages and text fade into each other's place.
+                child: FadeIn(
+                  key: ValueKey(_showPages),
+                  child: _showPages
+                      ? PdfPagesView(
+                          path: widget.sourcePath!,
+                          layout: _l,
+                          cursor: _cursor,
+                          detached: _detached,
+                          onTapPage: (page) => _goTo(_l.unitForPage(page), play: true),
+                          turn: _prefs.pages ? PageTurn.byName(_prefs.pageTurn) : null,
+                          spread: MediaQuery.sizeOf(context).width > MediaQuery.sizeOf(context).height &&
+                              MediaQuery.sizeOf(context).width >= 600,
+                          onTurned: _onPdfPage,
+                        )
+                      : ValueListenableBuilder<bool>(
+                          valueListenable: _veiled,
+                          builder: (context, veiled, text) => AnimatedOpacity(
+                            opacity: veiled ? 0 : 1,
+                            // Out quickly, back as it glides in.
+                            duration: veiled ? _veil : Motion.standard,
+                            curve: veiled ? Curves.easeIn : Motion.out,
+                            child: text,
+                          ),
+                          child: toned(context, _tone, _text(context)),
+                        ),
+                ),
+              ),
+              Positioned(
+                left: 0,
+                right: 0,
+                // Above the dock when it floats over the text.
+                bottom: rail ? 112 : 10,
+                child: Center(
+                  child: AnimatedSwitcher(
+                    duration: Motion.of(context, Motion.standard),
+                    transitionBuilder: fadeRise,
+                    child: _pill(context),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (!rail) bar,
+      ],
+    );
+  }
+
+  /// Back to reading, the search matches, or the way back after a jump:
+  /// whichever is wanted, rising into place.
+  Widget _pill(BuildContext context) {
+    if (_hits.isNotEmpty) return KeyedSubtree(key: const ValueKey('matches'), child: _matches(context));
+    if (_returnTo != null) return KeyedSubtree(key: const ValueKey('return'), child: _returnPill(context));
+    return KeyedSubtree(key: const ValueKey('back'), child: _backToReading(context));
+  }
+
+  Widget _returnPill(BuildContext context) => Material(
+        color: Skin.darkOn(context),
+        shape: const StadiumBorder(),
+        elevation: 4,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: InkWell(
+                customBorder: const StadiumBorder(),
+                onTap: () {
+                  final back = _returnTo;
+                  setState(() => _returnTo = null);
+                  if (back != null) unawaited(_goTo(back));
+                },
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.undo_rounded, size: 16, color: Skin.accentOf(context)),
+                      const SizedBox(width: Gap.s),
+                      Flexible(
+                        child: Text('Back to where you were',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Skin.ui(size: 14, weight: FontWeight.w600, color: Skin.onDark(context))),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Stay here',
+              visualDensity: VisualDensity.compact,
+              icon: Icon(Icons.close_rounded, size: 18, color: Skin.onDark(context)),
+              onPressed: () => setState(() => _returnTo = null),
+            ),
+          ],
+        ),
+      );
+
+  /// The book in pages, with the top bar and the player over them, shown
+  /// by a tap in the middle of the page and gone as the page turns.
+  Widget _pagedReading(BuildContext context, Widget bar, bool rail) {
+    final tone = _tone;
+    final ground = tone.paper?.first ?? Skin.ground(context).colors.first;
+    final foot = tone.paper?.last ?? Skin.groundFoot(context);
+    final size = MediaQuery.sizeOf(context);
+    // On its side, a wide screen opens like a book: two pages.
+    final spread = size.width > size.height && size.width >= 600;
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: toned(context, tone, PagedBook(
+            layout: _l,
+            look: _pageLook(context),
+            controller: _paged,
+            startUnit: _pageStart ?? (_detached.value ? _l.items[_startItem].firstUnit : _cursor.value),
+            marked: _marked,
+            word: _player.word,
+            chapterName: _l.chapterTitle,
+            chapterLabel: (c) => _digit.hasMatch(_l.chapterTitle(c)) ? '' : 'CHAPTER ${_chapterNumber(c)}',
+            onPage: _onPage,
+            onTapMiddle: () => _chrome.value = !_chrome.value,
+            onHold: _onHoldAt,
+            pictureOf: (b, size) => _pictureImage(context, b, size.width, size.height),
+            turn: PageTurn.byName(_prefs.pageTurn),
+            spread: spread,
+            paper: tone.paperOf(context),
+            // The binding in the page's own ink; black on a dark page.
+            crease: tone.dark || (tone.isApp && Skin.isDark(context)) ? Colors.black : tone.inkOf(context),
+            tapToTurn: _prefs.tapToTurn,
+            endButton: widget.onReachedEnd == null ? null : _more(context),
+          )),
+        ),
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: _overBar(
+            context,
+            top: true,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [ground, ground, ground.withValues(alpha: 0)],
+                  stops: const [0, 0.7, 1],
+                ),
+              ),
+              child: Padding(padding: const EdgeInsets.only(bottom: 14), child: _topBar(context)),
+            ),
+          ),
+        ),
+        ValueListenableBuilder<bool>(
+          valueListenable: _chrome,
+          builder: (context, shown, pill) => AnimatedPositioned(
+            duration: Motion.of(context, Motion.standard),
+            curve: Motion.out,
+            left: 0,
+            right: 0,
+            bottom: shown ? _barLift + 10 : 40,
+            child: pill!,
+          ),
+          child: Center(
+            child: AnimatedSwitcher(
+              duration: Motion.of(context, Motion.standard),
+              transitionBuilder: fadeRise,
+              child: _pill(context),
+            ),
+          ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          // Over a fade to the ground, so the page's foot line does not
+          // show under the player's edge.
+          child: _overBar(
+            context,
+            top: false,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [foot.withValues(alpha: 0), foot, foot],
+                  stops: const [0, 0.3, 1],
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.only(top: 14),
+                child: rail ? Center(child: bar) : bar,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// A bar over the pages: it slides in from its edge when shown.
+  Widget _overBar(BuildContext context, {required bool top, required Widget child}) =>
+      ValueListenableBuilder<bool>(
+        valueListenable: _chrome,
+        builder: (context, shown, child) => IgnorePointer(
+          ignoring: !shown,
+          child: AnimatedSlide(
+            offset: shown ? Offset.zero : Offset(0, top ? -0.5 : 0.5),
+            duration: Motion.of(context, Motion.standard),
+            curve: Motion.out,
+            child: AnimatedOpacity(
+              opacity: shown ? 1 : 0,
+              duration: Motion.of(context, Motion.quick),
+              child: child,
+            ),
+          ),
+        ),
+        child: child,
+      );
+
+  /// The page drawn in pages: the same type and colours as the scroll.
+  PageLook _pageLook(BuildContext context) {
+    final scale = _prefs.textSize / 19;
+    final tone = _tone;
+    final ink = tone.inkOf(context);
+    final accent = tone.accentOf(context);
+    return PageLook(
+      text: Skin.page(context, size: _prefs.textSize, font: _prefs.bookFont, height: _prefs.lineHeight)
+          .copyWith(color: ink),
+      heading: Skin.title(context, size: 22 * scale, weight: FontWeight.w500).copyWith(height: 1.2, color: ink),
+      chapterHeading:
+          Skin.title(context, size: 30 * scale, weight: FontWeight.w500).copyWith(height: 1.2, color: accent),
+      title: Skin.title(context, size: 30 * scale, weight: FontWeight.w500).copyWith(color: accent),
+      label: Skin.meta(context, size: 11, color: accent).copyWith(fontWeight: FontWeight.w600),
+      status: Skin.meta(context, size: 10, color: tone.inkSoft),
+      accent: accent,
+      sentenceWash: tone.isApp ? Skin.sentenceWash(context) : accent.withValues(alpha: tone.dark ? 0.22 : 0.16),
+      wordWash: tone.isApp ? Skin.wordWash(context) : accent.withValues(alpha: tone.dark ? 0.5 : 0.36),
+      textScaler: MediaQuery.textScalerOf(context),
+      justify: _prefs.justify,
+      indent: _prefs.indent,
+      margin: _prefs.margin,
     );
   }
 
@@ -1409,7 +1949,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                         _book.metadata.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: Skin.title(context, size: 18),
+                        // On a page tone's paper, in its ink: the app's (cream
+                        // in a dark theme) vanished on Ink's white.
+                        style: Skin.title(context, size: 18, color: _tone.ink),
                       ),
                       ListenableBuilder(
                         listenable: _topLine,
@@ -1419,7 +1961,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                           final looking = _detached.value && !_l.isEmpty;
                           final c = looking ? _viewChapter.value : _l.chapterOfUnit(_cursor.value);
                           final u = looking ? _l.chapterFirstUnit[c] : _cursor.value;
-                          final style = Skin.meta(context, size: 10.5);
+                          final style = Skin.meta(context, size: 10.5, color: _tone.inkSoft);
                           if (!(_l.chapters.length > 1 || widget.positionOf != null)) {
                             return Text(
                               _book.metadata.authorLine.isEmpty
@@ -1486,10 +2028,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
               onTap: _openContents,
             ),
             const SizedBox(width: 8),
+            // How the page looks. The voice's settings are on the player
+            // (its voice and speed), in the same sheet.
             RoundButton(
-              icon: Icons.tune_rounded,
-              tooltip: 'Listening settings',
-              onTap: () => showListenSheet(context, _listen),
+              icon: Icons.text_fields_rounded,
+              tooltip: 'Reading settings',
+              onTap: () => showListenSheet(context, _listen, focus: ListenFocus.read),
             ),
           ],
         ),
@@ -1508,7 +2052,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         ),
       );
     }
-    final initial = _startItem;
+    final initial = _scrollFrom ?? _startItem;
     // A wide screen keeps a comfortable line (about 70 characters), centred.
     final side = math.max(_prefs.margin, (MediaQuery.sizeOf(context).width - 720) / 2);
     // Text fades out under the top bar and the player instead of being cut
@@ -1599,16 +2143,23 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         ? Skin.title(context, size: (chapterStart ? 30 : 22) * scale, weight: FontWeight.w500)
             .copyWith(height: 1.2, color: chapterStart ? accent : null)
         : Skin.page(context, size: _prefs.textSize, font: _prefs.bookFont, height: _prefs.lineHeight);
+    final indent = _prefs.indent && indentedAt(_l, i)
+        ? MediaQuery.textScalerOf(context).scale(_prefs.textSize) * indentEm
+        : 0.0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (label != null) label,
         Padding(
-          padding: EdgeInsets.only(bottom: heading ? 18 : 16, top: heading && !chapterStart ? 12 : 0),
+          padding: EdgeInsets.only(
+            bottom: heading ? 18 : (_prefs.indent ? 2 : 16),
+            top: heading && !chapterStart ? 12 : 0,
+          ),
           child: _BlockText(
             item: item,
             layout: _l,
-            cursor: _cursor,
+            cursor: _marked,
+            indent: indent,
             word: _player.word,
             style: style,
             heading: heading && !chapterStart,
@@ -1646,54 +2197,61 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final dir = widget.bookDir;
     final iw = block.imageWidth, ih = block.imageHeight;
     if (dir == null || iw == null || ih == null || iw == 0) return const SizedBox.shrink();
-    final file = File('$dir/img/${imageFileName(block.image!)}');
     return LayoutBuilder(
       builder: (context, c) {
         final dpr = MediaQuery.devicePixelRatioOf(context);
         // Small ornaments stay small; plates and maps fill the column.
         final width = math.min(c.maxWidth, iw / dpr * 2.2);
         final height = width * ih / iw;
-        // A thin, wide picture is a printer's ornament: usually black on
-        // white, which on this page is a glaring strip. Draw it in the
-        // page's ink with the white taken out.
-        final ornament = iw >= ih * 2.5 && height <= 120;
-        Widget image = Image.file(
-          file,
-          width: width,
-          height: height,
-          fit: BoxFit.contain,
-          cacheWidth: (width * dpr).round(),
-          errorBuilder: (_, __, ___) => SizedBox(width: width, height: height),
-        );
-        if (ornament) {
-          final ink = Skin.inkSoftOn(context);
-          image = ColorFiltered(
-            colorFilter: ColorFilter.matrix([
-              0, 0, 0, 0, ink.r * 255, //
-              0, 0, 0, 0, ink.g * 255, //
-              0, 0, 0, 0, ink.b * 255, //
-              -0.2126, -0.7152, -0.0722, 1, 0,
-            ]),
-            child: image,
-          );
-        }
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 14),
-          child: Center(
-            child: GestureDetector(
-              onTap: () => PictureViewer.open(context, file, caption: block.text),
-              child: Semantics(
-                image: true,
-                label: block.text.isEmpty ? 'Picture. Double tap to enlarge' : block.text,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
-                  child: image,
-                ),
-              ),
-            ),
-          ),
+          child: Center(child: _pictureImage(context, block, width, height)),
         );
       },
+    );
+  }
+
+  /// A picture drawn at [width] x [height], opening full screen on a tap.
+  Widget _pictureImage(BuildContext context, Block block, double width, double height) {
+    final dir = widget.bookDir;
+    final iw = block.imageWidth ?? 1, ih = block.imageHeight ?? 1;
+    if (dir == null) return SizedBox(width: width, height: height);
+    final file = File('$dir/img/${imageFileName(block.image!)}');
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    // A thin, wide picture is a printer's ornament: usually black on
+    // white, which on this page is a glaring strip. Draw it in the
+    // page's ink with the white taken out.
+    final ornament = iw >= ih * 2.5 && height <= 120;
+    Widget image = Image.file(
+      file,
+      width: width,
+      height: height,
+      fit: BoxFit.contain,
+      cacheWidth: (width * dpr).round(),
+      errorBuilder: (_, __, ___) => SizedBox(width: width, height: height),
+    );
+    if (ornament) {
+      final ink = Skin.inkSoftOn(context);
+      image = ColorFiltered(
+        colorFilter: ColorFilter.matrix([
+          0, 0, 0, 0, ink.r * 255, //
+          0, 0, 0, 0, ink.g * 255, //
+          0, 0, 0, 0, ink.b * 255, //
+          -0.2126, -0.7152, -0.0722, 1, 0,
+        ]),
+        child: image,
+      );
+    }
+    return GestureDetector(
+      onTap: () => PictureViewer.open(context, file, caption: block.text),
+      child: Semantics(
+        image: true,
+        label: block.text.isEmpty ? 'Picture. Double tap to enlarge' : block.text,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: image,
+        ),
+      ),
     );
   }
 
@@ -1747,6 +2305,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (_l.chapters.isEmpty) return;
     showModalBottomSheet<void>(
       context: context,
+      sheetAnimationStyle: sheetMotion(context),
       isScrollControlled: true,
       useSafeArea: true,
       builder: (ctx) => carryTint(context, _ContentsSheet(
@@ -1755,17 +2314,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         current: _l.chapterOfUnit(_cursor.value),
         onPick: (chapter) {
           Navigator.pop(ctx);
-          unawaited(_goTo(_l.chapterFirstUnit[chapter]));
+          _jump(_l.chapterFirstUnit[chapter]);
         },
       )),
     );
   }
-}
-
-String _primaryLanguage(String? tag) {
-  final t = (tag ?? 'en').toLowerCase();
-  final p = t.split(RegExp('[-_]')).first;
-  return p.length >= 2 ? p : 'en';
 }
 
 /// One paragraph. Rebuilds only when the spoken sentence enters, leaves or
@@ -1781,6 +2334,7 @@ class _BlockText extends StatefulWidget {
     required this.onLongPressUnit,
     this.heading = false,
     this.justify = false,
+    this.indent = 0,
   });
 
   final LayoutItem item;
@@ -1796,6 +2350,9 @@ class _BlockText extends StatefulWidget {
   /// A heading being spoken turns amber rather than sitting in a box.
   final bool heading;
   final bool justify;
+
+  /// The first line's indent, when paragraphs are indented (0 for none).
+  final double indent;
 
   @override
   State<_BlockText> createState() => _BlockTextState();
@@ -1837,7 +2394,9 @@ class _BlockTextState extends State<_BlockText> {
   void _onLongPress(LongPressStartDetails d) {
     final render = _paragraphOf(_key.currentContext?.findRenderObject());
     if (render == null) return;
-    final offset = render.getPositionForOffset(render.globalToLocal(d.globalPosition)).offset;
+    final at = render.getPositionForOffset(render.globalToLocal(d.globalPosition)).offset;
+    // The indent is one placeholder before the text.
+    final offset = widget.indent > 0 ? math.max(0, at - 1) : at;
     final l = widget.layout;
     var unit = widget.item.firstUnit;
     for (var u = widget.item.firstUnit; u < widget.item.firstUnit + widget.item.unitCount; u++) {
@@ -1877,8 +2436,12 @@ class _BlockTextState extends State<_BlockText> {
   Widget _span(BuildContext context, WordMark word) {
     final text = widget.item.block!.text;
     final align = widget.justify ? TextAlign.justify : TextAlign.start;
+    final lead = <InlineSpan>[
+      if (widget.indent > 0) WidgetSpan(child: SizedBox(width: widget.indent)),
+    ];
     if (_current < 0) {
-      return Text.rich(TextSpan(text: text), key: _key, style: widget.style, textAlign: align);
+      return Text.rich(TextSpan(children: [...lead, TextSpan(text: text)]),
+          key: _key, style: widget.style, textAlign: align);
     }
     final l = widget.layout;
     final s = l.unitOffset[_current].clamp(0, text.length);
@@ -1886,6 +2449,7 @@ class _BlockTextState extends State<_BlockText> {
     final wash = widget.heading ? Skin.sentenceWash(context).withValues(alpha: 0.08) : Skin.sentenceWash(context);
     final spoken = widget.heading ? TextStyle(color: Skin.accentOf(context)) : null;
     final spans = <InlineSpan>[
+      ...lead,
       if (s > 0) TextSpan(text: text.substring(0, s)),
     ];
     final ws = word.start < 0 ? -1 : (s + word.start).clamp(s, e);
@@ -2078,11 +2642,21 @@ class _PlayerBar extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Text(
-                                empty ? title : layout.chapterTitle(at.chapter),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Skin.ui(size: 13.5, weight: FontWeight.w600, color: onDark),
+                              // A new chapter's name rises into place, as in the top bar.
+                              AnimatedSwitcher(
+                                duration: Motion.of(context, Motion.standard),
+                                transitionBuilder: fadeRise,
+                                layoutBuilder: (current, previous) => Stack(
+                                  alignment: Alignment.centerLeft,
+                                  children: [...previous, if (current != null) current],
+                                ),
+                                child: Text(
+                                  empty ? title : layout.chapterTitle(at.chapter),
+                                  key: ValueKey(empty ? -1 : at.chapter),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Skin.ui(size: 13.5, weight: FontWeight.w600, color: onDark),
+                                ),
                               ),
                               Text(
                                 [if (sleepNote == null) '${at.pct}%', left.toUpperCase(), if (sleepNote != null) sleepNote!]

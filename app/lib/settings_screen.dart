@@ -281,6 +281,15 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           },
                         ),
                         const SizedBox(height: Gap.xl),
+                        SwitchRow(
+                          title: 'Keep reading after leaving a book',
+                          subtitle: 'Back goes to your library while the voice reads on. Pause it from the '
+                              "library's player or the card in the notification shade",
+                          value: _prefs.keepReading,
+                          padding: EdgeInsets.zero,
+                          onChanged: (v) => _change(() => _prefs.keepReading = v),
+                        ),
+                        const SizedBox(height: Gap.xl),
                         const SectionTitle('Style'),
                         const SizedBox(height: Gap.m),
                         ChoiceRow<String?>(

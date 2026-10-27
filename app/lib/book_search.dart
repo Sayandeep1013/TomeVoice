@@ -102,6 +102,7 @@ Future<void> showBookSearch(
 }) =>
     showModalBottomSheet<void>(
       context: context,
+      sheetAnimationStyle: sheetMotion(context),
       isScrollControlled: true,
       useSafeArea: true,
       builder: (ctx) => carryTint(

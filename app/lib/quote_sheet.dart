@@ -3,6 +3,7 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'book_tint.dart';
 import 'theme.dart';
+import 'ui.dart';
 
 /// What to keep: [count] sentences from [first], and a note if one was written.
 class QuoteChoice {
@@ -27,6 +28,7 @@ Future<QuoteChoice?> showQuoteSheet(BuildContext context, {required ReadingLayou
   final note = TextEditingController();
   return showModalBottomSheet<QuoteChoice>(
     context: context,
+    sheetAnimationStyle: sheetMotion(context),
     useSafeArea: true,
     isScrollControlled: true,
     builder: (ctx) => carryTint(
@@ -130,6 +132,7 @@ Future<String?> askNote(BuildContext context, {String initial = ''}) async {
   final controller = TextEditingController(text: initial);
   final result = await showDialog<String>(
     context: context,
+    animationStyle: sheetMotion(context),
     builder: (ctx) => AlertDialog(
       title: Text(initial.isEmpty ? 'Add a note' : 'Your note'),
       content: TextField(

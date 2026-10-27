@@ -19,22 +19,31 @@ class HistoryScreen extends StatefulWidget {
   State<HistoryScreen> createState() => _HistoryScreenState();
 }
 
-class _HistoryScreenState extends State<HistoryScreen> {
+class _HistoryScreenState extends State<HistoryScreen> with WhenShown<HistoryScreen> {
   List<LibraryEntry> _entries = const [];
   bool _loaded = false;
+
+  /// Rows folding away, before their books leave the history.
+  final _leaving = <String>{};
 
   @override
   void initState() {
     super.initState();
     widget.store.changes.addListener(_refresh);
+    widget.store.placeChanges.addListener(_placeSaved);
     unawaited(_refresh());
   }
 
   @override
   void dispose() {
     widget.store.changes.removeListener(_refresh);
+    widget.store.placeChanges.removeListener(_placeSaved);
     super.dispose();
   }
+
+  /// A place saved: the time and progress shown here move on, but the
+  /// reader covers this list while it saves, so it catches up when it shows.
+  void _placeSaved() => whenShown(_refresh);
 
   Future<void> _refresh() async {
     final all = await widget.store.list();
@@ -45,8 +54,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
     });
   }
 
+  /// The row folds shut first, so the rows below close up over it instead
+  /// of jumping.
   Future<void> _forget(LibraryEntry e) async {
+    if (!_leaving.add(e.id)) return;
+    setState(() {});
+    await Future<void>.delayed(Motion.of(context, Motion.standard));
     await widget.store.forgetOpened(e.id);
+    _leaving.remove(e.id);
     if (mounted) showSnack(context, 'Removed "${e.title}" from history.');
   }
 
@@ -58,7 +73,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       final day = relativeDay(e.openedAt!);
       groups.putIfAbsent(day[0].toUpperCase() + day.substring(1), () => []).add(e);
     }
-    return DecoratedBox(
+    return shownGate(DecoratedBox(
       decoration: BoxDecoration(gradient: Skin.ground(context)),
       child: SafeArea(
         bottom: false,
@@ -99,21 +114,28 @@ class _HistoryScreenState extends State<HistoryScreen> {
               ),
               SliverList.list(
                 children: [
+                  // Keyed by book, so a row stays with its book as the list
+                  // changes around it.
                   for (final e in g.value)
-                    _HistoryRow(
-                      entry: e,
-                      onOpen: () => openBook(context, widget.store, e),
-                      onPlay: () => openBook(context, widget.store, e, autoplay: true),
-                      onForget: () => _forget(e),
+                    Fold(
+                      key: ValueKey(e.id),
+                      open: !_leaving.contains(e.id),
+                      child: _HistoryRow(
+                        entry: e,
+                        onOpen: () => openBook(context, widget.store, e),
+                        onPlay: () => openBook(context, widget.store, e, autoplay: true),
+                        onForget: () => _forget(e),
+                      ),
                     ),
                 ],
               ),
+
             ],
             const SliverToBoxAdapter(child: SizedBox(height: Gap.xxl)),
           ],
         ),
       ),
-    );
+    ));
   }
 }
 

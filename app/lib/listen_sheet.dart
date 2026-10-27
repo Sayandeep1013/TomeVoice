@@ -6,13 +6,15 @@ import 'package:tomevoice_audio/tomevoice_audio.dart';
 import 'book_tint.dart';
 import 'neural_screen.dart';
 import 'neural_voices.dart';
+import 'page_tone.dart';
+import 'paged_view.dart' show PageTurn;
 import 'prefs.dart';
 import 'speech_service.dart';
 import 'theme.dart';
 import 'ui.dart';
 import 'voices.dart';
 
-enum ListenFocus { all, speed }
+enum ListenFocus { all, speed, read }
 
 /// When reading should stop on its own.
 enum SleepChoice { off, min15, min30, min60, chapterEnd }
@@ -124,6 +126,7 @@ Future<void> showListenSheet(
 }) =>
     showModalBottomSheet<void>(
       context: context,
+      sheetAnimationStyle: sheetMotion(context),
       isScrollControlled: true,
       useSafeArea: true,
       builder: (_) => carryTint(context, _ReaderSettingsSheet(controller: controller, focus: focus)),
@@ -142,7 +145,7 @@ class _ReaderSettingsSheet extends StatefulWidget {
 class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
   final _catalog = VoiceCatalog.instance;
   late SleepChoice _sleep = widget.controller.sleep;
-  int _tab = 0;
+  late int _tab = widget.focus == ListenFocus.read ? 1 : 0;
   bool _fineTune = false;
 
   ListeningPrefs get _prefs => widget.controller.prefs;
@@ -369,6 +372,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
     ];
     final picked = await showModalBottomSheet<String>(
       context: context,
+      sheetAnimationStyle: sheetMotion(context),
       useSafeArea: true,
       isScrollControlled: true,
       builder: (ctx) => carryTint(
@@ -625,6 +629,14 @@ class ReadingControls extends StatelessWidget {
   Widget build(BuildContext context) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const SectionTitle('Page'),
+          const SizedBox(height: Gap.m),
+          _PageTones(
+            selected: PageTone.byId(prefs.pageTone),
+            font: prefs.bookFont,
+            onPick: (t) => _apply(() => prefs.pageTone = t.id),
+          ),
+          const SizedBox(height: Gap.xl),
           const SectionTitle('Text size'),
           const SizedBox(height: Gap.m),
           StepperControl(
@@ -666,6 +678,55 @@ class ReadingControls extends StatelessWidget {
             value: prefs.margin,
             onChanged: (v) => _apply(() => prefs.margin = v),
           ),
+          const SizedBox(height: Gap.xl),
+          const SectionTitle('Paragraphs'),
+          const SizedBox(height: Gap.m),
+          ChoiceRow<bool>(
+            options: const [(false, 'Spaced'), (true, 'Indented')],
+            value: prefs.indent,
+            onChanged: (v) => _apply(() => prefs.indent = v),
+          ),
+          const SizedBox(height: Gap.xl),
+          const SectionTitle('Layout'),
+          const SizedBox(height: Gap.m),
+          ChoiceRow<bool>(
+            options: const [(false, 'Scroll'), (true, 'Pages')],
+            value: prefs.pages,
+            onChanged: (v) => _apply(() => prefs.pages = v),
+          ),
+          // Only pages are turned: their settings open in under the choice.
+          growIn(
+            context,
+            !prefs.pages
+                ? null
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const SizedBox(height: Gap.l),
+                      ChoiceRow<PageTurn>(
+                        options: [for (final t in PageTurn.values) (t, t.label)],
+                        value: PageTurn.byName(prefs.pageTurn),
+                        onChanged: (t) => _apply(() => prefs.pageTurn = t.name),
+                      ),
+                      const SizedBox(height: Gap.s),
+                      SwitchRow(
+                        title: 'Tap the sides to turn',
+                        subtitle: 'Left for back, right for on; the middle shows the controls',
+                        value: prefs.tapToTurn,
+                        padding: EdgeInsets.zero,
+                        onChanged: (v) => _apply(() => prefs.tapToTurn = v),
+                      ),
+                      const SizedBox(height: Gap.s),
+                      SwitchRow(
+                        title: 'Volume keys turn pages',
+                        subtitle: 'Down for on, up for back. While a book is read aloud they change the volume',
+                        value: prefs.volumeKeys,
+                        padding: EdgeInsets.zero,
+                        onChanged: (v) => _apply(() => prefs.volumeKeys = v),
+                      ),
+                    ],
+                  ),
+          ),
           if (showTheme) ...[
             const SizedBox(height: Gap.xl),
             const SectionTitle('Theme'),
@@ -686,6 +747,14 @@ class ReadingControls extends StatelessWidget {
           ),
           const SizedBox(height: Gap.s),
           SwitchRow(
+            title: 'Full screen',
+            subtitle: "Hide the phone's status and navigation bars while reading",
+            value: prefs.fullScreen,
+            padding: EdgeInsets.zero,
+            onChanged: (v) => _apply(() => prefs.fullScreen = v),
+          ),
+          const SizedBox(height: Gap.s),
+          SwitchRow(
             title: 'Keep screen on',
             subtitle: 'While a book is open',
             value: prefs.keepScreenOn,
@@ -700,6 +769,55 @@ class ReadingControls extends StatelessWidget {
               value: prefs.pdfPages,
               padding: EdgeInsets.zero,
               onChanged: (v) => _apply(() => prefs.pdfPages = v),
+            ),
+          ],
+        ],
+      );
+}
+
+/// The page tones side by side, each a little page of its own paper and
+/// ink, the chosen one ringed.
+class _PageTones extends StatelessWidget {
+  const _PageTones({required this.selected, required this.font, required this.onPick});
+
+  final PageTone selected;
+  final BookFont font;
+  final ValueChanged<PageTone> onPick;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        children: [
+          for (final t in PageTone.all) ...[
+            if (t != PageTone.all.first) const SizedBox(width: Gap.s),
+            Expanded(
+              child: Semantics(
+                button: true,
+                selected: t == selected,
+                label: 'Page: ${t.label}',
+                child: GestureDetector(
+                  onTap: () => onPick(t),
+                  child: AnimatedContainer(
+                    duration: Motion.of(context, Motion.quick),
+                    height: 72,
+                    decoration: t.paperOf(context).copyWith(
+                          borderRadius: BorderRadius.circular(Radii.chip),
+                          border: Border.all(
+                            color: t == selected ? Skin.accentOf(context) : Skin.outlineOn(context),
+                            width: t == selected ? 2.5 : 1,
+                          ),
+                        ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text('Aa', style: Skin.page(context, size: 22, font: font, height: 1.1).copyWith(color: t.inkOf(context))),
+                        const SizedBox(height: 2),
+                        Text(t.label.toUpperCase(),
+                            style: Skin.meta(context, size: 9.5, color: t.ink ?? Skin.inkSoftOn(context))),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
           ],
         ],
@@ -766,6 +884,7 @@ class LabeledSlider extends StatelessWidget {
 Future<void> showVoicePicker(BuildContext context, ListenController controller) =>
     showModalBottomSheet<void>(
       context: context,
+      sheetAnimationStyle: sheetMotion(context),
       isScrollControlled: true,
       useSafeArea: true,
       builder: (_) => carryTint(context, _VoicePicker(controller: controller)),
@@ -785,7 +904,25 @@ class _VoicePickerState extends State<_VoicePicker> {
   late String _language = widget.controller.language;
   String? _previewing;
 
+  /// Words typed to find a language or a voice, lower case.
+  String _query = '';
+  final _find = TextEditingController();
+
   ListeningPrefs get _prefs => widget.controller.prefs;
+
+  /// Whether [v] answers [_query]: its language, country, name, or "online"
+  /// or "offline", every word somewhere.
+  bool _matches(VoiceInfo v) {
+    final hay = [
+      languageName(v.language),
+      v.language,
+      v.locale,
+      regionLabel(v.region),
+      _catalog.friendlyName(v),
+      v.networkRequired ? 'online network internet' : 'offline',
+    ].join(' ').toLowerCase();
+    return _query.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).every(hay.contains);
+  }
 
   @override
   void initState() {
@@ -796,6 +933,7 @@ class _VoicePickerState extends State<_VoicePicker> {
   @override
   void dispose() {
     _catalog.removeListener(_refresh);
+    _find.dispose();
     super.dispose();
   }
 
@@ -830,17 +968,44 @@ class _VoicePickerState extends State<_VoicePicker> {
     for (final v in voices) {
       byRegion.putIfAbsent(v.region.isEmpty ? '' : regionLabel(v.region), () => []).add(v);
     }
+    final finding = _query.isNotEmpty;
     final languages = [
-      widget.controller.language,
-      for (final l in _catalog.languages())
-        if (l != widget.controller.language) l,
+      for (final l in [
+        widget.controller.language,
+        for (final l in _catalog.languages())
+          if (l != widget.controller.language) l,
+      ])
+        if (!finding || '${languageName(l)} $l'.toLowerCase().contains(_query.trim())) l,
     ];
+    // While finding: every language's voices that answer, by language.
+    final found = <String, List<VoiceInfo>>{};
+    if (finding) {
+      for (final l in _catalog.languages()) {
+        for (final v in _catalog.forLanguage(l)) {
+          if (_matches(v)) found.putIfAbsent(v.languageLabel, () => []).add(v);
+        }
+      }
+    }
     return ConstrainedBox(
       constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.85),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const SheetHeader('Voices', subtitle: 'Play to hear one, tap a name to use it'),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(Gap.xl, 0, Gap.xl, Gap.m),
+            child: SearchField(
+              controller: _find,
+              hint: 'Find a language or voice',
+              onChanged: (q) => setState(() => _query = q.trim().toLowerCase()),
+              onClear: _query.isEmpty
+                  ? null
+                  : () {
+                      _find.clear();
+                      setState(() => _query = '');
+                    },
+            ),
+          ),
           SizedBox(
             height: 44,
             child: ListView(
@@ -862,8 +1027,10 @@ class _VoicePickerState extends State<_VoicePicker> {
           Flexible(
             // Another language's voices (or the list after loading) fade in.
             child: FadeIn(
-              trigger: '${_catalog.loaded}/$_language',
-              child: !_catalog.loaded
+              trigger: '${_catalog.loaded}/$_language/$finding',
+              child: finding
+                  ? _found(context, found, selected)
+                  : !_catalog.loaded
                   ? const Padding(
                       padding: EdgeInsets.all(Gap.xl),
                       child: Center(child: CircularProgressIndicator()),
@@ -941,6 +1108,34 @@ class _VoicePickerState extends State<_VoicePicker> {
           ),
         ],
       ),
+    );
+  }
+
+  /// The voices found, by language; a word that finds nothing says so.
+  Widget _found(BuildContext context, Map<String, List<VoiceInfo>> found, String? selected) {
+    if (found.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(Gap.xl),
+        child: Text(
+          'No voice or language goes by "$_query". Try a language ("Bengali"), a country ("India") '
+          'or "offline".',
+          textAlign: TextAlign.center,
+          style: Skin.label(context, size: 14),
+        ),
+      );
+    }
+    return ListView(
+      shrinkWrap: true,
+      padding: const EdgeInsets.only(bottom: Gap.xl),
+      children: [
+        for (final group in found.entries) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.l, Gap.xl, Gap.xs),
+            child: Eyebrow(group.key),
+          ),
+          for (final v in group.value) _voiceRow(context, v, selected: v.name == selected),
+        ],
+      ],
     );
   }
 

@@ -90,6 +90,16 @@ class ChapterScrubber extends StatefulWidget {
 class _ChapterScrubberState extends State<ChapterScrubber> {
   double? _drag;
 
+  /// A new chapter began: the thumb starts it again at once. Gliding back
+  /// across the whole bar read as the chapter rewinding.
+  bool _restart = false;
+
+  @override
+  void didUpdateWidget(ChapterScrubber old) {
+    super.didUpdateWidget(old);
+    _restart = widget.value < old.value - 0.5;
+  }
+
   @override
   Widget build(BuildContext context) => SliderTheme(
         data: SliderTheme.of(context).copyWith(
@@ -103,7 +113,7 @@ class _ChapterScrubberState extends State<ChapterScrubber> {
           // under a finger it follows at once.
           child: TweenAnimationBuilder<double>(
             tween: Tween(end: (_drag ?? widget.value).clamp(0.0, 1.0)),
-            duration: _drag != null ? Duration.zero : Motion.of(context, Motion.standard),
+            duration: _drag != null || _restart ? Duration.zero : Motion.of(context, Motion.standard),
             curve: Motion.out,
             builder: (context, value, _) => Slider(
               value: value.clamp(0.0, 1.0),
