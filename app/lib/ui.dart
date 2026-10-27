@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -655,6 +656,7 @@ Future<String?> askText(
   final controller = TextEditingController(text: initial);
   final result = await showDialog<String>(
     context: context,
+    animationStyle: sheetMotion(context),
     builder: (ctx) => AlertDialog(
       title: Text(title),
       content: TextField(
@@ -685,6 +687,7 @@ Future<bool> confirm(
 }) async =>
     await showDialog<bool>(
       context: context,
+      animationStyle: sheetMotion(context),
       builder: (ctx) => AlertDialog(
         title: Text(title),
         content: Text(body),
@@ -698,13 +701,32 @@ Future<bool> confirm(
 
 // ---- motion --------------------------------------------------------------
 
+/// How a bottom sheet or a dialog comes and goes, the same everywhere: in at
+/// the pace of a screen arriving and settling as it lands, away a little
+/// quicker. At once when the phone is set to remove animations. For
+/// showModalBottomSheet's sheetAnimationStyle and showDialog's
+/// animationStyle.
+AnimationStyle sheetMotion(BuildContext context) => Motion.reduced(context)
+    ? AnimationStyle.noAnimation
+    : const AnimationStyle(
+        duration: Motion.page,
+        reverseDuration: Motion.standard,
+        curve: Motion.out,
+        reverseCurve: Motion.out,
+      );
+
 /// [child] fading in (and settling from a touch smaller) when it first
 /// shows, and again whenever [trigger] changes, without being rebuilt: a new
 /// screen in the same place arrives the way a pushed one does.
 class FadeIn extends StatefulWidget {
-  const FadeIn({super.key, this.trigger, required this.child});
+  const FadeIn({super.key, this.trigger, this.arrive = true, required this.child});
 
   final Object? trigger;
+
+  /// False: shown as it is at first, fading in only when [trigger] changes
+  /// (for something whose arrival is already faded by what holds it).
+  final bool arrive;
+
   final Widget child;
 
   @override
@@ -712,7 +734,8 @@ class FadeIn extends StatefulWidget {
 }
 
 class _FadeInState extends State<FadeIn> with SingleTickerProviderStateMixin {
-  late final _controller = AnimationController(vsync: this, duration: Motion.page);
+  late final _controller =
+      AnimationController(vsync: this, duration: Motion.page, value: widget.arrive ? 0 : 1);
   late final _t = CurvedAnimation(parent: _controller, curve: Motion.out);
 
   @override
@@ -791,6 +814,33 @@ Widget growIn(BuildContext context, Widget? child) => AnimatedSize(
       child: child == null ? const SizedBox(width: double.infinity) : FadeIn(child: child),
     );
 
+/// A row that folds shut, fading, when [open] turns false, and opens again
+/// when it turns true; with [appear], it also opens from nothing when it is
+/// first built. What is below moves up or down with it instead of jumping.
+class Fold extends StatelessWidget {
+  const Fold({super.key, this.open = true, this.appear = false, required this.child});
+
+  final bool open;
+  final bool appear;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
+        tween: Tween(begin: appear ? 0 : 1, end: open ? 1 : 0),
+        duration: Motion.of(context, Motion.standard),
+        curve: Motion.out,
+        child: child,
+        // The same widgets at rest as in motion, so the row keeps its state.
+        builder: (context, t, child) => ClipRect(
+          child: Align(
+            alignment: Alignment.topCenter,
+            heightFactor: t,
+            child: Opacity(opacity: t, child: child),
+          ),
+        ),
+      );
+}
+
 /// An [Image.frameBuilder] that fades the picture in over [under] (what shows
 /// while it decodes) instead of popping over it; one already in memory shows
 /// at once.
@@ -809,6 +859,23 @@ ImageFrameBuilder fadeInOver(Widget under) => (context, child, frame, sync) {
         ],
       );
     };
+
+/// One state of a screen giving way to another in the same room (nothing
+/// yet, the results, the list): the two cross-fade, each filling the room,
+/// instead of one cutting to the other. Give each state its own key; one
+/// with the same key is only rebuilt, keeping its scroll and its state.
+/// [instant]: this change is not shown (the first state after nothing, while
+/// the whole screen is already fading in).
+Widget fadeSwitch(BuildContext context, Widget child, {bool instant = false}) => AnimatedSwitcher(
+      duration: instant ? Duration.zero : Motion.of(context, Motion.standard),
+      switchInCurve: Motion.out,
+      switchOutCurve: Motion.out,
+      layoutBuilder: (current, previous) => Stack(
+        fit: StackFit.expand,
+        children: [...previous, if (current != null) current],
+      ),
+      child: child,
+    );
 
 /// An [AnimatedSwitcher] transition: the new child fades in while rising a
 /// little; the old one fades out the same way.
@@ -912,6 +979,117 @@ class _EntranceState extends State<Entrance> with SingleTickerProviderStateMixin
       ),
     );
   }
+}
+
+/// For a screen that follows something changing often while another screen
+/// covers it (the reader saves its place every second or so): work handed
+/// to [whenShown] is done at once while the screen shows, and otherwise
+/// kept, once, for when the screen above has gone. Nothing is rebuilt
+/// behind the reader, and nothing while it leaves.
+///
+/// The screen puts [shownGate] round what its build returns.
+mixin WhenShown<T extends StatefulWidget> on State<T> {
+  final _owed = <VoidCallback>{};
+  ModalRoute<Object?>? _route;
+  Animation<double>? _leaving;
+
+  /// Whether nothing covers this screen: its route is the top one, and no
+  /// screen above it is still on its way out.
+  bool get shown {
+    final route = _route;
+    return route == null || (route.isCurrent && (route.secondaryAnimation?.isDismissed ?? true));
+  }
+
+  /// [work] now if the screen shows, else once it does.
+  void whenShown(VoidCallback work) {
+    if (shown) {
+      work();
+    } else {
+      _owed.add(work);
+    }
+  }
+
+  /// Done once this screen has finished arriving (at once if it has, or is
+  /// leaving). Heavy content put in place while the screen still slides in
+  /// (a book's whole chapter list) made the transition stutter.
+  Future<void> arrived() {
+    final arriving = _route?.animation;
+    if (arriving == null || arriving.status != AnimationStatus.forward) return Future.value();
+    final done = Completer<void>();
+    void settled(AnimationStatus status) {
+      if (status == AnimationStatus.forward) return;
+      arriving.removeStatusListener(settled);
+      done.complete();
+    }
+
+    arriving.addStatusListener(settled);
+    return done.future;
+  }
+
+  /// [child], watching this screen's route. Only this small widget hears
+  /// the route change, so the screen is not rebuilt when one is pushed.
+  Widget shownGate(Widget child) => _RouteWatch(onRoute: _onRoute, child: child);
+
+  void _onRoute(ModalRoute<Object?>? route) {
+    _route = route;
+    if (_owed.isEmpty || route == null || !route.isCurrent) return;
+    // The screen above is going: catch up once it has gone, so the work
+    // does not land in the frames of its transition.
+    final leaving = route.secondaryAnimation;
+    if (leaving == null || leaving.isDismissed) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _pay());
+    } else if (_leaving == null) {
+      _leaving = leaving..addStatusListener(_onLeaving);
+    }
+  }
+
+  void _onLeaving(AnimationStatus status) {
+    if (!status.isDismissed) return;
+    _stopWatching();
+    _pay();
+  }
+
+  void _stopWatching() {
+    _leaving?.removeStatusListener(_onLeaving);
+    _leaving = null;
+  }
+
+  void _pay() {
+    if (!mounted || !shown || _owed.isEmpty) return;
+    final work = [..._owed];
+    _owed.clear();
+    for (final w in work) {
+      w();
+    }
+  }
+
+  @override
+  void dispose() {
+    _stopWatching();
+    super.dispose();
+  }
+}
+
+class _RouteWatch extends StatefulWidget {
+  const _RouteWatch({required this.onRoute, required this.child});
+
+  final ValueChanged<ModalRoute<Object?>?> onRoute;
+  final Widget child;
+
+  @override
+  State<_RouteWatch> createState() => _RouteWatchState();
+}
+
+class _RouteWatchState extends State<_RouteWatch> {
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Called again whenever the route stops or starts being the top one.
+    widget.onRoute(ModalRoute.of(context));
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 /// The top of a pushed screen: a round back button and the screen's title.

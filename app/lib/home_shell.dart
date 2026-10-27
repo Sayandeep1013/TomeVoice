@@ -45,7 +45,7 @@ class HomeShell extends StatefulWidget {
 
 enum _Place { library, browse, updates, history }
 
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
   Timer? _followTimer;
   Timer? _widgetTimer;
   StreamSubscription<Map<String, Object?>>? _widgetEvents;
@@ -88,14 +88,21 @@ class _HomeShellState extends State<HomeShell> {
     unawaited(_widgetEvents?.cancel());
     _lifecycle?.dispose();
     _store?.changes.removeListener(_scheduleFollow);
+    _store?.placeChanges.removeListener(_scheduleFollow);
+    _store?.changes.removeListener(_scheduleWidgets);
+    _store?.placeChanges.removeListener(_scheduleWidgets);
     super.dispose();
   }
 
   /// The app's accent follows the book being read: the one opened last.
-  /// Debounced, since every saved place is a change to the library.
+  /// Debounced, since every saved place is a change to the library; and
+  /// kept for when the shell shows again. A new accent rebuilds the whole
+  /// app and eases its theme across for 300 ms: done behind the reader
+  /// (which has the book's colours of its own anyway) it was a stutter in
+  /// the reading a moment after each book opened.
   void _scheduleFollow() {
     _followTimer?.cancel();
-    _followTimer = Timer(const Duration(milliseconds: 600), _follow);
+    _followTimer = Timer(const Duration(milliseconds: 600), () => whenShown(_follow));
   }
 
   Future<void> _follow() async {
@@ -116,6 +123,11 @@ class _HomeShellState extends State<HomeShell> {
   Updates? _updates;
   String? _error;
   _Place _place = _Place.library;
+
+  /// The places opened so far: each is built on its first visit and kept
+  /// from then on. Built all at once, Browse, Updates and History were made
+  /// in the same frames as the library fading in from the opening lockup.
+  final _visited = <_Place>{_Place.library};
 
   @override
   void initState() {
@@ -151,8 +163,12 @@ class _HomeShellState extends State<HomeShell> {
       }
       // A restore that was interrupted leaves its unpacked copy behind.
       unawaited(clearStaleRestore(Directory(dir)));
+      // A saved place can make another book the one being read, and moves
+      // the widgets' progress on.
       store.changes.addListener(_scheduleFollow);
+      store.placeChanges.addListener(_scheduleFollow);
       store.changes.addListener(_scheduleWidgets);
+      store.placeChanges.addListener(_scheduleWidgets);
       // A widget may have opened the app.
       unawaited(_fromWidget());
       _widgetEvents = SpeechService.events.where((e) => e['type'] == 'widgetLaunch').listen((_) => _fromWidget());
@@ -213,7 +229,10 @@ class _HomeShellState extends State<HomeShell> {
 
   void _go(_Place place) {
     Navigator.of(context).pop(); // The drawer.
-    setState(() => _place = place);
+    setState(() {
+      _place = place;
+      _visited.add(place);
+    });
   }
 
   void _push(Widget Function(LibraryStore store) page) {
@@ -240,17 +259,18 @@ class _HomeShellState extends State<HomeShell> {
         ),
       );
     } else {
+      Widget place(_Place p, Widget Function() build) => _visited.contains(p) ? build() : const SizedBox.shrink();
       body = IndexedStack(
         index: _place.index,
         children: [
           LibraryScreen(store: store),
-          BrowseScreen(store: store, sources: _sources!),
-          UpdatesScreen(store: store, updates: _updates!),
-          HistoryScreen(store: store),
+          place(_Place.browse, () => BrowseScreen(store: store, sources: _sources!)),
+          place(_Place.updates, () => UpdatesScreen(store: store, updates: _updates!)),
+          place(_Place.history, () => HistoryScreen(store: store)),
         ],
       );
     }
-    return PopScope(
+    return shownGate(PopScope(
       // Back from History goes to the library before it leaves the app.
       canPop: _place == _Place.library,
       onPopInvokedWithResult: (didPop, _) {
@@ -265,7 +285,7 @@ class _HomeShellState extends State<HomeShell> {
           child: FadeIn(key: ValueKey(store == null), trigger: _place, child: body),
         ),
       ),
-    );
+    ));
   }
 
   Widget _drawer(BuildContext context) => Drawer(

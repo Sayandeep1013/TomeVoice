@@ -185,9 +185,14 @@ class _BrowseScreenState extends State<BrowseScreen> {
                         ),
                       ),
                     )
-                  : searching
-                      ? _resultsList(context)
-                      : _sourcesList(context),
+                  // The sources and a search's results fade into each
+                  // other's place.
+                  : fadeSwitch(
+                      context,
+                      searching
+                          ? KeyedSubtree(key: const ValueKey('results'), child: _resultsList(context))
+                          : KeyedSubtree(key: const ValueKey('sources'), child: _sourcesList(context)),
+                    ),
             ),
           ],
         ),
@@ -357,6 +362,13 @@ class _SourceScreenState extends State<SourceScreen> {
   Object? _error;
   int _run = 0;
 
+  /// The novels showing are the last feed's, dimmed, while the first page
+  /// of a new one (Popular, Latest, a search) is on its way.
+  bool _stale = false;
+
+  /// Bumped as each feed's first page comes in, which fades in from the top.
+  int _shown = 0;
+
   @override
   void initState() {
     super.initState();
@@ -369,15 +381,27 @@ class _SourceScreenState extends State<SourceScreen> {
     super.dispose();
   }
 
+  /// Another feed. The grid used to empty at once and pop full again; now
+  /// it stays, dimmed, until the new feed's first page takes its place.
   Future<void> _reset() async {
     _run++;
     setState(() {
-      _items.clear();
+      _stale = _items.isNotEmpty;
       _page = 0;
       _end = false;
       _error = null;
+      // A page of the last feed still on its way is dropped when it lands;
+      // it must not hold this one up.
+      _loading = false;
     });
     await _more();
+  }
+
+  /// The last feed's novels, gone for the new feed's (or its problem).
+  void _replaceStale() {
+    if (_stale) _items.clear();
+    _stale = false;
+    _shown++;
   }
 
   Future<void> _more() async {
@@ -393,15 +417,21 @@ class _SourceScreenState extends State<SourceScreen> {
         _Feed.search => await engine.search(widget.plugin, _search.text.trim(), page),
       };
       if (!mounted || run != _run) return;
-      final seen = {for (final n in _items) n.path};
+      final seen = {if (!_stale) for (final n in _items) n.path};
       final fresh = [for (final n in got) if (seen.add(n.path)) n];
       setState(() {
+        if (page == 1) _replaceStale();
         _items.addAll(fresh);
         _page = page;
         _end = fresh.isEmpty;
       });
     } on Object catch (e) {
-      if (mounted && run == _run) setState(() => _error = e);
+      if (mounted && run == _run) {
+        setState(() {
+          if (_page == 0) _replaceStale();
+          _error = e;
+        });
+      }
     } finally {
       if (mounted && run == _run) setState(() => _loading = false);
     }
@@ -435,70 +465,88 @@ class _SourceScreenState extends State<SourceScreen> {
                   },
                 ),
               ),
-              if (_feed != _Feed.search)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
-                  child: ChoiceRow<_Feed>(
-                    options: const [(_Feed.popular, 'Popular'), (_Feed.latest, 'Latest')],
-                    value: _feed,
-                    onChanged: (f) {
-                      _feed = f;
-                      unawaited(_reset());
-                    },
-                  ),
-                ),
+              // Popular and Latest fold away for a search, rather than the
+              // grid jumping up under them.
+              growIn(
+                context,
+                _feed == _Feed.search
+                    ? null
+                    : Padding(
+                        padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
+                        child: ChoiceRow<_Feed>(
+                          options: const [(_Feed.popular, 'Popular'), (_Feed.latest, 'Latest')],
+                          value: _feed,
+                          onChanged: (f) {
+                            _feed = f;
+                            unawaited(_reset());
+                          },
+                        ),
+                      ),
+              ),
               Expanded(
                 child: NotificationListener<ScrollNotification>(
                   onNotification: (n) {
                     if (n.metrics.extentAfter < 600) unawaited(_more());
                     return false;
                   },
-                  child: CustomScrollView(
-                    slivers: [
-                      SliverPadding(
-                        padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xs, Gap.page, 0),
-                        sliver: SliverGrid(
-                          gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                            maxCrossAxisExtent: landscape ? 170 : 190,
-                            mainAxisSpacing: 14,
-                            crossAxisSpacing: 14,
-                            childAspectRatio: 2 / 3,
-                          ),
-                          delegate: SliverChildBuilderDelegate(
-                            childCount: _items.length,
-                            (context, i) => RemoteNovelTile(
-                              item: _items[i],
-                              referer: widget.plugin.site,
-                              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
-                                builder: (_) => NovelScreen(
-                                  store: widget.store,
-                                  plugin: widget.plugin,
-                                  path: _items[i].path,
-                                  name: _items[i].name,
-                                  cover: _items[i].cover,
+                  // Each feed's first page fades in, from the top.
+                  child: FadeIn(
+                    trigger: _shown,
+                    arrive: false,
+                    child: CustomScrollView(
+                      key: ValueKey(_shown),
+                      slivers: [
+                        SliverPadding(
+                          padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xs, Gap.page, 0),
+                          sliver: SliverAnimatedOpacity(
+                            opacity: _stale ? 0.4 : 1,
+                            duration: Motion.of(context, Motion.standard),
+                            curve: Motion.out,
+                            sliver: SliverGrid(
+                              gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                                maxCrossAxisExtent: landscape ? 170 : 190,
+                                mainAxisSpacing: 14,
+                                crossAxisSpacing: 14,
+                                childAspectRatio: 2 / 3,
+                              ),
+                              delegate: SliverChildBuilderDelegate(
+                                childCount: _items.length,
+                                (context, i) => RemoteNovelTile(
+                                  item: _items[i],
+                                  referer: widget.plugin.site,
+                                  onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                                    builder: (_) => NovelScreen(
+                                      store: widget.store,
+                                      plugin: widget.plugin,
+                                      path: _items[i].path,
+                                      name: _items[i].name,
+                                      cover: _items[i].cover,
+                                    ),
+                                  )),
                                 ),
-                              )),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      SliverToBoxAdapter(
-                        child: Padding(
-                          padding: EdgeInsets.fromLTRB(
-                              Gap.page, Gap.xl, Gap.page, Gap.xxl + MediaQuery.viewPaddingOf(context).bottom),
-                          child: _loading
-                              ? const Center(child: CircularProgressIndicator())
-                              : _error != null
-                                  ? SourceProblem(error: _error!, onRetry: _reset)
-                                  : _items.isEmpty
-                                      ? Text('Nothing here.', textAlign: TextAlign.center, style: Skin.label(context))
-                                      : const SizedBox.shrink(),
+                        SliverToBoxAdapter(
+                          child: Padding(
+                            padding: EdgeInsets.fromLTRB(
+                                Gap.page, Gap.xl, Gap.page, Gap.xxl + MediaQuery.viewPaddingOf(context).bottom),
+                            child: _loading
+                                ? const Center(child: CircularProgressIndicator())
+                                : _error != null
+                                    ? SourceProblem(error: _error!, onRetry: _reset)
+                                    : _items.isEmpty
+                                        ? Text('Nothing here.', textAlign: TextAlign.center, style: Skin.label(context))
+                                        : const SizedBox.shrink(),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
+
             ],
           ),
         ),

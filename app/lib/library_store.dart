@@ -31,9 +31,16 @@ class LibraryStore {
 
   final Directory root;
 
-  /// Bumped after every write to the index, so the shelf can refresh when a
-  /// reader saves its place after the shelf has already re-read the list.
+  /// Bumped after every write to the index but a saved reading place, so
+  /// the shelf can refresh when a book comes, goes or changes.
   final changes = ValueNotifier<int>(0);
+
+  /// Bumped when a reading place is saved, which the reader does every
+  /// second or so. Kept apart from [changes]: each saved place re-read the
+  /// shelf, History, Updates and a novel's downloads behind the reader, a
+  /// hitch every time. What shows places listens here and catches up when
+  /// it shows again (see WhenShown); what does not show them ignores it.
+  final placeChanges = ValueNotifier<int>(0);
 
   static const _svc = SpeechService();
 
@@ -56,22 +63,26 @@ class LibraryStore {
   bool _held = false;
 
   /// Stop writing the index (a restore is replacing it).
-  void hold() => _held = true;
+  void hold() {
+    _held = true;
+    _downloads.clear();
+  }
 
   /// Write again, reading the index afresh (the restore did not happen).
   void release() {
     _held = false;
     _known = null;
+    _downloads.clear();
   }
 
   /// Change the books in one step: [change] gets the current list and
-  /// returns the new one.
-  Future<void> _change(List<LibraryEntry> Function(List<LibraryEntry> entries) change) async {
+  /// returns the new one. [place]: only a reading place changed.
+  Future<void> _change(List<LibraryEntry> Function(List<LibraryEntry> entries) change, {bool place = false}) async {
     await index();
     if (_held) return;
     final next = change([..._known!.entries])..sort((a, b) => b.lastTouched.compareTo(a.lastTouched));
     _known = LibraryIndex(entries: next, categories: _categories, defaultCategory: _defaultCategory);
-    await _write(next);
+    await _write(next, place: place);
   }
 
   // Categories as last read or written; every public method reads the index
@@ -124,7 +135,7 @@ class LibraryStore {
     );
   }
 
-  Future<void> _write(List<LibraryEntry> entries) async {
+  Future<void> _write(List<LibraryEntry> entries, {bool place = false}) async {
     // One write at a time, each to its own temp file (two writes sharing one
     // temp name could interleave into invalid JSON, read back as no books).
     await writeSafely(
@@ -135,7 +146,11 @@ class LibraryStore {
         'books': [for (final e in entries) e.toJson()],
       }),
     );
-    changes.value++;
+    if (place) {
+      placeChanges.value++;
+    } else {
+      changes.value++;
+    }
   }
 
   // ------------------------------------------------------------ categories
@@ -281,6 +296,7 @@ class LibraryStore {
       final info = await webNovel(id);
       if (info == null || info.filed) return info;
       final moves = await _runSettle(bookDir(id), [for (final c in info.chapters) c.name]);
+      _downloads.remove(id);
       await _followMoves(id, moves);
       final next = info.copyWith(filed: true);
       await writeSafely(File('${bookDir(id)}/novel.json'), jsonEncode(next.toJson()));
@@ -295,6 +311,7 @@ class LibraryStore {
   Future<void> _refile(String id, Map<int, int> moves) async {
     if (moves.isEmpty) return;
     await _runMoveChapters(bookDir(id), moves);
+    _downloads.remove(id);
     await _followMoves(id, moves);
   }
 
@@ -319,20 +336,31 @@ class LibraryStore {
   bool hasChapter(String id, int index) => File(_chapterFile(id, index)).existsSync();
 
   /// Chapter numbers of [id] already on the phone.
-  Set<int> downloadedChapters(String id) {
+  ///
+  /// The folder is listed once and then kept up to date as chapters are
+  /// saved, moved and taken off: a novel's page asks on every change, and
+  /// listing a folder of thousands of chapters on the UI thread each time
+  /// was a hitch.
+  Set<int> downloadedChapters(String id) => _downloads[id] ??= _listDownloads(id);
+
+  final _downloads = <String, Set<int>>{};
+
+  Set<int> _listDownloads(String id) {
     final dir = Directory('${bookDir(id)}/ch');
     if (!dir.existsSync()) return const {};
-    return {
+    return Set.unmodifiable({
       for (final f in dir.listSync().whereType<File>())
         if (f.path.endsWith('.json'))
           if (int.tryParse(f.uri.pathSegments.last.split('.').first) case final n?) n,
-    };
+    });
   }
 
   /// Keep a fetched chapter, parsed, so it opens offline from now on.
   Future<void> saveChapter(String id, int index, String title, String html, {String? language}) async {
     final path = _chapterFile(id, index);
     await _runSaveChapter(path, index, title, html, language);
+    final known = _downloads[id];
+    if (known != null) _downloads[id] = Set.unmodifiable({...known, index});
   }
 
   String _chapterFile(String id, int index) => '${bookDir(id)}/ch/$index.json';
@@ -347,6 +375,7 @@ class LibraryStore {
         // Not downloaded.
       }
     }
+    _downloads.remove(id);
   }
 
   /// Take [id] off the history (and the Continue card) without touching the
@@ -525,23 +554,27 @@ class LibraryStore {
       File('${dir.path}/cursor.json'),
       jsonEncode({'cursor': cursor.toJson(), 'progress': progress}),
     );
-    await _change((entries) => [
-          for (final e in entries)
-            if (e.id == id)
-              e.copyWith(
-                cursor: cursor,
-                progress: progress,
-                openedAt: DateTime.now(),
-                where: where,
-              )
-            else
-              e,
-        ]);
+    await _change(
+      (entries) => [
+        for (final e in entries)
+          if (e.id == id)
+            e.copyWith(
+              cursor: cursor,
+              progress: progress,
+              openedAt: DateTime.now(),
+              where: where,
+            )
+          else
+            e,
+      ],
+      place: true,
+    );
   }
 
   Future<void> remove(String id) async {
     final dir = Directory(bookDir(id));
     if (await dir.exists()) await dir.delete(recursive: true);
+    _downloads.remove(id);
     await _change((entries) => [for (final e in entries) if (e.id != id) e]);
   }
 

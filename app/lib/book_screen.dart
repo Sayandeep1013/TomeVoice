@@ -31,7 +31,7 @@ class BookScreen extends StatefulWidget {
   State<BookScreen> createState() => _BookScreenState();
 }
 
-class _BookScreenState extends State<BookScreen> {
+class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
   late LibraryEntry _entry = widget.entry;
   LibraryIndex? _index;
   ReadingLayout? _layout;
@@ -47,6 +47,7 @@ class _BookScreenState extends State<BookScreen> {
   void initState() {
     super.initState();
     _store.changes.addListener(_refreshEntry);
+    _store.placeChanges.addListener(_placeSaved);
     _catalog.addListener(_rebuild);
     ListeningPrefs.revision.addListener(_rebuild);
     unawaited(_catalog.ensureLoaded());
@@ -56,6 +57,7 @@ class _BookScreenState extends State<BookScreen> {
   @override
   void dispose() {
     _store.changes.removeListener(_refreshEntry);
+    _store.placeChanges.removeListener(_placeSaved);
     _catalog.removeListener(_rebuild);
     ListeningPrefs.revision.removeListener(_rebuild);
     super.dispose();
@@ -72,6 +74,9 @@ class _BookScreenState extends State<BookScreen> {
       final layout = await _store.loadLayout(_entry.id);
       final cursor = await _store.cursorFor(_entry.id);
       final idx = await _store.index();
+      // The chapters and the description open in once the page is in place,
+      // not in the frames of its arrival.
+      await arrived();
       if (!mounted) return;
       setState(() {
         _layout = layout;
@@ -82,6 +87,10 @@ class _BookScreenState extends State<BookScreen> {
       if (mounted) setState(() => _error = e);
     }
   }
+
+  /// A place saved, most often by the reader opened from here, which covers
+  /// this page: it catches up when it shows again.
+  void _placeSaved() => whenShown(_refreshEntry);
 
   Future<void> _refreshEntry() async {
     final idx = await _store.index();
@@ -271,7 +280,7 @@ class _BookScreenState extends State<BookScreen> {
           ),
         ),
     ];
-    return Scaffold(
+    return shownGate(Scaffold(
       body: DecoratedBox(
         decoration: BoxDecoration(gradient: Skin.ground(context)),
         child: SafeArea(
@@ -292,7 +301,7 @@ class _BookScreenState extends State<BookScreen> {
               : CustomScrollView(slivers: [...info, ...chapterList, bottomGap]),
         ),
       ),
-    );
+    ));
   }
 
   /// Find a chapter by its number or words from its title, and read it.

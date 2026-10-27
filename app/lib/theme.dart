@@ -677,6 +677,14 @@ class Motion {
   /// A screen arriving, a sheet's content changing.
   static const page = Duration(milliseconds: 300);
 
+  /// The page following the voice on to the next sentence or page: long
+  /// enough to see which way it went, short enough to keep up with speech.
+  static const follow = Duration(milliseconds: 360);
+
+  /// A long way travelled in one move (back to a far place in the book):
+  /// slower, so the eye can tell where it ended up.
+  static const travel = Duration(milliseconds: 520);
+
   /// Arriving and settling.
   static const Curve out = Curves.easeOutCubic;
 
@@ -702,6 +710,8 @@ class CalmPageTransitionsBuilder extends PageTransitionsBuilder {
   @override
   Duration get transitionDuration => Motion.page;
 
+  // Going back is a beat quicker than arriving: between standard and page,
+  // on purpose, so it has no name of its own in Motion.
   @override
   Duration get reverseTransitionDuration => const Duration(milliseconds: 250);
 

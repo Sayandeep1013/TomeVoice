@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import 'scheduler.dart';
 import 'theme.dart';
@@ -18,6 +19,8 @@ import 'theme.dart';
 /// Kept cheap, as it runs the whole time a book is read: soft gradients
 /// rather than a blur, redrawn about thirty times a second (the loudness
 /// itself only changes every 40 ms), and not at all while it cannot be seen.
+/// Each picture is drawn on a frame of the display, a steady number of
+/// frames apart (see [_VoiceGlowState._rest]).
 /// A blurred layer redrawn every frame competed with everything else on the
 /// screen, and scrolling and transitions dropped frames.
 class VoiceGlow extends StatefulWidget {
@@ -36,7 +39,20 @@ class VoiceGlow extends StatefulWidget {
 }
 
 class _VoiceGlowState extends State<VoiceGlow> {
+  /// How long to wait after a picture before asking for the next frame.
+  ///
+  /// A plain 33 ms timer drifted against the display: its pictures came
+  /// mostly two frames apart, but every second or so one came after one
+  /// frame and the next after three, a hitch in a glow meant to breathe.
+  /// Now the next picture is drawn on the first frame after 26 ms, which is
+  /// 33 ms on at 60, 90 and 120 Hz alike (two, three or four frames), and
+  /// its time is taken on that frame. A ticker would do it too, but would
+  /// wake every frame of the whole reading for a picture every few.
+  static const _rest = Duration(milliseconds: 26);
+
   Timer? _timer;
+  int? _frame;
+  bool get _running => _timer != null || _frame != null;
   final _clock = Stopwatch();
   final _paint = ValueNotifier<int>(0);
   int _last = 0;
@@ -82,18 +98,40 @@ class _VoiceGlowState extends State<VoiceGlow> {
   void dispose() {
     widget.state.removeListener(_wake);
     _timer?.cancel();
+    if (_frame != null) SchedulerBinding.instance.cancelFrameCallbackWithId(_frame!);
     _paint.dispose();
     super.dispose();
   }
 
   void _wake() {
-    if (_reading && _timer == null) {
+    if (_reading && !_running) {
       _clock
         ..reset()
         ..start();
       _last = 0;
-      _timer = Timer.periodic(const Duration(milliseconds: 33), (_) => _step());
+      _next();
     }
+  }
+
+  /// Under another screen, or the app away: nothing is drawn.
+  bool get _visible => _current && WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+
+  /// The next step after a rest: on a frame while the glow can be seen, so
+  /// the picture keeps time with the display; on the timer alone while it
+  /// cannot, where no frame is wanted.
+  void _next() {
+    _timer = Timer(_rest, () {
+      _timer = null;
+      if (!mounted) return;
+      if (_visible) {
+        _frame = SchedulerBinding.instance.scheduleFrameCallback((_) {
+          _frame = null;
+          if (mounted) _step();
+        });
+      } else {
+        _step();
+      }
+    });
   }
 
   void _step() {
@@ -105,16 +143,14 @@ class _VoiceGlowState extends State<VoiceGlow> {
     // Time constants: 70 ms rising, 320 ms falling, 450 ms to come and go.
     _voice += (target - _voice) * (1 - math.exp(-dt / (target > _voice ? 0.07 : 0.32)));
     _shown += ((_reading ? 1.0 : 0.0) - _shown) * (1 - math.exp(-dt / 0.45));
-    if (!_reading && _shown < 0.004) {
+    final done = !_reading && _shown < 0.004;
+    if (done) {
       _shown = 0;
       _voice = 0;
-      _timer?.cancel();
-      _timer = null;
     }
     // Under another screen, or the app away: keep time, draw nothing.
-    if (_current && WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
-      _paint.value++;
-    }
+    if (_visible) _paint.value++;
+    if (!done) _next();
   }
 
   @override

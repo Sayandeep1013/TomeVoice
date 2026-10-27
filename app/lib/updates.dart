@@ -79,26 +79,25 @@ class Updates {
   File get _log => File('${store.root.path}/updates.json');
 
   /// Newest first.
-  Future<List<NewChapter>> recent() async {
-    try {
-      if (!await _log.exists()) return const [];
-      final raw = jsonDecode(await _log.readAsString()) as Map;
-      return [
-        for (final o in raw['new'] as List? ?? const [])
-          if (NewChapter.fromJson(o) case final c?) c,
-      ];
-    } on Object {
-      return const [];
-    }
-  }
+  Future<List<NewChapter>> recent() async => (await log()).items;
 
-  Future<DateTime?> lastChecked() async {
+  Future<DateTime?> lastChecked() async => (await log()).checked;
+
+  /// The new chapters, newest first, and when the sites were last asked:
+  /// the log read once for both, as the Updates screen wants them together.
+  Future<({List<NewChapter> items, DateTime? checked})> log() async {
     try {
-      if (!await _log.exists()) return null;
+      if (!await _log.exists()) return (items: const <NewChapter>[], checked: null);
       final raw = jsonDecode(await _log.readAsString()) as Map;
-      return DateTime.tryParse(raw['checked'] as String? ?? '');
+      return (
+        items: [
+          for (final o in raw['new'] as List? ?? const [])
+            if (NewChapter.fromJson(o) case final c?) c,
+        ],
+        checked: DateTime.tryParse(raw['checked'] as String? ?? ''),
+      );
     } on Object {
-      return null;
+      return (items: const <NewChapter>[], checked: null);
     }
   }
 

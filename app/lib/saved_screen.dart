@@ -31,6 +31,10 @@ class _SavedScreenState extends State<SavedScreen> {
   Map<String, LibraryEntry> _books = const {};
   String _query = '';
 
+  /// The mark last brought back with Undo: it opens into its place again
+  /// instead of popping back.
+  String? _back;
+
   @override
   void initState() {
     super.initState();
@@ -77,7 +81,10 @@ class _SavedScreenState extends State<SavedScreen> {
       context,
       m.kind == MarkKind.quote ? 'Quote removed.' : 'Bookmark removed.',
       actionLabel: 'Undo',
-      onAction: () => _marks.restore(m),
+      onAction: () {
+        _back = m.id;
+        unawaited(_marks.restore(m));
+      },
     );
   }
 
@@ -172,12 +179,18 @@ class _SavedScreenState extends State<SavedScreen> {
         ),
       ),
       for (final m in marks)
-        BookTint(
-          bookId: bookId,
-          cover: book?.shownCover,
-          child: Builder(builder: (context) => _tile(context, m, book)),
+        // Keyed by mark, so each keeps its row as others come and go.
+        Fold(
+          key: ValueKey(m.id),
+          appear: m.id == _back,
+          child: BookTint(
+            bookId: bookId,
+            cover: book?.shownCover,
+            child: Builder(builder: (context) => _tile(context, m, book)),
+          ),
         ),
     ];
+
   }
 
   Widget _tile(BuildContext context, Mark m, LibraryEntry? book) => Dismissible(
