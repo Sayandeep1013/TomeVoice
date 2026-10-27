@@ -308,6 +308,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Future<void> _bookMenu(LibraryEntry e) async {
     final action = await showModalBottomSheet<String>(
       context: context,
+      sheetAnimationStyle: sheetMotion(context),
       useSafeArea: true,
       isScrollControlled: true,
       builder: (ctx) => SafeArea(

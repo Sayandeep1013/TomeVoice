@@ -655,6 +655,7 @@ Future<String?> askText(
   final controller = TextEditingController(text: initial);
   final result = await showDialog<String>(
     context: context,
+    animationStyle: sheetMotion(context),
     builder: (ctx) => AlertDialog(
       title: Text(title),
       content: TextField(
@@ -685,6 +686,7 @@ Future<bool> confirm(
 }) async =>
     await showDialog<bool>(
       context: context,
+      animationStyle: sheetMotion(context),
       builder: (ctx) => AlertDialog(
         title: Text(title),
         content: Text(body),
@@ -697,6 +699,20 @@ Future<bool> confirm(
     true;
 
 // ---- motion --------------------------------------------------------------
+
+/// How a bottom sheet or a dialog comes and goes, the same everywhere: in at
+/// the pace of a screen arriving and settling as it lands, away a little
+/// quicker. At once when the phone is set to remove animations. For
+/// showModalBottomSheet's sheetAnimationStyle and showDialog's
+/// animationStyle.
+AnimationStyle sheetMotion(BuildContext context) => Motion.reduced(context)
+    ? AnimationStyle.noAnimation
+    : const AnimationStyle(
+        duration: Motion.page,
+        reverseDuration: Motion.standard,
+        curve: Motion.out,
+        reverseCurve: Motion.out,
+      );
 
 /// [child] fading in (and settling from a touch smaller) when it first
 /// shows, and again whenever [trigger] changes, without being rebuilt: a new
