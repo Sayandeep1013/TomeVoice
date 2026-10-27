@@ -18,6 +18,8 @@ class ListeningPrefs {
     Map<String, String>? voiceByLanguage,
     Map<String, String>? voiceByBook,
     Map<String, String>? dialogueByBook,
+    Map<String, bool>? newestFirstByNovel,
+    this.newestFirst = false,
     this.engineId,
     this.textSize = 19,
     this.pdfPages = false,
@@ -35,7 +37,8 @@ class ListeningPrefs {
     this.naturalVoices,
   })  : voiceByLanguage = voiceByLanguage ?? {},
         voiceByBook = voiceByBook ?? {},
-        dialogueByBook = dialogueByBook ?? {};
+        dialogueByBook = dialogueByBook ?? {},
+        newestFirstByNovel = newestFirstByNovel ?? {};
 
   /// Bumped on every change, so the app (theme) and open screens can follow.
   static final revision = ValueNotifier<int>(0);
@@ -53,6 +56,24 @@ class ListeningPrefs {
   /// Book id -> the voice its dialogue (words in quotation marks) is read
   /// in, when not the narrator's.
   final Map<String, String> dialogueByBook;
+
+  /// Web novel id -> whether its page lists the newest chapter first, as
+  /// the reader last turned it.
+  final Map<String, bool> newestFirstByNovel;
+
+  /// The order last chosen on any novel's page: a novel not turned yet
+  /// opens this way.
+  bool newestFirst;
+
+  /// Whether the chapters of novel [id] are listed newest first.
+  bool newestFirstFor(String id) => newestFirstByNovel[id] ?? newestFirst;
+
+  void setNewestFirst(String id, bool value) {
+    newestFirstByNovel[id] = value;
+    newestFirst = value;
+    save();
+  }
+
   String? engineId;
 
   /// Size of the book's text, in logical pixels.
@@ -160,6 +181,8 @@ class ListeningPrefs {
         'voiceByLanguage': voiceByLanguage,
         'voiceByBook': voiceByBook,
         'dialogueByBook': dialogueByBook,
+        'newestFirstByNovel': newestFirstByNovel,
+        'newestFirst': newestFirst,
         'engineId': engineId,
         'textSize': textSize,
         'pdfPages': pdfPages,
@@ -194,6 +217,11 @@ class ListeningPrefs {
           for (final e in (json['voiceByBook'] as Map? ?? const {}).entries)
             e.key.toString(): e.value.toString(),
         },
+        newestFirstByNovel: {
+          for (final e in (json['newestFirstByNovel'] as Map? ?? const {}).entries)
+            if (e.value is bool) e.key.toString(): e.value as bool,
+        },
+        newestFirst: json['newestFirst'] == true,
         engineId: json['engineId'] as String?,
         textSize: ((json['textSize'] as num?)?.toDouble() ?? 19).clamp(14, 30).toDouble(),
         pdfPages: json['pdfPages'] == true,
