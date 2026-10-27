@@ -813,6 +813,33 @@ Widget growIn(BuildContext context, Widget? child) => AnimatedSize(
       child: child == null ? const SizedBox(width: double.infinity) : FadeIn(child: child),
     );
 
+/// A row that folds shut, fading, when [open] turns false, and opens again
+/// when it turns true; with [appear], it also opens from nothing when it is
+/// first built. What is below moves up or down with it instead of jumping.
+class Fold extends StatelessWidget {
+  const Fold({super.key, this.open = true, this.appear = false, required this.child});
+
+  final bool open;
+  final bool appear;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
+        tween: Tween(begin: appear ? 0 : 1, end: open ? 1 : 0),
+        duration: Motion.of(context, Motion.standard),
+        curve: Motion.out,
+        child: child,
+        // The same widgets at rest as in motion, so the row keeps its state.
+        builder: (context, t, child) => ClipRect(
+          child: Align(
+            alignment: Alignment.topCenter,
+            heightFactor: t,
+            child: Opacity(opacity: t, child: child),
+          ),
+        ),
+      );
+}
+
 /// An [Image.frameBuilder] that fades the picture in over [under] (what shows
 /// while it decodes) instead of popping over it; one already in memory shows
 /// at once.

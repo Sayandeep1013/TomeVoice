@@ -27,6 +27,10 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
   DateTime? _checked;
   bool _hasWeb = false;
 
+  /// False until the log is first read: before, "No new chapters" showed
+  /// for a moment on every opening.
+  bool _loaded = false;
+
   @override
   void initState() {
     super.initState();
@@ -52,6 +56,7 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
       _items = log.items;
       _checked = log.checked;
       _hasWeb = hasWeb;
+      _loaded = true;
     });
   }
 
@@ -104,19 +109,28 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
                       ),
                       const SizedBox(width: Gap.m),
                       Expanded(child: Text('Updates', style: Skin.title(context, size: 28, weight: FontWeight.w500))),
+                      // Check and its spinner turn into each other.
                       ValueListenableBuilder<bool>(
                         valueListenable: widget.updates.running,
-                        builder: (context, running, _) => running
-                            ? const Padding(
-                                padding: EdgeInsets.all(Gap.m),
-                                child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5)),
-                              )
-                            : RoundButton(
-                                icon: Icons.refresh_rounded,
-                                tooltip: 'Check for new chapters',
-                                size: 42,
-                                onTap: _hasWeb ? _check : null,
-                              ),
+                        builder: (context, running, _) => AnimatedSwitcher(
+                          duration: Motion.of(context, Motion.quick),
+                          switchInCurve: Motion.out,
+                          switchOutCurve: Motion.out,
+                          child: running
+                              ? const Padding(
+                                  key: ValueKey('checking'),
+                                  padding: EdgeInsets.all(Gap.m),
+                                  child: SizedBox(
+                                      width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5)),
+                                )
+                              : RoundButton(
+                                  key: const ValueKey('check'),
+                                  icon: Icons.refresh_rounded,
+                                  tooltip: 'Check for new chapters',
+                                  size: 42,
+                                  onTap: _hasWeb ? _check : null,
+                                ),
+                        ),
                       ),
                     ],
                   ),
@@ -133,39 +147,50 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
                   ),
                 ),
               ),
-              if (_items.isEmpty)
+              if (_loaded && _items.isEmpty)
                 SliverFillRemaining(
                   hasScrollBody: false,
-                  child: Center(
-                    child: EmptyState(
-                      icon: Icons.new_releases_outlined,
-                      title: _hasWeb ? 'No new chapters' : 'Nothing to follow yet',
-                      body: _hasWeb
-                          ? 'When the sites add chapters to novels in your library, they show up here.'
-                          : 'Add web novels from Browse. Their new chapters show up here as the sites add them.',
-                      action: _hasWeb ? FilledButton(onPressed: _check, child: const Text('Check now')) : null,
+                  child: FadeIn(
+                    child: Center(
+                      child: EmptyState(
+                        icon: Icons.new_releases_outlined,
+                        title: _hasWeb ? 'No new chapters' : 'Nothing to follow yet',
+                        body: _hasWeb
+                            ? 'When the sites add chapters to novels in your library, they show up here.'
+                            : 'Add web novels from Browse. Their new chapters show up here as the sites add them.',
+                        action: _hasWeb ? FilledButton(onPressed: _check, child: const Text('Check now')) : null,
+                      ),
                     ),
                   ),
                 ),
-              for (final g in groups.entries) ...[
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(Gap.page, Gap.l, Gap.page, Gap.s),
-                  sliver: SliverToBoxAdapter(child: Eyebrow(g.key)),
+              // The chapters fade in once read, rather than popping in.
+              if (groups.isNotEmpty)
+                SliverFadeIn(
+                  sliver: SliverMainAxisGroup(
+                    slivers: [
+                      for (final g in groups.entries) ...[
+                        SliverPadding(
+                          padding: const EdgeInsets.fromLTRB(Gap.page, Gap.l, Gap.page, Gap.s),
+                          sliver: SliverToBoxAdapter(child: Eyebrow(g.key)),
+                        ),
+                        SliverList.list(
+                          children: [
+                            for (final c in g.value)
+                              ListTile(
+                                leading: Icon(Icons.fiber_new_rounded, color: Skin.amber),
+                                title: Text(c.title, maxLines: 1, overflow: TextOverflow.ellipsis,
+                                    style: Skin.title(context, size: 16.5)),
+                                subtitle: Text(c.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                trailing: const Icon(Icons.play_circle_outline_rounded),
+                                onTap: () => _open(c),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
-                SliverList.list(
-                  children: [
-                    for (final c in g.value)
-                      ListTile(
-                        leading: Icon(Icons.fiber_new_rounded, color: Skin.amber),
-                        title: Text(c.title, maxLines: 1, overflow: TextOverflow.ellipsis,
-                            style: Skin.title(context, size: 16.5)),
-                        subtitle: Text(c.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                        trailing: const Icon(Icons.play_circle_outline_rounded),
-                        onTap: () => _open(c),
-                      ),
-                  ],
-                ),
-              ],
+
               SliverToBoxAdapter(child: SizedBox(height: Gap.xxl + MediaQuery.viewPaddingOf(context).bottom)),
             ],
           ),

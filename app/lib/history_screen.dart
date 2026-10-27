@@ -23,6 +23,9 @@ class _HistoryScreenState extends State<HistoryScreen> with WhenShown<HistoryScr
   List<LibraryEntry> _entries = const [];
   bool _loaded = false;
 
+  /// Rows folding away, before their books leave the history.
+  final _leaving = <String>{};
+
   @override
   void initState() {
     super.initState();
@@ -51,8 +54,14 @@ class _HistoryScreenState extends State<HistoryScreen> with WhenShown<HistoryScr
     });
   }
 
+  /// The row folds shut first, so the rows below close up over it instead
+  /// of jumping.
   Future<void> _forget(LibraryEntry e) async {
+    if (!_leaving.add(e.id)) return;
+    setState(() {});
+    await Future<void>.delayed(Motion.of(context, Motion.standard));
     await widget.store.forgetOpened(e.id);
+    _leaving.remove(e.id);
     if (mounted) showSnack(context, 'Removed "${e.title}" from history.');
   }
 
@@ -105,15 +114,22 @@ class _HistoryScreenState extends State<HistoryScreen> with WhenShown<HistoryScr
               ),
               SliverList.list(
                 children: [
+                  // Keyed by book, so a row stays with its book as the list
+                  // changes around it.
                   for (final e in g.value)
-                    _HistoryRow(
-                      entry: e,
-                      onOpen: () => openBook(context, widget.store, e),
-                      onPlay: () => openBook(context, widget.store, e, autoplay: true),
-                      onForget: () => _forget(e),
+                    Fold(
+                      key: ValueKey(e.id),
+                      open: !_leaving.contains(e.id),
+                      child: _HistoryRow(
+                        entry: e,
+                        onOpen: () => openBook(context, widget.store, e),
+                        onPlay: () => openBook(context, widget.store, e, autoplay: true),
+                        onForget: () => _forget(e),
+                      ),
                     ),
                 ],
               ),
+
             ],
             const SliverToBoxAdapter(child: SizedBox(height: Gap.xxl)),
           ],

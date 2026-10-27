@@ -122,32 +122,35 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
               Expanded(
                 child: idx == null
                     ? const SizedBox.shrink()
-                    : ReorderableListView.builder(
-                        padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.xl),
-                        itemCount: idx.categories.length,
-                        proxyDecorator: _lifted,
-                        onReorderItem: (from, to) {
-                          final list = [...idx.categories];
-                          list.insert(to, list.removeAt(from));
-                          unawaited(_save(list));
-                        },
-                        itemBuilder: (context, i) {
-                          final c = idx.categories[i];
-                          return Padding(
-                            key: ValueKey(c.id),
-                            padding: const EdgeInsets.only(bottom: Gap.s),
-                            child: _CategoryRow(
-                              category: c,
-                              count: idx.inCategory(c.id).length,
-                              isDefault: c.id == idx.defaultCategory,
-                              index: i,
-                              canDelete: idx.categories.length > 1,
-                              onRename: () => _rename(c),
-                              onDefault: () => _save(idx.categories, defaultCategory: c.id),
-                              onDelete: () => _delete(c),
-                            ),
-                          );
-                        },
+                    // Fades in once read, rather than popping in.
+                    : FadeIn(
+                        child: ReorderableListView.builder(
+                          padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.xl),
+                          itemCount: idx.categories.length,
+                          proxyDecorator: _lifted,
+                          onReorderItem: (from, to) {
+                            final list = [...idx.categories];
+                            list.insert(to, list.removeAt(from));
+                            unawaited(_save(list));
+                          },
+                          itemBuilder: (context, i) {
+                            final c = idx.categories[i];
+                            return Padding(
+                              key: ValueKey(c.id),
+                              padding: const EdgeInsets.only(bottom: Gap.s),
+                              child: _CategoryRow(
+                                category: c,
+                                count: idx.inCategory(c.id).length,
+                                isDefault: c.id == idx.defaultCategory,
+                                index: i,
+                                canDelete: idx.categories.length > 1,
+                                onRename: () => _rename(c),
+                                onDefault: () => _save(idx.categories, defaultCategory: c.id),
+                                onDelete: () => _delete(c),
+                              ),
+                            );
+                          },
+                        ),
                       ),
               ),
               Padding(
