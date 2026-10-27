@@ -718,9 +718,14 @@ AnimationStyle sheetMotion(BuildContext context) => Motion.reduced(context)
 /// shows, and again whenever [trigger] changes, without being rebuilt: a new
 /// screen in the same place arrives the way a pushed one does.
 class FadeIn extends StatefulWidget {
-  const FadeIn({super.key, this.trigger, required this.child});
+  const FadeIn({super.key, this.trigger, this.arrive = true, required this.child});
 
   final Object? trigger;
+
+  /// False: shown as it is at first, fading in only when [trigger] changes
+  /// (for something whose arrival is already faded by what holds it).
+  final bool arrive;
+
   final Widget child;
 
   @override
@@ -728,7 +733,8 @@ class FadeIn extends StatefulWidget {
 }
 
 class _FadeInState extends State<FadeIn> with SingleTickerProviderStateMixin {
-  late final _controller = AnimationController(vsync: this, duration: Motion.page);
+  late final _controller =
+      AnimationController(vsync: this, duration: Motion.page, value: widget.arrive ? 0 : 1);
   late final _t = CurvedAnimation(parent: _controller, curve: Motion.out);
 
   @override
@@ -825,6 +831,23 @@ ImageFrameBuilder fadeInOver(Widget under) => (context, child, frame, sync) {
         ],
       );
     };
+
+/// One state of a screen giving way to another in the same room (nothing
+/// yet, the results, the list): the two cross-fade, each filling the room,
+/// instead of one cutting to the other. Give each state its own key; one
+/// with the same key is only rebuilt, keeping its scroll and its state.
+/// [instant]: this change is not shown (the first state after nothing, while
+/// the whole screen is already fading in).
+Widget fadeSwitch(BuildContext context, Widget child, {bool instant = false}) => AnimatedSwitcher(
+      duration: instant ? Duration.zero : Motion.of(context, Motion.standard),
+      switchInCurve: Motion.out,
+      switchOutCurve: Motion.out,
+      layoutBuilder: (current, previous) => Stack(
+        fit: StackFit.expand,
+        children: [...previous, if (current != null) current],
+      ),
+      child: child,
+    );
 
 /// An [AnimatedSwitcher] transition: the new child fades in while rising a
 /// little; the old one fades out the same way.

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -49,7 +48,23 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
   LibraryStore get _store => widget.store;
   LibraryIndex? _index;
   int _page = 0;
-  late final PageController _pages = PageController();
+
+  /// The shelves' pager, made when the shelves first show. By then the
+  /// index has been read, so it starts on the default shelf: made at once,
+  /// it showed the first shelf for a frame and then cut to the default.
+  PageController? _pager;
+  PageController get _pages => _pager ??= PageController(initialPage: _page);
+
+  /// Bumped when the shelf jumps to a far category, which then fades in.
+  int _leap = 0;
+
+  /// What the body showed last: nothing yet, the empty shelf, a search or
+  /// the shelves.
+  String _shownMode = 'none';
+
+  /// Books that came onto the shelf after it first showed (imported, added
+  /// from Browse), with when: each eases into its place once.
+  final _arrived = <String, DateTime>{};
   _Importing? _importing;
   String _query = '';
   bool _searching = false;
@@ -92,7 +107,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     _store.placeChanges.removeListener(_placeSaved);
     ListeningPrefs.revision.removeListener(_onPrefs);
     _searchController.dispose();
-    _pages.dispose();
+    _pager?.dispose();
     super.dispose();
   }
 
@@ -110,9 +125,21 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     final idx = await _store.index();
     if (!mounted) return;
     setState(() {
+      _noteArrivals(idx);
       _index = idx;
       _page = _page.clamp(0, idx.categories.length - 1);
     });
+  }
+
+  /// Marks the books in [idx] that the shelf did not have, so they ease in.
+  void _noteArrivals(LibraryIndex idx) {
+    final before = _index;
+    if (before == null) return;
+    final had = {for (final e in before.entries) e.id};
+    final now = DateTime.now();
+    for (final e in idx.entries) {
+      if (!had.contains(e.id)) _arrived[e.id] = now;
+    }
   }
 
   Future<void> _open() async {
@@ -124,7 +151,9 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
         _index = idx;
         _page = start < 0 ? 0 : start;
       });
-      if (_page > 0) WidgetsBinding.instance.addPostFrameCallback((_) => _jumpTo(_page));
+      // Only if a change showed the shelves before this: then the pager
+      // was made on the first shelf.
+      if (_pager?.positions.length == 1) _pager!.jumpToPage(_page);
       final pending = await _svc.pendingOpen();
       if (pending != null && _handled.add(pending.path)) {
         await _importAll([pending], openAfter: true);
@@ -140,10 +169,6 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
       );
       _snack('Could not open the library: $e');
     }
-  }
-
-  void _jumpTo(int page) {
-    if (_pages.hasClients) _pages.jumpToPage(page);
   }
 
   void _onPlatformEvent(Map<String, Object?> e) {
@@ -207,6 +232,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     if (!mounted) return;
     setState(() {
       _importing = null;
+      _noteArrivals(idx);
       _index = idx;
     });
     // Show the shelf the new books went to.
@@ -223,14 +249,22 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     if (openAfter && imported.length == 1) await _showBook(imported.single);
   }
 
+  /// The next shelf slides across; a far one is gone to at once and fades
+  /// in, rather than paging past every shelf between (building each one's
+  /// books and covers on the way).
   void _goToPage(int page) {
+    final from = _page;
     setState(() => _page = page);
-    if (_pages.hasClients) {
-      unawaited(
-        Motion.reduced(context)
-            ? Future<void>.sync(() => _pages.jumpToPage(page))
-            : _pages.animateToPage(page, duration: const Duration(milliseconds: 280), curve: Curves.easeOutCubic),
-      );
+    // Not while two pagers share it (the shelves fading back in over the
+    // search, for a moment).
+    if (_pages.positions.length != 1) return;
+    final at = _pages.page?.round() ?? from;
+    final far = (page - at).abs() > 1;
+    if (far || Motion.reduced(context)) {
+      _pages.jumpToPage(page);
+      if (far) setState(() => _leap++);
+    } else {
+      unawaited(_pages.animateToPage(page, duration: Motion.page, curve: Motion.emphasized));
     }
   }
 
@@ -423,27 +457,39 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     ].take(6).toList();
     final showDock = reading.isNotEmpty && !_selecting && !searching;
 
+    // A new sort or view fades the books round, rather than swapping them
+    // under the finger.
+    final arrangement = (_prefs.sort, _prefs.gridView);
+    final String mode;
     Widget body;
     if (idx == null) {
+      mode = 'none';
       body = const SizedBox.shrink();
     } else if (entries.isEmpty && _importing == null) {
+      mode = 'empty';
       body = Center(child: SingleChildScrollView(child: _emptyLibrary(context)));
     } else if (searching) {
+      mode = 'search';
       final found = _sorted([
         for (final e in entries)
           if (e.title.toLowerCase().contains(q) || e.authorLine.toLowerCase().contains(q)) e,
       ]);
-      body = _books(
-        context,
-        found,
-        shelf: 'search',
-        header: Padding(
-          padding: const EdgeInsets.only(bottom: Gap.s),
-          child: Eyebrow(found.isEmpty ? 'Nothing matches "${_query.trim()}"' : '${found.length} found'),
+      body = FadeIn(
+        trigger: arrangement,
+        arrive: false,
+        child: _books(
+          context,
+          found,
+          shelf: 'search',
+          header: Padding(
+            padding: const EdgeInsets.only(bottom: Gap.s),
+            child: Eyebrow(found.isEmpty ? 'Nothing matches "${_query.trim()}"' : '${found.length} found'),
+          ),
+          bottomPad: Gap.xl,
         ),
-        bottomPad: Gap.xl,
       );
     } else {
+      mode = 'shelf';
       body = Column(
         children: [
           Padding(
@@ -457,23 +503,35 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
             ),
           ),
           Expanded(
-            child: PageView.builder(
-              controller: _pages,
-              itemCount: categories.length,
-              onPageChanged: (p) => setState(() => _page = p),
-              itemBuilder: (context, p) {
-                final c = categories[p];
-                final books = _sorted(idx.inCategory(c.id));
-                final since = _introduced.putIfAbsent('${c.id}/${_prefs.gridView}', DateTime.now);
-                return books.isEmpty
-                    ? _emptyCategory(context, c.name)
-                    : _books(context, books, shelf: c.id, bottomPad: showDock ? 120 : Gap.xl, since: since);
-              },
+            child: FadeIn(
+              trigger: (arrangement, _leap),
+              arrive: false,
+              child: PageView.builder(
+                // Keeps the shelf it was on when it is built again (after a
+                // search), which an unkeyed pager forgets.
+                key: const PageStorageKey('shelves'),
+                controller: _pages,
+                itemCount: categories.length,
+                onPageChanged: (p) => setState(() => _page = p),
+                itemBuilder: (context, p) {
+                  final c = categories[p];
+                  final books = _sorted(idx.inCategory(c.id));
+                  final since = _introduced.putIfAbsent('${c.id}/${_prefs.gridView}', DateTime.now);
+                  return books.isEmpty
+                      ? _emptyCategory(context, c.name)
+                      : _books(context, books, shelf: c.id, bottomPad: showDock ? 120 : Gap.xl, since: since);
+                },
+              ),
             ),
           ),
         ],
       );
     }
+    // The empty shelf, the search and the shelves fade into each other's
+    // place instead of cutting. The first, once the index is read, comes
+    // with the whole screen fading in from the opening lockup.
+    body = fadeSwitch(context, KeyedSubtree(key: ValueKey(mode), child: body), instant: _shownMode == 'none');
+    _shownMode = mode;
 
     return shownGate(PopScope(
       canPop: !_selecting && !_searching,
@@ -534,24 +592,32 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
                   // Books fade out as they scroll under the dock. The content
                   // itself fades, so the real ground shows through: a painted
                   // band never matched the diagonal ground and read as a bar.
-                  // The key carries the shelf across the dock's mask coming
-                  // and going (selecting a book hides the dock): rebuilt
-                  // fresh, the pages would snap back to the first category.
+                  // The fade grows and shrinks as the dock rises and sinks
+                  // (it snapped on and off under the moving dock). The key
+                  // carries the shelf across the mask coming and going
+                  // (selecting a book hides the dock): rebuilt fresh, the
+                  // pages would snap back to the first category.
                   Expanded(
                     child: HeroMode(
                       enabled: _shelfHeroes,
-                      child: showDock
-                          ? ShaderMask(
-                              blendMode: BlendMode.dstIn,
-                              shaderCallback: (rect) => LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: const [Colors.black, Colors.black, Colors.transparent],
-                                stops: [0, (1 - 130 / rect.height).clamp(0.0, 1.0), 1],
-                              ).createShader(rect),
-                              child: KeyedSubtree(key: _shelfKey, child: body),
-                            )
-                          : KeyedSubtree(key: _shelfKey, child: body),
+                      child: TweenAnimationBuilder<double>(
+                        tween: Tween(end: showDock ? 130 : 0),
+                        duration: Motion.of(context, showDock ? Motion.page : Motion.standard),
+                        curve: Motion.out,
+                        child: KeyedSubtree(key: _shelfKey, child: body),
+                        builder: (context, fade, shelf) => fade <= 0
+                            ? shelf!
+                            : ShaderMask(
+                                blendMode: BlendMode.dstIn,
+                                shaderCallback: (rect) => LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: const [Colors.black, Colors.black, Colors.transparent],
+                                  stops: [0, (1 - fade / rect.height).clamp(0.0, 1.0), 1],
+                                ).createShader(rect),
+                                child: shelf,
+                              ),
+                      ),
                     ),
                   ),
                 ],
@@ -561,8 +627,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
                 right: Gap.m,
                 bottom: Gap.m,
                 // The dock rises from the foot of the screen and sinks back
-                // into it. It only moves: fading it would fade its blur too,
-                // which is the expensive kind of fade.
+                // into it.
                 child: AnimatedSwitcher(
                   duration: Motion.of(context, Motion.page),
                   reverseDuration: Motion.of(context, Motion.standard),
@@ -620,6 +685,22 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     DateTime? since,
   }) {
     final landscape = MediaQuery.orientationOf(context) == Orientation.landscape;
+    // Each tile is keyed by its book and found again by it, so when books
+    // come, go or move, a tile's state (its entrance, its cover) goes with
+    // its book instead of staying at its place in the list.
+    final at = {for (var i = 0; i < books.length; i++) books[i].id: i};
+    int? find(Key key) => key is ValueKey<String> ? at[key.value] : null;
+    // A book new on the shelf eases in, first and at once.
+    Widget enter(int i, LibraryEntry e, Widget tile) {
+      final arrived = _arrived[e.id];
+      return Entrance(
+        key: ValueKey(e.id),
+        index: arrived == null ? i : 0,
+        since: arrived ?? since,
+        child: tile,
+      );
+    }
+
     return CustomScrollView(
       key: PageStorageKey('shelf-$shelf-${_prefs.gridView}'),
       slivers: [
@@ -639,12 +720,12 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
                 crossAxisSpacing: 14,
                 childAspectRatio: 2 / 3,
               ),
-              delegate: SliverChildBuilderDelegate(childCount: books.length, (context, i) {
+              delegate: SliverChildBuilderDelegate(childCount: books.length, findChildIndexCallback: find, (context, i) {
                 final e = books[i];
-                return Entrance(
-                  index: i,
-                  since: since,
-                  child: BookTile(
+                return enter(
+                  i,
+                  e,
+                  BookTile(
                     entry: e,
                     selected: _selected.contains(e.id),
                     onOpen: () => _selecting ? _toggle(e) : _showBook(e),
@@ -659,13 +740,14 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
             padding: EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, bottomPad),
             sliver: SliverList.separated(
               itemCount: books.length,
+              findItemIndexCallback: find,
               separatorBuilder: (_, __) => const SizedBox(height: 10),
               itemBuilder: (context, i) {
                 final e = books[i];
-                return Entrance(
-                  index: i,
-                  since: since,
-                  child: BookRow(
+                return enter(
+                  i,
+                  e,
+                  BookRow(
                     entry: e,
                     selecting: _selecting,
                     selected: _selected.contains(e.id),
@@ -878,8 +960,9 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
 }
 
 /// The library's shelves, as a row of pills with their book counts. The
-/// amber passes from pill to pill with the shelf as it is swiped.
-class _CategoryTabs extends StatelessWidget {
+/// amber passes from pill to pill with the shelf as it is swiped, and the
+/// row scrolls to keep the chosen pill in view.
+class _CategoryTabs extends StatefulWidget {
   const _CategoryTabs({
     required this.index,
     required this.current,
@@ -897,7 +980,55 @@ class _CategoryTabs extends StatelessWidget {
   final ValueChanged<int> onPick;
   final VoidCallback onManage;
 
+  @override
+  State<_CategoryTabs> createState() => _CategoryTabsState();
+}
+
+class _CategoryTabsState extends State<_CategoryTabs> {
+  final _scroll = ScrollController();
+
+  /// Each pill, by category, to find it when it is to be brought into view.
+  final _pills = <String, GlobalKey>{};
+
+  @override
+  void initState() {
+    super.initState();
+    _reveal(first: true);
+  }
+
+  @override
+  void didUpdateWidget(_CategoryTabs old) {
+    super.didUpdateWidget(old);
+    if (old.current != widget.current) _reveal();
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  /// Brings the chosen pill to the middle of the row, as far as the row
+  /// goes: a shelf picked by swiping, or from a pill at the edge, was
+  /// otherwise left out of sight. At once the first time.
+  void _reveal({bool first = false}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final cats = widget.index.categories;
+      if (!mounted || widget.current >= cats.length) return;
+      final pill = _pills[cats[widget.current].id]?.currentContext;
+      if (pill == null) return;
+      unawaited(Scrollable.ensureVisible(
+        pill,
+        alignment: 0.5,
+        duration: first ? Duration.zero : Motion.of(context, Motion.standard),
+        curve: Motion.emphasized,
+      ));
+    });
+  }
+
   double get _position {
+    final pages = widget.pages;
+    final current = widget.current;
     if (!pages.hasClients || pages.positions.length != 1) return current.toDouble();
     final p = pages.position;
     if (!p.hasPixels || !p.hasContentDimensions) return current.toDouble();
@@ -905,47 +1036,55 @@ class _CategoryTabs extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    height: 40,
-    child: Row(
-      children: [
-        Expanded(
-          // Only these pills rebuild as the shelf moves, never the books.
-          child: ListenableBuilder(
-            listenable: pages,
-            builder: (context, _) {
-              final at = _position;
-              return ListView(
-                scrollDirection: Axis.horizontal,
-                children: [
-                  for (var i = 0; i < index.categories.length; i++) ...[
-                    _tab(
-                      context,
-                      i,
-                      index.categories[i],
-                      index.inCategory(index.categories[i].id).length,
-                      (1 - (at - i).abs()).clamp(0.0, 1.0),
-                    ),
-                    const SizedBox(width: Gap.s),
-                  ],
-                ],
-              );
-            },
+  Widget build(BuildContext context) {
+    final index = widget.index;
+    return SizedBox(
+      height: 40,
+      child: Row(
+        children: [
+          Expanded(
+            // Only these pills rebuild as the shelf moves, never the books.
+            child: ListenableBuilder(
+              listenable: widget.pages,
+              builder: (context, _) {
+                final at = _position;
+                // Every pill built (they are few), so any can be scrolled to.
+                return SingleChildScrollView(
+                  controller: _scroll,
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (var i = 0; i < index.categories.length; i++) ...[
+                        _tab(
+                          context,
+                          i,
+                          index.categories[i],
+                          index.inCategory(index.categories[i].id).length,
+                          (1 - (at - i).abs()).clamp(0.0, 1.0),
+                        ),
+                        const SizedBox(width: Gap.s),
+                      ],
+                    ],
+                  ),
+                );
+              },
+            ),
           ),
-        ),
-        IconButton(
-          tooltip: 'Edit categories',
-          onPressed: onManage,
-          icon: Icon(Icons.edit_note_rounded, size: 24, color: Skin.inkSoftOn(context)),
-        ),
-      ],
-    ),
-  );
+          IconButton(
+            tooltip: 'Edit categories',
+            onPressed: widget.onManage,
+            icon: Icon(Icons.edit_note_rounded, size: 24, color: Skin.inkSoftOn(context)),
+          ),
+        ],
+      ),
+    );
+  }
 
   /// Pill [i]; [t] is how much it is the current one, from 0 to 1.
   Widget _tab(BuildContext context, int i, Category c, int count, double t) {
-    final selected = i == current;
+    final selected = i == widget.current;
     return Semantics(
+      key: _pills.putIfAbsent(c.id, GlobalKey.new),
       selected: selected,
       button: true,
       child: Material(
@@ -953,8 +1092,9 @@ class _CategoryTabs extends StatelessWidget {
         borderRadius: BorderRadius.circular(Radii.pill),
         child: InkWell(
           borderRadius: BorderRadius.circular(Radii.pill),
-          onTap: () => onPick(i),
-          onLongPress: onManage,
+          onTap: () => widget.onPick(i),
+          onLongPress: widget.onManage,
+
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: Gap.s),
             child: Row(
@@ -1035,60 +1175,60 @@ class _ContinueDockState extends State<ContinueDock> {
   Widget build(BuildContext context) {
     final onDark = Skin.onDark(context);
     final books = widget.books;
+    // No blur behind it: the shelf has faded to the bare ground by the time
+    // it reaches the dock, so a blur showed nothing, and it cost a layer and
+    // a blur on every frame of every scroll. A shade more opaque instead.
     return ClipRRect(
       borderRadius: BorderRadius.circular(Radii.card),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: AnimatedContainer(
-          duration: Motion.of(context, Motion.standard),
-          curve: Motion.out,
-          height: books.length > 1 ? 96 : 88,
-          decoration: BoxDecoration(
-            color: Skin.darkOn(context).withValues(alpha: 0.86),
-            borderRadius: BorderRadius.circular(Radii.card),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-          ),
-          child: Column(
-            children: [
-              Expanded(
-                // Another book come to the front fades in, rather than
-                // the dock changing under the finger.
-                child: FadeIn(
-                  trigger: books.isEmpty ? null : books.first.id,
-                  child: PageView.builder(
-                    controller: _controller,
-                    itemCount: books.length,
-                    onPageChanged: (p) => setState(() => _page = p),
-                    itemBuilder: (context, i) => BookTint(
-                      bookId: books[i].id,
-                      cover: books[i].shownCover,
-                      child: Builder(builder: (context) => _item(context, books[i], onDark)),
-                    ),
+      child: AnimatedContainer(
+        duration: Motion.of(context, Motion.standard),
+        curve: Motion.out,
+        height: books.length > 1 ? 96 : 88,
+        decoration: BoxDecoration(
+          color: Skin.darkOn(context).withValues(alpha: 0.9),
+          borderRadius: BorderRadius.circular(Radii.card),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        ),
+        child: Column(
+          children: [
+            Expanded(
+              // Another book come to the front fades in, rather than
+              // the dock changing under the finger.
+              child: FadeIn(
+                trigger: books.isEmpty ? null : books.first.id,
+                child: PageView.builder(
+                  controller: _controller,
+                  itemCount: books.length,
+                  onPageChanged: (p) => setState(() => _page = p),
+                  itemBuilder: (context, i) => BookTint(
+                    bookId: books[i].id,
+                    cover: books[i].shownCover,
+                    child: Builder(builder: (context) => _item(context, books[i], onDark)),
                   ),
                 ),
               ),
-              if (books.length > 1)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 7),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      for (var i = 0; i < books.length; i++)
-                        AnimatedContainer(
-                          duration: Motion.of(context, const Duration(milliseconds: 200)),
-                          margin: const EdgeInsets.symmetric(horizontal: 2.5),
-                          width: i == _page ? 14 : 5,
-                          height: 5,
-                          decoration: BoxDecoration(
-                            color: i == _page ? Skin.amber : onDark.withValues(alpha: 0.25),
-                            borderRadius: BorderRadius.circular(3),
-                          ),
+            ),
+            if (books.length > 1)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 7),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    for (var i = 0; i < books.length; i++)
+                      AnimatedContainer(
+                        duration: Motion.of(context, const Duration(milliseconds: 200)),
+                        margin: const EdgeInsets.symmetric(horizontal: 2.5),
+                        width: i == _page ? 14 : 5,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: i == _page ? Skin.amber : onDark.withValues(alpha: 0.25),
+                          borderRadius: BorderRadius.circular(3),
                         ),
-                    ],
-                  ),
+                      ),
+                  ],
                 ),
-            ],
-          ),
+              ),
+          ],
         ),
       ),
     );
