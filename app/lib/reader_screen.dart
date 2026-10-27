@@ -1949,7 +1949,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                         _book.metadata.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: Skin.title(context, size: 18),
+                        // On a page tone's paper, in its ink: the app's (cream
+                        // in a dark theme) vanished on Ink's white.
+                        style: Skin.title(context, size: 18, color: _tone.ink),
                       ),
                       ListenableBuilder(
                         listenable: _topLine,
@@ -1959,7 +1961,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                           final looking = _detached.value && !_l.isEmpty;
                           final c = looking ? _viewChapter.value : _l.chapterOfUnit(_cursor.value);
                           final u = looking ? _l.chapterFirstUnit[c] : _cursor.value;
-                          final style = Skin.meta(context, size: 10.5);
+                          final style = Skin.meta(context, size: 10.5, color: _tone.inkSoft);
                           if (!(_l.chapters.length > 1 || widget.positionOf != null)) {
                             return Text(
                               _book.metadata.authorLine.isEmpty
