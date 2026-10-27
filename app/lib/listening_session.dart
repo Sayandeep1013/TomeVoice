@@ -53,12 +53,13 @@ PlaybackScheduler readingScheduler({
   return PlaybackScheduler(
     service: service,
     units: layout.units,
-    settingsFor: (text) => prefs().settings.copyWith(text: text),
+    settingsFor: (text) => prefs().settingsFor(listen().voiceName).copyWith(text: text),
     engineIdOf: () => prefs().engineId ?? VoiceCatalog.instance.engineId,
     voiceNameOf: () => listen().voiceName,
     pauseAfter: pauseAfter,
     respell: (text) => respell(text, ReadingRules.instance.sayFor(bookId)),
     dialogueVoiceOf: () => listen().dialogueVoice,
+    pitchOf: (voice) => prefs().pitchOf(voice),
     quoteOpenAt: quoteOpenAt,
   );
 }

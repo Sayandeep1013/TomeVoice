@@ -7,7 +7,13 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 import 'package:tomevoice_spike/dialogue.dart';
+import 'package:tomevoice_spike/listen_sheet.dart';
 import 'package:tomevoice_spike/neural_voices.dart';
+import 'package:tomevoice_spike/prefs.dart';
+import 'package:tomevoice_spike/voices.dart';
+
+VoiceInfo phone(String name, String locale) =>
+    VoiceInfo(name: name, locale: locale, quality: 400, networkRequired: false, installed: true);
 
 String show(List<Part> parts) => [for (final p in parts) '${p.spoken ? 'D' : 'N'}[${p.text}]'].join(' ');
 
@@ -79,5 +85,63 @@ void main() {
         'https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/kristin/medium/samples/speaker_0.mp3');
     expect(neuralVoiceFor('neural:en_GB-jenny_dioco-medium')!.sampleUrl,
         endsWith('/en/en_GB/jenny_dioco/medium/samples/speaker_0.mp3'));
+  });
+
+  test('each voice keeps its own pitch; the one pitch all voices shared is not carried over', () {
+    final prefs = ListeningPrefs.fromJson({
+      'settings': {'pitchSemitones': -7.4, 'speedScale': 1.25},
+      'pitchByVoice': {'en-us-x-iob-local': -3.0},
+    });
+    expect(prefs.settings.pitchSemitones, 0, reason: 'on a Google voice it switched every voice to the old model');
+    expect(prefs.settings.speedScale, 1.25);
+    expect(prefs.pitchOf('en-us-x-iob-local'), -3);
+    expect(prefs.pitchOf('bn-in-x-bnd-local'), 0, reason: 'another voice does not inherit it');
+    expect(prefs.settingsFor('en-us-x-iob-local').pitchSemitones, -3);
+    expect(prefs.settingsFor(null).pitchSemitones, 0);
+
+    prefs.setPitch('bn-in-x-bnd-local', 2);
+    prefs.setPitch('en-us-x-iob-local', 0);
+    final again = ListeningPrefs.fromJson(prefs.toJson());
+    expect(again.pitchByVoice, {'bn-in-x-bnd-local': 2.0}, reason: 'back at 0 is no entry at all');
+  });
+
+  test("Google's language alias is not listed beside the speaker it stands for", () {
+    final catalog = VoiceCatalog.instance;
+    catalog.voices = [
+      phone('bn-IN-language', 'bn-IN'),
+      phone('bn-in-x-bnc-local', 'bn-IN'),
+      phone('bn-in-x-bnd-local', 'bn-IN'),
+      phone('as-IN-language', 'as-IN'),
+    ];
+    expect([for (final v in catalog.forLanguage('bn')) v.name], ['bn-in-x-bnc-local', 'bn-in-x-bnd-local']);
+    expect(catalog.forLanguage('bn', keep: 'bn-IN-language').map((v) => v.name), contains('bn-IN-language'),
+        reason: 'the voice in use keeps its row');
+    expect([for (final v in catalog.forLanguage('as')) v.name], ['as-IN-language'],
+        reason: 'an alias with no named speakers is the only voice there is');
+    expect(catalog.bestFor('bn')!.isAlias, isFalse);
+    expect(catalog.friendlyName(catalog.byName('bn-in-x-bnd-local')!), 'Voice 2');
+  });
+
+  test("a language's usual voice speaks that language", () {
+    final catalog = VoiceCatalog.instance;
+    catalog.voices = [
+      phone('en-us-x-iob-local', 'en-US'),
+      phone('bn-in-x-bnd-local', 'bn-IN'),
+    ];
+    // Saved by a Bengali novel the app took for English.
+    final prefs = ListeningPrefs(voiceByLanguage: {'en': 'bn-in-x-bnd-local'});
+    final english = ListenController(prefs: prefs, language: 'en', bookId: 'b1', onChanged: ({required bool restart}) {});
+    expect(english.voiceName, 'en-us-x-iob-local');
+
+    // Another language's voice for one book is that book's own.
+    english.chooseVoice('bn-in-x-bnd-local');
+    expect(english.voiceName, 'bn-in-x-bnd-local');
+    expect(prefs.voiceByLanguage['en'], 'bn-in-x-bnd-local', reason: 'untouched, and still not used for English');
+    final other = ListenController(prefs: prefs, language: 'en', bookId: 'b2', onChanged: ({required bool restart}) {});
+    expect(other.voiceName, 'en-us-x-iob-local');
+
+    final bengali = ListenController(prefs: prefs, language: 'bn', bookId: 'b3', onChanged: ({required bool restart}) {});
+    bengali.chooseVoice('bn-in-x-bnd-local');
+    expect(prefs.voiceByLanguage['bn'], 'bn-in-x-bnd-local');
   });
 }

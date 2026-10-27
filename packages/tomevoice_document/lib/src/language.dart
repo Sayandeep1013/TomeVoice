@@ -69,11 +69,19 @@ const _latinScript = {
 
 /// The language to speak [book] in: script evidence first, then metadata if it
 /// agrees with the script, then English.
+///
+/// A book with no text yet (a web novel before its first chapter is fetched)
+/// is judged by its title and description, and failing those keeps what it
+/// declares: there is no text to contradict it.
 String resolveLanguage(Book book) {
   final declared = _primary(book.metadata.language);
-  final fromScript = detectScriptLanguage(_sampleOf(book));
+  final sample = _sampleOf(book);
+  final empty = sample.trim().isEmpty;
+  final fromScript = detectScriptLanguage(
+    empty ? '${book.metadata.title} ${book.metadata.description ?? ''}' : sample,
+  );
   if (fromScript != null) return fromScript;
-  if (declared != null && _latinScript.contains(declared)) return declared;
+  if (declared != null && (empty || _latinScript.contains(declared))) return declared;
   return 'en';
 }
 

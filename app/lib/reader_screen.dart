@@ -738,7 +738,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       await speakSample(
         voiceName: voiceName,
         text: text,
-        settings: _prefs.settings,
+        settings: _prefs.settingsFor(voiceName),
         engineId: _prefs.engineId ?? _catalog.engineId,
       );
     } on Object catch (e) {
@@ -1444,7 +1444,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             return speakSample(
               voiceName: _listen.voiceName ?? '',
               text: text,
-              settings: _prefs.settings,
+              settings: _prefs.settingsFor(_listen.voiceName),
               engineId: _prefs.engineId ?? _catalog.engineId,
             );
           },

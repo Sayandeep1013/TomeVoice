@@ -288,7 +288,8 @@ void main() {
     expect(languageCodeOf('English'), 'en');
     expect(languageCodeOf('Русский'), 'ru');
     expect(languageCodeOf('${String.fromCharCode(0x200E)}العربية'), 'ar');
-    expect(languageCodeOf('Klingon'), 'en');
+    expect(languageCodeOf('বাংলা'), 'bn');
+    expect(languageCodeOf('Klingon'), isNull, reason: "not a guess of English: the chapters' script decides");
   });
 
   test('a NovelDokusha backup brings its novels, downloaded text and place', () async {

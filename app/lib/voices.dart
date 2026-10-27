@@ -38,6 +38,11 @@ class VoiceInfo {
     return r.isEmpty ? lang : '$lang ($r)';
   }
 
+  /// Google's "bn-IN-language": not a speaker of its own but whichever of
+  /// that language's voices is chosen in Google's settings, so the same
+  /// speaker listed twice.
+  bool get isAlias => name.toLowerCase().endsWith('-language');
+
   /// Google voice names carry a short variant code: en-us-x-iob-local.
   String get variant {
     final m = RegExp(r'-x-([a-z0-9]+)', caseSensitive: false).firstMatch(name);
@@ -144,22 +149,38 @@ class VoiceCatalog extends ChangeNotifier {
     return null;
   }
 
-  /// The voice to use for [language] when the user has not chosen one.
+  /// The voice to use for [language] when the user has not chosen one: a
+  /// speaker of its own, so it is one the list can show as chosen.
   VoiceInfo? bestFor(String language) {
     final pick = SpeechService.pickVoice(
-      [for (final v in voices) v.toMap()],
+      [for (final v in _withoutAliases(voices)) v.toMap()],
       language,
       preferRegion: PlatformDispatcher.instance.locale.countryCode,
     );
     return pick == null ? null : byName(pick['name'] as String?);
   }
 
+  /// [list] without the aliases of a region that has its speakers listed;
+  /// [keep] stays even so (the voice in use).
+  static List<VoiceInfo> _withoutAliases(List<VoiceInfo> list, {String? keep}) {
+    final named = {
+      for (final v in list)
+        if (!v.isAlias) '${v.language}-${v.region}',
+    };
+    return [
+      for (final v in list)
+        if (!v.isAlias || v.name == keep || !named.contains('${v.language}-${v.region}')) v,
+    ];
+  }
+
   /// Voices for [language], installed and offline first, then by quality.
-  List<VoiceInfo> forLanguage(String language) {
-    final list = [
+  /// [keep] is listed even when it would be left out as an alias, so the
+  /// voice in use always has its row.
+  List<VoiceInfo> forLanguage(String language, {String? keep}) {
+    final list = _withoutAliases([
       for (final v in all)
         if (v.language == language) v,
-    ];
+    ], keep: keep);
     int score(VoiceInfo v) =>
         (v.installed ? 4000 : 0) +
         (v.networkRequired ? 0 : 2000) +
