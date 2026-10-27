@@ -2,9 +2,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:archive/archive.dart';
+
 import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor;
 
 import 'library_store.dart';
+import 'speech_service.dart' show PickedFile;
 import 'sources/models.dart';
 import 'sources/source_store.dart';
 
@@ -54,12 +57,14 @@ Future<ImportReport> importNovelDokushaJson(
   for (var n = 0; n < books.length; n++) {
     final b = books[n];
     onProgress?.call(b.title, n, books.length);
-    final host = _bareHost(b.url);
     // A book NovelDokusha imported from a file: its text is all there is.
-    final local = b.url.startsWith('local://');
-    final plugin = local
-        ? _localBooks
-        : candidates.where((p) => _bareHost(p.site) == host).firstOrNull ??
+    // It comes back as the book it was (an EPUB), not a web novel.
+    if (b.url.startsWith('local://')) {
+      chapters += await _importLocalBook(store, b);
+      continue;
+    }
+    final host = _bareHost(b.url);
+    final plugin = candidates.where((p) => _bareHost(p.site) == host).firstOrNull ??
         PluginInfo(
           id: 'noveldokusha:$host',
           name: Uri.tryParse(b.url)?.host ?? host,
@@ -68,12 +73,11 @@ Future<ImportReport> importNovelDokushaJson(
           version: '0',
           url: '',
         );
-    if (plugin.url.isEmpty && !local) unmatched.add(b.title);
+    if (plugin.url.isEmpty) unmatched.add(b.title);
     String rel(String url) => _relative(url, plugin.site);
     final novel = SourceNovel(
       path: rel(b.url),
-      name: local ? _tidyFileName(b.title) : b.title,
-      status: local ? 'Completed' : null,
+      name: b.title,
       cover: b.cover.isEmpty ? null : b.cover,
       summary: b.description.isEmpty ? null : b.description,
       chapters: [for (final c in b.chapters) ChapterItem(name: c.title, path: rel(c.url))],
@@ -129,15 +133,69 @@ List<_NdBook> _parse(String path) {
   ];
 }
 
-/// Where NovelDokusha's local books come from: no site, nothing to update.
-const _localBooks = PluginInfo(
-  id: 'noveldokusha:local',
-  name: 'NovelDokusha',
-  site: '',
-  lang: 'English',
-  version: '0',
-  url: '',
-);
+/// One of NovelDokusha's local books, as an EPUB made from the chapters in
+/// the backup and imported like any book: an EPUB on the shelf, with its
+/// chapters and NovelDokusha's place. Returns the chapters that had text.
+Future<int> _importLocalBook(LibraryStore store, _NdBook b) async {
+  final title = _tidyFileName(b.title);
+  final withText = [
+    for (final c in b.chapters)
+      if (c.body != null && c.body!.trim().isNotEmpty) c,
+  ];
+  if (withText.isEmpty) return 0;
+  // An earlier import brought it in as a web novel: that copy goes.
+  final old = LibraryStore.webId('noveldokusha:local', b.url);
+  if ((await store.list()).any((e) => e.id == old)) await store.remove(old);
+
+  final dir = Directory('${store.root.path}/incoming')..createSync(recursive: true);
+  final file = File('${dir.path}/${title.replaceAll(RegExp(r'[^\w .-]'), '')}.epub');
+  file.writeAsBytesSync(_epub(title, [for (final c in withText) (title: c.title, html: _bodyToHtml(c.body!))]));
+  final entry = await store.importFile(PickedFile(path: file.path, name: '$title.epub', mime: 'application/epub+zip'));
+
+  // The place: NovelDokusha's last chapter, among those with text.
+  final at = b.lastRead == null ? -1 : withText.indexWhere((c) => c.url == b.lastRead);
+  if (at > 0) {
+    await store.saveCursor(entry.id, ReadingCursor(sectionIndex: at), at / withText.length, where: withText[at].title);
+  }
+  return withText.length;
+}
+
+/// A plain EPUB 3: one XHTML file per chapter, in order, and its contents.
+List<int> _epub(String title, List<({String title, String html})> chapters) {
+  String esc(String s) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+  String page(String t, String body) => '<?xml version="1.0" encoding="utf-8"?>'
+      '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>${esc(t)}</title></head>'
+      '<body>$body</body></html>';
+  final archive = Archive()
+    ..add(ArchiveFile.string('mimetype', 'application/epub+zip')..compression = CompressionType.none)
+    ..add(ArchiveFile.string(
+        'META-INF/container.xml',
+        '<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+            '<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>'
+            '</rootfiles></container>'));
+  for (var i = 0; i < chapters.length; i++) {
+    final c = chapters[i];
+    archive.add(ArchiveFile.string('OEBPS/c$i.xhtml', page(c.title, '<h1>${esc(c.title)}</h1>${c.html}')));
+  }
+  archive.add(ArchiveFile.string(
+      'OEBPS/nav.xhtml',
+      '<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml" '
+          'xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Contents</title></head><body>'
+          '<nav epub:type="toc"><ol>'
+          '${[for (var i = 0; i < chapters.length; i++) '<li><a href="c$i.xhtml">${esc(chapters[i].title)}</a></li>'].join()}'
+          '</ol></nav></body></html>'));
+  archive.add(ArchiveFile.string(
+      'OEBPS/content.opf',
+      '<?xml version="1.0" encoding="utf-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
+          'unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
+          '<dc:identifier id="id">noveldokusha:${esc(title)}</dc:identifier><dc:title>${esc(title)}</dc:title>'
+          '<dc:language>en</dc:language></metadata><manifest>'
+          '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>'
+          '${[for (var i = 0; i < chapters.length; i++) '<item id="c$i" href="c$i.xhtml" media-type="application/xhtml+xml"/>'].join()}'
+          '</manifest><spine>${[for (var i = 0; i < chapters.length; i++) '<itemref idref="c$i"/>'].join()}</spine>'
+          '</package>'));
+  return ZipEncoder().encodeBytes(archive);
+}
 
 /// "A_Game_of_Thrones_A_Song_of_Ice_and_Fire_1.epub" as a title.
 String _tidyFileName(String name) {
