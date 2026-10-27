@@ -322,6 +322,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// reading without the voice: "Back to where you were".
   int? _returnTo;
 
+  /// Sentences with a bookmark in this book, and whether the page (or the
+  /// paragraph read) shown has one: the ribbon, and the bar's button.
+  final _markedUnits = ValueNotifier<Set<int>>(const {});
+  final _bookmarkedHere = ValueNotifier<bool>(false);
+
   /// Pages: turned from outside, and the reader's bars shown over them.
   final _paged = PagedController();
   final _chrome = ValueNotifier<bool>(false);
@@ -434,6 +439,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _cursor.addListener(_syncMarked);
     _cursor.addListener(_onCursor);
     _syncMarked();
+    MarkStore.instance.changes.addListener(_onMarks);
+    _onMarks();
     _positions.itemPositions.addListener(_onPositions);
     if (!_l.isEmpty && _startItem != _l.unitItem[_cursor.value.clamp(0, _l.units.length - 1)]) {
       _detached.value = true;
@@ -682,6 +689,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _detached.dispose();
     _veiled.dispose();
     _marked.dispose();
+    MarkStore.instance.changes.removeListener(_onMarks);
+    _markedUnits.dispose();
+    _bookmarkedHere.dispose();
     _chrome.dispose();
     _viewChapter.dispose();
     super.dispose();
@@ -1056,6 +1066,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _schedulePersist();
     _updateSession();
     if (!_detached.value && !_quiet) _reveal(_cursor.value);
+    _syncBookmarkHere();
   }
 
   /// Resume following the voice. [force] scrolls even if the paragraph is
@@ -1174,6 +1185,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       _eyesTimer?.cancel();
       _eyesTimer = Timer(const Duration(milliseconds: 250), _placeFromEyes);
     }
+    if (n is ScrollEndNotification) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _syncBookmarkHere();
+      });
+    }
     return false;
   }
 
@@ -1227,6 +1243,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   void _onPage(int unit, {required bool byHand}) {
     _pageUnit = unit;
     _viewChapter.value = _l.chapterOfUnit(unit);
+    _syncBookmarkHere();
     if (!byHand) return;
     if (_chrome.value) _chrome.value = false;
     _lastScroll = DateTime.now();
@@ -1260,7 +1277,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   /// Jump, remembering where the reader was so they can go back.
   void _jump(int unit) {
-    if (!_listening && unit != _cursor.value) {
+    // Not while the voice reads (Back to reading is the way back then); a
+    // pause counts as reading here, as the jump ends it and with it that way.
+    if (!_player.isPlaying && unit != _cursor.value) {
       setState(() => _returnTo = _cursor.value);
     }
     unawaited(_goTo(unit));
@@ -1299,7 +1318,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   /// Keep sentence [unit] (the one being read by default) as a quote or a
   /// bookmark. The message offers Undo, for a save made by mistake.
-  Future<Mark?> _save(MarkKind kind, {int? unit, int span = 1, String? note}) async {
+  Future<Mark?> _save(MarkKind kind, {int? unit, int span = 1, String? note, bool hint = false}) async {
     if (_l.isEmpty) return null;
     final u = (unit ?? _cursor.value).clamp(0, _l.units.length - 1);
     final end = (u + span).clamp(u + 1, _l.units.length);
@@ -1315,7 +1334,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       note: note,
     );
     if (!mounted) return mark;
-    final said = kind == MarkKind.quote ? 'Saved to your quotes.' : 'Bookmarked.';
+    final said = kind == MarkKind.quote
+        ? 'Saved to your quotes.'
+        : hint
+            ? 'Bookmarked. Hold the bookmark button to see them all.'
+            : 'Bookmarked.';
     showSnack(
       context,
       said,
@@ -1452,6 +1475,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           _hitQuery = query;
         });
         _detached.value = false;
+        if (_inPages) _chrome.value = true;
         _jump(hits[i].unit);
       },
     ));
@@ -1674,6 +1698,172 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     );
   }
 
+  // ------------------------------------------------------------ bookmarks
+
+  List<Mark> get _bookmarks => [
+        for (final m in MarkStore.instance.forBook(_book.id))
+          // A web novel's bookmark in a chapter not on the phone is left out.
+          if (m.kind == MarkKind.bookmark && _l.chapters.contains(m.at.sectionIndex)) m,
+      ];
+
+  /// Bookmarks were added or removed: the ribbons and the bar's button follow.
+  void _onMarks() {
+    if (_l.isEmpty) return;
+    _markedUnits.value = {for (final m in _bookmarks) unitOfMark(_l, m)};
+    _syncBookmarkHere();
+    if (mounted) setState(() {});
+  }
+
+  /// The sentences shown: the page (both, in a spread), a PDF's page, or
+  /// the paragraph being read on the scroll (the voice's while it reads and
+  /// is followed, else the one at the top of what is being read).
+  (int, int) _viewRange() {
+    if (_l.isEmpty) return (0, 0);
+    final cursor = _cursor.value.clamp(0, _l.units.length - 1);
+    if (_showPages && _l.hasPages) {
+      final page = _l.unitPage[cursor];
+      var end = cursor;
+      while (end < _l.units.length && _l.unitPage[end] == page) {
+        end++;
+      }
+      return (_l.unitForPage(page), end);
+    }
+    if (_inPages) {
+      final r = _paged.range;
+      if (r != null) return r;
+    }
+    final u = (_detached.value ? _unitAtEyes() : null) ?? cursor;
+    final item = _l.items[_l.unitItem[u]];
+    return (item.firstUnit, item.firstUnit + math.max(1, item.unitCount));
+  }
+
+  void _syncBookmarkHere() {
+    if (_l.isEmpty) return;
+    final (from, to) = _viewRange();
+    _bookmarkedHere.value = _markedUnits.value.any((u) => u >= from && u < to);
+  }
+
+  /// The ribbon at the top: this page bookmarked, or its bookmarks taken
+  /// off (with Undo).
+  Future<void> _toggleBookmark() async {
+    if (_l.isEmpty) return;
+    final (from, to) = _viewRange();
+    final here = [
+      for (final m in _bookmarks)
+        if (unitOfMark(_l, m) >= from && unitOfMark(_l, m) < to) m,
+    ];
+    HapticFeedback.selectionClick();
+    if (here.isEmpty) {
+      // Listening and followed: the sentence being read; else the page's
+      // first (or the paragraph's).
+      final listeningHere = _listening && !_detached.value && !_inPages && !_showPages;
+      await _save(MarkKind.bookmark, unit: listeningHere ? _cursor.value : from, hint: true);
+      return;
+    }
+    for (final m in here) {
+      await MarkStore.instance.remove(m.id);
+    }
+    if (!mounted) return;
+    showSnack(
+      context,
+      here.length == 1 ? 'Bookmark removed.' : '${here.length} bookmarks removed.',
+      lift: _barLift,
+      actionLabel: 'Undo',
+      onAction: () async {
+        for (final m in here) {
+          await MarkStore.instance.restore(m);
+        }
+      },
+    );
+  }
+
+  /// Every bookmark in this book, in the order of the book: a tap goes
+  /// there (with the way back), the bin takes one off.
+  void _openBookmarks() {
+    if (_l.isEmpty) return;
+    HapticFeedback.selectionClick();
+    showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      sheetAnimationStyle: sheetMotion(context),
+      builder: (ctx) => carryTint(
+        context,
+        ValueListenableBuilder<int>(
+          valueListenable: MarkStore.instance.changes,
+          builder: (ctx, _, __) {
+            final marks = [
+              for (final m in _bookmarks) (m: m, u: unitOfMark(_l, m)),
+            ]..sort((a, b) => a.u.compareTo(b.u));
+            return ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(ctx).height * 0.75),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SheetHeader('Bookmarks', subtitle: marks.isEmpty ? null : '${marks.length} in this book'),
+                  if (marks.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(Gap.xl, 0, Gap.xl, Gap.xxl),
+                      child: Text(
+                        'None yet. Tap the bookmark at the top of the page to keep a place you want to come back to. '
+                        'Where you stopped reading is kept on its own.',
+                        style: Skin.label(ctx, size: 14),
+                      ),
+                    )
+                  else
+                    Flexible(
+                      child: ListView(
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.only(bottom: Gap.xl),
+                        children: [
+                          for (final x in marks)
+                            ListTile(
+                              key: ValueKey(x.m.id),
+                              leading: Icon(Icons.bookmark_rounded, color: Skin.accentOf(ctx)),
+                              title: Text(
+                                (x.m.chapter ?? _l.chapterTitle(_l.chapterOfUnit(x.u))).toUpperCase(),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Skin.meta(ctx, size: 10.5),
+                              ),
+                              subtitle: Text(
+                                x.m.text,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: Skin.page(ctx, size: 15, height: 1.35).copyWith(color: Skin.inkOn(ctx)),
+                              ),
+                              trailing: IconButton(
+                                tooltip: 'Remove bookmark',
+                                icon: Icon(Icons.delete_outline_rounded, color: Skin.inkSoftOn(ctx)),
+                                onPressed: () async {
+                                  final m = x.m;
+                                  await MarkStore.instance.remove(m.id);
+                                  if (!mounted) return;
+                                  showSnack(context, 'Bookmark removed.',
+                                      lift: _barLift,
+                                      actionLabel: 'Undo',
+                                      onAction: () => unawaited(MarkStore.instance.restore(m)));
+                                },
+                              ),
+                              onTap: () {
+                                Navigator.pop(ctx);
+                                if (_inPages) _chrome.value = true;
+                                _jump(x.u);
+                              },
+                            ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
   /// Back to reading, the search matches, or the way back after a jump:
   /// whichever is wanted, rising into place.
   Widget _pill(BuildContext context) {
@@ -1757,6 +1947,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             crease: tone.dark || (tone.isApp && Skin.isDark(context)) ? Colors.black : tone.inkOf(context),
             tapToTurn: _prefs.tapToTurn,
             endButton: widget.onReachedEnd == null ? null : _more(context),
+            marks: _markedUnits,
           )),
         ),
         Positioned(
@@ -1779,6 +1970,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             ),
           ),
         ),
+        // Back to reading and the other pills come and go with the bars:
+        // left on the page they covered its words.
         ValueListenableBuilder<bool>(
           valueListenable: _chrome,
           builder: (context, shown, pill) => AnimatedPositioned(
@@ -1786,8 +1979,15 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             curve: Motion.out,
             left: 0,
             right: 0,
-            bottom: shown ? _barLift + 10 : 40,
-            child: pill!,
+            bottom: shown ? _barLift + 10 : 24,
+            child: IgnorePointer(
+              ignoring: !shown,
+              child: AnimatedOpacity(
+                opacity: shown ? 1 : 0,
+                duration: Motion.of(context, Motion.quick),
+                child: pill,
+              ),
+            ),
           ),
           child: Center(
             child: AnimatedSwitcher(
@@ -1939,6 +2139,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                 button: true,
                 label: 'Contents',
                 child: GestureDetector(
+                  key: const ValueKey('contents'),
                   behavior: HitTestBehavior.opaque,
                   onTap: _openContents,
                   child: Column(
@@ -1993,6 +2194,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                                   maxLines: 1,
                                   style: style,
                                 ),
+                                Icon(Icons.expand_more_rounded, size: 15, color: style.color),
                               ],
                             ),
                           );
@@ -2022,10 +2224,17 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
               onTap: _openSearch,
             ),
             const SizedBox(width: 8),
-            RoundButton(
-              icon: Icons.format_list_bulleted_rounded,
-              tooltip: 'Contents',
-              onTap: _openContents,
+            // Contents is the title's (its chapter line says so); the bar
+            // keeps a page's bookmark at hand.
+            ValueListenableBuilder<bool>(
+              valueListenable: _bookmarkedHere,
+              builder: (context, marked, _) => RoundButton(
+                icon: marked ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+                iconColor: marked ? Skin.accentOf(context) : null,
+                tooltip: marked ? 'Remove bookmark' : 'Bookmark this page',
+                onTap: () => unawaited(_toggleBookmark()),
+                onLongPress: _openBookmarks,
+              ),
             ),
             const SizedBox(width: 8),
             // How the page looks. The voice's settings are on the player
@@ -2155,7 +2364,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             bottom: heading ? 18 : (_prefs.indent ? 2 : 16),
             top: heading && !chapterStart ? 12 : 0,
           ),
-          child: _BlockText(
+          child: _ribboned(
+            context,
+            item,
+            _BlockText(
             item: item,
             layout: _l,
             cursor: _marked,
@@ -2167,10 +2379,33 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             onTapUnit: (u) => _goTo(u, play: true),
             onLongPressUnit: _onLongPress,
           ),
+          ),
         ),
       ],
     );
   }
+
+  /// [child] with a ribbon in the margin beside it when one of [item]'s
+  /// sentences is bookmarked.
+  ///
+  /// The ribbon listens for bookmarks itself: the list keeps rows it does
+  /// not build again, and a ribbon taken off stayed on one of them.
+  Widget _ribboned(BuildContext context, LayoutItem item, Widget child) => Stack(
+        clipBehavior: Clip.none,
+        children: [
+          child,
+          Positioned(
+            top: 2,
+            right: -math.min(_prefs.margin - 2, 20.0),
+            child: ValueListenableBuilder<Set<int>>(
+              valueListenable: _markedUnits,
+              builder: (context, marks, _) => marks.any(item.containsUnit)
+                  ? Icon(Icons.bookmark_rounded, size: 16, semanticLabel: 'Bookmarked', color: Skin.accentOf(context))
+                  : const SizedBox.shrink(),
+            ),
+          ),
+        ],
+      );
 
   /// The end of what has been fetched: carry on to the next chapter.
   Widget _more(BuildContext context) => Padding(

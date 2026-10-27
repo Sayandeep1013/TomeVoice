@@ -49,6 +49,8 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() {
+    // Bookmarks and quotes live in one store for the app: none carried over.
+    MarkStore.instance.reset();
     _tmp = Directory.systemTemp.createTempSync('tomevoice_test');
     _calls.clear();
     ListeningPrefs.reset();
@@ -433,7 +435,7 @@ void main() {
 
     testWidgets('contents lists chapters and jumps to one', (tester) async {
       await pumpReader(tester, chaptered);
-      await tester.tap(find.byTooltip('Contents'));
+      await tester.tap(find.byKey(const ValueKey('contents')));
       await tester.pumpAndSettle();
 
       expect(find.text('Contents'), findsOneWidget);
@@ -636,7 +638,7 @@ void main() {
     testWidgets('pages and scroll keep the place between them', (tester) async {
       final layout = longBook();
       await pumpLong(tester, layout);
-      await tester.tap(find.byTooltip('Contents'));
+      await tester.tap(find.byKey(const ValueKey('contents')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Beta').last);
       await tester.pumpAndSettle();
@@ -663,6 +665,89 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('1/2'), findsOneWidget);
       expect(find.text('Back to where you were'), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('a page is bookmarked from the bar, shows a ribbon, and is listed', (tester) async {
+      ListeningPrefs.memory.pages = true;
+      final layout = longBook();
+      await pumpLong(tester, layout);
+      final middle = tester.getCenter(find.byType(PagedBook));
+      final size = tester.getSize(find.byType(PagedBook));
+      // Turn on a page, then bring the bars up.
+      await tester.tapAt(Offset(size.width - 20, middle.dy));
+      await tester.pumpAndSettle();
+      await tester.tapAt(middle);
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Bookmark this page'), findsOneWidget);
+      await tester.tap(find.byTooltip('Bookmark this page'));
+      await tester.pumpAndSettle();
+      expect(MarkStore.instance.forBook(layout.book.id).where((m) => m.kind == MarkKind.bookmark), hasLength(1));
+      expect(find.byTooltip('Remove bookmark'), findsOneWidget);
+      expect(find.byWidgetPredicate((w) => w is Icon && w.semanticLabel == 'Bookmarked'), findsWidgets, reason: 'the ribbon on the page');
+
+      // Back a page: not bookmarked there.
+      await tester.tapAt(Offset(20, middle.dy));
+      await tester.pumpAndSettle();
+      await tester.tapAt(middle);
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Bookmark this page'), findsOneWidget);
+
+      // The list, and a jump back to it with the way back.
+      final bookmark = find.descendant(of: find.byTooltip('Bookmark this page'), matching: find.byType(InkWell)).first;
+      await tester.longPress(bookmark);
+      await tester.pumpAndSettle();
+      expect(find.text('Bookmarks'), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.bookmark_rounded).last);
+      await tester.pumpAndSettle();
+      expect(find.text('Back to where you were'), findsOneWidget);
+      expect(find.byTooltip('Remove bookmark'), findsOneWidget);
+
+      // Off again, with Undo.
+      await tester.tap(find.byTooltip('Remove bookmark'));
+      await tester.pumpAndSettle();
+      expect(MarkStore.instance.forBook(layout.book.id), isEmpty);
+      await tester.tap(find.text('Undo'));
+      await tester.pumpAndSettle();
+      expect(MarkStore.instance.forBook(layout.book.id), hasLength(1));
+      await finish(tester);
+    });
+
+    testWidgets('in pages the pills come and go with the bars', (tester) async {
+      ListeningPrefs.memory.pages = true;
+      final layout = longBook();
+      await pumpLong(tester, layout);
+      final middle = tester.getCenter(find.byType(PagedBook));
+      final size = tester.getSize(find.byType(PagedBook));
+      await tester.tapAt(middle);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('contents')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Beta').last);
+      await tester.pumpAndSettle();
+      expect(find.text('Back to where you were').hitTestable(), findsOneWidget);
+      // A page turned: the bars go, and the pill with them.
+      await tester.tapAt(Offset(size.width - 20, middle.dy));
+      await tester.pumpAndSettle();
+      expect(find.text('Back to where you were').hitTestable(), findsNothing);
+      await tester.tapAt(middle);
+      await tester.pumpAndSettle();
+      expect(find.text('Back to where you were').hitTestable(), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('on the scroll a paragraph is bookmarked and its ribbon shows', (tester) async {
+      final layout = longBook();
+      await pumpLong(tester, layout);
+      await tester.tap(find.byTooltip('Bookmark this page'));
+      await tester.pumpAndSettle();
+      // (The list keeps a second, hidden copy of its rows.)
+      expect(find.byWidgetPredicate((w) => w is Icon && w.semanticLabel == 'Bookmarked'), findsWidgets);
+      expect(find.byTooltip('Remove bookmark'), findsOneWidget);
+      await tester.tap(find.byTooltip('Remove bookmark'));
+      await tester.pumpAndSettle();
+      expect(find.byWidgetPredicate((w) => w is Icon && w.semanticLabel == 'Bookmarked'), findsNothing);
       await finish(tester);
     });
 
@@ -743,6 +828,24 @@ void main() {
       expect(find.byTooltip('Pause'), findsOneWidget);
       expect(player.isPlaying, isTrue);
       await player.stop();
+      await finish(tester);
+    });
+
+    testWidgets('a jump while paused leaves a way back', (tester) async {
+      withSound();
+      final store = LibraryStore(_tmp);
+      final nav = await pumpShelf(tester);
+      unawaited(nav.push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(layout: ReadingLayout.build(chaptered), store: store))));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.byTooltip('Pause'));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.byKey(const ValueKey('contents')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Chapter 2: Beta').last);
+      await tester.pumpAndSettle();
+      expect(find.text('Back to where you were'), findsOneWidget);
       await finish(tester);
     });
 

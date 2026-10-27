@@ -99,13 +99,17 @@ class _Piece {
 }
 
 class _Page {
-  _Page(this.chapter, this.pieces, this.firstUnit);
+  _Page(this.chapter, this.pieces, this.firstUnit, this.lastUnit);
   final int chapter;
   final List<_Piece> pieces;
 
   /// The sentence the page opens with (one carried over from the page
   /// before counts as this page's when it starts here).
   final int firstUnit;
+
+  /// The sentence its last line ends in (carried on to the next page, it
+  /// counts for both).
+  final int lastUnit;
 }
 
 /// An item laid out once at the column's width: the painter and the tops
@@ -130,6 +134,11 @@ class PagedController {
 
   /// A page on (1) or back (-1), as by the reader's hand.
   void turn(int delta) => _state?._turn(delta);
+
+  /// The sentences on the page shown (both pages, in a spread): the first,
+  /// and the one after the last. A sentence carried over a page's end is
+  /// the next page's. Null before the first page is laid out.
+  (int, int)? get range => _state?._range();
 }
 
 /// The book in pages, a chapter at a time: each chapter is cut into pages
@@ -159,6 +168,7 @@ class PagedBook extends StatefulWidget {
     this.endButton,
     this.topInset = 0,
     this.bottomInset = 0,
+    this.marks,
   });
 
   final ReadingLayout layout;
@@ -205,6 +215,9 @@ class PagedBook extends StatefulWidget {
   /// Room kept clear at the top and foot, under the reader's bars.
   final double topInset;
   final double bottomInset;
+
+  /// Sentences with a bookmark: a page holding one shows a ribbon.
+  final ValueListenable<Set<int>>? marks;
 
   @override
   State<PagedBook> createState() => _PagedBookState();
@@ -367,17 +380,21 @@ class _PagedBookState extends State<PagedBook> {
     var pieces = <_Piece>[];
     var y = 0.0;
     var first = -1;
+    var last = -1;
     void close() {
       if (pieces.isEmpty) return;
       final firstItem = pieces.first.item;
-      pages.add(_Page(c, pieces, first >= 0 ? first : _l.items[firstItem].firstUnit));
+      final opens = first >= 0 ? first : _l.items[firstItem].firstUnit;
+      pages.add(_Page(c, pieces, opens, last >= opens ? last : opens));
       pieces = [];
       y = 0;
       first = -1;
+      last = -1;
     }
 
-    void place(_Piece p, {int unit = -1}) {
+    void place(_Piece p, {int unit = -1, int lastUnit = -1}) {
       if (first < 0 && unit >= 0) first = unit;
+      if (lastUnit >= 0) last = lastUnit;
       pieces.add(p);
       y += p.height + p.gapAfter;
     }
@@ -412,7 +429,8 @@ class _PagedBookState extends State<PagedBook> {
         // Its space above only between paragraphs, not at a page's top.
         final pad = y > 0 ? above : 0.0;
         place(_Piece(item.isTitle ? _Kind.title : _Kind.text, i, -pad, tops.last + pad, gapAfter: gap),
-            unit: item.isTitle ? -1 : item.firstUnit);
+            unit: item.isTitle ? -1 : item.firstUnit,
+            lastUnit: item.isTitle || item.unitCount == 0 ? -1 : item.firstUnit + item.unitCount - 1);
         continue;
       }
       var a = 0;
@@ -431,14 +449,18 @@ class _PagedBookState extends State<PagedBook> {
         final unit = a == 0
             ? item.firstUnit
             : _unitAt(i, laid.painter.getPositionForOffset(Offset(1, tops[a] + 1)).offset - laid.shift);
-        final last = b == lines;
-        place(_Piece(_Kind.text, i, tops[a], tops[b] - tops[a], gapAfter: last ? gap : 0), unit: unit);
+        final whole = b == lines;
+        // The sentence the last line here ends in.
+        final ends = whole
+            ? item.firstUnit + item.unitCount - 1
+            : _unitAt(i, laid.painter.getPositionForOffset(Offset(_columnWidth - 1, tops[b] - 1)).offset - laid.shift);
+        place(_Piece(_Kind.text, i, tops[a], tops[b] - tops[a], gapAfter: whole ? gap : 0), unit: unit, lastUnit: ends);
         a = b;
-        if (!last) close();
+        if (!whole) close();
       }
     }
     close();
-    if (pages.isEmpty) pages.add(_Page(c, const [], _l.chapterFirstUnit[c]));
+    if (pages.isEmpty) pages.add(_Page(c, const [], _l.chapterFirstUnit[c], _l.chapterFirstUnit[c]));
     return pages;
   }
 
@@ -590,6 +612,25 @@ class _PagedBookState extends State<PagedBook> {
 
   _Page? _pageAt(int index) => _leafPage(index, 0);
 
+  /// The sentence after [p]'s own: the next page's first (a sentence carried
+  /// over a page's end is the next page's, so a bookmark is on one page),
+  /// or after the last for a chapter's last page or a sentence longer than
+  /// a page.
+  int _endOf(_Page p) {
+    final pages = _pagesOf(p.chapter);
+    final k = pages.indexOf(p);
+    if (k >= 0 && k + 1 < pages.length && pages[k + 1].firstUnit > p.firstUnit) return pages[k + 1].firstUnit;
+    return p.lastUnit + 1;
+  }
+
+  (int, int)? _range() {
+    if (_size == Size.zero) return null;
+    final a = _leafPage(_index, 0);
+    if (a == null) return null;
+    final b = widget.spread ? (_leafPage(_index, 1) ?? a) : a;
+    return (a.firstUnit, _endOf(b));
+  }
+
   // --------------------------------------------------------------- build
 
   @override
@@ -701,7 +742,9 @@ class _PagedBookState extends State<PagedBook> {
     final margin = _sideFor;
     final unitsLeft = _wordsLeft(page);
     final minutes = (unitsLeft / _readingWpm).ceil();
-    return Padding(
+    final marks = widget.marks;
+    final end = _endOf(page);
+    final body = Padding(
         padding: EdgeInsets.fromLTRB(margin, widget.topInset, margin, widget.bottomInset),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -745,9 +788,31 @@ class _PagedBookState extends State<PagedBook> {
           ],
         ),
     );
+    if (marks == null) return body;
+    // A bookmark on this page: a ribbon at its top corner.
+    return Stack(
+      children: [
+        body,
+        Positioned(
+          top: widget.topInset,
+          right: margin - 6,
+          child: ValueListenableBuilder<Set<int>>(
+            valueListenable: marks,
+            builder: (context, set, _) => AnimatedSwitcher(
+              duration: Motion.of(context, Motion.quick),
+              child: set.any((u) => u >= page.firstUnit && u < end)
+                  ? Icon(Icons.bookmark_rounded,
+                      key: const ValueKey('ribbon'), size: 22, semanticLabel: 'Bookmarked', color: look.accent)
+                  : const SizedBox.shrink(),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   /// Words a reader reads in a minute, silently (about 230 for most).
+
   static const _readingWpm = 230;
 
   int _wordsLeft(_Page page) {

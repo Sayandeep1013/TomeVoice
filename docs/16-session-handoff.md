@@ -88,6 +88,14 @@ Branch `reader-mode-and-motion` (not merged or released yet).
     (`takeBack`). `PlaybackScheduler.beforePlay` stops it before anything else plays,
     and an idle scheduler no longer stops the stream when disposed.
     `readingScheduler()` builds the scheduler for the reader and the background alike.
+- **1.0.8 released** (PR #14). **Then, for 1.0.9:** in pages the pills (Back to reading,
+  the way back, search matches) show only with the bars. Bookmarks from the top bar's
+  button (Contents moved to the title, with a chevron): the page, a spread's two pages, a
+  PDF's page, or the paragraph read; a ribbon in the page's corner or beside the
+  paragraph; hold the button for the list (`_openBookmarks`). A page owns its sentences up
+  to the next page's first (`_endOf`), so a bookmark is on one page. A jump while paused
+  keeps the way back. `MarkStore.reset()` between widget tests: a save inside one test's
+  fake clock left the write queue waiting and every later save timed out.
 - **Local checks:** a scratch Flutter (3.47.8) at `D:/tvchk/flutter` (short path: the
   SDK's own files pass Windows' path limit under the temp folder). `backup_test`'s
   "paths are pointed..." fails on Windows only (backslashes in JSON); CI is Linux.

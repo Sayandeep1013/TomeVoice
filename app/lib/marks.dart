@@ -120,6 +120,15 @@ class MarkStore {
 
   List<Mark> forBook(String bookId) => [for (final m in _all) if (m.bookId == bookId) m];
 
+  /// Forget everything without writing (between widget tests: a write left
+  /// waiting inside one test's fake clock held up every save after it).
+  @visibleForTesting
+  void reset() {
+    _file = null;
+    _all = const [];
+    changes.value++;
+  }
+
   Future<void> attach(Directory root) async {
     _file = File('${root.path}/marks.json');
     _all = const [];
