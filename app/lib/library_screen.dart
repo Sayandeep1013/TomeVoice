@@ -98,6 +98,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     _store.changes.addListener(_refresh);
     _store.placeChanges.addListener(_placeSaved);
     ListeningPrefs.revision.addListener(_onPrefs);
+    BackgroundReading.current.addListener(_onBackground);
     unawaited(_open());
   }
 
@@ -107,6 +108,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     _store.changes.removeListener(_refresh);
     _store.placeChanges.removeListener(_placeSaved);
     ListeningPrefs.revision.removeListener(_onPrefs);
+    BackgroundReading.current.removeListener(_onBackground);
     _searchController.dispose();
     _pager?.dispose();
     super.dispose();
@@ -170,6 +172,21 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
       );
       _snack('Could not open the library: $e');
     }
+  }
+
+  /// The dock's Play: the book reads aloud from where it was left, and the
+  /// shelf stays.
+  Future<void> _playHere(LibraryEntry e) async {
+    try {
+      await BackgroundReading.startFrom(_store, e);
+    } on Object catch (err) {
+      _snack('Could not start reading: $err');
+    }
+  }
+
+  /// A book began or stopped reading on in the background: the dock follows.
+  void _onBackground() {
+    if (mounted) setState(() {});
   }
 
   void _onPlatformEvent(Map<String, Object?> e) {
@@ -452,9 +469,15 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     final searching = _searching && q.isNotEmpty;
     final entries = idx?.entries ?? const <LibraryEntry>[];
     final categories = idx?.categories ?? Category.defaults;
+    // The book reading on in the background comes first, finished or not
+    // (a web novel near its newest chapter counts as finished): it is the
+    // one the dock's button pauses.
+    final live = BackgroundReading.current.value?.bookId;
     final reading = [
       for (final e in entries)
-        if (e.openedAt != null && !e.finished) e,
+        if (e.id == live) e,
+      for (final e in entries)
+        if (e.openedAt != null && !e.finished && e.id != live) e,
     ].take(6).toList();
     final showDock = reading.isNotEmpty && !_selecting && !searching;
 
@@ -651,7 +674,9 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
                             child: ContinueDock(
                               books: reading,
                               onOpen: (e) => _resume(e),
-                              onPlay: (e) => _resume(e, autoplay: true),
+                              // Play reads aloud right here; the rest of the
+                              // dock opens the book where it is being read.
+                              onPlay: (e) => unawaited(_playHere(e)),
                               onDetails: (e) => _showBook(e, fromShelf: false),
                             ),
                           ),

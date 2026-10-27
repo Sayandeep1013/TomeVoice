@@ -364,7 +364,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   late final PlaybackScheduler _player;
   ListeningPrefs _prefs = ListeningPrefs.memory;
   final _catalog = VoiceCatalog.instance;
-  late final String _language = _primaryLanguage(_book.metadata.language);
+  late final String _language = primaryLanguage(_book.metadata.language);
 
   StreamSubscription<Map<String, Object?>>? _events;
   Timer? _persistTimer;
@@ -2317,12 +2317,6 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       )),
     );
   }
-}
-
-String _primaryLanguage(String? tag) {
-  final t = (tag ?? 'en').toLowerCase();
-  final p = t.split(RegExp('[-_]')).first;
-  return p.length >= 2 ? p : 'en';
 }
 
 /// One paragraph. Rebuilds only when the spoken sentence enters, leaves or

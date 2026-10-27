@@ -63,6 +63,13 @@ PlaybackScheduler readingScheduler({
   );
 }
 
+/// A book's language as its voices are chosen by: "bn" from "bn-BD".
+String primaryLanguage(String? tag) {
+  final t = (tag ?? 'en').toLowerCase();
+  final p = t.split(RegExp('[-_]')).first;
+  return p.length >= 2 ? p : 'en';
+}
+
 /// What a reader takes back from a book read on in the background.
 typedef TakenBack = ({
   PlaybackScheduler player,
@@ -181,6 +188,39 @@ class BackgroundReading {
     }
     current.value = b;
     b._updateCard();
+  }
+
+  /// Read [e] aloud from where it was left, without opening it: the
+  /// library's player. A web novel's chapter there is fetched first if it
+  /// is not on the phone.
+  static Future<void> startFrom(LibraryStore store, LibraryEntry e) async {
+    final playing = current.value;
+    if (playing != null && playing.bookId == e.id) return playing.resume();
+    final web = e.source == SourceKind.web;
+    var cursor = await store.cursorFor(e.id);
+    if (web) {
+      try {
+        await fetchChapters(store, e.id, cursor.sectionIndex, count: 2);
+      } on Object {
+        // Read what is on the phone.
+      }
+    }
+    final layout = await store.loadLayout(e.id);
+    if (layout.isEmpty) return;
+    cursor = await store.cursorFor(e.id);
+    final language = primaryLanguage(layout.book.metadata.language);
+    final player = readingScheduler(layout: layout, prefs: () => _prefs, language: language, bookId: e.id);
+    adopt(
+      player: player,
+      layout: layout,
+      store: store,
+      bookId: e.id,
+      title: e.title,
+      cover: e.shownCover,
+      language: language,
+      web: web,
+    );
+    await player.play(layout.unitForCursor(cursor));
   }
 
   /// The player is about to read something else: whatever plays in the
