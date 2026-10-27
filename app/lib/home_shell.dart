@@ -45,7 +45,7 @@ class HomeShell extends StatefulWidget {
 
 enum _Place { library, browse, updates, history }
 
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
   Timer? _followTimer;
   Timer? _widgetTimer;
   StreamSubscription<Map<String, Object?>>? _widgetEvents;
@@ -95,10 +95,14 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   /// The app's accent follows the book being read: the one opened last.
-  /// Debounced, since every saved place is a change to the library.
+  /// Debounced, since every saved place is a change to the library; and
+  /// kept for when the shell shows again. A new accent rebuilds the whole
+  /// app and eases its theme across for 300 ms: done behind the reader
+  /// (which has the book's colours of its own anyway) it was a stutter in
+  /// the reading a moment after each book opened.
   void _scheduleFollow() {
     _followTimer?.cancel();
-    _followTimer = Timer(const Duration(milliseconds: 600), _follow);
+    _followTimer = Timer(const Duration(milliseconds: 600), () => whenShown(_follow));
   }
 
   Future<void> _follow() async {
@@ -257,7 +261,7 @@ class _HomeShellState extends State<HomeShell> {
         ],
       );
     }
-    return PopScope(
+    return shownGate(PopScope(
       // Back from History goes to the library before it leaves the app.
       canPop: _place == _Place.library,
       onPopInvokedWithResult: (didPop, _) {
@@ -272,7 +276,7 @@ class _HomeShellState extends State<HomeShell> {
           child: FadeIn(key: ValueKey(store == null), trigger: _place, child: body),
         ),
       ),
-    );
+    ));
   }
 
   Widget _drawer(BuildContext context) => Drawer(
