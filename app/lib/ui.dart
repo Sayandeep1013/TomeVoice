@@ -1038,8 +1038,8 @@ mixin WhenShown<T extends StatefulWidget> on State<T> {
     final leaving = route.secondaryAnimation;
     if (leaving == null || leaving.isDismissed) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _pay());
-    } else if (_leaving == null) {
-      _leaving = leaving..addStatusListener(_onLeaving);
+    } else {
+      _leaving ??= leaving..addStatusListener(_onLeaving);
     }
   }
 
