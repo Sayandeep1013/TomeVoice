@@ -904,7 +904,25 @@ class _VoicePickerState extends State<_VoicePicker> {
   late String _language = widget.controller.language;
   String? _previewing;
 
+  /// Words typed to find a language or a voice, lower case.
+  String _query = '';
+  final _find = TextEditingController();
+
   ListeningPrefs get _prefs => widget.controller.prefs;
+
+  /// Whether [v] answers [_query]: its language, country, name, or "online"
+  /// or "offline", every word somewhere.
+  bool _matches(VoiceInfo v) {
+    final hay = [
+      languageName(v.language),
+      v.language,
+      v.locale,
+      regionLabel(v.region),
+      _catalog.friendlyName(v),
+      v.networkRequired ? 'online network internet' : 'offline',
+    ].join(' ').toLowerCase();
+    return _query.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).every(hay.contains);
+  }
 
   @override
   void initState() {
@@ -915,6 +933,7 @@ class _VoicePickerState extends State<_VoicePicker> {
   @override
   void dispose() {
     _catalog.removeListener(_refresh);
+    _find.dispose();
     super.dispose();
   }
 
@@ -949,17 +968,44 @@ class _VoicePickerState extends State<_VoicePicker> {
     for (final v in voices) {
       byRegion.putIfAbsent(v.region.isEmpty ? '' : regionLabel(v.region), () => []).add(v);
     }
+    final finding = _query.isNotEmpty;
     final languages = [
-      widget.controller.language,
-      for (final l in _catalog.languages())
-        if (l != widget.controller.language) l,
+      for (final l in [
+        widget.controller.language,
+        for (final l in _catalog.languages())
+          if (l != widget.controller.language) l,
+      ])
+        if (!finding || '${languageName(l)} $l'.toLowerCase().contains(_query.trim())) l,
     ];
+    // While finding: every language's voices that answer, by language.
+    final found = <String, List<VoiceInfo>>{};
+    if (finding) {
+      for (final l in _catalog.languages()) {
+        for (final v in _catalog.forLanguage(l)) {
+          if (_matches(v)) found.putIfAbsent(v.languageLabel, () => []).add(v);
+        }
+      }
+    }
     return ConstrainedBox(
       constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.85),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const SheetHeader('Voices', subtitle: 'Play to hear one, tap a name to use it'),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(Gap.xl, 0, Gap.xl, Gap.m),
+            child: SearchField(
+              controller: _find,
+              hint: 'Find a language or voice',
+              onChanged: (q) => setState(() => _query = q.trim().toLowerCase()),
+              onClear: _query.isEmpty
+                  ? null
+                  : () {
+                      _find.clear();
+                      setState(() => _query = '');
+                    },
+            ),
+          ),
           SizedBox(
             height: 44,
             child: ListView(
@@ -981,8 +1027,10 @@ class _VoicePickerState extends State<_VoicePicker> {
           Flexible(
             // Another language's voices (or the list after loading) fade in.
             child: FadeIn(
-              trigger: '${_catalog.loaded}/$_language',
-              child: !_catalog.loaded
+              trigger: '${_catalog.loaded}/$_language/$finding',
+              child: finding
+                  ? _found(context, found, selected)
+                  : !_catalog.loaded
                   ? const Padding(
                       padding: EdgeInsets.all(Gap.xl),
                       child: Center(child: CircularProgressIndicator()),
@@ -1060,6 +1108,34 @@ class _VoicePickerState extends State<_VoicePicker> {
           ),
         ],
       ),
+    );
+  }
+
+  /// The voices found, by language; a word that finds nothing says so.
+  Widget _found(BuildContext context, Map<String, List<VoiceInfo>> found, String? selected) {
+    if (found.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(Gap.xl),
+        child: Text(
+          'No voice or language goes by "$_query". Try a language ("Bengali"), a country ("India") '
+          'or "offline".',
+          textAlign: TextAlign.center,
+          style: Skin.label(context, size: 14),
+        ),
+      );
+    }
+    return ListView(
+      shrinkWrap: true,
+      padding: const EdgeInsets.only(bottom: Gap.xl),
+      children: [
+        for (final group in found.entries) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.l, Gap.xl, Gap.xs),
+            child: Eyebrow(group.key),
+          ),
+          for (final v in group.value) _voiceRow(context, v, selected: v.name == selected),
+        ],
+      ],
     );
   }
 

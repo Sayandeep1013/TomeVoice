@@ -854,6 +854,32 @@ void main() {
       await finish(tester);
     });
 
+    testWidgets('a language or voice is found by typing', (tester) async {
+      await pumpReader(tester, specimenBook());
+      await tester.tap(find.byTooltip('Voice'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Change').first);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.widgetWithText(TextField, 'Find a language or voice'), 'arab');
+      await tester.pumpAndSettle();
+      // The Arabic voice, from another language than the book's.
+      expect(find.text('ARABIC'), findsWidgets);
+      expect(find.text('IN USE'), findsNothing);
+
+      await tester.enterText(find.widgetWithText(TextField, 'arab'), 'english online');
+      await tester.pumpAndSettle();
+      expect(find.textContaining('English'), findsWidgets);
+
+      await tester.enterText(find.widgetWithText(TextField, 'english online'), 'klingon');
+      await tester.pumpAndSettle();
+      expect(find.textContaining('No voice or language goes by'), findsOneWidget);
+      await tester.tap(find.byTooltip('Clear'));
+      await tester.pumpAndSettle();
+      expect(find.text('IN USE'), findsOneWidget);
+      await finish(tester);
+    });
+
     testWidgets('a sleep timer shows on the player', (tester) async {
       await pumpReader(tester, specimenBook());
       await tester.tap(find.byTooltip('Voice'));

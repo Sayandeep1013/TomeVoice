@@ -229,6 +229,7 @@ class _PdfPagesViewState extends State<PdfPagesView> {
                   leaf: leaf,
                   paper: const BoxDecoration(color: Colors.white),
                   spread: widget.spread,
+                  crease: Colors.black,
                   onSettled: settled,
                 )
               : NotificationListener<ScrollNotification>(

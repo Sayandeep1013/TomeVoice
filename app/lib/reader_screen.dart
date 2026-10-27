@@ -1714,6 +1714,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             turn: PageTurn.byName(_prefs.pageTurn),
             spread: spread,
             paper: tone.paperOf(context),
+            // The binding in the page's own ink; black on a dark page.
+            crease: tone.dark || (tone.isApp && Skin.isDark(context)) ? Colors.black : tone.inkOf(context),
             tapToTurn: _prefs.tapToTurn,
             endButton: widget.onReachedEnd == null ? null : _more(context),
           )),

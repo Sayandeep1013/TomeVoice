@@ -38,6 +38,7 @@ class PageCurl extends StatefulWidget {
     required this.paper,
     required this.onSettled,
     this.spread = false,
+    this.crease,
     this.onTapMiddle,
     this.tapToTurn = true,
   });
@@ -56,6 +57,10 @@ class PageCurl extends StatefulWidget {
   /// An item came to rest; [byHand] when the reader turned to it.
   final void Function(int index, {required bool byHand}) onSettled;
   final bool spread;
+
+  /// The shade of the gutter between two open pages (the paper's own ink,
+  /// or black on a dark page); none in a single page.
+  final Color? crease;
   final VoidCallback? onTapMiddle;
   final bool tapToTurn;
 
@@ -277,13 +282,35 @@ class _PageCurlState extends State<PageCurl> with SingleTickerProviderStateMixin
 
   Widget _still(BuildContext context) {
     if (!widget.spread) return _paperLeaf(context, _index, 0);
-    return Row(
+    return Stack(
       children: [
-        Expanded(child: _paperLeaf(context, _index, 0)),
-        Expanded(child: _paperLeaf(context, _index, 1)),
+        Row(
+          children: [
+            Expanded(child: _paperLeaf(context, _index, 0)),
+            Expanded(child: _paperLeaf(context, _index, 1)),
+          ],
+        ),
+        _creaseAt(_size.width / 2),
       ],
     );
   }
+
+  /// The gutter where two pages meet: a shadow into the binding, a little
+  /// light on the paper's rise either side. Over the flat pages, under a
+  /// leaf turning over it.
+  Widget _creaseAt(double spine) {
+    final c = widget.crease;
+    if (c == null) return const SizedBox.shrink();
+    return Positioned(
+      left: spine - _creaseHalf,
+      width: _creaseHalf * 2,
+      top: 0,
+      bottom: 0,
+      child: IgnorePointer(child: CustomPaint(painter: Crease(c))),
+    );
+  }
+
+  static const _creaseHalf = 34.0;
 
   Widget _turning(BuildContext context, _Turn turn) {
     final w = _size.width, h = _size.height;
@@ -352,6 +379,7 @@ class _PageCurlState extends State<PageCurl> with SingleTickerProviderStateMixin
     return Stack(
       children: [
         ...under,
+        if (spread) _creaseAt(spine),
         // The shadow the lifted leaf casts on the page beneath, along the fold.
         Positioned.fill(
           child: IgnorePointer(
@@ -390,6 +418,47 @@ class _PageCurlState extends State<PageCurl> with SingleTickerProviderStateMixin
   }
 
   Widget _frontOf(BuildContext context, _Turn turn) => _paperLeaf(context, turn.from, widget.spread ? 1 : 0);
+}
+
+/// The binding between two open pages, in [shade]: darkest at the spine,
+/// with the paper catching the light as it rises either side.
+class Crease extends CustomPainter {
+  Crease(this.shade);
+  final Color shade;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final light = shade.computeLuminance() > 0.5 ? Colors.black : Colors.white;
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset(0, 0),
+          Offset(size.width, 0),
+          [
+            shade.withValues(alpha: 0),
+            light.withValues(alpha: 0.035),
+            shade.withValues(alpha: 0.10),
+            shade.withValues(alpha: 0.34),
+            shade.withValues(alpha: 0.10),
+            light.withValues(alpha: 0.035),
+            shade.withValues(alpha: 0),
+          ],
+          const [0, 0.22, 0.40, 0.5, 0.60, 0.78, 1],
+        ),
+    );
+    // The fold itself: a hairline.
+    canvas.drawLine(
+      Offset(size.width / 2, 0),
+      Offset(size.width / 2, size.height),
+      Paint()
+        ..color = shade.withValues(alpha: 0.28)
+        ..strokeWidth = 1,
+    );
+  }
+
+  @override
+  bool shouldRepaint(Crease old) => old.shade != shade;
 }
 
 /// The paper's colour: its own, or the first of its gradient's.

@@ -200,8 +200,21 @@ class PlaybackScheduler {
 
   int get _queuedEnd => _chunks.isEmpty ? 0 : _chunks.last.end;
 
+  /// A line with something in it to say: a letter or a digit, in any script.
+  static final _sayable = RegExp(r'[\p{L}\p{N}]', unicode: true);
+
+  /// The voice failed for want of the internet (an online voice): worth
+  /// asking again before calling it a failure.
+  static bool _offline(PlatformException e) =>
+      e.code == 'TTS_TIMEOUT' ||
+      (e.code == 'TTS_ERROR' && (e.message?.contains('code -6)') == true || e.message?.contains('code -7)') == true));
+
+  static const offlineHint = 'The voice needs the internet and could not reach it. Try again, or pick a voice '
+      "that works offline (or download this language's voice in the phone's speech settings).";
+
   Future<void> _fill(int gen) async {
     var failures = 0;
+    var retries = 0;
     while (gen == _gen) {
       if (_next >= units.length) break;
       final ahead = _queuedEnd - _position;
@@ -212,6 +225,13 @@ class PlaybackScheduler {
       final i = _next;
       final said = respell?.call(units[i].text) ?? Respelled.same(units[i].text);
       final text = said.text;
+      // A line with nothing to say ("।।।", "* * *", a lone full stop) is
+      // passed over: an online voice could time out on it, and three such
+      // lines in a row stopped the book.
+      if (!_sayable.hasMatch(text)) {
+        _next = i + 1;
+        continue;
+      }
       // Little queued for the time this sentence will take (starting, or
       // the voice catching up): make it at full priority. Well ahead, with
       // twice that to spare and a second and a half more: let the screen
@@ -291,6 +311,7 @@ class PlaybackScheduler {
         }
         _next = i + 1;
         failures = 0;
+        retries = 0;
       } on PlatformException catch (e) {
         if (gen != _gen) return;
         if (e.code == 'TTS_STOPPED') return;
@@ -299,11 +320,20 @@ class PlaybackScheduler {
           _next = i + 1;
           continue;
         }
+        // An online voice out of reach: the same sentence again, after a
+        // breath, twice, before it counts.
+        final offline = _offline(e);
+        if (offline && retries < 2) {
+          retries++;
+          await Future<void>.delayed(Duration(milliseconds: 700 * retries));
+          continue;
+        }
+        retries = 0;
         // One unspeakable line ("* * *") should not end the book.
         failures++;
         _next = i + 1;
         if (failures >= 3) {
-          error.value = e.message ?? e.code;
+          error.value = offline ? offlineHint : e.message ?? e.code;
           break;
         }
       } on Object catch (e) {

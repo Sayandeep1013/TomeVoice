@@ -154,6 +154,7 @@ class PagedBook extends StatefulWidget {
     this.turn = PageTurn.curl,
     this.spread = false,
     this.paper = const BoxDecoration(),
+    this.crease,
     this.tapToTurn = true,
     this.endButton,
     this.topInset = 0,
@@ -193,6 +194,9 @@ class PagedBook extends StatefulWidget {
 
   /// The page's paper: a turning page must hide the one under it.
   final BoxDecoration paper;
+
+  /// The shade of the binding between two open pages.
+  final Color? crease;
   final bool tapToTurn;
 
   /// The page after the last chapter here (a web novel's next chapter).
@@ -621,6 +625,7 @@ class _PagedBookState extends State<PagedBook> {
               leaf: _leafView,
               paper: widget.paper,
               spread: widget.spread,
+              crease: widget.crease,
               tapToTurn: widget.tapToTurn,
               onTapMiddle: widget.onTapMiddle,
               onSettled: (i, {required byHand}) {
@@ -661,10 +666,20 @@ class _PagedBookState extends State<PagedBook> {
                 physics: widget.turn == PageTurn.slide ? const PageScrollPhysics() : const _InstantPagePhysics(),
                 onPageChanged: (i) => _index = i,
                 itemBuilder: (context, i) => widget.spread
-                    ? Row(
+                    ? Stack(
                         children: [
-                          Expanded(child: _leafView(context, i, 0)),
-                          Expanded(child: _leafView(context, i, 1)),
+                          Row(
+                            children: [
+                              Expanded(child: _leafView(context, i, 0)),
+                              Expanded(child: _leafView(context, i, 1)),
+                            ],
+                          ),
+                          if (widget.crease != null)
+                            Positioned.fill(
+                              child: IgnorePointer(
+                                child: Center(child: SizedBox(width: 68, child: CustomPaint(painter: Crease(widget.crease!)))),
+                              ),
+                            ),
                         ],
                       )
                     : _leafView(context, i, 0),
