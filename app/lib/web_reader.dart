@@ -118,9 +118,12 @@ class _WebNovelReaderState extends State<WebNovelReader> {
   /// With [keepPlace], [start] is only shown: the place being read stays.
   /// [at], a sentence in [start], opens there rather than at its start.
   Future<void> _open(int? start, {required bool autoplay, bool keepPlace = false, ReadingCursor? at}) async {
-    setState(() {
-      _error = null;
-      _status = 'Opening…';
+    setState(() => _error = null);
+    // The page being read stays until the next is ready: chapters already
+    // on the phone open in a moment, and a wait screen flashed between.
+    // Only a slow open (one fetched from the site) says what it is doing.
+    final slow = Timer(const Duration(milliseconds: 250), () {
+      if (mounted) setState(() => _status ??= 'Opening…');
     });
     try {
       final info = await _store.settleWebChapters(_id);
@@ -148,6 +151,8 @@ class _WebNovelReaderState extends State<WebNovelReader> {
       });
     } on Object catch (e) {
       if (mounted) setState(() => _error = e);
+    } finally {
+      slow.cancel();
     }
   }
 

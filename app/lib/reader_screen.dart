@@ -93,24 +93,57 @@ class _BookLoaderState extends State<BookLoader> {
     return (layout, cursor);
   }();
 
+  /// The reader's first frame is heavy (every paragraph on screen laid
+  /// out): it waits for the page to finish sliding in, so the two do not
+  /// share frames and the slide does not stutter.
+  bool _arrived = false;
+  Animation<double>? _arriving;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_arrived || _arriving != null) return;
+    final a = ModalRoute.of(context)?.animation;
+    if (a == null || a.isCompleted) {
+      _arrived = true;
+      return;
+    }
+    _arriving = a..addStatusListener(_onArrival);
+  }
+
+  void _onArrival(AnimationStatus status) {
+    if (status != AnimationStatus.completed) return;
+    _arriving?.removeStatusListener(_onArrival);
+    if (mounted) setState(() => _arrived = true);
+  }
+
+  @override
+  void dispose() {
+    _arriving?.removeStatusListener(_onArrival);
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) => FutureBuilder(
         future: _load,
         builder: (context, snap) {
           final data = snap.data;
-          if (data != null) {
-            return ReaderScreen(
-              layout: data.$1,
-              store: widget.store,
-              initialCursor: data.$2,
-              autoplay: widget.autoplay,
-              bookDir: widget.store.bookDir(widget.entry.id),
-              sourcePath: widget.entry.sourcePath,
-            );
-          }
-          return _ReaderSkeleton(
-            title: widget.entry.title,
-            error: snap.hasError ? '${snap.error}' : null,
+          // The book fades in over the frame it opened with.
+          return FadeIn(
+            key: ValueKey(data != null && _arrived),
+            child: data != null && _arrived
+                ? ReaderScreen(
+                    layout: data.$1,
+                    store: widget.store,
+                    initialCursor: data.$2,
+                    autoplay: widget.autoplay,
+                    bookDir: widget.store.bookDir(widget.entry.id),
+                    sourcePath: widget.entry.sourcePath,
+                  )
+                : _ReaderSkeleton(
+                    title: widget.entry.title,
+                    error: snap.hasError ? '${snap.error}' : null,
+                  ),
           );
         },
       );
@@ -2507,11 +2540,21 @@ class _PlayerBar extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Text(
-                                empty ? title : layout.chapterTitle(at.chapter),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Skin.ui(size: 13.5, weight: FontWeight.w600, color: onDark),
+                              // A new chapter's name rises into place, as in the top bar.
+                              AnimatedSwitcher(
+                                duration: Motion.of(context, Motion.standard),
+                                transitionBuilder: fadeRise,
+                                layoutBuilder: (current, previous) => Stack(
+                                  alignment: Alignment.centerLeft,
+                                  children: [...previous, if (current != null) current],
+                                ),
+                                child: Text(
+                                  empty ? title : layout.chapterTitle(at.chapter),
+                                  key: ValueKey(empty ? -1 : at.chapter),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Skin.ui(size: 13.5, weight: FontWeight.w600, color: onDark),
+                                ),
                               ),
                               Text(
                                 [if (sleepNote == null) '${at.pct}%', left.toUpperCase(), if (sleepNote != null) sleepNote!]

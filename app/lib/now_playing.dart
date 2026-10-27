@@ -395,6 +395,12 @@ class _PassageState extends State<_Passage> {
   bool _jump = true;
   double _height = 0;
 
+  /// The sentence just read, and how far down the window it was, when the
+  /// window is set out afresh as the voice reads on: it is put back there
+  /// before the glide to the next, which was a cut every page or so.
+  int? _anchor;
+  double _anchorY = 0;
+
   ReadingLayout get _l => widget.layout;
 
   @override
@@ -407,13 +413,32 @@ class _PassageState extends State<_Passage> {
   void didUpdateWidget(_Passage old) {
     super.didUpdateWidget(old);
     final u = widget.unit;
-    if (old.layout != _l ||
-        u < _from ||
-        u >= _to ||
+    final far = old.layout != _l || u < _from || u >= _to;
+    if (far ||
         (_from > 0 && _chars(_from, u) < _margin) ||
         (_to < _l.units.length && _chars(u + 1, _to) < _margin)) {
+      final y = far || !_scroll.hasClients ? null : _topOf(old.unit);
       _place(u);
+      if (y != null) {
+        _anchor = old.unit;
+        _anchorY = y - _scroll.offset;
+      }
     }
+  }
+
+  /// Where sentence [u] starts in the window's text, if it is laid out.
+  double? _topOf(int u) {
+    if (u < _from || u >= _to) return null;
+    final (a, _) = _paragraph(u);
+    final text = _keys[a]?.currentContext?.findRenderObject();
+    final content = _content.currentContext?.findRenderObject();
+    if (text is! RenderParagraph || content is! RenderBox) return null;
+    final start = _startIn(a, u);
+    final boxes = text.getBoxesForSelection(
+      TextSelection(baseOffset: start, extentOffset: start + _l.units[u].text.length),
+    );
+    if (boxes.isEmpty) return null;
+    return text.localToGlobal(Offset(0, boxes.first.top), ancestor: content).dy;
   }
 
   @override
@@ -512,8 +537,17 @@ class _PassageState extends State<_Passage> {
     // the fade at the top instead, so its end stays in the window.
     final at = bottom - top > _height * 0.5 ? top - _height * 0.22 : (top + bottom) / 2 - _height * _focus;
     final target = at.clamp(0.0, _scroll.position.maxScrollExtent);
-    final jump = _jump || Motion.reduced(context);
+    var jump = _jump || Motion.reduced(context);
     _jump = false;
+    final anchor = _anchor;
+    _anchor = null;
+    final was = anchor == null ? null : _topOf(anchor);
+    if (jump && was != null && !Motion.reduced(context)) {
+      // Set out afresh as it read on: the last sentence back where it was,
+      // then the usual glide.
+      _scroll.jumpTo((was - _anchorY).clamp(0.0, _scroll.position.maxScrollExtent));
+      jump = false;
+    }
     if ((target - _scroll.offset).abs() < 1) return;
     if (jump) {
       _scroll.jumpTo(target);
