@@ -1043,7 +1043,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       }
     }
     _programmaticScroll = true;
-    final duration = Motion.of(context, const Duration(milliseconds: 360));
+    final duration = Motion.of(context, Motion.follow);
     // Motion turned down: go straight there.
     if (duration == Duration.zero) {
       _scroll.jumpTo(index: item, alignment: alignment);
@@ -1081,7 +1081,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _veiled.value = false;
     await _offsets.animateScroll(
       offset: way * _viewport,
-      duration: const Duration(milliseconds: 520),
+      duration: Motion.of(context, Motion.travel),
       curve: Motion.out,
     );
   }
@@ -1286,6 +1286,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final web = _entry?.plugin != null;
     final picked = await showModalBottomSheet<String>(
       context: context,
+      sheetAnimationStyle: sheetMotion(context),
       useSafeArea: true,
       isScrollControlled: true,
       builder: (ctx) => carryTint(
@@ -2198,6 +2199,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (_l.chapters.isEmpty) return;
     showModalBottomSheet<void>(
       context: context,
+      sheetAnimationStyle: sheetMotion(context),
       isScrollControlled: true,
       useSafeArea: true,
       builder: (ctx) => carryTint(context, _ContentsSheet(

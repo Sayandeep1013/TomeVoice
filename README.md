@@ -60,6 +60,13 @@ No account. No cloud. Your books never leave the phone.
   notification or headset; it stops for calls and when headphones come out. The media
   player in the notification shade shows the book's cover in its colours, a bar through
   the chapter you can drag, a speed button, and skips by chapter.
+- **Made for reading, too.** Turn the book into pages, or keep one long scroll. Pages
+  slide or turn at once, by a tap at either side, a swipe or the volume keys. Above
+  each page is the chapter's name, and below it the minutes left in the chapter and the
+  page count. Where you read is where you are: scrolling or turning on without the
+  voice moves your place, and Play starts there. After a jump from Contents or a search,
+  one tap takes you back. Paragraphs can be spaced or indented like a printed book, the
+  phone's bars can be hidden, and **Aa** in the reader sets the page.
 - **Starts where you stopped**, with a sleep timer for listening in bed.
 - **Now Playing.** Swipe the player up for the cover and the page around the voice: the
   sentence being read lit and its word in the book's colour, the paragraphs before and

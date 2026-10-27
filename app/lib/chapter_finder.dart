@@ -19,6 +19,7 @@ Future<int?> showChapterFinder(
 }) =>
     showModalBottomSheet<int>(
       context: context,
+      sheetAnimationStyle: sheetMotion(context),
       isScrollControlled: true,
       useSafeArea: true,
       builder: (_) => carryTint(

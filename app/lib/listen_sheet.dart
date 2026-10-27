@@ -124,6 +124,7 @@ Future<void> showListenSheet(
 }) =>
     showModalBottomSheet<void>(
       context: context,
+      sheetAnimationStyle: sheetMotion(context),
       isScrollControlled: true,
       useSafeArea: true,
       builder: (_) => carryTint(context, _ReaderSettingsSheet(controller: controller, focus: focus)),
@@ -369,6 +370,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
     ];
     final picked = await showModalBottomSheet<String>(
       context: context,
+      sheetAnimationStyle: sheetMotion(context),
       useSafeArea: true,
       isScrollControlled: true,
       builder: (ctx) => carryTint(
@@ -823,6 +825,7 @@ class LabeledSlider extends StatelessWidget {
 Future<void> showVoicePicker(BuildContext context, ListenController controller) =>
     showModalBottomSheet<void>(
       context: context,
+      sheetAnimationStyle: sheetMotion(context),
       isScrollControlled: true,
       useSafeArea: true,
       builder: (_) => carryTint(context, _VoicePicker(controller: controller)),

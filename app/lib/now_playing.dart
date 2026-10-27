@@ -552,7 +552,7 @@ class _PassageState extends State<_Passage> {
     if (jump) {
       _scroll.jumpTo(target);
     } else {
-      unawaited(_scroll.animateTo(target, duration: const Duration(milliseconds: 520), curve: Motion.out));
+      unawaited(_scroll.animateTo(target, duration: Motion.travel, curve: Motion.out));
     }
   }
 

@@ -1,8 +1,70 @@
 # 16 — Session Handoff
 
-**As of 2026-10-24.** Everything needed to pick this up cold.
+**As of 2026-10-27.** Everything needed to pick this up cold.
 
 ---
+
+## 0+. Checkpoint (2026-10-27): reading without the voice, motion part two
+
+Branch `reader-mode-and-motion` (not merged or released yet).
+
+- **A novel's chapter order is kept** (`ListeningPrefs.newestFirstByNovel`, and
+  `newestFirst` for novels not turned yet). It was the page's own state.
+- **Natural voices: priority by urgency** (`neural_voices.dart`). 1.0.7 lowered every
+  sentence to nice 10, the first after Play too, and set it on whichever Dart VM pool
+  thread ran the worker, which kept it for later isolates. Now the scheduler marks a
+  sentence urgent when less than 3 s is queued. The worker sets its own thread and the
+  ONNX Runtime threads (found by diffing `/proc/self/task` around the engine's creation)
+  to nice 0 for it, or 10 when ahead, and gives the pool thread back at 0. The reader
+  loads the voice and runs it once, unheard, 1.2 s after opening (`NeuralEngine.warm`).
+  Logcat (`flutter` tag) says when the voice runs dry and how long the last sentence
+  took. **Not reproduced:** the report was a lag "for some time" on a Snapdragon 8 Gen 5
+  that the developer's 7s Gen 3 does not show; running sherpa-onnx's own CLI on the
+  phone was not allowed, so the cause is not measured. Ask for that phone's logcat.
+- **The place follows the reader** (`_placeFromEyes`, `_onPage`). With nothing read
+  aloud, a scroll or a turned page moves the place to the sentence at the top of what is
+  read (a line 12% down); while listening (or paused) a scroll is still a look around.
+  The wash (`_marked`) is off once the reader reads on, and back with Play or a jump.
+- **Pages** (`paged_view.dart`, `ListeningPrefs.pages`): a chapter is cut into pages of
+  whole lines when reached, measured and painted with the same `TextPainter`s (so the
+  cut lines are exact), with the sentence and word washed from `getBoxesForSelection`.
+  The place is a sentence, not a page. The row of pages is the last page of the chapter
+  before, this chapter's and the first of the next; settling on an edge moves chapter
+  by a new `PageController` keyed into a new `PageView` (a jump on the old one showed
+  the wrong page for a frame). Neighbouring chapters are cut 60 ms apart after a page
+  settles. Taps: left 28% back, right 28% on, the middle shows the top bar and player
+  over the page. Volume keys are caught in `MainActivity.dispatchKeyEvent` only while
+  `volumeKeysTurnPages` is on (pages, nothing playing).
+- **Also:** Back to where you were (after Contents or a search, while reading), indented
+  paragraphs (`indentedAt`, a placeholder span 1.6 em wide, offsets shifted by one), full
+  screen (`immersiveSticky`), Aa in the reader (the sheet's Read tab; the old tune button
+  went, the player's voice and speed chips open the same sheet), and a change of size or
+  font keeps the paragraph at the top in place (`_keepAnchor`).
+- **Reader motion:** the web-novel reader keeps the page up until the next is ready
+  (the wait shows after 250 ms); `BookLoader` waits for the route's slide before the
+  reader's first frame and fades it in; Now Playing puts the last sentence back where it
+  was when its window is set out afresh; the player's chapter name rises, and its bar
+  starts a new chapter at once.
+- **Motion, the rest of the app** (merged from a parallel pass): place saves bump
+  `LibraryStore.placeChanges`, not `changes`, so the shelf, History, Updates and a
+  novel's page no longer re-read everything behind the reader every 1.5 s; screens
+  covered by another catch up when shown again (`WhenShown` in `ui.dart`).
+  `downloadedChapters` is cached per novel (it listed thousands of files on the UI
+  thread). The app's colour follows a new book once the reader closes. The glow draws on
+  a display frame 26 ms after the last (a 33 ms timer beat against 60/90/120 Hz). Shelves
+  start on the default category, tiles are keyed by book, sort and view changes fade, a
+  far category jumps with a fade, the dock has no blur. Browse keeps the old feed until
+  the new one arrives. Updates, History, Saved, Sources and Categories fade and fold.
+  Browse, Updates and History build on first visit. PDF pages fade in. The book page
+  waits for its slide before its chapters. Sheets and dialogs use `sheetMotion`;
+  `Motion.follow` (360 ms) and `Motion.travel` (520 ms) replace hard-coded glides.
+  Left: a Saved group's header still vanishes after its last row goes, and Browse's
+  "install sources" state can flash for a frame (gating it broke a test sharing `Net`).
+- **Local checks:** a scratch Flutter (3.47.8) at `D:/tvchk/flutter` (short path: the
+  SDK's own files pass Windows' path limit under the temp folder). `backup_test`'s
+  "paths are pointed..." fails on Windows only (backslashes in JSON); CI is Linux.
+- **Not verified on the phone yet:** all of the above.
+
 
 ## 0. Checkpoint (2026-10-24, night): 1.0.1 released
 
