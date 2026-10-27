@@ -11,6 +11,7 @@ import 'package:tomevoice_spike/browse_screen.dart';
 import 'package:tomevoice_spike/browser_check.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/novel_screen.dart';
+import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/sources/models.dart';
 import 'package:tomevoice_spike/sources/net.dart';
 import 'package:tomevoice_spike/sources/plugin_host.dart';
@@ -113,7 +114,13 @@ void main() {
     final first = tester.getTopLeft(find.text('Chapter 4')).dy;
     final last = tester.getTopLeft(find.text('Chapter 1')).dy;
     expect(first, lessThan(last));
+    // The order is kept for this novel, and for novels not turned yet.
+    final prefs = ListeningPrefs.memory;
+    expect(prefs.newestFirstFor(LibraryStore.webId('fake', 'novel/1')), isTrue);
+    expect(prefs.newestFirstFor('web-another'), isTrue);
     await tester.pumpWidget(const SizedBox());
+    // Let the debounced save of prefs run.
+    await tester.pump(const Duration(seconds: 1));
   });
 
   testWidgets("a site's browser check opens, and its cookies are kept for the retry", (tester) async {
