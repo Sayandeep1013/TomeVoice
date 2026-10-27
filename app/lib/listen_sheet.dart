@@ -6,6 +6,8 @@ import 'package:tomevoice_audio/tomevoice_audio.dart';
 import 'book_tint.dart';
 import 'neural_screen.dart';
 import 'neural_voices.dart';
+import 'page_tone.dart';
+import 'paged_view.dart' show PageTurn;
 import 'prefs.dart';
 import 'speech_service.dart';
 import 'theme.dart';
@@ -627,6 +629,14 @@ class ReadingControls extends StatelessWidget {
   Widget build(BuildContext context) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const SectionTitle('Page'),
+          const SizedBox(height: Gap.m),
+          _PageTones(
+            selected: PageTone.byId(prefs.pageTone),
+            font: prefs.bookFont,
+            onPick: (t) => _apply(() => prefs.pageTone = t.id),
+          ),
+          const SizedBox(height: Gap.xl),
           const SectionTitle('Text size'),
           const SizedBox(height: Gap.m),
           StepperControl(
@@ -693,10 +703,10 @@ class ReadingControls extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       const SizedBox(height: Gap.l),
-                      ChoiceRow<bool>(
-                        options: const [(true, 'Slide'), (false, 'Instant')],
-                        value: prefs.pageSlide,
-                        onChanged: (v) => _apply(() => prefs.pageSlide = v),
+                      ChoiceRow<PageTurn>(
+                        options: [for (final t in PageTurn.values) (t, t.label)],
+                        value: PageTurn.byName(prefs.pageTurn),
+                        onChanged: (t) => _apply(() => prefs.pageTurn = t.name),
                       ),
                       const SizedBox(height: Gap.s),
                       SwitchRow(
@@ -759,6 +769,55 @@ class ReadingControls extends StatelessWidget {
               value: prefs.pdfPages,
               padding: EdgeInsets.zero,
               onChanged: (v) => _apply(() => prefs.pdfPages = v),
+            ),
+          ],
+        ],
+      );
+}
+
+/// The page tones side by side, each a little page of its own paper and
+/// ink, the chosen one ringed.
+class _PageTones extends StatelessWidget {
+  const _PageTones({required this.selected, required this.font, required this.onPick});
+
+  final PageTone selected;
+  final BookFont font;
+  final ValueChanged<PageTone> onPick;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        children: [
+          for (final t in PageTone.all) ...[
+            if (t != PageTone.all.first) const SizedBox(width: Gap.s),
+            Expanded(
+              child: Semantics(
+                button: true,
+                selected: t == selected,
+                label: 'Page: ${t.label}',
+                child: GestureDetector(
+                  onTap: () => onPick(t),
+                  child: AnimatedContainer(
+                    duration: Motion.of(context, Motion.quick),
+                    height: 72,
+                    decoration: t.paperOf(context).copyWith(
+                          borderRadius: BorderRadius.circular(Radii.chip),
+                          border: Border.all(
+                            color: t == selected ? Skin.accentOf(context) : Skin.outlineOn(context),
+                            width: t == selected ? 2.5 : 1,
+                          ),
+                        ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text('Aa', style: Skin.page(context, size: 22, font: font, height: 1.1).copyWith(color: t.inkOf(context))),
+                        const SizedBox(height: 2),
+                        Text(t.label.toUpperCase(),
+                            style: Skin.meta(context, size: 9.5, color: t.ink ?? Skin.inkSoftOn(context))),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
           ],
         ],

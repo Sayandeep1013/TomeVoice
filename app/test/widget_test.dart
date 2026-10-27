@@ -22,6 +22,8 @@ import 'package:tomevoice_spike/library_screen.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/main.dart';
 import 'package:tomevoice_spike/marks.dart';
+import 'package:tomevoice_spike/page_curl.dart';
+import 'package:tomevoice_spike/page_tone.dart';
 import 'package:tomevoice_spike/paged_view.dart';
 import 'package:tomevoice_spike/pages_view.dart';
 import 'package:tomevoice_spike/prefs.dart';
@@ -551,7 +553,7 @@ void main() {
 
     testWidgets('pages turn into the next chapter and back', (tester) async {
       ListeningPrefs.memory.pages = true;
-      ListeningPrefs.memory.pageSlide = false;
+      ListeningPrefs.memory.pageTurn = 'none';
       final layout = longBook();
       await pumpLong(tester, layout);
       final total = int.parse(RegExp(r'/ (\d+)$')
@@ -569,6 +571,61 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('$total / $total'), findsOneWidget);
       expect(find.textContaining('1/2'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('a page curls over: half turned, the next shows beneath', (tester) async {
+      ListeningPrefs.memory.pages = true;
+      await pumpLong(tester, longBook());
+      expect(find.byType(PageCurl), findsOneWidget);
+      final size = tester.getSize(find.byType(PagedBook));
+      final y = tester.getCenter(find.byType(PagedBook)).dy;
+      await tester.tapAt(Offset(size.width - 20, y));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 280));
+      // Mid-turn: the turning page, its back and the page beneath.
+      expect(find.textContaining(RegExp(r'^1 / \d+$')), findsWidgets);
+      expect(find.textContaining(RegExp(r'^2 / \d+$')), findsWidgets);
+      expect(find.byType(ClipPath), findsWidgets);
+      await tester.pumpAndSettle();
+      expect(find.textContaining(RegExp(r'^1 / \d+$')), findsNothing);
+      expect(find.textContaining(RegExp(r'^2 / \d+$')), findsOneWidget);
+      // A drag back turns it back.
+      await tester.dragFrom(Offset(60, y), Offset(size.width * 0.8, 0));
+      await tester.pumpAndSettle();
+      expect(find.textContaining(RegExp(r'^1 / \d+$')), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('on its side, two pages lie open and turn together', (tester) async {
+      ListeningPrefs.memory.pages = true;
+      tester.view.physicalSize = const Size(2340, 1080);
+      tester.view.devicePixelRatio = 2.75;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData(useMaterial3: true, brightness: Brightness.light),
+        home: ReaderScreen(layout: longBook()),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.textContaining(RegExp(r'^1 / \d+$')), findsOneWidget);
+      expect(find.textContaining(RegExp(r'^2 / \d+$')), findsOneWidget);
+      final box = tester.getRect(find.byType(PagedBook));
+      await tester.tapAt(Offset(box.right - 30, box.center.dy));
+      await tester.pumpAndSettle();
+      expect(find.textContaining(RegExp(r'^3 / \d+$')), findsOneWidget);
+      expect(find.textContaining(RegExp(r'^4 / \d+$')), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('a page tone lays its paper under the text', (tester) async {
+      ListeningPrefs.memory.pageTone = 'papyrus';
+      await pumpLong(tester, longBook());
+      expect(find.byType(PageGround), findsOneWidget);
+      ListeningPrefs.memory
+        ..pageTone = 'app'
+        ..save();
+      await tester.pumpAndSettle();
+      expect(find.byType(PageGround), findsNothing);
       await finish(tester);
     });
 
@@ -690,6 +747,38 @@ void main() {
       await tester.tap(find.byTooltip('Show as text'));
       await tester.pumpAndSettle();
       expect(find.byType(PdfPagesView), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets("a PDF's real pages turn like a book's", (tester) async {
+      phone(tester);
+      ListeningPrefs.memory
+        ..pages = true
+        ..pdfPages = true;
+      final book = ingestPdfText(id: 'p', pages: [
+        'First page text is long enough to be a real page of a book, honestly.',
+        'Second page text is also long enough to count as a page of a book.',
+      ]);
+      await tester.pumpWidget(MaterialApp(
+        home: ReaderScreen(layout: ReadingLayout.build(book), sourcePath: '${_tmp.path}/b.pdf'),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.byType(PdfPagesView), findsOneWidget);
+      expect(find.byType(PageCurl), findsOneWidget);
+      final box = tester.getRect(find.byType(PageCurl));
+      await tester.tapAt(Offset(box.right - 10, box.center.dy));
+      await tester.pumpAndSettle();
+      // Turned by hand while nothing is read aloud: the place is page two.
+      // Back to text, scrolled: Play reads from the page turned to.
+      ListeningPrefs.memory
+        ..pages = false
+        ..pdfPages = false
+        ..save();
+      await tester.pumpAndSettle();
+      expect(washed(tester), isEmpty);
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(washed(tester), startsWith('Second page'));
       await finish(tester);
     });
 

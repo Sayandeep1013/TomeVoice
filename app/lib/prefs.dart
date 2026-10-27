@@ -29,7 +29,8 @@ class ListeningPrefs {
     this.justify = false,
     this.indent = false,
     this.pages = false,
-    this.pageSlide = true,
+    this.pageTurn = 'curl',
+    this.pageTone = 'app',
     this.tapToTurn = true,
     this.volumeKeys = false,
     this.fullScreen = false,
@@ -107,8 +108,13 @@ class ListeningPrefs {
   /// The book in pages turned one at a time, instead of one long scroll.
   bool pages;
 
-  /// Pages slide as they turn; off, the next one is simply there.
-  bool pageSlide;
+  /// How a page turns: curl (over like paper), slide, or none (see
+  /// PageTurn).
+  String pageTurn;
+
+  /// The page under the text: the app's colours, ink, papyrus or dusk (see
+  /// PageTone).
+  String pageTone;
 
   /// A tap near the left or right edge turns the page.
   bool tapToTurn;
@@ -218,7 +224,8 @@ class ListeningPrefs {
         'justify': justify,
         'indent': indent,
         'pages': pages,
-        'pageSlide': pageSlide,
+        'pageTurn': pageTurn,
+        'pageTone': pageTone,
         'tapToTurn': tapToTurn,
         'volumeKeys': volumeKeys,
         'fullScreen': fullScreen,
@@ -263,7 +270,8 @@ class ListeningPrefs {
         justify: json['justify'] == true,
         indent: json['indent'] == true,
         pages: json['pages'] == true,
-        pageSlide: json['pageSlide'] != false,
+        pageTurn: json['pageTurn'] as String? ?? 'curl',
+        pageTone: json['pageTone'] as String? ?? 'app',
         tapToTurn: json['tapToTurn'] != false,
         volumeKeys: json['volumeKeys'] == true,
         fullScreen: json['fullScreen'] == true,

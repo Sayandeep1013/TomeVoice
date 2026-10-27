@@ -6,7 +6,8 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart' show Clipboard, ClipboardData, HapticFeedback, SystemChrome, SystemUiMode;
+import 'package:flutter/services.dart'
+    show Clipboard, ClipboardData, HapticFeedback, SystemChrome, SystemUiMode, SystemUiOverlayStyle;
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
@@ -17,6 +18,7 @@ import 'listen_sheet.dart';
 import 'marks.dart';
 import 'neural_voices.dart';
 import 'now_playing.dart';
+import 'page_tone.dart';
 import 'paged_view.dart';
 import 'pages_view.dart';
 import 'player_controls.dart';
@@ -1184,6 +1186,17 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     }
   }
 
+  /// A PDF's page turned to: as a text page is (see [_onPage]).
+  void _onPdfPage(int page, {required bool byHand}) {
+    if (!byHand || _l.isEmpty) return;
+    _lastScroll = DateTime.now();
+    if (_listening) {
+      _detached.value = true;
+    } else {
+      _moveQuietly(_l.unitForPage(page));
+    }
+  }
+
   /// Press and hold on a page: the sentence and the word under the finger.
   void _onHoldAt(int item, int offset) {
     final it = _l.items[item];
@@ -1502,9 +1515,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         if (!didPop) setState(() => _hits = const []);
       },
       child: Scaffold(
-      body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
-        child: SafeArea(
+      body: _ground(
+        context,
+        SafeArea(
           child: Stack(
                   // The glow reaches past the safe area.
                   clipBehavior: Clip.none,
@@ -1545,6 +1558,25 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     );
   }
 
+  /// The page's tone (a PDF's real pages keep their own paper).
+  PageTone get _tone => PageTone.byId(_prefs.pageTone);
+
+  /// The ground under everything: the app's, or the page tone's paper, with
+  /// the phone's bars drawn to suit it.
+  Widget _ground(BuildContext context, Widget child) {
+    final tone = _tone;
+    if (tone.isApp) return DecoratedBox(decoration: BoxDecoration(gradient: Skin.ground(context)), child: child);
+    final icons = tone.dark ? Brightness.light : Brightness.dark;
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: icons,
+        systemNavigationBarIconBrightness: icons,
+      ),
+      child: PageGround(tone: tone, child: child),
+    );
+  }
+
   /// The book as one long page, the top bar above it and the player below.
   Widget _scrollReading(BuildContext context, Widget bar, bool rail) {
     return Column(
@@ -1564,6 +1596,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                           cursor: _cursor,
                           detached: _detached,
                           onTapPage: (page) => _goTo(_l.unitForPage(page), play: true),
+                          turn: _prefs.pages ? PageTurn.byName(_prefs.pageTurn) : null,
+                          spread: MediaQuery.sizeOf(context).width > MediaQuery.sizeOf(context).height &&
+                              MediaQuery.sizeOf(context).width >= 600,
+                          onTurned: _onPdfPage,
                         )
                       : ValueListenableBuilder<bool>(
                           valueListenable: _veiled,
@@ -1574,7 +1610,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                             curve: veiled ? Curves.easeIn : Motion.out,
                             child: text,
                           ),
-                          child: _text(context),
+                          child: toned(context, _tone, _text(context)),
                         ),
                 ),
               ),
@@ -1653,12 +1689,16 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// The book in pages, with the top bar and the player over them, shown
   /// by a tap in the middle of the page and gone as the page turns.
   Widget _pagedReading(BuildContext context, Widget bar, bool rail) {
-    final ground = Skin.ground(context).colors.first;
-    final foot = Skin.groundFoot(context);
+    final tone = _tone;
+    final ground = tone.paper?.first ?? Skin.ground(context).colors.first;
+    final foot = tone.paper?.last ?? Skin.groundFoot(context);
+    final size = MediaQuery.sizeOf(context);
+    // On its side, a wide screen opens like a book: two pages.
+    final spread = size.width > size.height && size.width >= 600;
     return Stack(
       children: [
         Positioned.fill(
-          child: PagedBook(
+          child: toned(context, tone, PagedBook(
             layout: _l,
             look: _pageLook(context),
             controller: _paged,
@@ -1671,10 +1711,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             onTapMiddle: () => _chrome.value = !_chrome.value,
             onHold: _onHoldAt,
             pictureOf: (b, size) => _pictureImage(context, b, size.width, size.height),
-            slide: _prefs.pageSlide,
+            turn: PageTurn.byName(_prefs.pageTurn),
+            spread: spread,
+            paper: tone.paperOf(context),
             tapToTurn: _prefs.tapToTurn,
             endButton: widget.onReachedEnd == null ? null : _more(context),
-          ),
+          )),
         ),
         Positioned(
           top: 0,
@@ -1766,8 +1808,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// The page drawn in pages: the same type and colours as the scroll.
   PageLook _pageLook(BuildContext context) {
     final scale = _prefs.textSize / 19;
-    final ink = Skin.inkOn(context);
-    final accent = Skin.accentOf(context);
+    final tone = _tone;
+    final ink = tone.inkOf(context);
+    final accent = tone.accentOf(context);
     return PageLook(
       text: Skin.page(context, size: _prefs.textSize, font: _prefs.bookFont, height: _prefs.lineHeight)
           .copyWith(color: ink),
@@ -1776,10 +1819,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           Skin.title(context, size: 30 * scale, weight: FontWeight.w500).copyWith(height: 1.2, color: accent),
       title: Skin.title(context, size: 30 * scale, weight: FontWeight.w500).copyWith(color: accent),
       label: Skin.meta(context, size: 11, color: accent).copyWith(fontWeight: FontWeight.w600),
-      status: Skin.meta(context, size: 10),
+      status: Skin.meta(context, size: 10, color: tone.inkSoft),
       accent: accent,
-      sentenceWash: Skin.sentenceWash(context),
-      wordWash: Skin.wordWash(context),
+      sentenceWash: tone.isApp ? Skin.sentenceWash(context) : accent.withValues(alpha: tone.dark ? 0.22 : 0.16),
+      wordWash: tone.isApp ? Skin.wordWash(context) : accent.withValues(alpha: tone.dark ? 0.5 : 0.36),
       textScaler: MediaQuery.textScalerOf(context),
       justify: _prefs.justify,
       indent: _prefs.indent,

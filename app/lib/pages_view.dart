@@ -7,6 +7,8 @@ import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
+import 'page_curl.dart';
+import 'paged_view.dart' show PageTurn;
 import 'speech_service.dart';
 import 'theme.dart';
 import 'ui.dart';
@@ -24,6 +26,9 @@ class PdfPagesView extends StatefulWidget {
     required this.cursor,
     required this.detached,
     required this.onTapPage,
+    this.turn,
+    this.spread = false,
+    this.onTurned,
   });
 
   final String path;
@@ -33,6 +38,14 @@ class PdfPagesView extends StatefulWidget {
   /// True while the user has scrolled away from the voice.
   final ValueNotifier<bool> detached;
   final ValueChanged<int> onTapPage;
+
+  /// Turned like a book's pages, one at a time (two in a [spread]), instead
+  /// of scrolled; null scrolls.
+  final PageTurn? turn;
+  final bool spread;
+
+  /// A page came to rest; [byHand] when the reader turned to it.
+  final void Function(int page, {required bool byHand})? onTurned;
 
   @override
   State<PdfPagesView> createState() => _PdfPagesViewState();
@@ -59,6 +72,7 @@ class _PdfPagesViewState extends State<PdfPagesView> {
   void dispose() {
     widget.cursor.removeListener(_onCursor);
     widget.detached.removeListener(_onDetached);
+    _turner.dispose();
     super.dispose();
   }
 
@@ -78,11 +92,32 @@ class _PdfPagesViewState extends State<PdfPagesView> {
     if (!widget.detached.value) _reveal(page);
   }
 
+  final _curl = CurlController();
+  late final _turner = PageController(initialPage: _current ~/ _per);
+
+  /// The pages were turned by a finger since they last settled.
+  bool _hand = false;
+  int get _per => widget.spread ? 2 : 1;
+
   void _onDetached() {
     if (!widget.detached.value) _reveal(_current, force: true);
   }
 
   void _reveal(int page, {bool force = false}) {
+    if (widget.turn != null) {
+      final item = page ~/ _per;
+      if (widget.turn == PageTurn.curl) {
+        _curl.turnTo(item);
+      } else if (_turner.hasClients) {
+        final near = (_turner.page?.round() ?? item) - item;
+        if (near.abs() == 1 && widget.turn == PageTurn.slide && !Motion.reduced(context)) {
+          unawaited(_turner.animateToPage(item, duration: Motion.standard, curve: Motion.out));
+        } else {
+          _turner.jumpToPage(item);
+        }
+      }
+      return;
+    }
     if (!_scroll.isAttached) return;
     if (!force) {
       for (final p in _positions.itemPositions.value) {
@@ -135,6 +170,7 @@ class _PdfPagesViewState extends State<PdfPagesView> {
           }
           _pageCount = info.pages;
           _current = _pageOf(widget.cursor.value);
+          if (widget.turn != null) return FadeIn(child: _book(context, info.pages, info.aspects));
           // The pages fade in over the spinner's place, rather than cut in.
           return FadeIn(
             child: NotificationListener<ScrollNotification>(
@@ -156,6 +192,100 @@ class _PdfPagesViewState extends State<PdfPagesView> {
           );
         },
       );
+
+  /// The pages as a book: each leaf the page's own shape, so the paper
+  /// that turns is the page itself.
+  Widget _book(BuildContext context, int pages, List<double> aspects) => LayoutBuilder(
+        builder: (context, box) {
+          final per = _per;
+          final aspect = aspects.isEmpty ? 0.75 : aspects.first;
+          final room = Size(box.maxWidth - 24, box.maxHeight - 24);
+          var w = room.width;
+          var h = w / (aspect * per);
+          if (h > room.height) {
+            h = room.height;
+            w = h * aspect * per;
+          }
+          final items = (pages + per - 1) ~/ per;
+          final start = _current ~/ per;
+          void settled(int i, {required bool byHand}) => widget.onTurned?.call(i * per, byHand: byHand);
+          Widget leaf(BuildContext context, int i, int side) {
+            final page = i * per + side;
+            if (page >= pages) return const SizedBox.shrink();
+            return GestureDetector(
+              onLongPress: () {
+                unawaited(HapticFeedback.selectionClick());
+                widget.onTapPage(page);
+              },
+              child: _image(context, page, w / per),
+            );
+          }
+
+          final Widget book = widget.turn == PageTurn.curl
+              ? PageCurl(
+                  controller: _curl,
+                  itemCount: items,
+                  initialIndex: start,
+                  leaf: leaf,
+                  paper: const BoxDecoration(color: Colors.white),
+                  spread: widget.spread,
+                  onSettled: settled,
+                )
+              : NotificationListener<ScrollNotification>(
+                  onNotification: (n) {
+                    if (n is ScrollStartNotification && n.dragDetails != null) _hand = true;
+                    if (n is ScrollEndNotification && _turner.hasClients) {
+                      settled(_turner.page?.round() ?? 0, byHand: _hand);
+                      _hand = false;
+                    }
+                    return false;
+                  },
+                  child: PageView.builder(
+                    controller: _turner,
+                    itemCount: items,
+                    physics: widget.turn == PageTurn.slide ? null : const ClampingScrollPhysics(),
+                    itemBuilder: (context, i) => Row(
+                      children: [
+                        for (var side = 0; side < per; side++)
+                          Expanded(child: ColoredBox(color: Colors.white, child: leaf(context, i, side))),
+                      ],
+                    ),
+                  ),
+                );
+          return Center(
+            child: Container(
+              width: w,
+              height: h,
+              decoration: BoxDecoration(boxShadow: Skin.lift(context)),
+              child: book,
+            ),
+          );
+        },
+      );
+
+  /// Page [index] rendered for a width of [width], fading in over its number.
+  Widget _image(BuildContext context, int index, double width) {
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final px = ((width * dpr) / 120).ceil() * 120;
+    final file = _renders.putIfAbsent('$index@$px', () => _svc.pdfRender(widget.path, index, px));
+    return FutureBuilder<String>(
+      future: file,
+      builder: (context, snap) {
+        final path = snap.data;
+        final number = Center(
+          child: Text('${index + 1}', style: Skin.meta(context, color: Skin.inkFaint, size: 11)),
+        );
+        if (path == null) return number;
+        return Image.file(
+          File(path),
+          fit: BoxFit.contain,
+          gaplessPlayback: true,
+          filterQuality: FilterQuality.medium,
+          frameBuilder: fadeInOver(number),
+        );
+      },
+    );
+  }
 
   Widget _page(BuildContext context, int index, double aspect) {
     final current = index == _current;

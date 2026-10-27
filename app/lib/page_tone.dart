@@ -1,0 +1,150 @@
+import 'package:flutter/material.dart';
+
+import 'theme.dart';
+
+/// The page under the text: the app's own colours, or a reader's paper —
+/// ink on matte white, papyrus, or a dim warm dusk for reading in the dark.
+/// Only the page takes it; the bars and the player keep the app's colours.
+@immutable
+class PageTone {
+  const PageTone(
+    this.id,
+    this.label, {
+    this.paper,
+    this.ink,
+    this.inkSoft,
+    this.accent,
+    this.dark = false,
+    this.vignette,
+  });
+
+  final String id;
+  final String label;
+
+  /// The paper, top to bottom; null for the app's own ground.
+  final List<Color>? paper;
+  final Color? ink;
+  final Color? inkSoft;
+
+  /// The sentence read aloud, chapter openings and the voice's word.
+  final Color? accent;
+
+  /// A dark page (light text): the phone's bars are drawn light on it.
+  final bool dark;
+
+  /// The page's edges darkened a little, as paper in lamplight.
+  final Color? vignette;
+
+  bool get isApp => paper == null;
+
+  /// The app's colours, as before there were page tones.
+  static const app = PageTone('app', 'Theme');
+
+  /// An e-reader's page: matte white, black ink, grey for the voice.
+  static const eink = PageTone(
+    'ink',
+    'Ink',
+    paper: [Color(0xFFF5F4F0), Color(0xFFECEBE6)],
+    ink: Color(0xFF1A1A1A),
+    inkSoft: Color(0xFF55544F),
+    accent: Color(0xFF5A5A57),
+  );
+
+  /// Old paper: warm, a brown ink, a sienna voice.
+  static const papyrus = PageTone(
+    'papyrus',
+    'Papyrus',
+    paper: [Color(0xFFF2E4C4), Color(0xFFE5D0A3)],
+    ink: Color(0xFF3B2B19),
+    inkSoft: Color(0xFF6E5839),
+    accent: Color(0xFF9C5527),
+    vignette: Color(0x38734A1A),
+  );
+
+  /// For the dark: a dim warm grey, soft low-contrast text, nothing glaring.
+  static const dusk = PageTone(
+    'dusk',
+    'Dusk',
+    paper: [Color(0xFF27231F), Color(0xFF1C1A17)],
+    ink: Color(0xFFB9AD9C),
+    inkSoft: Color(0xFF8A7F71),
+    accent: Color(0xFFC6A06A),
+    dark: true,
+    vignette: Color(0x73000000),
+  );
+
+  static const all = [app, eink, papyrus, dusk];
+
+  static PageTone byId(String? id) => all.where((t) => t.id == id).firstOrNull ?? app;
+
+  /// The paper as a decoration: the tone's, or the app's diagonal ground.
+  BoxDecoration paperOf(BuildContext context) => paper == null
+      ? BoxDecoration(gradient: Skin.ground(context))
+      : BoxDecoration(
+          gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: paper!),
+        );
+
+  Color inkOf(BuildContext context) => ink ?? Skin.inkOn(context);
+  Color accentOf(BuildContext context) => accent ?? Skin.accentOf(context);
+}
+
+/// [child] in [tone]'s ink and accent: what reads the accent (washes,
+/// headings, chapter labels) and the default text colour follow the page.
+Widget toned(BuildContext context, PageTone tone, Widget child) {
+  if (tone.isApp) return child;
+  final p = Skin.paletteOf(context);
+  final a = tone.accent!;
+  return TintScope(
+    palette: Palette(
+      id: '${p.id}+${tone.id}',
+      label: p.label,
+      day: p.day,
+      night: p.night,
+      accent: a,
+      accentSoft: a,
+      accentDeep: a,
+      onAccent: tone.dark ? const Color(0xFF1C1A17) : Colors.white,
+      nightCapsule: p.nightCapsule,
+      nightSheet: p.nightSheet,
+      dayCapsule: p.dayCapsule,
+      daySheet: p.daySheet,
+      only: p.only,
+    ),
+    child: DefaultTextStyle.merge(style: TextStyle(color: tone.ink), child: child),
+  );
+}
+
+/// The page's ground in [tone], with its vignette, under [child].
+class PageGround extends StatelessWidget {
+  const PageGround({super.key, required this.tone, required this.child});
+
+  final PageTone tone;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final edge = tone.vignette;
+    return DecoratedBox(
+      decoration: tone.paperOf(context),
+      child: edge == null
+          ? child
+          : Stack(
+              fit: StackFit.expand,
+              children: [
+                IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: RadialGradient(
+                        radius: 1.05,
+                        colors: [edge.withValues(alpha: 0), edge],
+                        stops: const [0.62, 1],
+                      ),
+                    ),
+                  ),
+                ),
+                child,
+              ],
+            ),
+    );
+  }
+}

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
+import 'page_curl.dart';
 import 'scheduler.dart';
 import 'theme.dart';
 
@@ -65,6 +66,18 @@ bool indentedAt(ReadingLayout l, int item) {
   return pb != null && !pb.isImage && pb.role != BlockRole.heading;
 }
 
+/// How a page turns: curling over like paper, sliding, or at once.
+enum PageTurn {
+  curl('Curl'),
+  slide('Slide'),
+  none('Instant');
+
+  const PageTurn(this.label);
+  final String label;
+
+  static PageTurn byName(String? name) => values.where((t) => t.name == name).firstOrNull ?? curl;
+}
+
 /// The first line's indent, as a share of the text size.
 const indentEm = 1.6;
 
@@ -115,7 +128,7 @@ class PagedController {
   /// Show the page with sentence [unit].
   void showUnit(int unit, {bool animate = true}) => _state?._showUnit(unit, animate: animate);
 
-  /// A page on (1) or back (-1).
+  /// A page on (1) or back (-1), as by the reader's hand.
   void turn(int delta) => _state?._turn(delta);
 }
 
@@ -138,7 +151,9 @@ class PagedBook extends StatefulWidget {
     required this.onHold,
     required this.pictureOf,
     this.chapterLabel,
-    this.slide = true,
+    this.turn = PageTurn.curl,
+    this.spread = false,
+    this.paper = const BoxDecoration(),
     this.tapToTurn = true,
     this.endButton,
     this.topInset = 0,
@@ -171,7 +186,13 @@ class PagedBook extends StatefulWidget {
   /// A picture block drawn in [size].
   final Widget Function(Block block, Size size) pictureOf;
 
-  final bool slide;
+  final PageTurn turn;
+
+  /// Two pages side by side, as an open book (a wide screen).
+  final bool spread;
+
+  /// The page's paper: a turning page must hide the one under it.
+  final BoxDecoration paper;
   final bool tapToTurn;
 
   /// The page after the last chapter here (a web novel's next chapter).
@@ -195,6 +216,11 @@ class _PagedBookState extends State<PagedBook> {
 
   late int _chapter = _l.chapterOfUnit(widget.startUnit);
   PageController? _pages;
+  final _curl = CurlController();
+
+  /// A new row (another chapter, or a new size): the page view or the
+  /// curl is made afresh at its index, in the same frame.
+  Object _row = Object();
   int _index = 0;
   bool _turningByHand = false;
   Size _size = Size.zero;
@@ -241,8 +267,9 @@ class _PagedBookState extends State<PagedBook> {
 
   // ------------------------------------------------------------- geometry
 
-  double get _sideFor => math.max(widget.look.margin, (_size.width - 720) / 2);
-  double get _columnWidth => math.max(120, _size.width - 2 * _sideFor);
+  double get _leafWidth => widget.spread ? _size.width / 2 : _size.width;
+  double get _sideFor => math.max(widget.look.margin, (_leafWidth - 720) / 2);
+  double get _columnWidth => math.max(120, _leafWidth - 2 * _sideFor);
 
   static const _statusBand = 30.0;
   double get _top => widget.topInset + _statusBand;
@@ -321,7 +348,7 @@ class _PagedBookState extends State<PagedBook> {
   }
 
   List<_Page> _pagesOf(int c) {
-    final key = Object.hash(widget.look.key, _size);
+    final key = Object.hash(widget.look.key, _size, widget.spread);
     if (_cutFor != key) {
       _forget();
       _cutFor = key;
@@ -434,14 +461,19 @@ class _PagedBookState extends State<PagedBook> {
 
   // ------------------------------------------------------------- turning
 
-  /// Pages laid out side by side: the last of the chapter before, this
+  /// Pages shown at once: two side by side in a spread.
+  int get _per => widget.spread ? 2 : 1;
+  int _itemsIn(int c) => (_pagesOf(c).length + _per - 1) ~/ _per;
+  int _itemOf(int c, int unit) => _pageOfUnit(_pagesOf(c), unit) ~/ _per;
+
+  /// Items laid out in a row: the last of the chapter before, this
   /// chapter's, and the first of the next (or the way on). Turning onto
   /// either edge moves to that chapter once the page comes to rest.
   bool get _hasBefore => _chapter > 0;
   bool get _hasNext => _chapter + 1 < _l.chapters.length;
   bool get _hasEnd => !_hasNext && widget.endButton != null;
   int get _before => _hasBefore ? 1 : 0;
-  int get _count => _before + _pagesOf(_chapter).length + (_hasNext || _hasEnd ? 1 : 0);
+  int get _count => _before + _itemsIn(_chapter) + (_hasNext || _hasEnd ? 1 : 0);
 
   void _ensureController(int index) {
     if (_pages == null) {
@@ -450,15 +482,16 @@ class _PagedBookState extends State<PagedBook> {
     }
   }
 
-  /// Show chapter [c] at page [index] of its row. The row is a new page
-  /// view (keyed by chapter) on a new controller, so it opens there in the
-  /// same frame: a jump on the old one showed the wrong page for a frame.
+  /// Show chapter [c] at item [index] of its row. The row is made afresh
+  /// (keyed by [_row]) on a new controller, so it opens there in the same
+  /// frame: a jump on the old one showed the wrong page for a frame.
   void _moveTo(int c, int index) {
     final old = _pages;
     setState(() {
       _chapter = c;
       _index = index;
       _pages = PageController(initialPage: index);
+      _row = Object();
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => old?.dispose());
   }
@@ -470,18 +503,22 @@ class _PagedBookState extends State<PagedBook> {
     }
     final c = _l.chapterOfUnit(unit);
     if (c != _chapter) {
-      _moveTo(c, (c > 0 ? 1 : 0) + _pageOfUnit(_pagesOf(c), unit));
+      _moveTo(c, (c > 0 ? 1 : 0) + _itemOf(c, unit));
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _settled(byHand: false);
       });
       return;
     }
-    final i = _before + _pageOfUnit(_pagesOf(c), unit);
+    final i = _before + _itemOf(c, unit);
     if (i == _index) return;
     final near = (i - _index).abs() == 1;
     _turningByHand = false;
+    if (widget.turn == PageTurn.curl) {
+      _curl.turnTo(i, animate: animate && near);
+      return;
+    }
     final d = Motion.of(context, Motion.standard);
-    if (near && widget.slide && d > Duration.zero) {
+    if (near && widget.turn == PageTurn.slide && d > Duration.zero) {
       unawaited(_pages!.animateToPage(i, duration: d, curve: Motion.out));
     } else {
       _pages!.jumpToPage(i);
@@ -489,27 +526,30 @@ class _PagedBookState extends State<PagedBook> {
   }
 
   void _turn(int delta) {
+    if (widget.turn == PageTurn.curl) {
+      _curl.step(delta);
+      return;
+    }
     final p = _pages;
     if (p == null) return;
     final i = (_index + delta).clamp(0, _count - 1);
     if (i == _index) return;
     _turningByHand = true;
     final d = Motion.of(context, Motion.standard);
-    if (widget.slide && d > Duration.zero) {
+    if (widget.turn == PageTurn.slide && d > Duration.zero) {
       unawaited(p.animateToPage(i, duration: d, curve: Motion.out));
     } else {
       p.jumpToPage(i);
     }
   }
 
-  /// The page at rest: an edge page becomes its own chapter's, and the
+  /// The page at rest: an edge item becomes its own chapter's, and the
   /// reader hears which sentence the page opens with.
   void _settled({required bool byHand}) {
-    final pages = _pagesOf(_chapter);
     if (_hasBefore && _index == 0) {
       final c = _chapter - 1;
-      _moveTo(c, (c > 0 ? 1 : 0) + _pagesOf(c).length - 1);
-    } else if (_hasNext && _index == _before + pages.length) {
+      _moveTo(c, (c > 0 ? 1 : 0) + _itemsIn(c) - 1);
+    } else if (_hasNext && _index == _before + _itemsIn(_chapter)) {
       _moveTo(_chapter + 1, 1);
     }
     final page = _pageAt(_index);
@@ -526,14 +566,25 @@ class _PagedBookState extends State<PagedBook> {
     });
   }
 
-  _Page? _pageAt(int index) {
-    final pages = _pagesOf(_chapter);
-    if (index < _before) return _hasBefore ? _pagesOf(_chapter - 1).last : null;
+  /// The chapter and item at [index] of the row; null for the way on.
+  (int, int)? _itemAt(int index) {
+    if (index < _before) return _hasBefore ? (_chapter - 1, _itemsIn(_chapter - 1) - 1) : null;
     final k = index - _before;
-    if (k < pages.length) return pages[k];
-    if (_hasNext) return _pagesOf(_chapter + 1).first;
+    if (k < _itemsIn(_chapter)) return (_chapter, k);
+    if (_hasNext) return (_chapter + 1, 0);
     return null;
   }
+
+  /// Page [side] (0 left or alone, 1 right) of item [index].
+  _Page? _leafPage(int index, int side) {
+    final at = _itemAt(index);
+    if (at == null) return null;
+    final pages = _pagesOf(at.$1);
+    final k = at.$2 * _per + side;
+    return k < pages.length ? pages[k] : null;
+  }
+
+  _Page? _pageAt(int index) => _leafPage(index, 0);
 
   // --------------------------------------------------------------- build
 
@@ -547,19 +598,37 @@ class _PagedBookState extends State<PagedBook> {
             final keep = _pendingUnit ?? _pageAt(_index)?.firstUnit;
             if (keep != null) {
               _chapter = _l.chapterOfUnit(keep);
-              final i = _before + _pageOfUnit(_pagesOf(_chapter), keep);
+              final i = _before + _itemOf(_chapter, keep);
               if (_pages == null) {
                 _ensureController(i);
               } else if (i != _index) {
                 final old = _pages;
                 _index = i;
                 _pages = PageController(initialPage: i);
+                _row = Object();
                 WidgetsBinding.instance.addPostFrameCallback((_) => old?.dispose());
               }
             }
             _pendingUnit = null;
           }
           _ensureController(0);
+          if (widget.turn == PageTurn.curl) {
+            return PageCurl(
+              key: ValueKey(_row),
+              controller: _curl,
+              itemCount: _count,
+              initialIndex: _index,
+              leaf: _leafView,
+              paper: widget.paper,
+              spread: widget.spread,
+              tapToTurn: widget.tapToTurn,
+              onTapMiddle: widget.onTapMiddle,
+              onSettled: (i, {required byHand}) {
+                _index = i;
+                _settled(byHand: byHand);
+              },
+            );
+          }
           return NotificationListener<ScrollNotification>(
             onNotification: (n) {
               if (n.depth != 0) return false;
@@ -586,32 +655,39 @@ class _PagedBookState extends State<PagedBook> {
                 }
               },
               child: PageView.builder(
-                key: ValueKey(_pages),
+                key: ValueKey(_row),
                 controller: _pages,
                 itemCount: _count,
-                physics: widget.slide ? const PageScrollPhysics() : const _InstantPagePhysics(),
+                physics: widget.turn == PageTurn.slide ? const PageScrollPhysics() : const _InstantPagePhysics(),
                 onPageChanged: (i) => _index = i,
-                itemBuilder: (context, i) => _pageView(context, i),
+                itemBuilder: (context, i) => widget.spread
+                    ? Row(
+                        children: [
+                          Expanded(child: _leafView(context, i, 0)),
+                          Expanded(child: _leafView(context, i, 1)),
+                        ],
+                      )
+                    : _leafView(context, i, 0),
               ),
             ),
           );
         },
       );
 
-  Widget _pageView(BuildContext context, int index) {
-    if (index >= _before + _pagesOf(_chapter).length && _hasEnd) {
-      return Center(child: widget.endButton);
+  Widget _leafView(BuildContext context, int index, int side) {
+    if (_itemAt(index) == null && _hasEnd) {
+      return side == 0 ? Center(child: widget.endButton) : const SizedBox.shrink();
     }
-    final page = _pageAt(index);
+    final page = _leafPage(index, side);
     if (page == null) return const SizedBox.shrink();
     final pages = _pagesOf(page.chapter);
     final number = pages.indexOf(page) + 1;
     final look = widget.look;
-    final side = _sideFor;
+    final margin = _sideFor;
     final unitsLeft = _wordsLeft(page);
     final minutes = (unitsLeft / _readingWpm).ceil();
     return Padding(
-        padding: EdgeInsets.fromLTRB(side, widget.topInset, side, widget.bottomInset),
+        padding: EdgeInsets.fromLTRB(margin, widget.topInset, margin, widget.bottomInset),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
