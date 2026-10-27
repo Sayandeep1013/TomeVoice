@@ -124,6 +124,11 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
   String? _error;
   _Place _place = _Place.library;
 
+  /// The places opened so far: each is built on its first visit and kept
+  /// from then on. Built all at once, Browse, Updates and History were made
+  /// in the same frames as the library fading in from the opening lockup.
+  final _visited = <_Place>{_Place.library};
+
   @override
   void initState() {
     super.initState();
@@ -224,7 +229,10 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
 
   void _go(_Place place) {
     Navigator.of(context).pop(); // The drawer.
-    setState(() => _place = place);
+    setState(() {
+      _place = place;
+      _visited.add(place);
+    });
   }
 
   void _push(Widget Function(LibraryStore store) page) {
@@ -251,13 +259,14 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
         ),
       );
     } else {
+      Widget place(_Place p, Widget Function() build) => _visited.contains(p) ? build() : const SizedBox.shrink();
       body = IndexedStack(
         index: _place.index,
         children: [
           LibraryScreen(store: store),
-          BrowseScreen(store: store, sources: _sources!),
-          UpdatesScreen(store: store, updates: _updates!),
-          HistoryScreen(store: store),
+          place(_Place.browse, () => BrowseScreen(store: store, sources: _sources!)),
+          place(_Place.updates, () => UpdatesScreen(store: store, updates: _updates!)),
+          place(_Place.history, () => HistoryScreen(store: store)),
         ],
       );
     }
