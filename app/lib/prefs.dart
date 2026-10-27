@@ -18,6 +18,7 @@ class ListeningPrefs {
     Map<String, String>? voiceByLanguage,
     Map<String, String>? voiceByBook,
     Map<String, String>? dialogueByBook,
+    Map<String, double>? pitchByVoice,
     Map<String, bool>? newestFirstByNovel,
     this.newestFirst = false,
     this.engineId,
@@ -46,6 +47,7 @@ class ListeningPrefs {
   })  : voiceByLanguage = voiceByLanguage ?? {},
         voiceByBook = voiceByBook ?? {},
         dialogueByBook = dialogueByBook ?? {},
+        pitchByVoice = pitchByVoice ?? {},
         newestFirstByNovel = newestFirstByNovel ?? {};
 
   /// Bumped on every change, so the app (theme) and open screens can follow.
@@ -64,6 +66,26 @@ class ListeningPrefs {
   /// Book id -> the voice its dialogue (words in quotation marks) is read
   /// in, when not the narrator's.
   final Map<String, String> dialogueByBook;
+
+  /// Voice name -> its pitch in semitones, for the voices given one. Each
+  /// voice keeps its own: on Google's voices any pitch but 0 makes Google
+  /// switch to an older, rougher model, so a pitch set for one voice must
+  /// not follow the reader to the next. Natural voices take no pitch.
+  final Map<String, double> pitchByVoice;
+
+  /// [voice]'s own pitch, in semitones; 0 unless it was given one.
+  double pitchOf(String? voice) => voice == null ? 0 : pitchByVoice[voice] ?? 0;
+
+  void setPitch(String voice, double semitones) {
+    if (semitones == 0) {
+      pitchByVoice.remove(voice);
+    } else {
+      pitchByVoice[voice] = semitones;
+    }
+  }
+
+  /// The listening settings as [voice] is heard with them: its own pitch.
+  PipelineSettings settingsFor(String? voice) => settings.copyWith(pitchSemitones: pitchOf(voice));
 
   /// Web novel id -> whether its page lists the newest chapter first, as
   /// the reader last turned it.
@@ -218,6 +240,7 @@ class ListeningPrefs {
         'voiceByLanguage': voiceByLanguage,
         'voiceByBook': voiceByBook,
         'dialogueByBook': dialogueByBook,
+        'pitchByVoice': pitchByVoice,
         'newestFirstByNovel': newestFirstByNovel,
         'newestFirst': newestFirst,
         'engineId': engineId,
@@ -261,6 +284,10 @@ class ListeningPrefs {
         voiceByBook: {
           for (final e in (json['voiceByBook'] as Map? ?? const {}).entries)
             e.key.toString(): e.value.toString(),
+        },
+        pitchByVoice: {
+          for (final e in (json['pitchByVoice'] as Map? ?? const {}).entries)
+            if (e.value is num) e.key.toString(): (e.value as num).toDouble().clamp(-12, 12).toDouble(),
         },
         newestFirstByNovel: {
           for (final e in (json['newestFirstByNovel'] as Map? ?? const {}).entries)
@@ -321,7 +348,6 @@ Map<String, Object?> settingsToJson(PipelineSettings s) => {
       'trimDb': s.trimDb,
       'normaliseLoudness': s.normaliseLoudness,
       'compression': s.compression.name,
-      'pitchSemitones': s.pitchSemitones,
     };
 
 PipelineSettings settingsFromJson(Map<String, Object?> j) {
@@ -347,6 +373,8 @@ PipelineSettings settingsFromJson(Map<String, Object?> j) {
       (c) => c.name == j['compression'],
       orElse: () => d.compression,
     ),
-    pitchSemitones: f('pitchSemitones', d.pitchSemitones),
+    // Pitch is each voice's own (ListeningPrefs.pitchByVoice). The one
+    // pitch every voice once shared is not carried over: on a Google voice
+    // it had switched every voice to Google's older model.
   );
 }

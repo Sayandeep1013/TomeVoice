@@ -61,6 +61,7 @@ class PlaybackScheduler {
     required this.pauseAfter,
     this.respell,
     this.dialogueVoiceOf,
+    this.pitchOf,
     this.quoteOpenAt,
   });
 
@@ -79,6 +80,10 @@ class PlaybackScheduler {
 
   /// The voice for words in quotation marks, when not the narrator's.
   final String? Function()? dialogueVoiceOf;
+
+  /// A voice's own pitch in semitones, for the dialogue voice; the
+  /// narrator's comes with [settingsFor].
+  final double Function(String? voiceName)? pitchOf;
 
   /// Whether a quotation is open where unit i begins (said on from an
   /// earlier sentence of its paragraph), when that can be told.
@@ -273,6 +278,7 @@ class PlaybackScheduler {
                 engineId: engineIdOf(),
                 rate: s.speedScale,
                 pitch: SpeechService.semitonesToPitch(s.pitchSemitones),
+                dialoguePitch: SpeechService.semitonesToPitch(pitchOf?.call(dialogue) ?? s.pitchSemitones),
                 urgent: urgent,
               );
         if (gen != _gen) {

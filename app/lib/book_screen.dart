@@ -181,7 +181,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
       await speakSample(
         voiceName: voiceName,
         text: text,
-        settings: _prefs.settings,
+        settings: _prefs.settingsFor(voiceName),
         engineId: _prefs.engineId ?? _catalog.engineId,
       );
     } on Object catch (e) {

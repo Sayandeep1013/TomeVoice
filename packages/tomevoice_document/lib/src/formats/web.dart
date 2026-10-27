@@ -1,3 +1,4 @@
+import '../language.dart';
 import '../model.dart';
 import '../segment.dart';
 import 'html_blocks.dart';
@@ -105,6 +106,9 @@ bool isWebJunk(String text) {
 /// A whole web novel as a book: every chapter has a section in order, and
 /// only the downloaded ones have text. Positions are chapter numbers, so they
 /// stay valid as more chapters arrive.
+///
+/// [language] is what the source says, which only names the site's language
+/// (or "Multi"): the chapters' own script decides, as for imported books.
 Book webNovelBook({
   required String id,
   required String title,
@@ -114,7 +118,7 @@ Book webNovelBook({
   String? description,
   required List<Section> sections,
 }) =>
-    Book(
+    withResolvedLanguage(Book(
       id: id,
       metadata: BookMetadata(
         title: title,
@@ -129,4 +133,4 @@ Book webNovelBook({
       ],
       source: SourceKind.web,
       wordCount: sections.fold(0, (n, s) => n + s.blocks.fold(0, (m, b) => m + countWords(b.text))),
-    );
+    ));

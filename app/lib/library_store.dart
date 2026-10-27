@@ -235,7 +235,11 @@ class LibraryStore {
         cursor: previous?.cursor ?? ReadingCursor.zero,
         progress: previous?.progress ?? 0,
         where: previous?.where,
-        language: languageCodeOf(plugin.lang),
+        // Until its chapters are read (see loadLayout): the title's script,
+        // else what the source says.
+        language: previous?.language ??
+            detectScriptLanguage('${novel.name} ${novel.summary ?? ''}') ??
+            languageCodeOf(plugin.lang),
         cover: cover ?? previous?.cover,
         coverMode: previous?.coverMode ?? CoverMode.auto,
         customCover: previous?.customCover,
@@ -457,7 +461,17 @@ class LibraryStore {
     final entry = entries.where((e) => e.id == id).firstOrNull;
     if (entry != null && entry.isWeb) {
       final dir = bookDir(id);
-      return _runLoadWeb(dir, id);
+      final layout = await _runLoadWeb(dir, id);
+      // The chapters' script settles the language the source only named;
+      // the library's card says the same.
+      final language = layout.book.metadata.language;
+      if (language != null && entry.language != language) {
+        await _change((now) => [
+              for (final e in now)
+                if (e.id == id) e.copyWith(language: language) else e,
+            ]);
+      }
+      return layout;
     }
     final job = (
       booksDir: _booksDir.path,
@@ -1116,6 +1130,7 @@ class LibraryEntry {
     bool clearCustomCover = false,
     String? category,
     int? chapterCount,
+    String? language,
   }) =>
       LibraryEntry(
         id: id,
@@ -1129,7 +1144,7 @@ class LibraryEntry {
         cursor: cursor ?? this.cursor,
         progress: progress ?? this.progress,
         where: where ?? this.where,
-        language: language,
+        language: language ?? this.language,
         cover: cover ?? this.cover,
         coverMode: coverMode ?? this.coverMode,
         customCover: clearCustomCover ? null : (customCover ?? this.customCover),
@@ -1333,8 +1348,10 @@ class WebNovelInfo {
   }
 }
 
-/// A source's language name ("English", "Русский") as a language code.
-String languageCodeOf(String name) {
+/// A source's language name ("English", "Русский") as a language code, or
+/// null for one not known ("Multi", a site's own spelling): the chapters'
+/// script then decides, rather than a guess of English.
+String? languageCodeOf(String name) {
   final n = name.replaceAll(String.fromCharCode(0x200E), '').trim().toLowerCase();
   const names = {
     'english': 'en', 'русский': 'ru', 'russian': 'ru', 'español': 'es', 'spanish': 'es',
@@ -1344,8 +1361,9 @@ String languageCodeOf(String name) {
     'tiếng việt': 'vi', 'vietnamese': 'vi', 'ไทย': 'th', 'thai': 'th', 'українська': 'uk',
     'ukrainian': 'uk', 'polski': 'pl', 'polish': 'pl', 'العربية': 'ar', 'arabic': 'ar',
     'deutsch': 'de', 'german': 'de', 'italiano': 'it', 'italian': 'it',
+    'বাংলা': 'bn', 'bangla': 'bn', 'bengali': 'bn', 'हिन्दी': 'hi', 'हिंदी': 'hi', 'hindi': 'hi',
   };
-  return names[n] ?? 'en';
+  return names[n];
 }
 
 String _imageExt(String? contentType, String url) {

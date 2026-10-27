@@ -59,6 +59,28 @@ void main() {
       expect(layout.items.where((i) => i.title != null), isEmpty, reason: 'no second title row');
     });
 
+    test("a novel's language is its chapters' script, not the source's label", () {
+      final bengali = webChapterSection(
+        index: 0,
+        title: 'পর্ব ১',
+        html: '<p>ড্রাগন কিং একটি পুরনো গল্প। সে পাহাড়ের উপরে থাকত।</p>',
+      );
+      final book = webNovelBook(id: 'w', title: 'Dragon King', language: 'en', sections: [bengali]);
+      expect(book.metadata.language, 'bn');
+    });
+
+    test('a novel with no chapter fetched yet goes by its title, else by its source', () {
+      final pending = [pendingWebChapter(index: 0, title: 'Chapter 1')];
+      expect(
+        webNovelBook(id: 'w', title: 'ড্রাগন কিং', language: 'en', sections: pending)
+            .metadata
+            .language,
+        'bn',
+      );
+      expect(webNovelBook(id: 'w', title: 'Shadow', language: 'ja', sections: pending).metadata.language, 'ja');
+      expect(webNovelBook(id: 'w', title: 'Shadow', sections: pending).metadata.language, 'en');
+    });
+
     test('titles match on words and numbers, not on a mere mention', () {
       expect(sameChapterTitle('Chapter 1', 'Chapter 1'), isTrue);
       expect(sameChapterTitle('CHAPTER 12: The Fool', '12. The Fool'), isTrue);

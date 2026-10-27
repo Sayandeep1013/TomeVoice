@@ -100,7 +100,8 @@ Uint8List resamplePcm16(Uint8List pcm, int from, int to) {
 /// Say [text] with its dialogue in [dialogueVoice] and the rest in
 /// [narrator]: each stretch made on its own and joined, with no gap, into
 /// one WAV like a single voice returns. Word positions are estimated over
-/// the whole sentence, as for voices that report none.
+/// the whole sentence, as for voices that report none. Each voice speaks at
+/// its own pitch: [pitch] the narrator's, [dialoguePitch] the dialogue's.
 Future<Map<String, Object?>> speakWithDialogue({
   required SpeechService svc,
   required String text,
@@ -109,6 +110,7 @@ Future<Map<String, Object?>> speakWithDialogue({
   String? engineId,
   double rate = 1.0,
   double pitch = 1.0,
+  double? dialoguePitch,
   bool Function()? stale,
   bool? startsInside,
   bool urgent = true,
@@ -121,7 +123,7 @@ Future<Map<String, Object?>> speakWithDialogue({
       engineId: engineId,
       voiceName: parts.single.spoken ? dialogueVoice : narrator,
       rate: rate,
-      pitch: pitch,
+      pitch: parts.single.spoken ? dialoguePitch ?? pitch : pitch,
     );
   }
   final pieces = <AudioBuffer>[];
@@ -134,7 +136,7 @@ Future<Map<String, Object?>> speakWithDialogue({
       engineId: engineId,
       voiceName: p.spoken ? dialogueVoice : narrator,
       rate: rate,
-      pitch: pitch,
+      pitch: p.spoken ? dialoguePitch ?? pitch : pitch,
     );
     final file = File(native['wavPath']! as String);
     pieces.add(WavCodec.decode(await file.readAsBytes()));

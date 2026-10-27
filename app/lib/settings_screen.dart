@@ -172,13 +172,16 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
       final catalog = VoiceCatalog.instance;
       await catalog.ensureLoaded();
       final lang = PlatformDispatcher.instance.locale.languageCode;
-      final voice = _prefs.voiceByLanguage[lang] ?? catalog.bestFor(lang)?.name ?? catalog.bestFor('en')?.name;
+      final usual = catalog.byName(_prefs.voiceByLanguage[lang]);
+      final voice = (usual?.language == lang ? usual?.name : null) ??
+          catalog.bestFor(lang)?.name ??
+          catalog.bestFor('en')?.name;
       if (voice == null) return;
       try {
         await speakSample(
           voiceName: voice,
           text: 'This is how your books will sound.',
-          settings: _prefs.settings,
+          settings: _prefs.settingsFor(voice),
           engineId: _prefs.engineId ?? catalog.engineId,
         );
       } on Object {

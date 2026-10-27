@@ -47,8 +47,15 @@ at 1.0x and skim reports at 2.5x. A global default seeds new books.
 | Applied at | `E` on system engines, `D` on all neural engines |
 
 Exposed in **semitones**, not the meaningless 0.5–2.0 multiplier that platform APIs use.
-Semitones are perceptually linear and let the setting transfer between voices and
-engines, which a multiplier does not.
+Semitones are perceptually linear, which a multiplier is not.
+
+**As built (2026-10-27): pitch is each voice's own** (`ListeningPrefs.pitchByVoice`), not
+one setting shared by every voice. Measured on the phone (logcat, Google TTS): any
+`setPitch` other than 1.0 makes Google dispatch to the voice's older `lstm-embedded` model
+instead of `seanet-embedded`, the same voice from the same downloaded pack sounding
+rougher; speech rate does not. A pitch set for one voice therefore must not follow the
+reader to the next, and on a Google voice the slider says what a pitch away from 0 costs.
+Natural voices take no pitch (no DSP shift is built), so their Fine-tune has no slider.
 
 Neural models expose no pitch parameter at all, so pitch there is a **formant-preserving
 pitch shift** in DSP. Naive resampling would work but makes voices sound like chipmunks

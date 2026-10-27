@@ -65,19 +65,20 @@ class ListenController {
   /// installed voice for that language.
   String? get voiceName {
     final catalog = VoiceCatalog.instance;
-    for (final chosen in [
-      if (bookId != null) prefs.voiceByBook[bookId],
-      prefs.voiceByLanguage[language],
-    ]) {
-      if (chosen != null && catalog.byName(chosen) != null) return chosen;
-    }
+    final own = bookId == null ? null : prefs.voiceByBook[bookId];
+    if (own != null && catalog.byName(own) != null) return own;
+    // Only a voice of this language: a Bengali voice chosen for a Bengali
+    // novel once taken for English was saved as English's default.
+    final usual = catalog.byName(prefs.voiceByLanguage[language]);
+    if (usual != null && usual.language == language) return usual.name;
     return catalog.bestFor(language)?.name;
   }
 
-  /// Use [name] for this book, and as the default for its language.
+  /// Use [name] for this book, and as the default for its language when it
+  /// speaks that language (another language's voice stays this book's own).
   void chooseVoice(String name) {
     if (bookId != null) prefs.voiceByBook[bookId!] = name;
-    prefs.voiceByLanguage[language] = name;
+    if (VoiceCatalog.instance.byName(name)?.language == language) prefs.voiceByLanguage[language] = name;
     prefs.save();
     onChanged(restart: true);
   }
@@ -367,7 +368,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
   Future<void> _pickDialogue(BuildContext context) async {
     final c = widget.controller;
     final voices = [
-      for (final v in _catalog.forLanguage(c.language))
+      for (final v in _catalog.forLanguage(c.language, keep: c.dialogueVoice))
         if (v.name != c.voiceName) v,
     ];
     final picked = await showModalBottomSheet<String>(
@@ -481,6 +482,35 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
     );
   }
 
+  /// The pitch of the voice in use, which is that voice's own. None for a
+  /// natural voice, which takes no pitch.
+  Widget? _pitchRow() {
+    final voice = widget.controller.voiceName;
+    if (voice == null || isNeural(voice)) return null;
+    final pitch = _prefs.pitchOf(voice);
+    final google = (_prefs.engineId ?? _catalog.engineId) == 'com.google.android.tts';
+    void set(double v) => setState(() => _prefs.setPitch(voice, v));
+    return LabeledSlider(
+      label: 'Pitch',
+      value: pitch,
+      min: -12,
+      max: 12,
+      display: '${pitch.toStringAsFixed(1)} st',
+      note: pitch != 0 && google
+          ? 'For this voice only. Away from 0, Google reads with an older, rougher model of the voice.'
+          : 'For this voice only.',
+      onChanged: (v) {
+        set(v);
+        widget.controller.onChanged(restart: false);
+      },
+      onChangeEnd: (v) {
+        set(v);
+        _prefs.save();
+        widget.controller.changedAudibly();
+      },
+    );
+  }
+
   Widget _fineTuneBody(BuildContext context) {
     final p = _s.punctuation;
     Widget row(String label, double value, double min, double max, String unit,
@@ -501,7 +531,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SizedBox(height: Gap.s),
-        row('Pitch', _s.pitchSemitones, -12, 12, ' st', (v) => _s.copyWith(pitchSemitones: v), decimals: 1),
+        if (_pitchRow() case final pitch?) pitch,
         row('Space between words', _s.wordGapMs.toDouble(), 0, 500, ' ms',
             (v) => _s.copyWith(wordGapMs: v.round())),
         row('Pause at commas', p.commaMs.toDouble(), 0, 800, ' ms',
@@ -523,9 +553,11 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
           child: TextButton.icon(
             onPressed: () {
               final natural = SpeechPreset.all.first;
+              final voice = widget.controller.voiceName;
               setState(() {
                 _prefs.settings = natural.settings.copyWith(speedScale: _s.speedScale);
                 _prefs.presetId = natural.id;
+                if (voice != null) _prefs.setPitch(voice, 0);
               });
               _prefs.save();
               widget.controller.changedAudibly();
@@ -835,6 +867,7 @@ class LabeledSlider extends StatelessWidget {
     required this.display,
     required this.onChanged,
     required this.onChangeEnd,
+    this.note,
   });
 
   final String label;
@@ -844,6 +877,9 @@ class LabeledSlider extends StatelessWidget {
   final String display;
   final ValueChanged<double> onChanged;
   final ValueChanged<double> onChangeEnd;
+
+  /// A line under the slider about what it does.
+  final String? note;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -874,6 +910,8 @@ class LabeledSlider extends StatelessWidget {
                 onChangeEnd: onChangeEnd,
               ),
             ),
+            if (note != null)
+              Text(note!, style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkFaintOn(context))),
           ],
         ),
       );
@@ -963,7 +1001,7 @@ class _VoicePickerState extends State<_VoicePicker> {
   Widget build(BuildContext context) {
     final selected = widget.controller.voiceName;
     final current = _catalog.byName(selected);
-    final voices = _catalog.forLanguage(_language);
+    final voices = _catalog.forLanguage(_language, keep: selected);
     final byRegion = <String, List<VoiceInfo>>{};
     for (final v in voices) {
       byRegion.putIfAbsent(v.region.isEmpty ? '' : regionLabel(v.region), () => []).add(v);
@@ -981,7 +1019,7 @@ class _VoicePickerState extends State<_VoicePicker> {
     final found = <String, List<VoiceInfo>>{};
     if (finding) {
       for (final l in _catalog.languages()) {
-        for (final v in _catalog.forLanguage(l)) {
+        for (final v in _catalog.forLanguage(l, keep: selected)) {
           if (_matches(v)) found.putIfAbsent(v.languageLabel, () => []).add(v);
         }
       }
