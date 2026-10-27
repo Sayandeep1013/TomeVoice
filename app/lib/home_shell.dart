@@ -88,6 +88,9 @@ class _HomeShellState extends State<HomeShell> {
     unawaited(_widgetEvents?.cancel());
     _lifecycle?.dispose();
     _store?.changes.removeListener(_scheduleFollow);
+    _store?.placeChanges.removeListener(_scheduleFollow);
+    _store?.changes.removeListener(_scheduleWidgets);
+    _store?.placeChanges.removeListener(_scheduleWidgets);
     super.dispose();
   }
 
@@ -151,8 +154,12 @@ class _HomeShellState extends State<HomeShell> {
       }
       // A restore that was interrupted leaves its unpacked copy behind.
       unawaited(clearStaleRestore(Directory(dir)));
+      // A saved place can make another book the one being read, and moves
+      // the widgets' progress on.
       store.changes.addListener(_scheduleFollow);
+      store.placeChanges.addListener(_scheduleFollow);
       store.changes.addListener(_scheduleWidgets);
+      store.placeChanges.addListener(_scheduleWidgets);
       // A widget may have opened the app.
       unawaited(_fromWidget());
       _widgetEvents = SpeechService.events.where((e) => e['type'] == 'widgetLaunch').listen((_) => _fromWidget());

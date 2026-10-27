@@ -42,14 +42,15 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
     super.dispose();
   }
 
+  // Only on the library's changes, not each saved place (placeChanges):
+  // nothing here shows a place.
   Future<void> _reload() async {
-    final items = await widget.updates.recent();
-    final checked = await widget.updates.lastChecked();
+    final log = await widget.updates.log();
     final hasWeb = (await widget.store.list()).any((e) => e.isWeb);
     if (!mounted) return;
     setState(() {
-      _items = items;
-      _checked = checked;
+      _items = log.items;
+      _checked = log.checked;
       _hasWeb = hasWeb;
     });
   }

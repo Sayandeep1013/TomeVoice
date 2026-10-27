@@ -92,6 +92,7 @@ class _NovelScreenState extends State<NovelScreen> {
   void initState() {
     super.initState();
     _store.changes.addListener(_refreshLocal);
+    _store.placeChanges.addListener(_placeSaved);
     unawaited(_load());
   }
 
@@ -101,7 +102,15 @@ class _NovelScreenState extends State<NovelScreen> {
     // second one beside it).
     _stopDownload = true;
     _store.changes.removeListener(_refreshLocal);
+    _store.placeChanges.removeListener(_placeSaved);
     super.dispose();
+  }
+
+  /// A place saved. While the reader covers this page (it saves every second
+  /// or so) nothing here is seen, so nothing is done: the page catches up
+  /// when the reader closes (see _openReader).
+  void _placeSaved() {
+    if (mounted && TickerMode.getValuesNotifier(context).value.enabled) unawaited(_refreshLocal());
   }
 
   Future<void> _refreshLocal() async {

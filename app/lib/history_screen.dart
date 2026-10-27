@@ -19,7 +19,7 @@ class HistoryScreen extends StatefulWidget {
   State<HistoryScreen> createState() => _HistoryScreenState();
 }
 
-class _HistoryScreenState extends State<HistoryScreen> {
+class _HistoryScreenState extends State<HistoryScreen> with WhenShown<HistoryScreen> {
   List<LibraryEntry> _entries = const [];
   bool _loaded = false;
 
@@ -27,14 +27,20 @@ class _HistoryScreenState extends State<HistoryScreen> {
   void initState() {
     super.initState();
     widget.store.changes.addListener(_refresh);
+    widget.store.placeChanges.addListener(_placeSaved);
     unawaited(_refresh());
   }
 
   @override
   void dispose() {
     widget.store.changes.removeListener(_refresh);
+    widget.store.placeChanges.removeListener(_placeSaved);
     super.dispose();
   }
+
+  /// A place saved: the time and progress shown here move on, but the
+  /// reader covers this list while it saves, so it catches up when it shows.
+  void _placeSaved() => whenShown(_refresh);
 
   Future<void> _refresh() async {
     final all = await widget.store.list();
@@ -58,7 +64,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       final day = relativeDay(e.openedAt!);
       groups.putIfAbsent(day[0].toUpperCase() + day.substring(1), () => []).add(e);
     }
-    return DecoratedBox(
+    return shownGate(DecoratedBox(
       decoration: BoxDecoration(gradient: Skin.ground(context)),
       child: SafeArea(
         bottom: false,
@@ -113,7 +119,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
           ],
         ),
       ),
-    );
+    ));
   }
 }
 

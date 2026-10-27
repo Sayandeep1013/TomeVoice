@@ -930,6 +930,100 @@ class _EntranceState extends State<Entrance> with SingleTickerProviderStateMixin
   }
 }
 
+/// For a screen that follows something changing often while another screen
+/// covers it (the reader saves its place every second or so): work handed
+/// to [whenShown] is done at once while the screen shows, and otherwise
+/// kept, once, for when the screen above has gone. Nothing is rebuilt
+/// behind the reader, and nothing while it leaves.
+///
+/// The screen puts [shownGate] round what its build returns.
+mixin WhenShown<T extends StatefulWidget> on State<T> {
+  final _owed = <VoidCallback>{};
+  ModalRoute<Object?>? _route;
+  Animation<double>? _leaving;
+
+  /// Whether nothing covers this screen: its route is the top one, and no
+  /// screen above it is still on its way out.
+  bool get shown {
+    final route = _route;
+    return route == null || (route.isCurrent && (route.secondaryAnimation?.isDismissed ?? true));
+  }
+
+  /// [work] now if the screen shows, else once it does.
+  void whenShown(VoidCallback work) {
+    if (shown) {
+      work();
+    } else {
+      _owed.add(work);
+    }
+  }
+
+  /// [child], watching this screen's route. Only this small widget hears
+  /// the route change, so the screen is not rebuilt when one is pushed.
+  Widget shownGate(Widget child) => _RouteWatch(onRoute: _onRoute, child: child);
+
+  void _onRoute(ModalRoute<Object?>? route) {
+    _route = route;
+    if (_owed.isEmpty || route == null || !route.isCurrent) return;
+    // The screen above is going: catch up once it has gone, so the work
+    // does not land in the frames of its transition.
+    final leaving = route.secondaryAnimation;
+    if (leaving == null || leaving.isDismissed) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _pay());
+    } else if (_leaving == null) {
+      _leaving = leaving..addStatusListener(_onLeaving);
+    }
+  }
+
+  void _onLeaving(AnimationStatus status) {
+    if (!status.isDismissed) return;
+    _stopWatching();
+    _pay();
+  }
+
+  void _stopWatching() {
+    _leaving?.removeStatusListener(_onLeaving);
+    _leaving = null;
+  }
+
+  void _pay() {
+    if (!mounted || !shown || _owed.isEmpty) return;
+    final work = [..._owed];
+    _owed.clear();
+    for (final w in work) {
+      w();
+    }
+  }
+
+  @override
+  void dispose() {
+    _stopWatching();
+    super.dispose();
+  }
+}
+
+class _RouteWatch extends StatefulWidget {
+  const _RouteWatch({required this.onRoute, required this.child});
+
+  final ValueChanged<ModalRoute<Object?>?> onRoute;
+  final Widget child;
+
+  @override
+  State<_RouteWatch> createState() => _RouteWatchState();
+}
+
+class _RouteWatchState extends State<_RouteWatch> {
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Called again whenever the route stops or starts being the top one.
+    widget.onRoute(ModalRoute.of(context));
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
 /// The top of a pushed screen: a round back button and the screen's title.
 class ScreenTopBar extends StatelessWidget {
   const ScreenTopBar({super.key, required this.title, required this.onBack});

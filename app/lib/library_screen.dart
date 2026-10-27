@@ -45,7 +45,7 @@ class _Importing {
   int total = 0;
 }
 
-class _LibraryScreenState extends State<LibraryScreen> {
+class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScreen> {
   LibraryStore get _store => widget.store;
   LibraryIndex? _index;
   int _page = 0;
@@ -80,6 +80,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     unawaited(VoiceCatalog.instance.ensureLoaded());
     _events = SpeechService.events.listen(_onPlatformEvent);
     _store.changes.addListener(_refresh);
+    _store.placeChanges.addListener(_placeSaved);
     ListeningPrefs.revision.addListener(_onPrefs);
     unawaited(_open());
   }
@@ -88,6 +89,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   void dispose() {
     unawaited(_events?.cancel());
     _store.changes.removeListener(_refresh);
+    _store.placeChanges.removeListener(_placeSaved);
     ListeningPrefs.revision.removeListener(_onPrefs);
     _searchController.dispose();
     _pages.dispose();
@@ -98,8 +100,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (mounted) setState(() {});
   }
 
-  /// The index changed (a reader saved its place, a cover changed): re-read
-  /// it so the shelf order and progress are never a step behind.
+  /// A reader saved its place. The reader covers the shelf while it reads,
+  /// so the shelf catches up once, when it shows again.
+  void _placeSaved() => whenShown(_refresh);
+
+  /// The index changed (a place saved, a cover changed): re-read it so the
+  /// shelf order and progress are never a step behind.
   Future<void> _refresh() async {
     final idx = await _store.index();
     if (!mounted) return;
@@ -469,7 +475,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       );
     }
 
-    return PopScope(
+    return shownGate(PopScope(
       canPop: !_selecting && !_searching,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
@@ -590,7 +596,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           ),
         ),
       ),
-    );
+    ));
   }
 
   /// Something that unfolds below the header ([child]) or folds away (null).
