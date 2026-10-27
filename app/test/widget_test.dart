@@ -6,7 +6,9 @@
 // is tested in packages/tomevoice_audio and ingestion in
 // packages/tomevoice_document, where they run without Flutter.
 
+import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -20,8 +22,10 @@ import 'package:tomevoice_spike/brand.dart';
 import 'package:tomevoice_spike/chapter_finder.dart';
 import 'package:tomevoice_spike/library_screen.dart';
 import 'package:tomevoice_spike/library_store.dart';
+import 'package:tomevoice_spike/listening_session.dart';
 import 'package:tomevoice_spike/main.dart';
 import 'package:tomevoice_spike/marks.dart';
+import 'package:tomevoice_spike/neural_voices.dart' show wavBytes;
 import 'package:tomevoice_spike/page_curl.dart';
 import 'package:tomevoice_spike/page_tone.dart';
 import 'package:tomevoice_spike/paged_view.dart';
@@ -673,6 +677,102 @@ void main() {
       // The second paragraph of a chapter opens with the indent's space.
       final indents = find.byWidgetPredicate((w) => w is SizedBox && w.width != null && w.width! > 20 && w.height == null);
       expect(indents, findsWidgets);
+      await finish(tester);
+    });
+  });
+
+  group('reading on after leaving', () {
+    /// The speech mock, but with sound: every sentence a short silent WAV,
+    /// and the playback head never moving, so a book stays in mid-reading.
+    void withSound() {
+      var n = 0;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(_channel, (call) async {
+        _calls.add(call.method);
+        return switch (call.method) {
+          'synthesise' => () {
+              final f = File('${_tmp.path}/s${n++}.wav')..writeAsBytesSync(wavBytes(Float32List(2400), 24000));
+              return <String, Object?>{'wavPath': f.path, 'engineId': 'test', 'rangeEvents': const []};
+            }(),
+          'outputDir' => _tmp.path,
+          'playerPosition' => 0,
+          'playerEnqueue' => 0,
+          'listEngines' => const [],
+          'listVoices' => const [],
+          _ => null,
+        };
+      });
+    }
+
+    Future<NavigatorState> pumpShelf(WidgetTester tester) async {
+      phone(tester);
+      final nav = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(MaterialApp(navigatorKey: nav, home: const Scaffold(body: Text('Shelf'))));
+      return nav.currentState!;
+    }
+
+    testWidgets('back while it reads: the voice reads on; the book opened again takes it back', (tester) async {
+      withSound();
+      final store = LibraryStore(_tmp);
+      final layout = ReadingLayout.build(specimenBook());
+      final nav = await pumpShelf(tester);
+      unawaited(nav.push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(layout: layout, store: store))));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byTooltip('Pause'), findsOneWidget);
+
+      await nav.maybePop();
+      await tester.pumpAndSettle();
+      expect(find.text('Shelf'), findsOneWidget);
+      final bg = BackgroundReading.current.value;
+      expect(bg, isNotNull, reason: 'Back did not stop the voice');
+      expect(bg!.bookId, layout.book.id);
+      expect(bg.playing, isTrue);
+      final player = bg.player;
+
+      // Paused and played again from outside the book (the library's player).
+      await bg.pause();
+      expect(bg.playingNow.value, isFalse);
+      await bg.resume();
+      expect(bg.playingNow.value, isTrue);
+
+      // The book again: the same voice, still reading, taken back.
+      unawaited(nav.push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(layout: layout, store: store))));
+      await tester.pumpAndSettle();
+      expect(BackgroundReading.current.value, isNull);
+      expect(find.byTooltip('Pause'), findsOneWidget);
+      expect(player.isPlaying, isTrue);
+      await player.stop();
+      await finish(tester);
+    });
+
+    testWidgets('another book played stops the one in the background; off, Back stops', (tester) async {
+      withSound();
+      final store = LibraryStore(_tmp);
+      final a = ReadingLayout.build(specimenBook());
+      final b = ReadingLayout.build(chaptered);
+      final nav = await pumpShelf(tester);
+      unawaited(nav.push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(layout: a, store: store))));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump(const Duration(milliseconds: 300));
+      await nav.maybePop();
+      await tester.pumpAndSettle();
+      expect(BackgroundReading.current.value?.bookId, a.book.id);
+
+      // Another book opened: the first reads on until this one plays.
+      unawaited(nav.push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(layout: b, store: store))));
+      await tester.pumpAndSettle();
+      expect(BackgroundReading.current.value?.bookId, a.book.id);
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(BackgroundReading.current.value, isNull);
+
+      // With the setting off, Back stops it.
+      ListeningPrefs.memory.keepReading = false;
+      await nav.maybePop();
+      await tester.pumpAndSettle();
+      expect(BackgroundReading.current.value, isNull);
       await finish(tester);
     });
   });

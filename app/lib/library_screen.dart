@@ -10,6 +10,7 @@ import 'book_screen.dart';
 import 'book_tint.dart';
 import 'categories_screen.dart';
 import 'library_store.dart';
+import 'listening_session.dart';
 import 'novel_screen.dart';
 import 'prefs.dart';
 import 'reader_screen.dart';
@@ -1134,6 +1135,8 @@ class _CategoryTabsState extends State<_CategoryTabs> {
 
 /// The books you are in the middle of, at the bottom of the shelf: swipe
 /// between them, tap to read, play to listen from where you stopped.
+final _notPlaying = ValueNotifier<bool>(false);
+
 class ContinueDock extends StatefulWidget {
   const ContinueDock({
     super.key,
@@ -1277,21 +1280,41 @@ class _ContinueDockState extends State<ContinueDock> {
               ),
             ),
             const SizedBox(width: Gap.s),
-            Tooltip(
-              message: 'Continue reading aloud',
-              child: Material(
-                color: Skin.accentOf(context),
-                shape: const CircleBorder(),
-                child: InkWell(
-                  customBorder: const CircleBorder(),
-                  onTap: () => widget.onPlay(e),
-                  child: SizedBox(
-                    width: 52,
-                    height: 52,
-                    child: Icon(Icons.play_arrow_rounded, size: 32, color: Skin.onAccentOf(context)),
+            // The book reading on in the background is played and paused
+            // here; another opens and reads aloud.
+            ValueListenableBuilder<BackgroundReading?>(
+              valueListenable: BackgroundReading.current,
+              builder: (context, bg, _) {
+                final live = bg != null && bg.bookId == e.id ? bg : null;
+                return ValueListenableBuilder<bool>(
+                  valueListenable: live?.playingNow ?? _notPlaying,
+                  builder: (context, playing, _) => Tooltip(
+                    message: live == null ? 'Continue reading aloud' : (playing ? 'Pause' : 'Play'),
+                    child: Material(
+                      color: Skin.accentOf(context),
+                      shape: const CircleBorder(),
+                      child: InkWell(
+                        customBorder: const CircleBorder(),
+                        onTap: () => live == null ? widget.onPlay(e) : unawaited(live.toggle()),
+                        child: SizedBox(
+                          width: 52,
+                          height: 52,
+                          child: AnimatedSwitcher(
+                            duration: Motion.of(context, Motion.quick),
+                            transitionBuilder: (child, a) => ScaleTransition(scale: a, child: child),
+                            child: Icon(
+                              live != null && playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                              key: ValueKey(live != null && playing),
+                              size: 32,
+                              color: Skin.onAccentOf(context),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              ),
+                );
+              },
             ),
           ],
         ),

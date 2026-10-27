@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
 import 'neural_voices.dart';
+import 'scheduler.dart';
 
 /// Everything that talks to the platform, plus the decoding that has to happen
 /// before the pure-Dart pipeline can be handed anything.
@@ -634,6 +635,8 @@ Future<void> speakSample({
   String? engineId,
 }) async {
   const svc = SpeechService();
+  // A book reading in the background stops for the sample.
+  PlaybackScheduler.beforePlay?.call(null);
   // Speed and pitch as the scheduler gives them: to the engine. The DSP
   // stretch resamples, so a 1.5x sample came out squeaky and too fast.
   final native = await svc.synthesise(

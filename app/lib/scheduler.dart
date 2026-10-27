@@ -98,6 +98,11 @@ class PlaybackScheduler {
   /// Called when the end of the book has been spoken.
   VoidCallback? onFinished;
 
+  /// Told before any scheduler starts reading (and before a voice sample,
+  /// with null): a book read on in the background stops for it, as two
+  /// cannot share the one audio stream.
+  static void Function(PlaybackScheduler? next)? beforePlay;
+
   static const _ahead = Duration(seconds: 10);
 
   /// Time to make a character of speech, learnt from the sentences made so
@@ -131,6 +136,7 @@ class PlaybackScheduler {
   /// Start speaking at [from], discarding anything queued.
   Future<void> play(int from) async {
     if (units.isEmpty) return;
+    beforePlay?.call(this);
     final gen = await _reset();
     if (gen != _gen) return;
     _next = from.clamp(0, units.length - 1);
@@ -163,9 +169,12 @@ class PlaybackScheduler {
   }
 
   void dispose() {
+    // An idle scheduler (another book's page, never played) leaves the
+    // stream alone: a book may be reading in the background.
+    final owned = active;
     _gen++;
     _ticker?.cancel();
-    unawaited(service.stopPlayback());
+    if (owned) unawaited(service.stopPlayback());
     state.dispose();
     unit.dispose();
     word.dispose();

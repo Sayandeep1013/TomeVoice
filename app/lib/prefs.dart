@@ -34,6 +34,7 @@ class ListeningPrefs {
     this.tapToTurn = true,
     this.volumeKeys = false,
     this.fullScreen = false,
+    this.keepReading = true,
     this.keepScreenOn = false,
     this.themeMode = ThemeMode.system,
     this.paletteId = 'forest',
@@ -125,6 +126,10 @@ class ListeningPrefs {
 
   /// The phone's status and navigation bars hidden while reading.
   bool fullScreen;
+
+  /// Leaving a book while it is read aloud does not stop it: the voice reads
+  /// on, paused from the library's player or the card in the shade.
+  bool keepReading;
 
   /// Keep the display awake while a book is open.
   bool keepScreenOn;
@@ -229,6 +234,7 @@ class ListeningPrefs {
         'tapToTurn': tapToTurn,
         'volumeKeys': volumeKeys,
         'fullScreen': fullScreen,
+        'keepReading': keepReading,
         'keepScreenOn': keepScreenOn,
         'themeMode': themeMode.name,
         'palette': paletteId,
@@ -275,6 +281,7 @@ class ListeningPrefs {
         tapToTurn: json['tapToTurn'] != false,
         volumeKeys: json['volumeKeys'] == true,
         fullScreen: json['fullScreen'] == true,
+        keepReading: json['keepReading'] != false,
         keepScreenOn: json['keepScreenOn'] == true,
         themeMode: ThemeMode.values.where((m) => m.name == json['themeMode']).firstOrNull ??
             ThemeMode.system,
