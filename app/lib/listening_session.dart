@@ -115,7 +115,7 @@ class BackgroundReading {
   static const _svc = SpeechService();
   static ListeningPrefs get _prefs => ListeningPrefs.loaded ?? ListeningPrefs.memory;
 
-  DateTime? _sleepAt;
+  final DateTime? _sleepAt;
   int _sleepChapter;
   SleepChoice _sleep;
   Timer? _sleepTimer;

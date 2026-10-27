@@ -433,7 +433,7 @@ class Crease extends CustomPainter {
       Offset.zero & size,
       Paint()
         ..shader = ui.Gradient.linear(
-          Offset(0, 0),
+          Offset.zero,
           Offset(size.width, 0),
           [
             shade.withValues(alpha: 0),
