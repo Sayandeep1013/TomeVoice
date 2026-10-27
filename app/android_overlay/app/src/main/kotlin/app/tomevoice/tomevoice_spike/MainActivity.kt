@@ -18,6 +18,7 @@ import android.os.Looper
 import android.provider.OpenableColumns
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -379,6 +380,10 @@ class MainActivity : FlutterActivity() {
                     )
                     Runtime.getRuntime().exit(0)
                 }
+                "volumeKeysTurnPages" -> {
+                    volumeKeysTurnPages = call.argument<Boolean>("on") == true
+                    result.success(null)
+                }
                 "keepScreenOn" -> {
                     if (call.argument<Boolean>("on") == true) {
                         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -534,6 +539,27 @@ class MainActivity : FlutterActivity() {
         } catch (_: Exception) {
         }
         s.release()
+    }
+
+    /** Set by the reader while its pages want the volume keys. */
+    @Volatile
+    private var volumeKeysTurnPages = false
+
+    /**
+     * The volume keys turn the reader's pages while it asks for them (pages
+     * shown, nothing read aloud): down for on, up for back, held to keep
+     * turning. Both the press and the release are kept from the system, so
+     * the volume does not change and its panel does not show.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val delta = when (event.keyCode) {
+            KeyEvent.KEYCODE_VOLUME_DOWN -> 1
+            KeyEvent.KEYCODE_VOLUME_UP -> -1
+            else -> 0
+        }
+        if (delta == 0 || !volumeKeysTurnPages) return super.dispatchKeyEvent(event)
+        if (event.action == KeyEvent.ACTION_DOWN) event(mapOf("type" to "pageKey", "delta" to delta))
+        return true
     }
 
     private fun event(payload: Map<String, Any?>) {

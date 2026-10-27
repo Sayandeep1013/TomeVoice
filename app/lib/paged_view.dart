@@ -1,0 +1,795 @@
+import 'dart:async';
+import 'dart:math' as math;
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:tomevoice_document/tomevoice_document.dart';
+
+import 'scheduler.dart';
+import 'theme.dart';
+
+/// How the book is drawn on a page. Built by the reader from the same prefs
+/// as the scrolling page, so the two look alike.
+@immutable
+class PageLook {
+  const PageLook({
+    required this.text,
+    required this.heading,
+    required this.chapterHeading,
+    required this.title,
+    required this.label,
+    required this.status,
+    required this.accent,
+    required this.sentenceWash,
+    required this.wordWash,
+    required this.textScaler,
+    required this.justify,
+    required this.indent,
+    required this.margin,
+  });
+
+  final TextStyle text;
+  final TextStyle heading;
+  final TextStyle chapterHeading;
+  final TextStyle title;
+
+  /// "CHAPTER 3" above a chapter's first line.
+  final TextStyle label;
+
+  /// The chapter's name above the page and the count below it.
+  final TextStyle status;
+  final Color accent;
+  final Color sentenceWash;
+  final Color wordWash;
+  final TextScaler textScaler;
+  final bool justify;
+  final bool indent;
+  final double margin;
+
+  /// Everything the laid-out pages depend on: what changes where lines
+  /// break, and the colours painted with them.
+  Object get key => Object.hash(text, heading, chapterHeading, title, label, textScaler, justify, indent, margin);
+}
+
+/// Whether paragraph [item] of [l] opens with an indent when paragraphs are
+/// indented: not the first of a chapter, nor one after a heading or a
+/// picture, as in a printed book.
+bool indentedAt(ReadingLayout l, int item) {
+  final it = l.items[item];
+  final b = it.block;
+  if (b == null || b.isImage || b.role == BlockRole.heading) return false;
+  if (item == 0 || item == l.chapterFirstItem[it.chapter]) return false;
+  final before = l.items[item - 1];
+  if (before.chapter != it.chapter) return false;
+  final pb = before.block;
+  return pb != null && !pb.isImage && pb.role != BlockRole.heading;
+}
+
+/// The first line's indent, as a share of the text size.
+const indentEm = 1.6;
+
+/// The gap after a paragraph: a line's breath when spaced, a hair when
+/// indented (the indent marks the new paragraph).
+double paragraphGap(PageLook look) => look.indent ? 2 : 16;
+
+enum _Kind { label, title, text, picture }
+
+/// One piece of a page: a window onto an item's laid-out text from [top]
+/// for [height], or a whole picture, title or chapter label.
+class _Piece {
+  const _Piece(this.kind, this.item, this.top, this.height, {this.gapAfter = 0});
+  final _Kind kind;
+  final int item;
+  final double top;
+  final double height;
+  final double gapAfter;
+}
+
+class _Page {
+  _Page(this.chapter, this.pieces, this.firstUnit);
+  final int chapter;
+  final List<_Piece> pieces;
+
+  /// The sentence the page opens with (one carried over from the page
+  /// before counts as this page's when it starts here).
+  final int firstUnit;
+}
+
+/// An item laid out once at the column's width: the painter and the tops
+/// of its lines.
+class _Laid {
+  _Laid(this.painter, this.lineTops, this.shift);
+  final TextPainter painter;
+
+  /// Top of each line, then the bottom of the last.
+  final List<double> lineTops;
+
+  /// Characters before the block's own text (1 for an indent's placeholder).
+  final int shift;
+}
+
+/// Moves the paged book from outside: to a sentence, or a page on or back.
+class PagedController {
+  _PagedBookState? _state;
+
+  /// Show the page with sentence [unit].
+  void showUnit(int unit, {bool animate = true}) => _state?._showUnit(unit, animate: animate);
+
+  /// A page on (1) or back (-1).
+  void turn(int delta) => _state?._turn(delta);
+}
+
+/// The book in pages, a chapter at a time: each chapter is cut into pages
+/// of whole lines when it is reached (a 3,000-chapter web novel costs no
+/// more than a short story), and the place is a sentence, never a page
+/// number, so a new size or font or a turn of the phone keeps it.
+class PagedBook extends StatefulWidget {
+  const PagedBook({
+    super.key,
+    required this.layout,
+    required this.look,
+    required this.controller,
+    required this.startUnit,
+    required this.marked,
+    required this.word,
+    required this.chapterName,
+    required this.onPage,
+    required this.onTapMiddle,
+    required this.onHold,
+    required this.pictureOf,
+    this.chapterLabel,
+    this.slide = true,
+    this.tapToTurn = true,
+    this.endButton,
+    this.topInset = 0,
+    this.bottomInset = 0,
+  });
+
+  final ReadingLayout layout;
+  final PageLook look;
+  final PagedController controller;
+  final int startUnit;
+
+  /// The sentence washed on the page (-1 for none), and the word under the
+  /// voice.
+  final ValueListenable<int> marked;
+  final ValueListenable<WordMark> word;
+
+  final String Function(int chapter) chapterName;
+
+  /// "CHAPTER 3", or null when the title carries its number.
+  final String? Function(int chapter)? chapterLabel;
+
+  /// A page came to rest: its first sentence, and whether the reader
+  /// turned to it (rather than the voice or a jump).
+  final void Function(int unit, {required bool byHand}) onPage;
+  final VoidCallback onTapMiddle;
+
+  /// Press and hold on text: the item and the offset in its block's text.
+  final void Function(int item, int offset) onHold;
+
+  /// A picture block drawn in [size].
+  final Widget Function(Block block, Size size) pictureOf;
+
+  final bool slide;
+  final bool tapToTurn;
+
+  /// The page after the last chapter here (a web novel's next chapter).
+  final Widget? endButton;
+
+  /// Room kept clear at the top and foot, under the reader's bars.
+  final double topInset;
+  final double bottomInset;
+
+  @override
+  State<PagedBook> createState() => _PagedBookState();
+}
+
+class _PagedBookState extends State<PagedBook> {
+  ReadingLayout get _l => widget.layout;
+
+  /// Pages of each chapter cut so far, for the current size and look.
+  final _cut = <int, List<_Page>>{};
+  final _laid = <int, _Laid>{};
+  Object? _cutFor;
+
+  late int _chapter = _l.chapterOfUnit(widget.startUnit);
+  PageController? _pages;
+  int _index = 0;
+  bool _turningByHand = false;
+  Size _size = Size.zero;
+
+  /// Set when a page is to be shown once the size is known.
+  int? _pendingUnit;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller._state = this;
+    _pendingUnit = widget.startUnit;
+  }
+
+  @override
+  void didUpdateWidget(PagedBook old) {
+    super.didUpdateWidget(old);
+    if (old.controller != widget.controller) {
+      old.controller._state = null;
+      widget.controller._state = this;
+    }
+    if (old.layout != widget.layout) _forget();
+  }
+
+  @override
+  void dispose() {
+    if (widget.controller._state == this) widget.controller._state = null;
+    _pages?.dispose();
+    _forgetLaid();
+    super.dispose();
+  }
+
+  void _forgetLaid() {
+    for (final l in _laid.values) {
+      l.painter.dispose();
+    }
+    _laid.clear();
+  }
+
+  void _forget() {
+    _forgetLaid();
+    _cut.clear();
+  }
+
+  // ------------------------------------------------------------- geometry
+
+  double get _sideFor => math.max(widget.look.margin, (_size.width - 720) / 2);
+  double get _columnWidth => math.max(120, _size.width - 2 * _sideFor);
+
+  static const _statusBand = 30.0;
+  double get _top => widget.topInset + _statusBand;
+  double get _foot => widget.bottomInset + _statusBand;
+  double get _pageHeight => math.max(160, _size.height - _top - _foot);
+
+  // ------------------------------------------------------------ cutting
+
+  int _chapterEnd(int c) => c + 1 < _l.chapters.length ? _l.chapterFirstItem[c + 1] : _l.items.length;
+
+  _Laid _lay(int i) => _laid[i] ??= () {
+        final look = widget.look;
+        final item = _l.items[i];
+        final chapterStart = i == _l.chapterFirstItem[item.chapter];
+        final TextStyle style;
+        String text;
+        var shift = 0;
+        final spans = <InlineSpan>[];
+        if (item.isTitle) {
+          style = look.title;
+          text = item.title ?? '';
+        } else {
+          final heading = item.block!.role == BlockRole.heading;
+          style = heading ? (chapterStart ? look.chapterHeading : look.heading) : look.text;
+          text = item.block!.text;
+          if (look.indent && indentedAt(_l, i)) {
+            shift = 1;
+            spans.add(const WidgetSpan(child: SizedBox.shrink()));
+          }
+        }
+        spans.add(TextSpan(text: text));
+        final heading = !item.isTitle && item.block!.role == BlockRole.heading;
+        final tp = TextPainter(
+          text: TextSpan(style: style, children: spans),
+          textDirection: TextDirection.ltr,
+          textAlign: look.justify && !heading && !item.isTitle ? TextAlign.justify : TextAlign.start,
+          textScaler: look.textScaler,
+        );
+        if (shift > 0) {
+          final size = look.textScaler.scale(look.text.fontSize ?? 19) * indentEm;
+          tp.setPlaceholderDimensions([
+            PlaceholderDimensions(size: Size(size, 1), alignment: PlaceholderAlignment.bottom),
+          ]);
+        }
+        tp.layout(maxWidth: _columnWidth);
+        final tops = <double>[0];
+        for (final m in tp.computeLineMetrics()) {
+          tops.add(tops.last + m.height);
+        }
+        // The painter's own height is the truth for the last line.
+        if (tops.length > 1) tops[tops.length - 1] = tp.height;
+        return _Laid(tp, tops, shift);
+      }();
+
+  /// The unit whose text holds [offset] of item [i]'s block.
+  int _unitAt(int i, int offset) {
+    final item = _l.items[i];
+    var unit = item.firstUnit;
+    for (var u = item.firstUnit; u < item.firstUnit + item.unitCount; u++) {
+      if (_l.unitOffset[u] <= offset) unit = u;
+    }
+    return unit;
+  }
+
+  Size _pictureSize(Block b) {
+    final iw = (b.imageWidth ?? 1).toDouble(), ih = (b.imageHeight ?? 1).toDouble();
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    var w = math.min(_columnWidth, iw / dpr * 2.2);
+    var h = w * ih / iw;
+    final most = _pageHeight - 28;
+    if (h > most) {
+      w = w * most / h;
+      h = most;
+    }
+    return Size(w, h);
+  }
+
+  List<_Page> _pagesOf(int c) {
+    final key = Object.hash(widget.look.key, _size);
+    if (_cutFor != key) {
+      _forget();
+      _cutFor = key;
+    }
+    return _cut[c] ??= _cutChapter(c);
+  }
+
+  List<_Page> _cutChapter(int c) {
+    final look = widget.look;
+    final height = _pageHeight;
+    final pages = <_Page>[];
+    var pieces = <_Piece>[];
+    var y = 0.0;
+    var first = -1;
+    void close() {
+      if (pieces.isEmpty) return;
+      final firstItem = pieces.first.item;
+      pages.add(_Page(c, pieces, first >= 0 ? first : _l.items[firstItem].firstUnit));
+      pieces = [];
+      y = 0;
+      first = -1;
+    }
+
+    void place(_Piece p, {int unit = -1}) {
+      if (first < 0 && unit >= 0) first = unit;
+      pieces.add(p);
+      y += p.height + p.gapAfter;
+    }
+
+    final from = _l.chapterFirstItem[c], to = _chapterEnd(c);
+    // A chapter opens with its label, as on the scrolling page.
+    final label = _l.chapters.length > 1 ? widget.chapterLabel?.call(c) : null;
+    final labelHeight = _labelHeight(label);
+    if (labelHeight > 0) place(_Piece(_Kind.label, from, 0, labelHeight));
+    for (var i = from; i < to; i++) {
+      final item = _l.items[i];
+      if (item.isImage) {
+        final size = _pictureSize(item.block!);
+        final h = size.height + 28;
+        if (y + h > height && pieces.isNotEmpty) close();
+        place(_Piece(_Kind.picture, i, 0, h), unit: item.firstUnit < _l.units.length ? item.firstUnit : -1);
+        continue;
+      }
+      final laid = _lay(i);
+      final heading = item.isTitle || item.block!.role == BlockRole.heading;
+      final chapterStart = i == _l.chapterFirstItem[item.chapter];
+      final above = heading && !chapterStart && !item.isTitle ? 12.0 : 0.0;
+      final gap = heading ? 18.0 : paragraphGap(look);
+      final tops = laid.lineTops;
+      final lines = tops.length - 1;
+      if (heading) {
+        // A heading stays with what follows it: never last on a page.
+        final h = above + tops.last;
+        final next = i + 1 < to && !_l.items[i + 1].isImage ? _lay(i + 1).lineTops : null;
+        final needs = h + gap + (next != null && next.length > 2 ? next[2] : 0);
+        if (y + needs > height && pieces.isNotEmpty) close();
+        // Its space above only between paragraphs, not at a page's top.
+        final pad = y > 0 ? above : 0.0;
+        place(_Piece(item.isTitle ? _Kind.title : _Kind.text, i, -pad, tops.last + pad, gapAfter: gap),
+            unit: item.isTitle ? -1 : item.firstUnit);
+        continue;
+      }
+      var a = 0;
+      while (a < lines) {
+        var b = a;
+        while (b < lines && y + (tops[b + 1] - tops[a]) <= height) {
+          b++;
+        }
+        if (b == a) {
+          if (pieces.isNotEmpty) {
+            close();
+            continue;
+          }
+          b = a + 1; // A line taller than the page: it goes alone.
+        }
+        final unit = a == 0
+            ? item.firstUnit
+            : _unitAt(i, laid.painter.getPositionForOffset(Offset(1, tops[a] + 1)).offset - laid.shift);
+        final last = b == lines;
+        place(_Piece(_Kind.text, i, tops[a], tops[b] - tops[a], gapAfter: last ? gap : 0), unit: unit);
+        a = b;
+        if (!last) close();
+      }
+    }
+    close();
+    if (pages.isEmpty) pages.add(_Page(c, const [], _l.chapterFirstUnit[c]));
+    return pages;
+  }
+
+  double _labelHeight(String? label) {
+    if (label == null) return 0;
+    final tp = TextPainter(
+      text: TextSpan(text: label, style: widget.look.label),
+      textDirection: TextDirection.ltr,
+      textScaler: widget.look.textScaler,
+    )..layout();
+    final h = tp.height + 8 + 12;
+    tp.dispose();
+    return h;
+  }
+
+  /// The page of chapter [c] that sentence [unit] is on.
+  int _pageOfUnit(List<_Page> pages, int unit) {
+    var p = 0;
+    for (var k = 0; k < pages.length; k++) {
+      if (pages[k].firstUnit <= unit) p = k;
+    }
+    return p;
+  }
+
+  // ------------------------------------------------------------- turning
+
+  /// Pages laid out side by side: the last of the chapter before, this
+  /// chapter's, and the first of the next (or the way on). Turning onto
+  /// either edge moves to that chapter once the page comes to rest.
+  bool get _hasBefore => _chapter > 0;
+  bool get _hasNext => _chapter + 1 < _l.chapters.length;
+  bool get _hasEnd => !_hasNext && widget.endButton != null;
+  int get _before => _hasBefore ? 1 : 0;
+  int get _count => _before + _pagesOf(_chapter).length + (_hasNext || _hasEnd ? 1 : 0);
+
+  void _ensureController(int index) {
+    if (_pages == null) {
+      _pages = PageController(initialPage: index);
+      _index = index;
+    }
+  }
+
+  /// Show chapter [c] at page [index] of its row. The row is a new page
+  /// view (keyed by chapter) on a new controller, so it opens there in the
+  /// same frame: a jump on the old one showed the wrong page for a frame.
+  void _moveTo(int c, int index) {
+    final old = _pages;
+    setState(() {
+      _chapter = c;
+      _index = index;
+      _pages = PageController(initialPage: index);
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => old?.dispose());
+  }
+
+  void _showUnit(int unit, {bool animate = true}) {
+    if (_size == Size.zero || _pages == null) {
+      _pendingUnit = unit;
+      return;
+    }
+    final c = _l.chapterOfUnit(unit);
+    if (c != _chapter) {
+      _moveTo(c, (c > 0 ? 1 : 0) + _pageOfUnit(_pagesOf(c), unit));
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _settled(byHand: false);
+      });
+      return;
+    }
+    final i = _before + _pageOfUnit(_pagesOf(c), unit);
+    if (i == _index) return;
+    final near = (i - _index).abs() == 1;
+    _turningByHand = false;
+    final d = Motion.of(context, Motion.standard);
+    if (near && widget.slide && d > Duration.zero) {
+      unawaited(_pages!.animateToPage(i, duration: d, curve: Motion.out));
+    } else {
+      _pages!.jumpToPage(i);
+    }
+  }
+
+  void _turn(int delta) {
+    final p = _pages;
+    if (p == null) return;
+    final i = (_index + delta).clamp(0, _count - 1);
+    if (i == _index) return;
+    _turningByHand = true;
+    final d = Motion.of(context, Motion.standard);
+    if (widget.slide && d > Duration.zero) {
+      unawaited(p.animateToPage(i, duration: d, curve: Motion.out));
+    } else {
+      p.jumpToPage(i);
+    }
+  }
+
+  /// The page at rest: an edge page becomes its own chapter's, and the
+  /// reader hears which sentence the page opens with.
+  void _settled({required bool byHand}) {
+    final pages = _pagesOf(_chapter);
+    if (_hasBefore && _index == 0) {
+      final c = _chapter - 1;
+      _moveTo(c, (c > 0 ? 1 : 0) + _pagesOf(c).length - 1);
+    } else if (_hasNext && _index == _before + pages.length) {
+      _moveTo(_chapter + 1, 1);
+    }
+    final page = _pageAt(_index);
+    if (page != null) widget.onPage(page.firstUnit, byHand: byHand);
+    // Cut the chapters either side ahead of time, a frame apart, so
+    // turning onto them never waits.
+    final c = _chapter;
+    Timer(const Duration(milliseconds: 60), () {
+      if (!mounted || c != _chapter) return;
+      if (_hasBefore) _pagesOf(c - 1);
+      Timer(const Duration(milliseconds: 60), () {
+        if (mounted && c == _chapter && _hasNext) _pagesOf(c + 1);
+      });
+    });
+  }
+
+  _Page? _pageAt(int index) {
+    final pages = _pagesOf(_chapter);
+    if (index < _before) return _hasBefore ? _pagesOf(_chapter - 1).last : null;
+    final k = index - _before;
+    if (k < pages.length) return pages[k];
+    if (_hasNext) return _pagesOf(_chapter + 1).first;
+    return null;
+  }
+
+  // --------------------------------------------------------------- build
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, box) {
+          final size = Size(box.maxWidth, box.maxHeight);
+          if (size != _size) {
+            _size = size;
+            // A new size cuts new pages; the page keeps its first sentence.
+            final keep = _pendingUnit ?? _pageAt(_index)?.firstUnit;
+            if (keep != null) {
+              _chapter = _l.chapterOfUnit(keep);
+              final i = _before + _pageOfUnit(_pagesOf(_chapter), keep);
+              if (_pages == null) {
+                _ensureController(i);
+              } else if (i != _index) {
+                final old = _pages;
+                _index = i;
+                _pages = PageController(initialPage: i);
+                WidgetsBinding.instance.addPostFrameCallback((_) => old?.dispose());
+              }
+            }
+            _pendingUnit = null;
+          }
+          _ensureController(0);
+          return NotificationListener<ScrollNotification>(
+            onNotification: (n) {
+              if (n.depth != 0) return false;
+              if (n is ScrollStartNotification && n.dragDetails != null) _turningByHand = true;
+              if (n is ScrollEndNotification) {
+                final byHand = _turningByHand;
+                _turningByHand = false;
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) _settled(byHand: byHand);
+                });
+              }
+              return false;
+            },
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTapUp: (d) {
+                final x = d.localPosition.dx / size.width;
+                if (widget.tapToTurn && x < 0.28) {
+                  _turn(-1);
+                } else if (widget.tapToTurn && x > 0.72) {
+                  _turn(1);
+                } else {
+                  widget.onTapMiddle();
+                }
+              },
+              child: PageView.builder(
+                key: ValueKey(_pages),
+                controller: _pages,
+                itemCount: _count,
+                physics: widget.slide ? const PageScrollPhysics() : const _InstantPagePhysics(),
+                onPageChanged: (i) => _index = i,
+                itemBuilder: (context, i) => _pageView(context, i),
+              ),
+            ),
+          );
+        },
+      );
+
+  Widget _pageView(BuildContext context, int index) {
+    if (index >= _before + _pagesOf(_chapter).length && _hasEnd) {
+      return Center(child: widget.endButton);
+    }
+    final page = _pageAt(index);
+    if (page == null) return const SizedBox.shrink();
+    final pages = _pagesOf(page.chapter);
+    final number = pages.indexOf(page) + 1;
+    final look = widget.look;
+    final side = _sideFor;
+    final unitsLeft = _wordsLeft(page);
+    final minutes = (unitsLeft / _readingWpm).ceil();
+    return Padding(
+        padding: EdgeInsets.fromLTRB(side, widget.topInset, side, widget.bottomInset),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              height: _statusBand,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(widget.chapterName(page.chapter).toUpperCase(),
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: look.status),
+              ),
+            ),
+            SizedBox(
+              height: _pageHeight,
+              child: ClipRect(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [for (final p in page.pieces) _pieceView(context, p)],
+                ),
+              ),
+            ),
+            SizedBox(
+              height: _statusBand,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      minutes <= 0 ? 'END OF CHAPTER' : '$minutes MIN LEFT IN CHAPTER',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: look.status,
+                    ),
+                  ),
+                  Text('$number / ${pages.length}', style: look.status),
+                ],
+              ),
+            ),
+          ],
+        ),
+    );
+  }
+
+  /// Words a reader reads in a minute, silently (about 230 for most).
+  static const _readingWpm = 230;
+
+  int _wordsLeft(_Page page) {
+    final end = page.chapter + 1 < _l.chapters.length ? _l.chapterFirstUnit[page.chapter + 1] : _l.units.length;
+    final from = page.firstUnit.clamp(0, _l.units.length);
+    return _l.wordsBefore[end] - _l.wordsBefore[from];
+  }
+
+  Widget _pieceView(BuildContext context, _Piece p) {
+    final look = widget.look;
+    switch (p.kind) {
+      case _Kind.label:
+        final label = widget.chapterLabel?.call(_l.items[p.item].chapter) ?? '';
+        return SizedBox(
+          height: p.height,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 8, bottom: 12),
+            child: Row(
+              children: [
+                Text(label, style: look.label),
+                const SizedBox(width: Gap.m),
+                Expanded(child: Container(height: 1, color: look.accent.withValues(alpha: 0.35))),
+              ],
+            ),
+          ),
+        );
+      case _Kind.picture:
+        final b = _l.items[p.item].block!;
+        return SizedBox(
+          height: p.height,
+          width: _columnWidth,
+          child: Center(child: widget.pictureOf(b, _pictureSize(b))),
+        );
+      case _Kind.title:
+      case _Kind.text:
+        final laid = _lay(p.item);
+        return Padding(
+          padding: EdgeInsets.only(bottom: p.gapAfter),
+          child: GestureDetector(
+            onLongPressStart: p.kind == _Kind.title
+                ? null
+                : (d) {
+                    final at = laid.painter.getPositionForOffset(d.localPosition + Offset(0, p.top)).offset;
+                    widget.onHold(p.item, math.max(0, at - laid.shift));
+                  },
+            child: CustomPaint(
+              size: Size(_columnWidth, p.height),
+              painter: _SlicePainter(
+                laid: laid,
+                top: p.top,
+                item: _l.items[p.item],
+                layout: _l,
+                marked: widget.marked,
+                word: widget.word,
+                sentenceWash: look.sentenceWash,
+                wordWash: look.wordWash,
+              ),
+            ),
+          ),
+        );
+    }
+  }
+}
+
+/// A window onto one laid-out paragraph, with the sentence being read and
+/// its word washed behind the text.
+class _SlicePainter extends CustomPainter {
+  _SlicePainter({
+    required this.laid,
+    required this.top,
+    required this.item,
+    required this.layout,
+    required this.marked,
+    required this.word,
+    required this.sentenceWash,
+    required this.wordWash,
+  }) : super(repaint: Listenable.merge([marked, word]));
+
+  final _Laid laid;
+  final double top;
+  final LayoutItem item;
+  final ReadingLayout layout;
+  final ValueListenable<int> marked;
+  final ValueListenable<WordMark> word;
+  final Color sentenceWash;
+  final Color wordWash;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
+    canvas.translate(0, -top);
+    final u = marked.value;
+    final text = item.block?.text ?? '';
+    if (u >= 0 && item.containsUnit(u)) {
+      final s = layout.unitOffset[u].clamp(0, text.length);
+      final e = (s + layout.units[u].text.length).clamp(s, text.length);
+      _wash(canvas, s, e, sentenceWash);
+      final w = word.value;
+      if (w.unit == u && w.start >= 0) {
+        final ws = (s + w.start).clamp(s, e);
+        final we = (s + w.end).clamp(ws, e);
+        if (we > ws) _wash(canvas, ws, we, wordWash);
+      }
+    }
+    laid.painter.paint(canvas, Offset.zero);
+    canvas.restore();
+  }
+
+  void _wash(Canvas canvas, int from, int to, Color color) {
+    final paint = Paint()..color = color;
+    for (final b in laid.painter.getBoxesForSelection(
+      TextSelection(baseOffset: from + laid.shift, extentOffset: to + laid.shift),
+    )) {
+      if (b.bottom < top || b.top > top + 10000) continue;
+      canvas.drawRRect(RRect.fromRectAndRadius(b.toRect().inflate(1.5), const Radius.circular(3)), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SlicePainter old) =>
+      old.laid != laid ||
+      old.top != top ||
+      old.sentenceWash != sentenceWash ||
+      old.wordWash != wordWash ||
+      old.marked != marked ||
+      old.word != word;
+}
+
+/// Page turns with no slide: a swipe or a tap moves a whole page at once.
+class _InstantPagePhysics extends PageScrollPhysics {
+  const _InstantPagePhysics({super.parent});
+
+  @override
+  _InstantPagePhysics applyTo(ScrollPhysics? ancestor) => _InstantPagePhysics(parent: buildParent(ancestor));
+
+  @override
+  SpringDescription get spring => const SpringDescription(mass: 0.1, stiffness: 4000, damping: 40);
+}

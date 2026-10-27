@@ -229,6 +229,10 @@ class SpeechService {
   /// Keep the display awake while a book is open (a reader setting).
   Future<void> keepScreenOn(bool on) => _quiet('keepScreenOn', {'on': on});
 
+  /// While on, the volume keys turn pages (a `pageKey` event with `delta`)
+  /// instead of changing the volume.
+  Future<void> volumeKeysTurnPages(bool on) => _quiet('volumeKeysTurnPages', {'on': on});
+
   /// The installed version name, "0.3.0".
   Future<String?> appVersion() async {
     try {

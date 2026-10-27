@@ -12,7 +12,7 @@ import 'theme.dart';
 import 'ui.dart';
 import 'voices.dart';
 
-enum ListenFocus { all, speed }
+enum ListenFocus { all, speed, read }
 
 /// When reading should stop on its own.
 enum SleepChoice { off, min15, min30, min60, chapterEnd }
@@ -142,7 +142,7 @@ class _ReaderSettingsSheet extends StatefulWidget {
 class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
   final _catalog = VoiceCatalog.instance;
   late SleepChoice _sleep = widget.controller.sleep;
-  int _tab = 0;
+  late int _tab = widget.focus == ListenFocus.read ? 1 : 0;
   bool _fineTune = false;
 
   ListeningPrefs get _prefs => widget.controller.prefs;
@@ -666,6 +666,55 @@ class ReadingControls extends StatelessWidget {
             value: prefs.margin,
             onChanged: (v) => _apply(() => prefs.margin = v),
           ),
+          const SizedBox(height: Gap.xl),
+          const SectionTitle('Paragraphs'),
+          const SizedBox(height: Gap.m),
+          ChoiceRow<bool>(
+            options: const [(false, 'Spaced'), (true, 'Indented')],
+            value: prefs.indent,
+            onChanged: (v) => _apply(() => prefs.indent = v),
+          ),
+          const SizedBox(height: Gap.xl),
+          const SectionTitle('Layout'),
+          const SizedBox(height: Gap.m),
+          ChoiceRow<bool>(
+            options: const [(false, 'Scroll'), (true, 'Pages')],
+            value: prefs.pages,
+            onChanged: (v) => _apply(() => prefs.pages = v),
+          ),
+          // Only pages are turned: their settings open in under the choice.
+          growIn(
+            context,
+            !prefs.pages
+                ? null
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const SizedBox(height: Gap.l),
+                      ChoiceRow<bool>(
+                        options: const [(true, 'Slide'), (false, 'Instant')],
+                        value: prefs.pageSlide,
+                        onChanged: (v) => _apply(() => prefs.pageSlide = v),
+                      ),
+                      const SizedBox(height: Gap.s),
+                      SwitchRow(
+                        title: 'Tap the sides to turn',
+                        subtitle: 'Left for back, right for on; the middle shows the controls',
+                        value: prefs.tapToTurn,
+                        padding: EdgeInsets.zero,
+                        onChanged: (v) => _apply(() => prefs.tapToTurn = v),
+                      ),
+                      const SizedBox(height: Gap.s),
+                      SwitchRow(
+                        title: 'Volume keys turn pages',
+                        subtitle: 'Down for on, up for back. While a book is read aloud they change the volume',
+                        value: prefs.volumeKeys,
+                        padding: EdgeInsets.zero,
+                        onChanged: (v) => _apply(() => prefs.volumeKeys = v),
+                      ),
+                    ],
+                  ),
+          ),
           if (showTheme) ...[
             const SizedBox(height: Gap.xl),
             const SectionTitle('Theme'),
@@ -683,6 +732,14 @@ class ReadingControls extends StatelessWidget {
             value: prefs.justify,
             padding: EdgeInsets.zero,
             onChanged: (v) => _apply(() => prefs.justify = v),
+          ),
+          const SizedBox(height: Gap.s),
+          SwitchRow(
+            title: 'Full screen',
+            subtitle: "Hide the phone's status and navigation bars while reading",
+            value: prefs.fullScreen,
+            padding: EdgeInsets.zero,
+            onChanged: (v) => _apply(() => prefs.fullScreen = v),
           ),
           const SizedBox(height: Gap.s),
           SwitchRow(

@@ -27,6 +27,12 @@ class ListeningPrefs {
     this.lineHeight = 1.6,
     this.margin = 22,
     this.justify = false,
+    this.indent = false,
+    this.pages = false,
+    this.pageSlide = true,
+    this.tapToTurn = true,
+    this.volumeKeys = false,
+    this.fullScreen = false,
     this.keepScreenOn = false,
     this.themeMode = ThemeMode.system,
     this.paletteId = 'forest',
@@ -93,6 +99,26 @@ class ListeningPrefs {
 
   /// Justified text instead of ragged right.
   bool justify;
+
+  /// Paragraphs as in a printed book: the first line indented and no gap
+  /// between them, instead of a line's gap.
+  bool indent;
+
+  /// The book in pages turned one at a time, instead of one long scroll.
+  bool pages;
+
+  /// Pages slide as they turn; off, the next one is simply there.
+  bool pageSlide;
+
+  /// A tap near the left or right edge turns the page.
+  bool tapToTurn;
+
+  /// The volume keys turn pages (while nothing is being read aloud, when
+  /// they still change the volume).
+  bool volumeKeys;
+
+  /// The phone's status and navigation bars hidden while reading.
+  bool fullScreen;
 
   /// Keep the display awake while a book is open.
   bool keepScreenOn;
@@ -190,6 +216,12 @@ class ListeningPrefs {
         'lineHeight': lineHeight,
         'margin': margin,
         'justify': justify,
+        'indent': indent,
+        'pages': pages,
+        'pageSlide': pageSlide,
+        'tapToTurn': tapToTurn,
+        'volumeKeys': volumeKeys,
+        'fullScreen': fullScreen,
         'keepScreenOn': keepScreenOn,
         'themeMode': themeMode.name,
         'palette': paletteId,
@@ -229,6 +261,12 @@ class ListeningPrefs {
         lineHeight: ((json['lineHeight'] as num?)?.toDouble() ?? 1.6).clamp(1.3, 2.0).toDouble(),
         margin: ((json['margin'] as num?)?.toDouble() ?? 22).clamp(8, 48).toDouble(),
         justify: json['justify'] == true,
+        indent: json['indent'] == true,
+        pages: json['pages'] == true,
+        pageSlide: json['pageSlide'] != false,
+        tapToTurn: json['tapToTurn'] != false,
+        volumeKeys: json['volumeKeys'] == true,
+        fullScreen: json['fullScreen'] == true,
         keepScreenOn: json['keepScreenOn'] == true,
         themeMode: ThemeMode.values.where((m) => m.name == json['themeMode']).firstOrNull ??
             ThemeMode.system,
