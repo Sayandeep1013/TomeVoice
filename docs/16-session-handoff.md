@@ -4,6 +4,32 @@
 
 ---
 
+## 0++. Checkpoint (2026-10-27, evening): phone voices as Google plays them (1.0.10)
+
+Branch `phone-voices-and-language`, released as **1.0.10**.
+
+- **Why Google's Bengali voice sounded worse in TomeVoice than in Google's settings.**
+  Same voice name (`bn-in-x-bnd-local`), same downloaded pack, but logcat
+  (`GoogleTTSServiceImpl`: "TTS dispatch") showed TomeVoice's sentences going to
+  `bn-in-x-bnd-lstm-embedded` and Google's sample to `...-seanet-embedded`. The cause is
+  pitch: any `setPitch` but 1.0 makes Google use the older lstm model, for every language
+  (proved in Android's own TTS settings with `settings put secure tts_default_pitch`,
+  restarting Settings so it rereads it). Speech rate does not. The reader had -7.4 st set,
+  shared by every voice. See docs/05 §5.2.
+- **Pitch is each voice's own** (`ListeningPrefs.pitchByVoice`, `settingsFor(voice)`),
+  0 unless set; the old shared pitch is dropped on load. The dialogue voice gets its own
+  (`PlaybackScheduler.pitchOf`, `speakWithDialogue(dialoguePitch:)`). Natural voices never
+  took pitch, so their Fine-tune has no slider.
+- **A web novel's language is its chapters' script** (`webNovelBook` ->
+  `withResolvedLanguage`; with no chapter fetched, the title and summary). Source labels
+  the app does not know (`languageCodeOf`) are null, not English. `loadLayout` brings the
+  library entry's language into line.
+- **A language's usual voice must speak it** (`ListenController.voiceName`/`chooseVoice`).
+- **Google's `xx-YY-language` alias is hidden** where the region lists its speakers
+  (`VoiceCatalog._withoutAliases`), unless it is the voice in use.
+- **Debugging Google TTS on the phone:** `adb logcat | grep -E "Synthesis request|TTS dispatch"`
+  names the model each sentence is read with.
+
 ## 0+. Checkpoint (2026-10-27): reading without the voice, motion part two
 
 Branch `reader-mode-and-motion` (not merged or released yet).
