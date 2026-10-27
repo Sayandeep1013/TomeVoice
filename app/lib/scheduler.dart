@@ -100,8 +100,11 @@ class PlaybackScheduler {
 
   static const _ahead = Duration(seconds: 10);
 
-  /// Less than this queued, and the next sentence is made at full priority.
-  static const _urgentBelow = Duration(seconds: 3);
+  /// Time to make a character of speech, learnt from the sentences made so
+  /// far (null until one is). A heavy voice on a slow phone needs far more
+  /// warning than a light one: a fixed 3 s let a long sentence of an HD
+  /// voice start too late and run the voice dry (seen on the phone).
+  double? _msPerChar;
 
   /// How long the last sentence took to make, for the log when the voice
   /// runs dry (how a slow phone or voice shows itself).
@@ -209,9 +212,13 @@ class PlaybackScheduler {
       final i = _next;
       final said = respell?.call(units[i].text) ?? Respelled.same(units[i].text);
       final text = said.text;
-      // Little queued (starting, or the voice catching up): make it at
-      // full priority. Well ahead: let the screen go first.
-      final urgent = _chunks.isEmpty || ahead < _rate * _urgentBelow.inSeconds;
+      // Little queued for the time this sentence will take (starting, or
+      // the voice catching up): make it at full priority. Well ahead, with
+      // twice that to spare and a second and a half more: let the screen
+      // go first.
+      final perChar = _msPerChar;
+      final aheadMs = ahead * 1000 ~/ _rate;
+      final urgent = _chunks.isEmpty || perChar == null || aheadMs < text.length * perChar * 2 + 1500;
       final watch = Stopwatch()..start();
       try {
         final s = settingsFor(text);
@@ -274,7 +281,14 @@ class PlaybackScheduler {
         ];
         _chunks.add(_Chunk(i, start, at(r.speechFrames), to == r.sampleRate ? r.totalFrames : pcm.length ~/ 2, timings,
             r.levels));
-        _lastMade = (ms: watch.elapsedMilliseconds, speechMs: r.speechFrames * 1000 ~/ r.sampleRate, urgent: urgent);
+        final took = watch.elapsedMilliseconds;
+        _lastMade = (ms: took, speechMs: r.speechFrames * 1000 ~/ r.sampleRate, urgent: urgent);
+        if (text.length >= 20) {
+          final per = took / text.length;
+          // The slower of what was learnt and this one leads, so a slow
+          // stretch is answered at once and forgotten gradually.
+          _msPerChar = perChar == null || per > perChar ? per : perChar * 0.8 + per * 0.2;
+        }
         _next = i + 1;
         failures = 0;
       } on PlatformException catch (e) {

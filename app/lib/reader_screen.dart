@@ -1654,6 +1654,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// by a tap in the middle of the page and gone as the page turns.
   Widget _pagedReading(BuildContext context, Widget bar, bool rail) {
     final ground = Skin.ground(context).colors.first;
+    final foot = Skin.groundFoot(context);
     return Stack(
       children: [
         Positioned.fill(
@@ -1717,7 +1718,26 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           left: 0,
           right: 0,
           bottom: 0,
-          child: _overBar(context, top: false, child: rail ? Center(child: bar) : bar),
+          // Over a fade to the ground, so the page's foot line does not
+          // show under the player's edge.
+          child: _overBar(
+            context,
+            top: false,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [foot.withValues(alpha: 0), foot, foot],
+                  stops: const [0, 0.3, 1],
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.only(top: 14),
+                child: rail ? Center(child: bar) : bar,
+              ),
+            ),
+          ),
         ),
       ],
     );
