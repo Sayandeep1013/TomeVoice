@@ -232,11 +232,16 @@ class NeuralEngine {
 
   /// Say [text] in [voice] at [speed]; a WAV in [outDir], as the phone's
   /// voices return (`wavPath`, no word timings: they are estimated).
+  ///
+  /// [urgent]: someone is waiting to hear it (the first sentence, or the
+  /// voice about to run out), so it is made at the screen's own priority.
+  /// Otherwise it is made at a low one, seconds ahead of the voice.
   Future<Map<String, Object?>> synthesise({
     required NeuralVoice voice,
     required String text,
     required double speed,
     required String outDir,
+    bool urgent = true,
   }) async {
     final port = await _port();
     final id = _next++;
@@ -249,11 +254,33 @@ class NeuralEngine {
       'model': voice.id,
       'text': text,
       'speed': speed,
+      'urgent': urgent,
       'out': '$outDir/neural-$id.wav',
     });
     final r = await done.future;
     if (r['error'] != null) throw Exception(r['error']);
+    final loadMs = r['loadMs'] as int? ?? 0;
+    if (loadMs > 0) debugPrint('Natural voice ${voice.id}: loaded in $loadMs ms');
     return {'wavPath': r['wav'], 'engineId': 'tomevoice.neural', 'rangeEvents': const []};
+  }
+
+  /// Load [voice] and say one word with it, unheard, so the first sentence
+  /// read aloud does not wait for the model (a second or two, longer for
+  /// HD) or for the engine's slower first run. Done at low priority.
+  Future<void> warm(NeuralVoice voice) async {
+    if (!NeuralVoices.instance.installed(voice)) return;
+    try {
+      final r = await synthesise(
+        voice: voice,
+        text: 'Hi.',
+        speed: 1,
+        outDir: Directory.systemTemp.path,
+        urgent: false,
+      );
+      await File(r['wavPath']! as String).delete();
+    } on Object {
+      // Reading will load it, and say why if it cannot.
+    }
   }
 
   /// Seconds of speech made per second of work for [voice] on this phone,
@@ -291,6 +318,9 @@ Future<void> _workerMain(SendPort out) async {
   sherpa.initBindings();
   sherpa.OfflineTts? tts;
   String? loaded;
+
+  /// The engine's own threads (ONNX Runtime's), found when it was made.
+  var engineThreads = const <int>[];
   await for (final msg in inbox) {
     final m = msg as Map;
     final id = m['id'];
@@ -300,20 +330,28 @@ Future<void> _workerMain(SendPort out) async {
           tts?.free();
           tts = null;
           loaded = null;
+          engineThreads = const [];
         }
         out.send({'id': id});
         continue;
       }
       final model = m['model'] as String;
+      final urgent = m['urgent'] != false;
+      final tid = _tid();
+      var loadMs = 0;
       if (loaded != model) {
         // Forget the old engine before making the new one: if making it
         // fails, nothing is left pointing at freed memory.
         tts?.free();
         tts = null;
         loaded = null;
+        engineThreads = const [];
         final dir = m['dir'] as String;
-        // Before the engine starts its threads: they take this priority.
-        _yieldToScreen();
+        final watch = Stopwatch()..start();
+        // Its threads start at this thread's priority; they are set for
+        // each sentence below.
+        _setNice(tid, 0);
+        final before = _threads();
         tts = sherpa.OfflineTts(sherpa.OfflineTtsConfig(
           model: sherpa.OfflineTtsModelConfig(
             vits: sherpa.OfflineTtsVitsModelConfig(
@@ -326,28 +364,72 @@ Future<void> _workerMain(SendPort out) async {
           ),
           maxNumSenetences: 1,
         ));
+        engineThreads = [for (final t in _threads()) if (!before.contains(t)) t];
         loaded = model;
+        loadMs = watch.elapsedMilliseconds;
       }
-      _yieldToScreen();
-      final audio = tts!.generate(text: m['text'] as String, sid: 0, speed: (m['speed'] as num).toDouble());
+      // The engine's threads and this one share the work of each sentence,
+      // so they all take the same priority: one left behind holds up the
+      // others at every step.
+      final nice = urgent ? 0 : 10;
+      for (final t in [tid, ...engineThreads]) {
+        _setNice(t, nice);
+      }
+      final sherpa.GeneratedAudio audio;
+      try {
+        audio = tts!.generate(text: m['text'] as String, sid: 0, speed: (m['speed'] as num).toDouble());
+      } finally {
+        // This thread is the VM's, shared with other isolates (the render
+        // after each sentence, the collector): it goes back as it came.
+        if (!urgent) _setNice(tid, 0);
+      }
       final path = m['out'] as String;
       File(path).writeAsBytesSync(wavBytes(audio.samples, audio.sampleRate));
-      out.send({'id': id, 'wav': path});
+      out.send({'id': id, 'wav': path, 'loadMs': loadMs});
     } on Object catch (e) {
       out.send({'id': id, 'error': '$e'});
     }
   }
 }
 
-/// Lower the calling thread's priority (Linux nice 10; threads it starts
-/// inherit it). Speech is made seconds ahead of the voice, so it can wait a
-/// moment while the screen moves: at the UI's own priority its four threads
-/// took the fast cores in bursts, and scrolling and animations dropped
-/// frames whenever a natural voice was reading.
-void _yieldToScreen() {
-  if (!Platform.isAndroid) return;
+/// Ids of this process's threads.
+Set<int> _threads() {
   try {
-    _setpriority(0 /* PRIO_PROCESS: one thread, by its id */, _gettid(), 10);
+    return {
+      for (final e in Directory('/proc/self/task').listSync())
+        if (int.tryParse(e.uri.pathSegments.where((s) => s.isNotEmpty).last) case final t?) t,
+    };
+  } on Object {
+    return const {};
+  }
+}
+
+int _tid() {
+  if (!Platform.isAndroid) return 0;
+  try {
+    return _gettid();
+  } on Object {
+    return 0;
+  }
+}
+
+/// Whether a thread's priority can be raised again once lowered. Android
+/// allows it; on a phone that does not, nothing is lowered from then on,
+/// so speech is never left slow.
+bool _canRestore = true;
+
+/// Set thread [tid]'s Linux nice value: 0 is the screen's own priority, 10
+/// is below it. Speech made seconds ahead can wait a moment while the
+/// screen moves (at the UI's priority its four threads took the fast cores
+/// in bursts, and scrolling dropped frames whenever a natural voice read),
+/// but speech someone is waiting for must not wait behind the screen. In
+/// 1.0.7 every sentence was made low, the first after Play too.
+void _setNice(int tid, int nice) {
+  if (!Platform.isAndroid || tid <= 0) return;
+  if (nice > 0 && !_canRestore) return;
+  try {
+    final r = _setpriority(0 /* PRIO_PROCESS: one thread, by its id */, tid, nice);
+    if (r != 0 && nice == 0) _canRestore = false;
   } on Object {
     // Nothing worse than before.
   }

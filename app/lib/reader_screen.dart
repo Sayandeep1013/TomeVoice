@@ -15,6 +15,7 @@ import 'library_store.dart';
 import 'book_search.dart';
 import 'listen_sheet.dart';
 import 'marks.dart';
+import 'neural_voices.dart';
 import 'now_playing.dart';
 import 'pages_view.dart';
 import 'player_controls.dart';
@@ -383,10 +384,21 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (!mounted) return;
     setState(() => _prefs = p);
     _applyScreenOn();
+    _warmVoice();
     if (p.engineId != null && p.engineId != _catalog.engineId) {
       await _catalog.ensureLoaded();
       await _catalog.switchEngine(p.engineId!);
     }
+  }
+
+  /// A natural voice is loaded while the page settles, so Play does not
+  /// wait for it (a second or two, longer for HD, the first time).
+  void _warmVoice() {
+    final natural = neuralVoiceFor(_listen.voiceName);
+    if (natural == null) return;
+    Timer(const Duration(milliseconds: 1200), () {
+      if (mounted && _player.state.value == PlayState.idle) unawaited(NeuralEngine.instance.warm(natural));
+    });
   }
 
   Future<void> _loadCover() async {

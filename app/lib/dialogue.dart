@@ -111,10 +111,12 @@ Future<Map<String, Object?>> speakWithDialogue({
   double pitch = 1.0,
   bool Function()? stale,
   bool? startsInside,
+  bool urgent = true,
 }) async {
   final parts = splitDialogue(text, startsInside: startsInside);
   if (parts.length == 1) {
     return svc.synthesise(
+      urgent: urgent,
       text: text,
       engineId: engineId,
       voiceName: parts.single.spoken ? dialogueVoice : narrator,
@@ -127,6 +129,7 @@ Future<Map<String, Object?>> speakWithDialogue({
     // A jump since: stop here, so the new sentence is not kept waiting.
     if (stale?.call() ?? false) throw PlatformException(code: 'TTS_STOPPED');
     final native = await svc.synthesise(
+      urgent: urgent,
       text: p.text,
       engineId: engineId,
       voiceName: p.spoken ? dialogueVoice : narrator,

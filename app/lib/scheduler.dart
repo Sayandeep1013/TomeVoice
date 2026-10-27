@@ -100,6 +100,13 @@ class PlaybackScheduler {
 
   static const _ahead = Duration(seconds: 10);
 
+  /// Less than this queued, and the next sentence is made at full priority.
+  static const _urgentBelow = Duration(seconds: 3);
+
+  /// How long the last sentence took to make, for the log when the voice
+  /// runs dry (how a slow phone or voice shows itself).
+  ({int ms, int speechMs, bool urgent})? _lastMade;
+
   int _gen = 0;
   final _chunks = <_Chunk>[];
   int _next = 0;
@@ -202,6 +209,10 @@ class PlaybackScheduler {
       final i = _next;
       final said = respell?.call(units[i].text) ?? Respelled.same(units[i].text);
       final text = said.text;
+      // Little queued (starting, or the voice catching up): make it at
+      // full priority. Well ahead: let the screen go first.
+      final urgent = _chunks.isEmpty || ahead < _rate * _urgentBelow.inSeconds;
+      final watch = Stopwatch()..start();
       try {
         final s = settingsFor(text);
         final dialogue = dialogueVoiceOf?.call();
@@ -214,6 +225,7 @@ class PlaybackScheduler {
                 voiceName: voiceNameOf(),
                 rate: s.speedScale,
                 pitch: SpeechService.semitonesToPitch(s.pitchSemitones),
+                urgent: urgent,
               )
             : await speakWithDialogue(
                 svc: service,
@@ -225,6 +237,7 @@ class PlaybackScheduler {
                 engineId: engineIdOf(),
                 rate: s.speedScale,
                 pitch: SpeechService.semitonesToPitch(s.pitchSemitones),
+                urgent: urgent,
               );
         if (gen != _gen) {
           // Made for a start that was overtaken: nobody will hear it.
@@ -261,6 +274,7 @@ class PlaybackScheduler {
         ];
         _chunks.add(_Chunk(i, start, at(r.speechFrames), to == r.sampleRate ? r.totalFrames : pcm.length ~/ 2, timings,
             r.levels));
+        _lastMade = (ms: watch.elapsedMilliseconds, speechMs: r.speechFrames * 1000 ~/ r.sampleRate, urgent: urgent);
         _next = i + 1;
         failures = 0;
       } on PlatformException catch (e) {
@@ -309,6 +323,11 @@ class PlaybackScheduler {
         } else if (state.value == PlayState.playing) {
           // Ran dry: synthesis is behind. Say so instead of looking frozen.
           state.value = PlayState.loading;
+          final m = _lastMade;
+          if (m != null) {
+            debugPrint('TomeVoice: the voice ran dry; the last sentence took ${m.ms} ms to make '
+                '${m.speechMs} ms of speech${m.urgent ? '' : ' (low priority)'}');
+          }
         }
         return;
       }

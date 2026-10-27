@@ -96,6 +96,7 @@ class SpeechService {
     String? voiceName,
     double rate = 1.0,
     double pitch = 1.0,
+    bool urgent = true,
   }) async {
     final previous = _synthBusy;
     final gate = Completer<void>();
@@ -113,6 +114,7 @@ class SpeechService {
           text: text,
           speed: rate,
           outDir: synthTempDir().path,
+          urgent: urgent,
         );
       }
       final raw = await _channel.invokeMapMethod<String, Object?>('synthesise', {
