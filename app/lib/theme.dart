@@ -846,6 +846,7 @@ class Capsule extends StatefulWidget {
     super.key,
     required this.child,
     this.onTap,
+    this.onLongPress,
     this.padding = const EdgeInsets.symmetric(horizontal: Gap.l, vertical: 10),
     this.color,
     this.border = true,
@@ -854,6 +855,7 @@ class Capsule extends StatefulWidget {
 
   final Widget child;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
   final EdgeInsets padding;
   final Color? color;
   final bool border;
@@ -888,6 +890,7 @@ class _CapsuleState extends State<Capsule> {
           ? body
           : InkWell(
               onTap: widget.onTap,
+              onLongPress: widget.onLongPress,
               onHighlightChanged: (down) => setState(() => _down = down),
               child: body,
             ),
@@ -908,6 +911,7 @@ class RoundButton extends StatelessWidget {
     super.key,
     required this.icon,
     this.onTap,
+    this.onLongPress,
     this.size = 44,
     this.color,
     this.iconColor,
@@ -916,6 +920,9 @@ class RoundButton extends StatelessWidget {
 
   final IconData icon;
   final VoidCallback? onTap;
+
+  /// Press and hold; the tooltip then shows only to a screen reader.
+  final VoidCallback? onLongPress;
   final double size;
   final Color? color;
   final Color? iconColor;
@@ -928,6 +935,7 @@ class RoundButton extends StatelessWidget {
       height: size,
       child: Capsule(
         onTap: onTap,
+        onLongPress: onLongPress,
         padding: EdgeInsets.zero,
         color: color,
         child: Icon(
@@ -937,7 +945,12 @@ class RoundButton extends StatelessWidget {
         ),
       ),
     );
-    return tooltip == null ? button : Tooltip(message: tooltip!, child: button);
+    if (tooltip == null) return button;
+    return Tooltip(
+      message: tooltip!,
+      triggerMode: onLongPress == null ? null : TooltipTriggerMode.manual,
+      child: button,
+    );
   }
 }
 
