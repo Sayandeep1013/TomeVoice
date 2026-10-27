@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -1006,6 +1007,23 @@ mixin WhenShown<T extends StatefulWidget> on State<T> {
     } else {
       _owed.add(work);
     }
+  }
+
+  /// Done once this screen has finished arriving (at once if it has, or is
+  /// leaving). Heavy content put in place while the screen still slides in
+  /// (a book's whole chapter list) made the transition stutter.
+  Future<void> arrived() {
+    final arriving = _route?.animation;
+    if (arriving == null || arriving.status != AnimationStatus.forward) return Future.value();
+    final done = Completer<void>();
+    void settled(AnimationStatus status) {
+      if (status == AnimationStatus.forward) return;
+      arriving.removeStatusListener(settled);
+      done.complete();
+    }
+
+    arriving.addStatusListener(settled);
+    return done.future;
   }
 
   /// [child], watching this screen's route. Only this small widget hears

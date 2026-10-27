@@ -74,6 +74,9 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
       final layout = await _store.loadLayout(_entry.id);
       final cursor = await _store.cursorFor(_entry.id);
       final idx = await _store.index();
+      // The chapters and the description open in once the page is in place,
+      // not in the frames of its arrival.
+      await arrived();
       if (!mounted) return;
       setState(() {
         _layout = layout;
