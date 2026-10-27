@@ -628,7 +628,10 @@ class _PagedBookState extends State<PagedBook> {
               child: ClipRect(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [for (final p in page.pieces) _pieceView(context, p)],
+                  // The last piece's gap is the page's foot, not a gap.
+                  children: [
+                    for (final p in page.pieces) _pieceView(context, p, last: identical(p, page.pieces.last)),
+                  ],
                 ),
               ),
             ),
@@ -662,7 +665,7 @@ class _PagedBookState extends State<PagedBook> {
     return _l.wordsBefore[end] - _l.wordsBefore[from];
   }
 
-  Widget _pieceView(BuildContext context, _Piece p) {
+  Widget _pieceView(BuildContext context, _Piece p, {required bool last}) {
     final look = widget.look;
     switch (p.kind) {
       case _Kind.label:
@@ -691,7 +694,7 @@ class _PagedBookState extends State<PagedBook> {
       case _Kind.text:
         final laid = _lay(p.item);
         return Padding(
-          padding: EdgeInsets.only(bottom: p.gapAfter),
+          padding: EdgeInsets.only(bottom: last ? 0 : p.gapAfter),
           child: GestureDetector(
             onLongPressStart: p.kind == _Kind.title
                 ? null
