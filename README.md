@@ -46,7 +46,7 @@ No account. No cloud. Your books never leave the phone.
   and TXT. Pictures and maps in ebooks are shown in the text; PDFs can be read as text
   or shown as their real pages; chapters are found even when a file does not list them.
 - **Reads it aloud** with the voices already on your phone, picking one in the book's
-  language — a Bengali book gets a Bengali voice.
+  language — a Bengali book gets a Bengali voice. Find any voice or language by typing.
 - **Natural voices, if you want them.** Seven English voices that sound like people
   (Piper), made on the phone with no internet once downloaded. They are off unless you
   choose one: each is a 64 MB download (110 MB for HD) and works the phone harder, about
@@ -61,12 +61,18 @@ No account. No cloud. Your books never leave the phone.
   player in the notification shade shows the book's cover in its colours, a bar through
   the chapter you can drag, a speed button, and skips by chapter.
 - **Made for reading, too.** Turn the book into pages, or keep one long scroll. Pages
-  slide or turn at once, by a tap at either side, a swipe or the volume keys. Above
-  each page is the chapter's name, and below it the minutes left in the chapter and the
-  page count. Where you read is where you are: scrolling or turning on without the
+  curl over like paper under your finger (or slide, or turn at once), by a tap at either
+  side, a swipe or the volume keys. On its side the book lies open: two pages with a
+  crease between them, the right one turning over the spine. A PDF's real pages turn the
+  same way. Above each page is the chapter's name, and below it the minutes left in the
+  chapter and the page count. Four papers: the app's colours, Ink, Papyrus and a dim
+  Dusk for the dark. Where you read is where you are: scrolling or turning on without the
   voice moves your place, and Play starts there. After a jump from Contents or a search,
   one tap takes you back. Paragraphs can be spaced or indented like a printed book, the
   phone's bars can be hidden, and **Aa** in the reader sets the page.
+- **Keeps reading when you leave the book.** Back goes to your library while the voice
+  reads on; pause it from the library's player or the notification, and open the book
+  again to find it still reading (Settings → Listening, on by default).
 - **Starts where you stopped**, with a sleep timer for listening in bed.
 - **Now Playing.** Swipe the player up for the cover and the page around the voice: the
   sentence being read lit and its word in the book's colour, the paragraphs before and

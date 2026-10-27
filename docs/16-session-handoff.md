@@ -60,6 +60,34 @@ Branch `reader-mode-and-motion` (not merged or released yet).
   `Motion.follow` (360 ms) and `Motion.travel` (520 ms) replace hard-coded glides.
   Left: a Saved group's header still vanishes after its last row goes, and Browse's
   "install sources" state can flash for a frame (gating it broke a test sharing `Net`).
+- **Later the same day, from the developer's and readers' feedback:**
+  - **Curl** (`page_curl.dart`, now the default `pageTurn`): a flat fold on the line
+    halfway between the held corner and where it is. The leaf is clipped to the hinge
+    side, the folded part is the leaf mirrored across the fold (`_reflection`), and
+    shadows fall along the fold and from the flap. A turn back is the turn on from the
+    item before, run the other way. Leaves are the page widgets themselves, so the text
+    stays sharp. Verified on the phone frame by frame (screenrecord).
+  - **Spread**: wider than 600 and wider than tall gives two pages, cut at half the
+    width; the right leaf turns over the spine, and its back is the next left page
+    (drawn through reflection after a spine mirror, so it lands the right way round).
+    The crease (`Crease`) is in the page tone's ink, black on dark pages.
+  - **PDF real pages** turn the same way when Pages is on (`PdfPagesView.turn`), each
+    leaf the PDF's own page shape.
+  - **Page tones** (`page_tone.dart`): app, Ink, Papyrus, Dusk. They apply to the page
+    only (`toned()` overrides the accent through `TintScope` and the text colour), and
+    the status bar icons follow (`AnnotatedRegion`).
+  - **Online voices**: lines with no letter or digit in any script are skipped (a Bengali
+    book's "।।।" dividers sent to Google's online voice timed out with code -7, Android's
+    network timeout). A network failure is retried twice before it counts, and the stop
+    message says the voice needs the internet.
+  - **Voice search** in the voice picker: languages and the voices of every language.
+  - **Reading on after leaving** (`listening_session.dart`, `prefs.keepReading`, on by
+    default): `BackgroundReading` adopts the reader's scheduler on Back (only when the
+    route pops, via PopScope) and keeps the place, card, sleep, stats, focus and a web
+    novel's next chapters. Reopening the book takes the scheduler back
+    (`takeBack`). `PlaybackScheduler.beforePlay` stops it before anything else plays,
+    and an idle scheduler no longer stops the stream when disposed.
+    `readingScheduler()` builds the scheduler for the reader and the background alike.
 - **Local checks:** a scratch Flutter (3.47.8) at `D:/tvchk/flutter` (short path: the
   SDK's own files pass Windows' path limit under the temp folder). `backup_test`'s
   "paths are pointed..." fails on Windows only (backslashes in JSON); CI is Linux.
