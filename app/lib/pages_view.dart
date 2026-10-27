@@ -9,6 +9,7 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'speech_service.dart';
 import 'theme.dart';
+import 'ui.dart';
 
 const _svc = SpeechService();
 
@@ -100,7 +101,7 @@ class _PdfPagesViewState extends State<PdfPagesView> {
         .scrollTo(
           index: page,
           alignment: 0.02,
-          duration: const Duration(milliseconds: 380),
+          duration: Motion.follow,
           curve: Curves.easeInOutCubic,
         )
         .whenComplete(() => _programmatic = false));
@@ -134,20 +135,23 @@ class _PdfPagesViewState extends State<PdfPagesView> {
           }
           _pageCount = info.pages;
           _current = _pageOf(widget.cursor.value);
-          return NotificationListener<ScrollNotification>(
-            onNotification: (n) {
-              if (n is ScrollStartNotification && n.dragDetails != null && !_programmatic) {
-                widget.detached.value = true;
-              }
-              return false;
-            },
-            child: ScrollablePositionedList.builder(
-              itemCount: info.pages,
-              itemScrollController: _scroll,
-              itemPositionsListener: _positions,
-              initialScrollIndex: _current,
-              padding: const EdgeInsets.fromLTRB(12, 4, 12, 120),
-              itemBuilder: (context, i) => _page(context, i, info.aspects[i]),
+          // The pages fade in over the spinner's place, rather than cut in.
+          return FadeIn(
+            child: NotificationListener<ScrollNotification>(
+              onNotification: (n) {
+                if (n is ScrollStartNotification && n.dragDetails != null && !_programmatic) {
+                  widget.detached.value = true;
+                }
+                return false;
+              },
+              child: ScrollablePositionedList.builder(
+                itemCount: info.pages,
+                itemScrollController: _scroll,
+                itemPositionsListener: _positions,
+                initialScrollIndex: _current,
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 120),
+                itemBuilder: (context, i) => _page(context, i, info.aspects[i]),
+              ),
             ),
           );
         },
@@ -177,7 +181,7 @@ class _PdfPagesViewState extends State<PdfPagesView> {
               label: 'Page ${index + 1}. Double tap to read from here',
               onTap: () => widget.onTapPage(index),
               child: AnimatedContainer(
-                duration: Motion.of(context, const Duration(milliseconds: 200)),
+                duration: Motion.of(context, Motion.standard),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(4),
@@ -193,17 +197,18 @@ class _PdfPagesViewState extends State<PdfPagesView> {
                     future: file,
                     builder: (context, snap) {
                       final path = snap.data;
-                      if (path == null) {
-                        return Center(
-                          child: Text('${index + 1}',
-                              style: Skin.meta(context, color: Skin.inkFaint, size: 11)),
-                        );
-                      }
+                      final number = Center(
+                        child: Text('${index + 1}', style: Skin.meta(context, color: Skin.inkFaint, size: 11)),
+                      );
+                      if (path == null) return number;
+                      // The page fades in over its number as it decodes,
+                      // instead of popping over it.
                       return Image.file(
                         File(path),
                         fit: BoxFit.fill,
                         gaplessPlayback: true,
                         filterQuality: FilterQuality.medium,
+                        frameBuilder: fadeInOver(number),
                       );
                     },
                   ),
