@@ -331,6 +331,15 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   final _paged = PagedController();
   final _chrome = ValueNotifier<bool>(false);
 
+  /// The scroll's top bar and player: there until a tap on the text puts
+  /// them away for reading alone, and back with another.
+  final _scrollBars = ValueNotifier<bool>(true);
+
+  /// When the scroll last moved: a tap that stops a fling is not a tap
+  /// for the bars.
+  DateTime? _lastMove;
+  bool _tapStopsScroll = false;
+
   /// The first sentence of the page shown, in pages.
   int? _pageUnit;
 
@@ -563,6 +572,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       }
       _wasPaged = paged;
       _chrome.value = false;
+      _scrollBars.value = true;
     } else if (!paged && _layoutOf(_prefs) != _layoutKey) {
       _keepAnchor();
     }
@@ -693,6 +703,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _markedUnits.dispose();
     _bookmarkedHere.dispose();
     _chrome.dispose();
+    _scrollBars.dispose();
     _viewChapter.dispose();
     super.dispose();
   }
@@ -1170,6 +1181,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   bool _onScrollNotification(ScrollNotification n) {
+    if (n is ScrollUpdateNotification) _lastMove = DateTime.now();
     if (n is ScrollUpdateNotification && n.dragDetails != null) _lastScroll = DateTime.now();
     if (n is ScrollStartNotification) _eyesTimer?.cancel();
     if (n is ScrollStartNotification && n.dragDetails != null && !_programmaticScroll) {
@@ -1308,7 +1320,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   /// The player's height, so a message shows above it instead of over it.
   final _barKey = GlobalKey();
-  double get _barLift => (_barKey.currentContext?.findRenderObject() as RenderBox?)?.size.height ?? 0;
+  double get _barLift => !_inPages && !_scrollBars.value
+      ? 0
+      : (_barKey.currentContext?.findRenderObject() as RenderBox?)?.size.height ?? 0;
 
   void _snack(String text) {
     if (mounted) showSnack(context, text, lift: _barLift);
@@ -1612,7 +1626,13 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                       ),
                     ),
                     if (rail && !paged) glow,
-                    if (rail && !paged) Positioned(left: 0, right: 0, bottom: 0, child: Center(child: bar)),
+                    if (rail && !paged)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        child: _overBar(context, top: false, shownBy: _scrollBars, child: Center(child: bar)),
+                      ),
                   ],
                 ),
         ),
@@ -1640,11 +1660,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     );
   }
 
-  /// The book as one long page, the top bar above it and the player below.
+  /// The book as one long page, the top bar above it and the player below;
+  /// a tap on the text folds them away, and another brings them back.
   Widget _scrollReading(BuildContext context, Widget bar, bool rail) {
     return Column(
       children: [
-        _topBar(context),
+        _fold(context, top: true, child: _topBar(context)),
         Expanded(
           child: Stack(
             children: [
@@ -1673,15 +1694,21 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                             curve: veiled ? Curves.easeIn : Motion.out,
                             child: text,
                           ),
-                          child: toned(context, _tone, _text(context)),
+                          child: _tapForBars(toned(context, _tone, _text(context))),
                         ),
                 ),
               ),
-              Positioned(
-                left: 0,
-                right: 0,
-                // Above the dock when it floats over the text.
-                bottom: rail ? 112 : 10,
+              ValueListenableBuilder<bool>(
+                valueListenable: _scrollBars,
+                builder: (context, shown, pill) => AnimatedPositioned(
+                  duration: Motion.of(context, Motion.standard),
+                  curve: Motion.out,
+                  left: 0,
+                  right: 0,
+                  // Above the dock when it floats over the text.
+                  bottom: rail && shown ? 112 : (rail ? 24 : 10),
+                  child: pill!,
+                ),
                 child: Center(
                   child: AnimatedSwitcher(
                     duration: Motion.of(context, Motion.standard),
@@ -1693,10 +1720,57 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             ],
           ),
         ),
-        if (!rail) bar,
+        if (!rail) _fold(context, top: false, child: bar),
       ],
     );
   }
+
+  /// A bar of the scroll, folding away into its edge while the bars are put
+  /// away; the text grows into its place. A PDF's real pages keep them: a
+  /// tap there reads from the page.
+  Widget _fold(BuildContext context, {required bool top, required Widget child}) =>
+      ValueListenableBuilder<bool>(
+        valueListenable: _scrollBars,
+        builder: (context, shown, child) {
+          final show = shown || _showPages;
+          return ClipRect(
+            child: IgnorePointer(
+              ignoring: !show,
+              child: AnimatedAlign(
+                alignment: top ? Alignment.bottomCenter : Alignment.topCenter,
+                heightFactor: show ? 1 : 0,
+                duration: Motion.of(context, Motion.standard),
+                curve: Motion.out,
+                child: AnimatedOpacity(
+                  opacity: show ? 1 : 0,
+                  duration: Motion.of(context, Motion.quick),
+                  child: child,
+                ),
+              ),
+            ),
+          );
+        },
+        child: child,
+      );
+
+  /// A tap on the scrolling text puts the bars away or brings them back.
+  /// The paragraphs take no tap of their own (pictures do, and keep it);
+  /// a tap that stops a fling only stops it.
+  Widget _tapForBars(Widget child) => Listener(
+        onPointerDown: (_) {
+          final moved = _lastMove;
+          _tapStopsScroll = moved != null && DateTime.now().difference(moved) < const Duration(milliseconds: 150);
+        },
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          excludeFromSemantics: true,
+          onTap: () {
+            if (_tapStopsScroll) return;
+            _scrollBars.value = !_scrollBars.value;
+          },
+          child: child,
+        ),
+      );
 
   // ------------------------------------------------------------ bookmarks
 
@@ -2026,10 +2100,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     );
   }
 
-  /// A bar over the pages: it slides in from its edge when shown.
-  Widget _overBar(BuildContext context, {required bool top, required Widget child}) =>
+  /// A bar over the pages (or the player docked over the scroll, by
+  /// [shownBy]): it slides in from its edge when shown.
+  Widget _overBar(BuildContext context, {required bool top, required Widget child, ValueListenable<bool>? shownBy}) =>
       ValueListenableBuilder<bool>(
-        valueListenable: _chrome,
+        valueListenable: shownBy ?? _chrome,
         builder: (context, shown, child) => IgnorePointer(
           ignoring: !shown,
           child: AnimatedSlide(
