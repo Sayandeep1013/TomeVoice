@@ -1,8 +1,26 @@
 # 16 — Session Handoff
 
-**As of 2026-10-27.** Everything needed to pick this up cold.
+**As of 2026-10-28.** Everything needed to pick this up cold.
 
 ---
+
+## 0+++. Checkpoint (2026-10-28): a tap puts the bars away (1.1.1)
+
+Branch `hide-bars-on-tap`, released as **1.1.1**. Asked for by readers who read by
+scrolling and want the page alone.
+
+- **A tap on the scrolling text folds the top bar and the player away**
+  (`_scrollBars`, `_fold`, `_tapForBars` in `reader_screen.dart`); another brings them
+  back. The paragraphs take no tap of their own (a tap used to send the voice there and
+  was removed), so the tap is free; pictures keep theirs, and long-press is unchanged.
+- **A tap that stops a fling is ignored:** the scroll moved within 150 ms of the
+  pointer going down (`_lastMove`, set on every `ScrollUpdateNotification`).
+- The bars fold into their edges (`AnimatedAlign` heightFactor) and the text grows into
+  their place; on a phone on its side the docked player slides away (`_overBar(shownBy:)`).
+  A PDF's real pages keep the bars. Switching scroll/pages shows them again. Snacks
+  sit at the foot while the bars are away (`_barLift` is 0).
+- Pages already did this with a tap in the middle (`_chrome`).
+- **Verified on the phone by the user** (scroll mode); CI analyze + tests passed.
 
 ## 0++. Checkpoint (2026-10-27, evening): phone voices as Google plays them (1.1)
 
