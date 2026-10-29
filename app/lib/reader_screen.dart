@@ -2030,6 +2030,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final ground = tone.paper?.first ?? Skin.ground(context).colors.first;
     final foot = tone.paper?.last ?? Skin.groundFoot(context);
     final size = MediaQuery.sizeOf(context);
+    final insets = MediaQuery.paddingOf(context);
     // On its side, a wide screen opens like a book: two pages.
     final spread = size.width > size.height && size.width >= 600;
     return Stack(
@@ -2060,9 +2061,6 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             marks: _markedUnits,
           )),
         ),
-        // Over the paper (it hides what lies under a turning leaf), under
-        // the bars: the glow rises from behind the player.
-        glow,
         Positioned(
           top: 0,
           left: 0,
@@ -2115,23 +2113,40 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           right: 0,
           bottom: 0,
           // Over a fade to the ground, so the page's foot line does not
-          // show under the player's edge.
+          // show under the player's edge; the voice's glow rises over the
+          // fade, from behind the player. The fade runs out to the screen's
+          // edge: ending at the safe area, it hid the glow above that line
+          // and left it showing below, cut straight across.
           child: _overBar(
             context,
             top: false,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [foot.withValues(alpha: 0), foot, foot],
-                  stops: const [0, 0.3, 1],
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Positioned(
+                  left: -insets.left,
+                  right: -insets.right,
+                  top: 0,
+                  bottom: -insets.bottom,
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [foot.withValues(alpha: 0), foot, foot],
+                          stops: const [0, 0.3, 1],
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.only(top: 14),
-                child: rail ? Center(child: bar) : bar,
-              ),
+                glow,
+                Padding(
+                  padding: const EdgeInsets.only(top: 14),
+                  child: rail ? Center(child: bar) : bar,
+                ),
+              ],
             ),
           ),
         ),
