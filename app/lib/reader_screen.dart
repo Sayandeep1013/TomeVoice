@@ -1598,7 +1598,18 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       bottom: -insets.bottom,
       // Tall enough to rise clear of the player card at a speaking voice.
       height: (rail ? 240 : 600) + insets.bottom,
-      child: VoiceGlow(level: _player.level, state: _player.state),
+      // It glows from behind the player: with the player put away (a tap
+      // on the page), it goes with it rather than lighting a bare edge.
+      child: ValueListenableBuilder<bool>(
+        valueListenable: _inPages ? _chrome : _scrollBars,
+        builder: (context, shown, glow) => AnimatedOpacity(
+          opacity: shown ? 1 : 0,
+          duration: Motion.of(context, Motion.standard),
+          curve: Motion.out,
+          child: TickerMode(enabled: shown, child: glow!),
+        ),
+        child: VoiceGlow(level: _player.level, state: _player.state),
+      ),
     );
     final paged = _inPages;
     final reading = paged ? _pagedReading(context, bar, rail) : _scrollReading(context, bar, rail);
@@ -2358,34 +2369,64 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final side = math.max(_prefs.margin, (MediaQuery.sizeOf(context).width - 720) / 2);
     // Text fades out under the top bar and the player instead of being cut
     // off against them.
-    return ShaderMask(
-      blendMode: BlendMode.dstIn,
-      shaderCallback: (rect) => LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: const [Colors.transparent, Colors.black, Colors.black, Colors.transparent],
-        stops: [0, 18 / rect.height, 1 - 28 / rect.height, 1],
-      ).createShader(rect),
-      child: NotificationListener<ScrollNotification>(
-        onNotification: _onScrollNotification,
-        child: LayoutBuilder(
-          builder: (context, box) {
-            _viewport = box.maxHeight;
-            return ScrollablePositionedList.builder(
-              // One more item at the end when there is more to fetch: the way on.
-              itemCount: _l.items.length + (widget.onReachedEnd == null ? 0 : 1),
-              itemScrollController: _scroll,
-              scrollOffsetController: _offsets,
-              itemPositionsListener: _positions,
-              initialScrollIndex: initial,
-              initialAlignment: initial == 0 ? 0 : 0.12,
-              padding: EdgeInsets.fromLTRB(side, 16, side, 120),
-              itemBuilder: (context, i) => i == _l.items.length ? _more(context) : _item(context, i),
-            );
-          },
+    // A long book has a thumb at the edge: dragged, it goes straight through
+    // the book, the bubble naming the chapter.
+    return FastScroller(
+      target: _fastText,
+      top: 8,
+      bottom: 16,
+      labelAt: (f) => _l.chapterTitle(_l.items[(f * (_l.items.length - 1)).round()].chapter),
+      onDrag: _onFastScroll,
+      child: ShaderMask(
+        blendMode: BlendMode.dstIn,
+        shaderCallback: (rect) => LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: const [Colors.transparent, Colors.black, Colors.black, Colors.transparent],
+          stops: [0, 18 / rect.height, 1 - 28 / rect.height, 1],
+        ).createShader(rect),
+        child: NotificationListener<ScrollNotification>(
+          onNotification: _onScrollNotification,
+          child: LayoutBuilder(
+            builder: (context, box) {
+              _viewport = box.maxHeight;
+              return ScrollablePositionedList.builder(
+                // One more item at the end when there is more to fetch: the way on.
+                itemCount: _l.items.length + (widget.onReachedEnd == null ? 0 : 1),
+                itemScrollController: _scroll,
+                scrollOffsetController: _offsets,
+                itemPositionsListener: _positions,
+                initialScrollIndex: initial,
+                initialAlignment: initial == 0 ? 0 : 0.12,
+                padding: EdgeInsets.fromLTRB(side, 16, side, 120),
+                itemBuilder: (context, i) => i == _l.items.length ? _more(context) : _item(context, i),
+              );
+            },
+          ),
         ),
       ),
     );
+  }
+
+  late final _fastText = _TextScrollTarget(this);
+
+  /// The fast scroller's thumb taken or let go: as a scroll by hand, a look
+  /// around while listening, and the place moved there while reading.
+  void _onFastScroll(bool dragging) {
+    _lastScroll = DateTime.now();
+    _eyesTimer?.cancel();
+    if (dragging) {
+      if (_listening) {
+        _detached.value = true;
+      } else {
+        _eyes = true;
+      }
+      return;
+    }
+    if (_eyes) _eyesTimer = Timer(const Duration(milliseconds: 250), _placeFromEyes);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _syncBookmarkHere();
+    });
   }
 
   Widget _item(BuildContext context, int i) {
@@ -3163,6 +3204,49 @@ class _PlayerBar extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The book's text as the fast scroller sees it: how far through its
+/// paragraphs the one at the top of the screen is.
+class _TextScrollTarget extends FastScrollTarget {
+  _TextScrollTarget(this._s);
+  final _ReaderScreenState _s;
+
+  int get _count => _s._l.items.length;
+
+  @override
+  bool get long => _count > 80;
+
+  /// Not while the text follows the voice.
+  @override
+  bool get byHand =>
+      !_s._programmaticScroll &&
+      _s._lastScroll != null &&
+      DateTime.now().difference(_s._lastScroll!) < const Duration(seconds: 2);
+
+  @override
+  double get fraction {
+    ItemPosition? top;
+    for (final p in _s._positions.itemPositions.value) {
+      if (p.index >= _count || p.itemTrailingEdge <= 0) continue;
+      if (top == null || p.index < top.index) top = p;
+    }
+    if (top == null || _count <= 1) return 0;
+    final h = top.itemTrailingEdge - top.itemLeadingEdge;
+    final within = h <= 0 ? 0.0 : (-top.itemLeadingEdge / h).clamp(0.0, 1.0);
+    return ((top.index + within) / (_count - 1)).clamp(0.0, 1.0);
+  }
+
+  @override
+  void jumpTo(double fraction) {
+    if (_s._scroll.isAttached) _s._scroll.jumpTo(index: (fraction * (_count - 1)).round());
+  }
+
+  @override
+  void addListener(VoidCallback listener) => _s._positions.itemPositions.addListener(listener);
+
+  @override
+  void removeListener(VoidCallback listener) => _s._positions.itemPositions.removeListener(listener);
 }
 
 class _ContentsSheet extends StatefulWidget {

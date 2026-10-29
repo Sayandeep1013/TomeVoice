@@ -6,22 +6,74 @@ import 'package:flutter/services.dart';
 
 import 'theme.dart';
 
-/// A thumb at the right edge of a long list (a web novel's 3,000 chapters):
-/// it slides in while the list moves and, held and dragged, carries the
-/// list straight there, a bubble beside it naming where ([labelAt], given
-/// how far down, 0 to 1). A list a few screens long has none.
+/// What a [FastScroller] moves: it says when the list moves, how far down
+/// it is (0 to 1), and whether it is long enough to want a thumb.
+abstract class FastScrollTarget implements Listenable {
+  bool get long;
+  double get fraction;
+  void jumpTo(double fraction);
+
+  /// Whether the last move was the reader's own (a list that also scrolls
+  /// itself, following the voice, shows no thumb for that).
+  bool get byHand => true;
+}
+
+/// A list with a [ScrollController]: long once it is [minScreens] screens.
+class ControllerScrollTarget extends FastScrollTarget {
+  ControllerScrollTarget(this.controller, {this.minScreens = 2.5});
+
+  final ScrollController controller;
+  final double minScreens;
+
+  ScrollPosition? get _position => controller.hasClients && controller.positions.length == 1 ? controller.position : null;
+
+  @override
+  bool get long {
+    final p = _position;
+    return p != null &&
+        p.hasContentDimensions &&
+        p.hasViewportDimension &&
+        p.maxScrollExtent > p.viewportDimension * minScreens;
+  }
+
+  @override
+  double get fraction {
+    final p = _position;
+    if (p == null || !p.hasContentDimensions || p.maxScrollExtent <= p.minScrollExtent) return 0;
+    return ((p.pixels - p.minScrollExtent) / (p.maxScrollExtent - p.minScrollExtent)).clamp(0.0, 1.0);
+  }
+
+  @override
+  void jumpTo(double fraction) {
+    final p = _position;
+    if (p != null) p.jumpTo(p.minScrollExtent + fraction * (p.maxScrollExtent - p.minScrollExtent));
+  }
+
+  @override
+  void addListener(VoidCallback listener) => controller.addListener(listener);
+
+  @override
+  void removeListener(VoidCallback listener) => controller.removeListener(listener);
+}
+
+/// A thumb at the right edge of a long list (a web novel's 3,000 chapters,
+/// a long book's text): it slides in while the list moves and, held and
+/// dragged, carries the list straight there, a bubble beside it naming
+/// where ([labelAt], given how far down, 0 to 1). A short list has none.
 class FastScroller extends StatefulWidget {
-  const FastScroller({
+  FastScroller({
     super.key,
-    required this.controller,
+    ScrollController? controller,
+    FastScrollTarget? target,
     required this.child,
     this.labelAt,
     this.top = 0,
     this.bottom = 0,
-    this.minScreens = 4,
-  });
+    this.onDrag,
+  })  : assert((controller == null) != (target == null)),
+        target = target ?? ControllerScrollTarget(controller!);
 
-  final ScrollController controller;
+  final FastScrollTarget target;
   final Widget child;
   final String? Function(double fraction)? labelAt;
 
@@ -29,8 +81,9 @@ class FastScroller extends StatefulWidget {
   final double top;
   final double bottom;
 
-  /// How many screens long a list must be to have the thumb.
-  final double minScreens;
+  /// The thumb taken (true) and let go (false): a list that tells a look
+  /// around from reading by its own scrolling hears of these jumps here.
+  final void Function(bool dragging)? onDrag;
 
   @override
   State<FastScroller> createState() => _FastScrollerState();
@@ -50,50 +103,36 @@ class _FastScrollerState extends State<FastScroller> {
   double _fromY = 0;
   String? _lastLabel;
 
+  /// The listenable the thumb is following (a new [ControllerScrollTarget]
+  /// is made on each build, around the same controller).
+  late FastScrollTarget _target = widget.target;
+
   @override
   void initState() {
     super.initState();
-    widget.controller.addListener(_onScroll);
+    _target.addListener(_onScroll);
   }
 
   @override
   void didUpdateWidget(FastScroller old) {
     super.didUpdateWidget(old);
-    if (old.controller != widget.controller) {
-      old.controller.removeListener(_onScroll);
-      widget.controller.addListener(_onScroll);
-    }
+    _target.removeListener(_onScroll);
+    _target = widget.target;
+    _target.addListener(_onScroll);
   }
 
   @override
   void dispose() {
-    widget.controller.removeListener(_onScroll);
+    _target.removeListener(_onScroll);
     _hide?.cancel();
     super.dispose();
   }
 
-  ScrollPosition? get _position {
-    final c = widget.controller;
-    return c.hasClients && c.positions.length == 1 ? c.position : null;
-  }
-
-  bool get _long {
-    final p = _position;
-    return p != null &&
-        p.hasContentDimensions &&
-        p.hasViewportDimension &&
-        p.maxScrollExtent > p.viewportDimension * widget.minScreens;
-  }
-
-  double get _fraction {
-    final p = _position;
-    if (p == null || !p.hasContentDimensions || p.maxScrollExtent <= p.minScrollExtent) return 0;
-    return ((p.pixels - p.minScrollExtent) / (p.maxScrollExtent - p.minScrollExtent)).clamp(0.0, 1.0);
-  }
+  double get _fraction => _target.fraction;
 
   void _onScroll() {
     if (!mounted) return;
-    if (!_long) {
+    if (!_target.long || (!_dragging && !_target.byHand)) {
       if (_shown) setState(() => _shown = false);
       return;
     }
@@ -109,10 +148,8 @@ class _FastScrollerState extends State<FastScroller> {
   }
 
   void _dragTo(double globalY, double track) {
-    final p = _position;
-    if (p == null) return;
     final f = ((_fromTop + globalY - _fromY) / math.max(1, track - _thumbHeight)).clamp(0.0, 1.0);
-    p.jumpTo(p.minScrollExtent + f * (p.maxScrollExtent - p.minScrollExtent));
+    _target.jumpTo(f);
     // A tick as the bubble names somewhere new, so a drag is felt.
     final label = widget.labelAt?.call(f);
     if (label != _lastLabel) {
@@ -172,16 +209,19 @@ class _FastScrollerState extends State<FastScroller> {
                                 _fromTop = y;
                                 _fromY = g.globalPosition.dy;
                                 setState(() => _dragging = true);
+                                widget.onDrag?.call(true);
                               },
                               onVerticalDragUpdate: (g) => _dragTo(g.globalPosition.dy, track),
                               onVerticalDragEnd: (_) {
                                 setState(() => _dragging = false);
                                 _lastLabel = null;
                                 _hideLater();
+                                widget.onDrag?.call(false);
                               },
                               onVerticalDragCancel: () {
                                 setState(() => _dragging = false);
                                 _hideLater();
+                                widget.onDrag?.call(false);
                               },
                               child: Center(
                                 child: AnimatedContainer(
