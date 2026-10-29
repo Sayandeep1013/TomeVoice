@@ -7,7 +7,12 @@
 ## 0++++. Checkpoint (2026-10-29): pages keep time with the voice, fast scroll, secret shelves
 
 Branch `fast-scroll-and-page-sync` (not merged or released yet). CI analyze + tests pass.
-**Not yet verified on the phone** (no device on adb that session).
+**Verified on the phone (A059, Android 16):** the curl turns as the voice reads onto the
+next page (frames around a sentence carried over a page's foot); fast scroll on Shadow
+Slave's 3,228 chapters and on Red Rising's text (chapter 4 to 26 in one drag); the lock
+prompt (fingerprint accepted, shelf opened); the shelf picker; the glow on pages and the
+player's shadow in scroll, with no line at the safe area's edge. Note: adb's synthetic
+drags that move too fast do not move the thumb; paced ones (about 80 ms apart) do.
 
 - **Pages turn with the voice's word** (`paged_view.dart`). A sentence carried over a
   page's foot counted as the next page's (`_pageOfUnit`, kept for bookmarks and a new
@@ -37,6 +42,18 @@ Branch `fast-scroll-and-page-sync` (not merged or released yet). CI analyze + te
   (`setRecentsScreenshotEnabled(false)` on 13+, FLAG_SECURE before). Ways in: Settings >
   Secret shelf, and press-and-hold the word Library (again to lock; a lock button sits
   by Edit categories while open). Backups include secret books.
+- **Later the same day.** `USE_BIOMETRIC` was missing from the manifest
+  (`tools/prepare_android.py`; CI now greps for it): BiometricPrompt threw a
+  SecurityException and Make a secret shelf did nothing. A prompt the phone cannot show
+  now says so (`confirmUser` returns null). Settings > Secret shelf > Move shelves into
+  secret… ticks one or more shelves behind the lock (`_ShelfPicker`). The fast scroller
+  takes a `FastScrollTarget`: a `ControllerScrollTarget` (from 2.5 screens) or the
+  reader's text (`_TextScrollTarget`, by paragraph, shown only for the reader's own
+  scrolling; taking it detaches while listening). **The glow:** it fades with the player
+  (`_chrome`/`_scrollBars`); on pages it is drawn over the fade behind the player, which
+  now runs to the screen's edge (the page's paper and that fade, both opaque, hid it above
+  the safe area's edge: a hard line). In scroll mode the player's fold clip cut its
+  shadow at the same edge; it is clipped now only while folding away.
 
 ## 0+++. Checkpoint (2026-10-28): a tap puts the bars away (1.1.1)
 
