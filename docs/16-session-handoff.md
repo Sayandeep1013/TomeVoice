@@ -1,8 +1,42 @@
 # 16 — Session Handoff
 
-**As of 2026-10-28.** Everything needed to pick this up cold.
+**As of 2026-10-29.** Everything needed to pick this up cold.
 
 ---
+
+## 0++++. Checkpoint (2026-10-29): pages keep time with the voice, fast scroll, secret shelves
+
+Branch `fast-scroll-and-page-sync` (not merged or released yet). CI analyze + tests pass.
+**Not yet verified on the phone** (no device on adb that session).
+
+- **Pages turn with the voice's word** (`paged_view.dart`). A sentence carried over a
+  page's foot counted as the next page's (`_pageOfUnit`, kept for bookmarks and a new
+  size), so while listening the page turned as soon as the voice *began* the last
+  sentence, with lines at the foot still to be read. Each `_Page` now has
+  `startItem`/`startOffset` (where its first line begins); `showUnit(unit, at:)` takes
+  the word's offset and finds the page by place (`_pageOfPlace`). The reader calls it on
+  every word (`_onWord`, from `_player.word`) while following. Play on a page that opens
+  mid-sentence does not turn back; the voice reading into the next chapter turns onto
+  its first page (the row's edge item) instead of cutting.
+- **Fast scroller** (`fast_scroller.dart`): a thumb at the right edge of a list more than
+  4 screens long, shown while it moves; dragged, it jumps there, a bubble naming the
+  chapter. On a web novel's chapters, a book's, the reader's Contents and the chapter
+  finder. The two sheets search with their own controller (`_found`) so matches start
+  at the top.
+- **Secret shelves** (`secret_shelf.dart`). `Category.secret`; `LibraryStore.secretOpen`.
+  While shut, `index()`/`list()` leave secret shelves and their books out (pass
+  `all: true` where everything is needed: imports, the starter, chapter checks,
+  the reader's own entry). `saveCategories` keeps secret shelves a page did not have,
+  never lets one be the default or every shelf. Unlock: `confirmUser` in MainActivity
+  (BiometricPrompt, BIOMETRIC_WEAK | DEVICE_CREDENTIAL on 11+, credential allowed on
+  10, keyguard's confirm screen before). Leaving the app (`AppLifecycleListener.onHide`)
+  locks and pops to the first page. Hidden while shut: shelves, search, History, Saved,
+  Stats, Updates (checked, named "a novel" in the status), widgets (`Widgets.books`
+  skips them), the app tint; the media card says "TomeVoice" with no cover for a secret
+  book (`isSecret`), always. Recents shows a blank card while open
+  (`setRecentsScreenshotEnabled(false)` on 13+, FLAG_SECURE before). Ways in: Settings >
+  Secret shelf, and press-and-hold the word Library (again to lock; a lock button sits
+  by Edit categories while open). Backups include secret books.
 
 ## 0+++. Checkpoint (2026-10-28): a tap puts the bars away (1.1.1)
 
