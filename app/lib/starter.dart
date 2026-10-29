@@ -41,7 +41,7 @@ class Starter {
       } on Object {
         return;
       }
-    } else if ((await store.list()).isNotEmpty) {
+    } else if ((await store.list(all: true)).isNotEmpty) {
       await flag.writeAsString(jsonEncode({'skipped': true}));
       return;
     }

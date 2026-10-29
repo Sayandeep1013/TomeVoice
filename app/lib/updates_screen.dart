@@ -51,9 +51,10 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
   Future<void> _reload() async {
     final log = await widget.updates.log();
     final hasWeb = (await widget.store.list()).any((e) => e.isWeb);
+    final hidden = await widget.store.hiddenIds();
     if (!mounted) return;
     setState(() {
-      _items = log.items;
+      _items = [for (final c in log.items) if (!hidden.contains(c.bookId)) c];
       _checked = log.checked;
       _hasWeb = hasWeb;
       _loaded = true;

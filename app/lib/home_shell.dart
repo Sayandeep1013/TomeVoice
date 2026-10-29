@@ -175,7 +175,7 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
       unawaited(_follow());
       // A fresh install may be someone moving over: from the older
       // TomeVoice (another app id), or from another phone.
-      final fresh = !File('$dir/starter.json').existsSync() && (await store.list()).isEmpty;
+      final fresh = !File('$dir/starter.json').existsSync() && (await store.list(all: true)).isEmpty;
       if (fresh) Future<void>.delayed(const Duration(seconds: 3), () => _offerRestore(store));
       // A new install's first shelf: a classic and two web novels.
       unawaited(Starter.seed(Directory(dir), store, sources));

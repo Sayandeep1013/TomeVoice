@@ -100,10 +100,18 @@ object Widgets {
         val tints = tintFile?.optJSONObject("books")
         val accents = tintFile?.optJSONObject("accents")
         val arr = lib.optJSONArray("books") ?: return emptyList()
+        // Books on a secret shelf are never on a widget: it shows to anyone.
+        val secret = mutableSetOf<String>()
+        val cats = lib.optJSONArray("categories")
+        for (i in 0 until (cats?.length() ?: 0)) {
+            val c = cats?.optJSONObject(i) ?: continue
+            if (c.optBoolean("secret", false)) secret.add(c.optString("id"))
+        }
         val out = mutableListOf<Pair<String, Book>>()
         for (i in 0 until arr.length()) {
             val b = arr.optJSONObject(i) ?: continue
             val id = b.optString("id")
+            if (secret.contains(b.optString("category"))) continue
             val cover = when (b.optString("coverMode", "auto")) {
                 "plain" -> null
                 "custom" -> b.optString("customCover").ifEmpty { b.optString("cover") }

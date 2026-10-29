@@ -536,7 +536,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final store = widget.store;
     if (store == null) return;
     try {
-      final entry = (await store.list()).where((e) => e.id == _book.id).firstOrNull;
+      final entry = (await store.list(all: true)).where((e) => e.id == _book.id).firstOrNull;
       if (!mounted) return;
       setState(() {
         _entry = entry;
@@ -927,12 +927,14 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       return;
     }
     final (first, count) = _l.chapterRange(chapter);
+    // A book on a secret shelf is not named on the lock screen.
+    final secret = widget.store?.isSecret(_book.id) ?? false;
     unawaited(_svc.session(
       active: true,
-      title: _book.metadata.title,
-      subtitle: _l.chapterTitle(chapter),
+      title: secret ? 'TomeVoice' : _book.metadata.title,
+      subtitle: secret ? '' : _l.chapterTitle(chapter),
       playing: s != PlayState.paused,
-      cover: _cover,
+      cover: secret ? null : _cover,
       positionMs: _msFor(_wordsAt(u) - _wordsAt(first)),
       durationMs: _msFor(_wordsAt(first + count) - _wordsAt(first)),
       speed: speed,

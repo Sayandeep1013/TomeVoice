@@ -37,7 +37,11 @@ Future<String?> pickCategory(
               children: [
                 for (final c in idx.categories)
                   SheetAction(
-                    icon: c.id == current ? Icons.radio_button_checked_rounded : Icons.folder_outlined,
+                    icon: c.id == current
+                        ? Icons.radio_button_checked_rounded
+                        : c.secret
+                            ? Icons.lock_open_rounded
+                            : Icons.folder_outlined,
                     label: c.name,
                     detail: _books(idx.inCategory(c.id).length),
                     onTap: () => Navigator.pop(ctx, c.id),

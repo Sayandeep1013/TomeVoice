@@ -29,6 +29,9 @@ class _SavedScreenState extends State<SavedScreen> {
   final _marks = MarkStore.instance;
   MarkKind _kind = MarkKind.quote;
   Map<String, LibraryEntry> _books = const {};
+
+  /// Books on a locked secret shelf: their marks are left out.
+  Set<String> _hidden = const {};
   String _query = '';
 
   /// The mark last brought back with Undo: it opens into its place again
@@ -54,7 +57,13 @@ class _SavedScreenState extends State<SavedScreen> {
 
   Future<void> _loadBooks() async {
     final list = await widget.store.list();
-    if (mounted) setState(() => _books = {for (final e in list) e.id: e});
+    final hidden = await widget.store.hiddenIds();
+    if (mounted) {
+      setState(() {
+        _books = {for (final e in list) e.id: e};
+        _hidden = hidden;
+      });
+    }
   }
 
   Future<void> _open(Mark m) async {
@@ -91,7 +100,10 @@ class _SavedScreenState extends State<SavedScreen> {
   @override
   Widget build(BuildContext context) {
     final q = _query.trim().toLowerCase();
-    final mine = [for (final m in _marks.all) if (widget.bookId == null || m.bookId == widget.bookId) m];
+    final mine = [
+      for (final m in _marks.all)
+        if ((widget.bookId == null || m.bookId == widget.bookId) && !_hidden.contains(m.bookId)) m,
+    ];
     bool matches(Mark m) =>
         q.isEmpty ||
         m.text.toLowerCase().contains(q) ||

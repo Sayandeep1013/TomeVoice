@@ -183,6 +183,37 @@ class SpeechService {
         'speed': speed,
       });
 
+  /// Whether the phone has a lock (a PIN, pattern or password) to ask for.
+  Future<bool> deviceSecure() async {
+    try {
+      return await _channel.invokeMethod<bool>('deviceSecure') ?? false;
+    } on Object {
+      return false;
+    }
+  }
+
+  /// Ask for the phone's own lock (a fingerprint or face, or its PIN): true
+  /// once the owner has shown it is them, false if they cancel.
+  Future<bool> confirmUser({required String title, String? subtitle}) async {
+    try {
+      return await _channel.invokeMethod<bool>('confirmUser', {'title': title, 'subtitle': subtitle}) ?? false;
+    } on Object {
+      return false;
+    }
+  }
+
+  /// A blank card for TomeVoice in Recents, instead of what is on screen.
+  Future<void> hideRecents(bool on) => _quiet('hideRecents', {'on': on});
+
+  /// Android's security settings, where a screen lock is set.
+  Future<bool> openSecuritySettings() async {
+    try {
+      return await _channel.invokeMethod<bool>('openSecuritySettings') ?? false;
+    } on Object {
+      return false;
+    }
+  }
+
   Future<bool> openTtsSettings() async {
     try {
       return await _channel.invokeMethod<bool>('openTtsSettings') ?? false;

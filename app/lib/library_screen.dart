@@ -14,6 +14,7 @@ import 'listening_session.dart';
 import 'novel_screen.dart';
 import 'prefs.dart';
 import 'reader_screen.dart';
+import 'secret_shelf.dart';
 import 'settings_screen.dart';
 import 'speech_service.dart';
 import 'theme.dart';
@@ -265,6 +266,17 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
       _snack('Added ${imported.length} books.');
     }
     if (openAfter && imported.length == 1) await _showBook(imported.single);
+  }
+
+  /// The quiet way into the secret shelves (holding the word Library):
+  /// opened, the shelf shows its first secret shelf.
+  Future<void> _secretDoor() async {
+    final wasOpen = SecretShelf.open.value;
+    await SecretShelf.toggleFromShelf(context, _store);
+    if (wasOpen || !SecretShelf.open.value) return;
+    await _refresh();
+    final i = _index?.categories.indexWhere((c) => c.secret) ?? -1;
+    if (i >= 0 && mounted) _goToPage(i);
   }
 
   /// The next shelf slides across; a far one is gone to at once and fades
@@ -817,7 +829,10 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
           child: FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
-            child: Text('Library', style: Skin.title(context, size: 28, weight: FontWeight.w500)),
+            child: GestureDetector(
+              onLongPress: _secretDoor,
+              child: Text('Library', style: Skin.title(context, size: 28, weight: FontWeight.w500)),
+            ),
           ),
         ),
         RoundButton(
@@ -1100,6 +1115,12 @@ class _CategoryTabsState extends State<_CategoryTabs> {
               },
             ),
           ),
+          if (index.categories.any((c) => c.secret))
+            IconButton(
+              tooltip: 'Lock the secret shelf',
+              onPressed: SecretShelf.lock,
+              icon: Icon(Icons.lock_rounded, size: 20, color: Skin.inkSoftOn(context)),
+            ),
           IconButton(
             tooltip: 'Edit categories',
             onPressed: widget.onManage,
@@ -1130,6 +1151,11 @@ class _CategoryTabsState extends State<_CategoryTabs> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (c.secret) ...[
+                  Icon(Icons.lock_open_rounded,
+                      size: 14, color: Color.lerp(Skin.inkSoftOn(context), Skin.onAmber, t)),
+                  const SizedBox(width: 4),
+                ],
                 Text(
                   c.name,
                   // The weight follows too, so the label never jumps.

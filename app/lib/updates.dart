@@ -135,11 +135,13 @@ class Updates {
     var found = 0;
     try {
       final now = DateTime.now();
-      final web = [for (final e in await store.list()) if (e.isWeb) e];
+      // Secret shelves' novels are checked too, but not named while they run.
+      final web = [for (final e in await store.list(all: true)) if (e.isWeb) e];
       final log = [...await recent()];
       for (var i = 0; i < web.length; i++) {
         final e = web[i];
-        status.value = 'Checking ${e.title} (${i + 1} of ${web.length})…';
+        final name = store.isSecret(e.id) && !LibraryStore.secretOpen.value ? 'a novel' : e.title;
+        status.value = 'Checking $name (${i + 1} of ${web.length})…';
         final info = await store.webNovel(e.id);
         if (info == null) continue;
         if (skipCompleted && info.novel.status == 'Completed' && e.finished) continue;
