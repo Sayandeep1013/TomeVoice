@@ -8,6 +8,7 @@ import 'book_card.dart';
 import 'book_search.dart';
 import 'book_tint.dart';
 import 'chapter_finder.dart';
+import 'fast_scroller.dart';
 import 'library_store.dart';
 import 'saved_screen.dart';
 import 'listen_sheet.dart';
@@ -38,6 +39,9 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
   ReadingCursor _cursor = ReadingCursor.zero;
   Object? _error;
   bool _blurbOpen = false;
+
+  /// The list holding the chapters, for the fast scroller beside them.
+  final _scroll = ScrollController();
   final _catalog = VoiceCatalog.instance;
 
   ListeningPrefs get _prefs => ListeningPrefs.loaded ?? ListeningPrefs.memory;
@@ -60,6 +64,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
     _store.placeChanges.removeListener(_placeSaved);
     _catalog.removeListener(_rebuild);
     ListeningPrefs.revision.removeListener(_rebuild);
+    _scroll.dispose();
     super.dispose();
   }
 
@@ -209,6 +214,15 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
     final size = MediaQuery.sizeOf(context);
     final wide = size.width > size.height && size.width >= 720;
     final bottomGap = SliverToBoxAdapter(child: SizedBox(height: Gap.xxl + MediaQuery.viewPaddingOf(context).bottom));
+    Widget fast(Widget list, {double top = 0}) => FastScroller(
+          controller: _scroll,
+          top: top,
+          bottom: Gap.m + MediaQuery.viewPaddingOf(context).bottom,
+          labelAt: (f) => l == null || chapters.isEmpty
+              ? null
+              : l.chapterTitle(chapters[(f * (chapters.length - 1)).round()]),
+          child: list,
+        );
     final info = <Widget>[
       PinnedBar(child: _topBar(context)),
       SliverPadding(
@@ -295,10 +309,11 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                       width: 420,
                       child: CustomScrollView(slivers: [...info, bottomGap]),
                     ),
-                    Expanded(child: CustomScrollView(slivers: [...chapterList, bottomGap])),
+                    Expanded(child: fast(CustomScrollView(controller: _scroll, slivers: [...chapterList, bottomGap]))),
                   ],
                 )
-              : CustomScrollView(slivers: [...info, ...chapterList, bottomGap]),
+              : fast(CustomScrollView(controller: _scroll, slivers: [...info, ...chapterList, bottomGap]),
+                  top: PinnedBar.height),
         ),
       ),
     ));

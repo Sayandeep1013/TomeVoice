@@ -2,20 +2,25 @@ package app.tomevoice.tomevoice_spike
 
 import android.Manifest
 import android.app.Activity
+import android.app.KeyguardManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.hardware.biometrics.BiometricManager
+import android.hardware.biometrics.BiometricPrompt
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.CancellationSignal
 import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
+import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.view.KeyEvent
@@ -87,7 +92,11 @@ class MainActivity : FlutterActivity() {
         private const val REQ_IMAGE = 73
         private const val REQ_BACKUP = 74
         private const val REQ_RESTORE = 75
+        private const val REQ_CONFIRM = 76
     }
+
+    /** The answer to "is it you?" on phones too old for BiometricPrompt's PIN. */
+    private var confirmResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -424,6 +433,20 @@ class MainActivity : FlutterActivity() {
                         } catch (e: Exception) {
                             result.success(null)
                         }
+                    }
+                }
+                "deviceSecure" -> result.success(keyguard().isDeviceSecure)
+                "confirmUser" -> confirmUser(call.argument<String>("title") ?: "TomeVoice", call.argument<String>("subtitle"), result)
+                "hideRecents" -> {
+                    hideRecents(call.argument<Boolean>("on") == true)
+                    result.success(null)
+                }
+                "openSecuritySettings" -> {
+                    try {
+                        startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS))
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.success(false)
                     }
                 }
                 "appVersion" -> {
@@ -919,10 +942,79 @@ class MainActivity : FlutterActivity() {
         startActivityForResult(intent, REQ_PICK)
     }
 
+    private fun keyguard() = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+
+    /**
+     * The phone's own lock: a fingerprint or face, or its PIN, pattern or
+     * password. True once the owner has shown it is them; false when they
+     * cancel, or the phone has no lock to ask for.
+     */
+    private fun confirmUser(title: String, subtitle: String?, result: MethodChannel.Result) {
+        val keyguard = keyguard()
+        if (!keyguard.isDeviceSecure) {
+            result.success(false)
+            return
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val builder = BiometricPrompt.Builder(this).setTitle(title)
+            if (subtitle != null) builder.setSubtitle(subtitle)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                builder.setAllowedAuthenticators(
+                    BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL,
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                builder.setDeviceCredentialAllowed(true)
+            }
+            val answered = AtomicBoolean(false)
+            fun answer(ok: Boolean) {
+                if (answered.compareAndSet(false, true)) result.success(ok)
+            }
+            builder.build().authenticate(
+                CancellationSignal(),
+                mainExecutor,
+                object : BiometricPrompt.AuthenticationCallback() {
+                    override fun onAuthenticationSucceeded(r: BiometricPrompt.AuthenticationResult?) = answer(true)
+
+                    // Cancelled, or too many tries. (A finger not recognised
+                    // is onAuthenticationFailed: the prompt stays up.)
+                    override fun onAuthenticationError(code: Int, message: CharSequence?) = answer(false)
+                },
+            )
+            return
+        }
+        @Suppress("DEPRECATION")
+        val intent = keyguard.createConfirmDeviceCredentialIntent(title, subtitle)
+        if (intent == null) {
+            result.success(false)
+            return
+        }
+        confirmResult?.success(false)
+        confirmResult = result
+        @Suppress("DEPRECATION")
+        startActivityForResult(intent, REQ_CONFIRM)
+    }
+
+    /** Recents shows a blank card for TomeVoice (older phones: no screenshots either). */
+    private fun hideRecents(on: Boolean) {
+        if (Build.VERSION.SDK_INT >= 33) {
+            setRecentsScreenshotEnabled(!on)
+        } else if (on) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
+
     @Deprecated("startActivityForResult is what FlutterActivity still exposes")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_CONFIRM) {
+            confirmResult?.success(resultCode == Activity.RESULT_OK)
+            confirmResult = null
+            return
+        }
         if (requestCode == REQ_BACKUP) {
             finishBackup(resultCode, data?.data)
             return

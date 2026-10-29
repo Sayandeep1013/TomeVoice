@@ -19,6 +19,7 @@ import 'noveldokusha_import.dart';
 import 'prefs.dart';
 import 'rules_screen.dart';
 import 'sources/source_engine.dart';
+import 'secret_shelf.dart';
 import 'sources_screen.dart';
 import 'stats_screen.dart' show addWidget;
 import 'speech_service.dart';
@@ -351,6 +352,12 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                               bookTitles: {for (final e in idx?.entries ?? const <LibraryEntry>[]) e.id: e.title},
                             ),
                           )),
+                        ),
+                        _Link(
+                          icon: Icons.lock_outline_rounded,
+                          title: 'Secret shelf',
+                          subtitle: 'Books that only your fingerprint, face or phone PIN opens',
+                          onTap: () => showSecretShelfSheet(context, widget.store),
                         ),
                         _Link(
                           icon: Icons.backup_outlined,

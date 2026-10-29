@@ -408,12 +408,14 @@ class BackgroundReading {
     final u = unit.clamp(0, layout.units.length - 1);
     final chapter = layout.chapterOfUnit(u);
     final (first, count) = layout.chapterRange(chapter);
+    // A book on a secret shelf is not named on the lock screen.
+    final secret = store.isSecret(bookId);
     unawaited(_svc.session(
       active: true,
-      title: title,
-      subtitle: layout.chapterTitle(chapter),
+      title: secret ? 'TomeVoice' : title,
+      subtitle: secret ? '' : layout.chapterTitle(chapter),
       playing: s == PlayState.playing || s == PlayState.loading,
-      cover: cover,
+      cover: secret ? null : cover,
       positionMs: _msFor(_wordsAt(u) - _wordsAt(first)),
       durationMs: _msFor(_wordsAt(first + count) - _wordsAt(first)),
       speed: _prefs.settings.speedScale,

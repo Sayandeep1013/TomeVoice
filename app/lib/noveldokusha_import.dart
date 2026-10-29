@@ -145,7 +145,7 @@ Future<int> _importLocalBook(LibraryStore store, _NdBook b) async {
   // An earlier import brought it in as a web novel: that copy goes, even
   // when there is no text to bring this time (it had none to read either).
   final old = LibraryStore.webId('noveldokusha:local', b.url);
-  if ((await store.list()).any((e) => e.id == old)) await store.remove(old);
+  if ((await store.list(all: true)).any((e) => e.id == old)) await store.remove(old);
   if (withText.isEmpty) return 0;
 
   final dir = Directory('${store.root.path}/incoming')..createSync(recursive: true);

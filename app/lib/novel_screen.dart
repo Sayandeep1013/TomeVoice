@@ -10,6 +10,7 @@ import 'book_search.dart';
 import 'book_tint.dart';
 import 'browser_check.dart';
 import 'chapter_finder.dart';
+import 'fast_scroller.dart';
 import 'library_store.dart';
 import 'prefs.dart';
 import 'saved_screen.dart';
@@ -68,6 +69,9 @@ class _NovelScreenState extends State<NovelScreen> {
 
   SourceNovel? _novel;
   List<ChapterItem> _chapters = const [];
+
+  /// The list holding the chapters, for the fast scroller beside them.
+  final _scroll = ScrollController();
   LibraryEntry? _entry;
   Set<int> _downloaded = const {};
   int _current = -1;
@@ -107,6 +111,7 @@ class _NovelScreenState extends State<NovelScreen> {
     _stopDownload = true;
     _store.changes.removeListener(_refreshLocal);
     _store.placeChanges.removeListener(_placeSaved);
+    _scroll.dispose();
     super.dispose();
   }
 
@@ -392,6 +397,14 @@ class _NovelScreenState extends State<NovelScreen> {
     final bottomGap = SliverToBoxAdapter(
       child: SizedBox(height: Gap.xxl + 72 + MediaQuery.viewPaddingOf(context).bottom),
     );
+    // Dragged, the thumb names the chapter it has reached.
+    Widget fast(Widget list, {double top = 0}) => FastScroller(
+          controller: _scroll,
+          top: top,
+          bottom: Gap.m + MediaQuery.viewPaddingOf(context).bottom,
+          labelAt: (f) => order.isEmpty ? null : 'Chapter ${order[(f * (order.length - 1)).round()] + 1}',
+          child: list,
+        );
     final info = <Widget>[
       PinnedBar(child: _topBar(context)),
       SliverPadding(
@@ -540,21 +553,24 @@ class _NovelScreenState extends State<NovelScreen> {
                     children: [
                       SizedBox(width: 420, child: CustomScrollView(slivers: [...info, bottomGap])),
                       Expanded(
-                        child: RefreshIndicator(
+                        child: fast(RefreshIndicator(
                           // A pull counts even when it starts a little way down the list.
                           triggerMode: RefreshIndicatorTriggerMode.anywhere,
                           onRefresh: () => _load(pulled: true),
-                          child: CustomScrollView(slivers: [...chapterList, bottomGap]),
-                        ),
+                          child: CustomScrollView(controller: _scroll, slivers: [...chapterList, bottomGap]),
+                        )),
                       ),
                     ],
                   )
                 else
-                  RefreshIndicator(
-                    // A pull counts even when it starts a little way down the list.
-                    triggerMode: RefreshIndicatorTriggerMode.anywhere,
-                    onRefresh: () => _load(pulled: true),
-                    child: CustomScrollView(slivers: [...info, ...chapterList, bottomGap]),
+                  fast(
+                    RefreshIndicator(
+                      // A pull counts even when it starts a little way down the list.
+                      triggerMode: RefreshIndicatorTriggerMode.anywhere,
+                      onRefresh: () => _load(pulled: true),
+                      child: CustomScrollView(controller: _scroll, slivers: [...info, ...chapterList, bottomGap]),
+                    ),
+                    top: PinnedBar.height,
                   ),
                 Positioned(
                   left: Gap.m,

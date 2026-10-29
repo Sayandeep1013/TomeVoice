@@ -9,6 +9,7 @@ import 'brand.dart';
 import 'home_shell.dart';
 import 'prefs.dart';
 import 'reader_screen.dart';
+import 'secret_shelf.dart';
 import 'speech_service.dart';
 import 'theme.dart';
 
@@ -83,6 +84,7 @@ class SpikeApp extends StatelessWidget {
 
   Widget _app(Palette palette, ThemeMode mode) => MaterialApp(
           title: 'TomeVoice',
+          navigatorKey: SecretShelf.navigator,
           debugShowCheckedModeBanner: false,
           theme: Skin.themeFor(palette, Brightness.light),
           darkTheme: Skin.themeFor(palette, Brightness.dark),

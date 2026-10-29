@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'book_tint.dart';
+import 'fast_scroller.dart';
 import 'theme.dart';
 import 'ui.dart';
 
@@ -69,11 +70,15 @@ class _ChapterFinderState extends State<ChapterFinder> {
     initialScrollOffset: ((widget.current - 2) * _rowHeight).clamp(0, double.infinity).toDouble(),
   );
 
+  /// The matches of a search, from their top.
+  final _found = ScrollController();
+
   int _number(int i) => widget.numberOf?.call(i) ?? i + 1;
 
   @override
   void dispose() {
     _controller.dispose();
+    _found.dispose();
     super.dispose();
   }
 
@@ -111,13 +116,18 @@ class _ChapterFinderState extends State<ChapterFinder> {
                       padding: const EdgeInsets.all(Gap.xl),
                       child: Text('No chapters match.', style: Skin.label(context, size: 15)),
                     )
-                  : ListView.builder(
-                      controller: q.isEmpty ? _controller : null,
-                      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-                      padding: const EdgeInsets.fromLTRB(Gap.m, 0, Gap.m, Gap.xl),
-                      itemExtent: _rowHeight,
-                      itemCount: rows.length,
-                      itemBuilder: (context, n) => _row(context, rows[n], accent),
+                  : FastScroller(
+                      controller: q.isEmpty ? _controller : _found,
+                      bottom: Gap.xl,
+                      labelAt: (f) => 'Chapter ${_number(rows[(f * (rows.length - 1)).round()])}',
+                      child: ListView.builder(
+                        controller: q.isEmpty ? _controller : _found,
+                        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                        padding: const EdgeInsets.fromLTRB(Gap.m, 0, Gap.m, Gap.xl),
+                        itemExtent: _rowHeight,
+                        itemCount: rows.length,
+                        itemBuilder: (context, n) => _row(context, rows[n], accent),
+                      ),
                     ),
             ),
           ],

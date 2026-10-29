@@ -1,8 +1,64 @@
 # 16 — Session Handoff
 
-**As of 2026-10-28.** Everything needed to pick this up cold.
+**As of 2026-10-29.** Everything needed to pick this up cold.
 
 ---
+
+## 0++++. Checkpoint (2026-10-29): pages keep time with the voice, fast scroll, secret shelves
+
+Branch `fast-scroll-and-page-sync` (not merged or released yet). CI analyze + tests pass.
+**Verified on the phone (A059, Android 16):** the curl turns as the voice reads onto the
+next page (frames around a sentence carried over a page's foot); fast scroll on Shadow
+Slave's 3,228 chapters and on Red Rising's text (chapter 4 to 26 in one drag); the lock
+prompt (fingerprint accepted, shelf opened); the shelf picker; the glow on pages and the
+player's shadow in scroll, with no line at the safe area's edge. Note: adb's synthetic
+drags that move too fast do not move the thumb; paced ones (about 80 ms apart) do.
+
+- **Pages turn with the voice's word** (`paged_view.dart`). A sentence carried over a
+  page's foot counted as the next page's (`_pageOfUnit`, kept for bookmarks and a new
+  size), so while listening the page turned as soon as the voice *began* the last
+  sentence, with lines at the foot still to be read. Each `_Page` now has
+  `startItem`/`startOffset` (where its first line begins); `showUnit(unit, at:)` takes
+  the word's offset and finds the page by place (`_pageOfPlace`). The reader calls it on
+  every word (`_onWord`, from `_player.word`) while following. Play on a page that opens
+  mid-sentence does not turn back; the voice reading into the next chapter turns onto
+  its first page (the row's edge item) instead of cutting.
+- **Fast scroller** (`fast_scroller.dart`): a thumb at the right edge of a list more than
+  4 screens long, shown while it moves; dragged, it jumps there, a bubble naming the
+  chapter. On a web novel's chapters, a book's, the reader's Contents and the chapter
+  finder. The two sheets search with their own controller (`_found`) so matches start
+  at the top.
+- **Secret shelves** (`secret_shelf.dart`). `Category.secret`; `LibraryStore.secretOpen`.
+  While shut, `index()`/`list()` leave secret shelves and their books out (pass
+  `all: true` where everything is needed: imports, the starter, chapter checks,
+  the reader's own entry). `saveCategories` keeps secret shelves a page did not have,
+  never lets one be the default or every shelf. Unlock: `confirmUser` in MainActivity
+  (BiometricPrompt, BIOMETRIC_WEAK | DEVICE_CREDENTIAL on 11+, credential allowed on
+  10, keyguard's confirm screen before). Leaving the app (`AppLifecycleListener.onHide`)
+  locks and pops to the first page. Hidden while shut: shelves, search, History, Saved,
+  Stats, Updates (checked, named "a novel" in the status), widgets (`Widgets.books`
+  skips them), the app tint; the media card says "TomeVoice" with no cover for a secret
+  book (`isSecret`), always. Recents shows a blank card while open
+  (`setRecentsScreenshotEnabled(false)` on 13+, FLAG_SECURE before). Ways in: Settings >
+  Secret shelf, and press-and-hold the word Library (again to lock; a lock button sits
+  by Edit categories while open). Backups include secret books.
+- **Later the same day.** `USE_BIOMETRIC` was missing from the manifest
+  (`tools/prepare_android.py`; CI now greps for it): BiometricPrompt threw a
+  SecurityException and Make a secret shelf did nothing. A prompt the phone cannot show
+  now says so (`confirmUser` returns null). Settings > Secret shelf > Move shelves into
+  secret… ticks one or more shelves behind the lock (`_ShelfPicker`). The fast scroller
+  takes a `FastScrollTarget`: a `ControllerScrollTarget` (from 2.5 screens) or the
+  reader's text (`_TextScrollTarget`, by paragraph, shown only for the reader's own
+  scrolling; taking it detaches while listening). **The glow:** it fades with the player
+  (`_chrome`/`_scrollBars`); on pages it is drawn over the fade behind the player, which
+  now runs to the screen's edge (the page's paper and that fade, both opaque, hid it above
+  the safe area's edge: a hard line). In scroll mode the player's fold clip cut its
+  shadow at the same edge; it is clipped now only while folding away.
+- **Back on a secret shelf** goes to the default shelf first (`PopScope` in
+  `library_screen.dart`, deciding by `_shownPage`, the pager's own page). Opening the
+  shelves jumped to the first secret one before the pager was rebuilt with it, which
+  landed short: the pill, the books and `_page` disagreed. `_secretDoor` now waits a frame,
+  and a far jump re-syncs `_page` from the pager. Verified on the phone.
 
 ## 0+++. Checkpoint (2026-10-28): a tap puts the bars away (1.1.1)
 

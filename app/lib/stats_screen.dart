@@ -25,13 +25,22 @@ class _StatsScreenState extends State<StatsScreen> {
   final _stats = StatsStore.instance;
   Map<String, LibraryEntry> _books = const {};
 
+  /// Books on a locked secret shelf: left out of the most read.
+  Set<String> _hidden = const {};
+
   @override
   void initState() {
     super.initState();
     _stats.changes.addListener(_changed);
-    unawaited(widget.store.list().then((l) {
-      if (mounted) setState(() => _books = {for (final e in l) e.id: e});
-    }));
+    unawaited(() async {
+      final l = await widget.store.list();
+      final hidden = await widget.store.hiddenIds();
+      if (!mounted) return;
+      setState(() {
+        _books = {for (final e in l) e.id: e};
+        _hidden = hidden;
+      });
+    }());
   }
 
   @override
@@ -51,7 +60,8 @@ class _StatsScreenState extends State<StatsScreen> {
     final week = _stats.lastDays(7);
     final todayMin = week.last;
     final totals = _stats.totals();
-    final top = totals.books.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    final top = [for (final e in totals.books.entries) if (!_hidden.contains(e.key)) e]
+      ..sort((a, b) => b.value.compareTo(a.value));
     final ink = Skin.inkOn(context);
     final accent = Skin.accentOf(context);
     return Scaffold(

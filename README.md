@@ -72,7 +72,9 @@ No account. No cloud. Your books never leave the phone.
   page's corner; hold it for every bookmark in the book). Paragraphs can be spaced or
   indented like a printed book, the phone's bars can be hidden, and **Aa** in the reader
   sets the page. A tap on the text puts the top bar and the player away to read alone,
-  and another brings them back.
+  and another brings them back. Listening on pages, the page turns as the voice reads
+  onto the next one, not before. A long book or chapter list has a thumb at the edge:
+  drag it to go straight through, a bubble naming the chapter.
 - **Keeps reading when you leave the book.** Back goes to your library while the voice
   reads on; pause it from the library's player or the notification, and open the book
   again to find it still reading (Settings → Listening, on by default).
@@ -99,7 +101,10 @@ No account. No cloud. Your books never leave the phone.
   version is out, and installs it for you (Android asks you to confirm).
 - **A shelf you can organise.** Cover tiles with format, length and progress on each;
   your own categories (Reading, Later, or any you make), swiped between; the books you are
-  in the middle of waiting at the bottom with a play button.
+  in the middle of waiting at the bottom with a play button. **Secret shelves** open only
+  with your fingerprint, face or phone PIN and lock again when you leave; while locked
+  their books are nowhere in the app, its widgets or the lock-screen player (Settings →
+  Secret shelf, or press and hold the word Library).
 - **A page for every book:** its cover (the book's own, one you pick, or a plain title
   cover), description, chapters, and the voice it is read in, with a sample to hear first.
   Play carries on where you stopped; any chapter opens right there.

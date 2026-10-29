@@ -168,6 +168,8 @@ jobs:
           grep -q "ShareProvider" "$M"
           grep -q 'foregroundServiceType="mediaPlayback"' "$M"
           grep -q 'android:label="TomeVoice"' "$M"
+          # The secret shelf's fingerprint, face or PIN prompt.
+          grep -q "USE_BIOMETRIC" "$M"
           grep -q "pdfbox-android" android/app/build.gradle.kts
           test -f android/app/proguard-rules.pro
           test -f android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml

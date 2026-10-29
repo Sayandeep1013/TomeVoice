@@ -14,6 +14,7 @@ import 'listening_session.dart';
 import 'novel_screen.dart';
 import 'prefs.dart';
 import 'reader_screen.dart';
+import 'secret_shelf.dart';
 import 'settings_screen.dart';
 import 'speech_service.dart';
 import 'theme.dart';
@@ -267,6 +268,30 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     if (openAfter && imported.length == 1) await _showBook(imported.single);
   }
 
+  /// The quiet way into the secret shelves (holding the word Library):
+  /// opened, the shelf shows its first secret shelf.
+  Future<void> _secretDoor() async {
+    final wasOpen = SecretShelf.open.value;
+    await SecretShelf.toggleFromShelf(context, _store);
+    if (wasOpen || !SecretShelf.open.value) return;
+    await _refresh();
+    // The pager has the secret shelves only once it is built again with
+    // them: a jump before that landed short, on another shelf than the
+    // pill and the books showed.
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    final i = _index?.categories.indexWhere((c) => c.secret) ?? -1;
+    if (i >= 0) _goToPage(i);
+  }
+
+  /// The shelf on screen: where the pager is, which a jump can leave apart
+  /// from [_page] for a moment.
+  int get _shownPage {
+    final p = _pager;
+    if (p == null || p.positions.length != 1 || !p.position.hasContentDimensions) return _page;
+    return p.page?.round() ?? _page;
+  }
+
   /// The next shelf slides across; a far one is gone to at once and fades
   /// in, rather than paging past every shelf between (building each one's
   /// books and covers on the way).
@@ -281,6 +306,11 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     if (far || Motion.reduced(context)) {
       _pages.jumpToPage(page);
       if (far) setState(() => _leap++);
+      // The shelf is the one the pager came to rest on.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final shown = _shownPage;
+        if (mounted && shown != _page) setState(() => _page = shown);
+      });
     } else {
       unawaited(_pages.animateToPage(page, duration: Motion.page, curve: Motion.emphasized));
     }
@@ -557,14 +587,26 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     body = fadeSwitch(context, KeyedSubtree(key: ValueKey(mode), child: body), instant: _shownMode == 'none');
     _shownMode = mode;
 
+    // With the secret shelves open, Back on one of them goes to the shelf
+    // new books go to first, and only then leaves the app. Which shelf is
+    // on screen is asked when Back comes, not when this was built.
+    final secretOpen = SecretShelf.open.value && categories.any((c) => c.secret);
     return shownGate(PopScope(
-      canPop: !_selecting && !_searching,
+      canPop: !_selecting && !_searching && !secretOpen,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
         if (_selecting) {
           _clearSelection();
         } else if (_searching) {
           _closeSearch();
+        } else if (secretOpen) {
+          final shown = _shownPage;
+          if (shown < categories.length && categories[shown].secret) {
+            final home = categories.indexWhere((c) => c.id == idx!.defaultCategory);
+            _goToPage(home < 0 ? 0 : home);
+          } else {
+            unawaited(SystemNavigator.pop());
+          }
         }
       },
       child: DecoratedBox(
@@ -817,7 +859,10 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
           child: FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
-            child: Text('Library', style: Skin.title(context, size: 28, weight: FontWeight.w500)),
+            child: GestureDetector(
+              onLongPress: _secretDoor,
+              child: Text('Library', style: Skin.title(context, size: 28, weight: FontWeight.w500)),
+            ),
           ),
         ),
         RoundButton(
@@ -1100,6 +1145,12 @@ class _CategoryTabsState extends State<_CategoryTabs> {
               },
             ),
           ),
+          if (index.categories.any((c) => c.secret))
+            IconButton(
+              tooltip: 'Lock the secret shelf',
+              onPressed: SecretShelf.lock,
+              icon: Icon(Icons.lock_rounded, size: 20, color: Skin.inkSoftOn(context)),
+            ),
           IconButton(
             tooltip: 'Edit categories',
             onPressed: widget.onManage,
@@ -1130,6 +1181,11 @@ class _CategoryTabsState extends State<_CategoryTabs> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (c.secret) ...[
+                  Icon(Icons.lock_open_rounded,
+                      size: 14, color: Color.lerp(Skin.inkSoftOn(context), Skin.onAmber, t)),
+                  const SizedBox(width: 4),
+                ],
                 Text(
                   c.name,
                   // The weight follows too, so the label never jumps.

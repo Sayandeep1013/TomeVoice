@@ -27,9 +27,17 @@ const _parsedVersion = 5;
 /// the reading layout) runs on a background isolate: on the UI isolate it was
 /// a 2.5 second freeze when opening a long EPUB.
 class LibraryStore {
-  LibraryStore(this.root);
+  LibraryStore(this.root) {
+    // Opening or locking the secret shelves changes what every page shows.
+    secretOpen.addListener(() => changes.value++);
+  }
 
   final Directory root;
+
+  /// Whether the secret shelves are open (unlocked with the phone's own
+  /// lock; see secret_shelf.dart). While they are shut, [index] and [list]
+  /// leave them and their books out, so no page shows them.
+  static final secretOpen = ValueNotifier<bool>(false);
 
   /// Bumped after every write to the index but a saved reading place, so
   /// the shelf can refresh when a book comes, goes or changes.
@@ -90,16 +98,45 @@ class LibraryStore {
   List<Category> _categories = Category.defaults;
   String _defaultCategory = Category.defaults.first.id;
 
-  /// Books, most recently opened first.
-  Future<List<LibraryEntry>> list() async => [...(await index()).entries];
+  /// Books, most recently opened first; with [all], those on shut secret
+  /// shelves too.
+  Future<List<LibraryEntry>> list({bool all = false}) async => [...(await index(all: all)).entries];
 
-  /// Books plus the shelf's categories.
-  Future<LibraryIndex> index() async {
-    final known = _known;
-    if (known != null) return known;
-    final read = await _readIndex();
-    return _known ??= read;
+  /// Books plus the shelf's categories. Secret shelves and their books only
+  /// while they are open, or with [all] (for what is not shown: imports,
+  /// the starter book, checks for new chapters).
+  Future<LibraryIndex> index({bool all = false}) async {
+    var full = _known;
+    if (full == null) {
+      final read = await _readIndex();
+      full = _known ??= read;
+    }
+    return all || secretOpen.value ? full : full.withoutSecret();
   }
+
+  /// The ids of the books on secret shelves, open or not.
+  Future<Set<String>> secretIds() async {
+    final full = await index(all: true);
+    final secret = {for (final c in full.categories) if (c.secret) c.id};
+    return {
+      for (final e in full.entries)
+        if (secret.contains(e.categoryIn(full.categories, full.defaultCategory))) e.id,
+    };
+  }
+
+  /// Whether book [id] is on a secret shelf, from the index already read
+  /// (a book is opened from it, so it has been).
+  bool isSecret(String id) {
+    final full = _known;
+    final e = full?.entries.where((e) => e.id == id).firstOrNull;
+    if (full == null || e == null) return false;
+    final cat = e.categoryIn(full.categories, full.defaultCategory);
+    return full.categories.any((c) => c.id == cat && c.secret);
+  }
+
+  /// The ids of the books not to be shown: those on secret shelves while
+  /// they are shut.
+  Future<Set<String>> hiddenIds() async => secretOpen.value ? const {} : await secretIds();
 
   Future<LibraryIndex> _readIndex() async {
     await ensure();
@@ -157,12 +194,20 @@ class LibraryStore {
 
   /// Replace the category list (rename, reorder, add, delete). Books in a
   /// category that no longer exists move to the first one.
+  ///
+  /// Secret shelves left out (shut, a page never had them) are kept. One
+  /// shelf at least is never secret, and new books never go to a secret one.
   Future<void> saveCategories(List<Category> categories, {String? defaultCategory}) async {
     if (categories.isEmpty) return;
+    await index(all: true);
+    final given = {for (final c in categories) c.id};
+    categories = [...categories, for (final c in _categories) if (c.secret && !given.contains(c.id)) c];
+    if (categories.every((c) => c.secret)) categories = [categories.first.withSecret(false), ...categories.skip(1)];
     await _change((entries) {
       _categories = List.unmodifiable(categories);
       final d = defaultCategory ?? _defaultCategory;
-      _defaultCategory = categories.any((c) => c.id == d) ? d : categories.first.id;
+      final open = [for (final c in categories) if (!c.secret) c.id];
+      _defaultCategory = open.contains(d) ? d : open.first;
       final ids = {for (final c in categories) c.id};
       return [
         for (final e in entries)
@@ -172,9 +217,9 @@ class LibraryStore {
   }
 
   /// A new category at the end of the list.
-  Future<Category> addCategory(String name) async {
-    final idx = await index();
-    final cat = Category(Category.newId(name), name);
+  Future<Category> addCategory(String name, {bool secret = false}) async {
+    final idx = await index(all: true);
+    final cat = Category(Category.newId(name), name, secret: secret);
     await saveCategories([...idx.categories, cat]);
     return cat;
   }
@@ -326,7 +371,7 @@ class LibraryStore {
     final to = _follow(moves, cursor.sectionIndex);
     if (to != cursor.sectionIndex) {
       final moved = cursor.copyWith(sectionIndex: to);
-      final entry = (await index()).entries.where((e) => e.id == id).firstOrNull;
+      final entry = (await index(all: true)).entries.where((e) => e.id == id).firstOrNull;
       await writeSafely(
         File('${bookDir(id)}/cursor.json'),
         jsonEncode({'cursor': moved.toJson(), 'progress': entry?.progress ?? 0}),
@@ -1212,10 +1257,13 @@ class LibraryEntry {
 
 /// A shelf in the library: "Reading", "Later", or one the user made.
 class Category {
-  const Category(this.id, this.name);
+  const Category(this.id, this.name, {this.secret = false});
 
   final String id;
   final String name;
+
+  /// Shown, with its books, only once opened with the phone's own lock.
+  final bool secret;
 
   /// The two the library starts with. Both can be renamed or deleted.
   static const defaults = [Category('reading', 'Reading'), Category('later', 'Later')];
@@ -1226,18 +1274,24 @@ class Category {
     return '${slug.isEmpty ? 'shelf' : slug}-$stamp';
   }
 
-  Category renamed(String to) => Category(id, to);
+  Category renamed(String to) => Category(id, to, secret: secret);
 
-  Map<String, Object?> toJson() => {'id': id, 'name': name};
+  Category withSecret(bool to) => Category(id, name, secret: to);
 
-  static Category fromJson(Map<String, Object?> json) =>
-      Category(json['id'] as String? ?? newId('shelf'), json['name'] as String? ?? 'Shelf');
+  Map<String, Object?> toJson() => {'id': id, 'name': name, if (secret) 'secret': true};
+
+  static Category fromJson(Map<String, Object?> json) => Category(
+        json['id'] as String? ?? newId('shelf'),
+        json['name'] as String? ?? 'Shelf',
+        secret: json['secret'] == true,
+      );
 
   @override
-  bool operator ==(Object other) => other is Category && other.id == id && other.name == name;
+  bool operator ==(Object other) =>
+      other is Category && other.id == id && other.name == name && other.secret == secret;
 
   @override
-  int get hashCode => Object.hash(id, name);
+  int get hashCode => Object.hash(id, name, secret);
 }
 
 /// What the library index holds.
@@ -1251,6 +1305,20 @@ class LibraryIndex {
   final List<LibraryEntry> entries;
   final List<Category> categories;
   final String defaultCategory;
+
+  /// The index with the secret shelves and their books left out.
+  LibraryIndex withoutSecret() {
+    if (!categories.any((c) => c.secret)) return this;
+    final shown = [for (final c in categories) if (!c.secret) c];
+    return LibraryIndex(
+      entries: [
+        for (final e in entries)
+          if (shown.any((c) => c.id == e.categoryIn(categories, defaultCategory))) e,
+      ],
+      categories: shown,
+      defaultCategory: defaultCategory,
+    );
+  }
 
   /// Books in [categoryId].
   List<LibraryEntry> inCategory(String categoryId) => [
