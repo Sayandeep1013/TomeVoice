@@ -626,12 +626,40 @@ void main() {
     testWidgets('a page tone lays its paper under the text', (tester) async {
       ListeningPrefs.memory.pageTone = 'papyrus';
       await pumpLong(tester, longBook());
-      expect(find.byType(PageGround), findsOneWidget);
+      expect(tester.widget<PageGround>(find.byType(PageGround)).tone, PageTone.papyrus);
       ListeningPrefs.memory
         ..pageTone = 'app'
         ..save();
       await tester.pumpAndSettle();
-      expect(find.byType(PageGround), findsNothing);
+      expect(tester.widget<PageGround>(find.byType(PageGround)).tone, PageTone.app);
+      await finish(tester);
+    });
+
+    testWidgets('a new page tone keeps the page turned to', (tester) async {
+      // Pages turned on while reading, so they first opened at that place.
+      ListeningPrefs.memory.pageTurn = 'none';
+      await pumpLong(tester, longBook());
+      ListeningPrefs.memory
+        ..pages = true
+        ..save();
+      await tester.pumpAndSettle();
+      final size = tester.getSize(find.byType(PagedBook));
+      final y = tester.getCenter(find.byType(PagedBook)).dy;
+      for (var i = 0; i < 2; i++) {
+        await tester.tapAt(Offset(size.width - 20, y));
+        await tester.pumpAndSettle();
+      }
+      expect(find.textContaining(RegExp(r'^3 / \d+$')), findsOneWidget);
+      final book = tester.state(find.byType(PagedBook));
+      // Theme to Papyrus (a vignette), to Ink (none), and back to Theme.
+      for (final tone in ['papyrus', 'ink', 'app']) {
+        ListeningPrefs.memory
+          ..pageTone = tone
+          ..save();
+        await tester.pumpAndSettle();
+        expect(find.textContaining(RegExp(r'^3 / \d+$')), findsOneWidget, reason: tone);
+        expect(tester.state(find.byType(PagedBook)), same(book), reason: tone);
+      }
       await finish(tester);
     });
 
