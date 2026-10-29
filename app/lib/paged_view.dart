@@ -99,7 +99,7 @@ class _Piece {
 }
 
 class _Page {
-  _Page(this.chapter, this.pieces, this.firstUnit, this.lastUnit);
+  _Page(this.chapter, this.pieces, this.firstUnit, this.lastUnit, this.startItem, this.startOffset);
   final int chapter;
   final List<_Piece> pieces;
 
@@ -110,6 +110,11 @@ class _Page {
   /// The sentence its last line ends in (carried on to the next page, it
   /// counts for both).
   final int lastUnit;
+
+  /// Where its first line begins: an item, and the offset in its block's
+  /// text (0 unless the page opens partway through a paragraph).
+  final int startItem;
+  final int startOffset;
 }
 
 /// An item laid out once at the column's width: the painter and the tops
@@ -129,8 +134,10 @@ class _Laid {
 class PagedController {
   _PagedBookState? _state;
 
-  /// Show the page with sentence [unit].
-  void showUnit(int unit, {bool animate = true}) => _state?._showUnit(unit, animate: animate);
+  /// Show the page with sentence [unit]. With [at] (the offset of the word
+  /// being read in the sentence), the page that word is on: the voice is
+  /// followed word by word, and the page turns as it reads onto the next.
+  void showUnit(int unit, {bool animate = true, int? at}) => _state?._showUnit(unit, animate: animate, at: at);
 
   /// A page on (1) or back (-1), as by the reader's hand.
   void turn(int delta) => _state?._turn(delta);
@@ -381,18 +388,21 @@ class _PagedBookState extends State<PagedBook> {
     var y = 0.0;
     var first = -1;
     var last = -1;
+    var startOffset = 0;
     void close() {
       if (pieces.isEmpty) return;
       final firstItem = pieces.first.item;
       final opens = first >= 0 ? first : _l.items[firstItem].firstUnit;
-      pages.add(_Page(c, pieces, opens, last >= opens ? last : opens));
+      pages.add(_Page(c, pieces, opens, last >= opens ? last : opens, firstItem, startOffset));
       pieces = [];
       y = 0;
       first = -1;
       last = -1;
+      startOffset = 0;
     }
 
-    void place(_Piece p, {int unit = -1, int lastUnit = -1}) {
+    void place(_Piece p, {int unit = -1, int lastUnit = -1, int at = 0}) {
+      if (pieces.isEmpty) startOffset = at;
       if (first < 0 && unit >= 0) first = unit;
       if (lastUnit >= 0) last = lastUnit;
       pieces.add(p);
@@ -446,21 +456,23 @@ class _PagedBookState extends State<PagedBook> {
           }
           b = a + 1; // A line taller than the page: it goes alone.
         }
-        final unit = a == 0
-            ? item.firstUnit
-            : _unitAt(i, laid.painter.getPositionForOffset(Offset(1, tops[a] + 1)).offset - laid.shift);
+        final at = a == 0 ? 0 : math.max(0, laid.painter.getPositionForOffset(Offset(1, tops[a] + 1)).offset - laid.shift);
+        final unit = a == 0 ? item.firstUnit : _unitAt(i, at);
         final whole = b == lines;
         // The sentence the last line here ends in.
         final ends = whole
             ? item.firstUnit + item.unitCount - 1
             : _unitAt(i, laid.painter.getPositionForOffset(Offset(_columnWidth - 1, tops[b] - 1)).offset - laid.shift);
-        place(_Piece(_Kind.text, i, tops[a], tops[b] - tops[a], gapAfter: whole ? gap : 0), unit: unit, lastUnit: ends);
+        place(_Piece(_Kind.text, i, tops[a], tops[b] - tops[a], gapAfter: whole ? gap : 0),
+            unit: unit, lastUnit: ends, at: at);
         a = b;
         if (!whole) close();
       }
     }
     close();
-    if (pages.isEmpty) pages.add(_Page(c, const [], _l.chapterFirstUnit[c], _l.chapterFirstUnit[c]));
+    if (pages.isEmpty) {
+      pages.add(_Page(c, const [], _l.chapterFirstUnit[c], _l.chapterFirstUnit[c], _l.chapterFirstItem[c], 0));
+    }
     return pages;
   }
 
@@ -481,6 +493,17 @@ class _PagedBookState extends State<PagedBook> {
     var p = 0;
     for (var k = 0; k < pages.length; k++) {
       if (pages[k].firstUnit <= unit) p = k;
+    }
+    return p;
+  }
+
+  /// The page of chapter [c] that offset [offset] of item [item]'s text is
+  /// on: the last page beginning at or before it.
+  int _pageOfPlace(List<_Page> pages, int item, int offset) {
+    var p = 0;
+    for (var k = 0; k < pages.length; k++) {
+      final s = pages[k];
+      if (s.startItem < item || (s.startItem == item && s.startOffset <= offset)) p = k;
     }
     return p;
   }
@@ -522,21 +545,27 @@ class _PagedBookState extends State<PagedBook> {
     WidgetsBinding.instance.addPostFrameCallback((_) => old?.dispose());
   }
 
-  void _showUnit(int unit, {bool animate = true}) {
+  void _showUnit(int unit, {bool animate = true, int? at}) {
     if (_size == Size.zero || _pages == null) {
       _pendingUnit = unit;
       return;
     }
     final c = _l.chapterOfUnit(unit);
-    if (c != _chapter) {
+    // The voice reading on into the next chapter turns onto its first page,
+    // already at the row's end, as a hand would.
+    final onward = at != null && c == _chapter + 1 && _followed(c, unit, at) == 0;
+    if (c != _chapter && !onward) {
       _moveTo(c, (c > 0 ? 1 : 0) + _itemOf(c, unit));
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _settled(byHand: false);
       });
       return;
     }
-    final i = _before + _itemOf(c, unit);
+    final i = onward ? _before + _itemsIn(_chapter) : _before + (at == null ? _itemOf(c, unit) : _followed(c, unit, at));
     if (i == _index) return;
+    // A sentence begun on the page before and carried onto this one: the
+    // voice starting it here (Play on this page) does not turn back.
+    if (at != null && i < _index && _pageAt(_index)?.firstUnit == unit) return;
     final near = (i - _index).abs() == 1;
     _turningByHand = false;
     if (widget.turn == PageTurn.curl) {
@@ -550,6 +579,10 @@ class _PagedBookState extends State<PagedBook> {
       _pages!.jumpToPage(i);
     }
   }
+
+  /// The item of chapter [c] holding the word at [at] in sentence [unit].
+  int _followed(int c, int unit, int at) =>
+      _pageOfPlace(_pagesOf(c), _l.unitItem[unit], _l.unitOffset[unit] + at) ~/ _per;
 
   void _turn(int delta) {
     if (widget.turn == PageTurn.curl) {

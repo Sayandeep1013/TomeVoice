@@ -12,6 +12,7 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'book_tint.dart';
+import 'fast_scroller.dart';
 import 'library_store.dart';
 import 'book_search.dart';
 import 'listen_sheet.dart';
@@ -445,6 +446,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     }
     _player.unit.addListener(_onPlayerUnit);
     _player.state.addListener(_onPlayState);
+    _player.word.addListener(_onWord);
     _cursor.addListener(_syncMarked);
     _cursor.addListener(_onCursor);
     _syncMarked();
@@ -671,6 +673,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     unawaited(_persist());
     unawaited(_events?.cancel());
     _catalog.removeListener(_onCatalog);
+    _player.word.removeListener(_onWord);
     if (_readsOn) {
       _player.unit.removeListener(_onPlayerUnit);
       _player.state.removeListener(_onPlayState);
@@ -1087,10 +1090,22 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _reveal(_cursor.value, force: force);
   }
 
+  /// On pages, the page turns as the voice reads onto the next, not when
+  /// the sentence the last line begins is reached (half a page early in a
+  /// long sentence).
+  void _onWord() {
+    final w = _player.word.value;
+    if (!_inPages || _detached.value || _quiet || w.start < 0 || w.unit != _cursor.value) return;
+    _paged.showUnit(w.unit, at: w.start);
+  }
+
   /// Scroll so the sentence being read is in view, unless it already is.
   void _reveal(int unit, {bool force = false}) {
     if (_inPages) {
-      _paged.showUnit(unit);
+      // Listening, the page is the one the voice is reading on (a sentence
+      // runs over a page's foot); otherwise the sentence's own.
+      final w = _player.word.value;
+      _paged.showUnit(unit, at: _listening ? (w.unit == unit && w.start >= 0 ? w.start : 0) : null);
       return;
     }
     if (_l.isEmpty || !_scroll.isAttached) return;
@@ -3172,9 +3187,13 @@ class _ContentsSheetState extends State<_ContentsSheet> {
     initialScrollOffset: ((widget.current - 2) * _rowHeight).clamp(0, double.infinity).toDouble(),
   );
 
+  /// The matches of a search, from their top.
+  final _found = ScrollController();
+
   @override
   void dispose() {
     _controller.dispose();
+    _found.dispose();
     super.dispose();
   }
 
@@ -3213,14 +3232,19 @@ class _ContentsSheetState extends State<_ContentsSheet> {
                       padding: const EdgeInsets.all(Gap.xl),
                       child: Text('No chapters match.', style: Skin.label(context, size: 15)),
                     )
-                  : ChapterList(
-                      layout: l,
-                      numberOf: widget.numberOf,
-                      chapters: rows,
-                      current: widget.current,
-                      controller: q.isEmpty ? _controller : null,
-                      rowHeight: _rowHeight,
-                      onPick: widget.onPick,
+                  : FastScroller(
+                      controller: q.isEmpty ? _controller : _found,
+                      bottom: Gap.xl,
+                      labelAt: (f) => 'Chapter ${widget.numberOf(rows[(f * (rows.length - 1)).round()])}',
+                      child: ChapterList(
+                        layout: l,
+                        numberOf: widget.numberOf,
+                        chapters: rows,
+                        current: widget.current,
+                        controller: q.isEmpty ? _controller : _found,
+                        rowHeight: _rowHeight,
+                        onPick: widget.onPick,
+                      ),
                     ),
             ),
           ],
