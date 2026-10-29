@@ -4,7 +4,7 @@ description: >-
   Markdown and text, and reads them aloud with the owned audio pipeline.
   See docs/16-session-handoff.md.
 publish_to: none
-version: 1.2.1+25
+version: 1.2.2+26
 
 environment:
   sdk: ^3.5.0
@@ -60,8 +60,6 @@ flutter:
     - assets/licenses/third_party.txt
     # The book a new install starts with (public domain; see starter.dart).
     - assets/starter/pride-and-prejudice.epub
-    # About > Support: the UPI QR (support.dart).
-    - assets/support/upi_qr.png
 
   # Bundled, not fetched at runtime: the app is offline-first, and a reading
   # app whose type disappears without a network is not offline-first.
