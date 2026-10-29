@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter/services.dart' show rootBundle;
 
 import 'speech_service.dart';
 import 'theme.dart';
@@ -7,18 +7,15 @@ import 'ui.dart';
 
 const _svc = SpeechService();
 
-/// Where support goes: a UPI ID (India's instant payments). The QR in
-/// assets/support pays the same ID.
-const upiId = '9330562712-3@ibl';
-
-/// The link a UPI app opens at: the payee and a note, in rupees, the amount
-/// left to the reader.
-const upiPayUrl = 'upi://pay?pa=$upiId&pn=SAYANDEEP%20MONDAL&cu=INR&tn=Support%20TomeVoice';
+/// The link a UPI app opens at: the payee (the ID the QR in assets/support
+/// pays) and a note, in rupees, the amount left to the reader. The ID is not
+/// shown: the QR is what readers see.
+const upiPayUrl = 'upi://pay?pa=9330562712-3@ibl&pn=SAYANDEEP%20MONDAL&cu=INR&tn=Support%20TomeVoice';
 
 const _qrAsset = 'assets/support/upi_qr.png';
 
 /// About's support section: the QR, a button that offers the phone's UPI
-/// apps, saving the QR to Pictures, and the UPI ID to copy.
+/// apps, and saving the QR to Pictures.
 class SupportSection extends StatefulWidget {
   const SupportSection({super.key});
 
@@ -50,11 +47,6 @@ class _SupportSectionState extends State<SupportSection> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
-  }
-
-  Future<void> _copy() async {
-    await Clipboard.setData(const ClipboardData(text: upiId));
-    if (mounted) showSnack(context, 'UPI ID copied.');
   }
 
   @override
@@ -100,31 +92,6 @@ class _SupportSectionState extends State<SupportSection> {
                 ),
               ),
             ],
-          ),
-          const SizedBox(height: Gap.s),
-          InkWell(
-            borderRadius: BorderRadius.circular(Radii.row),
-            onTap: _copy,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: Gap.s),
-              child: Row(
-                children: [
-                  Icon(Icons.alternate_email_rounded, color: Skin.inkSoftOn(context)),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(upiId, style: Skin.ui(size: 16, weight: FontWeight.w600, color: Skin.inkOn(context))),
-                        Text('UPI ID. Tap to copy',
-                            style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context))),
-                      ],
-                    ),
-                  ),
-                  Icon(Icons.content_copy_rounded, size: 20, color: Skin.inkFaintOn(context)),
-                ],
-              ),
-            ),
           ),
         ],
       );
