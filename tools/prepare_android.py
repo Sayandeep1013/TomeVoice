@@ -47,10 +47,12 @@ QUERIES_BLOCK = """    <!-- Required since Android 11 for TextToSpeech.getEngine
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
-        <!-- UPI apps, for About > Support (MainActivity payUpi). -->
+        <!-- UPI apps, for About > Support (MainActivity payUpi). With the
+             host: the apps' filters name it, and a bare upi: matched none
+             of them, so none were visible. -->
         <intent>
             <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="upi" />
+            <data android:scheme="upi" android:host="pay" />
         </intent>
     </queries>
 """
