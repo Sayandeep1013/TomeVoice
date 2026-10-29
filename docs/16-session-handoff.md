@@ -1,12 +1,21 @@
 # 16 — Session Handoff
 
-**As of 2026-10-29.** Everything needed to pick this up cold.
+**As of 2026-10-30.** Everything needed to pick this up cold.
 
 ---
 
+## 0++++++. Checkpoint (2026-10-30): Support does nothing yet
+
+Branch `support-nothing-yet`, released as **1.2.2**. By the developer's wish the UPI QR
+is gone: `assets/support/upi_qr.png` and `support.dart` (the sheet, Pay with UPI, Save
+QR) are deleted. About > **Support TomeVoice** stays as a row, but tapping it does
+nothing (`onTap: () {}`) until a better way is decided. `payUpi`/`saveImage` in
+`MainActivity.kt` and the manifest's `upi` query are left in place, unused; the sheet
+is in git history (1.2.1). docs/18 row 5 is moot while nothing pays.
+
 ## 0+++++. Checkpoint (2026-10-29, night): a new page tone keeps the page, support by UPI
 
-Branch `page-tone-and-support`, PR #20 (not merged or released yet). CI analyze + tests
+Branch `page-tone-and-support`, PR #20, released as **1.2.1**. CI analyze + tests
 pass. **Verified on the phone (A059), portrait and landscape.**
 
 - **A new page tone jumped the book back.** `toned()` and the reader's `_ground` built
