@@ -4,6 +4,34 @@
 
 ---
 
+## 0+++++. Checkpoint (2026-10-29, night): a new page tone keeps the page, support by UPI
+
+Branch `page-tone-and-support`, PR #20 (not merged or released yet). CI analyze + tests
+pass. **Verified on the phone (A059), portrait and landscape.**
+
+- **A new page tone jumped the book back.** `toned()` and the reader's `_ground` built
+  a tree of another shape for Theme than for the other tones (and `PageGround` another
+  for a tone with a vignette), so the pages, or the scroll, were built afresh. A fresh
+  `PagedBook` opened at `startUnit`: `_pageStart` (where pages were turned on this
+  sitting) or, with the voice paused, `_l.items[_startItem]` (where the book was
+  opened). Repro: paused on 17, turned to 23, Ink to Theme, page 1. Every tone now
+  builds one shape, and `startUnit` prefers `_pageUnit` (the page last shown). Test:
+  `a new page tone keeps the page turned to` (checks the `PagedBook` state is the same).
+- **Papyrus and Dusk showed a strip** outside the safe area (the cutout side on its
+  side, the bars upright): the vignette lay on the ground under the pages' opaque
+  paper, so only that strip showed it, with a hard edge. Pages leave the vignette out
+  (`PageGround(vignette: !_inPages)`); the scroll keeps it.
+- **About > Support TomeVoice** (`support.dart`): a row like the other links; tapped, a
+  sheet with the UPI QR (`assets/support/upi_qr.png`), Pay with UPI (`payUpi`: a
+  chooser of the phone's UPI apps) and Save QR (`saveImage`: MediaStore into
+  Pictures/TomeVoice; before Android 10, ACTION_CREATE_DOCUMENT). The UPI ID is not
+  shown, by the developer's wish; it is in the pay link. **The manifest's `<queries>`
+  needs `android:host="pay"`**: with a bare `upi` scheme neither GPay's nor PhonePe's
+  filter matched, both were invisible and the button said there was no UPI app (CI
+  greps for it now). Paying itself was not tried (this phone's PhonePe is the payee).
+- **Play Store audit:** docs/18. The GitHub build keeps every natural voice; only a
+  Play build would leave out Alan, Lessac and Ryan.
+
 ## 0++++. Checkpoint (2026-10-29): pages keep time with the voice, fast scroll, secret shelves
 
 Branch `fast-scroll-and-page-sync` (not merged or released yet). CI analyze + tests pass.

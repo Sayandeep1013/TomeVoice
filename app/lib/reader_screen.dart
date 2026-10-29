@@ -569,6 +569,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       // Pages open at what is on screen; the scroll comes back at the page.
       if (paged) {
         _pageStart = _detached.value ? (_unitAtEyes() ?? _cursor.value) : _cursor.value;
+        _pageUnit = null;
       } else {
         _scrollFrom = _l.unitItem[(_pageUnit ?? _cursor.value).clamp(0, _l.units.length - 1)];
       }
@@ -1675,18 +1676,26 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   PageTone get _tone => PageTone.byId(_prefs.pageTone);
 
   /// The ground under everything: the app's, or the page tone's paper, with
-  /// the phone's bars drawn to suit it.
+  /// the phone's bars drawn to suit it. One shape for every tone: another
+  /// shape for the app's own rebuilt the whole page under it, and the book
+  /// went back to where it was opened.
   Widget _ground(BuildContext context, Widget child) {
     final tone = _tone;
-    if (tone.isApp) return DecoratedBox(decoration: BoxDecoration(gradient: Skin.ground(context)), child: child);
-    final icons = tone.dark ? Brightness.light : Brightness.dark;
+    final dark = tone.isApp ? Skin.isDark(context) : tone.dark;
+    final icons = dark ? Brightness.light : Brightness.dark;
     return AnnotatedRegion<SystemUiOverlayStyle>(
+      // Every field, as in main.dart: one left out falls back to Android's
+      // default, a separator line above the home bar.
       value: SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
         statusBarIconBrightness: icons,
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarDividerColor: Colors.transparent,
         systemNavigationBarIconBrightness: icons,
+        systemNavigationBarContrastEnforced: false,
+        systemStatusBarContrastEnforced: false,
       ),
-      child: PageGround(tone: tone, child: child),
+      child: PageGround(tone: tone, vignette: !_inPages, child: child),
     );
   }
 
@@ -2042,7 +2051,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             layout: _l,
             look: _pageLook(context),
             controller: _paged,
-            startUnit: _pageStart ?? (_detached.value ? _l.items[_startItem].firstUnit : _cursor.value),
+            // The page on screen, once one has settled: built afresh, the
+            // book must not go back to where it was opened.
+            startUnit: _pageUnit ?? _pageStart ?? (_detached.value ? _l.items[_startItem].firstUnit : _cursor.value),
             marked: _marked,
             word: _player.word,
             chapterName: _l.chapterTitle,

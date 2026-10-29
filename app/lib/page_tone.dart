@@ -90,9 +90,15 @@ class PageTone {
 
 /// [child] in [tone]'s ink and accent: what reads the accent (washes,
 /// headings, chapter labels) and the default text colour follow the page.
+///
+/// The app's own colours are wrapped the same way, in its own palette: a
+/// tree of another shape threw [child]'s state away when the tone changed,
+/// and the pages (or the scroll) opened again where they were first opened.
 Widget toned(BuildContext context, PageTone tone, Widget child) {
-  if (tone.isApp) return child;
   final p = Skin.paletteOf(context);
+  if (tone.isApp) {
+    return TintScope(palette: p, child: DefaultTextStyle.merge(style: const TextStyle(), child: child));
+  }
   final a = tone.accent!;
   return TintScope(
     palette: Palette(
@@ -116,35 +122,41 @@ Widget toned(BuildContext context, PageTone tone, Widget child) {
 
 /// The page's ground in [tone], with its vignette, under [child].
 class PageGround extends StatelessWidget {
-  const PageGround({super.key, required this.tone, required this.child});
+  const PageGround({super.key, required this.tone, required this.child, this.vignette = true});
 
   final PageTone tone;
   final Widget child;
 
+  /// Without it under pages: their paper covers all but the strips outside
+  /// the safe area, where the darkened edge showed against the page.
+  final bool vignette;
+
   @override
   Widget build(BuildContext context) {
-    final edge = tone.vignette;
+    final edge = vignette ? tone.vignette : null;
+    // One shape with or without the vignette: another shape rebuilt [child]
+    // afresh when the tone changed (see toned).
     return DecoratedBox(
       decoration: tone.paperOf(context),
-      child: edge == null
-          ? child
-          : Stack(
-              fit: StackFit.expand,
-              children: [
-                IgnorePointer(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          IgnorePointer(
+            child: DecoratedBox(
+              decoration: edge == null
+                  ? const BoxDecoration()
+                  : BoxDecoration(
                       gradient: RadialGradient(
                         radius: 1.05,
                         colors: [edge.withValues(alpha: 0), edge],
                         stops: const [0.62, 1],
                       ),
                     ),
-                  ),
-                ),
-                child,
-              ],
             ),
+          ),
+          child,
+        ],
+      ),
     );
   }
 }

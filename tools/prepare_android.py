@@ -7,6 +7,7 @@ copied in. The generated project cannot know about any of this:
 1. **Package visibility for TTS engines.** Since Android 11 an app only sees
    packages it declares an interest in. Without a <queries> entry for the
    TTS_SERVICE intent, `TextToSpeech.getEngines()` returns almost nothing.
+   The same goes for the UPI apps About > Support offers to pay with.
 
 2. **SDK levels.** minSdk 26 (`onRangeStart`, AudioFocusRequest), targetSdk 36
    (Google Play requirement since 31 August 2026, docs/07 section 7.1).
@@ -45,6 +46,13 @@ QUERIES_BLOCK = """    <!-- Required since Android 11 for TextToSpeech.getEngine
     <queries>
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+        <!-- UPI apps, for About > Support (MainActivity payUpi). With the
+             host: the apps' filters name it, and a bare upi: matched none
+             of them, so none were visible. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="upi" android:host="pay" />
         </intent>
     </queries>
 """

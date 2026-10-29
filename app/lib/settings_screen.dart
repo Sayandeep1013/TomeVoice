@@ -22,6 +22,7 @@ import 'sources/source_engine.dart';
 import 'secret_shelf.dart';
 import 'sources_screen.dart';
 import 'stats_screen.dart' show addWidget;
+import 'support.dart';
 import 'speech_service.dart';
 import 'theme.dart';
 import 'ui.dart';
@@ -749,6 +750,12 @@ class _AboutScreenState extends State<AboutScreen> {
                           applicationVersion: _version,
                           applicationLegalese: 'GPL-3.0',
                         ),
+                      ),
+                      _Link(
+                        icon: Icons.volunteer_activism_outlined,
+                        title: 'Support TomeVoice',
+                        subtitle: 'Help keep it free',
+                        onTap: () => showSupport(context),
                       ),
                     ],
                   ),
