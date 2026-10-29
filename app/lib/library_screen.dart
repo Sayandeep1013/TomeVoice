@@ -569,14 +569,20 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     body = fadeSwitch(context, KeyedSubtree(key: ValueKey(mode), child: body), instant: _shownMode == 'none');
     _shownMode = mode;
 
+    // Back on a secret shelf goes to the shelf new books go to first, and
+    // only then leaves the app.
+    final onSecret = idx != null && _page < categories.length && categories[_page].secret;
     return shownGate(PopScope(
-      canPop: !_selecting && !_searching,
+      canPop: !_selecting && !_searching && !onSecret,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
         if (_selecting) {
           _clearSelection();
         } else if (_searching) {
           _closeSearch();
+        } else if (onSecret) {
+          final home = categories.indexWhere((c) => c.id == idx.defaultCategory);
+          _goToPage(home < 0 ? 0 : home);
         }
       },
       child: DecoratedBox(
