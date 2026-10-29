@@ -1612,7 +1612,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       ),
     );
     final paged = _inPages;
-    final reading = paged ? _pagedReading(context, bar, rail) : _scrollReading(context, bar, rail);
+    final reading = paged ? _pagedReading(context, bar, rail, glow) : _scrollReading(context, bar, rail);
     return PopScope(
       canPop: _hits.isEmpty,
       onPopInvokedWithResult: (didPop, _) {
@@ -1628,8 +1628,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                   clipBehavior: Clip.none,
                   children: [
                     // The voice, glowing out from behind the player as it
-                    // reads; the text and the player sit over it.
-                    if (!rail || paged) glow,
+                    // reads; the text and the player sit over it. (Pages
+                    // have it over their paper, which hid all but the strip
+                    // under the screen's edge: see _pagedReading.)
+                    if (!rail && !paged) glow,
                     reading,
                     // The text fades out before the dock, instead of showing
                     // in the gap beneath it. Out to the screen's edges like
@@ -2019,7 +2021,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   /// The book in pages, with the top bar and the player over them, shown
   /// by a tap in the middle of the page and gone as the page turns.
-  Widget _pagedReading(BuildContext context, Widget bar, bool rail) {
+  Widget _pagedReading(BuildContext context, Widget bar, bool rail, Widget glow) {
     final tone = _tone;
     final ground = tone.paper?.first ?? Skin.ground(context).colors.first;
     final foot = tone.paper?.last ?? Skin.groundFoot(context);
@@ -2027,6 +2029,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     // On its side, a wide screen opens like a book: two pages.
     final spread = size.width > size.height && size.width >= 600;
     return Stack(
+      // The glow reaches past the safe area, as on the scrolling page.
+      clipBehavior: Clip.none,
       children: [
         Positioned.fill(
           child: toned(context, tone, PagedBook(
@@ -2052,6 +2056,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             marks: _markedUnits,
           )),
         ),
+        // Over the paper (it hides what lies under a turning leaf), under
+        // the bars: the glow rises from behind the player.
+        glow,
         Positioned(
           top: 0,
           left: 0,
