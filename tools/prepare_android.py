@@ -56,6 +56,7 @@ PERMISSIONS = """    <uses-permission android:name="android.permission.INTERNET"
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 """
 
 SERVICE = """        <service

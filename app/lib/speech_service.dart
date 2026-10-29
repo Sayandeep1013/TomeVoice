@@ -3,7 +3,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter/services.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
@@ -193,12 +193,14 @@ class SpeechService {
   }
 
   /// Ask for the phone's own lock (a fingerprint or face, or its PIN): true
-  /// once the owner has shown it is them, false if they cancel.
-  Future<bool> confirmUser({required String title, String? subtitle}) async {
+  /// once the owner has shown it is them, false if they cancel, null if
+  /// the phone could not ask.
+  Future<bool?> confirmUser({required String title, String? subtitle}) async {
     try {
       return await _channel.invokeMethod<bool>('confirmUser', {'title': title, 'subtitle': subtitle}) ?? false;
-    } on Object {
-      return false;
+    } on Object catch (e) {
+      debugPrint('TomeVoice: could not ask for the phone lock: $e');
+      return null;
     }
   }
 

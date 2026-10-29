@@ -37,15 +37,16 @@ class SecretShelf {
 
   static void _watch() => _life ??= AppLifecycleListener(onHide: _onLeave, onShow: _onReturn);
 
-  /// Ask for the phone's lock and open the shelves. True if they are open.
-  static Future<bool> unlock({String reason = 'Open the secret shelf'}) async {
+  /// Ask for the phone's lock and open the shelves. True if they are open,
+  /// false if the owner cancelled, null if the phone could not ask.
+  static Future<bool?> unlock({String reason = 'Open the secret shelf'}) async {
     _watch();
     if (open.value) return true;
     if (_asking) return false;
     _asking = true;
     try {
       final ok = await _svc.confirmUser(title: 'TomeVoice', subtitle: reason);
-      if (ok) {
+      if (ok == true) {
         unawaited(_svc.hideRecents(true));
         open.value = true;
       }
@@ -89,8 +90,10 @@ class SecretShelf {
       showSnack(context, 'Secret shelf locked.');
       return;
     }
-    await unlock();
+    if (await unlock() == null && context.mounted) showSnack(context, cannotAsk);
   }
+
+  static const cannotAsk = 'Your phone could not ask for its lock. Is a screen lock set?';
 }
 
 /// Settings > Secret shelf: what it is, and making, opening and shutting it.
@@ -117,6 +120,9 @@ class _SecretSheetState extends State<_SecretSheet> {
   /// Whether the phone has a screen lock; null until asked.
   bool? _secure;
   LibraryIndex? _index;
+
+  /// Said when the phone could not ask for its lock.
+  String? _problem;
 
   @override
   void initState() {
@@ -145,11 +151,43 @@ class _SecretSheetState extends State<_SecretSheet> {
   List<Category> get _secret => [for (final c in _index?.categories ?? const <Category>[]) if (c.secret) c];
   List<Category> get _ordinary => [for (final c in _index?.categories ?? const <Category>[]) if (!c.secret) c];
 
+  /// The phone's lock, asked for if the shelves are shut. True once given.
+  Future<bool> _ask(String reason) async {
+    final ok = await SecretShelf.unlock(reason: reason);
+    if (mounted) setState(() => _problem = ok == null ? SecretShelf.cannotAsk : null);
+    return ok == true;
+  }
+
   Future<void> _make() async {
-    if (!await SecretShelf.unlock(reason: 'Make a secret shelf')) return;
+    if (!await _ask('Make a secret shelf')) return;
     await widget.store.addCategory('Secret', secret: true);
     await _load();
     if (mounted) showSnack(context, 'Made "Secret". Move books to it from the shelf.');
+  }
+
+  /// Whole shelves, books and all, behind the lock: as many as are picked,
+  /// so long as one stays ordinary.
+  Future<void> _moveIn() async {
+    if (!await _ask('Move shelves into secret')) return;
+    if (!mounted) return;
+    final idx = _index;
+    if (idx == null) return;
+    final picked = await showModalBottomSheet<Set<String>>(
+      context: context,
+      sheetAnimationStyle: sheetMotion(context),
+      useSafeArea: true,
+      isScrollControlled: true,
+      builder: (_) => _ShelfPicker(shelves: _ordinary, index: idx),
+    );
+    if (picked == null || picked.isEmpty) return;
+    await widget.store.saveCategories([
+      for (final c in idx.categories) picked.contains(c.id) ? c.withSecret(true) : c,
+    ]);
+    await _load();
+    if (mounted) {
+      final n = picked.length;
+      showSnack(context, n == 1 ? 'Moved 1 shelf into secret.' : 'Moved $n shelves into secret.');
+    }
   }
 
   Future<void> _setSecret(Category c, bool secret) async {
@@ -161,27 +199,6 @@ class _SecretSheetState extends State<_SecretSheet> {
     }
     await widget.store.saveCategories([for (final x in idx.categories) x.id == c.id ? x.withSecret(secret) : x]);
     await _load();
-  }
-
-  Future<void> _pickOrdinary() async {
-    final picked = await showModalBottomSheet<Category>(
-      context: context,
-      sheetAnimationStyle: sheetMotion(context),
-      useSafeArea: true,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const SheetHeader('Keep which shelf secret?'),
-            for (final c in _ordinary)
-              SheetAction(icon: Icons.folder_outlined, label: c.name, onTap: () => Navigator.pop(ctx, c)),
-            const SizedBox(height: Gap.s),
-          ],
-        ),
-      ),
-    );
-    if (picked != null) await _setSecret(picked, true);
   }
 
   @override
@@ -222,32 +239,49 @@ class _SecretSheetState extends State<_SecretSheet> {
                 label: 'Set a screen lock',
                 onTap: () => _svc.openSecuritySettings(),
               ),
-            ] else if (secret.isEmpty)
-              SheetAction(icon: Icons.add_moderator_outlined, label: 'Make a secret shelf', onTap: _make)
-            else if (!open)
-              SheetAction(
-                icon: Icons.lock_open_rounded,
-                label: 'Open the secret shelf',
-                onTap: () => SecretShelf.unlock(),
-              )
-            else ...[
-              SheetAction(
-                icon: Icons.lock_rounded,
-                label: 'Lock it now',
-                onTap: () {
-                  SecretShelf.lock();
-                  Navigator.pop(context);
-                },
-              ),
-              for (final c in secret)
+            ] else ...[
+              if (secret.isNotEmpty && !open)
                 SheetAction(
-                  icon: Icons.folder_open_outlined,
-                  label: 'Make "${c.name}" an ordinary shelf',
-                  onTap: () => _setSecret(c, false),
+                  icon: Icons.lock_open_rounded,
+                  label: 'Open the secret shelf',
+                  onTap: () => _ask('Open the secret shelf'),
+                ),
+              if (secret.isEmpty)
+                SheetAction(
+                  icon: Icons.add_moderator_outlined,
+                  label: 'Make a secret shelf',
+                  detail: 'A new, empty shelf to move books to',
+                  onTap: _make,
                 ),
               if (_ordinary.length > 1)
-                SheetAction(icon: Icons.folder_special_outlined, label: 'Keep another shelf secret…', onTap: _pickOrdinary),
+                SheetAction(
+                  icon: Icons.drive_file_move_outline,
+                  label: 'Move shelves into secret…',
+                  detail: 'Whole shelves, with their books',
+                  onTap: _moveIn,
+                ),
+              if (open) ...[
+                for (final c in secret)
+                  SheetAction(
+                    icon: Icons.folder_open_outlined,
+                    label: 'Make "${c.name}" an ordinary shelf',
+                    onTap: () => _setSecret(c, false),
+                  ),
+                SheetAction(
+                  icon: Icons.lock_rounded,
+                  label: 'Lock it now',
+                  onTap: () {
+                    SecretShelf.lock();
+                    Navigator.pop(context);
+                  },
+                ),
+              ],
             ],
+            if (_problem != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.s, Gap.xl, 0),
+                child: Text(_problem!, style: Skin.ui(size: 14, weight: FontWeight.w500, color: const Color(0xFFE5674D))),
+              ),
             if (secure == true && secret.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.m, Gap.xl, Gap.l),
@@ -263,3 +297,67 @@ class _SecretSheetState extends State<_SecretSheet> {
     );
   }
 }
+
+/// Shelves to move behind the lock, picked with a tick each; one at least
+/// stays ordinary. Pops the ids picked.
+class _ShelfPicker extends StatefulWidget {
+  const _ShelfPicker({required this.shelves, required this.index});
+
+  final List<Category> shelves;
+  final LibraryIndex index;
+
+  @override
+  State<_ShelfPicker> createState() => _ShelfPickerState();
+}
+
+class _ShelfPickerState extends State<_ShelfPicker> {
+  final _picked = <String>{};
+
+  @override
+  Widget build(BuildContext context) {
+    final all = widget.shelves;
+    final tooMany = _picked.length >= all.length;
+    final accent = Skin.accentOf(context);
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SheetHeader('Move shelves into secret', subtitle: 'Their books go with them'),
+          Flexible(
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                for (final c in all)
+                  CheckboxListTile(
+                    value: _picked.contains(c.id),
+                    activeColor: accent,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: Gap.xl),
+                    title: Text(c.name, style: Skin.ui(size: 16, weight: FontWeight.w500, color: Skin.inkOn(context))),
+                    subtitle: Text(_books(widget.index.inCategory(c.id).length),
+                        style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkFaintOn(context))),
+                    onChanged: (on) => setState(() => on == true ? _picked.add(c.id) : _picked.remove(c.id)),
+                  ),
+              ],
+            ),
+          ),
+          if (tooMany)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.s, Gap.xl, 0),
+              child: Text('One shelf has to stay ordinary, for new books.',
+                  style: Skin.ui(size: 14, weight: FontWeight.w500, color: const Color(0xFFE5674D))),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.m, Gap.xl, Gap.m),
+            child: FilledButton(
+              onPressed: _picked.isEmpty || tooMany ? null : () => Navigator.pop(context, {..._picked}),
+              child: Text(_picked.length <= 1 ? 'Move to secret' : 'Move ${_picked.length} shelves to secret'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String _books(int n) => '$n ${n == 1 ? 'book' : 'books'}';
