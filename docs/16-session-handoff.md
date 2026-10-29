@@ -54,6 +54,11 @@ drags that move too fast do not move the thumb; paced ones (about 80 ms apart) d
   now runs to the screen's edge (the page's paper and that fade, both opaque, hid it above
   the safe area's edge: a hard line). In scroll mode the player's fold clip cut its
   shadow at the same edge; it is clipped now only while folding away.
+- **Back on a secret shelf** goes to the default shelf first (`PopScope` in
+  `library_screen.dart`, deciding by `_shownPage`, the pager's own page). Opening the
+  shelves jumped to the first secret one before the pager was rebuilt with it, which
+  landed short: the pill, the books and `_page` disagreed. `_secretDoor` now waits a frame,
+  and a far jump re-syncs `_page` from the pager. Verified on the phone.
 
 ## 0+++. Checkpoint (2026-10-28): a tap puts the bars away (1.1.1)
 
