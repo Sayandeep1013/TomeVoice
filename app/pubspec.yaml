@@ -60,6 +60,8 @@ flutter:
     - assets/licenses/third_party.txt
     # The book a new install starts with (public domain; see starter.dart).
     - assets/starter/pride-and-prejudice.epub
+    # About > Support: the UPI QR (support.dart).
+    - assets/support/upi_qr.png
 
   # Bundled, not fetched at runtime: the app is offline-first, and a reading
   # app whose type disappears without a network is not offline-first.

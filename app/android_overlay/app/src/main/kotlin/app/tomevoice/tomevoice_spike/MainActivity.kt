@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.app.KeyguardManager
 import android.content.BroadcastReceiver
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -17,8 +18,10 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.CancellationSignal
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
@@ -31,6 +34,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.io.IOException
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -93,6 +97,57 @@ class MainActivity : FlutterActivity() {
         private const val REQ_BACKUP = 74
         private const val REQ_RESTORE = 75
         private const val REQ_CONFIRM = 76
+        private const val REQ_SAVE_IMAGE = 77
+    }
+
+    private var saveResult: MethodChannel.Result? = null
+    private var saveBytes: ByteArray? = null
+
+    /**
+     * A picture into Pictures/TomeVoice, where the gallery and a payment
+     * app's "scan from gallery" find it. Before Android 10 that folder needs
+     * a storage permission, so the reader chooses where it goes instead.
+     */
+    private fun saveImage(bytes: ByteArray?, name: String, result: MethodChannel.Result) {
+        if (bytes == null) {
+            result.error("SAVE", "Nothing to save", null)
+            return
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            if (saveResult != null) {
+                result.error("BUSY", "Already saving", null)
+                return
+            }
+            saveResult = result
+            saveBytes = bytes
+            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "image/png"
+                putExtra(Intent.EXTRA_TITLE, name)
+            }
+            @Suppress("DEPRECATION")
+            startActivityForResult(intent, REQ_SAVE_IMAGE)
+            return
+        }
+        io.execute {
+            try {
+                val values = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, name)
+                    put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/TomeVoice")
+                    put(MediaStore.Images.Media.IS_PENDING, 1)
+                }
+                val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                    ?: throw IOException("Pictures could not be written")
+                contentResolver.openOutputStream(uri)?.use { it.write(bytes) } ?: throw IOException("Pictures could not be written")
+                values.clear()
+                values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                contentResolver.update(uri, values, null, null)
+                main.post { result.success(true) }
+            } catch (e: Exception) {
+                main.post { result.error("SAVE", e.message, null) }
+            }
+        }
     }
 
     /** The answer to "is it you?" on phones too old for BiometricPrompt's PIN. */
@@ -289,6 +344,22 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "shareDir" -> result.success(ShareProvider.dir(cacheDir).absolutePath)
+                "payUpi" -> {
+                    // Every UPI app on the phone, to choose from: a payment
+                    // link opens straight in whichever one is the default.
+                    val pay = Intent(Intent.ACTION_VIEW, Uri.parse(call.argument<String>("url").orEmpty()))
+                    if (pay.data?.scheme?.lowercase() != "upi" || pay.resolveActivity(packageManager) == null) {
+                        result.success(false)
+                        return@setMethodCallHandler
+                    }
+                    try {
+                        startActivity(Intent.createChooser(pay, call.argument<String>("title") ?: "Pay with"))
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.success(false)
+                    }
+                }
+                "saveImage" -> saveImage(call.argument<ByteArray>("bytes"), call.argument<String>("name") ?: "TomeVoice.png", result)
                 "is64Bit" -> result.success(android.os.Process.is64Bit())
                 "playUrl" -> {
                     stopSample()
@@ -1017,6 +1088,27 @@ class MainActivity : FlutterActivity() {
         }
         if (requestCode == REQ_BACKUP) {
             finishBackup(resultCode, data?.data)
+            return
+        }
+        if (requestCode == REQ_SAVE_IMAGE) {
+            val reply = saveResult
+            val bytes = saveBytes
+            saveResult = null
+            saveBytes = null
+            val uri = data?.data
+            if (reply == null) return
+            if (resultCode != Activity.RESULT_OK || uri == null || bytes == null) {
+                reply.success(false)
+                return
+            }
+            io.execute {
+                try {
+                    contentResolver.openOutputStream(uri)?.use { it.write(bytes) } ?: throw IOException("Could not write there")
+                    main.post { reply.success(true) }
+                } catch (e: Exception) {
+                    main.post { reply.error("SAVE", e.message, null) }
+                }
+            }
             return
         }
         if (requestCode == REQ_RESTORE) {
