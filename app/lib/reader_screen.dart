@@ -1764,6 +1764,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         builder: (context, shown, child) {
           final show = shown || _showPages;
           return ClipRect(
+            // Clipped while it folds away. Shown, the player is not: its
+            // shadow, cut at the safe area's edge, drew a line under it.
+            // (The top bar's coming back would show over the status bar.)
+            clipBehavior: top || !show ? Clip.hardEdge : Clip.none,
             child: IgnorePointer(
               ignoring: !show,
               child: AnimatedAlign(
