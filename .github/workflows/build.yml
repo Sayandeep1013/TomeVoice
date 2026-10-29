@@ -16,9 +16,12 @@ on:
         required: false
         default: ""
 
-# A newer push to the same ref makes the older build pointless.
+# A newer push to the same ref makes the older build pointless. Each kind
+# of run keeps its own lane: a release run started right after a merge used
+# to cancel the merge's own build, leaving main's commit (and the README's
+# badge) marked failed.
 concurrency:
-  group: build-${{ github.ref }}
+  group: build-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
