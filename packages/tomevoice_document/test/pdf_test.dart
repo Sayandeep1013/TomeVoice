@@ -578,6 +578,35 @@ void main() {
       ]);
     });
 
+    test('a title set larger than the text under it is a paragraph of its own', () {
+      // Two fables on a page, each title a little above its text: the
+      // extractor ran each title into its text, so the title was read as the
+      // start of the first sentence and the bookmarks could not find it.
+      final laid = _laid([
+        _at('The Fox and the Crow', 72, 100, w: 150, size: 12, para: true),
+        _at('A CROW having stolen a bit of meat, perched in a tree and held', 72, 116),
+        _at('it in her beak. A Fox, seeing this, longed to possess the meat.', 72, 128, w: 380),
+        _at('The Crow and the Pitcher', 72, 160, w: 170, size: 12, para: true),
+        _at('A CROW perishing with thirst saw a pitcher, and hoping to find', 72, 176),
+        _at('water, flew to it with delight. Necessity is the mother of invention.', 72, 188, w: 390),
+      ]);
+      final book = ingestPdfText(
+        id: 'x',
+        pages: [laid.text],
+        layout: [laid.layout],
+        outline: const [(title: 'The Fox and the Crow', page: 0), (title: 'The Crow and the Pitcher', page: 0)],
+      );
+      expect(_titles(book), ['The Fox and the Crow', 'The Crow and the Pitcher']);
+      expect(_texts(book), [
+        'The Fox and the Crow',
+        'A CROW having stolen a bit of meat, perched in a tree and held it in her beak. '
+            'A Fox, seeing this, longed to possess the meat.',
+        'The Crow and the Pitcher',
+        'A CROW perishing with thirst saw a pitcher, and hoping to find water, flew to it with delight. '
+            'Necessity is the mother of invention.',
+      ]);
+    });
+
     test('a quotation set in as a whole stays one paragraph', () {
       final book = _laidBook([
         [
