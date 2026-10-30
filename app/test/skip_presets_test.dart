@@ -519,7 +519,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(card);
       await tester.pumpAndSettle();
-      expect(find.text('THIS BOOK'), findsOneWidget);
+      // Named by its title, which the reader passes on.
+      expect(find.text('THE IRON KEEP'), findsOneWidget);
 
       await tester.scrollUntilVisible(find.text('For this book only'), 200);
       await tester.pumpAndSettle();

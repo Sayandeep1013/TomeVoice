@@ -8,9 +8,10 @@ import 'package:flutter/rendering.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'listen_sheet.dart' show trimSpeed;
+import 'page_style.dart';
 import 'player_controls.dart';
 import 'prefs.dart';
-import 'reader_screen.dart' show wordAt;
+import 'reader_text.dart' show wordAt;
 import 'scheduler.dart';
 import 'theme.dart';
 import 'ui.dart';
@@ -228,7 +229,7 @@ class NowPlayingScreen extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 6),
                   child: Text(
                     [
-                      minutes < 1 ? 'UNDER A MINUTE LEFT' : '${_duration(minutes)} LEFT IN CHAPTER',
+                      minutes < 1 ? 'UNDER A MINUTE LEFT' : '${durationLabel(minutes)} LEFT IN CHAPTER',
                       if (sleep != null) sleep,
                     ].join('  ·  '),
                     textAlign: TextAlign.end,
@@ -304,13 +305,6 @@ class NowPlayingScreen extends StatelessWidget {
           ),
         ),
       );
-}
-
-String _duration(int minutes) {
-  if (minutes < 60) return '${minutes}M';
-  final h = minutes ~/ 60;
-  final m = minutes % 60;
-  return m == 0 ? '${h}H' : '${h}H ${m}M';
 }
 
 /// The cover blurred to colour, under a scrim that keeps white text legible,
@@ -579,10 +573,8 @@ class _PassageState extends State<_Passage> {
     final heading = _l.units[a].role == BlockRole.heading;
     final dim = Colors.white.withValues(alpha: 0.4);
     // The reader's text size (19 unless it was changed), as on the page.
-    final size = (ListeningPrefs.loaded ?? ListeningPrefs.memory).textSize;
-    final style = heading
-        ? Skin.title(context, size: size * 21 / 19, color: dim)
-        : TextStyle(fontFamily: 'Newsreader', fontSize: size, height: 1.5, color: dim);
+    final prefs = ListeningPrefs.loaded ?? ListeningPrefs.memory;
+    final style = PageStyle.passage(context, prefs, heading: heading, color: dim);
     final u = widget.unit;
     final current = u >= a && u < b;
     Widget text(WordMark word) => Text.rich(
