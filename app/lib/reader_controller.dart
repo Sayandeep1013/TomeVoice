@@ -567,6 +567,10 @@ class ReaderController {
       positionMs: clock.positionMs,
       durationMs: clock.durationMs,
       speed: speed,
+      // As the reading in the background names it: a Play from outside the
+      // app for this book (Android Auto, a spoken request) is then the
+      // card's own Play, not a book to start.
+      book: secret ? null : _book.id,
     ));
   }
 

@@ -887,7 +887,9 @@ void main() {
       expect(s['subtitle'], 'Alpha');
       expect(s['playing'], isTrue);
       expect(s['cover'], isNull);
-      expect(s['book'], isNull);
+      // Changed on purpose: it went without the book, which the reading in
+      // the background names (see the test after this one).
+      expect(s['book'], layout.book.id);
       expect(s['speed'], 1.0);
       expect(s['positionMs'], 0);
       final chapterEnd = layout.chapterFirstUnit[1];
@@ -922,6 +924,40 @@ void main() {
       expect(after.first['playing'], isFalse);
       expect(after.last['active'], isFalse);
       expect(find.byTooltip('Play'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets("the card names the book being read, as the background's does, unless it is on a secret shelf",
+        (tester) async {
+      // A Play from outside the app (Android Auto, a spoken request) for
+      // the book on the card is the card's own Play; one for another book
+      // starts that book. Without the book, the page's own was taken for
+      // another, and started again from outside.
+      final store = LibraryStore(_tmp);
+      late LibraryEntry entry;
+      late ReadingLayout layout;
+      await tester.runAsync(() async {
+        final f = File('${_tmp.path}/incoming/story.md')
+          ..createSync(recursive: true)
+          ..writeAsStringSync(numberedText());
+        entry = await store.importFile(PickedFile(path: f.path, name: 'story.md'));
+        layout = await store.loadLayout(entry.id);
+      });
+      await open(tester, layout, store: store);
+      await playing(tester);
+      expect(sessions().last['book'], entry.id);
+      expect(sessions().last['title'], layout.book.metadata.title);
+
+      await tester.runAsync(() async {
+        final secret = await store.addCategory('Secret', secret: true);
+        await store.moveBooks({entry.id}, secret.id);
+      });
+      await tester.tap(find.byTooltip('Next sentence'));
+      await tester.pump(const Duration(milliseconds: 100));
+      final s = sessions().last;
+      expect(s['active'], isTrue);
+      expect(s['title'], 'TomeVoice', reason: 'not named on the lock screen');
+      expect(s['book'], isNull, reason: 'nor played from outside the app');
       await finish(tester);
     });
 
