@@ -1198,6 +1198,46 @@ void main() {
     });
   });
 
+  group('a narrow window', () {
+    testWidgets("in a split screen the top bar's chapter line fits: a long title gives way, then the count",
+        (tester) async {
+      // 327 dp across, as a phone's half of a split screen.
+      Future<void> narrow(Widget reader) async {
+        tester.view.physicalSize = const Size(900, 2340);
+        tester.view.devicePixelRatio = 2.75;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(MaterialApp(home: reader));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      }
+
+      final layout = numbered();
+      await narrow(ReaderScreen(layout: layout));
+      expect(find.textContaining('1/2'), findsOneWidget, reason: 'the count shows');
+      await finish(tester);
+      // A web novel's numbers, and a PDF's extra button beside them.
+      await narrow(ReaderScreen(
+        layout: layout,
+        positionOf: (u) => '${layout.units[u].sectionIndex + 3222}/3400',
+        chapterNumberOf: (c) => c + 3222,
+        progressOf: (u) => 0.95,
+        onReachedEnd: ({required bool playing, bool browse = false}) async {},
+      ));
+      expect(find.textContaining('3222/3400'), findsOneWidget);
+      await finish(tester);
+      final pdf = ingestPdfText(id: 'p', pages: [
+        'First page text is long enough to be a real page of a book, honestly.',
+        'Second page text is also long enough to count as a page of a book.',
+      ]);
+      await narrow(ReaderScreen(
+        layout: ReadingLayout.build(pdf),
+        sourcePath: '${_tmp.path}/b.pdf',
+        positionOf: (u) => '3222/3400',
+      ));
+      await finish(tester);
+    });
+  });
+
   group('TalkBack', () {
     testWidgets("turns the reader's pages by their actions, and the place goes with them", (tester) async {
       final semantics = tester.ensureSemantics();
