@@ -325,4 +325,40 @@ void main() {
       expect(book.sections, isNotEmpty);
     });
   });
+
+  group('the series a book says it is in', () {
+    BookMetadata metadataWith(String meta) => ingestBytes(
+          epubOf({
+            'OEBPS/content.opf': opfOf([('c1', 'ch1.xhtml', 'application/xhtml+xml', null)], ['c1'], meta: meta),
+            'OEBPS/ch1.xhtml': xhtml('<h1>One</h1>${chapterText('Chapter one')}'),
+          }),
+          filename: 'series.epub',
+        ).metadata;
+
+    test("calibre's series, with its number", () {
+      final m = metadataWith('<meta name="calibre:series" content="A Song of Ice and Fire"/>'
+          '<meta name="calibre:series_index" content="3.0"/>');
+      expect((m.series, m.seriesIndex), ('A Song of Ice and Fire', 3.0));
+    });
+
+    test("EPUB 3's collection, when it is a series and not a set", () {
+      final m = metadataWith('<meta property="belongs-to-collection" id="c01">The Expanse</meta>'
+          '<meta refines="#c01" property="collection-type">series</meta>'
+          '<meta refines="#c01" property="group-position">1.5</meta>');
+      expect((m.series, m.seriesIndex), ('The Expanse', 1.5));
+      final set = metadataWith('<meta property="belongs-to-collection" id="c02">Penguin Classics</meta>'
+          '<meta refines="#c02" property="collection-type">set</meta>');
+      expect(set.series, isNull);
+    });
+
+    test('a book in no series has none, and one stored keeps its series', () {
+      expect(metadataWith('').series, isNull);
+      final m = metadataWith('<meta name="calibre:series" content="Discworld"/>');
+      expect((m.series, m.seriesIndex), ('Discworld', null));
+      final stored = BookMetadata.fromJson(
+        Map<String, Object?>.from(m.copyWith(title: 'Mort').toJson()),
+      );
+      expect((stored.title, stored.series), ('Mort', 'Discworld'));
+    });
+  });
 }

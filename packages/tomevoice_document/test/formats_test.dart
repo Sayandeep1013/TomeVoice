@@ -286,6 +286,16 @@ void main() {
     expect(book.sections.map((s) => s.displayTitle), ['The Lighthouse', 'Chapter One', 'Chapter Two']);
   });
 
+  test("an FB2 book's sequence is its series, with its number", () {
+    const xml = '<?xml version="1.0" encoding="utf-8"?>'
+        '<FictionBook><description><title-info><book-title>A Storm of Swords</book-title>'
+        '<sequence name="A Song of Ice and Fire" number="3"/></title-info></description>'
+        '<body><section><title><p>Prologue</p></title><p>The day was grey and bitter cold.</p></section></body>'
+        '</FictionBook>';
+    final book = ingestBytes(Uint8List.fromList(utf8.encode(xml)), filename: 'storm.fb2');
+    expect((book.metadata.series, book.metadata.seriesIndex), ('A Song of Ice and Fire', 3.0));
+  });
+
   test('rtf', () {
     const rtf = r'''{\rtf1\ansi{\fonttbl{\f0 Times;}}{\*\generator Word;}\f0 Caf\'e9 is open.\par Second \u8212? line.\par}''';
     final bytes = Uint8List.fromList(rtf.codeUnits);

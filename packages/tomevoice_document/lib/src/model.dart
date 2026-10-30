@@ -370,6 +370,8 @@ class BookMetadata {
     this.identifier,
     this.cover,
     this.description,
+    this.series,
+    this.seriesIndex,
   });
 
   final String title;
@@ -383,6 +385,11 @@ class BookMetadata {
 
   /// The blurb: an EPUB's dc:description, a web novel's summary.
   final String? description;
+
+  /// The series the book says it belongs to (an EPUB's calibre:series or
+  /// belongs-to-collection, an FB2's sequence), and its number there.
+  final String? series;
+  final double? seriesIndex;
 
   String get authorLine => authors.join(', ');
 
@@ -399,6 +406,8 @@ class BookMetadata {
         identifier: identifier,
         cover: cover,
         description: description,
+        series: series,
+        seriesIndex: seriesIndex,
       );
 
   Map<String, Object?> toJson() => {
@@ -409,6 +418,8 @@ class BookMetadata {
         if (identifier != null) 'identifier': identifier,
         if (cover != null) 'cover': cover,
         if (description != null) 'description': description,
+        if (series != null) 'series': series,
+        if (seriesIndex != null) 'seriesIndex': seriesIndex,
       };
 
   static BookMetadata fromJson(Map<String, Object?> json) => BookMetadata(
@@ -421,6 +432,8 @@ class BookMetadata {
         identifier: json['identifier'] as String?,
         cover: json['cover'] as String?,
         description: json['description'] as String?,
+        series: json['series'] as String?,
+        seriesIndex: (json['seriesIndex'] as num?)?.toDouble(),
       );
 }
 
