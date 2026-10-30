@@ -14,6 +14,7 @@ import android.os.Bundle
 import android.os.CancellationSignal
 import android.os.Handler
 import android.os.Looper
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.provider.Settings
 import android.view.KeyEvent
@@ -22,6 +23,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.util.concurrent.Executors
@@ -67,6 +69,10 @@ class MainActivity : FlutterActivity() {
     private var restoreResult: MethodChannel.Result? = null
     private var restoreStaging: File? = null
 
+    // A folder being picked, to write into from then on (automatic backups,
+    // quotes as Markdown).
+    private var folderResult: MethodChannel.Result? = null
+
     companion object {
         private const val REQ_PICK = 71
         private const val REQ_NOTIFY = 72
@@ -74,6 +80,7 @@ class MainActivity : FlutterActivity() {
         private const val REQ_BACKUP = 74
         private const val REQ_RESTORE = 75
         private const val REQ_CONFIRM = 76
+        private const val REQ_FOLDER = 77
     }
 
     /**
@@ -477,6 +484,29 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                 }
+                "pickFolder" -> {
+                    if (folderResult != null) {
+                        result.error("BUSY", "A folder is already being chosen", null)
+                    } else {
+                        folderResult = result
+                        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                            addFlags(
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                            )
+                        }
+                        @Suppress("DEPRECATION")
+                        startActivityForResult(intent, REQ_FOLDER)
+                    }
+                }
+                "folderOk" -> {
+                    val tree = call.argument<String>("tree").orEmpty()
+                    result.success(contentResolver.persistedUriPermissions.any {
+                        it.uri.toString() == tree && it.isWritePermission
+                    })
+                }
+                "writeToFolder", "listFolder", "deleteFromFolder", "backupToFolder" -> folderCall(call, result)
                 else -> result.notImplemented()
             }
         }
@@ -729,6 +759,109 @@ class MainActivity : FlutterActivity() {
         }.start()
     }
 
+    /**
+     * Files in a folder the reader picked (pickFolder): one written, listed
+     * or deleted, on a thread of its own (a backup takes a while). A folder
+     * taken away, or gone, answers FOLDER.
+     */
+    private fun folderCall(call: MethodCall, result: MethodChannel.Result) {
+        val tree = Uri.parse(call.argument<String>("tree").orEmpty())
+        Thread {
+            try {
+                val out: Any? = when (call.method) {
+                    "writeToFolder" -> {
+                        val doc = createInFolder(
+                            tree,
+                            call.argument<String>("mime") ?: "text/plain",
+                            call.argument<String>("name") ?: "TomeVoice.txt"
+                        )
+                        val stream = contentResolver.openOutputStream(doc, "wt")
+                            ?: throw IllegalStateException("Android would not open the new file")
+                        stream.use { it.write(call.argument<String>("text").orEmpty().toByteArray(Charsets.UTF_8)) }
+                        queryDisplayName(doc)
+                    }
+                    "listFolder" -> listFolder(tree)
+                    "deleteFromFolder" -> {
+                        val id = call.argument<String>("id").orEmpty()
+                        DocumentsContract.deleteDocument(contentResolver, DocumentsContract.buildDocumentUriUsingTree(tree, id))
+                        null
+                    }
+                    "backupToFolder" -> {
+                        val doc = createInFolder(tree, "application/zip", call.argument<String>("name") ?: "TomeVoice-backup.zip")
+                        try {
+                            var total = 0L
+                            val stream = contentResolver.openOutputStream(doc, "wt")
+                                ?: throw IllegalStateException("Android would not open the new file")
+                            val files = stream.use {
+                                LibraryBackup.write(
+                                    outputDir(),
+                                    it,
+                                    call.argument<String>("manifest").orEmpty(),
+                                    call.argument<Boolean>("includeChapters") == true
+                                ) { _, all -> total = all }
+                            }
+                            mapOf("files" to files, "bytes" to total, "name" to queryDisplayName(doc))
+                        } catch (e: Throwable) {
+                            // Leave no half-written backup behind to be trusted later.
+                            try {
+                                DocumentsContract.deleteDocument(contentResolver, doc)
+                            } catch (_: Throwable) {
+                            }
+                            throw e
+                        }
+                    }
+                    else -> null
+                }
+                main.post { result.success(out) }
+            } catch (e: SecurityException) {
+                main.post { result.error("FOLDER", "TomeVoice may no longer write to that folder. Choose it again.", null) }
+            } catch (e: java.io.FileNotFoundException) {
+                main.post { result.error("FOLDER", "That folder is gone. Choose another.", null) }
+            } catch (e: Throwable) {
+                main.post { result.error("FOLDER_IO", e.message ?: "Could not write to that folder", null) }
+            }
+        }.start()
+    }
+
+    /** A new file [name] in the picked folder [tree]. */
+    private fun createInFolder(tree: Uri, mime: String, name: String): Uri {
+        val parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+        return DocumentsContract.createDocument(contentResolver, parent, mime, name)
+            ?: throw IllegalStateException("Android would not make a file in that folder")
+    }
+
+    private fun listFolder(tree: Uri): List<Map<String, Any?>> {
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+        val out = mutableListOf<Map<String, Any?>>()
+        val columns = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_SIZE,
+            DocumentsContract.Document.COLUMN_LAST_MODIFIED
+        )
+        contentResolver.query(children, columns, null, null, null)?.use { c ->
+            while (c.moveToNext()) {
+                out.add(
+                    mapOf(
+                        "id" to c.getString(0),
+                        "name" to c.getString(1),
+                        "size" to (if (c.isNull(2)) 0L else c.getLong(2)),
+                        "modified" to (if (c.isNull(3)) 0L else c.getLong(3))
+                    )
+                )
+            }
+        }
+        return out
+    }
+
+    private fun folderName(tree: Uri): String? = try {
+        val doc = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+        contentResolver.query(doc, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)
+            ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+    } catch (_: Exception) {
+        null
+    }
+
     private fun cleanSynthDir() {
         io.execute {
             // (cache/tts, the voice's, is emptied when its engine is made, in
@@ -870,6 +1003,26 @@ class MainActivity : FlutterActivity() {
         }
         if (requestCode == REQ_RESTORE) {
             finishRestore(resultCode, data?.data)
+            return
+        }
+        if (requestCode == REQ_FOLDER) {
+            val reply = folderResult ?: return
+            folderResult = null
+            val uri = data?.data
+            if (resultCode != Activity.RESULT_OK || uri == null) {
+                reply.success(null)
+                return
+            }
+            try {
+                // Kept across restarts, until the reader takes it back.
+                contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+                reply.success(mapOf("uri" to uri.toString(), "name" to (folderName(uri) ?: "Folder")))
+            } catch (e: Exception) {
+                reply.error("FOLDER", e.message ?: "Android would not let TomeVoice keep that folder", null)
+            }
             return
         }
         if (requestCode == REQ_IMAGE) {

@@ -10,6 +10,7 @@ import 'package:flutter/services.dart' show BackgroundIsolateBinaryMessenger, Me
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'marks.dart';
+import 'prefs.dart';
 import 'safe_file.dart';
 import 'sources/models.dart';
 import 'sources/net.dart';
@@ -749,7 +750,9 @@ class LibraryStore {
     return merged;
   }
 
-  /// The reading layout for [id], built on a background isolate.
+  /// The reading layout for [id], built on a background isolate, with notes
+  /// read aloud when the reader asked for that (Settings > Listening); a
+  /// change there is taken up by the next layout loaded.
   ///
   /// For a web novel, every chapter has its section (so positions are
   /// chapter numbers), and the downloaded ones have their text; with
@@ -757,11 +760,12 @@ class LibraryStore {
   /// [webWindow]): opening chapter 2,000 of a long novel reads a few dozen
   /// files, not every one on the phone.
   Future<ReadingLayout> loadLayout(String id, {int? around}) async {
+    final notes = ListeningPrefs.loaded?.notesAloud ?? false;
     final entries = await list();
     final entry = entries.where((e) => e.id == id).firstOrNull;
     if (entry != null && entry.isWeb) {
       final dir = bookDir(id);
-      final layout = await _runLoadWeb(dir, id, around);
+      final layout = await _runLoadWeb(dir, id, around, notes);
       // The chapters' script settles the language the source only named;
       // the library's card says the same.
       final language = layout.book.metadata.language;
@@ -794,6 +798,7 @@ class LibraryStore {
       sourcePath: entry?.sourcePath,
       pdf: pdf,
       token: RootIsolateToken.instance,
+      notes: notes,
     );
     final layout = await _runLoad(job);
     // A book read again carried its place across in cursor.json (see
@@ -947,8 +952,12 @@ Future<_Imported> _runImport(_ImportJob job) => Isolate.run(() => _import(job));
 
 Future<ReadingLayout> _runLoad(_LoadJob job) => Isolate.run(() => _loadLayout(job));
 
-Future<ReadingLayout> _runLoadWeb(String dir, String id, int? around) =>
-    Isolate.run(() => _loadWebSync(dir, id, around: around));
+Future<ReadingLayout> _runLoadWeb(String dir, String id, int? around, bool notes) =>
+    Isolate.run(() => _loadWebSync(dir, id, around: around, notes: notes));
+
+/// The roles read aloud beyond the usual: footnotes (endnotes are marked the
+/// same) when the reader asked for notes; captions stay on the page only.
+Set<BlockRole> _spoken(bool notes) => notes ? const {BlockRole.footnote} : const {};
 
 Future<void> _runSaveChapter(String path, int index, String title, String html, String? language) =>
     Isolate.run(() {
@@ -1294,7 +1303,14 @@ typedef _ImportJob = ({
 
 /// [pdf]: a PDF's text as the platform has just read it again, when the
 /// book was read by an older PDF reader (see [LibraryStore.loadLayout]).
-typedef _LoadJob = ({String booksDir, String id, String? sourcePath, Map<String, Object?>? pdf, RootIsolateToken? token});
+typedef _LoadJob = ({
+  String booksDir,
+  String id,
+  String? sourcePath,
+  Map<String, Object?>? pdf,
+  RootIsolateToken? token,
+  bool notes,
+});
 
 /// [bytes] as a book, on a background isolate. Text in an East Asian legacy
 /// encoding (GBK, Big5, Shift_JIS, EUC-KR...) is decoded by Android's own
@@ -1479,8 +1495,9 @@ Set<int> webWindow(int at, int count, bool Function(int chapter) have, {int befo
 
 /// A web novel as one book: every chapter in order, the fetched ones with
 /// their text, the rest empty (and so skipped by the reader). With [around],
-/// only the chapters of [webWindow] round it have their text.
-ReadingLayout _loadWebSync(String dir, String id, {int? around}) {
+/// only the chapters of [webWindow] round it have their text. [notes]: the
+/// reader asked for notes read aloud.
+ReadingLayout _loadWebSync(String dir, String id, {int? around, bool notes = false}) {
   final info = WebNovelInfo.fromJson(
     Map<String, Object?>.from(jsonDecode(File('$dir/novel.json').readAsStringSync()) as Map),
   );
@@ -1512,8 +1529,9 @@ ReadingLayout _loadWebSync(String dir, String id, {int? around}) {
   final cover = File('$dir/img').existsSync()
       ? Directory('$dir/img').listSync().whereType<File>().where((f) => f.path.contains('cover')).firstOrNull?.path
       : null;
-  // Notes shown on the page, not read aloud (see ReadingLayout.build).
-  return ReadingLayout.build(displayOnly: true, webNovelBook(
+  // Notes shown on the page, not read aloud (see ReadingLayout.build),
+  // unless the reader asked for them.
+  return ReadingLayout.build(displayOnly: true, spoken: _spoken(notes), webNovelBook(
     id: id,
     title: info.novel.name,
     authors: [if (info.novel.author != null) info.novel.author!],
@@ -1607,8 +1625,9 @@ Future<ReadingLayout> _loadLayout(_LoadJob job) async {
     book = resectioned;
     _writeParsed(dir, book);
   }
-  // Footnotes and captions shown on the page, not read aloud.
-  final layout = ReadingLayout.build(book, displayOnly: true);
+  // Footnotes and captions shown on the page, not read aloud; footnotes
+  // read too when the reader asked for them.
+  final layout = ReadingLayout.build(book, displayOnly: true, spoken: _spoken(job.notes));
   if (before != null && !identical(before, book)) _carryCursor(dir, before, layout);
   return layout;
 }

@@ -14,6 +14,7 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 import 'book_tint.dart';
 import 'export_audio_sheet.dart';
 import 'fast_scroller.dart';
+import 'highlights.dart';
 import 'library_store.dart';
 import 'book_search.dart';
 import 'listen_sheet.dart';
@@ -332,6 +333,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// paragraph read) shown has one: the ribbon, and the bar's button.
   final _markedUnits = ValueNotifier<Set<int>>(const {});
   final _bookmarkedHere = ValueNotifier<bool>(false);
+
+  /// Saved quotes, washed on the page in their colours.
+  late final _highlights = Highlights(_l);
 
   /// Pages: turned from outside, and the reader's bars shown over them.
   final _paged = PagedController();
@@ -756,6 +760,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     MarkStore.instance.changes.removeListener(_onMarks);
     _markedUnits.dispose();
     _bookmarkedHere.dispose();
+    _highlights.dispose();
     _chrome.dispose();
     _scrollBars.dispose();
     _viewChapter.dispose();
@@ -2016,6 +2021,20 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         ),
       );
 
+  /// A tap on a paragraph holding a saved quote. On the quote, while the
+  /// voice is not reading, its note and actions; anywhere else, the bars.
+  void _onTapText(int unit) {
+    if (_tapStopsScroll) return;
+    final m = _player.isPlaying ? null : _highlights.at(unit);
+    if (m == null) {
+      _scrollBars.value = !_scrollBars.value;
+      return;
+    }
+    unawaited(showQuoteActions(context, m, cover: _cover, author: _book.metadata.authorLine).then((read) {
+      if (read && mounted) unawaited(_goTo(_highlights.startOf(m) ?? unitOfMark(_l, m), play: true));
+    }));
+  }
+
   // ------------------------------------------------------------ bookmarks
 
   List<Mark> get _bookmarks => [
@@ -2271,6 +2290,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             tapToTurn: _prefs.tapToTurn,
             endButton: widget.onReachedEnd == null ? null : _more(context),
             marks: _markedUnits,
+            highlights: _highlights,
             textDirection: _direction,
           )),
         ),
@@ -2778,6 +2798,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             justify: _prefs.justify && !heading,
             onTapUnit: (u) => _goTo(u, play: true),
             onLongPressUnit: _onLongPress,
+            highlights: _highlights,
+            onTapAt: _onTapText,
           ),
           ),
         ),
@@ -2972,6 +2994,8 @@ class _BlockText extends StatefulWidget {
     this.heading = false,
     this.justify = false,
     this.indent = 0,
+    this.highlights,
+    this.onTapAt,
   });
 
   final LayoutItem item;
@@ -2988,6 +3012,12 @@ class _BlockText extends StatefulWidget {
   /// Press and hold: the sentence, and the word under the finger.
   final void Function(int unit, String word) onLongPressUnit;
 
+  /// Saved quotes, washed in their colours under the voice's washes.
+  final ValueListenable<Map<int, Mark>>? highlights;
+
+  /// A tap on a paragraph holding a saved quote: the sentence tapped.
+  final ValueChanged<int>? onTapAt;
+
   /// A heading being spoken turns amber rather than sitting in a box.
   final bool heading;
   final bool justify;
@@ -3003,12 +3033,27 @@ class _BlockTextState extends State<_BlockText> {
   final _key = GlobalKey();
   late int _current = _mine(widget.cursor.value);
 
+  /// The saved quotes over this paragraph's sentences.
+  Map<int, Mark> _quotes = const {};
+
   int _mine(int u) => widget.item.containsUnit(u) ? u : -1;
+
+  Map<int, Mark> _quotesHere() {
+    final all = widget.highlights?.value;
+    if (all == null || all.isEmpty) return const {};
+    final item = widget.item;
+    return {
+      for (var u = item.firstUnit; u < item.firstUnit + item.unitCount; u++)
+        if (all[u] case final m?) u: m,
+    };
+  }
 
   @override
   void initState() {
     super.initState();
     widget.cursor.addListener(_onCursor);
+    widget.highlights?.addListener(_onHighlights);
+    _quotes = _quotesHere();
   }
 
   @override
@@ -3018,12 +3063,18 @@ class _BlockTextState extends State<_BlockText> {
       old.cursor.removeListener(_onCursor);
       widget.cursor.addListener(_onCursor);
     }
+    if (old.highlights != widget.highlights) {
+      old.highlights?.removeListener(_onHighlights);
+      widget.highlights?.addListener(_onHighlights);
+    }
     _current = _mine(widget.cursor.value);
+    _quotes = _quotesHere();
   }
 
   @override
   void dispose() {
     widget.cursor.removeListener(_onCursor);
+    widget.highlights?.removeListener(_onHighlights);
     super.dispose();
   }
 
@@ -3032,10 +3083,17 @@ class _BlockTextState extends State<_BlockText> {
     if (next != _current) setState(() => _current = next);
   }
 
-  void _onLongPress(LongPressStartDetails d) {
+  /// Only a paragraph whose own quotes changed is built again.
+  void _onHighlights() {
+    final next = _quotesHere();
+    if (!sameQuotes(next, _quotes)) setState(() => _quotes = next);
+  }
+
+  /// The sentence under [global], and the offset in the paragraph's text.
+  (int, int)? _hit(Offset global) {
     final render = _paragraphOf(_key.currentContext?.findRenderObject());
-    if (render == null) return;
-    final at = render.getPositionForOffset(render.globalToLocal(d.globalPosition)).offset;
+    if (render == null) return null;
+    final at = render.getPositionForOffset(render.globalToLocal(global)).offset;
     // The indent is one placeholder before the text.
     final offset = widget.indent > 0 ? math.max(0, at - 1) : at;
     final l = widget.layout;
@@ -3043,7 +3101,12 @@ class _BlockTextState extends State<_BlockText> {
     for (var u = widget.item.firstUnit; u < widget.item.firstUnit + widget.item.unitCount; u++) {
       if (l.unitOffset[u] <= offset) unit = u;
     }
-    widget.onLongPressUnit(unit, wordAt(widget.item.block!.text, offset));
+    return (unit, offset);
+  }
+
+  void _onLongPress(LongPressStartDetails d) {
+    final hit = _hit(d.globalPosition);
+    if (hit != null) widget.onLongPressUnit(hit.$1, wordAt(widget.item.block!.text, hit.$2));
   }
 
   /// Text may wrap its paragraph in semantics or selection render objects.
@@ -3065,12 +3128,24 @@ class _BlockTextState extends State<_BlockText> {
           );
     // A tap does nothing: taps while scrolling kept sending the voice
     // somewhere else. Press and hold, then Read from here. A screen reader's
-    // double tap still reads from the paragraph.
+    // double tap still reads from the paragraph. Only a paragraph holding a
+    // saved quote takes a tap (for the quote's note and actions); elsewhere
+    // the page has it, for the bars.
+    final tap = widget.onTapAt;
     return Semantics(
       button: true,
       hint: 'Double tap to read from here',
       onTap: () => widget.onTapUnit(widget.item.firstUnit),
-      child: GestureDetector(onLongPressStart: _onLongPress, child: body),
+      child: GestureDetector(
+        onLongPressStart: _onLongPress,
+        onTapUp: tap == null || _quotes.isEmpty
+            ? null
+            : (d) {
+                final hit = _hit(d.globalPosition);
+                if (hit != null) tap(hit.$1);
+              },
+        child: body,
+      ),
     );
   }
 
@@ -3080,34 +3155,36 @@ class _BlockTextState extends State<_BlockText> {
     final lead = <InlineSpan>[
       if (widget.indent > 0) WidgetSpan(child: SizedBox(width: widget.indent)),
     ];
-    if (_current < 0) {
+    if (_current < 0 && _quotes.isEmpty) {
       return Text.rich(TextSpan(children: [...lead, TextSpan(text: text)]),
           key: _key, style: widget.style, textAlign: align);
     }
-    final l = widget.layout;
-    final s = l.unitOffset[_current].clamp(0, text.length);
-    final e = (s + l.units[_current].text.length).clamp(s, text.length);
-    final wash = widget.heading ? widget.wash.withValues(alpha: 0.08) : widget.wash;
-    final spoken = widget.heading ? TextStyle(color: Skin.accentOf(context)) : null;
+    // Saved quotes in their colours, and the voice's sentence and word over
+    // them.
+    final accent = widget.wash.withValues(alpha: 1);
+    final dark = darkPage(widget.style.color);
+    final spoken = widget.heading ? Skin.accentOf(context) : null;
+    final runs = washRuns(
+      layout: widget.layout,
+      item: widget.item,
+      quotes: _quotes,
+      quoteWash: (m) => highlightWash(m.colour, accent: accent, dark: dark),
+      spoken: _current,
+      sentenceWash: widget.heading ? widget.wash.withValues(alpha: 0.08) : widget.wash,
+      wordWash: widget.wordWash,
+      wordStart: word.start,
+      wordEnd: word.end,
+    );
     final spans = <InlineSpan>[
       ...lead,
-      if (s > 0) TextSpan(text: text.substring(0, s)),
+      for (final r in runs)
+        TextSpan(
+          text: text.substring(r.start, r.end),
+          style: r.wash == null && !(r.spoken && spoken != null)
+              ? null
+              : TextStyle(backgroundColor: r.wash, color: r.spoken ? spoken : null),
+        ),
     ];
-    final ws = word.start < 0 ? -1 : (s + word.start).clamp(s, e);
-    final we = word.start < 0 ? -1 : (s + word.end).clamp(ws, e);
-    final sentence = TextStyle(backgroundColor: wash, color: spoken?.color);
-    if (ws < 0 || we <= ws) {
-      spans.add(TextSpan(text: text.substring(s, e), style: sentence));
-    } else {
-      spans
-        ..add(TextSpan(text: text.substring(s, ws), style: sentence))
-        ..add(TextSpan(
-          text: text.substring(ws, we),
-          style: TextStyle(backgroundColor: widget.wordWash, color: spoken?.color),
-        ))
-        ..add(TextSpan(text: text.substring(we, e), style: sentence));
-    }
-    if (e < text.length) spans.add(TextSpan(text: text.substring(e)));
     return Text.rich(TextSpan(children: spans), key: _key, style: widget.style, textAlign: align);
   }
 }

@@ -29,6 +29,13 @@ dependencies:
   sherpa_onnx: 1.13.8
   # Unpacking downloaded voices (tar.bz2). MIT.
   archive: ^4.0.7
+  # OPDS catalogues (Atom) and their OpenSearch descriptions. MIT. Already
+  # what the documents package reads EPUBs with.
+  xml: ^6.5.0
+  # MD5: KOReader sync's document ids and keys, and the Digest sign-in the
+  # catalogue tests check. BSD-3-Clause (Dart team). Already in the
+  # documents package.
+  crypto: ^3.0.5
   # QuickJS, to run LNReader source plugins (web novels). MIT, as is the
   # QuickJS it vendors. Pinned by commit: a single-maintainer git package,
   # the one Mangayomi uses. Builds through Flutter's native-assets hook.

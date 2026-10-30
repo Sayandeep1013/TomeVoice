@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
+import 'highlights.dart';
+import 'marks.dart';
 import 'page_curl.dart';
 import 'scheduler.dart';
 import 'theme.dart';
@@ -185,6 +187,7 @@ class PagedBook extends StatefulWidget {
     this.topInset = 0,
     this.bottomInset = 0,
     this.marks,
+    this.highlights,
     this.textDirection = TextDirection.ltr,
   });
 
@@ -238,6 +241,10 @@ class PagedBook extends StatefulWidget {
 
   /// Sentences with a bookmark: a page holding one shows a ribbon.
   final ValueListenable<Set<int>>? marks;
+
+  /// Saved quotes by sentence, washed in their colours (painted only: the
+  /// pages are cut the same with or without them).
+  final ValueListenable<Map<int, Mark>>? highlights;
 
   @override
   State<PagedBook> createState() => _PagedBookState();
@@ -992,6 +999,8 @@ class _PagedBookState extends State<PagedBook> {
                 word: widget.word,
                 sentenceWash: look.sentenceWash,
                 wordWash: look.wordWash,
+                highlights: widget.highlights,
+                accent: look.accent,
               ),
             ),
           ),
@@ -1001,8 +1010,8 @@ class _PagedBookState extends State<PagedBook> {
   }
 }
 
-/// A window onto one laid-out paragraph, with the sentence being read and
-/// its word washed behind the text.
+/// A window onto one laid-out paragraph, with its saved quotes washed in
+/// their colours, and over them the sentence being read and its word.
 class _SlicePainter extends CustomPainter {
   _SlicePainter({
     required this.laid,
@@ -1013,7 +1022,9 @@ class _SlicePainter extends CustomPainter {
     required this.word,
     required this.sentenceWash,
     required this.wordWash,
-  }) : super(repaint: Listenable.merge([marked, word]));
+    this.highlights,
+    this.accent = const Color(0x00000000),
+  }) : super(repaint: Listenable.merge([marked, word, if (highlights != null) highlights]));
 
   final _Laid laid;
   final double top;
@@ -1023,6 +1034,8 @@ class _SlicePainter extends CustomPainter {
   final ValueListenable<WordMark> word;
   final Color sentenceWash;
   final Color wordWash;
+  final ValueListenable<Map<int, Mark>>? highlights;
+  final Color accent;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1031,6 +1044,23 @@ class _SlicePainter extends CustomPainter {
     canvas.translate(0, -top);
     final u = marked.value;
     final text = item.block?.text ?? '';
+    final quotes = highlights?.value ?? const <int, Mark>{};
+    if (quotes.isNotEmpty) {
+      final dark = darkPage(laid.painter.text?.style?.color);
+      final end = item.firstUnit + item.unitCount;
+      // A quote's sentences in one wash, across the gaps between them: two
+      // washes meeting overlapped in a darker seam.
+      for (var v = item.firstUnit; v < end; v++) {
+        final m = quotes[v];
+        if (m == null) continue;
+        final s = layout.unitOffset[v].clamp(0, text.length);
+        while (v + 1 < end && quotes[v + 1]?.id == m.id) {
+          v++;
+        }
+        final e = (layout.unitOffset[v] + layout.units[v].text.length).clamp(s, text.length);
+        _wash(canvas, s, e, highlightWash(m.colour, accent: accent, dark: dark));
+      }
+    }
     if (u >= 0 && item.containsUnit(u)) {
       final s = layout.unitOffset[u].clamp(0, text.length);
       final e = (s + layout.units[u].text.length).clamp(s, text.length);
@@ -1063,7 +1093,9 @@ class _SlicePainter extends CustomPainter {
       old.sentenceWash != sentenceWash ||
       old.wordWash != wordWash ||
       old.marked != marked ||
-      old.word != word;
+      old.word != word ||
+      old.highlights != highlights ||
+      old.accent != accent;
 }
 
 /// Page turns with no slide: a swipe or a tap moves a whole page at once.

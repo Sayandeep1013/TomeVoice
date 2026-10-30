@@ -4,12 +4,14 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import 'app_update.dart';
+import 'auto_backup.dart';
 import 'background_check.dart';
 import 'backup.dart';
 import 'backup_flow.dart';
 import 'book_tint.dart';
 import 'brand.dart';
 import 'browse_screen.dart';
+import 'catalogues_screen.dart';
 import 'categories_screen.dart';
 import 'download_queue.dart';
 import 'history_screen.dart';
@@ -25,6 +27,7 @@ import 'stats.dart';
 import 'stats_screen.dart';
 import 'settings_screen.dart';
 import 'sources/bridge.dart';
+import 'sync.dart';
 import 'sources/net.dart';
 import 'sources/source_engine.dart';
 import 'sources/source_store.dart';
@@ -155,8 +158,13 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
     _store?.placeChanges.removeListener(_scheduleFollow);
     _store?.changes.removeListener(_scheduleWidgets);
     _store?.placeChanges.removeListener(_scheduleWidgets);
+    _store?.placeChanges.removeListener(_scheduleSync);
     super.dispose();
   }
+
+  /// A place was saved: sync once the library shows again (the book was
+  /// left), or soon if it already shows (a book reading on behind it).
+  void _scheduleSync() => whenShown(BookSync.instance.soon);
 
   /// The app's accent follows the book being read: the one opened last.
   /// Debounced, since every saved place is a change to the library; and
@@ -242,6 +250,12 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
       // Fixed sources: the lists are read again at most daily while the app
       // is used, so Browse and Sources can say an update is waiting.
       Future<void>.delayed(const Duration(seconds: 6), () => _refreshSources(sources));
+      // An automatic backup, when one is due (Settings > Library).
+      AutoBackup.start(store);
+      // Places, quotes and reading time to the reader's sync server, when
+      // one is set up: on opening, and on coming back from a book.
+      BookSync.instance.start(store);
+      store.placeChanges.addListener(_scheduleSync);
       _lifecycle = AppLifecycleListener(onResume: () {
         unawaited(_offerUpdate(Directory(dir)));
         unawaited(_refreshSources(sources));
@@ -421,6 +435,9 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
                   selected: _place == _Place.library, onTap: () => _go(_Place.library)),
               _item(context, Icons.travel_explore_rounded, Icons.travel_explore_rounded, 'Browse',
                   selected: _place == _Place.browse, onTap: () => _go(_Place.browse)),
+              // Ebook libraries (OPDS): Project Gutenberg, Standard Ebooks, Calibre.
+              _item(context, Icons.local_library_outlined, Icons.local_library_rounded, 'Catalogues',
+                  onTap: () => _push((s) => CataloguesScreen(store: s))),
               _item(context, Icons.new_releases_outlined, Icons.new_releases_rounded, 'Updates',
                   selected: _place == _Place.updates, onTap: () => _go(_Place.updates)),
               _item(context, Icons.history_rounded, Icons.history_rounded, 'History',

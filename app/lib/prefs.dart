@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show ThemeMode;
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
+import 'folders.dart';
 import 'safe_file.dart';
 import 'theme.dart';
 
@@ -39,6 +40,7 @@ class ListeningPrefs {
     this.volumeKeys = false,
     this.fullScreen = false,
     this.keepReading = true,
+    this.notesAloud = false,
     this.keepScreenOn = false,
     this.themeMode = ThemeMode.system,
     this.paletteId = 'forest',
@@ -47,7 +49,22 @@ class ListeningPrefs {
     this.sort = LibrarySort.recent,
     this.bookColours = true,
     this.naturalVoices,
-  })  : voiceByLanguage = voiceByLanguage ?? {},
+    this.exportFolder,
+    this.backupEvery = 'off',
+    this.backupFolder,
+    this.backupChapters = false,
+    this.lastBackup,
+    this.webdavOn = false,
+    this.webdavUrl,
+    this.webdavUser,
+    this.kosyncOn = false,
+    this.kosyncUrl,
+    this.kosyncUser,
+    List<Map<String, Object?>>? catalogues,
+    Map<String, String>? catalogueUsers,
+  })  : catalogues = catalogues ?? [],
+        catalogueUsers = catalogueUsers ?? {},
+        voiceByLanguage = voiceByLanguage ?? {},
         voiceByBook = voiceByBook ?? {},
         dialogueByBook = dialogueByBook ?? {},
         pitchByVoice = pitchByVoice ?? {},
@@ -198,6 +215,10 @@ class ListeningPrefs {
   /// on, paused from the library's player or the card in the shade.
   bool keepReading;
 
+  /// Footnotes and endnotes read aloud where they stand, instead of only
+  /// shown. Off by default; their markers in the text are never read.
+  bool notesAloud;
+
   /// Keep the display awake while a book is open.
   bool keepScreenOn;
 
@@ -223,6 +244,37 @@ class ListeningPrefs {
   /// Natural voices: null until the reader has been asked, then whether
   /// they want them offered. Declined, the app never suggests them.
   bool? naturalVoices;
+
+  /// Where quotes exported as Markdown were last saved.
+  PickedFolder? exportFolder;
+
+  /// Automatic backups: off, daily or weekly (see BackupEvery), into
+  /// [backupFolder], with downloaded chapters only if [backupChapters].
+  String backupEvery;
+  PickedFolder? backupFolder;
+  bool backupChapters;
+
+  /// When the last automatic backup was made.
+  DateTime? lastBackup;
+
+  /// Sync through a WebDAV folder of the reader's own (places, quotes,
+  /// bookmarks, reading time; never the books). Off until set up. The
+  /// password is kept apart, off backups (see Secrets).
+  bool webdavOn;
+  String? webdavUrl;
+  String? webdavUser;
+
+  /// Sync places with KOReader's sync server (koreader-sync-server). Off
+  /// until set up; the password's key kept apart, as above.
+  bool kosyncOn;
+  String? kosyncUrl;
+  String? kosyncUser;
+
+  /// OPDS catalogues the reader added (see Catalogue), and the user names
+  /// they sign in to the built-in ones with: kept with the settings, so a
+  /// restore brings them back. Their passwords are kept apart.
+  final List<Map<String, Object?>> catalogues;
+  final Map<String, String> catalogueUsers;
 
   static ListeningPrefs? _cached;
   static File? _file;
@@ -306,6 +358,7 @@ class ListeningPrefs {
         'volumeKeys': volumeKeys,
         'fullScreen': fullScreen,
         'keepReading': keepReading,
+        if (notesAloud) 'notesAloud': true,
         'keepScreenOn': keepScreenOn,
         'themeMode': themeMode.name,
         'palette': paletteId,
@@ -314,6 +367,19 @@ class ListeningPrefs {
         'sort': sort.name,
         'bookColours': bookColours,
         if (naturalVoices != null) 'naturalVoices': naturalVoices,
+        if (exportFolder != null) 'exportFolder': exportFolder!.toJson(),
+        if (backupEvery != 'off') 'backupEvery': backupEvery,
+        if (backupFolder != null) 'backupFolder': backupFolder!.toJson(),
+        if (backupChapters) 'backupChapters': true,
+        if (lastBackup != null) 'lastBackup': lastBackup!.toIso8601String(),
+        if (webdavOn) 'webdavOn': true,
+        if (webdavUrl != null) 'webdavUrl': webdavUrl,
+        if (webdavUser != null) 'webdavUser': webdavUser,
+        if (kosyncOn) 'kosyncOn': true,
+        if (kosyncUrl != null) 'kosyncUrl': kosyncUrl,
+        if (kosyncUser != null) 'kosyncUser': kosyncUser,
+        if (catalogues.isNotEmpty) 'catalogues': catalogues,
+        if (catalogueUsers.isNotEmpty) 'catalogueUsers': catalogueUsers,
       };
 
   static ListeningPrefs fromJson(Map<String, Object?> json) => ListeningPrefs(
@@ -366,6 +432,7 @@ class ListeningPrefs {
         volumeKeys: json['volumeKeys'] == true,
         fullScreen: json['fullScreen'] == true,
         keepReading: json['keepReading'] != false,
+        notesAloud: json['notesAloud'] == true,
         keepScreenOn: json['keepScreenOn'] == true,
         themeMode: ThemeMode.values.where((m) => m.name == json['themeMode']).firstOrNull ??
             ThemeMode.system,
@@ -376,6 +443,25 @@ class ListeningPrefs {
             LibrarySort.recent,
         bookColours: json['bookColours'] != false,
         naturalVoices: json['naturalVoices'] as bool?,
+        exportFolder: PickedFolder.fromJson(json['exportFolder']),
+        backupEvery: json['backupEvery'] as String? ?? 'off',
+        backupFolder: PickedFolder.fromJson(json['backupFolder']),
+        backupChapters: json['backupChapters'] == true,
+        lastBackup: DateTime.tryParse(json['lastBackup'] as String? ?? ''),
+        webdavOn: json['webdavOn'] == true,
+        webdavUrl: json['webdavUrl'] as String?,
+        webdavUser: json['webdavUser'] as String?,
+        kosyncOn: json['kosyncOn'] == true,
+        kosyncUrl: json['kosyncUrl'] as String?,
+        kosyncUser: json['kosyncUser'] as String?,
+        catalogues: [
+          for (final c in json['catalogues'] is List ? json['catalogues'] as List : const [])
+            if (c is Map) Map<String, Object?>.from(c),
+        ],
+        catalogueUsers: {
+          for (final e in (json['catalogueUsers'] is Map ? json['catalogueUsers'] as Map : const {}).entries)
+            if (e.value is String) '${e.key}': e.value as String,
+        },
       );
 }
 

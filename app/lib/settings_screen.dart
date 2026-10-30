@@ -9,20 +9,25 @@ import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
 import 'app_update.dart';
+import 'auto_backup.dart';
 import 'backup_flow.dart';
 import 'brand.dart';
 import 'categories_screen.dart';
+import 'folders.dart';
 import 'library_store.dart';
 import 'listen_sheet.dart';
 import 'neural_screen.dart';
 import 'noveldokusha_import.dart';
 import 'prefs.dart';
+import 'relayout.dart';
 import 'rules_screen.dart';
 import 'sources/source_engine.dart';
 import 'secret_shelf.dart';
 import 'sources_screen.dart';
 import 'stats_screen.dart' show addWidget;
 import 'speech_service.dart';
+import 'sync.dart';
+import 'sync_screen.dart';
 import 'theme.dart';
 import 'ui.dart';
 import 'updates.dart';
@@ -116,6 +121,34 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
       _before?.dispose();
       _before = null;
     });
+  }
+
+  /// Automatic backups on or off. On needs a folder: picked first, and
+  /// left off if none is.
+  Future<void> _setBackupEvery(BackupEvery every) async {
+    if (every != BackupEvery.off && _prefs.backupFolder == null && !await _pickBackupFolder()) return;
+    _change(() => _prefs.backupEvery = every.name);
+    if (every != BackupEvery.off) unawaited(AutoBackup.runIfDue(widget.store));
+  }
+
+  /// The folder backups go to. True if one was picked.
+  Future<bool> _pickBackupFolder() async {
+    PickedFolder? folder;
+    try {
+      folder = await const Folders().pick();
+    } on PlatformException catch (e) {
+      if (mounted) showSnack(context, 'The folder could not be used: ${e.message ?? e.code}');
+    }
+    if (folder == null || !mounted) return false;
+    final picked = folder;
+    _change(() => _prefs.backupFolder = picked);
+    AutoBackup.problem.value = null;
+    // A backup is a plain file, as one saved by hand: it carries the secret
+    // shelf's books too.
+    if ((await widget.store.index(all: true)).categories.any((c) => c.secret) && mounted) {
+      showSnack(context, 'Backups include your secret shelf. Anyone who has one can open its books.', long: true);
+    }
+    return true;
   }
 
   /// Pick a NovelDokusha backup and bring its web novels into the library.
@@ -294,6 +327,19 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           onChanged: (v) => _change(() => _prefs.keepReading = v),
                         ),
                         const ScreenOffRow(),
+                        const SizedBox(height: Gap.l),
+                        SwitchRow(
+                          title: 'Read notes aloud',
+                          subtitle: 'Footnotes and endnotes are read where they stand in the book. '
+                              'The little numbers pointing at them stay silent',
+                          value: _prefs.notesAloud,
+                          padding: EdgeInsets.zero,
+                          onChanged: (v) {
+                            _change(() => _prefs.notesAloud = v);
+                            // A book reading on goes on in the new layout.
+                            unawaited(relayReadingBook());
+                          },
+                        ),
                         const SizedBox(height: Gap.xl),
                         const SectionTitle('Style'),
                         const SizedBox(height: Gap.m),
@@ -371,6 +417,43 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           title: 'Restore a backup',
                           subtitle: 'From a TomeVoice backup on this phone or in Drive',
                           onTap: () => runRestore(context, widget.store),
+                        ),
+                        const SizedBox(height: Gap.l),
+                        const SectionTitle('Back up automatically'),
+                        const SizedBox(height: Gap.m),
+                        ChoiceRow<BackupEvery>(
+                          options: [for (final e in BackupEvery.values) (e, e.label)],
+                          value: BackupEvery.byName(_prefs.backupEvery),
+                          onChanged: (e) => unawaited(_setBackupEvery(e)),
+                        ),
+                        if (BackupEvery.byName(_prefs.backupEvery) != BackupEvery.off) ...[
+                          const SizedBox(height: Gap.s),
+                          _Link(
+                            icon: Icons.folder_outlined,
+                            title: _prefs.backupFolder?.name ?? 'Choose a folder',
+                            subtitle: 'Where the backups go, when TomeVoice opens and one is due. '
+                                'The last $autoBackupsKept are kept',
+                            onTap: () => unawaited(_pickBackupFolder()),
+                          ),
+                          SwitchRow(
+                            title: 'With downloaded chapters',
+                            subtitle: 'Bigger backups; web novel chapters otherwise download again after a restore',
+                            value: _prefs.backupChapters,
+                            padding: EdgeInsets.zero,
+                            onChanged: (v) => _change(() => _prefs.backupChapters = v),
+                          ),
+                          _AutoBackupStatus(store: widget.store, prefs: _prefs),
+                        ],
+                        const SizedBox(height: Gap.s),
+                        _Link(
+                          icon: Icons.sync_rounded,
+                          title: 'Sync',
+                          subtitle: BookSync.on
+                              ? 'On: places, quotes and reading time'
+                              : 'Off. Keep places and quotes the same on your phones, or with KOReader',
+                          onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                            builder: (_) => SyncScreen(store: widget.store),
+                          )),
                         ),
                         _Link(
                           icon: Icons.move_to_inbox_outlined,
@@ -572,6 +655,49 @@ class _PaletteSwatches extends StatelessWidget {
       ),
     );
   }
+}
+
+/// When the last automatic backup was made, or why it could not be, and
+/// Back up now.
+class _AutoBackupStatus extends StatelessWidget {
+  const _AutoBackupStatus({required this.store, required this.prefs});
+
+  final LibraryStore store;
+  final ListeningPrefs prefs;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: Listenable.merge([AutoBackup.problem, AutoBackup.running]),
+        builder: (context, _) {
+          final problem = AutoBackup.problem.value;
+          final last = prefs.lastBackup;
+          final said = AutoBackup.running.value
+              ? 'Backing up…'
+              : problem ??
+                  (last == null
+                      ? 'No backup made yet.'
+                      : 'Last backup ${MaterialLocalizations.of(context).formatMediumDate(last)}, '
+                          '${MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(last))}.');
+          return Row(
+            children: [
+              Expanded(
+                child: Text(
+                  said,
+                  style: Skin.ui(
+                    size: 13.5,
+                    weight: problem == null ? FontWeight.w400 : FontWeight.w600,
+                    color: problem == null ? Skin.inkFaintOn(context) : Skin.inkOn(context),
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: AutoBackup.running.value ? null : () => unawaited(AutoBackup.backUpNow(store)),
+                child: const Text('Back up now'),
+              ),
+            ],
+          );
+        },
+      );
 }
 
 /// A titled card of settings.
