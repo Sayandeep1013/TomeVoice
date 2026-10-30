@@ -131,8 +131,12 @@ class MainActivity : FlutterActivity() {
     /** The answer to "is it you?" on phones too old for BiometricPrompt's PIN. */
     private var confirmResult: MethodChannel.Result? = null
 
+    /** Saving a book as audio: its own channel, "tomevoice/export". */
+    private var exporter: AudioExport? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        exporter = AudioExport(this, flutterEngine.dartExecutor.binaryMessenger)
 
         val ch = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
         channel = ch
@@ -1167,6 +1171,7 @@ class MainActivity : FlutterActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
+        if (exporter?.onActivityResult(requestCode, resultCode, data) == true) return
         if (requestCode == REQ_CONFIRM) {
             confirmResult?.success(resultCode == Activity.RESULT_OK)
             confirmResult = null
@@ -1348,6 +1353,8 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        exporter?.close()
+        exporter = null
         stopSample()
         ReadAloudService.onAction = null
         ReadAloudService.end(this)

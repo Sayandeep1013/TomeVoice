@@ -12,6 +12,7 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'book_tint.dart';
+import 'export_audio_sheet.dart';
 import 'fast_scroller.dart';
 import 'library_store.dart';
 import 'book_search.dart';
@@ -1584,6 +1585,25 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                 ),
                 SheetAction(icon: Icons.bookmark_add_outlined, label: 'Bookmark here', onTap: () => Navigator.pop(ctx, 'bookmark')),
                 SheetAction(icon: Icons.copy_rounded, label: 'Copy', onTap: () => Navigator.pop(ctx, 'copy')),
+                SheetAction(
+                  icon: Icons.save_alt_rounded,
+                  label: 'Save as audio…',
+                  detail: web ? 'This chapter, as you hear it' : 'This chapter or the whole book, as you hear it',
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    unawaited(showSaveAsAudio(
+                      context,
+                      layout: _l,
+                      bookId: _book.id,
+                      title: _book.metadata.title,
+                      author: _book.metadata.authorLine,
+                      cover: _cover,
+                      chapter: _l.chapterOfUnit(unit),
+                      reading: _player,
+                      wholeBook: !web,
+                    ));
+                  },
+                ),
                 if (word.isNotEmpty)
                   SheetAction(
                     icon: Icons.menu_book_outlined,

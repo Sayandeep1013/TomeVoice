@@ -8,6 +8,7 @@ import 'book_card.dart';
 import 'book_search.dart';
 import 'book_tint.dart';
 import 'chapter_finder.dart';
+import 'export_audio_sheet.dart';
 import 'fast_scroller.dart';
 import 'library_store.dart';
 import 'saved_screen.dart';
@@ -367,6 +368,19 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                 switch (v) {
                   case 'passage':
                     await _findPassage();
+                  case 'audio':
+                    final l = _layout;
+                    if (l == null) break;
+                    await showSaveAsAudio(
+                      context,
+                      layout: l,
+                      bookId: _entry.id,
+                      title: _entry.title,
+                      author: _entry.authorLine,
+                      cover: _entry.shownCover,
+                      chapter: _currentChapter,
+                      preferBook: true,
+                    );
                   case 'cover':
                     await changeCover(context, _store, _entry);
                   case 'move':
@@ -392,6 +406,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
               },
               itemBuilder: (_) => [
                 if (_layout?.isEmpty == false) const PopupMenuItem(value: 'passage', child: Text('Find a passage')),
+                if (_layout?.isEmpty == false) const PopupMenuItem(value: 'audio', child: Text('Save as audio…')),
                 const PopupMenuItem(value: 'cover', child: Text('Change cover')),
                 const PopupMenuItem(value: 'move', child: Text('Move to…')),
                 if (_entry.progress > 0)
