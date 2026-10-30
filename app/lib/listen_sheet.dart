@@ -9,6 +9,8 @@ import 'neural_voices.dart';
 import 'page_tone.dart';
 import 'paged_view.dart' show PageTurn;
 import 'prefs.dart';
+import 'reading_rules.dart';
+import 'rules_screen.dart';
 import 'speech_service.dart';
 import 'theme.dart';
 import 'ui.dart';
@@ -26,6 +28,7 @@ class ListenController {
     required this.language,
     required this.onChanged,
     this.bookId,
+    this.bookTitle,
     this.sleep = SleepChoice.off,
     this.onSleep,
     this.onPreview,
@@ -40,6 +43,10 @@ class ListenController {
 
   /// The book whose voice this is, if a book is open.
   final String? bookId;
+
+  /// Its title, where the one who opens the sheet knows it (for its
+  /// reading rules).
+  final String? bookTitle;
 
   /// Settings changed. [restart] is true when the change should be audible
   /// now (voice, speed, style), false while a slider is still being dragged.
@@ -314,6 +321,12 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
           'Previous starts the sentence again once it is under way.',
           style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
         ),
+        if (widget.controller.bookId != null) ...[
+          const SizedBox(height: Gap.xl),
+          const SectionTitle('Reading rules'),
+          const SizedBox(height: Gap.m),
+          _rulesCard(context),
+        ],
       ];
 
   Widget _voiceCard(BuildContext context) {
@@ -390,6 +403,59 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
                 ),
               ),
               Text('Change', style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentSoftOf(context))),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// This book's reading rules: the words it says its own way, and what its
+  /// voice skips (notes from an author or translator, rows of symbols).
+  Widget _rulesCard(BuildContext context) {
+    final c = widget.controller;
+    final rules = ReadingRules.instance;
+    final skips = [
+      for (final p in SkipPreset.values)
+        if (p != SkipPreset.links && rules.presetOn(p, book: c.bookId)) p.title.toLowerCase(),
+    ];
+    final words = rules.say.where((r) => r.book == c.bookId).length;
+    return Material(
+      color: Skin.raisedOn(context),
+      borderRadius: BorderRadius.circular(Radii.row),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(Radii.row),
+        onTap: () async {
+          await Navigator.of(context).push(MaterialPageRoute<void>(
+            builder: (_) => RulesScreen(bookTitles: const {}, bookId: c.bookId, bookTitle: c.bookTitle),
+          ));
+          // What it skips now, on the card.
+          if (mounted) setState(() {});
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Gap.l, vertical: 12),
+          child: Row(
+            children: [
+              Icon(Icons.rule_rounded, color: Skin.accentOf(context), size: 22),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      words == 0
+                          ? 'Words said your way'
+                          : '${words == 1 ? '1 word' : '$words words'} said your way in this book',
+                      style: Skin.ui(size: 15, weight: FontWeight.w600, color: Skin.inkOn(context)),
+                    ),
+                    Text(
+                      skips.isEmpty ? 'The voice skips no notes or symbols' : 'The voice skips ${skips.join(', ')}',
+                      style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: Skin.inkFaintOn(context)),
             ],
           ),
         ),

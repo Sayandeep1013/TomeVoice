@@ -394,7 +394,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                         _Link(
                           icon: Icons.rule_rounded,
                           title: 'Reading rules',
-                          subtitle: 'Words said your way, and lines left out of web novels',
+                          subtitle: 'Words said your way, shared lists of them, and what the voice skips',
                           onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
                             builder: (_) => RulesScreen(
                               bookTitles: {for (final e in idx?.entries ?? const <LibraryEntry>[]) e.id: e.title},

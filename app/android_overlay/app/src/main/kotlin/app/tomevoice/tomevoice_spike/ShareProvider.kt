@@ -11,9 +11,9 @@ import java.io.File
 import java.io.FileNotFoundException
 
 /**
- * Hands a picture made in the app (a quote card) to the app it is shared
- * with, or a downloaded update to Android's installer: read-only and only
- * for that one use.
+ * Hands a picture made in the app (a quote card) or a list of
+ * pronunciations to the app it is shared with, or a downloaded update to
+ * Android's installer: read-only and only for that one use.
  *
  * Android will not let a file path cross apps; a content:// address served
  * from here does. Only files in cache/share are served, so nothing else in
@@ -58,6 +58,8 @@ class ShareProvider : ContentProvider() {
     override fun getType(uri: Uri): String = when {
         uri.lastPathSegment?.endsWith(".png") == true -> "image/png"
         uri.lastPathSegment?.endsWith(".apk") == true -> "application/vnd.android.package-archive"
+        uri.lastPathSegment?.endsWith(".json") == true -> "application/json"
+        uri.lastPathSegment?.endsWith(".txt") == true -> "text/plain"
         else -> "application/octet-stream"
     }
 

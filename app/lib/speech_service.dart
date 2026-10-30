@@ -485,6 +485,11 @@ class SpeechService {
   Future<void> shareImage(String path, {String? text}) =>
       _channel.invokeMethod<void>('shareImage', {'path': path, 'text': text});
 
+  /// Android's share sheet for the file at [path] (in [shareDir]), as
+  /// [mime]: a list of pronunciations, say.
+  Future<void> shareFile(String path, {required String mime, String? text}) =>
+      _channel.invokeMethod<void>('shareFile', {'path': path, 'mime': mime, 'text': text});
+
   /// What a tapped widget asked for (`book`, `play`, `page`), once.
   Future<Map<String, Object?>?> widgetLaunch() async {
     try {

@@ -16,6 +16,7 @@ import 'package:tomevoice_spike/neural_voices.dart' show wavBytes;
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/reader_screen.dart';
 import 'package:tomevoice_spike/reading_rules.dart';
+import 'package:tomevoice_spike/rules_screen.dart';
 import 'package:tomevoice_spike/scheduler.dart';
 import 'package:tomevoice_spike/speech_service.dart';
 
@@ -482,6 +483,60 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('A/N: Sorry this one is a day late', findRichText: true), findsOneWidget);
       expect(find.textContaining('(A/N: yes, the same one from chapter 3)', findRichText: true), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 10));
+    });
+
+    testWidgets('from the reader, the listening sheet opens the book’s own rules', (tester) async {
+      final layout = ReadingLayout.build(_novel([('Chapter 41: The Gate', _royalRoad)]), displayOnly: true);
+      final dir = Directory.systemTemp.createTempSync('tomevoice_skip_sheet');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(const MethodChannel('tomevoice/tts'), (call) async {
+        return switch (call.method) {
+          'launchArgs' => <String, Object?>{},
+          'outputDir' => dir.path,
+          'playerPosition' => 0,
+          'playerEnqueue' => 0,
+          'listEngines' || 'listVoices' => const [],
+          _ => null,
+        };
+      });
+      addTearDown(() => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(const MethodChannel('tomevoice/tts'), null));
+      ListeningPrefs.reset();
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 2.75;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(home: ReaderScreen(layout: layout)));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Voice'));
+      await tester.pumpAndSettle();
+      final card = find.text('Words said your way');
+      await tester.scrollUntilVisible(card, 200,
+          scrollable: find.descendant(of: find.byKey(const Key('reader-settings')), matching: find.byType(Scrollable)).first);
+      await tester.pumpAndSettle();
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+      expect(find.text('THIS BOOK'), findsOneWidget);
+
+      await tester.scrollUntilVisible(find.text('For this book only'), 200);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('For this book only'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text(SkipPreset.authorNotes.title), 200);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(SkipPreset.authorNotes.title));
+      await tester.pumpAndSettle();
+      final rules = ReadingRules.instance;
+      expect(rules.presetsFor(layout.book.id), {SkipPreset.authorNotes, SkipPreset.links});
+      expect(rules.presetsFor('another book'), defaultPresets);
+
+      // Back on the sheet, its card says what the book's voice skips.
+      Navigator.of(tester.element(find.byType(RulesScreen))).pop();
+      await tester.pumpAndSettle();
+      expect(find.text('The voice skips authors’ notes'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
       await tester.pump(const Duration(seconds: 10));
     });
