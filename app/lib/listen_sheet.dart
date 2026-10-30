@@ -1201,18 +1201,7 @@ class _VoicePickerState extends State<_VoicePicker> {
                               _selectedCard(context, current),
                               const SizedBox(height: Gap.s),
                             ],
-                            if (_language == 'en' && ListeningPrefs.loaded?.naturalVoices != false)
-                              Padding(
-                                padding: const EdgeInsets.fromLTRB(Gap.l, Gap.s, Gap.l, 0),
-                                child: SheetAction(
-                                  icon: Icons.auto_awesome_rounded,
-                                  label: 'Natural voices',
-                                  detail: 'Voices that sound like people, downloaded once, made on your phone',
-                                  onTap: () => Navigator.of(context).push(
-                                    MaterialPageRoute<void>(builder: (_) => const NeuralVoicesScreen()),
-                                  ),
-                                ),
-                              ),
+                            if (ListeningPrefs.loaded?.naturalVoices != false) _naturalVoices(context),
                             for (final group in byRegion.entries) ...[
                               if (byRegion.length > 1 || group.key.isNotEmpty)
                                 Padding(
@@ -1400,9 +1389,51 @@ class _VoicePickerState extends State<_VoicePicker> {
               onPressed: () => const SpeechService().openTtsSettings(),
               child: const Text('Open speech settings'),
             ),
+            // Or a natural voice of this language, where there is one.
+            if (ListeningPrefs.loaded?.naturalVoices != false &&
+                NeuralVoices.instance.offeredFor(_language).isNotEmpty) ...[
+              const SizedBox(height: Gap.m),
+              _naturalVoices(context, inset: false),
+            ],
           ],
         ),
       );
+
+  /// The way to natural voices of the language shown, saying how many there
+  /// are to have; where there are none, that the phone's voice reads it.
+  Widget _naturalVoices(BuildContext context, {bool inset = true}) {
+    final name = languageName(_language);
+    final offered = NeuralVoices.instance.offeredFor(_language);
+    final padding = inset ? const EdgeInsets.fromLTRB(Gap.l, Gap.s, Gap.l, 0) : EdgeInsets.zero;
+    if (offered.isEmpty) {
+      // The catalog is read a moment after start: nothing said until then.
+      if (NeuralVoices.instance.catalog == null) return const SizedBox.shrink();
+      return Padding(
+        padding: inset ? const EdgeInsets.fromLTRB(Gap.xl, Gap.s, Gap.xl, 0) : EdgeInsets.zero,
+        child: Text(
+          'No natural voices for $name yet; your phone\'s voice is used.',
+          style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
+        ),
+      );
+    }
+    final natural = NeuralVoices.instance;
+    final here = offered.where(natural.readable).length;
+    // Not "to download" if it is here already (a Kokoro too slow to read with).
+    final toGet = offered.where((v) => !natural.installed(v)).length;
+    return Padding(
+      padding: padding,
+      child: SheetAction(
+        icon: Icons.auto_awesome_rounded,
+        label: 'Natural voices for $name',
+        detail: here == 0
+            ? '$toGet to download: voices that sound like people, made on your phone'
+            : '$here on this phone${toGet == 0 ? '' : ', $toGet more to download'}',
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => NeuralVoicesScreen(language: _language)),
+        ),
+      ),
+    );
+  }
 }
 
 class _LanguagePill extends StatelessWidget {

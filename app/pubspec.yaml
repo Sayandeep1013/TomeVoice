@@ -70,6 +70,9 @@ flutter:
     - assets/licenses/third_party.txt
     # The book a new install starts with (public domain; see starter.dart).
     - assets/starter/pride-and-prejudice.epub
+    # The natural voices on offer, by language, with each one's licence
+    # (tools/voice_catalog.py makes it; see neural_voices.dart).
+    - assets/voices/catalog.json
 
   # Bundled, not fetched at runtime: the app is offline-first, and a reading
   # app whose type disappears without a network is not offline-first.
