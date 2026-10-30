@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
     show Clipboard, ClipboardData, HapticFeedback, SystemChrome, SystemUiMode, SystemUiOverlayStyle;
@@ -28,8 +27,10 @@ import 'pages_view.dart';
 import 'player_controls.dart';
 import 'prefs.dart';
 import 'quote_sheet.dart';
+import 'reader_chrome.dart';
 import 'reader_controller.dart';
 import 'reader_player_bar.dart';
+import 'reader_sheets.dart';
 import 'reader_text.dart';
 import 'reading_rules.dart';
 import 'rules_screen.dart';
@@ -1068,93 +1069,22 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     unawaited(HapticFeedback.selectionClick());
     final sentence = _l.units[unit].text;
     final web = _reader.entry?.plugin != null;
-    final picked = await showModalBottomSheet<String>(
-      context: context,
-      sheetAnimationStyle: sheetMotion(context),
-      useSafeArea: true,
-      isScrollControlled: true,
-      builder: (ctx) => carryTint(
+    final picked = await showSentenceActions(
+      context,
+      sentence: sentence,
+      word: word,
+      web: web,
+      onSaveAsAudio: () => unawaited(showSaveAsAudio(
         context,
-        SafeArea(
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(Gap.xl, 0, Gap.xl, Gap.m),
-                  child: Text(
-                    sentence,
-                    maxLines: 4,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontFamily: 'Newsreader',
-                      fontStyle: FontStyle.italic,
-                      fontSize: 16,
-                      height: 1.4,
-                      color: Skin.inkSoftOn(ctx),
-                    ),
-                  ),
-                ),
-                SheetAction(icon: Icons.play_arrow_rounded, label: 'Read from here', onTap: () => Navigator.pop(ctx, 'read')),
-                SheetAction(icon: Icons.format_quote_rounded, label: 'Save as a quote', onTap: () => Navigator.pop(ctx, 'quote')),
-                SheetAction(
-                  icon: Icons.ios_share_rounded,
-                  label: 'Share as a picture',
-                  onTap: () => Navigator.pop(ctx, 'share'),
-                ),
-                SheetAction(icon: Icons.bookmark_add_outlined, label: 'Bookmark here', onTap: () => Navigator.pop(ctx, 'bookmark')),
-                SheetAction(icon: Icons.copy_rounded, label: 'Copy', onTap: () => Navigator.pop(ctx, 'copy')),
-                SheetAction(
-                  icon: Icons.save_alt_rounded,
-                  label: 'Save as audio…',
-                  detail: web ? 'This chapter, as you hear it' : 'This chapter or the whole book, as you hear it',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    unawaited(showSaveAsAudio(
-                      context,
-                      layout: _l,
-                      bookId: _book.id,
-                      title: _book.metadata.title,
-                      author: _book.metadata.authorLine,
-                      cover: _cover,
-                      chapter: _l.chapterOfUnit(unit),
-                      reading: _player,
-                      wholeBook: !web,
-                    ));
-                  },
-                ),
-                if (word.isNotEmpty)
-                  SheetAction(
-                    icon: Icons.menu_book_outlined,
-                    label: 'Look up "$word"',
-                    onTap: () => Navigator.pop(ctx, 'lookup'),
-                  ),
-                SheetAction(
-                  icon: Icons.translate_rounded,
-                  label: 'Translate',
-                  detail: 'This sentence, in your translate app',
-                  onTap: () => Navigator.pop(ctx, 'translate'),
-                ),
-                if (word.isNotEmpty)
-                  SheetAction(
-                    icon: Icons.record_voice_over_outlined,
-                    label: 'Fix how "$word" is said',
-                    onTap: () => Navigator.pop(ctx, 'say'),
-                  ),
-                if (web)
-                  SheetAction(
-                    icon: Icons.visibility_off_outlined,
-                    label: "Don't read lines like this",
-                    detail: 'Site notices, credits, links: left out from now on',
-                    onTap: () => Navigator.pop(ctx, 'skip'),
-                  ),
-                const SizedBox(height: Gap.s),
-              ],
-            ),
-          ),
-        ),
-      ),
+        layout: _l,
+        bookId: _book.id,
+        title: _book.metadata.title,
+        author: _book.metadata.authorLine,
+        cover: _cover,
+        chapter: _l.chapterOfUnit(unit),
+        reading: _player,
+        wholeBook: !web,
+      )),
     );
     if (picked == null || !mounted) return;
     switch (picked) {
@@ -1231,44 +1161,6 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     setState(() => _hit = (_hit + delta) % _hits.length);
     unawaited(_reader.goTo(_hits[_hit].unit));
   }
-
-  /// "3 of 12 · ↑ ↓ ✕" while stepping through search matches.
-  Widget _matches(BuildContext context) => Material(
-        color: Skin.darkOn(context),
-        shape: const StadiumBorder(),
-        elevation: 4,
-        child: Padding(
-          padding: const EdgeInsets.only(left: Gap.l),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: Text(
-                  '“$_hitQuery”  ${_hit + 1} of ${_hits.length}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Skin.ui(size: 13, weight: FontWeight.w600, color: Skin.onDark(context)),
-                ),
-              ),
-              IconButton(
-                tooltip: 'Previous match',
-                icon: Icon(Icons.keyboard_arrow_up_rounded, color: Skin.onDark(context)),
-                onPressed: () => _stepHit(-1),
-              ),
-              IconButton(
-                tooltip: 'Next match',
-                icon: Icon(Icons.keyboard_arrow_down_rounded, color: Skin.onDark(context)),
-                onPressed: () => _stepHit(1),
-              ),
-              IconButton(
-                tooltip: 'Done',
-                icon: Icon(Icons.close_rounded, color: Skin.onDark(context)),
-                onPressed: () => setState(() => _hits = const []),
-              ),
-            ],
-          ),
-        ),
-      );
 
   // ---------------------------------------------------------------- build
 
@@ -1347,7 +1239,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       child: Scaffold(
       body: _ground(
         context,
-        _HeldSafeArea(
+        HeldSafeArea(
           insets: insets,
           child: Stack(
                   // The glow reaches past the safe area.
@@ -1393,7 +1285,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                         left: 0,
                         right: 0,
                         bottom: 0,
-                        child: _overBar(context, top: false, shownBy: _scrollBars, child: Center(child: bar)),
+                        child: SlidingBar(shown: _scrollBars, top: false, child: Center(child: bar)),
                       )
                     else
                       const SizedBox.shrink(),
@@ -1443,7 +1335,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   Widget _scrollReading(BuildContext context, Widget bar, bool rail, Widget? glow) {
     return Column(
       children: [
-        _fold(context, top: true, child: _topBar(context)),
+        // A PDF's real pages keep the bars: a tap there reads from the page.
+        FoldingBar(shown: _scrollBars, keep: _showPages, top: true, child: _topBar(context)),
         Expanded(
           child: Stack(
             children: [
@@ -1501,42 +1394,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             ],
           ),
         ),
-        if (!rail) _fold(context, top: false, child: bar),
+        if (!rail) FoldingBar(shown: _scrollBars, keep: _showPages, top: false, child: bar),
       ],
     );
   }
-
-  /// A bar of the scroll, folding away into its edge while the bars are put
-  /// away; the text grows into its place. A PDF's real pages keep them: a
-  /// tap there reads from the page.
-  Widget _fold(BuildContext context, {required bool top, required Widget child}) =>
-      ValueListenableBuilder<bool>(
-        valueListenable: _scrollBars,
-        builder: (context, shown, child) {
-          final show = shown || _showPages;
-          return ClipRect(
-            // Clipped while it folds away. Shown, the player is not: its
-            // shadow, cut at the safe area's edge, drew a line under it.
-            // (The top bar's coming back would show over the status bar.)
-            clipBehavior: top || !show ? Clip.hardEdge : Clip.none,
-            child: IgnorePointer(
-              ignoring: !show,
-              child: AnimatedAlign(
-                alignment: top ? Alignment.bottomCenter : Alignment.topCenter,
-                heightFactor: show ? 1 : 0,
-                duration: Motion.of(context, Motion.standard),
-                curve: Motion.out,
-                child: AnimatedOpacity(
-                  opacity: show ? 1 : 0,
-                  duration: Motion.of(context, Motion.quick),
-                  child: child,
-                ),
-              ),
-            ),
-          );
-        },
-        child: child,
-      );
 
   /// A tap on the scrolling text puts the bars away or brings them back.
   /// The paragraphs take no tap of their own (pictures do, and keep it);
@@ -1655,138 +1516,56 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   void _openBookmarks() {
     if (_l.isEmpty) return;
     HapticFeedback.selectionClick();
-    showModalBottomSheet<void>(
-      context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
-      sheetAnimationStyle: sheetMotion(context),
-      builder: (ctx) => carryTint(
-        context,
-        ValueListenableBuilder<int>(
-          valueListenable: MarkStore.instance.changes,
-          builder: (ctx, _, __) {
-            final marks = [
-              for (final m in _bookmarks) (m: m, u: unitOfMark(_l, m)),
-            ]..sort((a, b) => a.u.compareTo(b.u));
-            return ConstrainedBox(
-              constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(ctx).height * 0.75),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SheetHeader('Bookmarks', subtitle: marks.isEmpty ? null : '${marks.length} in this book'),
-                  if (marks.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(Gap.xl, 0, Gap.xl, Gap.xxl),
-                      child: Text(
-                        'None yet. Tap the bookmark at the top of the page to keep a place you want to come back to. '
-                        'Where you stopped reading is kept on its own.',
-                        style: Skin.label(ctx, size: 14),
-                      ),
-                    )
-                  else
-                    Flexible(
-                      child: ListView(
-                        shrinkWrap: true,
-                        padding: const EdgeInsets.only(bottom: Gap.xl),
-                        children: [
-                          for (final x in marks)
-                            ListTile(
-                              key: ValueKey(x.m.id),
-                              leading: Icon(Icons.bookmark_rounded, color: Skin.accentOf(ctx)),
-                              title: Text(
-                                (x.m.chapter ?? _l.chapterTitle(_l.chapterOfUnit(x.u))).toUpperCase(),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Skin.meta(ctx, size: 10.5),
-                              ),
-                              subtitle: Text(
-                                x.m.text,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: Skin.page(ctx, size: 15, height: 1.35).copyWith(color: Skin.inkOn(ctx)),
-                              ),
-                              trailing: IconButton(
-                                tooltip: 'Remove bookmark',
-                                icon: Icon(Icons.delete_outline_rounded, color: Skin.inkSoftOn(ctx)),
-                                onPressed: () async {
-                                  final m = x.m;
-                                  await MarkStore.instance.remove(m.id);
-                                  if (!mounted) return;
-                                  showSnack(context, 'Bookmark removed.',
-                                      margin: _snackMargin,
-                                      actionLabel: 'Undo',
-                                      onAction: () => unawaited(MarkStore.instance.restore(m)));
-                                },
-                              ),
-                              onTap: () {
-                                Navigator.pop(ctx);
-                                if (_inPages) _chrome.value = true;
-                                _reader.jump(x.u);
-                              },
-                            ),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
-            );
-          },
-        ),
-      ),
-    );
+    unawaited(showBookmarks(
+      context,
+      layout: _l,
+      marks: () => _bookmarks,
+      onOpen: (u) {
+        if (_inPages) _chrome.value = true;
+        _reader.jump(u);
+      },
+      onRemove: (m) async {
+        await MarkStore.instance.remove(m.id);
+        if (!mounted) return;
+        showSnack(context, 'Bookmark removed.',
+            margin: _snackMargin, actionLabel: 'Undo', onAction: () => unawaited(MarkStore.instance.restore(m)));
+      },
+    ));
   }
 
   /// Back to reading, the search matches, or the way back after a jump:
   /// whichever is wanted, rising into place.
   Widget _pill(BuildContext context) {
-    if (_hits.isNotEmpty) return KeyedSubtree(key: const ValueKey('matches'), child: _matches(context));
-    if (_reader.returnTo != null) return KeyedSubtree(key: const ValueKey('return'), child: _returnPill(context));
-    return KeyedSubtree(key: const ValueKey('back'), child: _backToReading(context));
-  }
-
-  Widget _returnPill(BuildContext context) => Material(
-        color: Skin.darkOn(context),
-        shape: const StadiumBorder(),
-        elevation: 4,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Flexible(
-              child: InkWell(
-                customBorder: const StadiumBorder(),
-                onTap: () {
-                  final back = _reader.returnTo;
-                  setState(() => _reader.returnTo = null);
-                  if (back != null) unawaited(_reader.goTo(back));
-                },
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.undo_rounded, size: 16, color: Skin.accentOf(context)),
-                      const SizedBox(width: Gap.s),
-                      Flexible(
-                        child: Text('Back to where you were',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Skin.ui(size: 14, weight: FontWeight.w600, color: Skin.onDark(context))),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            IconButton(
-              tooltip: 'Stay here',
-              visualDensity: VisualDensity.compact,
-              icon: Icon(Icons.close_rounded, size: 18, color: Skin.onDark(context)),
-              onPressed: () => setState(() => _reader.returnTo = null),
-            ),
-          ],
+    if (_hits.isNotEmpty) {
+      return KeyedSubtree(
+        key: const ValueKey('matches'),
+        child: MatchesPill(
+          query: _hitQuery,
+          index: _hit,
+          count: _hits.length,
+          onStep: _stepHit,
+          onDone: () => setState(() => _hits = const []),
         ),
       );
+    }
+    if (_reader.returnTo != null) {
+      return KeyedSubtree(
+        key: const ValueKey('return'),
+        child: ReturnPill(
+          onBack: () {
+            final back = _reader.returnTo;
+            setState(() => _reader.returnTo = null);
+            if (back != null) unawaited(_reader.goTo(back));
+          },
+          onStay: () => setState(() => _reader.returnTo = null),
+        ),
+      );
+    }
+    return KeyedSubtree(
+      key: const ValueKey('back'),
+      child: BackToReadingPill(detached: _detached, onTap: () => _reader.follow(force: true)),
+    );
+  }
 
   /// The book in pages, with the top bar and the player over them, shown
   /// by a tap in the middle of the page and gone as the page turns.
@@ -1832,8 +1611,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           top: 0,
           left: 0,
           right: 0,
-          child: _overBar(
-            context,
+          child: SlidingBar(
+            shown: _chrome,
             top: true,
             child: DecoratedBox(
               decoration: BoxDecoration(
@@ -1884,8 +1663,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           // fade, from behind the player. The fade runs out to the screen's
           // edge: ending at the safe area, it hid the glow above that line
           // and left it showing below, cut straight across.
-          child: _overBar(
-            context,
+          child: SlidingBar(
+            shown: _chrome,
             top: false,
             child: Stack(
               clipBehavior: Clip.none,
@@ -1920,27 +1699,6 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       ],
     );
   }
-
-  /// A bar over the pages (or the player docked over the scroll, by
-  /// [shownBy]): it slides in from its edge when shown.
-  Widget _overBar(BuildContext context, {required bool top, required Widget child, ValueListenable<bool>? shownBy}) =>
-      ValueListenableBuilder<bool>(
-        valueListenable: shownBy ?? _chrome,
-        builder: (context, shown, child) => IgnorePointer(
-          ignoring: !shown,
-          child: AnimatedSlide(
-            offset: shown ? Offset.zero : Offset(0, top ? -0.5 : 0.5),
-            duration: Motion.of(context, Motion.standard),
-            curve: Motion.out,
-            child: AnimatedOpacity(
-              opacity: shown ? 1 : 0,
-              duration: Motion.of(context, Motion.quick),
-              child: child,
-            ),
-          ),
-        ),
-        child: child,
-      );
 
   /// The book filling the screen, its words like lyrics.
   void _openNowPlaying() {
@@ -1998,130 +1756,28 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     return 'No voice';
   }
 
-  // The round buttons take 48 dp for a finger and draw 44: the gaps and the
-  // edges are 2 dp less on each side, so every circle stays where it was.
-  Widget _topBar(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(10, 6, 10, 4),
-        child: Row(
-          children: [
-            RoundButton(
-              icon: Icons.arrow_back_rounded,
-              tooltip: 'Back to library',
-              onTap: () => Navigator.of(context).maybePop(),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Semantics(
-                button: true,
-                label: 'Contents',
-                child: GestureDetector(
-                  key: const ValueKey('contents'),
-                  behavior: HitTestBehavior.opaque,
-                  onTap: _openContents,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        _book.metadata.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        // On a page tone's paper, in its ink: the app's (cream
-                        // in a dark theme) vanished on Ink's white.
-                        style: Skin.title(context, size: 18, color: _style.barInk),
-                      ),
-                      ListenableBuilder(
-                        listenable: _topLine,
-                        builder: (context, _) {
-                          // The chapter on screen while looking around; the
-                          // one being read otherwise.
-                          final looking = _detached.value && !_l.isEmpty;
-                          final c = looking ? _viewChapter.value : _l.chapterOfUnit(_cursor.value);
-                          final u = looking ? _l.chapterFirstUnit[c] : _cursor.value;
-                          final style = Skin.meta(context, size: 10.5, color: _style.barSoftInk);
-                          if (!(_l.chapters.length > 1 || widget.positionOf != null)) {
-                            return Text(
-                              _book.metadata.authorLine.isEmpty
-                                  ? _book.source.name.toUpperCase()
-                                  : _book.metadata.authorLine.toUpperCase(),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: style,
-                            );
-                          }
-                          // A long title gives way; the count always shows.
-                          // A new chapter's name rises into place.
-                          return AnimatedSwitcher(
-                            duration: Motion.of(context, Motion.standard),
-                            transitionBuilder: fadeRise,
-                            layoutBuilder: (current, previous) => Stack(
-                              alignment: Alignment.centerLeft,
-                              children: [...previous, if (current != null) current],
-                            ),
-                            child: Row(
-                              key: ValueKey(c),
-                              children: [
-                                Flexible(
-                                  child: Text(_l.chapterTitle(c).toUpperCase(),
-                                      maxLines: 1, overflow: TextOverflow.ellipsis, style: style),
-                                ),
-                                Text(
-                                  '  ·  ${widget.positionOf?.call(u) ?? '${_chapterNumber(c)}/${_l.chapters.length}'}',
-                                  maxLines: 1,
-                                  style: style,
-                                ),
-                                Icon(Icons.expand_more_rounded, size: 15, color: style.color),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            if (_isPdf) ...[
-              const SizedBox(width: 4),
-              RoundButton(
-                icon: _showPages ? Icons.notes_rounded : Icons.auto_stories_rounded,
-                tooltip: _showPages ? 'Show as text' : 'Show the real pages',
-                onTap: () {
-                  setState(() => _prefs.pdfPages = !_prefs.pdfPages);
-                  _prefs.save();
-                  _detached.value = false;
-                },
-              ),
-            ],
-            const SizedBox(width: 4),
-            RoundButton(
-              icon: Icons.search_rounded,
-              tooltip: 'Search',
-              onTap: _openSearch,
-            ),
-            const SizedBox(width: 4),
-            // Contents is the title's (its chapter line says so); the bar
-            // keeps a page's bookmark at hand.
-            ValueListenableBuilder<bool>(
-              valueListenable: _bookmarkedHere,
-              builder: (context, marked, _) => RoundButton(
-                icon: marked ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
-                iconColor: marked ? Skin.accentOf(context) : null,
-                tooltip: marked ? 'Remove bookmark' : 'Bookmark this page',
-                onTap: () => unawaited(_toggleBookmark()),
-                onLongPress: _openBookmarks,
-              ),
-            ),
-            const SizedBox(width: 4),
-            // How the page looks. The voice's settings are on the player
-            // (its voice and speed), in the same sheet.
-            RoundButton(
-              icon: Icons.text_fields_rounded,
-              tooltip: 'Reading settings',
-              onTap: () => showListenSheet(context, _listen, focus: ListenFocus.read),
-            ),
-          ],
-        ),
+  /// The top bar, for the scroll and over the pages.
+  Widget _topBar(BuildContext context) => ReaderTopBar(
+        layout: _l,
+        style: _style,
+        line: _topLine,
+        cursor: _cursor,
+        detached: _detached,
+        viewChapter: _viewChapter,
+        chapterNumber: _chapterNumber,
+        positionOf: widget.positionOf,
+        bookmarked: _bookmarkedHere,
+        realPages: _isPdf ? _showPages : null,
+        onRealPages: () {
+          setState(() => _prefs.pdfPages = !_prefs.pdfPages);
+          _prefs.save();
+          _detached.value = false;
+        },
+        onContents: _openContents,
+        onSearch: _openSearch,
+        onBookmark: () => unawaited(_toggleBookmark()),
+        onBookmarks: _openBookmarks,
+        onSettings: () => showListenSheet(context, _listen, focus: ListenFocus.read),
       );
 
   Widget _text(BuildContext context, {Widget? glow}) {
@@ -2438,37 +2094,6 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     );
   }
 
-  Widget _backToReading(BuildContext context) => ValueListenableBuilder<bool>(
-        valueListenable: _detached,
-        builder: (context, detached, _) => AnimatedSlide(
-          offset: detached ? Offset.zero : const Offset(0, 1.6),
-          duration: Motion.of(context, const Duration(milliseconds: 220)),
-          curve: Curves.easeOutCubic,
-          child: AnimatedOpacity(
-            opacity: detached ? 1 : 0,
-            duration: Motion.of(context, const Duration(milliseconds: 180)),
-            child: IgnorePointer(
-              ignoring: !detached,
-              child: Capsule(
-                onTap: () => _reader.follow(force: true),
-                color: Skin.darkOn(context),
-                border: false,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.my_location_rounded, size: 16, color: Skin.accentOf(context)),
-                    const SizedBox(width: Gap.s),
-                    Text('Back to reading',
-                        style: Skin.ui(size: 14, weight: FontWeight.w600, color: Skin.onDark(context))),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-
   int _chapterNumber(int c) => widget.chapterNumberOf?.call(c) ?? c + 1;
 
   static final _digit = RegExp(r'[0-9]');
@@ -2502,29 +2127,6 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       if (chapter != null && mounted) _reader.jump(_l.chapterFirstUnit[chapter]);
     }));
   }
-}
-
-/// A [SafeArea] of the [insets] given rather than the phone's of the moment:
-/// the reader's, held steady while a system sheet is over it (see
-/// _ReaderScreenState._steadyInsets).
-class _HeldSafeArea extends StatelessWidget {
-  const _HeldSafeArea({required this.insets, required this.child});
-
-  final EdgeInsets insets;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: insets,
-        child: MediaQuery.removePadding(
-          context: context,
-          removeLeft: true,
-          removeTop: true,
-          removeRight: true,
-          removeBottom: true,
-          child: child,
-        ),
-      );
 }
 
 /// The book's text as the fast scroller sees it: how far through its
