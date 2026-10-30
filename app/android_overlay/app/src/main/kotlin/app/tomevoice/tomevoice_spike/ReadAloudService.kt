@@ -54,7 +54,8 @@ import java.util.concurrent.Executors
  *
  * Reading (Dart's session, [update] to [end]) and being up are apart: System
  * UI and Android Auto bind to the browser with nothing being read, and the
- * service then has no notification and is not foreground.
+ * service then has no notification and is not foreground. A book left
+ * paused keeps its card but not the foreground ([settle]); Play puts it back.
  */
 class ReadAloudService : MediaBrowserService() {
 
@@ -92,6 +93,12 @@ class ReadAloudService : MediaBrowserService() {
          * let the card start again with the app in the background.
          */
         private const val LINGER_MS = 2000L
+
+        /**
+         * Paused while reading may still play on by itself (see settle):
+         * how soon the foreground is looked at again.
+         */
+        private const val SETTLE_AGAIN_MS = 15 * 1000L
 
         /** A Play from outside the app gives Dart this long to start reading. */
         private const val START_TIMEOUT_MS = 30 * 1000L
@@ -176,16 +183,22 @@ class ReadAloudService : MediaBrowserService() {
                 Widgets.refreshAll(ctx)
             }
             val running = instance
-            if (running != null && running.foreground) {
+            if (running != null && (running.foreground || running.started)) {
                 running.giveUpLater(false)
                 running.keepAwake(next.playing)
-                // A new sentence only moves the seek bar; leave the
-                // notification itself alone.
-                if (was && next.copy(positionMs = previous.positionMs) == previous) {
-                    running.publishState()
-                } else {
-                    running.refresh()
+                // Playing again after a pause: back in the foreground, with
+                // the card as it is now.
+                val promoted = next.playing && !running.foreground && running.goForeground()
+                if (!promoted) {
+                    // A new sentence only moves the seek bar; leave the
+                    // notification itself alone.
+                    if (was && next.copy(positionMs = previous.positionMs) == previous) {
+                        running.publishState()
+                    } else {
+                        running.refresh()
+                    }
                 }
+                running.settle()
                 return
             }
             val intent = Intent(ctx, ReadAloudService::class.java)
@@ -377,6 +390,9 @@ class ReadAloudService : MediaBrowserService() {
             Intent.ACTION_MEDIA_BUTTON -> intent?.let { button(it) }
         }
         if (reading && now.playing) keepAwake(true)
+        // Started for a reading that is paused (a book handed on paused):
+        // up, as Android requires of a start like this, and out again.
+        if (action == null) settle()
         if (!reading && !starting) {
             // Nothing is being read (the app was closed since, or a button
             // with nothing to act on): stop again, and redraw the widgets so
@@ -405,7 +421,11 @@ class ReadAloudService : MediaBrowserService() {
     override fun onDestroy() {
         instance = null
         giveUpLater(false)
+        main.removeCallbacks(settleLater)
         keepAwake(false)
+        // Stopped by Android while a book waits, paused: its card stays, and
+        // its Play starts the service again. Otherwise it goes.
+        if (!reading) cancelCard()
         session?.isActive = false
         session?.release()
         session = null
@@ -505,17 +525,51 @@ class ReadAloudService : MediaBrowserService() {
     }
 
     /**
+     * Paused: out of the foreground, the card kept (now one that can be
+     * swiped away), so a book left paused no longer holds the app up for
+     * good and Android may take its memory back. Play puts it back in the
+     * foreground ([update]). Not while reading may play on by itself (the
+     * phone's audio taken a moment, or Play waiting for a call to end, see
+     * ReadingCore.audioMayReturn): Android 12+ would not let the app go
+     * foreground again then, from the background. That is looked at again
+     * every little while until it no longer may.
+     */
+    private fun settle() {
+        main.removeCallbacks(settleLater)
+        if (!foreground || !reading || now.playing || starting) return
+        if (ReadingCore.audioMayReturn()) {
+            main.postDelayed(settleLater, SETTLE_AGAIN_MS)
+            return
+        }
+        foreground = false
+        stopForeground(STOP_FOREGROUND_DETACH)
+    }
+
+    private val settleLater = Runnable { settle() }
+
+    /** The card, left up by [settle] apart from the service, goes. */
+    private fun cancelCard() {
+        try {
+            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(NOTIFICATION_ID)
+        } catch (_: Exception) {
+        }
+    }
+
+    /**
      * The reading is over: the notification goes, and the service unless
      * something is bound to it (the system's media controls, Android Auto).
      * With no activity either, the engine goes after it.
      */
     fun standDown(error: String? = null) {
         giveUpLater(false)
+        main.removeCallbacks(settleLater)
         keepAwake(false)
         if (foreground) {
             foreground = false
             if (Build.VERSION.SDK_INT >= 24) stopForeground(STOP_FOREGROUND_REMOVE)
         }
+        // Left up on a pause, it is the app's own notification now.
+        cancelCard()
         publishState(error)
         if (started) {
             started = false
