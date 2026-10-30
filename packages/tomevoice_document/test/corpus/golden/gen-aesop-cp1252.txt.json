@@ -1,0 +1,37 @@
+{
+  "file": "gen-aesop-cp1252.txt",
+  "source": "text",
+  "title": "gen-aesop-cp1252",
+  "authors": [],
+  "language": "en",
+  "sections": [
+    "gen-aesop-cp1252"
+  ],
+  "chapters": [
+    "gen-aesop-cp1252"
+  ],
+  "notRead": [],
+  "blocks": {
+    "heading": 8,
+    "paragraph": 16
+  },
+  "displayOnly": [],
+  "sentencesBeforeOpening": 0,
+  "first": [
+    "ÆSOP’S FABLES",
+    "Six fables, literally translated from the Greek by the Rev. George Fyler Townsend",
+    "THE MOUNTAIN IN LABOR",
+    "A MOUNTAIN was once greatly agitated.",
+    "Loud groans and noises were heard, and crowds of people came from all parts to see what was the matter."
+  ],
+  "last": [
+    "He soon discovered the secret of the hidden treasure, and digging down, came to the lump of gold, and stole it.",
+    "The Miser, on his next visit, found the hole empty and began to tear his hair and to make loud lamentations.",
+    "A neighbor, seeing him overcome with grief and learning the cause, said, “Pray do not grieve so; but go and take a stone, and place it in the hole, and fancy that the gold is still lying there.",
+    "It will do you quite the same service; for when the gold was there, you had it not, as you did not make the slightest use of it.”",
+    "THE END"
+  ],
+  "sentences": 44,
+  "words": 783,
+  "spokenSha256": "60dc3757b7ae956b98bc0b93f8692089199d8ae078cd4cacd4470ebc1ab1de6b"
+}

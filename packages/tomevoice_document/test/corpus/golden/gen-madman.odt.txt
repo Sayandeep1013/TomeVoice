@@ -1,0 +1,65 @@
+# gen-madman.odt: what a voice reads, a sentence a line, from where a new book opens.
+# Written by test/corpus_test.dart; see test/corpus/README.md before changing it.
+## The Scarecrow
+The Scarecrow
+Once I said to a scarecrow, “You must be tired of standing in this lonely field.”
+And he said, “The joy of scaring is a deep and lasting one, and I never tire of it.”
+Said I, after a minute of thought, “It is true; for I too have known that joy.”
+Said he, “Only those who are stuffed with straw can know it.”
+Then I left him, not knowing whether he had complimented or belittled me.
+A year passed, during which the scarecrow turned philosopher.
+And when I passed by him again I saw two crows building a nest under his hat.
+## The Sleepwalkers
+The Sleepwalkers
+In the town where I was born lived a woman and her daughter, who walked in their sleep.
+One night, while silence enfolded the world, the woman and her daughter, walking, yet asleep, met in their mist-veiled garden.
+And the mother spoke, and she said: “At last, at last, my enemy!
+You by whom my youth was destroyed—who have built up your life upon the ruins of mine!
+Would I could kill you!”
+And the daughter spoke, and she said: “O hateful woman, selfish and old!
+Who stand between my freer self and me!
+Who would have my life an echo of your own faded life!
+Would you were dead!”
+At that moment a cock crew, and both women awoke.
+The mother said gently, “Is that you, darling?”
+And the daughter answered gently, “Yes, dear.”
+## The Fox
+The Fox
+A fox looked at his shadow at sunrise and said, “I will have a camel for lunch today.”
+And all morning he went about looking for camels.
+But at noon he saw his shadow again—and he said, “A mouse will do.”
+## The Two Cages
+The Two Cages
+In my father’s garden there are two cages.
+In one is a lion, which my father’s slaves brought from the desert of Ninavah; in the other is a songless sparrow.
+Every day at dawn the sparrow calls to the lion, “Good morrow to thee, brother prisoner.”
+## The Three Ants
+The Three Ants
+Three ants met on the nose of a man who was asleep in the sun.
+And after they had saluted one another, each according to the custom of his tribe, they stood there conversing.
+The first ant said, “These hills and plains are the most barren I have known.
+I have searched all day for a grain of some sort, and there is none to be found.”
+Said the second ant, “I too have found nothing, though I have visited every nook and glade.
+This is, I believe, what my people call the soft, moving land where nothing grows.”
+Then the third ant raised his head and said, “My friends, we are standing now on the nose of the Supreme Ant, the mighty and infinite Ant, whose body is so great that we cannot see it, whose shadow is so vast that we cannot trace it, whose voice is so loud that we cannot hear it;
+and He is omnipresent.”
+When the third ant spoke thus the other ants looked at each other and laughed.
+At that moment the man moved and in his sleep raised his hand and scratched his nose, and the three ants were crushed.
+## About this selection
+About this selection
+Five parables, chosen for their length:
+The Scarecrow
+The Sleepwalkers
+The Fox
+Parable
+Paragraphs
+The Scarecrow
+7
+The Sleepwalkers
+5
+The Fox
+1
+The Two Cages
+2
+The Three Ants
+6

@@ -1,0 +1,129 @@
+# selected-fables.pdftext.json: what a voice reads, a sentence a line, from where a new book opens.
+# Written by test/corpus_test.dart; see test/corpus/README.md before changing it.
+## The Shepherd’s Boy and the Wolf
+The Shepherd’s Boy and the Wolf
+A SHEPHERD-BOY, who watched a flock of sheep near a village, brought out the villagers three or four times by crying out, “Wolf!
+Wolf!” and when his neighbors came to help him, laughed at them for their pains.
+The Wolf, however, did truly come at last.
+The Shepherd-boy, now really alarmed, shouted in an agony of terror: “Pray, do come and help me; the Wolf is killing the sheep;” but no one paid any heed to his cries, nor rendered any assistance.
+The Wolf, having no cause of fear, at his leisure lacerated or destroyed the whole flock.
+There is no believing a liar, even when he speaks the truth.
+## The Fox and the Crow
+The Fox and the Crow
+A CROW having stolen a bit of meat, perched in a tree and held it in her beak.
+A Fox, seeing this, longed to possess the meat himself, and by a wily stratagem succeeded.
+“How handsome is the Crow,” he exclaimed, “in the beauty of her shape and in the fairness of her complexion!
+Oh, if her voice were only equal to her beauty, she would deservedly be considered the Queen of Birds!”
+This he said deceitfully; but the Crow, anxious to refute the reflection cast upon her voice, set up a loud caw and dropped the flesh.
+The Fox quickly picked it up, and thus addressed the Crow: “My good Crow, your voice is right enough, but your wit is wanting.”
+## The Milk-Woman and Her Pail
+The Milk-Woman and Her Pail
+A FARMER’S daughter was carrying her Pail of milk from the field to the farmhouse, when she fell a-musing.
+“The money for which this milk will be sold, will buy at least three hundred eggs.
+The eggs, allowing for all mishaps, will produce two hundred and fifty chickens.
+The chickens will become ready for the market when poultry will fetch the highest price, so that by the end of the year I shall have money enough from my share to buy a new gown.
+In this dress I will go to the Christmas parties, where all the young fellows will propose to me, but I will toss my head and refuse them every one.”
+At this moment she tossed her head in unison with her thoughts, when down fell the milk pail to the ground, and all her imaginary schemes perished in a moment.
+## The Crow and the Pitcher
+The Crow and the Pitcher
+A CROW perishing with thirst saw a pitcher, and hoping to find water, flew to it with delight.
+When he reached it, he discovered to his grief that it contained so little water that he could not possibly get at it.
+He tried everything he could think of to reach the water, but all his efforts were in vain.
+At last he collected as many stones as he could carry and dropped them one by one with his beak into the pitcher, until he brought the water within his reach and thus saved his life.
+Necessity is the mother of invention.
+## The Fox and the Grapes
+The Fox and the Grapes
+A FAMISHED FOX saw some clusters of ripe black grapes hanging from a trellised vine.
+She resorted to all her tricks to get at them, but wearied herself in vain, for she could not reach them.
+At last she turned away, hiding her disappointment and saying: “The Grapes are sour, and not ripe as I thought.”
+## The Oak and the Reeds
+The Oak and the Reeds
+A VERY LARGE OAK was uprooted by the wind and thrown across a stream.
+It fell among some Reeds, which it thus addressed: “I wonder how you, who are so light and weak, are not entirely crushed by these strong winds.”
+They replied, “You fight and contend with the wind, and consequently you are destroyed; while we on the contrary bend before the least breath of air, and therefore remain unbroken, and escape.”
+Stoop to conquer.
+## The Ant and the Dove
+The Ant and the Dove
+AN ANT went to the bank of a river to quench its thirst, and being carried away by the rush of the stream, was on the point of drowning.
+A Dove sitting on a tree overhanging the water plucked a leaf and let it fall into the stream close to her.
+The Ant climbed onto it and floated in safety to the bank.
+Shortly afterwards a birdcatcher came and stood under the tree, and laid his lime-twigs for the Dove, which sat in the branches.
+The Ant, perceiving his design, stung him in the foot.
+In pain the birdcatcher threw down the twigs, and the noise made the Dove take wing.
+## The Lion in Love
+The Lion in Love
+A LION demanded the daughter of a woodcutter in marriage.
+The Father, unwilling to grant, and yet afraid to refuse his request, hit upon this expedient to rid himself of his importunities.
+He expressed his willingness to accept the Lion as the suitor of his daughter on one condition: that he should allow him to extract his teeth, and cut off his claws, as his daughter was fearfully afraid of both.
+The Lion cheerfully assented to the proposal.
+But when the toothless, clawless Lion returned to repeat his request, the Woodman, no longer afraid, set upon him with his club, and drove him away into the forest.
+## The Miller, His Son, and Their Ass
+The Miller, His Son, and Their Ass
+A MILLER and his son were driving their Ass to a neighboring fair to sell him.
+They had not gone far when they met with a troop of women collected round a well, talking and laughing.
+“Look there,” cried one of them, “did you ever see such fellows, to be trudging along the road on foot when they might ride?”
+The old man hearing this, quickly made his son mount the Ass, and continued to walk along merrily by his side.
+Presently they came up to a group of old men in earnest debate.
+“There,” said one of them, “it proves what I was a-saying.
+What respect is shown to old age in these days?
+Do you see that idle lad riding while his old father has to walk?
+Get down, you young scapegrace, and let the old man rest his weary limbs.”
+Upon this the old man made his son dismount, and got up himself.
+In this manner they had not proceeded far when they met a company of women and children: “Why, you lazy old fellow,” cried several tongues at once, “how can you ride upon the beast, while that poor little lad there can hardly keep pace by the side of you?”
+The good-natured Miller immediately took up his son behind him.
+They had now almost reached the town.
+“Pray, honest friend,” said a citizen, “is that Ass your own?”
+“Yes,” replied the old man.
+“O, one would not have thought so,” said the other, “by the way you load him.
+Why, you two fellows are better able to carry the poor beast than he you.”
+“Anything to please you,” said the old man; “we can but try.”
+So, alighting with his son, they tied the legs of the Ass together and with the help of a pole endeavored to carry him on their shoulders over a bridge near the entrance to the town.
+This entertaining sight brought the people in crowds to laugh at it, till the Ass, not liking the noise nor the strange handling that he was subject to, broke the cords that bound him and, tumbling off the pole, fell into the river.
+Upon this, the old man, vexed and ashamed, made the best of his way home again, convinced that by endeavoring to please everybody he had pleased nobody, and lost his Ass in the bargain.
+## The Hen and the Golden Eggs
+The Hen and the Golden Eggs
+A COTTAGER and his wife had a Hen that laid a golden egg every day.
+They supposed that the Hen must contain a great lump of gold in its inside, and in order to get the gold they killed it.
+Having done so, they found to their surprise that the Hen differed in no respect from their other hens.
+The foolish pair, thus hoping to become rich all at once, deprived themselves of the gain of which they were assured day by day.
+## The Mice in Council
+The Mice in Council
+THE MICE summoned a council to decide how they might best devise means of warning themselves of the approach of their great enemy the Cat.
+Among the many plans suggested, the one that found most favour was the proposal to tie a bell to the neck of the Cat, so that the Mice, being warned by the sound of the tinkling, might run away and hide themselves in their holes at his approach.
+But when the Mice further debated who among them should thus “bell the Cat,” there was no one found to do it.
+## The Wolf and the Housedog
+The Wolf and the Housedog
+A WOLF, meeting a big well-fed Mastiff with a wooden collar about his neck asked him who it was that fed him so well and yet compelled him to drag that heavy log about wherever he went.
+“The master,” he replied.
+Then said the Wolf: “May no friend of mine ever be in such a plight; for the weight of this chain is enough to spoil the appetite.”
+## The Two Pots
+The Two Pots
+A RIVER carried down in its stream two Pots, one made of earthenware and the other of brass.
+The Earthen Pot said to the Brass Pot, “Pray keep at a distance and do not come near me, for if you touch me ever so slightly, I shall be broken in pieces, and besides, I by no means wish to come near you.”
+Equals make the best friends.
+## The Fox and the Woodcutter
+The Fox and the Woodcutter
+A FOX, running before the hounds, came across a Woodcutter felling an oak and begged him to show him a safe hiding-place.
+The Woodcutter advised him to take shelter in his own hut, so the Fox crept in and hid himself in a corner.
+The huntsman soon came up with his hounds and inquired of the Woodcutter if he had seen the Fox.
+He declared that he had not seen him, and yet pointed, all the time he was speaking, to the hut where the Fox lay hidden.
+The huntsman took no notice of the signs, but believing his word, hastened forward in the chase.
+As soon as they were well away, the Fox departed without taking any notice of the Woodcutter: whereon he called to him and reproached him, saying, “You ungrateful fellow, you owe your life to me, and yet you leave me without a word of thanks.”
+The Fox replied, “Indeed, I should have thanked you fervently if your deeds had been as good as your words, and if your hands had not been traitors to your speech.”
+## The Thirsty Pigeon
+The Thirsty Pigeon
+A PIGEON, oppressed by excessive thirst, saw a goblet of water painted on a signboard.
+Not supposing it to be only a picture, she flew towards it with a loud whir and unwittingly dashed against the signboard, jarring herself terribly.
+Having broken her wings by the blow, she fell to the ground, and was caught by one of the bystanders.
+Zeal should not outrun discretion.
+## The Belly and the Members
+The Belly and the Members
+THE MEMBERS of the Body rebelled against the Belly, and said, “Why should we be perpetually engaged in administering to your wants, while you do nothing but take your rest, and enjoy yourself in luxury and self-indulgence?”
+The Members carried out their resolve and refused their assistance to the Belly.
+The whole Body quickly became debilitated, and the hands, feet, mouth, and eyes, when too late, repented of their folly.
+## The Old Man and Death
+The Old Man and Death
+AN OLD MAN was employed in cutting wood in the forest, and, in carrying the faggots to the city for sale one day, became very wearied with his long journey.
+He sat down by the wayside, and throwing down his load, besought “Death” to come.
+“Death” immediately appeared in answer to his summons and asked for what reason he had called him.
+The Old Man hurriedly replied, “That, lifting up the load, you may place it again upon my shoulders.”
