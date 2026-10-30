@@ -6,6 +6,15 @@ import 'theme.dart';
 // The play button and chapter scrubber, shared by the reader's player bar
 // and the Now Playing screen.
 
+/// [minutes] as the player bar and Now Playing write a time left: "45M",
+/// "2H", "1H 5M".
+String durationLabel(int minutes) {
+  if (minutes < 60) return '${minutes}M';
+  final h = minutes ~/ 60;
+  final m = minutes % 60;
+  return m == 0 ? '${h}H' : '${h}H ${m}M';
+}
+
 /// Play or pause, with a ring while the first sentence is being made.
 class PlayButton extends StatelessWidget {
   const PlayButton({super.key, required this.player, required this.onTap});

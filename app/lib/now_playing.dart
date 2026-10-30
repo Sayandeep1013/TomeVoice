@@ -10,7 +10,7 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 import 'listen_sheet.dart' show trimSpeed;
 import 'player_controls.dart';
 import 'prefs.dart';
-import 'reader_screen.dart' show wordAt;
+import 'reader_text.dart' show wordAt;
 import 'scheduler.dart';
 import 'theme.dart';
 import 'ui.dart';
@@ -228,7 +228,7 @@ class NowPlayingScreen extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 6),
                   child: Text(
                     [
-                      minutes < 1 ? 'UNDER A MINUTE LEFT' : '${_duration(minutes)} LEFT IN CHAPTER',
+                      minutes < 1 ? 'UNDER A MINUTE LEFT' : '${durationLabel(minutes)} LEFT IN CHAPTER',
                       if (sleep != null) sleep,
                     ].join('  ·  '),
                     textAlign: TextAlign.end,
@@ -304,13 +304,6 @@ class NowPlayingScreen extends StatelessWidget {
           ),
         ),
       );
-}
-
-String _duration(int minutes) {
-  if (minutes < 60) return '${minutes}M';
-  final h = minutes ~/ 60;
-  final m = minutes % 60;
-  return m == 0 ? '${h}H' : '${h}H ${m}M';
 }
 
 /// The cover blurred to colour, under a scrim that keeps white text legible,
