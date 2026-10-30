@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
+import 'article.dart' show ArticleProblem;
 import 'book_actions.dart';
 import 'book_card.dart';
 import 'book_screen.dart';
@@ -16,6 +17,7 @@ import 'prefs.dart';
 import 'reader_screen.dart';
 import 'secret_shelf.dart';
 import 'settings_screen.dart';
+import 'shared_text.dart';
 import 'speech_service.dart';
 import 'theme.dart';
 import 'ui.dart';
@@ -40,8 +42,11 @@ class LibraryScreen extends StatefulWidget {
 }
 
 class _Importing {
-  _Importing(this.name);
+  _Importing(this.name, {this.note});
   final String name;
+
+  /// What is happening, when it is not a file being opened.
+  final String? note;
   int done = 0;
   int total = 0;
 }
@@ -162,6 +167,10 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
       if (pending != null && _handled.add(pending.path)) {
         await _importAll([pending], openAfter: true);
       }
+      final share = await takePendingShare();
+      if (share != null && _handled.add('share:${share.id}')) {
+        await _readShared(share.text, subject: share.subject);
+      }
     } on Object catch (e) {
       if (!mounted) return;
       setState(
@@ -200,9 +209,144 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
       unawaited(_svc.pendingOpen());
       Navigator.of(context).popUntil((r) => r.isFirst);
       unawaited(_importAll([file], openAfter: true));
+    } else if (e['type'] == 'sharedText') {
+      // A link or words shared to TomeVoice while it is running: back to
+      // the shelf, then read. Before the shelf has loaded, _open picks it
+      // up from the pending share instead.
+      final share = shareOf(e);
+      if (_index == null || share == null || !_handled.add('share:${share.id}')) return;
+      unawaited(takePendingShare());
+      Navigator.of(context).popUntil((r) => r.isFirst);
+      unawaited(_readShared(share.text, subject: share.subject));
     } else if (e['type'] == 'openFailed') {
       _snack('Could not open that file: ${e['message']}');
     }
+  }
+
+  /// A link or words, shared or pasted: a page read as an article, a link
+  /// to a book file imported as that book, anything else made a book; then
+  /// shown as an opened file is, on its shelf and with its page open.
+  Future<void> _readShared(String text, {String? subject}) async {
+    final link = sharedLink(tidyShared(text));
+    final job = _Importing(shareName(text), note: link == null ? null : 'Fetching the page…');
+    setState(() => _importing = job);
+    SharedOutcome? got;
+    String? problem;
+    var browse = false;
+    try {
+      got = await readShared(_store, text, subject: subject);
+    } on ArticleProblem catch (e) {
+      problem = e.message;
+      browse = e.browse;
+    } on ParseException catch (e) {
+      problem = e.message;
+    } on UnsupportedDocumentException catch (e) {
+      problem = e.message;
+    } on Object catch (e) {
+      problem = 'Could not read that: $e';
+    }
+    if (!mounted) return;
+    if (identical(_importing, job)) setState(() => _importing = null);
+    if (problem != null) {
+      showSnack(
+        context,
+        problem,
+        long: true,
+        lift: 84,
+        actionLabel: browse && link != null ? 'Open' : null,
+        onAction: browse && link != null ? () => unawaited(_svc.openUrl(link.toString())) : null,
+      );
+      return;
+    }
+    switch (got) {
+      case SharedFile(:final file):
+        await _importAll([file], openAfter: true);
+      case SharedBook(:final entry):
+        await _arrive(entry);
+      case null:
+    }
+  }
+
+  /// [entry], come from a share: the shelf it is on, then its page.
+  Future<void> _arrive(LibraryEntry entry) async {
+    final idx = await _store.index();
+    if (!mounted) return;
+    setState(() {
+      _noteArrivals(idx);
+      _index = idx;
+    });
+    final shown = idx.entries.where((e) => e.id == entry.id).firstOrNull;
+    if (shown != null) {
+      final page = idx.categories.indexWhere((c) => c.id == shown.categoryIn(idx.categories, idx.defaultCategory));
+      if (page >= 0) _goToPage(page);
+    }
+    // One on a shut secret shelf asks for the phone's lock first.
+    await _showBook(shown ?? entry);
+  }
+
+  /// The + button: books on this phone, or a link or words to paste.
+  Future<void> _addMenu() async {
+    if (_importing != null) return;
+    final pick = await showModalBottomSheet<String>(
+      context: context,
+      sheetAnimationStyle: sheetMotion(context),
+      useSafeArea: true,
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SheetHeader('Add books'),
+            SheetAction(
+              icon: Icons.folder_open_rounded,
+              label: 'Books on this phone',
+              detail: 'EPUB, PDF, Word, Kindle and text files',
+              onTap: () => Navigator.pop(ctx, 'files'),
+            ),
+            SheetAction(
+              icon: Icons.content_paste_rounded,
+              label: 'Paste a link or text',
+              detail: 'A web article, or any words you copied',
+              onTap: () => Navigator.pop(ctx, 'paste'),
+            ),
+            const SizedBox(height: Gap.s),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    switch (pick) {
+      case 'files':
+        await _pick();
+      case 'paste':
+        await _paste();
+    }
+  }
+
+  /// Paste a link or text: the clipboard is read once, after asking (from
+  /// Android 12 the phone also says that it was read).
+  Future<void> _paste() async {
+    final ok = await confirm(
+      context,
+      title: 'Paste what you copied?',
+      body: 'TomeVoice will read your clipboard once. A link to a web page becomes an article; '
+          'any other text becomes a book.',
+      action: 'Paste',
+    );
+    if (!ok || !mounted) return;
+    String text;
+    try {
+      text = (await Clipboard.getData(Clipboard.kTextPlain))?.text ?? '';
+    } on Object {
+      text = '';
+    }
+    if (!mounted) return;
+    if (text.trim().isEmpty) {
+      _snack('Nothing to paste. Copy a link or some text first.');
+      return;
+    }
+    await _readShared(text);
   }
 
   Future<void> _pick() async {
@@ -883,7 +1027,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
           size: size,
           color: Skin.amber,
           iconColor: Skin.onAmber,
-          onTap: _importing != null ? null : _pick,
+          onTap: _importing != null ? null : _addMenu,
         ),
         const SizedBox(width: 6),
         _viewMenu(context, size),
@@ -959,7 +1103,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
             'Add any book you own. TomeVoice opens it, finds the chapters '
             'and reads it to you, screen on or off.',
         action: FilledButton.icon(
-          onPressed: _pick,
+          onPressed: _addMenu,
           icon: const Icon(Icons.add_rounded),
           label: const Text('Add books'),
         ),
@@ -1026,7 +1170,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
           Text(job.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: Skin.title(context, size: 17)),
           const SizedBox(height: Gap.xs),
           Eyebrow(
-            frac == null ? 'Opening and finding chapters…' : 'Reading page ${job.done} of ${job.total}…',
+            job.note ?? (frac == null ? 'Opening and finding chapters…' : 'Reading page ${job.done} of ${job.total}…'),
           ),
           const SizedBox(height: 10),
           ClipRRect(
