@@ -599,7 +599,7 @@ class _Example extends StatelessWidget {
       decorationColor: faint,
       backgroundColor: Skin.accentOf(context).withValues(alpha: Skin.isDark(context) ? 0.16 : 0.10),
     );
-    final said = page.copyWith(color: Skin.accentOf(context), fontStyle: FontStyle.italic);
+    final said = page.copyWith(color: Skin.accentInkOf(context), fontStyle: FontStyle.italic);
     final heard = [
       for (final p in paragraphs)
         if (_heard(p).trim() case final h when h.isNotEmpty) h,
@@ -721,7 +721,7 @@ class _ShareSheetState extends State<_ShareSheet> {
               SheetHeader(
                 'Share pronunciations',
                 subtitle: 'A small file, for TomeVoice on another phone',
-                trailing: Icon(Icons.ios_share_rounded, color: Skin.accentOf(context)),
+                trailing: Icon(Icons.ios_share_rounded, color: Skin.accentInkOf(context)),
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(Gap.xl, 0, Gap.xl, Gap.l),
@@ -912,7 +912,7 @@ class _TakeInSheetState extends State<_TakeInSheet> {
             SheetHeader(
               'Add pronunciations',
               subtitle: '${list.name} · ${_n(list.words.length, 'word', 'words')}',
-              trailing: Icon(Icons.playlist_add_rounded, color: Skin.accentOf(context)),
+              trailing: Icon(Icons.playlist_add_rounded, color: Skin.accentInkOf(context)),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(Gap.xl, 0, Gap.xl, Gap.l),
@@ -1019,7 +1019,7 @@ class _BookPickerState extends State<_BookPicker> {
                 for (final e in books)
                   CheckboxListTile(
                     value: _picked.contains(e.key),
-                    activeColor: Skin.accentOf(context),
+                    activeColor: Skin.accentMarkOf(context),
                     contentPadding: const EdgeInsets.symmetric(horizontal: Gap.xl),
                     title: Text(e.value, style: Skin.ui(size: 16, weight: FontWeight.w500, color: Skin.inkOn(context))),
                     onChanged: (on) => setState(() {

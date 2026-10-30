@@ -96,7 +96,7 @@ class TagChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = accent ? Skin.accentOf(context) : Skin.inkFaintOn(context);
+    final color = accent ? Skin.accentInkOf(context) : Skin.inkFaintOn(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
       decoration: BoxDecoration(
@@ -110,11 +110,15 @@ class TagChip extends StatelessWidget {
 
 /// A thin rounded progress bar.
 class Progress extends StatelessWidget {
-  const Progress(this.value, {super.key, this.height = 3, this.track});
+  const Progress(this.value, {super.key, this.height = 3, this.track, this.color});
 
   final double value;
   final double height;
   final Color? track;
+
+  /// The fill: the accent as a mark, unless given (the soft accent on a
+  /// dark band, where the deep one by day would not show).
+  final Color? color;
 
   @override
   Widget build(BuildContext context) => ClipRRect(
@@ -127,7 +131,7 @@ class Progress extends StatelessWidget {
           builder: (context, v, _) => LinearProgressIndicator(
             value: v,
             minHeight: height,
-            color: Skin.accentOf(context),
+            color: color ?? Skin.accentMarkOf(context),
             backgroundColor: track ?? Skin.inkOn(context).withValues(alpha: 0.12),
           ),
         ),
@@ -580,7 +584,7 @@ class EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 40, color: Skin.accentOf(context).withValues(alpha: 0.85)),
+            Icon(icon, size: 40, color: Skin.accentInkOf(context).withValues(alpha: 0.85)),
             const SizedBox(height: Gap.l),
             Text(title, textAlign: TextAlign.center, style: Skin.title(context, size: 24)),
             const SizedBox(height: Gap.s),
@@ -615,7 +619,7 @@ class SheetAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = danger ? const Color(0xFFE5674D) : Skin.inkOn(context);
+    final color = danger ? Skin.dangerOn(context) : Skin.inkOn(context);
     return InkWell(
       onTap: onTap,
       child: Padding(

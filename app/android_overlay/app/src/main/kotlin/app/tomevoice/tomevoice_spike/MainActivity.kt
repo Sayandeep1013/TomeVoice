@@ -123,6 +123,63 @@ class MainActivity : FlutterActivity() {
     /** The answer to "is it you?" on phones too old for BiometricPrompt's PIN. */
     private var confirmResult: MethodChannel.Result? = null
 
+    /**
+     * The colours Android 12 and later make from the wallpaper for every app
+     * (Material You): five families, each a tone per shade from 0 (white) to
+     * 1000 (black), as ARGB. Null on older phones, which have none.
+     */
+    private fun systemColours(): Map<String, List<Int>>? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
+        val families = mapOf(
+            "accent1" to intArrayOf(
+                android.R.color.system_accent1_0, android.R.color.system_accent1_10,
+                android.R.color.system_accent1_50, android.R.color.system_accent1_100,
+                android.R.color.system_accent1_200, android.R.color.system_accent1_300,
+                android.R.color.system_accent1_400, android.R.color.system_accent1_500,
+                android.R.color.system_accent1_600, android.R.color.system_accent1_700,
+                android.R.color.system_accent1_800, android.R.color.system_accent1_900,
+                android.R.color.system_accent1_1000,
+            ),
+            "accent2" to intArrayOf(
+                android.R.color.system_accent2_0, android.R.color.system_accent2_10,
+                android.R.color.system_accent2_50, android.R.color.system_accent2_100,
+                android.R.color.system_accent2_200, android.R.color.system_accent2_300,
+                android.R.color.system_accent2_400, android.R.color.system_accent2_500,
+                android.R.color.system_accent2_600, android.R.color.system_accent2_700,
+                android.R.color.system_accent2_800, android.R.color.system_accent2_900,
+                android.R.color.system_accent2_1000,
+            ),
+            "accent3" to intArrayOf(
+                android.R.color.system_accent3_0, android.R.color.system_accent3_10,
+                android.R.color.system_accent3_50, android.R.color.system_accent3_100,
+                android.R.color.system_accent3_200, android.R.color.system_accent3_300,
+                android.R.color.system_accent3_400, android.R.color.system_accent3_500,
+                android.R.color.system_accent3_600, android.R.color.system_accent3_700,
+                android.R.color.system_accent3_800, android.R.color.system_accent3_900,
+                android.R.color.system_accent3_1000,
+            ),
+            "neutral1" to intArrayOf(
+                android.R.color.system_neutral1_0, android.R.color.system_neutral1_10,
+                android.R.color.system_neutral1_50, android.R.color.system_neutral1_100,
+                android.R.color.system_neutral1_200, android.R.color.system_neutral1_300,
+                android.R.color.system_neutral1_400, android.R.color.system_neutral1_500,
+                android.R.color.system_neutral1_600, android.R.color.system_neutral1_700,
+                android.R.color.system_neutral1_800, android.R.color.system_neutral1_900,
+                android.R.color.system_neutral1_1000,
+            ),
+            "neutral2" to intArrayOf(
+                android.R.color.system_neutral2_0, android.R.color.system_neutral2_10,
+                android.R.color.system_neutral2_50, android.R.color.system_neutral2_100,
+                android.R.color.system_neutral2_200, android.R.color.system_neutral2_300,
+                android.R.color.system_neutral2_400, android.R.color.system_neutral2_500,
+                android.R.color.system_neutral2_600, android.R.color.system_neutral2_700,
+                android.R.color.system_neutral2_800, android.R.color.system_neutral2_900,
+                android.R.color.system_neutral2_1000,
+            ),
+        )
+        return families.mapValues { (_, ids) -> ids.map { getColor(it) } }
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         // An engine already running: the app is there, or a book was being
@@ -189,12 +246,27 @@ class MainActivity : FlutterActivity() {
                     val path = call.argument<String>("path").orEmpty()
                     val index = call.argument<Int>("page") ?: 0
                     val width = call.argument<Int>("width") ?: 1080
+                    // Only this part of the page, when its margins are cut.
+                    val crop = call.argument<List<Number>>("crop")?.map { it.toFloat() }?.toFloatArray()
                     pages.execute {
                         try {
-                            val file = PdfPages.render(path, index, width, cacheDir)
+                            val file = PdfPages.render(path, index, width, cacheDir, crop)
                             main.post { result.success(file) }
                         } catch (e: Throwable) {
                             main.post { result.error("PDF_PAGES", e.message ?: "Cannot draw page", null) }
+                        }
+                    }
+                }
+                // Where the print lies on pages, for Crop margins.
+                "pdfPrint" -> {
+                    val path = call.argument<String>("path").orEmpty()
+                    val indices = call.argument<List<Number>>("pages").orEmpty().map { it.toInt() }
+                    pages.execute {
+                        try {
+                            val found = PdfPages.prints(path, indices, cacheDir)
+                            main.post { result.success(found) }
+                        } catch (e: Throwable) {
+                            main.post { result.error("PDF_PAGES", e.message ?: "Cannot look at the pages", null) }
                         }
                     }
                 }
@@ -510,6 +582,9 @@ class MainActivity : FlutterActivity() {
                         "model" to Build.MODEL,
                     )
                 )
+                // The wallpaper's colours, for a theme that follows them
+                // (Settings > Appearance). Null before Android 12.
+                "systemColours" -> result.success(systemColours())
                 "pickFolder" -> {
                     if (folderResult != null) {
                         result.error("BUSY", "A folder is already being chosen", null)

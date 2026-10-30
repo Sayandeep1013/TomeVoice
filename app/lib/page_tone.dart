@@ -91,7 +91,11 @@ class PageTone {
         );
 
   Color inkOf(BuildContext context) => ink ?? Skin.inkOn(context);
-  Color accentOf(BuildContext context) => accent ?? Skin.accentOf(context);
+
+  /// The accent as the page's text: its headings, "CHAPTER 3", its ribbon.
+  /// In the app's own colours the accent's ink, which reads on the ground
+  /// where the full accent (a fill) is too pale.
+  Color accentOf(BuildContext context) => accent ?? Skin.accentInkOf(context);
 }
 
 /// [child] in [tone]'s ink and accent: what reads the accent (washes,
@@ -107,20 +111,12 @@ Widget toned(BuildContext context, PageTone tone, Widget child) {
   }
   final a = tone.accent!;
   return TintScope(
-    palette: Palette(
+    palette: p.copyWith(
       id: '${p.id}+${tone.id}',
-      label: p.label,
-      day: p.day,
-      night: p.night,
       accent: a,
       accentSoft: a,
       accentDeep: a,
       onAccent: tone.dark ? const Color(0xFF1C1A17) : Colors.white,
-      nightCapsule: p.nightCapsule,
-      nightSheet: p.nightSheet,
-      dayCapsule: p.dayCapsule,
-      daySheet: p.daySheet,
-      only: p.only,
     ),
     child: DefaultTextStyle.merge(style: TextStyle(color: tone.ink), child: child),
   );
