@@ -1,6 +1,6 @@
 # gen-aesop.rtf: what a voice reads, a sentence a line, from where a new book opens.
 # Written by test/corpus_test.dart; see test/corpus/README.md before changing it.
-## gen-aesop
+## Fables of Aesop
 FABLES OF AESOP
 Four fables in the Rev. George Fyler Townsend’s translation
 THE WOLF AND THE CRANE

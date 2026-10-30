@@ -51,15 +51,9 @@ Five parables, chosen for their length:
 The Scarecrow
 The Sleepwalkers
 The Fox
-Parable
-Paragraphs
-The Scarecrow
-7
-The Sleepwalkers
-5
-The Fox
-1
-The Two Cages
-2
-The Three Ants
-6
+Parable Paragraphs
+The Scarecrow 7
+The Sleepwalkers 5
+The Fox 1
+The Two Cages 2
+The Three Ants 6

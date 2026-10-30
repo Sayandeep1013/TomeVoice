@@ -17,6 +17,7 @@ import 'saved_screen.dart';
 import 'listen_sheet.dart';
 import 'prefs.dart';
 import 'reader_screen.dart';
+import 'rules_screen.dart';
 import 'speakers.dart' show Character;
 import 'speech_service.dart';
 import 'theme.dart';
@@ -182,6 +183,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
         prefs: _prefs,
         language: _language,
         bookId: _entry.id,
+        bookTitle: _entry.title,
         onChanged: ({required bool restart}) => _rebuild(),
         onPreview: _preview,
       );
@@ -405,6 +407,14 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                       chapter: _currentChapter,
                       preferBook: true,
                     );
+                  case 'rules':
+                    await Navigator.of(context).push(MaterialPageRoute<void>(
+                      builder: (_) => RulesScreen(
+                        bookTitles: {for (final e in _index?.entries ?? const <LibraryEntry>[]) e.id: e.title},
+                        bookId: _entry.id,
+                        bookTitle: _entry.title,
+                      ),
+                    ));
                   case 'cover':
                     await changeCover(context, _store, _entry);
                   case 'move':
@@ -431,6 +441,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
               itemBuilder: (_) => [
                 if (_layout?.isEmpty == false) const PopupMenuItem(value: 'passage', child: Text('Find a passage')),
                 if (_layout?.isEmpty == false) const PopupMenuItem(value: 'audio', child: Text('Save as audio…')),
+                const PopupMenuItem(value: 'rules', child: Text('Reading rules')),
                 const PopupMenuItem(value: 'cover', child: Text('Change cover')),
                 const PopupMenuItem(value: 'move', child: Text('Move to…')),
                 if (_entry.progress > 0)

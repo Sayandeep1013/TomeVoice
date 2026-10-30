@@ -359,6 +359,74 @@ void main() {
       expect(titles(outline), ['Chapter 1 Cells', '2 Tissues']);
     });
 
+    test("a scan's bookmarks named after its pictures are not chapters", () {
+      // An image-to-PDF tool's bookmark on every page, named after the page's
+      // picture: each was a chapter, its name over the page and read aloud.
+      final outline = pdfOutlineFromPlatform([
+        for (var p = 0; p < 4; p++) {'title': 'DSC0${1139 + p}.tif', 'page': p, 'level': 0},
+        {'title': 'IMG_2041.JPG', 'page': 4, 'level': 0},
+        {'title': 'IMG-20240501-WA0003', 'page': 5, 'level': 0},
+        {'title': 'PXL_20240501_101530123', 'page': 6, 'level': 0},
+        {'title': 'scan0001.pdf', 'page': 7, 'level': 0},
+        {'title': '0009.pdf', 'page': 8, 'level': 0},
+        {'title': 'page_010.png', 'page': 9, 'level': 0},
+      ]);
+      expect(outline, isEmpty);
+    });
+
+    test('a PDF joined from files keeps a chapter for each, named without the extension', () {
+      final outline = pdfOutlineFromPlatform([
+        {'title': 'Chapter 1.pdf', 'page': 0, 'level': 0},
+        {'title': 'The Storm.PDF', 'page': 9, 'level': 0},
+        {'title': 'Image 3', 'page': 12, 'level': 0},
+        {'title': '1914', 'page': 15, 'level': 0},
+      ]);
+      expect(titles(outline), ['Chapter 1', 'The Storm', 'Image 3', '1914']);
+    });
+
+    test("a scan titled with its first picture's name is named by its file", () {
+      final pages = [_page([_prose(0), _prose(1)])];
+      String titled(String? title) =>
+          ingestPdfText(id: 'x', pages: pages, title: title, filename: 'Sonar Tori.pdf').metadata.title;
+      expect(titled('DSC01139.tif'), 'Sonar Tori');
+      expect(titled('IMG_2041'), 'Sonar Tori');
+      expect(titled('  '), 'Sonar Tori');
+      expect(titled('The Harbour Book.docx'), 'The Harbour Book');
+      expect(titled('The Harbour Book'), 'The Harbour Book');
+    });
+
+    test('a bookmark on every page, its title not printed there, marks the page, not a chapter', () {
+      // A scanned book with "Page 1" to "Page 12" in its bookmarks, and its
+      // chapters printed in its text.
+      final pages = [
+        for (var p = 0; p < 12; p++)
+          _page([
+            if (p % 4 == 0) ['CHAPTER ${['I', 'II', 'III'][p ~/ 4]}.'],
+            _prose(p),
+            _prose(p + 12),
+          ]),
+      ];
+      final book = ingestPdfText(id: 'x', pages: pages, outline: [
+        for (var p = 0; p < 12; p++) (title: 'Page ${p + 1}', page: p),
+      ]);
+      expect(_titles(book), ['Chapter I', 'Chapter II', 'Chapter III']);
+    });
+
+    test('a poem a page, its title printed over it, keeps its bookmarks', () {
+      const poems = ['The Lantern', 'Low Water', 'The Salt Road', 'Gulls', 'The Ford', 'Night Boats', 'Driftwood'];
+      final pages = [
+        for (var p = 0; p < poems.length; p++)
+          _page([
+            [poems[p]],
+            _prose(p),
+          ]),
+      ];
+      final book = ingestPdfText(id: 'x', pages: pages, outline: [
+        for (var p = 0; p < poems.length; p++) (title: poems[p], page: p),
+      ]);
+      expect(_titles(book), poems);
+    });
+
     test('bookmarks without levels, from an older extractor, read as before', () {
       final outline = pdfOutlineFromPlatform([
         {'title': 'Intro', 'page': 0},
@@ -578,6 +646,48 @@ void main() {
       ]);
     });
 
+    test("two speakers' lines set in, one after the other, are two paragraphs however the extractor marked them", () {
+      // Pride and Prejudice as PDFBox marks paragraphs when it sees indents:
+      // at a line set in after one that did not start a paragraph, and at a
+      // line back at the edge after one set in that did not. A one-line
+      // speech and the next speaker's first line, both set in, share one
+      // extractor paragraph with no line at the edge, and were read as one
+      // ("How so? ... them?' 'My dear Mr. Bennet,' replied his wife").
+      // Measured on the page: the text at x 31.5, a speaker's first line set
+      // in to 41.9, an em at 10 points.
+      final book = _laidBook([
+        [
+          _at('‘What is his name?’', 41.9, 80, w: 94, para: true),
+          _at('‘Bingley.’', 41.9, 93, w: 49),
+          _at('‘Is he married or single?’', 41.9, 106, w: 128),
+          _at('‘Oh! single, my dear, to be sure! A single man of large', 41.9, 119, w: 309.6),
+          _at('fortune; four or five thousand a year. What a fine thing for our', 31.5, 132, w: 320, para: true),
+          _at('girls!’', 31.5, 145, w: 35),
+          _at('‘How so? how can it affect them?’', 41.9, 158, w: 163, para: true),
+          _at('‘My dear Mr. Bennet,’ replied his wife, ‘how can you be so', 41.9, 171, w: 309.6),
+          _at('tiresome! You must know that I am thinking of his marrying one', 31.5, 184, w: 320, para: true),
+          _at('of them.’', 31.5, 197, w: 44),
+          _at('‘Is that his design in settling here?’', 41.9, 210, w: 188, para: true),
+          _at('‘Design! nonsense, how can you talk so! But it is very likely', 41.9, 223, w: 309.6),
+          _at('that he may fall in love with one of them, and therefore you', 31.5, 236, w: 320, para: true),
+          _at('must visit him as soon as he comes.’', 31.5, 249, w: 178),
+        ],
+      ]);
+      expect(_texts(book), [
+        '‘What is his name?’',
+        '‘Bingley.’',
+        '‘Is he married or single?’',
+        '‘Oh! single, my dear, to be sure! A single man of large fortune; four or five thousand a year. '
+            'What a fine thing for our girls!’',
+        '‘How so? how can it affect them?’',
+        '‘My dear Mr. Bennet,’ replied his wife, ‘how can you be so tiresome! You must know that I am '
+            'thinking of his marrying one of them.’',
+        '‘Is that his design in settling here?’',
+        '‘Design! nonsense, how can you talk so! But it is very likely that he may fall in love with one '
+            'of them, and therefore you must visit him as soon as he comes.’',
+      ]);
+    });
+
     test('a title set larger than the text under it is a paragraph of its own', () {
       // Two fables on a page, each title a little above its text: the
       // extractor ran each title into its text, so the title was read as the
@@ -619,6 +729,35 @@ void main() {
       ]);
       expect(_texts(book).last, 'Come home before the tide turns. Bring the lantern, and the key to the gate. '
           'The road is dark at night. Mind the ford. It rises fast after the rain.');
+    });
+
+    test("a note's mark set raised after a word is shown and not said", () {
+      // PdfText.kt says which runs of a line are set smaller and raised:
+      // here the "1" after "Michaelmas,", the "2" of "102" and the "st" of
+      // "1st". Only the first is a note's mark; a power follows a digit, and
+      // letters are not a mark.
+      const note = 'Michaelmas,1 and some of his servants are to be in the house by';
+      const more = 'the end of next week, when 102 of them, the 1st, would come.';
+      final laid = _laid([
+        _at('Mr. Morris immediately; that he is to take possession before', 72, 100, para: true),
+        _at(note, 72, 114),
+        _at(more, 72, 128),
+      ]);
+      Book read(List<List<int>>? raised) =>
+          ingestPdfText(id: 'x', pages: [laid.text], layout: [laid.layout], raised: raised);
+      String said(Book b) => [
+            for (final bl in b.sections.expand((s) => s.blocks))
+              spokenText(bl.text, [for (final s in bl.sentences) ...s.silent]).text,
+          ].join(' ');
+      final raised = [
+        [1, note.indexOf(',1') + 1, 1, 2, more.indexOf('102') + 2, 1, 2, more.indexOf('1st') + 1, 2],
+      ];
+      final book = read(raised);
+      expect(_texts(book).single, contains('before Michaelmas,1 and some'), reason: 'shown');
+      expect(said(book), contains('before Michaelmas, and some'));
+      expect(said(book), contains('when 102 of them, the 1st, would come.'));
+      // An older extraction says nothing of raised runs, and is read as before.
+      expect(said(read(null)), contains('before Michaelmas,1 and some'));
     });
 
     test('a layout that does not match the text is ignored', () {

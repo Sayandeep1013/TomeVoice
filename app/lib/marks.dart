@@ -251,6 +251,33 @@ class MarkStore {
     await _save();
   }
 
+  /// Book [from]'s marks are book [to]'s now (a web novel moved to another
+  /// source), each at its chapter there, [chapter]. One write.
+  Future<void> moveBook(String from, String to, int Function(int chapter) chapter) async {
+    if (!_all.any((m) => m.bookId == from)) return;
+    _all = [
+      for (final m in _all)
+        if (m.bookId != from)
+          m
+        else
+          Mark(
+            id: m.id,
+            bookId: to,
+            bookTitle: m.bookTitle,
+            kind: m.kind,
+            at: m.at.copyWith(sectionIndex: chapter(m.at.sectionIndex)),
+            text: m.text,
+            created: m.created,
+            span: m.span,
+            chapter: m.chapter,
+            note: m.note,
+            colour: m.colour,
+            edited: m.edited,
+          ),
+    ];
+    await _save();
+  }
+
   Future<void> _save() async {
     changes.value++;
     try {

@@ -4,12 +4,14 @@ import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.webkit.CookieManager
+import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterEngineCache
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
@@ -38,6 +40,31 @@ object SourcesBridge {
         if (FlutterEngineCache.getInstance().get(ReadingCore.ENGINE_ID)?.dartExecutor?.isExecutingDart == true) return true
         val a = app?.get() ?: return false
         return !a.isFinishing && !a.isDestroyed
+    }
+
+    /**
+     * Ask the app's own engine (ReadingCore's, running Dart) to run the
+     * check for new chapters (home_shell.dart's checkInApp, answering
+     * "runCheck"), for NovelCheckWorker while that engine is up: a second
+     * engine must never write the library while it may. [answer] hears what
+     * to tell the reader, or null when it could not say. On the main thread;
+     * the engine asked, or null when there was none to ask.
+     */
+    fun askAppToCheck(answer: (Map<*, *>?) -> Unit): FlutterEngine? {
+        val engine = FlutterEngineCache.getInstance().get(ReadingCore.ENGINE_ID)
+        if (engine == null || !engine.dartExecutor.isExecutingDart) return null
+        MethodChannel(engine.dartExecutor.binaryMessenger, CHANNEL).invokeMethod(
+            "runCheck",
+            null,
+            object : MethodChannel.Result {
+                override fun success(result: Any?) = answer(result as? Map<*, *>)
+
+                override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) = answer(null)
+
+                override fun notImplemented() = answer(null)
+            },
+        )
+        return engine
     }
 
     fun attach(
@@ -118,6 +145,24 @@ object SourcesBridge {
                         }
                     }
                 }
+                // A source's site in a web view to sign in to (BrowserCheck.login):
+                // its cookies for the site, for that source's own jar. Only
+                // with the app's activity.
+                "browserLogin" -> {
+                    val a = activity
+                    val url = call.argument<String>("url")
+                    val agent = call.argument<String>("userAgent")
+                    if (a == null || url == null || agent == null) {
+                        result.success(null)
+                    } else {
+                        try {
+                            BrowserCheck.login(a, url, agent) { jar -> result.success(jar) }
+                        } catch (e: Exception) {
+                            // No web view on this phone.
+                            result.success(null)
+                        }
+                    }
+                }
                 "clearWebCookies" -> {
                     // The web view's cookies (browser checks, logins): all of
                     // them, or one site's ([url]) as far as it can be told.
@@ -164,6 +209,18 @@ object SourcesBridge {
                         DownloadService.stop(appContext)
                     }
                     result.success(null)
+                }
+                // On Wi-Fi (a network not charged by the byte): what new
+                // chapters downloading by themselves wait for.
+                "unmetered" -> {
+                    val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                    result.success(
+                        try {
+                            cm != null && cm.activeNetwork != null && !cm.isActiveNetworkMetered
+                        } catch (e: Exception) {
+                            false
+                        }
+                    )
                 }
                 "notificationsAllowed" -> result.success(NovelCheckWorker.allowed(appContext))
                 "askNotifications" -> {

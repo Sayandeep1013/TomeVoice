@@ -16,9 +16,9 @@ import 'voices.dart';
 import 'web_reader.dart';
 
 /// The scheduler that reads [layout] of book [bookId] aloud, as the reader
-/// sets one up: its voice (and dialogue voice), speed, pronunciation fixes
-/// and pauses. One place, so a book read on after its page is closed sounds
-/// as it did on it.
+/// sets one up: its voice (and dialogue voice), speed, pronunciation fixes,
+/// what its skip presets pass over, and pauses. One place, so a book read
+/// on after its page is closed (or saved as audio) sounds as it did on it.
 PlaybackScheduler readingScheduler({
   required ReadingLayout layout,
   required ListeningPrefs Function() prefs,
@@ -66,7 +66,15 @@ PlaybackScheduler readingScheduler({
     engineIdOf: () => prefs().engineId ?? VoiceCatalog.instance.engineId,
     voiceNameOf: () => listen().voiceName,
     pauseAfter: pauseAfter,
-    respell: (unit) => respellUnit(unit, ReadingRules.instance.sayFor(bookId)),
+    // The reader's fixes, and what the book's presets pass over (an author's
+    // note, a row of symbols), found with the chapter the sentence is in.
+    respell: (unit) {
+      final rules = ReadingRules.instance;
+      final on = rules.presetsFor(bookId);
+      final l = read.layout;
+      return respellUnit(unit, rules.sayFor(bookId),
+          presets: on, quiet: quietStretches(l.book, unit, on, skipped: l.skipped));
+    },
     dialogueVoiceOf: () => listen().dialogueVoice,
     pitchOf: (voice) => prefs().pitchOf(voice),
     quoteOpenAt: quoteOpenAt,

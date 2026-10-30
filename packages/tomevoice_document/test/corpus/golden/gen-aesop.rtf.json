@@ -1,21 +1,26 @@
 {
   "file": "gen-aesop.rtf",
   "source": "rtf",
-  "title": "gen-aesop",
-  "authors": [],
+  "title": "Fables of Aesop",
+  "authors": [
+    "Aesop"
+  ],
   "language": "en",
   "sections": [
-    "gen-aesop"
+    "Fables of Aesop"
   ],
   "chapters": [
-    "gen-aesop"
+    "Fables of Aesop"
   ],
   "notRead": [],
   "blocks": {
     "heading": 5,
-    "paragraph": 10
+    "paragraph": 10,
+    "footnote": 1
   },
-  "displayOnly": [],
+  "displayOnly": [
+    "footnote: ¹ Townsend has the Wolf hire the Crane “for a large sum”."
+  ],
   "sentencesBeforeOpening": 0,
   "first": [
     "FABLES OF AESOP",
@@ -32,6 +37,6 @@
     "The Greek for a fable is μῦθος, and the fables are online at Project Gutenberg."
   ],
   "sentences": 27,
-  "words": 478,
+  "words": 490,
   "spokenSha256": "4d62aa2667053182fd27a2be306fa16edba9dd882d5725091c55ed9bfac843b5"
 }

@@ -7,6 +7,7 @@ import 'browser_check.dart';
 import 'chapter_finder.dart';
 import 'library_store.dart';
 import 'listening_session.dart';
+import 'read_marks.dart';
 import 'reader_screen.dart';
 import 'reading_rules.dart';
 import 'sources/plugin_host.dart';
@@ -267,8 +268,10 @@ class _WebNovelReaderState extends State<WebNovelReader> {
   }
 
   /// Reading moved to [chapter]: fetch ahead quietly, so the next chapters
-  /// are ready before they are needed.
+  /// are ready before they are needed. A chapter marked unread is being
+  /// read again, so its mark goes (see ReadMarks).
   void _onChapter(int chapter) {
+    unawaited(ReadMarkStore.instance.reached(_store, _id, chapter).catchError((Object _) {}));
     if (_prefetching) return;
     final last = _lastLoaded(chapter);
     if (last - chapter >= 1 || last + 1 >= _total) return;

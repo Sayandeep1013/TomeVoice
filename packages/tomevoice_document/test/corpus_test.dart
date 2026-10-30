@@ -120,21 +120,64 @@ String _short(String s) => s.length <= 100 ? s : '${s.substring(0, 99)}…';
 String _lf(String s) => s.replaceAll('\r\n', '\n');
 
 /// [file] read as the app reads it. A .pdftext.json file is a recorded PDF
-/// extraction (see SOURCES.md), handed over as the app hands the platform's.
-_Reading _read(String file) {
+/// extraction (see SOURCES.md), handed over as the app hands the platform's,
+/// changed first by [extracted] when given.
+_Reading _read(String file, {Map<String, Object?> Function(Map<String, Object?> pdf)? extracted}) {
   final bytes = File('$_dir/$file').readAsBytesSync();
   if (!file.endsWith('.pdftext.json')) return _Reading(file, ingestBytes(bytes, filename: file));
-  final pdf = Map<String, Object?>.from(jsonDecode(utf8.decode(bytes)) as Map);
+  var pdf = Map<String, Object?>.from(jsonDecode(utf8.decode(bytes)) as Map);
+  if (extracted != null) pdf = extracted(pdf);
   final book = ingestPdfText(
     id: bookIdOf(bytes),
     pages: (pdf['text'] as String? ?? '').split(String.fromCharCode(0x0C)),
     outline: pdfOutlineFromPlatform(pdf['outline']),
     layout: pdfLayoutFromPlatform(pdf['layout']),
+    raised: pdfRaisedFromPlatform(pdf['raised']),
     title: pdf['title'] as String?,
     author: pdf['author'] as String?,
     filename: file.replaceAll('.pdftext.json', '.pdf'),
   );
   return _Reading(file, resectionPdf(book));
+}
+
+/// [pdf] with paragraph marks where PDFBox also puts them when it sees
+/// indents (PDFTextStripper.isParagraphSeparation, by its defaults: set in
+/// by more than two spaces, a space taken as a quarter of an em): at a line
+/// set in after a line that did not start a paragraph, and at a line back
+/// at the edge after one that did not. The recorded marks (the top of a
+/// page, a drop) stay. A font with a narrow space makes the extractor mark
+/// a book so; with a wide one it marks only the drops, as recorded.
+Map<String, Object?> _withIndentMarks(Map<String, Object?> pdf) {
+  final mark = String.fromCharCode(0x2029);
+  final layout = pdfLayoutFromPlatform(pdf['layout'])!;
+  final pages = (pdf['text'] as String).split(String.fromCharCode(0x0C));
+  final out = <String>[];
+  for (var p = 0; p < pages.length; p++) {
+    final lines = <({String text, bool start})>[];
+    final chunks = pages[p].split(mark);
+    for (var c = 0; c < chunks.length; c++) {
+      // Each mark starts a paragraph at the line after it.
+      var first = c > 0;
+      for (final l in chunks[c].split('\n')) {
+        if (l.isEmpty) continue;
+        lines.add((text: l, start: first));
+        first = false;
+      }
+    }
+    final at = p < layout.length ? layout[p] : const <int>[];
+    final starts = <bool>[];
+    for (var i = 0; i < lines.length; i++) {
+      var start = lines[i].start;
+      if (!start && i > 0 && at.length == lines.length * 5) {
+        final space = at[i * 5 + 3] / 10 / 4;
+        final gap = at[i * 5] - at[(i - 1) * 5];
+        if (gap > 2 * space || gap < -space) start = !starts[i - 1];
+      }
+      starts.add(start);
+    }
+    out.add([for (var i = 0; i < lines.length; i++) '${starts[i] ? mark : ''}${lines[i].text}'].join('\n'));
+  }
+  return {...pdf, 'text': out.join(String.fromCharCode(0x0C))};
 }
 
 /// Check [r] against its goldens, or write them when updating.
@@ -241,6 +284,10 @@ final _corpus = <String, List<_Check>>{
       expect(r.spoken, contains('Son cœur est un luth suspendu; Sitôt qu’on le touche il résonne.'));
       expect(_with(r, 'In the greenest of our valleys'), hasLength(1));
     }),
+    _check("the transcriber's notes after the story are not read", (r) {
+      expect(r.text, isNot(contains('Transcriber')));
+      expect(r.spoken.last, endsWith('over the fragments of the “House of Usher.”'));
+    }),
   ],
 
   // The same book as Gutenberg's Kindle file (KF8): calibre renames every
@@ -252,13 +299,17 @@ final _corpus = <String, List<_Check>>{
       expect(r.spoken.first, 'THE FALL OF THE HOUSE OF USHER');
       expect(r.chapters, ['THE FALL OF THE HOUSE OF USHER']);
     }),
-    _check(
-      'says what the EPUB says',
-      (r) => expect(r.spoken, _read('pg932-images-3.epub').spoken),
-      skip: 'Known bug: a KF8 book\'s footnotes are read aloud and their marks said ("for other men* have '
-          'thought thus", then "* Watson, Dr. Percival..." in the flow). Its links are stripped from the HTML '
-          '(kindle:pos targets are not resolved), so markers and notes cannot be found.',
-    ),
+    _check('says what the EPUB says', (r) => expect(r.spoken, _read('pg932-images-3.epub').spoken)),
+    _check("the transcriber's notes after the story are not read, though calibre renamed their class", (r) {
+      expect(r.text, isNot(contains('Transcriber')));
+      expect(r.spoken.last, endsWith('over the fragments of the “House of Usher.”'));
+    }),
+    _check('the footnote is shown, not read, and its mark is not said', (r) {
+      // Its kindle:pos links found their places, as the EPUB's links do.
+      expect(r.displayOnlyOf(BlockRole.footnote), [startsWith('* Watson, Dr. Percival, Spallanzani')]);
+      expect(_with(r, 'for other men have thought thus'), hasLength(1));
+      expect(r.text, isNot(contains('men*')));
+    }),
   ],
 
   // The same book as Gutenberg's plain text: UTF-8, CRLF, hard-wrapped
@@ -267,6 +318,11 @@ final _corpus = <String, List<_Check>>{
     _check("Gutenberg's header and licence are not read", (r) {
       expect(r.text, isNot(contains('Gutenberg')));
       expect(r.spoken.first, 'The Fall of the House of Usher');
+    }),
+    _check("named by its header's title and author, not by the file's number", (r) {
+      expect(r.book.metadata.title, 'The Fall of the House of Usher');
+      expect(r.book.metadata.authors, ['Edgar Allan Poe']);
+      expect(r.chapters, ['The Fall of the House of Usher']);
     }),
     _check('paragraphs are joined from their lines, not read a line at a time', (r) {
       expect(r.blocks.length, lessThan(70));
@@ -297,6 +353,10 @@ final _corpus = <String, List<_Check>>{
     _check('a text box is read once', (r) {
       expect(_with(r, 'In some tellings the race is run between a fox and a snail.'), hasLength(1));
     }),
+    _check('the table is read a row at a time, not a cell at a time', (r) {
+      expect(r.spoken, containsAllInOrder(['Fable Words', 'The Lion And The Mouse 133', 'The Dog and the Shadow 87']));
+      expect(r.spoken, isNot(contains('133')));
+    }),
   ],
 
   // LibreOffice: a generated table of contents, a picture with a title and
@@ -312,6 +372,10 @@ final _corpus = <String, List<_Check>>{
       expect(r.displayOnlyOf(BlockRole.footnote), ['¹ Gibran wrote these parables in English, in New York.', 'i Ninavah is Nineveh, on the Tigris.']);
       expect(_with(r, 'lived a woman and her daughter, who walked in their sleep.'), hasLength(1));
     }),
+    _check('the table is read a row at a time, not a cell at a time', (r) {
+      expect(r.spoken, containsAllInOrder(['Parable Paragraphs', 'The Scarecrow 7', 'The Three Ants 6']));
+      expect(r.spoken, isNot(contains('7')));
+    }),
   ],
 
   // Word's RTF: font, colour and style tables, info, header and footer, a
@@ -323,6 +387,13 @@ final _corpus = <String, List<_Check>>{
       expect(r.text, isNot(contains('89504e47')));
       expect(r.text, isNot(contains('HYPERLINK')));
       expect(r.spoken.first, 'FABLES OF AESOP');
+    }),
+    _check('the footnote is shown after its paragraph, not read; the info group names the book', (r) {
+      expect(r.displayOnlyOf(BlockRole.footnote), ['¹ Townsend has the Wolf hire the Crane “for a large sum”.']);
+      final at = r.blocks.indexWhere((b) => b.role == BlockRole.footnote);
+      expect(r.blocks[at - 1].text, startsWith('A WOLF who had a bone stuck in his throat'));
+      expect(r.book.metadata.title, 'Fables of Aesop');
+      expect(r.book.metadata.authors, ['Aesop']);
     }),
     _check('text in a Cyrillic font and in \\u escapes is read as written', (r) {
       expect(r.spoken, contains('The same lesson is a Russian proverb: Тише едешь — дальше будешь.'));
@@ -357,8 +428,6 @@ final _corpus = <String, List<_Check>>{
     _check(
       "a dash after an exclamation, then the speaker's words, is one sentence",
       (r) => expect(r.spoken, contains('— Огонь держать до утра! — крикнул Андреич коту, хотя кот, конечно, ничего не понял.')),
-      skip: 'Known: Russian dialogue ("— Огонь держать до утра! — крикнул Андреич") is cut after "!", '
-          'because a dash, not a lower-case letter, follows it. Not fixed here: sentence splitting.',
     ),
   ],
 
@@ -446,16 +515,28 @@ final _corpus = <String, List<_Check>>{
         'Mr. Bennet made no answer.',
       ]));
     }),
+    _check('the same paragraphs when the extractor marks a paragraph at each indent', (r) {
+      // Marked so, two speakers' lines set in one after the other ("How so?
+      // how can it affect them?" and "My dear Mr. Bennet," replied his wife)
+      // were a paragraph of their own, with no line at the edge, and read
+      // as one. (The title page's centred lines are marked apart too.)
+      final indents = _read('pride-and-prejudice.pdftext.json', extracted: _withIndentMarks);
+      List<String> read(_Reading x) => [
+            for (final c in x.layout.chapters)
+              for (final b in x.book.sections[c].blocks) b.text,
+          ];
+      expect(read(indents), read(r));
+      expect(indents.spoken, r.spoken);
+    }),
     _check('the footnote is shown, not read', (r) {
       expect(r.displayOnlyOf(BlockRole.footnote), [startsWith('1 Michaelmas: the feast of St Michael')]);
       expect(r.text, isNot(contains('quarter day')));
     }),
-    _check(
-      "the footnote's mark is not said",
-      (r) => expect(r.text, isNot(contains('Michaelmas,1'))),
-      skip: 'Known bug: in a PDF a note\'s mark is a digit after a word ("before Michaelmas,1 and"), read aloud. '
-          'The line layout gives one size a line, so the raised digit cannot be told from the text.',
-    ),
+    _check("the footnote's mark is shown, not said", (r) {
+      expect(r.text, isNot(contains('Michaelmas,1')));
+      expect(r.spoken, contains(contains('that he is to take possession before Michaelmas, and some of his servants')));
+      expect(r.blocks.map((b) => b.text), contains(contains('before Michaelmas,1 and some')));
+    }),
   ],
 
   // Recorded PDF extraction: a two-column booklet with bookmarks, a running
@@ -484,6 +565,26 @@ final _corpus = <String, List<_Check>>{
         expect(first, first.toUpperCase(), reason: section.blocks[1].text);
         expect(section.blocks.last.text, matches(RegExp('[.!?”]\$')), reason: section.blocks.last.text);
       }
+    }),
+  ],
+
+  // Recorded OCR output: a scan in Bengali as Tesseract read it, kept as
+  // the app keeps it, with the bookmarks the image-to-PDF tool wrote: one a
+  // page, named after the page's picture.
+  'kheya-ghat-scan.pdftext.json': [
+    _check("the pictures' names in the bookmarks are not chapters; the printed chapters are", (r) {
+      expect(r.chapters, ['প্রথম পরিচ্ছেদ: হরিপদ মাঝি', 'দ্বিতীয় পরিচ্ছেদ: বর্ষার রাত', 'তৃতীয় পরিচ্ছেদ: ভোরের নৌকা']);
+      expect(r.text, isNot(contains('DSC')));
+      expect(r.chapters, everyElement(isNot(contains('.tif'))));
+    }),
+    _check('opens on the first chapter; the running head and page numbers are not read', (r) {
+      expect(r.spoken.first, 'প্রথম পরিচ্ছেদ');
+      expect(r.spoken, isNot(contains('খেয়াঘাট')));
+      expect(r.spoken.where((s) => RegExp('^[০-৯]+\$').hasMatch(s)), isEmpty);
+    }),
+    _check('read as Bengali; a sentence a page break cut is whole', (r) {
+      expect(r.book.metadata.language, 'bn');
+      expect(r.spoken, contains('হাটের দিনে ঘাটে ভিড় হতো খুব বেশি।'));
     }),
   ],
 };

@@ -138,6 +138,28 @@ void main() {
           ['The Raven', 'Once upon a midnight dreary, while I pondered, weak and weary.']);
     });
 
+    test("a Gutenberg text is named by its header's title and author, not its file's number", () {
+      const book = 'The Raven\n\nOnce upon a midnight dreary, while I pondered, weak and weary.\n';
+      String gutenberg(String header) =>
+          'The Project Gutenberg eBook of The Raven\n\n$header\n\n'
+          '*** START OF THE PROJECT GUTENBERG EBOOK THE RAVEN ***\n\n$book\n'
+          '*** END OF THE PROJECT GUTENBERG EBOOK THE RAVEN ***\n';
+      final raven = ingestString(gutenberg('Title: The Raven\n\nAuthor: Edgar Allan Poe\n\nRelease date: 1997'),
+          filename: 'pg1065.txt');
+      expect(raven.metadata.title, 'The Raven');
+      expect(raven.metadata.authors, ['Edgar Allan Poe']);
+      // A title over two lines, the second set in: a subtitle.
+      final douglass = ingestString(
+        gutenberg('Title: Narrative of the Life of Frederick Douglass, an American Slave\n'
+            '       Written by Himself\n\nAuthor: Frederick Douglass'),
+        filename: 'pg23.txt',
+      );
+      expect(douglass.metadata.title, 'Narrative of the Life of Frederick Douglass, an American Slave: Written by Himself');
+      // No header, or a "Title:" in the book itself: the file's name, as before.
+      expect(ingestString('Title: a list\n\nAuthor: me\n\n$book', filename: 'notes.txt').metadata.title, 'notes');
+      expect(ingestString(gutenberg('Release date: 1997'), filename: 'raven.txt').metadata.title, 'raven');
+    });
+
     test('chapter lines become sections', () {
       const raw = 'Preface text that comes first.\n\n'
           'Chapter 1\n\nIt began.\n\n'
@@ -270,6 +292,32 @@ void main() {
     expect(detectFormat(bytes), SourceKind.rtf);
     final book = ingestBytes(bytes, filename: 'a.rtf');
     expect(_texts(book), ['Café is open.', 'Second — line.']);
+    expect(book.metadata.title, 'a');
+  });
+
+  test("an RTF file's notes are shown after their paragraphs and not read, their marks not said; \\info names it", () {
+    // As Word writes them: a note's group right after its mark, \chftn (its
+    // number) or the writer's own, set raised; an endnote says \ftnalt.
+    const rtf = r'''{\rtf1\ansi{\fonttbl{\f0 Times;}}{\info{\title The Harbour Book}{\author Ann Keeper}{\operator Ed}}\f0 '''
+        r'''The lamp was lit at dusk.{\cs10\super \chftn {\footnote \pard\plain {\cs10\super \chftn } It was oil, not gas.}} '''
+        r'''It burned all night.\par '''
+        r'''The boats came home{\super *}{\footnote \pard\plain {\super *} Six of them.} at dawn.\par '''
+        r'''The end{\cs10\super \chftn {\footnote\ftnalt \pard\plain {\cs10\super \chftn } An endnote.}}.\par '''
+        r'''A last line.\par}''';
+    final book = ingestBytes(Uint8List.fromList(rtf.codeUnits), filename: 'harbour.rtf');
+    expect(book.metadata.title, 'The Harbour Book');
+    expect(book.metadata.authors, ['Ann Keeper']);
+    expect([for (final s in book.sections) for (final b in s.blocks) '${b.role.name}: ${b.text}'], [
+      'paragraph: The lamp was lit at dusk.¹ It burned all night.',
+      'footnote: ¹ It was oil, not gas.',
+      'paragraph: The boats came home* at dawn.',
+      'footnote: * Six of them.',
+      'paragraph: The end³.',
+      'paragraph: A last line.',
+      'footnote: ³ An endnote.',
+    ]);
+    expect([for (final u in flattenSpeakable(book)) spokenText(u.text, u.silent).text],
+        ['The lamp was lit at dusk.', 'It burned all night.', 'The boats came home at dawn.', 'The end.', 'A last line.']);
   });
 
   group('mobi', () {

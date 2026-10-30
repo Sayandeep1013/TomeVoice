@@ -5,11 +5,14 @@ import android.app.Activity
 import android.app.Dialog
 import android.graphics.Color
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -131,6 +134,95 @@ object BrowserCheck {
         dialog.show()
         web.loadUrl(url)
         main.postDelayed(poll, 1000)
+    }
+
+    /**
+     * The site at [url] in a web view, for the reader to sign in to it (a
+     * source whose site wants an account), with Done once they have. Its
+     * cookies for [url] are handed back ("a=1; b=2") for that source's own
+     * jar, or null when it was closed without Done. The same agent as the
+     * app's own requests, so the site sees one browser. Only web pages
+     * load: a sign-in's link into another app (intent:, market:) goes
+     * nowhere, and Back goes back a page before it closes.
+     */
+    @SuppressLint("SetJavaScriptEnabled")
+    fun login(activity: Activity, url: String, userAgent: String, done: (String?) -> Unit) {
+        if (!isWebPage(url)) {
+            done(null)
+            return
+        }
+        val cookies = CookieManager.getInstance().apply { setAcceptCookie(true) }
+        val web = WebView(activity)
+        cookies.setAcceptThirdPartyCookies(web, true)
+        web.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            userAgentString = userAgent
+        }
+        lockDown(web.settings)
+        val host = Uri.parse(url).host ?: url
+        val note = TextView(activity).apply {
+            text = "Sign in to $host, then tap Done. What the site keeps of it goes to this source only."
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            setPadding(40, 32, 24, 32)
+        }
+        val cancel = Button(activity).apply { text = "Cancel" }
+        val ok = Button(activity).apply { text = "Done" }
+        val bar = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(Color.rgb(0x1E, 0x2A, 0x24))
+            addView(note, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(cancel)
+            addView(ok)
+        }
+        val root = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            fitsSystemWindows = true
+            setBackgroundColor(Color.rgb(0x1E, 0x2A, 0x24))
+            addView(bar)
+            addView(web, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        }
+        val dialog = Dialog(activity, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+        dialog.setContentView(root)
+
+        var finished = false
+        fun finish(signedIn: Boolean) {
+            if (finished) return
+            finished = true
+            cookies.flush()
+            val jar = if (signedIn) (cookies.getCookie(url) ?: "") else null
+            done(jar)
+            web.stopLoading()
+            web.destroy()
+            if (dialog.isShowing) dialog.dismiss()
+        }
+
+        web.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean =
+                !isWebPage(request?.url?.toString() ?: "")
+        }
+        ok.setOnClickListener { finish(true) }
+        cancel.setOnClickListener { finish(false) }
+        dialog.setOnCancelListener { finish(false) }
+        // Back goes back a page, then closes: by its key, and (predictive
+        // back, where the key is not sent) by the dialog's own callback.
+        dialog.setOnKeyListener { _, keyCode, event ->
+            if (keyCode != KeyEvent.KEYCODE_BACK || !web.canGoBack()) {
+                false
+            } else {
+                if (event.action == KeyEvent.ACTION_UP) web.goBack()
+                true
+            }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            dialog.onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                android.window.OnBackInvokedDispatcher.PRIORITY_OVERLAY
+            ) { if (web.canGoBack()) web.goBack() else finish(false) }
+        }
+        dialog.show()
+        web.loadUrl(url)
     }
 
     /** An English check page's title; the markup ([CHECK_JS]) tells in any language. */

@@ -194,4 +194,41 @@ void main() {
           String.fromCharCodes([0xC0, 0xFE, 0x3B1, 0x2190, 0x26]));
     });
   });
+
+  group("a transcriber's notes", () {
+    test("Project Gutenberg's box at the end is not read, nor in a Kindle copy with its classes renamed", () {
+      for (final cls in ['', ' class="calibre24"']) {
+        final blocks = blocksFromHtml(
+          '<html><body><div><p>And the tarn closed over the House of Usher.</p></div>'
+          '<div$cls style="margin-top: 5%; border: 1px solid;">'
+          '<div style="font-size: large; text-align: center;"><b>Transcriber’s Notes</b></div>'
+          '<ul><li>New original cover art included with this eBook is granted to the public domain.</li></ul>'
+          '</div><div style="text-align:center"/></body></html>',
+        );
+        expect(_texts(blocks), ['And the tarn closed over the House of Usher.']);
+      }
+    });
+
+    test('notes under a heading go as far as the next heading as high', () {
+      final blocks = blocksFromHtml(
+        '<html><body><h2>TRANSCRIBER’S NOTES</h2>'
+        '<p>Obvious printing errors have been corrected.</p><h3>Corrections</h3><p>Page 12: “teh” to “the”.</p>'
+        '<h2>Chapter One</h2><p>The lamp was lit at dusk.</p>'
+        '<p>The transcriber’s notes were lost in the fire, the keeper said.</p></body></html>',
+      );
+      expect(_texts(blocks), [
+        'Chapter One',
+        'The lamp was lit at dusk.',
+        'The transcriber’s notes were lost in the fire, the keeper said.',
+      ]);
+    });
+
+    test('a paragraph that is a transcriber’s note is not read; the chapter it opens is', () {
+      final blocks = blocksFromHtml(
+        '<html><body><div class="chapter"><p class="tn">Transcriber\'s Note: The spelling of the original '
+        'is kept.</p><h2>Chapter One</h2><p>The lamp was lit at dusk.</p></div></body></html>',
+      );
+      expect(_texts(blocks), ['Chapter One', 'The lamp was lit at dusk.']);
+    });
+  });
 }
