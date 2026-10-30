@@ -127,9 +127,14 @@ class ReadingLayout {
     required this.chapterFirstUnit,
     required this.chapterFirstItem,
     required this.unitPage,
+    required this.skipped,
   });
 
   final Book book;
+
+  /// The roles this layout does not speak: [defaultSkippedRoles] less the
+  /// ones it was built to speak (see [build]).
+  final Set<BlockRole> skipped;
 
   /// Units that will be spoken, in order (front matter removed).
   final List<Speakable> units;
@@ -218,7 +223,7 @@ class ReadingLayout {
     if (units.isEmpty) return 0;
     final fresh = cursor.sectionIndex == 0 && cursor.blockIndex == 0 && cursor.sentenceIndex == 0;
     if (fresh && !saved && chapters.length > 1 && _isTitlePage(0)) return chapterFirstUnit[1];
-    return readingIndexOfCursor(units, book, cursor);
+    return readingIndexOfCursor(units, book, cursor, skip: skipped);
   }
 
   /// Chapter [c] is a title page: a few short lines named like the book.
@@ -242,17 +247,24 @@ class ReadingLayout {
   /// that the voice skips are items too, with no units, where they stand
   /// in their chapter; the units, chapters and word counts are the same
   /// either way. Off by default: the reader shows what it always did.
-  static ReadingLayout build(Book book, {bool displayOnly = false}) {
-    final raw = flattenSpeakable(book);
+  ///
+  /// [spoken]: roles the voice skips by default ([defaultSkippedRoles]) to
+  /// read aloud in this layout, as footnotes for a reader who wants them.
+  /// Their blocks become units and items like any paragraph (a section of
+  /// notes alone becomes a chapter). The markers that point at them stay
+  /// silent: those are stretches of the sentence they sit in.
+  static ReadingLayout build(Book book, {bool displayOnly = false, Set<BlockRole> spoken = const {}}) {
+    final skip = spoken.isEmpty ? defaultSkippedRoles : defaultSkippedRoles.difference(spoken);
+    final raw = flattenSpeakable(book, skip: skip);
     final chapters = raw.isEmpty
         ? <int>[]
-        : readingSectionIndexes(book, raw);
+        : readingSectionIndexes(book, raw, skip: skip);
     final keep = chapters.toSet();
     final units = [
       for (final u in raw)
         if (keep.contains(u.sectionIndex)) u,
     ];
-    final toc = units.isEmpty ? <TocEntry>[] : readingToc(book, units);
+    final toc = units.isEmpty ? <TocEntry>[] : readingToc(book, units, skip: skip);
 
     final items = <LayoutItem>[];
     final unitItem = Int32List(units.length);
@@ -276,7 +288,7 @@ class ReadingLayout {
         // copyright page with a publisher logo does not need showing. Before
         // the first chapter, though, every picture is front matter worth
         // seeing: cover, frontispiece, title page.
-        if (previous >= 0 && speakableTextOf(book.sections[s]).length > 300) continue;
+        if (previous >= 0 && speakableTextOf(book.sections[s], skip: skip).length > 300) continue;
         out.addAll(blocks.where((b) => b.isImage && b.imageWidth != null));
       }
       previous = section;
@@ -294,7 +306,7 @@ class ReadingLayout {
       }
 
       final opensWithHeading = section.blocks
-              .where((b) => b.text.isNotEmpty && !defaultSkippedRoles.contains(b.role))
+              .where((b) => b.text.isNotEmpty && !skip.contains(b.role))
               .firstOrNull
               ?.role ==
           BlockRole.heading;
@@ -316,7 +328,7 @@ class ReadingLayout {
         if (displayOnly &&
             block.text.isNotEmpty &&
             displayOnlyRoles.contains(block.role) &&
-            defaultSkippedRoles.contains(block.role)) {
+            skip.contains(block.role)) {
           items.add(LayoutItem(chapter: c, section: sectionIndex, block: block, firstUnit: u, displayOnly: true));
           continue;
         }
@@ -359,6 +371,7 @@ class ReadingLayout {
       chapterFirstUnit: chapterFirstUnit,
       chapterFirstItem: chapterFirstItem,
       unitPage: unitPage,
+      skipped: skip,
     );
   }
 
