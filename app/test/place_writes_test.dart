@@ -67,11 +67,23 @@ void main() {
     return root;
   }
 
-  Map<String, Object?> onDisk(Directory root, String id) => Map<String, Object?>.from(
-        ((jsonDecode(File('${root.path}/library.json').readAsStringSync()) as Map)['books'] as List)
-            .cast<Map>()
-            .firstWhere((b) => b['id'] == id),
-      );
+  /// Book [id]'s entry in library.json as it is on disk. Read while the
+  /// store renames a new one over it, Windows refuses the read for a moment
+  /// (a phone does not): it is read again.
+  Map<String, Object?> onDisk(Directory root, String id) {
+    for (var tries = 0;; tries++) {
+      try {
+        return Map<String, Object?>.from(
+          ((jsonDecode(File('${root.path}/library.json').readAsStringSync()) as Map)['books'] as List)
+              .cast<Map>()
+              .firstWhere((b) => b['id'] == id),
+        );
+      } on FileSystemException {
+        if (tries >= 50) rethrow;
+        sleep(const Duration(milliseconds: 10));
+      }
+    }
+  }
 
   group('a library of 1,000 books', () {
     test('a saved place costs the UI thread a fraction of what it did', () async {
