@@ -1056,6 +1056,12 @@ class NeuralEngine {
   /// length is read at the voice's own sample rate (16,000 to 44,100 a
   /// second), from the WAV it made.
   Future<double> measure(NeuralVoice voice, String outDir) async {
+    // A shared model does the same work in any of its voices: measured in an
+    // English one, as the sentence is English.
+    final pack = voice.pack;
+    if (pack != null && voice.language != 'en') {
+      voice = NeuralVoices.instance.catalog?.speakersOf(pack).where((v) => v.language == 'en').firstOrNull ?? voice;
+    }
     // A Chinese voice reads through a Chinese lexicon: English is lost on it.
     final zh = voice.language == 'zh';
     final text = zh

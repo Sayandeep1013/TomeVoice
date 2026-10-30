@@ -251,8 +251,7 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
                           children: [
                             Expanded(
                               child: Text(
-                                'On this phone: ${_count(_voices.installedVoices.length, 'voice')} · '
-                                '${(_voices.bytesUsed / 1048576).round()} MB',
+                                'On this phone: ${_onPhone()} · ${(_voices.bytesUsed / 1048576).round()} MB',
                                 style: Skin.meta(context),
                               ),
                             ),
@@ -281,6 +280,13 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
           ),
         ),
       );
+
+  /// "3 voices", or "31 voices in 3 downloads" when a model holds many.
+  String _onPhone() {
+    final here = _voices.installedVoices;
+    final downloads = {for (final v in here) v.modelId}.length;
+    return _count(here.length, 'voice') + (downloads < here.length ? ' in ${_count(downloads, 'download')}' : '');
+  }
 
   /// The voices on offer: the shown language's, those on the phone in
   /// other languages, then every other language, folded.
@@ -653,16 +659,20 @@ class _LicenceLine extends StatelessWidget {
         borderRadius: BorderRadius.circular(Radii.pill),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 2),
+          // Whole, over two lines if need be: "No licence granted" cut short
+          // to "No licence grant…" said too little.
           child: Row(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.gavel_rounded, size: 13, color: color),
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Icon(Icons.gavel_rounded, size: 13, color: color),
+              ),
               const SizedBox(width: 5),
               Flexible(
                 child: Text(
                   '${licence.name} · ${licence.summary}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                   style: Skin.ui(size: 12.5, weight: FontWeight.w600, color: color),
                 ),
               ),

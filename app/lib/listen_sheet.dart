@@ -1416,15 +1416,18 @@ class _VoicePickerState extends State<_VoicePicker> {
         ),
       );
     }
-    final here = offered.where(NeuralVoices.instance.readable).length;
+    final natural = NeuralVoices.instance;
+    final here = offered.where(natural.readable).length;
+    // Not "to download" if it is here already (a Kokoro too slow to read with).
+    final toGet = offered.where((v) => !natural.installed(v)).length;
     return Padding(
       padding: padding,
       child: SheetAction(
         icon: Icons.auto_awesome_rounded,
         label: 'Natural voices for $name',
         detail: here == 0
-            ? '${offered.length} to download: voices that sound like people, made on your phone'
-            : '$here on this phone, ${offered.length - here} more to download',
+            ? '$toGet to download: voices that sound like people, made on your phone'
+            : '$here on this phone${toGet == 0 ? '' : ', $toGet more to download'}',
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => NeuralVoicesScreen(language: _language)),
         ),
