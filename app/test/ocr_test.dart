@@ -174,10 +174,11 @@ void main() {
       expect(ocrPageText('\n\n'), '');
     });
 
-    test('pages with text keep theirs and their layout; the others are what OCR read', () {
+    test('pages with text keep theirs, their layout and raised runs; the others are what OCR read', () {
       final pdf = {
         ...scanText(4, typed: {1: '${_mark}A typed notice of the publisher, kept as it is.'}),
         'layout': [<int>[], [1, 2, 3, 4, 5], <int>[], <int>[]],
+        'raised': [<int>[], [0, 8, 1], <int>[], [0, 1, 1]],
         'title': 'The Lantern Keeper',
         'outline': [
           {'title': 'One', 'page': 0, 'level': 0},
@@ -191,6 +192,7 @@ void main() {
       expect(pages[1], '${_mark}A typed notice of the publisher, kept as it is.');
       expect(pages[3], isEmpty);
       expect(merged['layout'], [<int>[], [1, 2, 3, 4, 5], <int>[], <int>[]]);
+      expect(merged['raised'], [<int>[], [0, 8, 1], <int>[], <int>[]], reason: 'an OCR read page has none');
       expect(merged['pages'], 4);
       expect(merged['ocr'], 'ben+eng');
       expect(merged['ocrPages'], [0, 2, 3]);
@@ -243,12 +245,13 @@ void main() {
   });
 
   /// A scan read to its end, made into a book in [store]: its job as
-  /// OcrJobs.start leaves one, and its pages as Ocr.kt writes them.
-  Future<LibraryEntry> ocrBook(LibraryStore store, File pdf, {int pages = 12}) async {
+  /// OcrJobs.start leaves one, and its pages as Ocr.kt writes them. [outline]
+  /// is the scan's own bookmarks.
+  Future<LibraryEntry> ocrBook(LibraryStore store, File pdf, {int pages = 12, List<Object?> outline = const []}) async {
     final id = bookIdOf(pdf.readAsBytesSync());
     final dir = Directory('${tmp.path}/ocr/jobs/$id')..createSync(recursive: true);
     final source = pdf.renameSync('${dir.path}/source.pdf');
-    File('${dir.path}/pdf.json').writeAsStringSync(jsonEncode(scanText(pages)));
+    File('${dir.path}/pdf.json').writeAsStringSync(jsonEncode({...scanText(pages), 'outline': outline}));
     File('${dir.path}/job.json').writeAsStringSync(jsonEncode({
       'id': id,
       'name': 'The Lantern Keeper.pdf',
@@ -347,6 +350,55 @@ void main() {
       final layout = await store.loadLayout(entry.id);
       expect(layout.units.map((u) => u.text).join(' '), contains('lighthouse'));
       expect(layout.chapters.length, greaterThanOrEqualTo(3));
+    });
+
+    test("a PDF's note mark, set small and raised, is shown in the book and not said", () async {
+      // As PdfText.kt reads a typed page: two lines, where they sit, and the
+      // "1" after "Michaelmas," set small and raised.
+      const lines = [
+        'The keeper climbed the stairs of the lighthouse every evening, long before',
+        'Michaelmas,1 and the gulls watched him go up the path and come down at dawn.',
+      ];
+      final f = picked('notes.pdf', utf8.encode('%PDF-1.4 a book with a note'));
+      pdfs[f.path] = {
+        'text': '$_mark${lines.join('\n')}$_ff',
+        'pages': 1,
+        'title': 'The Lantern Keeper',
+        'author': null,
+        'outline': const [],
+        'layout': [
+          [72, 100, 400, 105, lines[0].length, 72, 114, 400, 105, lines[1].length],
+        ],
+        'raised': [
+          [1, 11, 1],
+        ],
+      };
+      final entry = await store.importFile(PickedFile(path: f.path, name: 'notes.pdf'));
+      final layout = await store.loadLayout(entry.id);
+      final unit = layout.units.firstWhere((u) => u.text.contains('Michaelmas'));
+      expect(unit.text, contains('long before Michaelmas,1 and the gulls'), reason: 'shown');
+      expect(spokenText(unit.text, unit.silent).text, contains('long before Michaelmas, and the gulls'));
+    });
+
+    test("a scan's bookmarks, a picture's name on every page, are not its chapters", () async {
+      // As an image-to-PDF tool makes a scan: a bookmark a page, named after
+      // the page's picture. Each was a chapter, its name over the page.
+      final pdf = picked('kheya.pdf', utf8.encode('%PDF-1.4 a scan, a bookmark a page'));
+      final entry = await ocrBook(store, pdf, outline: [
+        for (var p = 0; p < 12; p++) {'title': 'DSC0${1139 + p}.tif', 'page': p, 'level': 0},
+      ]);
+      List<String> chapters(ReadingLayout l) => [for (var c = 0; c < l.chapters.length; c++) l.chapterTitle(c)];
+      final layout = await store.loadLayout(entry.id);
+      expect(chapters(layout), [contains('Birch Road'), contains('Fern Road'), contains('Juniper Road')]);
+      expect(layout.units.map((u) => u.text).join(' '), isNot(contains('DSC0')));
+
+      // A book made from the same scan by an older PDF reader, its pictures'
+      // names its chapters, is made again from the text OCR gave it.
+      final index = File('${tmp.path}/library.json');
+      index.writeAsStringSync(index.readAsStringSync().replaceAll('"pdfParser": $pdfParserVersion', '"pdfParser": 4'));
+      final again = LibraryStore(tmp);
+      expect(chapters(await again.loadLayout(entry.id)), [contains('Birch Road'), contains('Fern Road'), contains('Juniper Road')]);
+      expect((await again.list()).single.pdfParser, pdfParserVersion);
     });
 
     test('opened again, or made by a newer PDF reader, it is never read again', () async {

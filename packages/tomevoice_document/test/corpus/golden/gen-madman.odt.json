@@ -28,9 +28,10 @@
   ],
   "blocks": {
     "heading": 6,
-    "paragraph": 37,
+    "paragraph": 25,
     "listItem": 3,
-    "footnote": 2
+    "footnote": 2,
+    "table": 6
   },
   "displayOnly": [
     "footnote: ¹ Gibran wrote these parables in English, in New York.",
@@ -45,13 +46,13 @@
     "Said he, “Only those who are stuffed with straw can know it.”"
   ],
   "last": [
-    "1",
-    "The Two Cages",
-    "2",
-    "The Three Ants",
-    "6"
+    "The Scarecrow 7",
+    "The Sleepwalkers 5",
+    "The Fox 1",
+    "The Two Cages 2",
+    "The Three Ants 6"
   ],
-  "sentences": 57,
+  "sentences": 51,
   "words": 592,
-  "spokenSha256": "e935052b41b49bd5fdfac9d0c750801ed14cda4f0fec5ea1a8e9a7b009270dfa"
+  "spokenSha256": "0e3c9796570f35c4256c6c0067d9991c018259e0c9641dc1fdd2454555357e83"
 }

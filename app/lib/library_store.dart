@@ -27,9 +27,13 @@ import 'speech_service.dart';
 /// own encoding, AZW3 by its chapters, chapters and languages beyond
 /// English; v7: front and back matter, licences and a page's navigation
 /// left unread, Gutenberg text in paragraphs, Markdown, ODT and FB2 fixes,
-/// found by the test corpus). PDFs keep their own version, on the entry
-/// (pdfParser).
-const _parsedVersion = 7;
+/// found by the test corpus; v8: Russian and Ukrainian dialogue not cut
+/// after "!" or "?" before who spoke, an AZW3 book's notes shown and not
+/// read, transcribers' notes not read, a Gutenberg text named by its
+/// header, an RTF file's notes shown and its \info title, a Word or ODT
+/// table of data read a row at a time). PDFs keep their own version, on the
+/// entry (pdfParser).
+const _parsedVersion = 8;
 
 /// On-device library: copied files, parsed books, reading positions.
 ///
@@ -1417,9 +1421,11 @@ Book _pdfBook(String id, Map<String, Object?> pdf, String? filename) {
   return ingestPdfText(
     id: id,
     pages: text.split(String.fromCharCode(0x0C)),
-    // Every bookmark level, and where lines sit (for footnotes and columns).
+    // Every bookmark level, where lines sit (for footnotes and columns),
+    // and their raised runs (notes' marks, not said).
     outline: pdfOutlineFromPlatform(pdf['outline']),
     layout: pdfLayoutFromPlatform(pdf['layout']),
+    raised: pdfRaisedFromPlatform(pdf['raised']),
     title: pdf['title'] as String?,
     author: pdf['author'] as String?,
     filename: filename,

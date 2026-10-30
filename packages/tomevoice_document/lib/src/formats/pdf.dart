@@ -18,8 +18,11 @@ const pdfParagraphMark = '\u2029';
 /// and columns from the line layout; 3: paragraphs set in by an indent,
 /// which the extractor ran together, dialogue above all; 4: a title run
 /// into its text, a short chapter's running head, title and contents pages
-/// not read on opening).
-const pdfParserVersion = 4;
+/// not read on opening; 5: a scan's bookmarks named after its pictures, or
+/// one on every page, are not chapters; two speakers' lines set in one
+/// after the other, and a line ending in a colon over one set in, are two
+/// paragraphs; a note's mark set raised after a word is not said).
+const pdfParserVersion = 5;
 
 /// One outline (bookmark) entry: a title and the 0-based page it points at.
 typedef PdfOutlineEntry = ({String title, int page});
@@ -40,6 +43,12 @@ List<PdfOutlineEntry> pdfOutlineFromPlatform(Object? raw) => flattenPdfOutline([
               level: o['level'] is int ? o['level'] as int : 0,
             ),
     ]);
+
+/// The runs the platform found set smaller and raised ("raised": one list of
+/// numbers per page, three for each run: its line, start and length, see
+/// PdfText.kt) as [bookFromPdfText] takes them; null when there are none, as
+/// from an older extraction.
+List<List<int>>? pdfRaisedFromPlatform(Object? raw) => pdfLayoutFromPlatform(raw);
 
 /// The platform's line layout ("layout": one list of numbers per page, see
 /// PdfText.kt) as [bookFromPdfText] takes it; null when there is none.
@@ -64,8 +73,13 @@ List<List<int>>? pdfLayoutFromPlatform(Object? raw) {
 /// chapters (Part One, Book II, a volume) rather than being a chapter: a book
 /// in Parts keeps its chapters, and a textbook's "Chapter 3" keeps its
 /// sections to itself. When chapters in different groups share titles
-/// ("Chapter 1" in every Part), each is named with its group's.
+/// ("Chapter 1" in every Part), each is named with its group's. A bookmark
+/// named after a picture is no chapter (see [_bookmarkTitle]).
 List<PdfOutlineEntry> flattenPdfOutline(List<PdfBookmark> bookmarks) {
+  bookmarks = [
+    for (final b in bookmarks)
+      if (_bookmarkTitle(b.title) case final title?) (title: title, page: b.page, level: b.level),
+  ];
   // A bookmark that points nowhere and holds nothing ("How to share this
   // eBook") is no chapter, and does not keep the book's own title from
   // being unwrapped.
@@ -115,6 +129,40 @@ List<PdfOutlineEntry> flattenPdfOutline(List<PdfBookmark> bookmarks) {
   ];
 }
 
+/// A bookmark's title as a chapter's, or null for a picture's file name.
+///
+/// A scan made by an image-to-PDF tool has a bookmark on every page named
+/// after its picture ("DSC01139.tif", "IMG_2041.JPG", "scan0001"): each was
+/// a chapter, its name shown over the page and read aloud. A PDF joined from
+/// documents has a bookmark for each, named after its file ("Chapter
+/// 1.pdf"): that is a chapter, named without the extension, unless the name
+/// is only a camera's or a scanner's ("scan0001.pdf", "0001.pdf").
+String? _bookmarkTitle(String title) {
+  final t = title.trim();
+  if (_pictureFile.hasMatch(t)) return null;
+  final document = _documentFile.firstMatch(t);
+  final name = document == null ? t : t.substring(0, document.start).trim();
+  if (_cameraName.hasMatch(name) || (document != null && !_letters.hasMatch(name))) return null;
+  return name;
+}
+
+/// A picture's file name.
+final _pictureFile = RegExp(
+  r'\.(tiff?|jpe?g|jpe|jfif|jp2|j2k|png|gif|bmp|webp|heic|heif|avif|psd|pcx|pnm|pbm|pgm|ppm|cr2|nef|dng)$',
+  caseSensitive: false,
+);
+
+/// A document's file name.
+final _documentFile = RegExp(r'\.(pdf|djvu?|docx?|odt|rtf|txt|xps|epub)$', caseSensitive: false);
+
+/// What a camera, a phone or a scanner names a picture: "DSC01139",
+/// "IMG_2041", "IMG-20240501-WA0003", "PXL_20240501_101530", "scan0001",
+/// "P1010001". Three digits at least: "Image 3" may be a chapter.
+final _cameraName = RegExp(
+  r'^(dsc[nf]?|img|imag|image|_mg|pxl|cimg|imgp|sam|sdc|scan|scanned|photo|pict?|p)[\s_-]?\d{3,}[\w-]*$',
+  caseSensitive: false,
+);
+
 /// A bookmark that names a chapter or a numbered section ("Chapter 3",
 /// "3 The Trial", "1.2 Methods"): anything under it is its own sections.
 final _chapterTitle = RegExp(
@@ -149,12 +197,15 @@ bool _isTitle(String text, String title) {
 /// [layout], one list per page from the platform, says where each line sits
 /// (see [pdfLayoutFromPlatform]). With it, notes at a page's foot become
 /// footnote blocks and two columns are read one after the other. Without it,
-/// as from an older caller, the text is read as drawn.
+/// as from an older caller, the text is read as drawn. [raised] says which
+/// runs of a line are set smaller and raised (see [pdfRaisedFromPlatform]):
+/// a note's mark there is shown and not said.
 Book bookFromPdfText({
   required String id,
   required List<String> pages,
   List<PdfOutlineEntry> outline = const [],
   List<List<int>>? layout,
+  List<List<int>>? raised,
   String? title,
   String? author,
   String? filename,
@@ -169,7 +220,11 @@ Book bookFromPdfText({
 
   final lines = [
     for (var p = 0; p < pages.length; p++)
-      _readingOrder(_linesOf(pages[p], layout != null && p < layout.length ? layout[p] : null)),
+      _readingOrder(_linesOf(
+        pages[p],
+        layout != null && p < layout.length ? layout[p] : null,
+        raised != null && p < raised.length ? raised[p] : null,
+      )),
   ];
   final body = _bodySize(lines);
   final furniture = _furniture(lines, body);
@@ -221,7 +276,7 @@ Book bookFromPdfText({
   // to the next page.
   var waiting = <_Para>[];
   void close() {
-    if (open != null) paras.add(_Para(open!.page, joinWrappedLines(open!.lines)));
+    if (open != null) paras.add(_Para(open!.page, joinWrappedLines(open!.marked)));
     open = null;
     paras.addAll(waiting);
     waiting = [];
@@ -235,7 +290,7 @@ Book bookFromPdfText({
     final contents = _isContentsPage(lines[p]);
     if (contents && p < 20) front = p + 1;
     for (final group in _paragraphs(lines[p], lineByLine: contents)) {
-      final text = joinWrappedLines(group);
+      final text = joinWrappedLines([for (final l in group) l.text]);
       if (text.isEmpty) continue;
       // A bookmarked chapter's printed title starts a paragraph of its own.
       final opensChapter = titlesOn[p]?.any((t) => _isTitle(text, t)) ?? false;
@@ -246,7 +301,7 @@ Book bookFromPdfText({
       }
       close();
       if (contents) {
-        paras.add(_Para(p, text, role: BlockRole.paragraph));
+        paras.add(_Para(p, joinWrappedLines([for (final l in group) l.marked]), role: BlockRole.paragraph));
       } else {
         open = _Open(p)..add(group);
       }
@@ -255,20 +310,46 @@ Book bookFromPdfText({
   }
   close();
 
+  // The platform ends every page with a page break: the empty string after
+  // the last one is not a page.
+  final pageCount = pages.last.isEmpty ? pages.length - 1 : pages.length;
+  final chapters = usable.length >= 2 && !_marksPages(usable, paras, pageCount) ? usable : const <PdfOutlineEntry>[];
+  // A scan can be titled with its first picture's name, as its bookmarks
+  // are; a PDF printed from a document, with the document's file name.
+  final named = title == null ? null : _bookmarkTitle(collapseWhitespace(title));
   return assembleBook(
     id: id,
     metadata: BookMetadata(
-      title: (title ?? '').trim().isNotEmpty
-          ? title!.trim()
-          : (titleFromFilename(filename) ?? 'Untitled PDF'),
+      title: named != null && named.isNotEmpty ? named : (titleFromFilename(filename) ?? 'Untitled PDF'),
       authors: (author ?? '').trim().isEmpty ? const [] : [author!.trim()],
     ),
-    sections: usable.length >= 2
-        ? _sectionsFromOutline(paras, usable)
+    sections: chapters.isNotEmpty
+        ? _sectionsFromOutline(paras, chapters)
         : _sectionsFromHeadings(paras, front: front),
     source: SourceKind.pdf,
     filename: filename,
   );
+}
+
+/// Whether [outline] marks the pages rather than the chapters: a bookmark on
+/// most of the [count] pages and hardly two on one, their titles not printed
+/// on them ("Page 12", "Scan 3", a scanner's names for its pictures). A
+/// chapter a page was a heading over every page, read aloud; the chapters
+/// are found in the text instead. A poem or a slide a page has its title
+/// printed over it, and keeps its bookmarks.
+bool _marksPages(List<PdfOutlineEntry> outline, List<_Para> paras, int count) {
+  if (count < 6) return false;
+  final marked = {for (final o in outline) o.page};
+  if (marked.length * 4 < count * 3 || outline.length * 4 > marked.length * 5) return false;
+  final texts = <int, List<String>>{};
+  for (final p in paras) {
+    if (p.role == null) (texts[p.page] ??= []).add(p.text);
+  }
+  var printed = 0;
+  for (final o in outline) {
+    if (texts[o.page]?.any((t) => _isTitle(t, o.title)) ?? false) printed++;
+  }
+  return printed * 4 < outline.length;
 }
 
 /// How much of a PDF is text. A scan with a few typed pages (a publisher's
@@ -347,10 +428,15 @@ typedef _Box = ({double x, double y, double w, double size});
 /// One line of a page, which of the extractor's paragraphs it is in, and
 /// where it sits when the platform said.
 class _Line {
-  const _Line(this.text, this.para, [this.box]);
+  const _Line(this.text, this.para, [this.box, String? marked]) : marked = marked ?? text;
   final String text;
   final int para;
   final _Box? box;
+
+  /// [text] with the marks of notes in it set silent ("Michaelmas,¹"): what
+  /// the paragraph is made of. Everything that looks at lines (running
+  /// heads, page numbers, sentence ends) looks at [text].
+  final String marked;
 }
 
 /// A paragraph of the reflowed text and the page it starts on.
@@ -370,8 +456,9 @@ class _Para {
 const _perLine = 5;
 
 /// The page's lines as the extractor wrote them; a paragraph starts at each
-/// paragraph mark. [layout], when given, says where each line sits.
-List<_Line> _linesOf(String page, List<int>? layout) {
+/// paragraph mark. [layout], when given, says where each line sits, and
+/// [raised] which of their runs are set smaller and raised.
+List<_Line> _linesOf(String page, List<int>? layout, [List<int>? raised]) {
   final raw = <({String text, int para})>[];
   final chunks = page.split(pdfParagraphMark);
   for (var c = 0; c < chunks.length; c++) {
@@ -386,14 +473,19 @@ List<_Line> _linesOf(String page, List<int>? layout) {
   for (var i = 0; placed && i < raw.length; i++) {
     placed = at[i * _perLine + 4] == raw[i].text.length;
   }
+  // The raised runs count lines as the layout does: of no use without it.
+  final runs = <int, List<({int start, int end})>>{};
+  if (placed && raised != null) {
+    for (var k = 0; k + 2 < raised.length; k += 3) {
+      (runs[raised[k]] ??= []).add((start: raised[k + 1], end: raised[k + 1] + raised[k + 2]));
+    }
+  }
   final out = <_Line>[];
   for (var i = 0; i < raw.length; i++) {
-    // Fonts without a proper Unicode map hand back control characters and
-    // private-use glyphs (a page number came out as U+0018). They are never
-    // readable text.
-    final t = raw[i].text.replaceAll(_unreadable, '').trim();
+    final t = _readable(raw[i].text);
     if (t.isEmpty) continue;
     final k = i * _perLine;
+    final marks = runs[i];
     out.add(_Line(
       t,
       raw[i].para,
@@ -405,10 +497,40 @@ List<_Line> _linesOf(String page, List<int>? layout) {
               size: at[k + 3] / 10,
             )
           : null,
+      marks == null ? null : _readable(_withSilentMarks(raw[i].text, marks)),
     ));
   }
   return out;
 }
+
+/// [line] without what is never text. Fonts without a proper Unicode map
+/// hand back control characters and private-use glyphs (a page number came
+/// out as U+0018).
+String _readable(String line) => line.replaceAll(_unreadable, '').trim();
+
+/// [line] with the [runs] set raised in it that are notes' marks shown and
+/// not said ("before Michaelmas,¹ and"): a number or a symbol right after a
+/// word or a stop. One after a digit is a power ("10⁶"); one after a space,
+/// or at the line's start, is not a mark on the word before.
+String _withSilentMarks(String line, List<({int start, int end})> runs) {
+  final out = StringBuffer();
+  var at = 0;
+  for (final r in [...runs]..sort((a, b) => a.start.compareTo(b.start))) {
+    if (r.start <= 0 || r.start < at || r.end > line.length || r.end <= r.start) continue;
+    final mark = line.substring(r.start, r.end);
+    if (!_raisedMark.hasMatch(mark) || _spaceOrDigit.hasMatch(line[r.start - 1])) continue;
+    out
+      ..write(line.substring(at, r.start))
+      ..write(silentMark(mark));
+    at = r.end;
+  }
+  out.write(line.substring(at));
+  return out.toString();
+}
+
+/// What a note's mark says: "1", "12", "*", "†".
+final _raisedMark = RegExp(r'^(\p{Nd}{1,3}|[*†‡§¶]{1,3})$', unicode: true);
+final _spaceOrDigit = RegExp(r'[\s\p{Nd}]', unicode: true);
 
 /// The text's font size: the one most of the book's characters are set in.
 /// 0 when nothing says.
@@ -559,8 +681,8 @@ final _noteMark = RegExp(
 
 /// The page's paragraphs as groups of lines: the lines of each of the
 /// extractor's paragraphs, or one line each when [lineByLine].
-List<List<String>> _paragraphs(List<_Line> lines, {required bool lineByLine}) {
-  final out = <List<String>>[];
+List<List<_Line>> _paragraphs(List<_Line> lines, {required bool lineByLine}) {
+  final out = <List<_Line>>[];
   for (var i = 0; i < lines.length; i++) {
     if (i == 0 ||
         lineByLine ||
@@ -569,7 +691,7 @@ List<List<String>> _paragraphs(List<_Line> lines, {required bool lineByLine}) {
         _sizeChanges(lines, i)) {
       out.add([]);
     }
-    out.last.add(lines[i].text);
+    out.last.add(lines[i]);
   }
   return out;
 }
@@ -603,38 +725,49 @@ bool _indentedStart(List<_Line> lines, int i) {
   }
   final indent = line.x - margin;
   if (indent < 0.8 * em || indent > 6 * em) return false;
-  // Lines at the edge carry the extractor's paragraph on, and one set in
-  // starts the next. A paragraph set in as a whole (a quotation, verse) has
-  // none at the edge, and stays as it is.
-  final para = lines[i].para;
-  var right = 0.0, atEdge = false;
+  if (line.x - prev.x >= 0.8 * em) {
+    // Set in further than the line before: lines at the edge carry the
+    // extractor's paragraph on, and one set in starts the next. A
+    // paragraph set in as a whole (a quotation, verse) has none at the
+    // edge, and stays as it is.
+    final para = lines[i].para;
+    return lines.any((l) => l.para == para && l.box != null && (l.box!.x - margin).abs() < 0.5 * em);
+  }
+  // Set in as far as the line before, a paragraph of one line: it stops well
+  // short of the full lines that start where it does, as a full line of a
+  // justified paragraph does not ("'How so? how can it affect them?'" over
+  // "'My dear Mr. Bennet,' replied his wife..."). Those are looked for on the
+  // whole page: the extractor starts a paragraph at a line back at the edge
+  // after one set in, so two speakers' lines set in one after the other
+  // were a paragraph of their own, with no line at the edge.
+  var full = prev.x + prev.w;
   for (final l in lines) {
     final b = l.box;
-    if (l.para != para || b == null) continue;
-    if ((b.x - margin).abs() < 0.5 * em) atEdge = true;
-    right = math.max(right, b.x + b.w);
+    if (b != null && (b.x - prev.x).abs() < 0.5 * em) full = math.max(full, b.x + b.w);
   }
-  if (!atEdge) return false;
-  if (line.x - prev.x >= 0.8 * em) return true;
-  // After a paragraph of one line, set in itself: it stops well short of the
-  // full lines, as a full line of a justified paragraph does not.
-  return prev.x + prev.w < right - 2 * em;
+  return prev.x + prev.w < full - 2 * em;
 }
 
-/// A line that ends a sentence, closing quotes and brackets included.
-final _endsSentence = RegExp('[.!?…।"”’\')\\]]\$');
+/// A line that ends a sentence, closing quotes and brackets included, or a
+/// clause that what is set in under it follows from ("addressed her with:"
+/// over "'I hope Mr. Bingley will like it, Lizzy.'"), as a paragraph that
+/// runs on to the next page is ended (see [_continues]).
+final _endsSentence = RegExp('[.!?…।:;"”’\')\\]]\$');
 
-/// The paragraph being reflowed: the page it starts on, and its lines so far.
+/// The paragraph being reflowed: the page it starts on, and its lines so far,
+/// as they read and with notes' marks set silent (see [_Line.marked]).
 class _Open {
   _Open(this.page);
   final int page;
   final lines = <String>[];
+  final marked = <String>[];
   var _length = -1;
 
-  void add(List<String> group) {
-    lines.addAll(group);
+  void add(List<_Line> group) {
     for (final l in group) {
-      _length += l.length + 1;
+      lines.add(l.text);
+      marked.add(l.marked);
+      _length += l.text.length + 1;
     }
   }
 

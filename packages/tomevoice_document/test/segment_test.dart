@@ -41,6 +41,28 @@ void main() {
       expect(_split('Были яблоки, груши и т. д. Потом он ушёл.'), hasLength(2));
     });
 
+    test('a dash after "!" or "?", then who spoke in lower case, goes on with the sentence', () {
+      // Russian and Ukrainian dialogue: the speaker's words, then a dash and
+      // who said them. Cut after "!", "крикнул Андреич" was read on its own.
+      expect(_split('— Огонь держать до утра! — крикнул Андреич коту. Кот молчал.'), [
+        '— Огонь держать до утра! — крикнул Андреич коту.',
+        'Кот молчал.',
+      ]);
+      expect(_split('— Кто там? — спросила мать. — Не знаю! — ответил он.'), [
+        '— Кто там? — спросила мать.',
+        '— Не знаю! — ответил он.',
+      ]);
+      expect(_split('— Тримай вогонь до ранку! — гукнув Андрій. — Хто там? – спитала мати.'), [
+        '— Тримай вогонь до ранку! — гукнув Андрій.',
+        '— Хто там? – спитала мати.',
+      ]);
+      expect(_split('«Огонь!» — крикнул он, и все проснулись.'), ['«Огонь!» — крикнул он, и все проснулись.']);
+      // A capital after the dash is a sentence of its own; so is one after a
+      // full stop.
+      expect(_split('— Стой! — Андрей остановился.'), ['— Стой!', '— Андрей остановился.']);
+      expect(_split('Он ушёл. — сказала она тихо.'), ['Он ушёл.', '— сказала она тихо.']);
+    });
+
     test('a long Chinese sentence is cut at its commas, not mid-word', () {
       // Clauses of 18 characters (so the 280-character limit falls inside
       // one) joined by fullwidth commas, no spaces at all.
