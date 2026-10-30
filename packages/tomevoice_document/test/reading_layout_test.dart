@@ -50,6 +50,78 @@ void main() {
     expect(l.items.first.isTitle || l.items.first.block!.role == BlockRole.heading, isTrue);
   });
 
+  group('display-only blocks', () {
+    Book notes() => Book(
+          id: 'n',
+          metadata: const BookMetadata(title: 'Notes'),
+          source: SourceKind.epub,
+          toc: const [],
+          sections: [
+            Section(id: 'a', index: 0, title: 'One', blocks: [
+              makeBlock(role: BlockRole.heading, text: 'One'),
+              makeBlock(role: BlockRole.paragraph, text: 'The house fell.${silentMark('1')} It was old. Nobody minded.'),
+              makeBlock(role: BlockRole.footnote, text: '1 A note about the house.'),
+              makeBlock(role: BlockRole.caption, text: 'Figure 1: the house.'),
+              makeBlock(role: BlockRole.paragraph, text: 'Then the rain came, and it went on for days and days.'),
+              makeBlock(role: BlockRole.pageNumber, text: '17'),
+            ]),
+            Section(id: 'b', index: 1, title: 'Two', blocks: [
+              makeBlock(role: BlockRole.heading, text: 'Two'),
+              makeBlock(role: BlockRole.paragraph, text: 'A second chapter begins here and goes on for long enough to be a chapter of its own.'),
+              makeBlock(role: BlockRole.figure, text: 'A map of the town'),
+              makeBlock(role: BlockRole.footnote, text: '2 The last note.'),
+            ]),
+          ],
+        );
+
+    test('off by default: the reader is as it was', () {
+      final plain = ReadingLayout.build(notes());
+      expect(plain.items.where((i) => i.displayOnly), isEmpty);
+      expect(plain.items.map((i) => i.block?.text).whereType<String>(), isNot(contains('1 A note about the house.')));
+    });
+
+    test('on: notes, captions and figure text are shown, never spoken', () {
+      final plain = ReadingLayout.build(notes());
+      final shown = ReadingLayout.build(notes(), displayOnly: true);
+
+      // The spoken units are exactly the same.
+      expect(shown.units.map((u) => u.text), plain.units.map((u) => u.text));
+      expect(shown.wordsBefore, plain.wordsBefore);
+      expect(shown.chapterFirstUnit, plain.chapterFirstUnit);
+
+      final only = shown.items.where((i) => i.displayOnly).toList();
+      expect(only.map((i) => i.block!.text),
+          ['1 A note about the house.', 'Figure 1: the house.', 'A map of the town', '2 The last note.']);
+      for (final i in only) {
+        expect(i.unitCount, 0);
+        expect(i.containsUnit(i.firstUnit), isFalse);
+      }
+      // A note at the very end points past the last unit, as a picture there does.
+      expect(only.last.firstUnit, shown.units.length);
+
+      // Every unit maps to the item that holds its text.
+      for (var u = 0; u < shown.units.length; u++) {
+        final item = shown.items[shown.unitItem[u]];
+        expect(item.containsUnit(u), isTrue);
+        expect(item.displayOnly, isFalse);
+        expect(item.block!.text.startsWith(shown.units[u].text, shown.unitOffset[u]), isTrue);
+      }
+      expect(shown.items[shown.unitItem.first].block!.text, 'One');
+      expect(shown.units.last.text, 'A second chapter begins here and goes on for long enough to be a chapter of its own.');
+
+      // Chapter tables still point at each chapter's first item and unit.
+      for (var c = 0; c < shown.chapters.length; c++) {
+        final first = shown.chapterFirstItem[c];
+        final end = c + 1 < shown.chapters.length ? shown.chapterFirstItem[c + 1] : shown.items.length;
+        expect(shown.items.sublist(first, end).every((i) => i.chapter == c), isTrue);
+        expect(shown.unitChapter[shown.chapterFirstUnit[c]], c);
+      }
+      // Items keep the book's order: the note sits between the paragraphs.
+      final texts = shown.items.map((i) => i.block?.text ?? i.title).toList();
+      expect(texts.indexOf('1 A note about the house.'), texts.indexOf('Figure 1: the house.') - 1);
+    });
+  });
+
   group('where a book opens', () {
     Book collection({required String firstTitle, required String firstBody}) => Book(
           id: 'c',

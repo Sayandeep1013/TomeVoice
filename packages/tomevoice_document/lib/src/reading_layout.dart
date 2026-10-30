@@ -15,6 +15,7 @@ class LayoutItem {
     this.title,
     this.firstUnit = 0,
     this.unitCount = 0,
+    this.displayOnly = false,
   });
 
   /// Ordinal among reading chapters (0-based).
@@ -25,8 +26,16 @@ class LayoutItem {
   /// Set for a synthetic chapter-title row, when the chapter's own text does
   /// not open with a heading.
   final String? title;
+
+  /// For a block with units, its first; otherwise (a picture, a
+  /// display-only block) the unit that comes after it, which may be
+  /// `units.length` at the very end of the book.
   final int firstUnit;
   final int unitCount;
+
+  /// A block shown but never spoken (a footnote, a caption, a picture's
+  /// text): it has no units. Only in layouts built with displayOnly.
+  final bool displayOnly;
 
   bool get isTitle => block == null;
   bool get isImage => block?.isImage ?? false;
@@ -160,7 +169,15 @@ class ReadingLayout {
     return x.isNotEmpty && (x == y || y.startsWith(x) || x.startsWith(y));
   }
 
-  static ReadingLayout build(Book book) {
+  /// Roles whose text [build] can show without speaking: notes, captions,
+  /// a picture's words.
+  static const displayOnlyRoles = {BlockRole.footnote, BlockRole.caption, BlockRole.figure};
+
+  /// The layout of [book]. With [displayOnly], blocks of [displayOnlyRoles]
+  /// that the voice skips are items too, with no units, where they stand
+  /// in their chapter; the units, chapters and word counts are the same
+  /// either way. Off by default: the reader shows what it always did.
+  static ReadingLayout build(Book book, {bool displayOnly = false}) {
     final raw = flattenSpeakable(book);
     final chapters = raw.isEmpty
         ? <int>[]
@@ -229,6 +246,13 @@ class ReadingLayout {
         final block = section.blocks[bi];
         if (block.isImage && block.imageWidth != null) {
           items.add(LayoutItem(chapter: c, section: sectionIndex, block: block, firstUnit: u));
+          continue;
+        }
+        if (displayOnly &&
+            block.text.isNotEmpty &&
+            displayOnlyRoles.contains(block.role) &&
+            defaultSkippedRoles.contains(block.role)) {
+          items.add(LayoutItem(chapter: c, section: sectionIndex, block: block, firstUnit: u, displayOnly: true));
           continue;
         }
         final first = u;
