@@ -433,6 +433,69 @@ void main() {
       ]);
     });
 
+    test('a scan with a few typed pages imports, and says it is mostly pictures', () {
+      // 300 pages, of which only 3 have a text layer, about 300 words; the
+      // platform's text ends with a page break, so the split leaves an empty
+      // string last.
+      final pages = [
+        for (var p = 0; p < 300; p++)
+          p == 0 || p == 1 || p == 150 ? _page([_prose(p), _prose(p + 1), _prose(p + 2)]) : '',
+        '',
+      ];
+      expect(pdfTextCoverage(pages), (pages: 300, pagesWithText: 3, mostlyPictures: true));
+      final book = ingestPdfText(id: 'x', pages: pages);
+      expect(_texts(book).join(' '), contains('The amber path'));
+    });
+
+    test('a scan whose only text is a stamp, or a line, is refused', () {
+      final stamped = [for (var p = 0; p < 300; p++) 'Digitized by Google'];
+      expect(pdfTextCoverage(stamped).pagesWithText, 0);
+      expect(
+        () => ingestPdfText(id: 'x', pages: stamped),
+        throwsA(isA<UnsupportedDocumentException>()),
+      );
+      // OCR specks on every scanned page, and one typed title page.
+      final titled = [
+        'THE HISTORY OF THE HARBOUR AND ITS LIGHTHOUSE, WITH MAPS AND PLATES, VOLUME ONE',
+        for (var p = 1; p < 300; p++) ". , ' ~ .",
+      ];
+      expect(
+        () => ingestPdfText(id: 'x', pages: titled),
+        throwsA(isA<UnsupportedDocumentException>()),
+      );
+    });
+
+    test('slides with one short line each are text; a stamp on every page is not', () {
+      final slides = [
+        for (var p = 0; p < 30; p++)
+          _page([
+            ['Slide about the ${_words[p % 24]} harbour'],
+          ]),
+      ];
+      expect(pdfTextCoverage(slides), (pages: 30, pagesWithText: 30, mostlyPictures: false));
+      expect(_texts(ingestPdfText(id: 'x', pages: slides)), hasLength(30));
+
+      // More letters than the slides have, but the same on every page.
+      final stamped = [
+        for (var p = 0; p < 30; p++)
+          _page([
+            ['Digitized by the Internet Archive'],
+          ]),
+      ];
+      expect(pdfTextCoverage(stamped).pagesWithText, 0);
+      expect(
+        () => ingestPdfText(id: 'x', pages: stamped),
+        throwsA(isA<UnsupportedDocumentException>()),
+      );
+    });
+
+    test('a book with blank and picture pages here and there is not a scan', () {
+      final pages = [
+        for (var p = 0; p < 40; p++) p % 8 == 0 ? '' : _page([_prose(p), _prose(p + 1)]),
+      ];
+      expect(pdfTextCoverage(pages), (pages: 40, pagesWithText: 35, mostlyPictures: false));
+    });
+
     test('the layout from the platform is read as lists of numbers', () {
       expect(pdfLayoutFromPlatform(null), isNull);
       expect(pdfLayoutFromPlatform([

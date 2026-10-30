@@ -138,13 +138,12 @@ Book bookFromPdfText({
   String? author,
   String? filename,
 }) {
+  const scanned = UnsupportedDocumentException(
+    'This PDF has no selectable text — it looks like scanned page images. '
+    'TomeVoice can only read PDFs that contain real text.',
+  );
   final textChars = pages.fold<int>(0, (n, p) => n + p.trim().length);
-  if (pages.isEmpty || textChars < 40 * pages.length.clamp(1, 20)) {
-    throw const UnsupportedDocumentException(
-      'This PDF has no selectable text — it looks like scanned page images. '
-      'TomeVoice can only read PDFs that contain real text.',
-    );
-  }
+  if (pages.isEmpty || textChars < 40 * pages.length.clamp(1, 20)) throw scanned;
   resetBlockIds();
 
   final lines = [
@@ -153,6 +152,13 @@ Book bookFromPdfText({
   ];
   final body = _bodySize(lines);
   final furniture = _furniture(lines, body);
+  final coverage = _coverage(lines, furniture, pages);
+  // No page with words of its own, or a scan whose few typed lines come to
+  // less than a short paragraph: nothing worth listening to.
+  if (coverage.pagesWithText == 0 ||
+      (coverage.mostlyPictures && _letterCount(lines, furniture) < 400)) {
+    throw scanned;
+  }
   final notes = <List<String>>[];
   for (var p = 0; p < lines.length; p++) {
     final foot = _footnotes([
@@ -228,6 +234,56 @@ Book bookFromPdfText({
     source: SourceKind.pdf,
     filename: filename,
   );
+}
+
+/// How much of a PDF is text. A scan with a few typed pages (a publisher's
+/// notice, an OCR'd title page) still imports, but its reader should hear why
+/// the book is so short: when [mostlyPictures] is set, the app says "Most
+/// pages of this PDF are pictures; only N pages have text."
+typedef PdfTextCoverage = ({int pages, int pagesWithText, bool mostlyPictures});
+
+/// How much of [pages], as the platform split its text, has something to
+/// read. Running heads, page numbers and a scanner's stamp on every page
+/// ("Digitized by Google") do not count.
+PdfTextCoverage pdfTextCoverage(List<String> pages, {List<List<int>>? layout}) {
+  final lines = [
+    for (var p = 0; p < pages.length; p++)
+      _linesOf(pages[p], layout != null && p < layout.length ? layout[p] : null),
+  ];
+  return _coverage(lines, _furniture(lines, _bodySize(lines)), pages);
+}
+
+PdfTextCoverage _coverage(List<List<_Line>> lines, List<Set<int>> furniture, List<String> pages) {
+  // The platform ends every page with a page break, so the empty string
+  // after the last page is not a page.
+  final count = pages.isNotEmpty && pages.last.isEmpty ? pages.length - 1 : pages.length;
+  var withText = 0;
+  for (var p = 0; p < count; p++) {
+    var letters = 0;
+    for (var i = 0; i < lines[p].length && letters < _pageOfText; i++) {
+      if (furniture[p].contains(i)) continue;
+      letters += _letters.allMatches(lines[p][i].text).take(_pageOfText).length;
+    }
+    if (letters >= _pageOfText) withText++;
+  }
+  return (pages: count, pagesWithText: withText, mostlyPictures: withText * 2 < count);
+}
+
+/// Letters a page needs, besides its furniture, to have something to read: a
+/// slide's one line does, the specks of OCR on a picture do not.
+const _pageOfText = 20;
+
+final _letters = RegExp(r'\p{L}', unicode: true);
+
+/// Letters outside the furniture, in the whole book.
+int _letterCount(List<List<_Line>> lines, List<Set<int>> furniture) {
+  var n = 0;
+  for (var p = 0; p < lines.length; p++) {
+    for (var i = 0; i < lines[p].length; i++) {
+      if (!furniture[p].contains(i)) n += _letters.allMatches(lines[p][i].text).length;
+    }
+  }
+  return n;
 }
 
 /// Where a line sits on its page, in points: x, its baseline's y from the
