@@ -372,8 +372,15 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                   case 'move':
                     await moveBook(context, _store, _entry);
                   case 'restart':
+                    // One tap from the menu: the place it had is one tap away.
+                    final was = _entry;
                     await _store.saveCursor(_entry.id, ReadingCursor.zero, 0);
                     await _refreshEntry();
+                    if (!context.mounted) break;
+                    showSnack(context, 'Back to the beginning.', actionLabel: 'Undo', onAction: () async {
+                      await _store.saveCursor(was.id, was.cursor, was.progress, where: was.where);
+                      await _refreshEntry();
+                    });
                   case 'remove':
                     final nav = Navigator.of(context);
                     if (await removeBook(context, _store, _entry)) await nav.maybePop();
