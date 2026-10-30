@@ -214,10 +214,13 @@ Book bookFromPdfText({
     waiting = [];
   }
 
+  // The front matter ends with a printed contents page, when there is one.
+  var front = 0;
   for (var p = 0; p < lines.length; p++) {
     // A printed table of contents is read line by line, and none of its
     // lines is a heading: they name chapters that come later.
     final contents = _isContentsPage(lines[p]);
+    if (contents && p < 20) front = p + 1;
     for (final group in _paragraphs(lines[p], lineByLine: contents)) {
       final text = joinWrappedLines(group);
       if (text.isEmpty) continue;
@@ -249,7 +252,7 @@ Book bookFromPdfText({
     ),
     sections: usable.length >= 2
         ? _sectionsFromOutline(paras, usable)
-        : _sectionsFromHeadings(paras),
+        : _sectionsFromHeadings(paras, front: front),
     source: SourceKind.pdf,
     filename: filename,
   );
@@ -892,7 +895,11 @@ List<DraftSection> _sectionsFromOutline(List<_Para> paras, List<PdfOutlineEntry>
 List<DraftSection> sectionsWithoutOutline(List<({int page, String text})> paras) =>
     _sectionsFromHeadings([for (final p in paras) _Para(p.page, p.text)]);
 
-List<DraftSection> _sectionsFromHeadings(List<_Para> paras) {
+/// [front] is the number of pages of front matter, up to and including a
+/// printed contents page: they make their own section before the first ten
+/// pages. Ten pages that begin with the contents read as front matter, and
+/// were skipped when the book was opened, first chapter and all.
+List<DraftSection> _sectionsFromHeadings(List<_Para> paras, {int front = 0}) {
   final heads = [
     for (var i = 0; i < paras.length; i++)
       if (paras[i].role == null && _isChapterHeading(paras[i].text)) i,
@@ -928,8 +935,17 @@ List<DraftSection> _sectionsFromHeadings(List<_Para> paras) {
 
   final out = <DraftSection>[];
   if (paras.isEmpty) return out;
+  if (front > 0) {
+    out.add((
+      title: 'Opening pages',
+      blocks: [
+        for (final p in paras)
+          if (p.page < front) _block(p),
+      ],
+    ));
+  }
   final last = paras.map((p) => p.page).reduce((a, b) => a > b ? a : b);
-  for (var from = 0; from <= last; from += 10) {
+  for (var from = front; from <= last; from += 10) {
     final to = from + 9 < last ? from + 9 : last;
     final blocks = [
       for (final p in paras)

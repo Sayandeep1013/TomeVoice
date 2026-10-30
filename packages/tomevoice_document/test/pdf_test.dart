@@ -150,6 +150,31 @@ void main() {
       expect(units[firstReadingUnitIndex(units, book)].text, 'CHAPTER 1');
     });
 
+    test('without chapter headings, the book opens after its contents page', () {
+      // Stories with plain titles: no "Chapter N" to make chapters of, so
+      // the book goes ten pages to an entry. The contents page heads the
+      // first ten, which once made all ten front matter, skipped on opening.
+      const stories = ['The Lantern', 'The Salt Road', 'The Grey Harbour'];
+      final pages = [
+        _page([
+          ['A Book of the Coast'],
+        ]),
+        _page([
+          ['CONTENTS'],
+          for (var i = 0; i < stories.length; i++) ['${stories[i]} ${3 + i * 8}'],
+        ]),
+        for (var p = 2; p < 26; p++)
+          _page([
+            if (p % 8 == 2) [stories[(p - 2) ~/ 8].toUpperCase()],
+            _prose(p),
+          ]),
+      ];
+      final book = ingestPdfText(id: 'x', pages: pages);
+      expect(_titles(book), ['Opening pages', 'Pages 3–12', 'Pages 13–22', 'Pages 23–26']);
+      final units = flattenSpeakable(book);
+      expect(units[firstReadingUnitIndex(units, book)].text, 'THE LANTERN');
+    });
+
     test('prose whose lines end in numbers is not a contents page', () {
       final book = ingestPdfText(id: 'x', pages: [
         _page([
