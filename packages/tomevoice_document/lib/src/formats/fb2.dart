@@ -14,7 +14,12 @@ import '../segment.dart';
 /// `dart:convert` has no codec for; see [decodeBytes].
 Book parseFb2(Uint8List bytes, {required String id, String? filename, LegacyDecoder? legacy}) {
   if (bytes.length > 4 && bytes[0] == 0x50 && bytes[1] == 0x4B) {
-    final archive = ZipDecoder().decodeBytes(bytes, verify: false);
+    final Archive archive;
+    try {
+      archive = ZipDecoder().decodeBytes(bytes, verify: false);
+    } on Object {
+      throw const ParseException('This FB2 file is damaged: it cannot be opened as a zip archive.');
+    }
     final inner = archive.files
         .where((f) => f.isFile && f.name.toLowerCase().endsWith('.fb2'))
         .firstOrNull;
@@ -26,8 +31,8 @@ Book parseFb2(Uint8List bytes, {required String id, String? filename, LegacyDeco
   final XmlDocument doc;
   try {
     doc = XmlDocument.parse(decodeBytes(bytes, markup: true, legacy: legacy));
-  } on XmlException catch (e) {
-    throw ParseException('Broken FB2: ${e.message}');
+  } on XmlException {
+    throw const ParseException('This FB2 file is damaged: its XML cannot be read.');
   }
 
   XmlElement? find(XmlNode root, String local) {

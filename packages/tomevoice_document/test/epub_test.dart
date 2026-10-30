@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:test/test.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
@@ -236,6 +238,55 @@ void main() {
         filename: 'web.epub',
       );
       expect(_chapterTitles(book), [for (var i = 1; i <= 3; i++) 'Volume 1 Chapter $i: Name']);
+    });
+  });
+
+  group('books that cannot be read', () {
+    test('an EPUB of pictures only is refused, as a scanned PDF is', () {
+      expect(
+        () => ingestBytes(
+          epubOf({
+            'OEBPS/content.opf': opfOf([
+              ('p1', 'p1.xhtml', 'application/xhtml+xml', null),
+              ('p2', 'p2.xhtml', 'application/xhtml+xml', null),
+            ], ['p1', 'p2']),
+            'OEBPS/p1.xhtml': xhtml('<div><img src="1.jpg" alt="Page 1"/></div>'),
+            'OEBPS/p2.xhtml': xhtml('<div><img src="2.jpg" alt="Page 2"/></div>'),
+          }),
+          filename: 'comic.epub',
+        ),
+        throwsA(isA<UnsupportedDocumentException>().having((e) => e.message, 'message', contains('pictures'))),
+      );
+    });
+
+    test('a broken container.xml is a plain message, not a parser error', () {
+      // The rootfile path's quote closes early: container.xml is not XML.
+      final broken = epubOf({'OEBPS/content.opf': opfOf([], [])}, opfPath: 'OEBPS/content.opf" <<<');
+      expect(
+        () => ingestBytes(broken, filename: 'broken.epub'),
+        throwsA(isA<ParseException>()
+            .having((e) => e.message, 'message', contains('damaged'))
+            .having((e) => e.message, 'message', isNot(contains('Xml')))),
+      );
+    });
+
+    test('a zip that is not a zip says so plainly', () {
+      final bytes = Uint8List.fromList([0x50, 0x4B, 0x03, 0x04, ...List.filled(40, 7)]);
+      expect(
+        () => ingestBytes(bytes, filename: 'cut.epub'),
+        throwsA(isA<ParseException>().having((e) => e.message, 'message', isNot(contains('Exception')))),
+      );
+    });
+
+    test('a cut-off Kindle book gives a message, not a RangeError', () {
+      final bytes = Uint8List(100);
+      bytes.setRange(60, 68, 'BOOKMOBI'.codeUnits);
+      bytes[76] = 0x00;
+      bytes[77] = 0x05; // five records, but the file ends first
+      expect(
+        () => ingestBytes(bytes, filename: 'cut.mobi'),
+        throwsA(isA<ParseException>().having((e) => e.message, 'message', contains('damaged'))),
+      );
     });
   });
 

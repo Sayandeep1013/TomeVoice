@@ -32,8 +32,39 @@ Book ingestBytes(
 }) {
   final kind = detectFormat(bytes, filename: filename, mime: mime);
   final bookId = id ?? bookIdOf(bytes);
-  final legacy = legacyDecoder;
+  try {
+    return _finish(_parse(kind, bytes, bookId, filename, legacyDecoder));
+  } on EncryptedDocumentException {
+    rethrow;
+  } on UnsupportedDocumentException {
+    rethrow;
+  } on ParseException {
+    rethrow;
+  } catch (e, stack) {
+    // A damaged file (a cut-off download, a broken zip) trips a parser in
+    // ways nobody wrote a message for: "RangeError (byteOffset)" means
+    // nothing to a reader. The stack stays with it for whoever debugs.
+    Error.throwWithStackTrace(
+      ParseException('This ${_kindName(kind)} file looks damaged and could not be read.'),
+      stack,
+    );
+  }
+}
 
+String _kindName(SourceKind kind) => switch (kind) {
+      SourceKind.epub => 'EPUB',
+      SourceKind.mobi => 'Kindle',
+      SourceKind.docx => 'Word',
+      SourceKind.odt => 'OpenDocument',
+      SourceKind.fb2 => 'FB2',
+      SourceKind.rtf => 'RTF',
+      SourceKind.html => 'HTML',
+      SourceKind.markdown => 'Markdown',
+      SourceKind.pdf => 'PDF',
+      _ => 'text',
+    };
+
+Book _parse(SourceKind kind, Uint8List bytes, String bookId, String? filename, LegacyDecoder? legacy) {
   final Book book;
   switch (kind) {
     case SourceKind.epub:
@@ -61,7 +92,7 @@ Book ingestBytes(
     case SourceKind.unknown:
       throw _unknownFormat(filename);
   }
-  return _finish(book);
+  return book;
 }
 
 /// [ingestBytes] with a decoder that answers later, such as Android's
@@ -152,8 +183,24 @@ Book _finish(Book book) {
   if (book.sections.isEmpty || book.isEmpty) {
     throw const ParseException('There is no readable text in this file.');
   }
+  if (!_hasSomethingToSay(book)) {
+    // Pages that are pictures (a comic, a scanned book) come with alt
+    // text such as "Page 1", which is not a book to listen to.
+    throw book.sections.any((s) => s.blocks.any((b) => b.isImage || b.role == BlockRole.figure))
+        ? const UnsupportedDocumentException(
+            'This book has no text to read aloud: its pages are pictures (a comic or a scanned book). '
+            'TomeVoice reads text, not images.',
+          )
+        : const ParseException('There is no readable text in this file.');
+  }
   return withResolvedLanguage(book);
 }
+
+final _letterOrDigit = RegExp(r'[\p{L}\p{N}]', unicode: true);
+
+/// Whether any block the voice would read has a letter or a digit in it.
+bool _hasSomethingToSay(Book book) =>
+    book.sections.any((s) => s.blocks.any((b) => b.speakable && _letterOrDigit.hasMatch(b.text)));
 
 UnsupportedDocumentException _unknownFormat(String? filename) {
   final name = (filename ?? '').toLowerCase();

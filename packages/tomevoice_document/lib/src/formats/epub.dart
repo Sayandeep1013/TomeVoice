@@ -14,29 +14,29 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename, LegacyDec
   Archive archive;
   try {
     archive = ZipDecoder().decodeBytes(bytes, verify: false);
-  } catch (e) {
-    throw ParseException('Not a readable EPUB (zip failed): $e');
+  } on Object {
+    throw const ParseException('This EPUB is damaged: it cannot be opened as a zip archive.');
   }
 
   final names = {for (final f in archive.files) f.name.replaceAll('\\', '/')};
 
   final container = _read(archive, 'META-INF/container.xml');
   if (container == null) {
-    throw const ParseException('EPUB is missing META-INF/container.xml');
+    throw const ParseException('This EPUB is damaged: it has no META-INF/container.xml.');
   }
 
   final opfPath = _opfPath(container);
   final opfDir = _dirOf(opfPath);
   final opfXml = _read(archive, opfPath);
   if (opfXml == null) {
-    throw ParseException('EPUB package document not found: $opfPath');
+    throw const ParseException('This EPUB is damaged: its package document is missing.');
   }
 
   late XmlDocument opf;
   try {
     opf = XmlDocument.parse(opfXml);
-  } on XmlException catch (e) {
-    throw ParseException('Broken package document: $e');
+  } on XmlException {
+    throw const ParseException('This EPUB is damaged: its package document cannot be read.');
   }
 
   final metadata = _metadata(opf, filename);
@@ -245,14 +245,19 @@ ArchiveFile? _entry(Archive archive, String path) {
 }
 
 String _opfPath(String containerXml) {
-  final doc = XmlDocument.parse(containerXml);
+  final XmlDocument doc;
+  try {
+    doc = XmlDocument.parse(containerXml);
+  } on XmlException {
+    throw const ParseException('This EPUB is damaged: its container.xml cannot be read.');
+  }
   for (final el in doc.descendants.whereType<XmlElement>()) {
     if (el.localName.toLowerCase() == 'rootfile') {
       final path = el.getAttribute('full-path');
       if (path != null && path.isNotEmpty) return path;
     }
   }
-  throw const ParseException('container.xml has no rootfile');
+  throw const ParseException('This EPUB is damaged: its container.xml names no book inside.');
 }
 
 String _dirOf(String path) {
