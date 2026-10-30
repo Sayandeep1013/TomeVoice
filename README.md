@@ -10,9 +10,10 @@
   <img src="https://img.shields.io/badge/platform-Android-3DDC84.svg" alt="Platform: Android">
 </p>
 
-Any book, read aloud. Open an EPUB, a PDF, a Word file or plain text, press play, and
-it reads to you — sentence by sentence, the spoken word highlighted, on the device,
-with the screen off if you like.
+Any book, read aloud: free, offline, on your phone. Open an EPUB, a PDF (a scanned
+one too), a Word file or a web page, press play, and it reads to you sentence by
+sentence, the spoken word highlighted, in your phone's voices or natural ones in 42
+languages, with the screen off if you like.
 
 <p align="center">
   <img src="docs/images/library.png" width="240" alt="The library's Later shelf as cover tiles, each with its format, language and progress, and the book being read waiting at the bottom with a play button">
@@ -36,22 +37,34 @@ with the screen off if you like.
 
 No account. No cloud. Your books never leave the phone.
 
-**Status: Android app — download the APK from [Releases](https://github.com/Sayandeep1013/TomeVoice/releases/latest). Windows is planned.**
+**Android only for now: download the APK from [Releases](https://github.com/Sayandeep1013/TomeVoice/releases/latest).**
 
 ---
 
 ## What it does
 
 - **Opens almost anything.** EPUB, PDF, DOCX, ODT, MOBI / AZW3, FB2, RTF, HTML, Markdown
-  and TXT. Pictures and maps in ebooks are shown in the text; PDFs can be read as text
-  or shown as their real pages; chapters are found even when a file does not list them.
+  and TXT, in whatever encoding they were saved. Pictures and maps in ebooks are shown in
+  the text; PDFs can be read as text or shown as their real pages (pinch to zoom, dark at
+  night); chapters are found even when a file does not list them. Footnotes stay on the
+  page in small type and are not read, unless you turn on **Read notes aloud**.
+- **Scanned PDFs, read by OCR.** A PDF of page images is read on the phone (Tesseract),
+  in the languages you choose (Bengali, Hindi and English are one tap away). The
+  language data is downloaded only when you use it, and pages are read once and kept.
+- **Reads anything you share.** Share a link from your browser and TomeVoice reads the
+  article, without its menus, ads or comments; share words from any app, or paste a link
+  or text. A link to a book file downloads and imports it.
 - **Reads it aloud** with the voices already on your phone, picking one in the book's
   language — a Bengali book gets a Bengali voice. Find any voice or language by typing.
-- **Natural voices, if you want them.** Seven English voices that sound like people
-  (Piper), made on the phone with no internet once downloaded. They are off unless you
-  choose one: each is a 64 MB download (110 MB for HD) and works the phone harder, about
-  three times the processor of a built-in voice, so TomeVoice says so before anything
-  downloads, tests how fast your phone runs it, and removes them all with one tap.
+- **Natural voices, if you want them.** About 180 voices that sound like people, in 42
+  languages (Piper), made on the phone with no internet once downloaded, the book's
+  language listed first, each with its size, quality, licence and a sample to hear.
+  Kokoro (Hindi among its languages) and Kitten are there for fast phones. They are off
+  unless you choose one: a voice is a 20 to 110 MB download (Kokoro 334 MB) and works
+  the phone harder, about three times the processor of a built-in voice, so TomeVoice
+  says so before anything downloads, tests how fast your phone runs it, and removes
+  them with one tap.
+  (Bengali has no natural voice yet; a Bengali book uses the phone's.)
 - **Dialogue in a second voice.** Pick one, and words inside quotation marks are read
   by it while the narrator reads the rest.
 - **Follows along.** The sentence being read is marked and the word under the voice is
@@ -77,7 +90,14 @@ No account. No cloud. Your books never leave the phone.
   drag it to go straight through, a bubble naming the chapter.
 - **Keeps reading when you leave the book.** Back goes to your library while the voice
   reads on; pause it from the library's player or the notification, and open the book
-  again to find it still reading (Settings → Listening, on by default).
+  again to find it still reading (Settings → Listening, on by default). Swipe TomeVoice
+  away from Recents and it reads on; with the app closed, the phone's media card and a
+  headset's Play pick the book up where it stopped, and Android Auto lists your books
+  (never a secret shelf's; a downloaded APK shows in Auto once its developer setting
+  *Unknown sources* is on). Settings → Listening also asks Android to leave TomeVoice's
+  battery alone, with a link to your phone maker's own advice.
+- **Save as audio.** A chapter, or a whole book as an M4B audiobook with its chapters
+  marked, made exactly as it is read aloud, to play anywhere.
 - **Starts where you stopped**, with a sleep timer for listening in bed.
 - **Now Playing.** Swipe the player up for the cover and the page around the voice: the
   sentence being read lit and its word in the book's colour, the paragraphs before and
@@ -89,16 +109,31 @@ No account. No cloud. Your books never leave the phone.
   web novel and it is the only one left), or find a passage, a line you remember, in the
   chapter or the whole book. Press and hold a line to save
   it as a quote, bookmark it, copy it, or share it as a picture in the book's colours
-  (with Undo if you saved by mistake); they wait in **Saved**. Fix how a name is said,
-  for one book or all, and in web novels leave out site notices and credits.
+  (with Undo if you saved by mistake); they wait in **Saved**, and show in the text as
+  highlights in four colours, with your notes, ready to export as Markdown. Press and
+  hold a word to look it up or translate its sentence. Fix how a name is said, for one
+  book or all, and in web novels leave out site notices and credits.
 - **Listening stats and streaks.** Your week, the last twenty weeks as dots, and a streak
-  for every day you listen for five minutes.
+  for every day you reach your daily goal (five minutes, or whatever you set).
+- **Books from catalogues.** Browse and download from Project Gutenberg, Standard Ebooks
+  or your own Calibre library (OPDS), straight onto a shelf.
+- **For everyone.** TalkBack reads the pages and turns them, and Arabic, Hebrew and
+  Persian books run right to left.
 - **Home-screen widgets.** The book you are reading, its cover in a ring that fills as you
   go, with play (and chapter skips on the wider ones), also cut like a postage stamp;
   and your streak. Every size, in the book's colours.
-- **Your library in one file.** Back it up to Downloads or Drive and restore it on a new
-  phone, adding to what is there or replacing it. TomeVoice also tells you when a new
-  version is out, and installs it for you (Android asks you to confirm).
+- **Your library in one file.** Back it up to Downloads or Drive, or let it back itself
+  up daily or weekly into a folder you pick, and restore it on a new phone, adding to
+  what is there or replacing it. Backups leave out the natural voices (a download away)
+  and warn when they hold a secret shelf. TomeVoice also tells you when a new version is
+  out, and installs it for you (Android asks you to confirm).
+- **Sync, if you want it, to your own server.** Your places, quotes and listening time
+  go to a WebDAV folder you choose, or your place to a KOReader sync server; the books
+  themselves never leave the phone. Off unless you set it up.
+- **Something wrong?** About → **Report a problem** shows you exactly what would be sent
+  (the app and Android version, your phone's model, recent errors, never your books'
+  titles or text) and opens a filled-in GitHub issue for you to send. Nothing is sent
+  on its own.
 - **A shelf you can organise.** Cover tiles with format, length and progress on each;
   your own categories (Reading, Later, or any you make), swiped between; the books you are
   in the middle of waiting at the bottom with a play button. **Secret shelves** open only
@@ -111,8 +146,11 @@ No account. No cloud. Your books never leave the phone.
 - **Web novels too.** Install sites from LNReader's source list (there from the start) or
   bring your own list, search every site you installed at once,
   add a novel to your library and listen to it like a book: chapters are fetched as you go,
-  new ones are checked for, and sites behind Cloudflare are read through the phone's own
-  browser engine. Download single chapters or whole novels to listen offline. Your
+  new ones are checked for, even with the app closed, and sites behind Cloudflare are
+  read through the phone's own browser engine. Download single chapters or whole novels
+  to listen offline; downloads queue, carry on without the novel's page and try again.
+  Each site runs in its own sandbox, off your home network, its code checked before it
+  runs, and a site's changed chapter list never deletes what you downloaded. Your
   NovelDokusha library can be imported from its backup
   ([ADR-019](docs/10-decisions-adr.md#adr-019)).
 - **Never an empty shelf.** A new install starts with *Pride and Prejudice* (public
@@ -124,8 +162,8 @@ No account. No cloud. Your books never leave the phone.
 
 ## What it deliberately does not do
 
-DRM-protected books (Kindle, Adobe), scanned PDFs with no text in them (no OCR), and
-anything that needs an account or a server.
+DRM-protected books (Kindle, Adobe), and anything that needs an account with us or a
+cloud: there is none. Sync, if you set it up, goes to a server of your own.
 
 ## Install (Android)
 
@@ -139,8 +177,9 @@ anything that needs an account or a server.
    `adb install -r TomeVoice-<version>.apk`.) Updates install over the old version and
    keep your library. From 1.0 TomeVoice offers each new version itself: tap **Install**,
    then confirm Android's prompt.
-3. Open it. A few books are already on the shelf; tap **Add books** to add your own, or
-   open a book from any file manager with TomeVoice.
+3. Open it. A few books are already on the shelf; tap **+** to add your own or paste a
+   link, open a book from any file manager with TomeVoice, or share a page to it from
+   your browser.
 
 **Coming from 0.5 or earlier?** From 0.6 TomeVoice has its permanent app id, so Android
 installs it as a new app beside the old one. In the old app, update to 0.5.1 and use
@@ -174,6 +213,8 @@ it rejected: [decision log](docs/10-decisions-adr.md).
 
 ## Licence
 
-**GPL-3.0.** It is what lets the planned offline neural voices (Piper, eSpeak-NG) be
-ordinary dependencies rather than licensing problems. See
-[ADR-014](docs/10-decisions-adr.md#adr-014).
+**GPL-3.0.** It is what lets the offline natural voices (Piper, Kokoro, eSpeak-NG) and
+OCR (Tesseract) be ordinary dependencies rather than licensing problems. See
+[ADR-014](docs/10-decisions-adr.md#adr-014). Each natural voice keeps the licence of
+the recordings it was trained on, shown beside it in the app; what changed in each
+release is in the [changelog](CHANGELOG.md).

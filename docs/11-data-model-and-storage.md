@@ -1,229 +1,118 @@
 # 11 — Data Model & Storage
 
-## 11.1 Storage layout
+How TomeVoice keeps your library on the phone, as built (not as first planned: the
+original plan's SQLite/Drift database, full-text index and migrations were never built;
+see git history for that version of this page). Everything is plain JSON files, written
+atomically, with no server and no account.
 
-**Android**
+## 11.1 Where things live
 
-```
-<app-private>/
-  tomevoice.db                  SQLite (Drift)
-  books/<bookId>/               imported source file, cover, extracted resources
-  cache/parsed/<contentHash>/   Document Model, layout analysis, search index
-  voices/<voiceId>/             model + config (excluded from cloud backup)
-  logs/
-```
-
-**Windows**
+**The library folder:** the app's external files folder,
+`Android/data/<app id>/files/` (`app.tomevoice`, or `app.tomevoice.test` for the test
+app). Readable over USB, and what a backup zips.
 
 ```
-%LOCALAPPDATA%\TomeVoice\       same structure
-```
-Portable mode uses `<app-dir>\Data\` with an identical layout, so a portable install can
-be copied between machines wholesale.
-
-Two rules: **voice models are never backed up** (large and re-downloadable — backing them
-up wastes the user's quota), and **the parsed cache is never backed up** (derived, and
-rebuildable from the source file).
-
-## 11.2 Schema
-
-```sql
--- ---------- Library ----------
-CREATE TABLE books (
-  id                TEXT PRIMARY KEY,
-  content_hash      TEXT NOT NULL,          -- invalidates the parsed cache
-  source_kind       TEXT NOT NULL,          -- epub|pdf|docx|text|html|rtf
-  source_mode       TEXT NOT NULL,          -- copied|linked
-  source_path       TEXT NOT NULL,          -- app-relative path, or SAF URI when linked
-  title             TEXT NOT NULL,
-  authors           TEXT,                   -- JSON array
-  language          TEXT,                   -- BCP-47, verified not just declared
-  publisher         TEXT,
-  published_date    TEXT,
-  identifiers       TEXT,                   -- JSON: isbn, doi, uuid
-  cover_path        TEXT,
-  page_count        INTEGER,
-  word_count        INTEGER,
-  added_at          INTEGER NOT NULL,
-  opened_at         INTEGER,
-  finished_at       INTEGER,
-  parse_state       TEXT NOT NULL,          -- pending|partial|complete|failed
-  parse_error       TEXT
-);
-
-CREATE TABLE collections (
-  id TEXT PRIMARY KEY, name TEXT NOT NULL, sort_order INTEGER NOT NULL
-);
-CREATE TABLE book_collections (
-  book_id TEXT NOT NULL, collection_id TEXT NOT NULL,
-  PRIMARY KEY (book_id, collection_id)
-);
-
--- ---------- Reading state ----------
--- The single most important table in the app. Written every sentence during
--- playback, so that being killed costs one sentence, not one chapter.
-CREATE TABLE reading_state (
-  book_id           TEXT PRIMARY KEY,
-  section_index     INTEGER NOT NULL,
-  block_id          TEXT NOT NULL,
-  sentence_index    INTEGER NOT NULL,
-  word_index        INTEGER,
-  anchor            TEXT NOT NULL,          -- JSON: CFI, or page+quads, or offsets
-  progress_fraction REAL NOT NULL,
-  updated_at        INTEGER NOT NULL,
-  device_id         TEXT NOT NULL           -- for sync conflict resolution
-);
-
-CREATE TABLE bookmarks (
-  id TEXT PRIMARY KEY, book_id TEXT NOT NULL,
-  anchor TEXT NOT NULL, label TEXT, created_at INTEGER NOT NULL
-);
-
-CREATE TABLE annotations (
-  id TEXT PRIMARY KEY, book_id TEXT NOT NULL,
-  anchor_start TEXT NOT NULL, anchor_end TEXT NOT NULL,
-  selected_text TEXT NOT NULL,
-  kind TEXT NOT NULL,                       -- highlight|note|underline
-  colour TEXT, note TEXT,
-  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-);
-
--- ---------- Speech ----------
-CREATE TABLE voices_installed (
-  id TEXT PRIMARY KEY, engine TEXT NOT NULL, language TEXT NOT NULL,
-  display_name TEXT NOT NULL, install_path TEXT NOT NULL,
-  bytes INTEGER NOT NULL, licence_spdx TEXT NOT NULL, attribution TEXT,
-  installed_at INTEGER NOT NULL, last_used_at INTEGER,
-  measured_rtf REAL,                        -- device-specific, drives lookahead depth
-  measured_peak_mb INTEGER
-);
-
--- Global defaults; per-book rows override them.
-CREATE TABLE speech_settings (
-  scope             TEXT NOT NULL,          -- 'global' or a book_id
-  voice_id          TEXT,
-  speed             REAL NOT NULL DEFAULT 1.0,
-  pitch_semitones   REAL NOT NULL DEFAULT 0.0,
-  word_gap_ms       INTEGER NOT NULL DEFAULT 0,
-  comma_pause_ms    INTEGER NOT NULL DEFAULT 150,
-  sentence_pause_ms INTEGER NOT NULL DEFAULT 350,
-  paragraph_pause_ms INTEGER NOT NULL DEFAULT 700,
-  heading_pause_ms  INTEGER NOT NULL DEFAULT 1000,
-  volume            REAL NOT NULL DEFAULT 1.0,
-  gain_trim_db      REAL NOT NULL DEFAULT 0.0,
-  normalise_loudness INTEGER NOT NULL DEFAULT 1,
-  compression       TEXT NOT NULL DEFAULT 'light',
-  skip_rules        TEXT NOT NULL,          -- JSON map of BlockRole -> bool
-  highlight_granularity TEXT NOT NULL DEFAULT 'auto',
-  timing_offset_ms  INTEGER NOT NULL DEFAULT 0,
-  preset_id         TEXT,
-  PRIMARY KEY (scope)
-);
-
-CREATE TABLE pronunciations (
-  id TEXT PRIMARY KEY,
-  scope TEXT NOT NULL,                      -- 'global' | language tag | book_id
-  match_text TEXT NOT NULL,
-  match_kind TEXT NOT NULL,                 -- literal|word|regex
-  case_sensitive INTEGER NOT NULL DEFAULT 0,
-  replacement TEXT, phonemes TEXT,
-  enabled INTEGER NOT NULL DEFAULT 1,
-  created_at INTEGER NOT NULL
-);
-CREATE INDEX idx_pron_scope ON pronunciations(scope, enabled);
-
--- ---------- Parsed cache ----------
--- Keyed by content hash + schema version, so replacing the file or improving
--- the parser both invalidate correctly.
-CREATE TABLE parsed_cache (
-  content_hash TEXT NOT NULL,
-  schema_version INTEGER NOT NULL,
-  section_index INTEGER NOT NULL,
-  payload BLOB NOT NULL,                    -- compressed Document Model for the section
-  created_at INTEGER NOT NULL,
-  PRIMARY KEY (content_hash, schema_version, section_index)
-);
-
-CREATE TABLE pdf_layout_overrides (
-  book_id TEXT NOT NULL, page INTEGER NOT NULL,
-  column_count INTEGER,                     -- user override: auto=NULL
-  regions TEXT,                             -- JSON: manual reading-order regions
-  PRIMARY KEY (book_id, page)
-);
-
-CREATE VIRTUAL TABLE book_search USING fts5(
-  book_id UNINDEXED, section_index UNINDEXED, block_id UNINDEXED, text
-);
+library.json            the shelf: categories, the default one, and every book's entry
+books/<id>/             one folder per book (id: 16 hex digits, or web- and 16 more)
+  source.<ext>          the book's own file, as imported (EPUB, PDF, ...)
+  parsed.json           the book read into TomeVoice's model, {"v": <parse version>, "book": ...}
+  cursor.json           the place: {"cursor": {section, block, sentence}, "progress": 0..1}
+  img/                  pictures and covers taken from the book; custom_cover_<time>.*
+  novel.json            a web novel: its site, details and chapter list
+  ch/                   a web novel's downloaded chapters (ch/orphaned/ for ones its site
+                        no longer lists; they come back if it lists them again)
+  ocr.json              a scanned PDF's text, read once by OCR, never read again
+marks.json              quotes (with colour and note) and bookmarks, for every book
+stats.json              listening time per day, and the streak goal
+prefs.json              listening and reading settings (voice per language and per book,
+                        speeds, pauses, page, theme, sync and catalogue settings)
+rules.json              reading rules: how words are said, lines left out of web novels
+tints.json              colours taken from each book's cover
+updates.json            web novels' new-chapter checks and their results
+downloads.json          the chapter download queue, so it carries on after a restart
+sync_state.json         what sync last sent and saw (WebDAV, KOReader)
+starter.json            what the first-launch shelf has added, so it is never added twice
+app_update.json         the update check's state; names the APK to install, never backed up
+.secrets.json           sync passwords and this phone's sync id; never backed up
+.restore-journal.json   a library being replaced, until the swap is settled
+.restore-report.txt     what the last restore did, shown once
+incoming/<uuid>/<name>  a file picked or opened from another app, while it is imported;
+                        swept after an hour if a crash left it
+voices/                 downloaded natural voices (64 to 334 MB each); never backed up
+ocr/tessdata/           OCR language data, downloaded on request; never backed up
 ```
 
-## 11.3 Settings resolution
-
-Speech settings resolve **per book, falling back to global**:
+**Internal storage** (`filesDir`, which no other app can read):
 
 ```
-effective(book, key) = speech_settings[book_id].key
-                    ?? speech_settings['global'].key
-                    ?? built-in default
+sources/                web-novel sources: repos.json (the lists), installed.json,
+                        plugins/<id>.js (code, checked by SHA-256 at install and on load),
+                        storage-<id>.json (each plugin's own settings), cookies per plugin,
+                        index-*.json (cached lists), moved.json, restored.json
+errors.jsonl            the local error log (about 50 entries), scrubbed of titles and paths
 ```
 
-Pronunciation entries **accumulate** rather than override, with narrower scopes winning
-on conflict:
+The `cache/tts` folder holds the voice's sentence audio while it is read; it is emptied
+when the voice engine starts.
 
-```
-applicable = global entries + language entries + book entries
-             (book beats language beats global on identical match_text)
-```
+## 11.2 The book model
 
-This distinction matters: a book-specific speed replaces the global speed, but a
-book-specific pronunciation adds to the global dictionary rather than replacing it.
+`packages/tomevoice_document`: a **Book** has **Sections** (chapters), a section has
+**Blocks** (paragraphs, headings, footnotes, captions, pictures), a block has
+**Sentences**. A sentence can hold stretches shown but not spoken (footnote markers),
+and hints for how a voice should say something. **ReadingLayout** flattens a book into
+the units the voice reads, in order; with `displayOnly`, footnotes and captions are
+laid out where they stand without being spoken (unless the reader turns on Read notes
+aloud).
 
-## 11.4 Reading-position durability
+A place (**ReadingCursor**) is section, block and sentence numbers. Opening a book
+turns it into a unit with `unitForCursor`.
 
-Position is the piece of state users most notice losing. Rules:
+## 11.3 Writing safely
 
-- Written **every sentence** during playback, and on every navigation while reading.
-- Written on lifecycle events (pause, backgrounded, window close) as a belt-and-braces
-  measure, not as the primary mechanism.
-- Uses a single-row upsert, so the write is cheap enough to do at that frequency.
-- Stored as a **structural anchor**, never a scroll offset, so reflow cannot invalidate
-  it ([C-06](09-challenges-and-solutions.md#c-06)).
-- Carries `device_id` and `updated_at` so sync can resolve conflicts later without a
-  schema migration.
+- **One write at a time per file, never half-written.** `writeSafely` writes a temp
+  file beside the target (its name salted per engine) and renames it over the target.
+  A crash leaves the old file or the new one, never a mix.
+- **The shelf's index is read once and kept in memory** (`LibraryStore`); every change
+  is applied to that copy in one step and written out. Before a change it checks
+  `library.json`'s time and size against the last read or write: another engine (a
+  book read with no screen, the closed-app chapter check) that wrote it in between
+  makes it read the file again first, so neither writes over the other's books.
+- **Damaged files are kept aside, not written over.** An unreadable `library.json`
+  becomes `library.json.broken`; an entry of the wrong shape is passed over and a copy
+  of the file kept.
 
-## 11.5 Cache invalidation
+## 11.4 Places
 
-| Cache | Key | Invalidated by |
-|---|---|---|
-| Parsed Document Model | content hash + schema version | file replaced, parser upgraded |
-| PDF layout analysis | content hash + analyser version | file replaced, analyser upgraded |
-| Search index | content hash + schema version | as above |
-| Voice catalogue | catalogue version | periodic refresh, manual refresh |
-| Synthesised audio | *not cached* | see below |
+- `cursor.json` holds a book's place; `library.json` keeps a copy for the shelf (where
+  you are, progress). The place is saved about once a sentence while listening. Whether
+  writing the whole index that often costs anything noticeable is still to be measured
+  on a phone with a large library.
+- **Books read again.** When reading improves, stored books are parsed again from their
+  own file the next time they are opened: `_parsedVersion` in `library_store.dart` (in
+  `parsed.json`'s `"v"`), and for PDFs `pdfParserVersion` (stored on the entry), since a
+  PDF's text needs the platform. The place is carried across by the sentence's own
+  words (`relocateCursor`), so a re-read book opens where you were.
 
-**Synthesised audio is deliberately not cached.** It would be large, it is invalidated by
-any of a dozen settings, and re-synthesis is cheap enough with lookahead. The exception
-is the explicit "export chapter to audio file" feature, which writes a file the user owns
-and manages.
+## 11.5 Backup and restore
 
-## 11.6 Migrations
+- **A backup** is one zip of the library folder, `manifest.json` first, streamed so a
+  large library never sits in memory. Left out: imports in flight, temp files, the
+  update check, natural voices, OCR data, sync secrets, cached source lists, site
+  cookies, and downloaded chapters unless chosen. The web-novel sources' lists,
+  installed list and settings are added from internal storage. A backup holding a secret
+  shelf says so before it is made.
+- **Restore** unpacks into a staging folder and checks every entry, then either **adds**
+  (books you lack; for books in both, the further place; quotes, stats and rules merged;
+  the backup's settings only if asked) or **replaces** (a journaled swap that a crash can
+  finish or undo; this phone's voices and update choice stay). Restored sources are
+  installed again from their lists; plugin code inside a backup is never run.
+- **Automatic backups** write the same zip into a folder the reader picked, daily or
+  weekly, keeping the newest five.
 
-Drift migrations, forward-only, each one tested against a fixture database from the
-previous version. Two rules:
+## 11.6 Secret shelves
 
-1. **Never drop user data in a migration.** Deprecated columns are left in place until a
-   later release removes them, after a version that no longer writes them has shipped
-   widely.
-2. **The parsed cache is disposable.** A schema change there bumps `schema_version` and
-   lets the old rows be evicted lazily; it never blocks a migration.
-
-## 11.7 Backup and export
-
-- **Library export** — a single JSON file with books (by identifier and hash, not
-  contents), collections, reading positions, bookmarks, annotations, settings and
-  dictionaries. Human-readable and diffable on purpose.
-- **Android auto-backup** — include the database and settings, exclude `voices/`,
-  `cache/` and `books/` via the backup rules.
-- **Windows** — the same export, plus documented file locations so users can back them up
-  themselves.
-- **Annotation export** to Markdown, because highlights and notes are the thing users
-  most often want outside the app.
+A category can be secret. Its books are left out of everything shown (shelves, search,
+Saved, stats, widgets, the media session, Android Auto) until it is opened with the
+phone's lock, and it shuts again when the app is left. Removing a book from a secret
+shelf removes its quotes and bookmarks with it.
