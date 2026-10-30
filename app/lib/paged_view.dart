@@ -157,6 +157,11 @@ class PagedController {
   /// and the one after the last. A sentence carried over a page's end is
   /// the next page's. Null before the first page is laid out.
   (int, int)? get range => _state?._range();
+
+  /// The chapters whose pages or painters are kept just now: those near the
+  /// page shown, never every chapter turned through.
+  @visibleForTesting
+  Set<int> get keptChapters => _state?._kept ?? const {};
 }
 
 /// The book in pages, a chapter at a time: each chapter is cut into pages
@@ -253,10 +258,16 @@ class PagedBook extends StatefulWidget {
 class _PagedBookState extends State<PagedBook> {
   ReadingLayout get _l => widget.layout;
 
-  /// Pages of each chapter cut so far, for the current size and look.
+  /// Pages of the chapters near the page shown, cut for the current size
+  /// and look, and their paragraphs' painters (see [_trim]).
   final _cut = <int, List<_Page>>{};
   final _laid = <int, _Laid>{};
   Object? _cutFor;
+
+  /// Chapters either side of the one shown whose pages are kept: the row
+  /// shows the one before and the one after, and one more each way is a
+  /// turn back and forth for nothing.
+  static const _near = 2;
 
   late int _chapter = _l.chapterOfUnit(widget.startUnit);
   PageController? _pages;
@@ -316,6 +327,22 @@ class _PagedBookState extends State<PagedBook> {
     _forgetLaid();
     _cut.clear();
   }
+
+  /// Let go of chapters far from the one shown, and their painters: read
+  /// through, a long book kept every page it had been through all session.
+  /// One come back to is cut again. Run once a new row is on screen, so no
+  /// page still drawn loses its painter.
+  void _trim() {
+    final c = _chapter;
+    _cut.removeWhere((k, _) => (k - c).abs() > _near);
+    _laid.removeWhere((i, laid) {
+      final far = (_l.items[i].chapter - c).abs() > _near;
+      if (far) laid.painter.dispose();
+      return far;
+    });
+  }
+
+  Set<int> get _kept => {..._cut.keys, for (final i in _laid.keys) _l.items[i].chapter};
 
   // ------------------------------------------------------------- geometry
 
@@ -583,7 +610,10 @@ class _PagedBookState extends State<PagedBook> {
       _pages = PageController(initialPage: index);
       _row = Object();
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) => old?.dispose());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      old?.dispose();
+      if (mounted) _trim();
+    });
   }
 
   void _showUnit(int unit, {bool animate = true, int? at}) {
