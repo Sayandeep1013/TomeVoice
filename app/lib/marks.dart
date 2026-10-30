@@ -11,6 +11,20 @@ import 'safe_file.dart';
 /// A quote kept to read again or share, or a bookmark: a place to come back to.
 enum MarkKind { quote, bookmark }
 
+/// The colour a quote is washed in on the page: the book's own accent, or
+/// one of three highlighter colours.
+enum MarkColour {
+  accent('Accent'),
+  yellow('Yellow'),
+  green('Green'),
+  blue('Blue');
+
+  const MarkColour(this.label);
+  final String label;
+
+  static MarkColour byName(Object? name) => values.where((c) => c.name == name).firstOrNull ?? accent;
+}
+
 /// Something saved from a book: where it is (the same address as a reading
 /// place), and a copy of its words, so it still shows if the book is removed
 /// and can be found again if the book's text is re-parsed.
@@ -26,6 +40,8 @@ class Mark {
     this.span = 1,
     this.chapter,
     this.note,
+    this.colour = MarkColour.accent,
+    this.edited,
   });
 
   final String id;
@@ -43,33 +59,40 @@ class Mark {
   final String? note;
   final DateTime created;
 
-  /// The same mark with [note] (null or empty: none).
-  Mark withNote(String? note) => Mark(
+  /// A quote's wash on the page.
+  final MarkColour colour;
+
+  /// When its note or colour last changed (null: never since it was saved).
+  final DateTime? edited;
+
+  /// When it last changed: what wins when two copies of it meet (sync).
+  DateTime get changed => edited ?? created;
+
+  Mark _with({ReadingCursor? at, String? note, bool clearNote = false, MarkColour? colour, DateTime? edited}) => Mark(
         id: id,
         bookId: bookId,
         bookTitle: bookTitle,
         kind: kind,
-        at: at,
+        at: at ?? this.at,
         text: text,
         created: created,
         span: span,
         chapter: chapter,
-        note: note == null || note.trim().isEmpty ? null : note.trim(),
+        note: clearNote ? null : (note ?? this.note),
+        colour: colour ?? this.colour,
+        edited: edited ?? this.edited,
       );
 
+  /// The same mark with [note] (null or empty: none).
+  Mark withNote(String? note) => note == null || note.trim().isEmpty
+      ? _with(clearNote: true, edited: DateTime.now())
+      : _with(note: note.trim(), edited: DateTime.now());
+
+  /// The same quote washed in [colour].
+  Mark withColour(MarkColour colour) => _with(colour: colour, edited: DateTime.now());
+
   /// The same mark at [place].
-  Mark movedTo(ReadingCursor place) => Mark(
-        id: id,
-        bookId: bookId,
-        bookTitle: bookTitle,
-        kind: kind,
-        at: place,
-        text: text,
-        created: created,
-        span: span,
-        chapter: chapter,
-        note: note,
-      );
+  Mark movedTo(ReadingCursor place) => _with(at: place);
 
   Map<String, Object?> toJson() => {
         'id': id,
@@ -81,7 +104,10 @@ class Mark {
         'text': text,
         if (chapter != null) 'chapter': chapter,
         if (note != null) 'note': note,
+        // Left out for the accent, as every mark before colours was.
+        if (colour != MarkColour.accent) 'colour': colour.name,
         'created': created.toIso8601String(),
+        if (edited != null) 'edited': edited!.toIso8601String(),
       };
 
   static Mark? fromJson(Object? json) {
@@ -98,7 +124,9 @@ class Mark {
       text: json['text'] as String? ?? '',
       chapter: json['chapter'] as String?,
       note: json['note'] as String?,
+      colour: MarkColour.byName(json['colour']),
       created: DateTime.tryParse(json['created'] as String? ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
+      edited: DateTime.tryParse(json['edited'] as String? ?? ''),
     );
   }
 }
@@ -154,6 +182,7 @@ class MarkStore {
     int span = 1,
     String? chapter,
     String? note,
+    MarkColour colour = MarkColour.accent,
   }) async {
     final now = DateTime.now();
     final mark = Mark(
@@ -166,6 +195,7 @@ class MarkStore {
       span: span,
       chapter: chapter,
       note: note == null || note.trim().isEmpty ? null : note.trim(),
+      colour: colour,
       created: now,
     );
     _all = [mark, ..._all];
@@ -215,11 +245,37 @@ class MarkStore {
   }
 }
 
+/// The sentence [c] points at in [units] (a layout's, in reading order), as
+/// a saved place is found: the sentence itself, or the first after its
+/// paragraph when that is gone. Searched by halves: a book's quotes are all
+/// looked for each time one changes, and a long book has 30,000 sentences.
+int unitAtCursor(List<Speakable> units, ReadingCursor c) {
+  if (units.isEmpty) return 0;
+  var lo = 0, hi = units.length;
+  while (lo < hi) {
+    final mid = (lo + hi) >> 1;
+    final u = units[mid];
+    if (u.sectionIndex < c.sectionIndex || (u.sectionIndex == c.sectionIndex && u.blockIndex < c.blockIndex)) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  var i = lo;
+  while (i < units.length && units[i].sectionIndex == c.sectionIndex && units[i].blockIndex == c.blockIndex) {
+    if (units[i].sentenceIndex == c.sentenceIndex) return i;
+    i++;
+  }
+  return i < units.length ? i : units.length - 1;
+}
+
 /// Where mark [m] is in [layout]: its address when that still holds its
 /// words, otherwise the nearest sentence that does (a book re-parsed since).
 int unitOfMark(ReadingLayout layout, Mark m) {
   if (layout.isEmpty) return 0;
-  final u = layout.unitForCursor(m.at, saved: true);
+  // What unitForCursor finds for a saved place, without its walk through
+  // the whole book: every sentence of a layout is in one of its chapters.
+  final u = unitAtCursor(layout.units, m.at);
   final want = m.text.split(RegExp(r'\s+')).take(6).join(' ');
   bool holds(int i) => i >= 0 && i < layout.units.length && layout.units[i].text.startsWith(want);
   if (want.isEmpty || holds(u)) return u;
