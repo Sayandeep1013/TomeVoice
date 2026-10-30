@@ -21,6 +21,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 import 'package:tomevoice_spike/library_store.dart';
+import 'package:tomevoice_spike/listening_session.dart';
 import 'package:tomevoice_spike/marks.dart';
 import 'package:tomevoice_spike/neural_voices.dart' show wavBytes;
 import 'package:tomevoice_spike/now_playing.dart';
@@ -1336,6 +1337,127 @@ void main() {
       await tester.tap(button);
       await tester.pump();
       expect(ends, [(false, false), (false, true)]);
+      await finish(tester);
+    });
+  });
+
+  group('a book read on in the background', () {
+    /// A book read aloud on its page and left: it reads on without the page.
+    Future<BackgroundReading> readOnWithoutIt(WidgetTester tester, ReadingLayout layout) async {
+      final store = LibraryStore(_tmp);
+      final nav = await shelf(tester);
+      unawaited(nav.push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(layout: layout, store: store))));
+      await tester.pumpAndSettle();
+      await playing(tester);
+      await nav.maybePop();
+      await tester.pumpAndSettle();
+      final bg = BackgroundReading.current.value!;
+      expect(bg.bookId, layout.book.id);
+      return bg;
+    }
+
+    testWidgets("its card's buttons: pause and play, next and previous, seek, speed and save", (tester) async {
+      final layout = numbered();
+      final bg = await readOnWithoutIt(tester, layout);
+      var s = sessions().last;
+      expect(s['active'], isTrue);
+      expect(s['title'], 'Numbered');
+      expect(s['book'], layout.book.id);
+      await event(tester, {'type': 'action', 'action': 'pause'});
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(bg.playing, isFalse);
+      expect(sessions().last['playing'], isFalse);
+
+      // Paused, the card's buttons move the place, which waits there.
+      await event(tester, {'type': 'action', 'action': 'next'});
+      expect(bg.unit, 1);
+      expect(sessions().last['positionMs'], msFor(layout.wordsBefore[1]));
+      await event(tester, {'type': 'action', 'action': 'prev'});
+      expect(bg.unit, 0);
+      // Seek: the sentence that far into the chapter, at 165 words a minute.
+      const ms = 20000;
+      var u = 0;
+      while (u + 1 < layout.chapterFirstUnit[1] && layout.wordsBefore[u + 1] <= ms / 60000 * 165) {
+        u++;
+      }
+      expect(u, greaterThan(1));
+      await event(tester, {'type': 'action', 'action': 'seek', 'value': ms});
+      expect(bg.unit, u);
+      // By chapter: on to the next; back, a few sentences in, to its start,
+      // and at its start to the chapter before.
+      final second = layout.chapterFirstUnit[1];
+      ListeningPrefs.memory.skipBy = SkipBy.chapter;
+      await event(tester, {'type': 'action', 'action': 'next'});
+      expect(bg.unit, second);
+      ListeningPrefs.memory.skipBy = SkipBy.sentence;
+      for (var i = 0; i < 3; i++) {
+        await event(tester, {'type': 'action', 'action': 'next'});
+      }
+      expect(bg.unit, second + 3);
+      ListeningPrefs.memory.skipBy = SkipBy.chapter;
+      await event(tester, {'type': 'action', 'action': 'prev'});
+      expect(bg.unit, second);
+      await event(tester, {'type': 'action', 'action': 'prev'});
+      expect(bg.unit, 0);
+      expect(sessions().last['subtitle'], 'Alpha');
+      expect(sessions().last['durationMs'], msFor(layout.wordsBefore[second]));
+
+      // Speed: the next of the common speeds, on the card too.
+      await event(tester, {'type': 'action', 'action': 'speed'});
+      expect(ListeningPrefs.memory.speedFor(layout.book.id), 1.25);
+      expect(sessions().last['speed'], 1.25);
+      // Save this line: the sentence it waits at.
+      await event(tester, {'type': 'action', 'action': 'save'});
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(MarkStore.instance.forBook(layout.book.id).single.text, layout.units[0].text);
+
+      // Play: from where it was moved to.
+      await event(tester, {'type': 'action', 'action': 'play'});
+      await io(tester, () => bg.playing);
+      expect(bg.player.unit.value, 0);
+      s = sessions().last;
+      expect(s['playing'], isTrue);
+      expect(s['speed'], 1.25);
+      await bg.stop();
+      expect(sessions().last['active'], isFalse);
+      await finish(tester);
+    });
+
+    testWidgets("the phone's audio: unplugged it pauses; a moment's loss comes back, a long one or one for good does not",
+        (tester) async {
+      final bg = await readOnWithoutIt(tester, ReadingLayout.build(specimenBook()));
+      expect(bg.playing, isTrue);
+      await event(tester, {'type': 'noisy'});
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(bg.playing, isFalse);
+      await event(tester, {'type': 'focusGain'});
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(bg.playing, isFalse, reason: 'unplugged is not a loss to come back from');
+
+      await event(tester, {'type': 'action', 'action': 'play'});
+      await io(tester, () => bg.playing);
+      await event(tester, {'type': 'focusLossTransient'});
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(bg.playing, isFalse);
+      await event(tester, {'type': 'focusGain'});
+      await io(tester, () => bg.playing);
+      expect(bg.playing, isTrue, reason: 'taken a moment, and given back');
+
+      await event(tester, {'type': 'focusLossTransient'});
+      await tester.pump(const Duration(minutes: 2));
+      await event(tester, {'type': 'focusGain'});
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(bg.playing, isFalse, reason: 'a long call does not resume on its own');
+
+      await event(tester, {'type': 'action', 'action': 'play'});
+      await io(tester, () => bg.playing);
+      await event(tester, {'type': 'focusLoss'});
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(bg.playing, isFalse);
+      await event(tester, {'type': 'focusGain'});
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(bg.playing, isFalse, reason: 'taken for good');
+      await bg.stop();
       await finish(tester);
     });
   });
