@@ -988,7 +988,14 @@ class LibraryStore {
     );
   }
 
+  /// Take book [id] out of the library, with its folder. Its quotes and
+  /// bookmarks stay (they keep a copy of their words), except a secret
+  /// shelf's: those go first, with the book. Kept, they showed in Saved and
+  /// in exports with the shelf shut, as the book was no longer on it to hide
+  /// them, and travelled in every backup.
   Future<void> remove(String id) async {
+    await index(all: true);
+    if (isSecret(id)) await MarkStore.instance.removeBook(id);
     final dir = Directory(bookDir(id));
     if (await dir.exists()) await dir.delete(recursive: true);
     _downloads.remove(id);

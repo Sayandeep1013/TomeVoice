@@ -1,13 +1,18 @@
 // Secret shelves: while shut, a shelf and its books are left out of what
 // the library gives every page, and nothing done to the shelves without
-// them (a rename, a reorder) loses them.
+// them (a rename, a reorder) loses them. A secret book removed leaves
+// nothing saved from it behind.
 
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor;
 import 'package:tomevoice_spike/library_store.dart';
+import 'package:tomevoice_spike/marks.dart';
+import 'package:tomevoice_spike/quote_export.dart';
+import 'package:tomevoice_spike/saved_screen.dart';
 import 'package:tomevoice_spike/secret_shelf.dart';
 import 'package:tomevoice_spike/speech_service.dart';
 
@@ -78,6 +83,64 @@ void main() {
     expect(entry.id, id);
     expect(store.isSecret(id), isTrue);
     expect((await store.index()).entries, isEmpty);
+  });
+
+  group('removed', () {
+    setUp(() async {
+      MarkStore.instance.reset();
+      await MarkStore.instance.attach(tmp);
+    });
+    tearDown(MarkStore.instance.reset);
+
+    Future<void> save(String bookId, String title, MarkKind kind, String text) =>
+        MarkStore.instance.add(bookId: bookId, bookTitle: title, kind: kind, at: ReadingCursor.zero, text: text);
+
+    /// A book on an ordinary shelf.
+    Future<String> openBook() async {
+      final f = File('${tmp.path}/incoming/open.txt')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('Chapter 1\n\n${'An open story goes on. ' * 30}');
+      return (await store.importFile(PickedFile(path: f.path, name: 'open.txt'))).id;
+    }
+
+    test('a secret book takes what was saved from it: gone from the marks, their file and exports', () async {
+      await save(id, 'Pride and Prejudice', MarkKind.quote, 'It is a truth universally acknowledged.');
+      await save(id, 'Pride and Prejudice', MarkKind.bookmark, 'A single man in possession of a good fortune.');
+      final open = await openBook();
+      await save(open, 'Open', MarkKind.quote, 'An open story goes on.');
+
+      await store.remove(id);
+      expect(MarkStore.instance.forBook(id), isEmpty);
+      expect(MarkStore.instance.forBook(open), hasLength(1));
+      final file = File('${tmp.path}/marks.json').readAsStringSync();
+      expect(file, isNot(contains('universally')));
+      expect(file, isNot(contains('Pride and Prejudice')));
+      // Shut or open, an export has nothing of it: there is nothing left.
+      for (final shelfOpen in [false, true]) {
+        LibraryStore.secretOpen.value = shelfOpen;
+        expect([for (final b in await quotesToExport(store)) for (final q in b.quotes) q.bookId], [open]);
+      }
+    });
+
+    test('a book on an open shelf leaves its quotes, as ever', () async {
+      final open = await openBook();
+      await save(open, 'Open', MarkKind.quote, 'An open story goes on.');
+      await store.remove(open);
+      expect(MarkStore.instance.forBook(open), hasLength(1));
+    });
+
+    testWidgets("Saved shows nothing of a secret book once it is removed", (tester) async {
+      await tester.runAsync(() async {
+        await save(id, 'Pride and Prejudice', MarkKind.quote, 'It is a truth universally acknowledged.');
+        await store.remove(id);
+        await store.index(all: true);
+      });
+      await tester.pumpWidget(MaterialApp(home: SavedScreen(store: store)));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('universally'), findsNothing);
+      expect(find.text('Pride and Prejudice'), findsNothing);
+      expect(find.text('No quotes yet'), findsOneWidget);
+    });
   });
 
   testWidgets('shown while shut, a secret book asks for the lock first', (tester) async {
