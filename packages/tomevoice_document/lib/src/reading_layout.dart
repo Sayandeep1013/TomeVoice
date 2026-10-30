@@ -233,11 +233,16 @@ class ReadingLayout {
     return count <= 12 && words < 60 && _same(chapterTitle(c), book.metadata.title);
   }
 
+  /// Titles compared by their letters and digits, in any script: a Russian
+  /// or Bengali title was nothing once only a to z were kept, and its title
+  /// page was never passed over.
   static bool _same(String a, String b) {
-    String norm(String s) => s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    String norm(String s) => s.toLowerCase().replaceAll(_notLetterOrDigit, '');
     final x = norm(a), y = norm(b);
     return x.isNotEmpty && (x == y || y.startsWith(x) || x.startsWith(y));
   }
+
+  static final _notLetterOrDigit = RegExp(r'[^\p{L}\p{N}]', unicode: true);
 
   /// Roles whose text [build] can show without speaking: notes, captions,
   /// a picture's words.

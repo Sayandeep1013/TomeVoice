@@ -679,6 +679,15 @@ List<Set<int>> _furniture(List<List<_Line>> pages, double body) {
       // Running heads are short; a long repeated line is probably prose.
       if (key.isEmpty || key.length > 60) continue;
       final atEdge = edges[p].contains(i);
+      // A head that names the chapter and carries the page's number
+      // ("CHAPTER II. 5"), set smaller than the text: a chapter two or three
+      // pages long has one, too few to be seen repeating, and it was taken
+      // for the start of another chapter.
+      final size = page[i].box?.size ?? 0;
+      if (atEdge && body > 0 && size > 0 && size < body * 0.95 && _numbered(page[i].text) && looksLikeChapterLine(page[i].text)) {
+        out[p].add(i);
+        continue;
+      }
       if (!everywhere.contains(key) && !(atEdge && _pagesNearWith(atEdges, p, key) >= 2)) {
         continue;
       }
