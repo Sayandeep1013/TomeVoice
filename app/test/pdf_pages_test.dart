@@ -139,6 +139,12 @@ void main() {
       .where((t) => RegExp(r'^\d+$').hasMatch(t))
       .join(',');
 
+  /// What each page was last drawn as: its pdfRender call's arguments.
+  Map<int, Map<Object?, Object?>> drawn() => {
+        for (final c in _calls.where((c) => c.method == 'pdfRender'))
+          (c.arguments as Map)['page'] as int: c.arguments as Map,
+      };
+
   for (final turn in ['curl', 'slide', 'none']) {
     testWidgets('a pinch zooms a page and turns none; zoomed, a drag moves it; two taps bring it back ($turn)',
         (tester) async {
@@ -327,17 +333,33 @@ void main() {
     await finish(tester);
   });
 
+  for (final crop in [false, true]) {
+    testWidgets(
+        "turned as a book, a PDF's next page is drawn while one is read, so a turn finds it ready"
+        '${crop ? ' (cut)' : ''}', (tester) async {
+      ListeningPrefs.memory
+        ..pages = true
+        ..pageTurn = 'slide'
+        ..pdfCrop = crop;
+      await openPdf(tester);
+      expect(shown(), '1');
+      expect(drawn().keys, containsAll([0, 1]), reason: 'page 2, before it is turned to');
+      expect(drawn().containsKey(2), isFalse);
+      if (crop) expect(drawn()[1]!['crop'], isNotNull, reason: 'looked at, and drawn cut');
+      final box = tester.getRect(find.byType(PageView));
+      await tester.tapAt(Offset(box.right - 10, box.center.dy));
+      await tester.pumpAndSettle();
+      expect(shown(), '2');
+      expect(drawn().containsKey(2), isTrue, reason: 'and page 3 once page 2 is turned to');
+      await finish(tester);
+    });
+  }
+
   group('Crop margins', () {
     /// The book's cut, as the view should find it from the three pages.
     CropPlan plan() => CropPlan.from(const [0, 1, 2], [for (var p = 0; p < 3; p++) _printOf(p)], List.filled(3, _letter))!;
 
     List<double> sides(Rect r) => [r.left, r.top, r.right, r.bottom];
-
-    /// What each page was last drawn as: its pdfRender call's arguments.
-    Map<int, Map<Object?, Object?>> drawn() => {
-          for (final c in _calls.where((c) => c.method == 'pdfRender'))
-            (c.arguments as Map)['page'] as int: c.arguments as Map,
-        };
 
     Iterable<AspectRatio> frames(WidgetTester tester) => tester.widgetList<AspectRatio>(
         find.descendant(of: find.byType(PdfPagesView), matching: find.byType(AspectRatio)));

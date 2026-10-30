@@ -251,6 +251,16 @@ class _PdfPagesViewState extends State<PdfPagesView> {
   int _px(BuildContext context, double width) =>
       ((width * MediaQuery.devicePixelRatioOf(context)) / 120).ceil() * 120;
 
+  /// The leaves of [item] drawn ahead, so a turn to them finds them ready
+  /// (a page looked at for its print, then drawn cut, takes longer).
+  void _warm(BuildContext context, int item, int pages, double width) {
+    final px = _px(context, width);
+    for (var side = 0; side < _per; side++) {
+      final page = item * _per + side;
+      if (page < pages) _render(page, px).ignore();
+    }
+  }
+
   /// The page at the top of the screen stays there as the pages change
   /// shape (cut, or whole again).
   void _keepPlace() {
@@ -451,7 +461,13 @@ class _PdfPagesViewState extends State<PdfPagesView> {
           final items = (pages + per - 1) ~/ per;
           final start = _current ~/ per;
           final zoomed = _zoomed.isNotEmpty;
-          void settled(int i, {required bool byHand}) => widget.onTurned?.call(i * per, byHand: byHand);
+          // The next leaves are drawn while this one is read.
+          _warm(context, start + 1, pages, w / per);
+          void settled(int i, {required bool byHand}) {
+            _warm(context, i + 1, pages, w / per);
+            widget.onTurned?.call(i * per, byHand: byHand);
+          }
+
           Widget leaf(BuildContext context, int i, int side) {
             final page = i * per + side;
             if (page >= pages) return const SizedBox.shrink();
