@@ -53,9 +53,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * what does.
  *
  * The engine outlives the activity while a book is being read, or about to
- * be: a swipe from Recents, or Android closing the activity, leaves the voice
- * reading. With nothing read and no activity it goes ([idle]), so the next
- * opening starts afresh, as it always did.
+ * be, or saved as audio ([exporter]): a swipe from Recents, or Android
+ * closing the activity, leaves the voice reading and the save going. With
+ * neither and no activity it goes ([idle]), so the next opening starts
+ * afresh, as it always did.
  *
  * TTS: one engine instance, created with the Flutter engine and kept warm.
  * Listing voices and synthesising both use it. Earlier builds created a
@@ -93,6 +94,17 @@ object ReadingCore {
     val player = PcmPlayer()
 
     /**
+     * Saving a book as audio ("tomevoice/export"): made with the engine and
+     * closed with it, so a save is the engine's as reading is, not an
+     * activity's. Each activity is attached to it while it shows the app.
+     */
+    var exporter: AudioExport? = null
+        private set
+
+    /** A book is being saved as audio: the engine stays for it, as for a reading. */
+    fun saving(): Boolean = exporter?.busy == true
+
+    /**
      * The engine, made and cached if there is none yet. Dart is not run
      * here: the activity runs main() on a new one, [runInBackground]
      * backgroundMain().
@@ -114,14 +126,16 @@ object ReadingCore {
         val engine = engine(a)
         main.removeCallbacks(retire)
         activity = a
+        exporter?.attach(a)
         return engine
     }
 
     /** Whether [a] is the activity showing the app now (not one a newer one replaced). */
     fun shows(a: MainActivity): Boolean = activity === a
 
-    /** [a] lets go of the engine: its own calls go with it, reading's stay. */
+    /** [a] lets go of the engine: its own calls go with it, reading's and a save's stay. */
     fun detach(a: MainActivity) {
+        exporter?.detach(a)
         if (activity !== a) return
         activity = null
         channel?.setMethodCallHandler { call, result -> alone(call, result) }
@@ -157,9 +171,9 @@ object ReadingCore {
     }
 
     /**
-     * Nothing is being read: with no activity either, the engine goes in a
-     * moment, and with it the voice and the player. The next Play from
-     * outside the app starts it again.
+     * Nothing is being read, or saved: with no activity either, the engine
+     * goes in a moment, and with it the voice and the player. The next Play
+     * from outside the app starts it again.
      */
     fun idle() {
         main.removeCallbacks(retire)
@@ -167,7 +181,9 @@ object ReadingCore {
     }
 
     private val retire = Runnable {
-        if (activity != null || ReadAloudService.isRunning() || ReadAloudService.isStarting()) return@Runnable
+        if (activity != null || ReadAloudService.isRunning() || ReadAloudService.isStarting() || saving()) {
+            return@Runnable
+        }
         // Its lifecycle listener (bind) lets everything else go.
         FlutterEngineCache.getInstance().get(ENGINE_ID)?.destroy()
     }
@@ -190,6 +206,9 @@ object ReadingCore {
 
             override fun onEngineWillDestroy() = unbind()
         })
+        // Saving as audio, on this engine for as long as it lives (and the
+        // half-made files of one that died swept away).
+        exporter = AudioExport(app, engine.dartExecutor.binaryMessenger)
         // Speech made for an engine before this one: nothing will read it.
         // (Not on each activity: the voice may be reading from these.)
         io.execute { synthDir().listFiles()?.forEach { it.delete() } }
@@ -204,6 +223,8 @@ object ReadingCore {
         channel = null
         activity = null
         asked = null
+        exporter?.close()
+        exporter = null
         ReadAloudService.onAction = null
         player.stop()
         abandonFocus()

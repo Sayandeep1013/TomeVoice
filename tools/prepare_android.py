@@ -61,6 +61,10 @@ copied in. The generated project cannot know about any of this:
     not on Maven Central), which is asked for that one group and nothing else.
     A dataSync foreground service reads the pages with the screen off.
 
+14. **Saving as MP3** (AudioExport.kt, Mp3Writer): jump3r, the LAME encoder
+    3.98.4 ported to Java, LGPL 2.1 or later (GPL-3.0 compatible), from Maven
+    Central. Android has no MP3 encoder of its own.
+
 Idempotent: running it twice changes nothing the second time.
 """
 
@@ -94,6 +98,15 @@ WORK = 'implementation("androidx.work:work-runtime:2.10.0")'
 # 4 KB pages only.
 TESSERACT = 'implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")'
 TESSERACT_GROOVY = "implementation 'cz.adaptech.tesseract4android:tesseract4android:4.9.0'"
+
+# Saving as MP3 (AudioExport.kt, Mp3Writer): jump3r 1.0.5, LAME 3.98.4 in
+# Java, LGPL 2.1 or later, on Maven Central. Pure Java, nothing native: no
+# library to align for 16 KB pages, every CPU (the emulator's too), any
+# Android the app runs on (Java 6 bytecode). 353 KB as published, with no
+# dependencies; R8 keeps only the encoder (AudioExport.kt wires it itself,
+# as jump3r's own wrapper needs javax.sound, which Android has not).
+JUMP3R = 'implementation("de.sciss:jump3r:1.0.5")'
+JUMP3R_GROOVY = "implementation 'de.sciss:jump3r:1.0.5'"
 
 JITPACK = """
 // Tesseract4Android is published on JitPack only. Nothing else is fetched
@@ -491,6 +504,13 @@ def patch_gradle(path: Path, signing: bool, app_id: str = APPLICATION_ID) -> str
         else:
             text = text.rstrip() + "\n" + JITPACK_GROOVY + f"\ndependencies {{\n    {TESSERACT_GROOVY}\n}}\n"
         notes.append("tesseract (OCR)")
+
+    if JUMP3R not in text and JUMP3R_GROOVY not in text:
+        if path.suffix == ".kts":
+            text = text.rstrip() + f"\n\ndependencies {{\n    {JUMP3R}\n}}\n"
+        else:
+            text = text.rstrip() + f"\n\ndependencies {{\n    {JUMP3R_GROOVY}\n}}\n"
+        notes.append("jump3r (MP3)")
 
     if 'proguardFiles("proguard-rules.pro")' not in text and path.suffix == ".kts":
         text, n = re.subn(

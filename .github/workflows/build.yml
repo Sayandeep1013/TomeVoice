@@ -257,6 +257,10 @@ jobs:
           # OCR for scanned PDFs: Tesseract4Android and its service.
           grep -q "tesseract4android" android/app/build.gradle.kts
           grep -q 'foregroundServiceType="dataSync"' "$M"
+          # Saving as MP3: the encoder (jump3r) and the save's service.
+          grep -q "de.sciss:jump3r" android/app/build.gradle.kts
+          grep -q "AudioExportService" "$M"
+          test -f "$K/AudioExport.kt"
           # ...without BouncyCastle's post-quantum tables (4.1 MB).
           grep -q 'excludes += "org/bouncycastle/pqc/' android/app/build.gradle.kts
           test -f android/app/proguard-rules.pro

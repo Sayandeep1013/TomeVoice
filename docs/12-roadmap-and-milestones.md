@@ -13,14 +13,14 @@ backups, and with 1.3.0 the fixes from the full review of 30 October
 
 ## Next release (on the `next` branch, waiting for a phone check)
 
-Save as audio (M4B), reading from outside the app (swipe-away, the media card, a
-headset, Android Auto), battery help, web novels that look after themselves (checks
-with the app closed, a download queue, sandboxed plugins checked by SHA-256), reading a
-shared link or text, highlights with Markdown export, Read notes aloud, OPDS
-catalogues, automatic backups, WebDAV and KOReader sync, OCR for scanned PDFs, natural
-voices in 42 languages, PDF pages that zoom and go dark, accessibility and contrast, an
-error log with Report a problem, and thirteen reading fixes found by a corpus of real
-books.
+Save as audio (M4B or MP3, going on after a swipe-away), reading from outside the app
+(swipe-away, the media card, a headset, Android Auto), battery help, web novels that
+look after themselves (checks with the app closed, a download queue, sandboxed plugins
+checked by SHA-256), reading a shared link or text, highlights with Markdown export,
+Read notes aloud, OPDS catalogues, automatic backups, WebDAV and KOReader sync, OCR for
+scanned PDFs, natural voices in 42 languages, PDF pages that zoom and go dark,
+accessibility and contrast, an error log with Report a problem, and thirteen reading
+fixes found by a corpus of real books.
 
 ## The pass after it
 
@@ -37,10 +37,8 @@ books.
    - chips and the chapter scrubber under 48 dp;
    - small type in the app's light palettes below AA;
    - no margin crop for a PDF's pages;
-   - a save to audio stopping on swipe-away;
    - the closed-app chapter check skipping while the app sits in the background;
    - a gap at the reader page's window edge;
-   - MP3 export;
    - small document leftovers (transcriber's notes, RTF footnotes, Word tables, a
      Gutenberg text's title);
    - quotes left by secret books removed before 1.4.
