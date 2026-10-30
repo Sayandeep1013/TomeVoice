@@ -530,7 +530,8 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
   Widget _voice(BuildContext context) {
     final controller = _listen;
     final v = _catalog.byName(controller.voiceName);
-    final speed = trimSpeed(_prefs.settings.speedScale);
+    // This book's own speed, when it has one ("For this book only").
+    final speed = trimSpeed(_prefs.speedFor(_entry.id));
     return Material(
       color: Skin.capsuleOn(context),
       borderRadius: BorderRadius.circular(Radii.row + 4),
