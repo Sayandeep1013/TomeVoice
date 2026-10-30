@@ -104,6 +104,24 @@ snapshot() {
   dev am stack list > "$out/$1-stack-list.txt"
 }
 
+# TomeVoice's task in Recents (what a swipe there removes), or nothing: from
+# am stack list ("taskId=23: app.tomevoice/..."), else dumpsys activity recents.
+task_id() {
+  local id
+  id=$(dev am stack list | grep -oE "taskId=[0-9]+: $pkg/" | head -n 1 | grep -oE "[0-9]+" || true)
+  if [ -z "$id" ]; then
+    id=$(dev dumpsys activity recents | awk -v pkg="$pkg" '
+      /Recent #[0-9]+: Task[{]/ { if (match($0, / #[0-9]+ /)) t = substr($0, RSTART + 2, RLENGTH - 3) }
+      index($0, "realActivity=" pkg "/") { print t; exit }')
+  fi
+  echo "$id"
+}
+
+# Whether a dumpsys activity services shows ReadAloudService in the foreground.
+foreground_service() {
+  awk '/ServiceRecord[{].*ReadAloudService/ { s = 1; next } /ServiceRecord[{]/ { s = 0 } s && /isForeground=true/ { f = 1 } END { exit !f }' "$1"
+}
+
 # ---------------------------------------------------------------- the device
 
 adb wait-for-device
@@ -222,12 +240,110 @@ back_test() {
 }
 : > "$out/back-evidence.md"
 
+# ------------------------------------------------------------ the Recents test
+#
+# The voice is the Flutter engine's, which outlives MainActivity while a book
+# is read (ReadingCore.kt): a swipe from Recents must not stop it. A paused
+# book is put away instead (ReadAloudService.onTaskRemoved), and a headset's
+# Play with the app closed reads again (the session's media button receiver
+# starts the service, which starts the engine at backgroundMain).
+#
+# remove_task <id>: TomeVoice's task removed as a swipe in Recents removes it
+# (am stack remove calls the same removeTask). Files go to $out/<id>-*.
+remove_task() {
+  local task
+  task=$(task_id)
+  echo "$task" > "$out/$1-task.txt"
+  [ -n "$task" ] || return 1
+  adb logcat -b events -c
+  dev am stack remove "$task" > "$out/$1-remove.txt"
+  sleep 8
+  adb logcat -b events -d | tr -d '\r' | grep -E "tomevoice|wm_task_removed" > "$out/$1-events.txt" || true
+  snapshot "$1-after"
+}
+
+# swipe_test <id> <name> <FAIL|WARN>: TomeVoice reading aloud (back on the
+# shelf after the Back test) is swiped from Recents; the voice must go on.
+swipe_test() {
+  local id=$1 name=$2 level=$3 before after pid service detail
+  snapshot "$id-before"
+  before=$(media_state "$out/$id-before-media_session.txt")
+  case "$before" in
+    *"state=3"*) ;;
+    *)
+      result WARN "$name" "not reading aloud before the swipe on API $api (media session ${before:-none}): nothing to judge"
+      return
+      ;;
+  esac
+  if ! remove_task "$id"; then
+    result WARN "$name" "TomeVoice had no task in Recents to remove on API $api"
+    return
+  fi
+  after=$(media_state "$out/$id-after-media_session.txt")
+  pid=$(dev pidof "$pkg")
+  service=$(foreground_service "$out/$id-after-services.txt" && echo "in the foreground" || echo "not in the foreground")
+  detail="process ${pid:-gone}; ReadAloudService $service; media session $before before, ${after:-none} after (API $api)"
+  if [ -n "$pid" ] && printf '%s' "$after" | grep -q "state=3"; then
+    result PASS "$name" "still reading after the swipe: $detail"
+  else
+    result "$level" "$name" "the reading stopped with the swipe: $detail"
+  fi
+}
+
+# paused_swipe_test <id> <name>: TomeVoice opened again onto the engine still
+# reading (the activity rejoins it), the book paused with a media key, then
+# swiped from Recents: the paused book is put away, the service leaves the
+# foreground and the session stops playing or pausing.
+paused_swipe_test() {
+  local id=$1 name=$2 after service
+  dev am start -n "$pkg/.$activity" > "$out/$id-start.txt"
+  sleep 6
+  shot "$id-rejoined"
+  adb shell input keyevent KEYCODE_MEDIA_PAUSE
+  sleep 4
+  snapshot "$id-before"
+  if ! remove_task "$id"; then
+    result WARN "$name" "TomeVoice had no task in Recents to remove on API $api"
+    return
+  fi
+  after=$(media_state "$out/$id-after-media_session.txt")
+  service=$(foreground_service "$out/$id-after-services.txt" && echo "in the foreground" || echo "not in the foreground")
+  if [ "$service" = "not in the foreground" ] && ! printf '%s' "$after" | grep -qE "state=(2|3)[^0-9]|state=(2|3)$"; then
+    result PASS "$name" "put away: ReadAloudService $service, media session ${after:-gone} (API $api)"
+  else
+    result WARN "$name" "still up after a paused swipe: ReadAloudService $service, media session ${after:-none} (API $api)"
+  fi
+}
+
+# headset_play_test <id> <name>: with the app closed and nothing reading, a
+# headset's Play (KEYCODE_MEDIA_PLAY, dispatched by the system as a real one
+# is) reads the book again, from its place.
+headset_play_test() {
+  local id=$1 name=$2 after pid
+  adb shell input keyevent KEYCODE_MEDIA_PLAY
+  sleep 20
+  snapshot "$id-after"
+  shot "$id-after"
+  after=$(media_state "$out/$id-after-media_session.txt")
+  pid=$(dev pidof "$pkg")
+  if printf '%s' "$after" | grep -qE "state=(3|6)[^0-9]|state=(3|6)$"; then
+    result PASS "$name" "reading again with the app closed: media session $after, process ${pid:-gone} (API $api)"
+  else
+    result WARN "$name" "not reading after Play: media session ${after:-none}, process ${pid:-gone} (API $api)"
+  fi
+}
+
 # The reader's way: TomeVoice opened from the launcher. Android 16 moves the
 # task to the back on Back only for an activity the home screen launched
 # (ActivityClientController.shouldMoveTaskToBack), so this is the case that
 # must keep reading.
 if check listen-from-home "Open from the home screen, listen, back to the library" "the launcher opens TomeVoice; Listen, then its Back buttons, return to the shelf" "could not open TomeVoice from the launcher, listen and go back to the library"; then
   back_test home "BACK TEST" FAIL
+  # Still reading, the app behind: swiped from Recents, it reads on; opened,
+  # paused and swiped, it is put away; a headset's Play reads it again.
+  swipe_test swipe "SWIPE TEST" FAIL
+  paused_swipe_test swipe-paused "SWIPE TEST, paused"
+  headset_play_test headset "HEADSET PLAY, app closed"
 else
   result FAIL "BACK TEST" "not run on API $api: TomeVoice could not be opened from the launcher"
 fi
