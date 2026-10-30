@@ -343,6 +343,13 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   final _paged = PagedController();
   final _chrome = ValueNotifier<bool>(false);
 
+  /// A PDF's real pages, turned from outside (the page keys).
+  final _pdf = PdfPagesController();
+
+  /// The ground under the page, which the fades at the text's edges draw
+  /// again over it (see [GroundFade]).
+  final _groundLink = LayerLink();
+
   /// The scroll's top bar and player: there until a tap on the text puts
   /// them away for reading alone, and back with another.
   final _scrollBars = ValueNotifier<bool>(true);
@@ -363,6 +370,15 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   Object? _layoutKey;
   bool _fullScreen = false;
   bool _volumeKeys = false;
+
+  /// The safe area the page is laid out in and the size it was for (see
+  /// [_steadyInsets]); whether the app is away, or only just back; and the
+  /// waits before a change of insets is followed.
+  EdgeInsets? _insets;
+  Size? _insetsFor;
+  bool _away = false;
+  Timer? _backTimer;
+  Timer? _insetsTimer;
 
   /// The chapter at the top of the screen. While the reader looks around
   /// (detached), the top bar names it instead of the one being read.
@@ -660,6 +676,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// The book in pages (not a PDF's real pages).
   bool get _inPages => _prefs.pages && !_showPages && !_l.isEmpty;
 
+  /// A PDF's real pages, turned as a book's: the page keys turn them too.
+  bool get _pdfBook => _prefs.pages && _showPages && !_l.isEmpty;
+
   /// The voice is reading, or paused in the middle of it.
   bool get _listening => _player.state.value != PlayState.idle;
 
@@ -672,7 +691,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       _fullScreen = full;
       unawaited(SystemChrome.setEnabledSystemUIMode(full ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge));
     }
-    final keys = _prefs.volumeKeys && _inPages && !_player.isPlaying;
+    final keys = _prefs.volumeKeys && (_inPages || _pdfBook) && !_player.isPlaying;
     if (keys != _volumeKeys) {
       _volumeKeys = keys;
       unawaited(_svc.volumeKeysTurnPages(keys));
@@ -690,6 +709,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   Route<void>? _nowPlaying;
   NavigatorState? _nowPlayingNav;
 
+  /// Now Playing's screen, for where a message sits over it (see
+  /// [_snackMargin]); a new key each time it opens.
+  GlobalKey _nowPlayingKey = GlobalKey();
+
   /// Redraws the sleep countdown in the player bar.
   Timer? _sleepTick;
 
@@ -706,6 +729,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     }
     _sleepTick?.cancel();
     _eyesTimer?.cancel();
+    _backTimer?.cancel();
+    _insetsTimer?.cancel();
     if (_fullScreen) unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
     if (_volumeKeys) unawaited(_svc.volumeKeysTurnPages(false));
     WidgetsBinding.instance.removeObserver(this);
@@ -776,6 +801,57 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       _countTime();
       unawaited(StatsStore.instance.flush());
     }
+    _insetsTimer?.cancel();
+    _backTimer?.cancel();
+    if (state != AppLifecycleState.resumed) {
+      _away = true;
+      return;
+    }
+    // Back in front: the phone's bars a system sheet brought go again in a
+    // moment. Insets still changed after that are followed.
+    _backTimer = Timer(const Duration(milliseconds: 600), () {
+      if (!mounted) return;
+      _away = false;
+      setState(() {});
+    });
+  }
+
+  /// The safe area the page is laid out in. In full screen, a system sheet
+  /// over the app (Look up's choice of apps) brings the phone's bars back,
+  /// and they go again as it closes: followed, the pages were cut afresh
+  /// behind the sheet and again after it, and the page jumped. So in full
+  /// screen new insets at the same size are held while the app is away and
+  /// a moment after it is back, and bars that appear are held a moment with
+  /// it in front too (the sheet can come before the app is told it is away);
+  /// a change still there then is followed. A new size (the phone turned) is
+  /// followed at once, and so is room given back (bars gone).
+  EdgeInsets _steadyInsets(BuildContext context) {
+    final now = MediaQuery.paddingOf(context);
+    final size = MediaQuery.sizeOf(context);
+    final held = _insets;
+    if (!_prefs.fullScreen || held == null || size != _insetsFor) {
+      _insetsTimer?.cancel();
+      _insets = now;
+      _insetsFor = size;
+      return now;
+    }
+    if (now == held) {
+      _insetsTimer?.cancel();
+      return held;
+    }
+    if (_away) return held;
+    final grew = now.left > held.left || now.top > held.top || now.right > held.right || now.bottom > held.bottom;
+    if (!grew) {
+      _insetsTimer?.cancel();
+      _insets = now;
+      return now;
+    }
+    if (!(_insetsTimer?.isActive ?? false)) {
+      _insetsTimer = Timer(const Duration(milliseconds: 300), () {
+        if (mounted && !_away) setState(() => _insets = null);
+      });
+    }
+    return held;
   }
 
   /// The width the scroll was last laid out at.
@@ -1087,7 +1163,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if ((bg != null || _handedOn) && e['type'] != 'pageKey' && _player.state.value == PlayState.idle) return;
     switch (e['type']) {
       case 'pageKey':
-        if (_inPages) _paged.turn((e['delta'] as num?)?.toInt() ?? 1);
+        final delta = (e['delta'] as num?)?.toInt() ?? 1;
+        if (_inPages) {
+          _paged.turn(delta);
+        } else if (_pdfBook) {
+          _pdf.turn(delta);
+        }
       case 'noisy':
         // Unplugged: not another word out of the speaker.
         _resumeOnFocus = false;
@@ -1508,7 +1589,42 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       : (_barKey.currentContext?.findRenderObject() as RenderBox?)?.size.height ?? 0;
 
   void _snack(String text) {
-    if (mounted) showSnack(context, text, lift: _barLift);
+    if (mounted) showSnack(context, text, margin: _snackMargin);
+  }
+
+  /// Where a message floats: above the player, or at the foot while the
+  /// bars are away. With Now Playing open over the page, above its scrubber
+  /// instead, over the fade at the foot of its text and across its panel
+  /// only: the player's height put it over Now Playing's own controls.
+  EdgeInsets get _snackMargin {
+    final open = _nowPlaying;
+    final now = _nowPlayingKey.currentContext;
+    if (open != null && open.isActive && now != null) {
+      RenderBox? scrubber;
+      void find(Element e) {
+        if (scrubber != null) return;
+        if (e.widget is ChapterScrubber) {
+          scrubber = e.findRenderObject() as RenderBox?;
+        } else {
+          e.visitChildren(find);
+        }
+      }
+
+      now.visitChildElements(find);
+      final box = scrubber;
+      if (box != null && box.hasSize && box.attached) {
+        final at = box.localToGlobal(Offset.zero);
+        final screen = MediaQuery.sizeOf(now);
+        final foot = screen.height - MediaQuery.paddingOf(now).bottom;
+        return EdgeInsets.fromLTRB(
+          at.dx,
+          0,
+          math.max(0.0, screen.width - at.dx - box.size.width),
+          math.max(Gap.l, foot - at.dy + Gap.s),
+        );
+      }
+    }
+    return EdgeInsets.fromLTRB(Gap.l, 0, Gap.l, Gap.l + _barLift);
   }
 
   // ----------------------------------------------------- keep and share
@@ -1539,7 +1655,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     showSnack(
       context,
       said,
-      lift: _barLift,
+      margin: _snackMargin,
       actionLabel: 'Undo',
       onAction: () => unawaited(MarkStore.instance.remove(mark.id)),
     );
@@ -1792,28 +1908,38 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     );
     // Out to the screen's own edges, past the safe area (the camera's side,
     // the gesture bar): ending inside the screen, the haze showed a hard edge.
-    final insets = MediaQuery.paddingOf(context);
+    final insets = _steadyInsets(context);
+    // It glows from behind the player: with the player put away (a tap
+    // on the page), it goes with it rather than lighting a bare edge.
+    final light = ValueListenableBuilder<bool>(
+      valueListenable: _inPages ? _chrome : _scrollBars,
+      builder: (context, shown, glow) => AnimatedOpacity(
+        opacity: shown ? 1 : 0,
+        duration: Motion.of(context, Motion.standard),
+        curve: Motion.out,
+        child: TickerMode(enabled: shown, child: glow!),
+      ),
+      child: VoiceGlow(level: _player.level, state: _player.state),
+    );
+    // Tall enough to rise clear of the player card at a speaking voice.
+    final rise = (rail ? 240 : 600) + insets.bottom;
     final glow = Positioned(
+      // Made afresh with the text's fade (the phone turned, a PDF's pages
+      // and back), so it keeps time with its copy there.
+      key: ValueKey(('glow', rail, _showPages)),
       left: -insets.left,
       right: -insets.right,
       bottom: -insets.bottom,
-      // Tall enough to rise clear of the player card at a speaking voice.
-      height: (rail ? 240 : 600) + insets.bottom,
-      // It glows from behind the player: with the player put away (a tap
-      // on the page), it goes with it rather than lighting a bare edge.
-      child: ValueListenableBuilder<bool>(
-        valueListenable: _inPages ? _chrome : _scrollBars,
-        builder: (context, shown, glow) => AnimatedOpacity(
-          opacity: shown ? 1 : 0,
-          duration: Motion.of(context, Motion.standard),
-          curve: Motion.out,
-          child: TickerMode(enabled: shown, child: glow!),
-        ),
-        child: VoiceGlow(level: _player.level, state: _player.state),
-      ),
+      height: rise,
+      child: light,
     );
     final paged = _inPages;
-    final reading = paged ? _pagedReading(context, bar, rail, glow) : _scrollReading(context, bar, rail);
+    final reading = paged
+        ? _pagedReading(context, bar, rail, glow, insets)
+        // Upright, the glow lies under the text and shows through the fade
+        // at its foot: the fade draws it again, in its place on the ground.
+        : _scrollReading(context, bar, rail,
+            rail ? null : Positioned(left: 0, right: 0, bottom: 0, height: rise, child: light));
     return PopScope(
       canPop: _hits.isEmpty,
       onPopInvokedWithResult: (didPop, _) {
@@ -1823,7 +1949,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       child: Scaffold(
       body: _ground(
         context,
-        SafeArea(
+        _HeldSafeArea(
+          insets: insets,
           child: Stack(
                   // The glow reaches past the safe area.
                   clipBehavior: Clip.none,
@@ -1880,8 +2007,18 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     );
   }
 
-  /// The page's tone (a PDF's real pages keep their own paper).
+  /// The page's tone (a PDF's real pages keep their own paper, drawn dark
+  /// on a dark tone: see [_pdfInk]).
   PageTone get _tone => PageTone.byId(_prefs.pageTone);
+
+  /// On a dark page tone (Dusk, or the app's own in the dark), a PDF's real
+  /// page drawn in the tone's paper and ink, so a white page is no lamp at
+  /// night. Null on a light tone: the page as it was printed.
+  ({Color paper, Color ink})? _pdfInk(BuildContext context) {
+    final tone = _tone;
+    if (!(tone.dark || (tone.isApp && Skin.isDark(context)))) return null;
+    return (paper: tone.paper?.first ?? Skin.darkOn(context), ink: tone.inkOf(context));
+  }
 
   /// The ground under everything: the app's, or the page tone's paper, with
   /// the phone's bars drawn to suit it. One shape for every tone: another
@@ -1903,13 +2040,19 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         systemNavigationBarContrastEnforced: false,
         systemStatusBarContrastEnforced: false,
       ),
-      child: PageGround(tone: tone, vignette: !_inPages, child: child),
+      // The text's fades draw this ground again where they are (GroundFade).
+      child: CompositedTransformTarget(
+        link: _groundLink,
+        child: PageGround(tone: tone, vignette: !_inPages, child: child),
+      ),
     );
   }
 
   /// The book as one long page, the top bar above it and the player below;
   /// a tap on the text folds them away, and another brings them back.
-  Widget _scrollReading(BuildContext context, Widget bar, bool rail) {
+  /// [glow] is the voice's glow placed on the ground, when it lies under the
+  /// text (see [_text]).
+  Widget _scrollReading(BuildContext context, Widget bar, bool rail, Widget? glow) {
     return Column(
       children: [
         _fold(context, top: true, child: _topBar(context)),
@@ -1927,9 +2070,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                           cursor: _cursor,
                           detached: _detached,
                           onTapPage: (page) => _goTo(_l.unitForPage(page), play: true),
+                          controller: _pdf,
                           turn: _prefs.pages ? PageTurn.byName(_prefs.pageTurn) : null,
                           spread: MediaQuery.sizeOf(context).width > MediaQuery.sizeOf(context).height &&
                               MediaQuery.sizeOf(context).width >= 600,
+                          tapToTurn: _prefs.tapToTurn,
+                          dark: _pdfInk(context),
                           onTurned: _onPdfPage,
                         )
                       : ValueListenableBuilder<bool>(
@@ -1941,7 +2087,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                             curve: veiled ? Curves.easeIn : Motion.out,
                             child: text,
                           ),
-                          child: _tapForBars(toned(context, _tone, _text(context))),
+                          child: _tapForBars(toned(context, _tone, _text(context, glow: glow))),
                         ),
                 ),
               ),
@@ -2106,7 +2252,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     showSnack(
       context,
       here.length == 1 ? 'Bookmark removed.' : '${here.length} bookmarks removed.',
-      lift: _barLift,
+      margin: _snackMargin,
       actionLabel: 'Undo',
       onAction: () async {
         for (final m in here) {
@@ -2180,7 +2326,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                                   await MarkStore.instance.remove(m.id);
                                   if (!mounted) return;
                                   showSnack(context, 'Bookmark removed.',
-                                      lift: _barLift,
+                                      margin: _snackMargin,
                                       actionLabel: 'Undo',
                                       onAction: () => unawaited(MarkStore.instance.restore(m)));
                                 },
@@ -2256,12 +2402,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   /// The book in pages, with the top bar and the player over them, shown
   /// by a tap in the middle of the page and gone as the page turns.
-  Widget _pagedReading(BuildContext context, Widget bar, bool rail, Widget glow) {
+  Widget _pagedReading(BuildContext context, Widget bar, bool rail, Widget glow, EdgeInsets insets) {
     final tone = _tone;
     final ground = tone.paper?.first ?? Skin.ground(context).colors.first;
     final foot = tone.paper?.last ?? Skin.groundFoot(context);
     final size = MediaQuery.sizeOf(context);
-    final insets = MediaQuery.paddingOf(context);
     // On its side, a wide screen opens like a book: two pages.
     final spread = size.width > size.height && size.width >= 600;
     return Stack(
@@ -2441,12 +2586,15 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (_nowPlaying?.isActive ?? false) return;
     final from = context;
     final nav = Navigator.of(context);
+    // Its own key: one closing may still be on screen as this one opens.
+    final key = _nowPlayingKey = GlobalKey();
     final route = PageRouteBuilder<void>(
       transitionDuration: Motion.of(context, Motion.page),
       reverseTransitionDuration: Motion.of(context, Motion.standard),
       pageBuilder: (ctx, _, __) => carryTint(
         from,
         NowPlayingScreen(
+          key: key,
           title: _book.metadata.title,
           cover: _cover,
           layout: _l,
@@ -2614,7 +2762,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         ),
       );
 
-  Widget _text(BuildContext context) {
+  Widget _text(BuildContext context, {Widget? glow}) {
     if (_l.isEmpty) {
       return Center(
         child: Padding(
@@ -2639,7 +2787,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     // A wide screen keeps a comfortable line (about 70 characters), centred.
     final side = math.max(_prefs.margin, (MediaQuery.sizeOf(context).width - 720) / 2);
     // Text fades out under the top bar and the player instead of being cut
-    // off against them.
+    // off against them: the ground is drawn again over its two edges, fading
+    // away from them. (A mask over all the text did the same at the cost of
+    // drawing it all again offscreen on every frame it scrolled.)
     // A long book has a thumb at the edge: dragged, it goes straight through
     // the book, the bubble naming the chapter.
     return FastScroller(
@@ -2648,36 +2798,52 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       bottom: 16,
       labelAt: (f) => _l.chapterTitle(_l.items[(f * (_l.items.length - 1)).round()].chapter),
       onDrag: _onFastScroll,
-      child: ShaderMask(
-        blendMode: BlendMode.dstIn,
-        shaderCallback: (rect) => LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: const [Colors.transparent, Colors.black, Colors.black, Colors.transparent],
-          stops: [0, 18 / rect.height, 1 - 28 / rect.height, 1],
-        ).createShader(rect),
-        child: NotificationListener<ScrollNotification>(
-          onNotification: _onScrollNotification,
-          child: LayoutBuilder(
-            builder: (context, box) {
-              _viewport = box.maxHeight;
-              return Directionality(
-                textDirection: _direction,
-                child: ScrollablePositionedList.builder(
-                // One more item at the end when there is more to fetch: the way on.
-                itemCount: _l.items.length + (widget.onReachedEnd == null ? 0 : 1),
-                itemScrollController: _scroll,
-                scrollOffsetController: _offsets,
-                itemPositionsListener: _positions,
-                initialScrollIndex: initial,
-                initialAlignment: initial == 0 ? 0 : 0.12,
-                padding: EdgeInsets.fromLTRB(side, 16, side, 120),
-                itemBuilder: (context, i) => i == _l.items.length ? _more(context) : _item(context, i),
-              ),
-              );
-            },
+      child: Stack(
+        children: [
+          NotificationListener<ScrollNotification>(
+            onNotification: _onScrollNotification,
+            child: LayoutBuilder(
+              builder: (context, box) {
+                _viewport = box.maxHeight;
+                return Directionality(
+                  textDirection: _direction,
+                  child: ScrollablePositionedList.builder(
+                  // One more item at the end when there is more to fetch: the way on.
+                  itemCount: _l.items.length + (widget.onReachedEnd == null ? 0 : 1),
+                  itemScrollController: _scroll,
+                  scrollOffsetController: _offsets,
+                  itemPositionsListener: _positions,
+                  initialScrollIndex: initial,
+                  initialAlignment: initial == 0 ? 0 : 0.12,
+                  padding: EdgeInsets.fromLTRB(side, 16, side, 120),
+                  itemBuilder: (context, i) => i == _l.items.length ? _more(context) : _item(context, i),
+                ),
+                );
+              },
+            ),
           ),
-        ),
+          Positioned(left: 0, top: 0, right: 0, height: 18, child: _edge(context, top: true)),
+          Positioned(left: 0, right: 0, bottom: 0, height: 28, child: _edge(context, glow: glow)),
+        ],
+      ),
+    );
+  }
+
+  /// The ground once more over an edge of the scrolling text, fading it out
+  /// there (see [GroundFade]): the page's paper and its vignette and, at the
+  /// foot, the voice's [glow], which shows through the text's fade there.
+  Widget _edge(BuildContext context, {bool top = false, Widget? glow}) {
+    return GroundFade(
+      link: _groundLink,
+      // The page's ground fills the screen. (A keyboard shortens it, but
+      // only ever comes with a sheet over the page, and following it would
+      // build the whole page again on every frame it rises.)
+      size: MediaQuery.sizeOf(context),
+      top: top,
+      ground: PageGround(
+        tone: _tone,
+        vignette: !_inPages,
+        child: glow == null ? const SizedBox.shrink() : Stack(children: [glow]),
       ),
     );
   }
@@ -3191,6 +3357,29 @@ class _BlockTextState extends State<_BlockText> {
     ];
     return Text.rich(TextSpan(children: spans), key: _key, style: widget.style, textAlign: align);
   }
+}
+
+/// A [SafeArea] of the [insets] given rather than the phone's of the moment:
+/// the reader's, held steady while a system sheet is over it (see
+/// _ReaderScreenState._steadyInsets).
+class _HeldSafeArea extends StatelessWidget {
+  const _HeldSafeArea({required this.insets, required this.child});
+
+  final EdgeInsets insets;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: insets,
+        child: MediaQuery.removePadding(
+          context: context,
+          removeLeft: true,
+          removeTop: true,
+          removeRight: true,
+          removeBottom: true,
+          child: child,
+        ),
+      );
 }
 
 /// The player: what is playing, how fast, in whose voice, and the controls.

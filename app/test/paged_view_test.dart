@@ -172,6 +172,42 @@ void main() {
     });
   });
 
+  testWidgets('only chapters near the page are kept cut, and one come back to is cut again', (tester) async {
+    // Twelve short chapters, two or three pages each.
+    final para = List.generate(30, (i) => 'Sentence number $i of the chapter runs on a little.').join(' ');
+    layout = ReadingLayout.build(ingestString(
+      [for (var c = 0; c < 12; c++) '# Chapter $c\n\n$para\n\n$para'].join('\n\n'),
+      filename: 'book.md',
+    ));
+    expect(layout.chapters.length, 12);
+    phone(tester);
+    await pump(tester, look(19));
+    var turns = 0;
+    while (layout.chapterOfUnit(controller.range!.$1) < 11 && turns++ < 80) {
+      controller.turn(1);
+      await tester.pumpAndSettle();
+      // The chapters either side are cut a moment after a page settles.
+      await tester.pump(const Duration(milliseconds: 200));
+      final here = layout.chapterOfUnit(controller.range!.$1);
+      final kept = controller.keptChapters;
+      expect(kept.every((c) => (c - here).abs() <= 2), isTrue, reason: 'in chapter $here, kept $kept');
+    }
+    expect(layout.chapterOfUnit(controller.range!.$1), 11, reason: 'turned through to the last chapter');
+    expect(controller.keptChapters.length, lessThanOrEqualTo(5));
+    // Back to the start: its pages are cut again, and show its first sentence.
+    controller.showUnit(0, animate: false);
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(showing(0), isTrue);
+    expect(controller.keptChapters.every((c) => c <= 2), isTrue, reason: '${controller.keptChapters}');
+    // And a new size still keeps the sentence the page is at.
+    final first = await turnTo(tester, 3);
+    phone(tester, onItsSide: true);
+    await tester.pumpAndSettle();
+    expect(showing(first), isTrue);
+    await tester.pump(const Duration(milliseconds: 200));
+  });
+
   testWidgets('a turn by hand after a new size moves the place on', (tester) async {
     phone(tester);
     await pump(tester, look(19));

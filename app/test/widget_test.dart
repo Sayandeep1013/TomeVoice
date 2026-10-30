@@ -648,14 +648,17 @@ void main() {
     });
 
     testWidgets('a page tone lays its paper under the text', (tester) async {
+      // The page's ground, and the same drawn again in the fades at the
+      // text's edges.
+      Iterable<PageTone> tones() => tester.widgetList<PageGround>(find.byType(PageGround)).map((g) => g.tone);
       ListeningPrefs.memory.pageTone = 'papyrus';
       await pumpLong(tester, longBook());
-      expect(tester.widget<PageGround>(find.byType(PageGround)).tone, PageTone.papyrus);
+      expect(tones(), everyElement(PageTone.papyrus));
       ListeningPrefs.memory
         ..pageTone = 'app'
         ..save();
       await tester.pumpAndSettle();
-      expect(tester.widget<PageGround>(find.byType(PageGround)).tone, PageTone.app);
+      expect(tones(), everyElement(PageTone.app));
       await finish(tester);
     });
 

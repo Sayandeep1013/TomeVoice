@@ -618,11 +618,14 @@ class SheetHeader extends StatelessWidget {
 }
 
 /// A short message at the bottom of the screen, styled by the theme.
+/// [margin], when given, is where it floats instead of [lift] above the foot
+/// (over a screen whose own controls are elsewhere than the reader's).
 void showSnack(
   BuildContext context,
   String text, {
   bool long = false,
   double lift = 0,
+  EdgeInsets? margin,
   String? actionLabel,
   VoidCallback? onAction,
 }) {
@@ -641,8 +644,54 @@ void showSnack(
       // A message with a button (Undo) would otherwise stay until dismissed.
       persist: false,
       duration: Duration(seconds: long ? 8 : (onAction == null ? 3 : 4)),
-      margin: EdgeInsets.fromLTRB(Gap.l, 0, Gap.l, Gap.l + lift),
+      margin: margin ?? EdgeInsets.fromLTRB(Gap.l, 0, Gap.l, Gap.l + lift),
     ));
+}
+
+/// The ground drawn once more over the [top] edge of a scrolling list (or
+/// its foot), fading out away from the edge: the list fades into the ground
+/// as it did under a mask over all of it, which cost an offscreen pass of
+/// the whole list on every frame it moved; this costs only the strip.
+///
+/// [ground] is the ground as it is laid under the list, at [size], and
+/// [link] is a [CompositedTransformTarget] around the real one: the copy is
+/// drawn where that is, so a diagonal or vignetted ground meets itself with
+/// no seam (a painted band of one colour never matched it, and read as a
+/// bar).
+class GroundFade extends StatelessWidget {
+  const GroundFade({super.key, required this.link, required this.size, required this.ground, this.top = false});
+
+  final LayerLink link;
+  final Size size;
+  final Widget ground;
+  final bool top;
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+        child: ShaderMask(
+          blendMode: BlendMode.dstIn,
+          shaderCallback: (rect) => LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: top ? const [Colors.black, Colors.transparent] : const [Colors.transparent, Colors.black],
+          ).createShader(rect),
+          // Clipped to the strip: the copy is the whole ground.
+          child: ClipRect(
+            child: CompositedTransformFollower(
+              link: link,
+              showWhenUnlinked: false,
+              child: OverflowBox(
+                alignment: Alignment.topLeft,
+                minWidth: size.width,
+                maxWidth: size.width,
+                minHeight: size.height,
+                maxHeight: size.height,
+                child: ground,
+              ),
+            ),
+          ),
+        ),
+      );
 }
 
 /// Ask for a short piece of text (a category name). Null if cancelled.
