@@ -5,6 +5,71 @@ import 'model.dart';
 import 'navigate.dart';
 import 'segment.dart';
 
+/// Where a place saved in [before] (the units of the same book as an
+/// earlier build parsed it) is in [after], as a unit index.
+///
+/// A place is section, block and sentence numbers, and a new parse can
+/// renumber all three (a chapter split out of its file, notes taken out of
+/// the flow) or cut a sentence differently ('"No. Why..."' is now two). So
+/// the saved sentence is looked for by its words near where it sat
+/// proportionally: the same text first; then a sentence it now starts, or
+/// that starts it; then one opening with the same words; failing all, the
+/// same share of the way through the book.
+int relocateCursor(List<Speakable> before, ReadingCursor cursor, ReadingLayout after) {
+  final units = after.units;
+  if (units.isEmpty || before.isEmpty) return 0;
+  final at = indexOfCursor(before, cursor);
+  final text = before[at].text;
+  final guess = (at * units.length / before.length).round().clamp(0, units.length - 1);
+
+  int? nearest(bool Function(String other) same) {
+    for (var d = 0; d <= 3000; d++) {
+      for (final i in [guess - d, guess + d]) {
+        if (i >= 0 && i < units.length && same(units[i].text)) return i;
+      }
+      if (guess - d < 0 && guess + d >= units.length) break;
+    }
+    return null;
+  }
+
+  final key = _words(text);
+  final opening = key.split(' ').take(6).join(' ');
+  // Sentence i, alone or joined to the ones after it, says what the saved
+  // one said: its quotes or spacing changed, or it was cut in two.
+  bool startsSplit(int i) {
+    var joined = '';
+    for (var j = i; j < units.length && j < i + 4; j++) {
+      joined = joined.isEmpty ? _words(units[j].text) : '$joined ${_words(units[j].text)}';
+      if (joined.isEmpty || !key.startsWith(joined)) return false;
+      if (joined.length == key.length) return true;
+    }
+    return false;
+  }
+
+  int? nearestIndex(bool Function(int i) same) {
+    for (var d = 0; d <= 3000; d++) {
+      for (final i in [guess - d, guess + d]) {
+        if (i >= 0 && i < units.length && same(i)) return i;
+      }
+      if (guess - d < 0 && guess + d >= units.length) break;
+    }
+    return null;
+  }
+
+  return nearest((t) => t == text) ??
+      (key.isEmpty ? null : nearestIndex(startsSplit)) ??
+      // Joined to the sentence before or after it.
+      (key.length < 12 ? null : nearest((t) => _words(t).contains(key))) ??
+      (opening.split(' ').length >= 3 ? nearest((t) => _words(t).startsWith(opening)) : null) ??
+      guess;
+}
+
+final _notWord = RegExp(r'[^\p{L}\p{N}]+', unicode: true);
+
+/// [text]'s words, lowercase, one space apart: what a sentence says,
+/// whatever quotes and spacing an older parse gave it.
+String _words(String text) => text.toLowerCase().replaceAll(_notWord, ' ').trim();
+
 /// One row of the reading list: a chapter title, or one block of text with the
 /// speakable units it contains.
 class LayoutItem {

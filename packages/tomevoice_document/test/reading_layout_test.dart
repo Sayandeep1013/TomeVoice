@@ -122,6 +122,58 @@ void main() {
     });
   });
 
+  group('a saved place after a re-parse', () {
+    // The same book as an earlier build parsed it: one section, and the
+    // answer and the question below kept as one sentence.
+    Block oneSentence(String text) =>
+        Block(id: 'x', role: BlockRole.paragraph, text: text, sentences: [Sentence(startOffset: 0, endOffset: text.length, words: const [])], anchor: const OffsetAnchor(0, 0));
+    const filler = 'The road went on through the hills, and the light was going.';
+    final chapters = [
+      for (var c = 1; c <= 4; c++) ['Chapter $c', filler, '“No. Why should we trouble you?” she asked in chapter $c.', filler],
+    ];
+    final before = Book(
+      id: 'b',
+      metadata: const BookMetadata(title: 'Book'),
+      source: SourceKind.epub,
+      toc: const [],
+      sections: [
+        Section(id: 's0', index: 0, blocks: [
+          for (final ch in chapters)
+            for (final t in ch) t.startsWith('Chapter') ? makeBlock(role: BlockRole.heading, text: t) : oneSentence(t),
+        ]),
+      ],
+    );
+    // Today: a section per chapter, and the sentence split after "No."
+    final after = ReadingLayout.build(Book(
+      id: 'b',
+      metadata: const BookMetadata(title: 'Book'),
+      source: SourceKind.epub,
+      toc: const [],
+      sections: [
+        for (var c = 0; c < chapters.length; c++)
+          Section(id: 's$c', index: c, blocks: [
+            for (final t in chapters[c]) makeBlock(role: t.startsWith('Chapter') ? BlockRole.heading : BlockRole.paragraph, text: t),
+          ]),
+      ],
+    ));
+
+    test('a sentence found again in another section', () {
+      final old = flattenSpeakable(before);
+      final at = old.indexWhere((u) => u.text == 'Chapter 3');
+      final u = relocateCursor(old, cursorOf(old[at]), after);
+      expect(after.units[u].text, 'Chapter 3');
+      expect(after.units[u].sectionIndex, 2);
+    });
+
+    test('a sentence now split in two: its first part', () {
+      final old = flattenSpeakable(before);
+      final at = old.indexWhere((u) => u.text.contains('chapter 3.'));
+      final u = relocateCursor(old, cursorOf(old[at]), after);
+      expect(after.units[u].text, '“No.');
+      expect(after.units[u].sectionIndex, 2, reason: 'the "No." of chapter 3, not of chapter 1');
+    });
+  });
+
   group('where a book opens', () {
     Book collection({required String firstTitle, required String firstBody}) => Book(
           id: 'c',
