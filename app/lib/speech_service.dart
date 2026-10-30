@@ -88,6 +88,10 @@ class SpeechService {
   /// continues the scheduler, so this is strictly one at a time.
   static Future<void> _synthBusy = Future<void>.value();
 
+  /// Bumped by [cancelSynthesis]: a sentence still waiting for its turn
+  /// when it was called off is dropped when the turn comes, not made.
+  static int _cancels = 0;
+
   /// Forget a synthesis still holding the queue (between widget tests).
   @visibleForTesting
   static void resetQueue() => _synthBusy = Future<void>.value();
@@ -103,11 +107,16 @@ class SpeechService {
     final previous = _synthBusy;
     final gate = Completer<void>();
     _synthBusy = gate.future;
+    final cancels = _cancels;
     // Never wait on a call that will not come back (an engine that hung, a
     // test that ended mid-call): one stuck sentence must not silence every
     // later one.
     await previous.timeout(const Duration(seconds: 20), onTimeout: () {});
     try {
+      // Overtaken while it waited (a jump, then another): nobody will hear
+      // it. Made anyway, each such sentence kept the jump's own one waiting
+      // a whole sentence more, seconds of it with a natural voice.
+      if (_cancels != cancels) throw PlatformException(code: 'TTS_STOPPED', message: 'Synthesis cancelled');
       // A natural voice is made here, not by the phone's speech engine.
       final natural = neuralVoiceFor(voiceName);
       if (natural != null) {
@@ -135,7 +144,10 @@ class SpeechService {
 
   /// Abandon the sentence being synthesised (after a seek): the phone's
   /// engine stops at once; a natural voice stops after the piece it is on.
+  /// Sentences still waiting for their turn are dropped, so what is asked
+  /// for next is made next.
   Future<void> cancelSynthesis() {
+    _cancels++;
     NeuralEngine.instance.cancel();
     return _quiet('cancelSynthesis');
   }
