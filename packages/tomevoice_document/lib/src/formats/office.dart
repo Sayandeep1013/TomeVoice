@@ -172,11 +172,8 @@ Map<String, List<String>> _docxNotes(XmlDocument? doc, String tag) {
   return out;
 }
 
-const _superscriptDigits = [0x2070, 0xB9, 0xB2, 0xB3, 0x2074, 0x2075, 0x2076, 0x2077, 0x2078, 0x2079];
-
 /// 12 as "¹²", as Word shows a note's number.
-String _superscript(int n) =>
-    String.fromCharCodes([for (final d in '$n'.codeUnits) _superscriptDigits[d - 0x30]]);
+String _superscript(int n) => superscriptNumber(n);
 
 /// The text of paragraph [p]. Note references become their (silent) marks
 /// and are listed in [referenced]; hidden runs are left out.

@@ -246,20 +246,48 @@ Book _markdown(String id, BookMetadata metadata, String raw, String? filename) {
   String? currentTitle = metadata.title;
   var current = <Block>[];
   final para = <String>[];
+  final body = _withoutFrontMatter(raw);
+
+  // Footnotes ("boats.[^tide]", and "[^tide]: The note." below), numbered
+  // in the order they are pointed at, as a renderer numbers them. The mark
+  // is shown and not said, the note shown and not read in the flow.
+  final numbers = <String, int>{};
+  for (final m in _footnoteRef.allMatches(body)) {
+    numbers.putIfAbsent(m.group(1)!, () => numbers.length + 1);
+  }
+  String mark(String label) => superscriptNumber(numbers.putIfAbsent(label, () => numbers.length + 1));
+  String inline(String s) =>
+      _stripInlineMarkdown(s.replaceAllMapped(_footnoteRef, (m) => silentMark(mark(m.group(1)!))));
+
+  void addHeading(int level, String text) {
+    if (level <= 2 && current.isNotEmpty) {
+      sections.add((title: currentTitle, blocks: current));
+      current = [];
+    }
+    if (level <= 2) currentTitle = text;
+    current.add(makeBlock(role: BlockRole.heading, text: text));
+  }
 
   void flushPara() {
     if (para.isEmpty) return;
-    final text = _stripInlineMarkdown(joinWrappedLines(para));
+    final joined = joinWrappedLines(para);
     para.clear();
-    if (text.isEmpty) return;
-    final list = RegExp(r'^([-*+]|\d+[.)])\s+').hasMatch(text);
-    current.add(makeBlock(
-      role: list ? BlockRole.listItem : BlockRole.paragraph,
-      text: text.replaceFirst(RegExp(r'^([-*+]|\d+[.)])\s+'), ''),
-    ));
+    // A picture is shown, not described aloud: out of the sentence it sits
+    // in, a figure after it, as in HTML.
+    final pictures = [for (final m in _picture.allMatches(joined)) inline(m.group(1)!)];
+    final text = inline(joined.replaceAll(_picture, ' '));
+    if (text.isNotEmpty) {
+      current.add(makeBlock(
+        role: _listMarker.hasMatch(text) ? BlockRole.listItem : BlockRole.paragraph,
+        text: text.replaceFirst(_listMarker, ''),
+      ));
+    }
+    for (final alt in pictures) {
+      if (alt.isNotEmpty) current.add(makeBlock(role: BlockRole.figure, text: alt));
+    }
   }
 
-  final lines = _withoutFrontMatter(raw).split('\n');
+  final lines = body.split('\n');
   var inCode = false;
   var inComment = false;
   for (var i = 0; i < lines.length; i++) {
@@ -297,14 +325,34 @@ Book _markdown(String id, BookMetadata metadata, String raw, String? filename) {
     final heading = RegExp(r'^(#{1,6})\s+(.*?)\s*#*\s*$').firstMatch(line);
     if (heading != null) {
       flushPara();
-      final level = heading.group(1)!.length;
-      final text = _stripInlineMarkdown(collapseWhitespace(heading.group(2)!));
-      if (level <= 2 && current.isNotEmpty) {
-        sections.add((title: currentTitle, blocks: current));
-        current = [];
+      addHeading(heading.group(1)!.length, inline(collapseWhitespace(heading.group(2)!)));
+      continue;
+    }
+    // A heading underlined with = (level 1) or - (level 2), which was read
+    // with its row of = signs. Dashes after a blank line, or under a list
+    // item, are a rule.
+    final underline = _setextUnderline.firstMatch(line);
+    if (underline != null && para.isNotEmpty && !_listLine.hasMatch(para.first)) {
+      final text = inline(joinWrappedLines(para));
+      para.clear();
+      if (text.isNotEmpty) addHeading(underline.group(1)!.startsWith('=') ? 1 : 2, text);
+      continue;
+    }
+    final note = _footnoteDefinition.firstMatch(line);
+    if (note != null) {
+      flushPara();
+      final text = [note.group(2)!];
+      while (i + 1 < lines.length &&
+          lines[i + 1].trim().isNotEmpty &&
+          !_footnoteDefinition.hasMatch(lines[i + 1]) &&
+          !lines[i + 1].trimLeft().startsWith('#')) {
+        i++;
+        text.add(lines[i]);
       }
-      if (level <= 2) currentTitle = text;
-      current.add(makeBlock(role: BlockRole.heading, text: text));
+      current.add(makeBlock(
+        role: BlockRole.footnote,
+        text: '${silentMark(mark(note.group(1)!))} ${inline(joinWrappedLines(text))}',
+      ));
       continue;
     }
     if (line.trim().isEmpty ||
@@ -312,7 +360,7 @@ Book _markdown(String id, BookMetadata metadata, String raw, String? filename) {
       flushPara();
       continue;
     }
-    if (RegExp(r'^\s*([-*+]|\d+[.)])\s+').hasMatch(line)) flushPara();
+    if (_listLine.hasMatch(line)) flushPara();
     para.add(line.replaceFirst(RegExp(r'^\s*>\s?'), ''));
   }
   flushPara();
@@ -337,6 +385,15 @@ String _stripInlineMarkdown(String s) => collapseWhitespace(decodeEntities(s
     // Raw HTML: a line break is a space, any other tag is not read.
     .replaceAll(_htmlBreak, ' ')
     .replaceAll(_htmlTag, '')));
+
+final _listLine = RegExp(r'^\s*([-*+]|\d+[.)])\s+');
+final _listMarker = RegExp(r'^([-*+]|\d+[.)])\s+');
+final _setextUnderline = RegExp(r'^ {0,3}(=+|-+)[ \t]*$');
+final _picture = RegExp(r'!\[([^\]]*)\]\([^)]*\)');
+
+/// "[^tide]" in the text; not "[^tide]:", where the note itself starts.
+final _footnoteRef = RegExp(r'\[\^([^\]\s]+)\](?!:)');
+final _footnoteDefinition = RegExp(r'^ {0,3}\[\^([^\]\s]+)\]:\s*(.*)$');
 
 final _htmlComment = RegExp(r'<!--.*?-->');
 final _htmlBreak = RegExp(r'<br\s*/?>', caseSensitive: false);
