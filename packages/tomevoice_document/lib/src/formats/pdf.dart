@@ -10,6 +10,14 @@ import 'text.dart';
 /// separated by `\n`.
 const pdfParagraphMark = '\u2029';
 
+/// Bumped when reading PDFs improves enough that a stored PDF should be read
+/// from its file again. Only the platform can extract a PDF's text, so the
+/// app keeps a PDF as it was parsed at import unless it stores this number
+/// with it and extracts again when it is older (2: running heads on nearby
+/// pages, contents pages, nested bookmarks, hyphens in any script, footnotes
+/// and columns from the line layout).
+const pdfParserVersion = 2;
+
 /// One outline (bookmark) entry: a title and the 0-based page it points at.
 typedef PdfOutlineEntry = ({String title, int page});
 
@@ -423,7 +431,8 @@ List<_Line> _readingOrder(List<_Line> lines) {
       last = s;
     }
   }
-  final gutter = start + (first + last); // the middle step, at 2 points a step
+  // Steps are 2 points apart; the gutter is the middle one of that stretch.
+  final gutter = start + 2 * ((first + last) / 2);
   bool onLeft(_Line l) => l.box!.x + l.box!.w <= gutter + 1;
   bool onRight(_Line l) => !onLeft(l) && l.box!.x >= gutter - 1;
 
