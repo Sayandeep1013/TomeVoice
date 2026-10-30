@@ -122,14 +122,26 @@ bool _publicV4(List<int> b) {
 /// address a name resolves to is checked when the connection is made, on
 /// every redirect, and connected to as checked (a name that answers with a
 /// public address and then a private one gets nowhere).
+///
+/// Limits: a response is at most [maxBody] unpacked, a request (redirects
+/// and all) at most [maxTime], and at most [perHost] requests go to one
+/// site at a time (more wait their turn).
 class Net {
   Net._() {
     _client
       ..connectionTimeout = const Duration(seconds: 20)
       ..autoUncompress = true
+      ..maxConnectionsPerHost = perHost
       ..findProxy = ((_) => 'DIRECT')
       ..connectionFactory = _connect;
   }
+
+  /// Requests to one site at a time, from one isolate (each source's
+  /// requests all come from the one isolate it runs in).
+  static const perHost = 2;
+
+  /// The longest a request may take, from asking to the last byte.
+  static const maxTime = Duration(seconds: 60);
 
   static final instance = Net._();
 
@@ -278,22 +290,54 @@ class Net {
 
   /// Make a request. [body] is a String, bytes, or null. [partition]: whose
   /// cookies go with it and keep what it sets (a source's plugin id).
-  /// [maxBytes]: a longer response is given up on.
+  /// [maxBytes]: a longer response is given up on. [timeout]: the longest
+  /// wait for any one step (a connection, the headers, the next piece of
+  /// the body); [total]: the longest for the whole, after which the
+  /// request is cut off rather than left running.
   Future<NetResponse> request(
     String url, {
     String method = 'GET',
     Map<String, String> headers = const {},
     Object? body,
     Duration timeout = const Duration(seconds: 30),
+    Duration total = maxTime,
     String partition = '',
     int maxBytes = maxBody,
   }) async {
+    final deadline = DateTime.now().add(total);
+    Duration step() {
+      final left = deadline.difference(DateTime.now());
+      if (left <= Duration.zero) throw TimeoutException('The site took too long to answer.', total);
+      return left < timeout ? left : timeout;
+    }
+
+    HttpClientRequest? open;
+    try {
+      return await _request(url, method, headers, body, partition, maxBytes, step, (r) => open = r);
+    } on TimeoutException {
+      // Cut off, not left to finish in the background.
+      open?.abort();
+      rethrow;
+    }
+  }
+
+  Future<NetResponse> _request(
+    String url,
+    String method,
+    Map<String, String> headers,
+    Object? body,
+    String partition,
+    int maxBytes,
+    Duration Function() step,
+    void Function(HttpClientRequest r) opened,
+  ) async {
     var uri = Uri.parse(url);
     // Follow redirects ourselves so cookies set along the way are kept and
     // POSTs that redirect become GETs, the way browsers do it.
     for (var hop = 0; hop < 8; hop++) {
       if (!isWebAddress(uri.toString())) throw BlockedAddressException('Only web pages can be asked for.');
-      final req = await _client.openUrl(method, uri).timeout(timeout);
+      final req = await _client.openUrl(method, uri).timeout(step());
+      opened(req);
       req.followRedirects = false;
       req.headers.set(HttpHeaders.userAgentHeader, userAgent);
       final cookie = jar.headerFor(uri, partition: partition);
@@ -315,14 +359,14 @@ class Net {
       } else if (body is List<int>) {
         req.add(body);
       }
-      final res = await req.close().timeout(timeout);
+      final res = await req.close().timeout(step());
       if (res.cookies.isNotEmpty) {
         jar.take(uri, res.cookies, partition: partition);
         await _saveCookies();
       }
       final location = res.headers.value(HttpHeaders.locationHeader);
       if (res.isRedirect && location != null) {
-        await res.drain<void>();
+        await res.drain<void>().timeout(step());
         uri = uri.resolve(location);
         if (res.statusCode != 307 && res.statusCode != 308) {
           method = 'GET';
@@ -331,11 +375,13 @@ class Net {
         continue;
       }
       final builder = BytesBuilder(copy: false);
-      await for (final chunk in res.timeout(timeout)) {
+      // Each piece within the step's time, and all of them by the deadline.
+      await for (final chunk in res.timeout(step())) {
         builder.add(chunk);
         // Counted as it is unpacked, so a small compressed page that would
         // inflate to gigabytes stops here.
         if (builder.length > maxBytes) throw HttpException('The page is too large', uri: uri);
+        step();
       }
       final out = <String, String>{};
       res.headers.forEach((name, values) => out[name.toLowerCase()] = values.join(', '));

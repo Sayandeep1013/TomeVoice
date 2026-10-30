@@ -48,6 +48,10 @@ class SourceEngine {
   /// Where installed plugins and their storage live.
   void attach(SourceStore store) => _store = store;
 
+  /// Workers running now (tests: one where a call ran out of time is gone).
+  @visibleForTesting
+  int get workerCount => _workers.length;
+
   /// End every worker (tests; the app's last as long as it does).
   @visibleForTesting
   void close() {

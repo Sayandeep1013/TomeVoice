@@ -3,6 +3,7 @@
 // HTTP server. Needs the native engine, so it runs on CI (Linux); on a
 // machine without it the engine tests are skipped.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -698,6 +699,76 @@ void main() {
     expect(out.updated, isFalse);
     expect((await store.installedById('fake'))!.version, '1.0.0');
     expect(await engine.popular(installed, 1), hasLength(2));
+  });
+
+  test('a response is capped as it is unpacked, a request is cut off in time, and one site gets two at once', () async {
+    var open = 0, most = 0;
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    server.listen((req) async {
+      final res = req.response;
+      switch (req.uri.path) {
+        case '/big':
+          res.add(List.filled(3 << 20, 0x61));
+        case '/bomb':
+          // A small download that unpacks to far more than any page.
+          res.headers.set(HttpHeaders.contentEncodingHeader, 'gzip');
+          res.add(gzip.encode(List.filled(40 << 20, 0)));
+        case '/trickle':
+          for (var i = 0; i < 100; i++) {
+            res.add([0x61]);
+            await res.flush();
+            await Future<void>.delayed(const Duration(milliseconds: 100));
+          }
+        case '/slow':
+          open++;
+          if (open > most) most = open;
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+          open--;
+          res.write('ok');
+      }
+      await res.close();
+    });
+    addTearDown(() => server.close(force: true));
+    final base = 'http://127.0.0.1:${server.port}';
+    await expectLater(Net.instance.request('$base/big', maxBytes: 1 << 20),
+        throwsA(isA<HttpException>().having((e) => e.message, 'message', contains('too large'))));
+    await expectLater(Net.instance.request('$base/bomb', maxBytes: 1 << 20),
+        throwsA(isA<HttpException>().having((e) => e.message, 'message', contains('too large'))));
+    final sw = Stopwatch()..start();
+    await expectLater(
+        Net.instance.request('$base/trickle', total: const Duration(milliseconds: 600)), throwsA(isA<TimeoutException>()));
+    expect(sw.elapsed, lessThan(const Duration(seconds: 3)), reason: 'cut off, not read to the end');
+    await Future.wait([for (var i = 0; i < 5; i++) Net.instance.request('$base/slow')]);
+    expect(most, Net.perHost);
+  });
+
+  test('a source that runs out of time has its worker replaced', () async {
+    if (!_hasEngine()) {
+      markTestSkipped('QuickJS is not built on this machine');
+      return;
+    }
+    final dir = Directory.systemTemp.createTempSync('tv_stuck');
+    final engine = SourceEngine.forTests(
+      libs: File('assets/js/lnreader_libs.js').readAsStringSync(),
+      shim: File('assets/js/lnreader_shim.js').readAsStringSync(),
+    );
+    addTearDown(() {
+      engine.close();
+      dir.deleteSync(recursive: true);
+    });
+    final store = SourceStore(dir, defaults: const []);
+    engine.attach(store);
+    // Its popular page never comes: a promise that never settles.
+    const hang = 'exports.default = { id: "hang", name: "Hang", site: "https://h.test/", version: "1", '
+        'popularNovels: function () { return new Promise(function () {}); } };';
+    final code = File('${dir.path}/hang.js')..writeAsStringSync(hang);
+    const p = PluginInfo(id: 'hang', name: 'Hang', site: 'https://h.test/', lang: 'English', version: '1', url: '');
+    final why = await engine.smokeTest(p, code.path, sha256Hex(utf8.encode(hang)), timeout: const Duration(seconds: 1));
+    expect(why, contains('too long'));
+    expect(engine.workerCount, 0, reason: 'the worker it was stuck in is gone');
+    // The next call gets a fresh one.
+    expect(await engine.smokeTest(p, code.path, sha256Hex(utf8.encode(hang)), timeout: const Duration(seconds: 1)),
+        contains('too long'));
   });
 
   test('a web novel in the library: fetched chapters are read, the rest wait', () async {
