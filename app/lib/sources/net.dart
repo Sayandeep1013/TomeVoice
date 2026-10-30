@@ -3,8 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
-
 import 'cookies.dart';
 
 /// [e] in words a reader understands: no "SocketException" on screen.
@@ -144,8 +142,8 @@ class Net {
   /// view's, so a browser check passed there holds here too.
   static String userAgent = fallbackUserAgent;
 
-  /// Tests run their sites on this machine; the app never may.
-  @visibleForTesting
+  /// Tests run their sites on this machine; the app never sets this (the
+  /// source workers are handed it, so tests reach them too).
   static bool allowPrivateAddresses = false;
 
   final _client = HttpClient();

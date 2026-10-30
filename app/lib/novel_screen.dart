@@ -630,6 +630,7 @@ class _NovelScreenState extends State<NovelScreen> {
             child: SourceProblem(
               error: _error!,
               onRetry: _load,
+              pluginId: widget.plugin.id,
               more: OutlinedButton(onPressed: _openInBrowser, child: const Text('Open in browser')),
             ),
           ),

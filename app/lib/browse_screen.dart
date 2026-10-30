@@ -140,7 +140,23 @@ class _BrowseScreenState extends State<BrowseScreen> {
                   ),
                   const SizedBox(width: Gap.m),
                   Expanded(child: Text('Browse', style: Skin.title(context, size: 28, weight: FontWeight.w500))),
-                  RoundButton(icon: Icons.extension_outlined, tooltip: 'Sources', size: 42, onTap: _openSources),
+                  // How many installed sources have an update waiting.
+                  ValueListenableBuilder<Map<String, PluginInfo>>(
+                    valueListenable: widget.sources.pending,
+                    builder: (context, pending, _) => Badge(
+                      isLabelVisible: pending.isNotEmpty,
+                      label: Text('${pending.length}'),
+                      offset: const Offset(-2, 2),
+                      child: RoundButton(
+                        icon: Icons.extension_outlined,
+                        tooltip: pending.isEmpty
+                            ? 'Sources'
+                            : 'Sources: ${pending.length} ${pending.length == 1 ? 'update' : 'updates'}',
+                        size: 42,
+                        onTap: _openSources,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -304,7 +320,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
           r.error != null
               ? Padding(
                   padding: const EdgeInsets.symmetric(horizontal: Gap.page),
-                  child: SourceProblemLine(error: r.error!, onRetry: () => _retry(r)),
+                  child: SourceProblemLine(error: r.error!, onRetry: () => _retry(r), pluginId: r.plugin.id),
                 )
               : items == null
                   ? null
@@ -538,7 +554,7 @@ class _SourceScreenState extends State<SourceScreen> {
                             child: _loading
                                 ? const Center(child: CircularProgressIndicator())
                                 : _error != null
-                                    ? SourceProblem(error: _error!, onRetry: _reset)
+                                    ? SourceProblem(error: _error!, onRetry: _reset, pluginId: widget.plugin.id)
                                     : _items.isEmpty
                                         ? Text('Nothing here.', textAlign: TextAlign.center, style: Skin.label(context))
                                         : const SizedBox.shrink(),

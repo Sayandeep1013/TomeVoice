@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import 'sources/models.dart';
 import 'sources/net.dart';
 import 'sources/source_engine.dart';
+import 'sources/source_updates.dart';
 import 'sources/plugin_host.dart';
 import 'speech_service.dart';
 import 'theme.dart';
@@ -27,8 +29,33 @@ Future<bool> passBrowserCheck(BuildContext context, ChallengeException e) async 
   return true;
 }
 
+/// The update waiting for source [pluginId], if its list has one: a source
+/// that fails is often one its site has changed under, and fixed since.
+PluginInfo? pendingUpdate(String? pluginId) {
+  if (pluginId == null) return null;
+  try {
+    return SourceEngine.instance.store.pending.value[pluginId];
+  } on StateError {
+    return null;
+  }
+}
+
+/// Update source [update] from its row's or a failure's button, kept at
+/// the version that works (see updateSources). True when it was updated.
+Future<bool> updateSource(BuildContext context, PluginInfo update) async {
+  final engine = SourceEngine.instance;
+  showSnack(context, 'Updating ${update.name}…');
+  final out = (await updateSources(engine.store, engine, [update])).single;
+  if (context.mounted) {
+    showSnack(context, out.note ?? (out.updated ? '${update.name} is updated.' : 'It could not be updated.'),
+        long: out.note != null);
+  }
+  return out.updated;
+}
+
 /// A source's failure where its results would be: what went wrong, and the
-/// way on. A browser check gets the button that opens it.
+/// way on. A browser check gets the button that opens it; a source with an
+/// update waiting, the button that updates it.
 class SourceProblem extends StatelessWidget {
   const SourceProblem({
     super.key,
@@ -36,6 +63,7 @@ class SourceProblem extends StatelessWidget {
     required this.onRetry,
     this.title = 'The site did not answer',
     this.more,
+    this.pluginId,
   });
 
   final Object error;
@@ -45,9 +73,36 @@ class SourceProblem extends StatelessWidget {
   /// Another action beside "Try again", such as opening the site.
   final Widget? more;
 
+  /// The source that failed, so a waiting update can be offered.
+  final String? pluginId;
+
   @override
   Widget build(BuildContext context) {
     final e = error;
+    final update = e is MissingSourceException || e is TamperedSourceException || e is ChallengeException
+        ? null
+        : pendingUpdate(pluginId);
+    if (update != null) {
+      return EmptyState(
+        icon: Icons.system_update_alt_rounded,
+        title: 'An update is available',
+        body: '$e An update for ${update.name} is waiting, and may fix this.',
+        action: Wrap(
+          spacing: Gap.s,
+          runSpacing: Gap.s,
+          alignment: WrapAlignment.center,
+          children: [
+            FilledButton(
+              onPressed: () async {
+                if (await updateSource(context, update)) onRetry();
+              },
+              child: Text('Update ${update.name}'),
+            ),
+            OutlinedButton(onPressed: onRetry, child: const Text('Try again')),
+          ],
+        ),
+      );
+    }
     if (e is ChallengeException) {
       return EmptyState(
         icon: Icons.verified_user_outlined,
@@ -155,15 +210,34 @@ Future<bool> reinstallSource(BuildContext context, String pluginId, String name)
 
 /// [SourceProblem] on one line, for a row among others (global search).
 class SourceProblemLine extends StatelessWidget {
-  const SourceProblemLine({super.key, required this.error, required this.onRetry});
+  const SourceProblemLine({super.key, required this.error, required this.onRetry, this.pluginId});
 
   final Object error;
   final VoidCallback onRetry;
+
+  /// The source that failed, so a waiting update can be offered.
+  final String? pluginId;
 
   @override
   Widget build(BuildContext context) {
     final e = error;
     final style = Skin.label(context, size: 13, color: Skin.inkFaintOn(context));
+    final update = e is ChallengeException ? null : pendingUpdate(pluginId);
+    if (update != null) {
+      return Row(
+        children: [
+          Expanded(
+            child: Text('$e An update is available.', maxLines: 2, overflow: TextOverflow.ellipsis, style: style),
+          ),
+          TextButton(
+            onPressed: () async {
+              if (await updateSource(context, update)) onRetry();
+            },
+            child: const Text('Update'),
+          ),
+        ],
+      );
+    }
     if (e is! ChallengeException) {
       return Text('$e', maxLines: 2, overflow: TextOverflow.ellipsis, style: style);
     }

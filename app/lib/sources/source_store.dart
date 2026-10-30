@@ -289,32 +289,76 @@ class SourceStore {
   }
 
   /// Every list's sources, by list, then by plugin id. Uses the copy from the
-  /// last refresh unless [refresh] is set or there is none.
+  /// last refresh unless [refresh] is set or there is none; a list that
+  /// cannot be read now is taken from that copy too.
   Future<Map<String, Map<String, PluginInfo>>> _listed({bool refresh = false}) async {
     final out = <String, Map<String, PluginInfo>>{};
+    _lastRefreshWorked = false;
     for (final repo in await repos()) {
       if (!_isHttps(repo)) continue;
-      List<PluginInfo> list;
+      List<PluginInfo>? list;
       final cache = _indexCache(repo);
-      if (!refresh && await cache.exists()) {
+      if (refresh || !await cache.exists()) {
+        try {
+          list = await _fetchIndex(repo);
+          _lastRefreshWorked = true;
+        } on Object {
+          list = null;
+        }
+      }
+      if (list == null && await cache.exists()) {
         try {
           list = [
             for (final p in jsonDecode(await cache.readAsString()) as List)
               PluginInfo.fromJson(Map<String, Object?>.from(p as Map)),
           ].whereType<PluginInfo>().toList();
         } on Object {
-          list = const [];
-        }
-      } else {
-        try {
-          list = await _fetchIndex(repo);
-        } on Object {
-          list = const [];
+          list = null;
         }
       }
-      out[repo] = {for (final p in list) p.id: p};
+      out[repo] = {for (final p in list ?? const <PluginInfo>[]) p.id: p};
     }
     return out;
+  }
+
+  /// Whether the last [_listed] read any list from its site.
+  bool _lastRefreshWorked = false;
+
+  File get _listsChecked => File('${dir.path}/lists-checked.json');
+
+  /// Read every list again when the last time was [every] ago or more (or
+  /// never), so a fixed source reaches the reader without a pull in Sources;
+  /// sources a restored backup had are installed again then too. Returns
+  /// the updates waiting (also in [pending]).
+  Future<Map<String, PluginInfo>> refreshIfDue({Duration every = const Duration(days: 1)}) async {
+    DateTime? last;
+    try {
+      if (await _listsChecked.exists()) {
+        last = DateTime.tryParse((jsonDecode(await _listsChecked.readAsString()) as Map)['at'] as String? ?? '');
+      }
+    } on Object {
+      last = null;
+    }
+    final due = last == null || DateTime.now().difference(last) >= every;
+    final waiting = await updates(refresh: due);
+    if (due && _lastRefreshWorked) {
+      await _listsChecked.writeAsString(jsonEncode({'at': DateTime.now().toIso8601String()}));
+      try {
+        if (await reinstallRestored() > 0) changes.value++;
+      } on Object {
+        // Tried again with the next refresh.
+      }
+    }
+    return waiting;
+  }
+
+  /// Keep [code], downloaded for an update, beside the installed copy until
+  /// it has been tried; the path it is at.
+  Future<String> stage(String id, Uint8List code) async {
+    await ensure();
+    final f = File('${_pluginDir.path}/${_safe(id)}.next.js');
+    await f.writeAsBytes(code, flush: true);
+    return f.path;
   }
 
   static PluginInfo? _newestOf(Map<String, Map<String, PluginInfo>> listed, String id) {

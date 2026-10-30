@@ -185,7 +185,13 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
       unawaited(Starter.seed(Directory(dir), store, sources));
       // A newer TomeVoice: on opening, and on coming back to the app.
       Future<void>.delayed(const Duration(seconds: 8), () => _offerUpdate(Directory(dir)));
-      _lifecycle = AppLifecycleListener(onResume: () => unawaited(_offerUpdate(Directory(dir))));
+      // Fixed sources: the lists are read again at most daily while the app
+      // is used, so Browse and Sources can say an update is waiting.
+      Future<void>.delayed(const Duration(seconds: 6), () => _refreshSources(sources));
+      _lifecycle = AppLifecycleListener(onResume: () {
+        unawaited(_offerUpdate(Directory(dir)));
+        unawaited(_refreshSources(sources));
+      });
       // New chapters, at most as often as the reader asked, a moment after
       // the shelf is up so opening the app stays quick.
       Future<void>.delayed(const Duration(seconds: 4), () async {
@@ -198,6 +204,14 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
       });
     } on Object catch (e) {
       if (mounted) setState(() => _error = '$e');
+    }
+  }
+
+  Future<void> _refreshSources(SourceStore sources) async {
+    try {
+      await sources.refreshIfDue();
+    } on Object {
+      // Offline: the next opening tries again.
     }
   }
 

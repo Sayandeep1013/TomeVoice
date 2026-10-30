@@ -286,6 +286,7 @@ class _WebNovelReaderState extends State<WebNovelReader> {
                         ? SourceProblem(
                             error: _error!,
                             title: 'Could not open this chapter',
+                            pluginId: widget.entry.plugin,
                             onRetry: () => _open(widget.at?.sectionIndex ?? widget.startChapter, autoplay: widget.autoplay, at: widget.at),
                           )
                         : Column(

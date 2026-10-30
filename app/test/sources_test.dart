@@ -16,7 +16,9 @@ import 'package:tomevoice_spike/sources/net.dart';
 import 'package:tomevoice_spike/sources/plugin_host.dart';
 import 'package:tomevoice_spike/sources/qjs_runtime.dart';
 import 'package:tomevoice_spike/sources/sha256.dart';
+import 'package:tomevoice_spike/sources/source_engine.dart';
 import 'package:tomevoice_spike/sources/source_store.dart';
+import 'package:tomevoice_spike/sources/source_updates.dart';
 
 /// A plugin written the way the LNReader ones are (compiled CommonJS, ES5
 /// style), using fetch, cheerio, storage and FormData.
@@ -135,6 +137,17 @@ Future<HttpServer> _site() async {
     await res.close();
   });
   return server;
+}
+
+/// An engine whose smoke test answers as [verdict] says, by plugin.
+class _SmokeEngine extends SourceEngine {
+  _SmokeEngine(this.verdict) : super.forTests();
+
+  final String? Function(PluginInfo p) verdict;
+
+  @override
+  Future<String?> smokeTest(PluginInfo p, String codePath, String sha256, {Duration timeout = Duration.zero}) async =>
+      verdict(p);
 }
 
 /// Whether QuickJS is built here (CI, Linux); the engine tests skip
@@ -537,6 +550,154 @@ void main() {
     final store = await SourceStore.open(internal, legacyRoot: library);
     expect(store.dir.path, '${library.path}/sources');
     expect(File('${library.path}/sources/installed.json').existsSync(), isTrue);
+  });
+
+  test('lists are read again at most daily, and a failed read keeps what was known', () async {
+    var fetched = 0;
+    var version = '1.0.0';
+    var down = false;
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final base = 'http://127.0.0.1:${server.port}';
+    server.listen((req) async {
+      final res = req.response;
+      if (down) {
+        res.statusCode = 503;
+      } else if (req.uri.path == '/list.json') {
+        fetched++;
+        res.write(jsonEncode([
+          {'id': 'fake', 'name': 'Fake', 'site': '$base/', 'lang': 'English', 'version': version, 'url': '$base/f.js'},
+        ]));
+      } else {
+        res.write('exports.default = {};');
+      }
+      await res.close();
+    });
+    final dir = Directory.systemTemp.createTempSync('tv_daily');
+    addTearDown(() async {
+      await server.close(force: true);
+      dir.deleteSync(recursive: true);
+    });
+    final store = SourceStore(dir, defaults: const [], allowInsecure: true);
+    await store.addRepo('$base/list.json');
+    await store.install((await store.available()).single);
+    expect(fetched, 1);
+
+    version = '1.1.0';
+    expect((await store.refreshIfDue()).keys, ['fake'], reason: 'never read on a schedule before');
+    expect(fetched, 2);
+    expect(store.pending.value.keys, ['fake']);
+    await store.refreshIfDue();
+    expect(fetched, 2, reason: 'once a day is enough');
+
+    down = true;
+    await store.refreshIfDue(every: Duration.zero);
+    expect(store.pending.value.keys, ['fake'], reason: 'a list that cannot be read now keeps its last copy');
+  });
+
+  test('Update all keeps the version that works', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final base = 'http://127.0.0.1:${server.port}';
+    var version = '1.0.0';
+    server.listen((req) async {
+      final res = req.response;
+      if (req.uri.path == '/list.json') {
+        res.write(jsonEncode([
+          for (final id in ['good', 'broken', 'down'])
+            {'id': id, 'name': id, 'site': '$base/', 'lang': 'English', 'version': version, 'url': '$base/$id-$version.js'},
+        ]));
+      } else {
+        res.write('exports.default = {}; // ${req.uri.path}');
+      }
+      await res.close();
+    });
+    final dir = Directory.systemTemp.createTempSync('tv_update_all');
+    addTearDown(() async {
+      await server.close(force: true);
+      dir.deleteSync(recursive: true);
+    });
+    final store = SourceStore(dir, defaults: const [], allowInsecure: true);
+    await store.addRepo('$base/list.json');
+    for (final p in await store.available()) {
+      await store.install(p);
+    }
+    version = '2.0.0';
+    final updates = await store.updates(refresh: true);
+    expect(updates.keys.toSet(), {'good', 'broken', 'down'});
+
+    // good: 2.0 works. broken: 2.0 fails, 1.0 still works. down: neither answers.
+    final engine = _SmokeEngine((p) => switch ((p.name, p.version.split('#').first)) {
+          ('good', _) => null,
+          ('broken', '2.0.0') => 'It listed no novels.',
+          ('broken', _) => null,
+          _ => 'The site took too long to answer.',
+        });
+    final out = {for (final o in await updateSources(store, engine, updates.values)) o.plugin.id: o};
+    final now = {for (final p in await store.installed()) p.id: p.version};
+    expect(now, {'good': '2.0.0', 'broken': '1.0.0', 'down': '2.0.0'});
+    expect(out['broken']!.note, contains('1.0.0 was kept'));
+    expect(await store.code('broken'), contains('broken-1.0.0.js'), reason: 'the old code is untouched');
+    expect(store.pending.value.keys, ['broken'], reason: 'still waiting, and still offered');
+    expect(Directory('${store.dir.path}/plugins').listSync().where((f) => f.path.endsWith('.next.js')), isEmpty);
+  });
+
+  test('the engine runs an installed source in a worker, checks its code, and tries an update first', () async {
+    if (!_hasEngine()) {
+      markTestSkipped('QuickJS is not built on this machine');
+      return;
+    }
+    final server = await _site();
+    final site = 'http://127.0.0.1:${server.port}/';
+    var version = '1.0.0';
+    final lists = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final base = 'http://127.0.0.1:${lists.port}';
+    lists.listen((req) async {
+      final res = req.response;
+      if (req.uri.path == '/list.json') {
+        res.write(jsonEncode([
+          {'id': 'fake', 'name': 'Fake', 'site': site, 'lang': 'English', 'version': version, 'url': '$base/fake-$version.js'},
+        ]));
+      } else if (req.uri.path == '/fake-1.0.0.js') {
+        res.write(_plugin.replaceAll('SITE', jsonEncode(site)));
+      } else {
+        // 2.0.0: loads, but its popular page breaks.
+        res.write(_plugin
+            .replaceAll('SITE', jsonEncode(site))
+            .replaceAll('return this.searchNovels("", page);', 'throw new Error("broken in 2.0");'));
+      }
+      await res.close();
+    });
+    final dir = Directory.systemTemp.createTempSync('tv_engine');
+    final engine = SourceEngine.forTests(
+      libs: File('assets/js/lnreader_libs.js').readAsStringSync(),
+      shim: File('assets/js/lnreader_shim.js').readAsStringSync(),
+    );
+    addTearDown(() async {
+      engine.close();
+      await server.close(force: true);
+      await lists.close(force: true);
+      dir.deleteSync(recursive: true);
+    });
+    final store = SourceStore(dir, defaults: const [], allowInsecure: true);
+    engine.attach(store);
+    await store.addRepo('$base/list.json');
+    final installed = await store.install((await store.available()).single);
+    expect((await engine.popular(installed, 1)).map((n) => n.name), ['Fake  One', 'Fake Two']);
+
+    // Changed on the phone: not run when it is next loaded (here, by a new
+    // worker; in the app, after a restart or once its context was let go).
+    File(store.codePath('fake')).writeAsStringSync('exports.default = {}; // swapped');
+    engine.close();
+    await expectLater(engine.popular(installed, 1), throwsA(isA<TamperedSourceException>()));
+    await store.install(installed);
+    expect(await engine.popular(installed, 1), hasLength(2));
+
+    // A broken update is tried and turned down; the working version stays.
+    version = '2.0.0';
+    final update = (await store.updates(refresh: true))['fake']!;
+    final out = (await updateSources(store, engine, [update])).single;
+    expect(out.updated, isFalse);
+    expect((await store.installedById('fake'))!.version, '1.0.0');
+    expect(await engine.popular(installed, 1), hasLength(2));
   });
 
   test('a web novel in the library: fetched chapters are read, the rest wait', () async {

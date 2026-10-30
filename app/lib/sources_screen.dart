@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'sources/models.dart';
 import 'sources/net.dart';
 import 'sources/net_image.dart';
+import 'sources/source_engine.dart';
 import 'sources/source_store.dart';
+import 'sources/source_updates.dart';
 import 'theme.dart';
 import 'ui.dart';
 
@@ -128,6 +130,43 @@ class _SourcesScreenState extends State<SourcesScreen> {
     }
   }
 
+  /// "Update all" while it runs: which source, and how far.
+  String? _updating;
+
+  /// Update [updates] (one, from its row, or all), each kept at the version
+  /// that works (see updateSources), and say what came of it.
+  Future<void> _update(List<PluginInfo> updates) async {
+    if (_updating != null || updates.isEmpty) return;
+    setState(() {
+      _busy.addAll(updates.map((p) => p.id));
+      _updating = 'Getting ready…';
+    });
+    try {
+      final outcomes = await updateSources(_store, SourceEngine.instance, updates, onProgress: (p, done, total) {
+        if (mounted) setState(() => _updating = 'Updating ${p.name} (${done + 1} of $total)…');
+      });
+      if (!mounted) return;
+      final updated = outcomes.where((o) => o.updated).length;
+      final notes = [for (final o in outcomes) if (o.note != null) '${o.plugin.name}: ${o.note}'];
+      showSnack(
+        context,
+        [
+          if (updated > 0) updated == 1 ? 'Updated.' : 'Updated $updated sources.',
+          ...notes,
+        ].join(' '),
+        long: notes.isNotEmpty,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy.removeAll(updates.map((p) => p.id));
+          _updating = null;
+        });
+      }
+      await _load();
+    }
+  }
+
   Future<void> _uninstall(PluginInfo p) async {
     await _store.uninstall(p.id);
     await _load();
@@ -211,6 +250,29 @@ class _SourcesScreenState extends State<SourcesScreen> {
                           label: const Text('Add a source list'),
                         ),
                       ),
+                      if (_updates.isNotEmpty) ...[
+                        arrive(_section('Updates', note: '${_updates.length}')),
+                        arrive(Padding(
+                          padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  _updating ??
+                                      'Sites change, and their sources are fixed to match. Each update is tried '
+                                          'first; one that does not work leaves the version you have.',
+                                  style: Skin.label(context, size: 13.5),
+                                ),
+                              ),
+                              const SizedBox(width: Gap.m),
+                              FilledButton.tonal(
+                                onPressed: _updating != null ? null : () => _update([..._updates.values]),
+                                child: const Text('Update all'),
+                              ),
+                            ],
+                          ),
+                        )),
+                      ],
                       if (_installed.isNotEmpty) ...[
                         arrive(_section('Installed', note: '${_installed.length}')),
                         for (final p in _installed) arrive(_installedRow(context, p)),
@@ -305,7 +367,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
         children: [
           if (update != null)
             TextButton(
-              onPressed: _busy.contains(p.id) ? null : () => _install(update),
+              onPressed: _busy.contains(p.id) || _updating != null ? null : () => _update([update]),
               child: const Text('Update'),
             ),
           PopupMenuButton<String>(

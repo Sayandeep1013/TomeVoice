@@ -22,9 +22,12 @@ class SourceEngine {
   SourceEngine._();
 
   /// For tests: an engine whose answers they make up (overriding [novel],
-  /// [chapter] and the like), set as [instance].
+  /// [chapter] and the like), set as [instance]; or a real one, given the
+  /// libraries and the shim (read from assets/js without the asset bundle).
   @visibleForTesting
-  SourceEngine.forTests();
+  SourceEngine.forTests({String? libs, String? shim})
+      : _libs = libs,
+        _shim = shim;
 
   static SourceEngine _instance = SourceEngine._();
 
@@ -42,6 +45,16 @@ class SourceEngine {
 
   /// Where installed plugins and their storage live.
   void attach(SourceStore store) => _store = store;
+
+  /// End every worker (tests; the app's last as long as it does).
+  @visibleForTesting
+  void close() {
+    for (final w in _workers) {
+      w.close();
+    }
+    _workers.clear();
+    _assigned.clear();
+  }
 
   SourceStore get store {
     final s = _store;
@@ -76,9 +89,41 @@ class SourceEngine {
     // The source as installed now (what a novel stored may be an older
     // version): its code, site and the hash its code is checked against.
     final p = await store.installedById(given.id) ?? (throw MissingSourceException(given.id, given.name));
+    return _callWith(p, store.codePath(p.id), method, args, timeout: timeout);
+  }
+
+  /// Load [p], a version of a source not installed yet (its code at
+  /// [codePath], hashing to [sha256]), in a context of its own, and ask for
+  /// its first popular page: null if it listed novels, else what went
+  /// wrong. What an update must pass before it replaces what works.
+  Future<String?> smokeTest(PluginInfo p, String codePath, String sha256,
+      {Duration timeout = const Duration(seconds: 25)}) async {
+    final trial = PluginInfo(
+      id: '${p.id}#trial',
+      name: p.name,
+      site: p.site,
+      lang: p.lang,
+      version: '${p.version}#${sha256.substring(0, 12)}',
+      url: p.url,
+      sha256: sha256,
+    );
+    try {
+      final r = await _callWith(trial, codePath, 'popularNovels', [
+        1,
+        {'showLatestNovels': false, 'filters': null},
+      ], timeout: timeout);
+      return _novels(r).isNotEmpty ? null : 'It listed no novels.';
+    } on SourceException catch (e) {
+      return e.message;
+    } on Object catch (e) {
+      return friendlyError(e);
+    }
+  }
+
+  Future<Object?> _callWith(PluginInfo p, String codePath, String method, List<Object?> args, {Duration? timeout}) async {
     final w = await _workerFor(p.id);
     try {
-      return await w.call(p, store.codePath(p.id), method, args, timeout: timeout);
+      return await w.call(p, codePath, method, args, timeout: timeout);
     } finally {
       if (w.retired) {
         _assigned.removeWhere((_, x) => identical(x, w));
@@ -198,7 +243,17 @@ class _Worker {
       if (m is SendPort && !ready.isCompleted) ready.complete(m);
     });
     await Isolate.spawn(
-        _main, [init.sendPort, receive.sendPort, libs, shim, sourcesDir, Net.userAgent, RootIsolateToken.instance],
+        _main,
+        [
+          init.sendPort,
+          receive.sendPort,
+          libs,
+          shim,
+          sourcesDir,
+          Net.userAgent,
+          RootIsolateToken.instance,
+          Net.allowPrivateAddresses,
+        ],
         debugName: 'source-worker');
     final send = await ready.future;
     init.close();
@@ -238,6 +293,8 @@ class _Worker {
     init.send(requests.sendPort);
     final dir = boot[4] as String;
     Net.userAgent = boot[5] as String;
+    // Tests' sites are on this machine (see Net.allowPrivateAddresses).
+    Net.allowPrivateAddresses = boot[7] == true;
     await Net.instance.attachPath(dir);
     // The platform channel, for pages only the phone's web view gets.
     Future<String?> Function(String)? viaBrowser;
