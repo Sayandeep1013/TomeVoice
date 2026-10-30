@@ -1,0 +1,11 @@
+# Listen to the starter book, then go back to the library with the app's own
+# Back buttons, TomeVoice having been opened by another app (here Maestro)
+# rather than from the home screen. Android 16 finishes such an app's
+# activity on Back even when it would keep one the home screen opened, so CI
+# runs its Back test from here too (docs/13 §13.11); listen-from-home.yaml is
+# the reader's own way in.
+appId: ${APP_ID || 'app.tomevoice'}
+name: Listen, then go back to the library
+---
+- runFlow: common/book-page.yaml
+- runFlow: common/listen-and-return.yaml

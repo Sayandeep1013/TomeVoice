@@ -1,0 +1,5 @@
+# Subflow: launch TomeVoice and open the starter book's page.
+appId: ${APP_ID || 'app.tomevoice'}
+---
+- runFlow: library.yaml
+- runFlow: open-book.yaml

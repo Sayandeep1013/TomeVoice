@@ -1,8 +1,0 @@
-appId: app.tomevoice
----
-- launchApp:
-    clearState: false
-- tapOn: ".*Specimen.*"
-- tapOn: "Library"
-- assertVisible: "Library"
-- assertVisible: ".*Specimen.*"

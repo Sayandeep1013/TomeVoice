@@ -1,0 +1,20 @@
+# The reader's settings sheet opens on its Read tab; its Listen tab shows
+# the speed and the sleep timer. Back closes it.
+appId: ${APP_ID || 'app.tomevoice'}
+name: Reading settings open and switch to Listen
+---
+- runFlow: open-reader.yaml
+- tapOn: "Reading settings"
+- extendedWaitUntil:
+    visible: "Listen"
+    timeout: 20000
+- assertVisible: "Read"
+- tapOn: "Listen"
+- extendedWaitUntil:
+    visible: ".*Sleep timer.*"
+    timeout: 20000
+- assertVisible: ".*Speed.*"
+- back
+- extendedWaitUntil:
+    visible: "Reading settings"
+    timeout: 20000

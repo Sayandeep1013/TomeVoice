@@ -8,38 +8,78 @@ on:
     branches: [main]
     paths-ignore: ["docs/**", "**/*.md", "mobile-qa/**", "spike-runs/**"]
   pull_request:
-    paths-ignore: ["docs/**", "**/*.md", "mobile-qa/**", "spike-runs/**"]
+    # mobile-qa/ counts here: the emulator job runs its flows.
+    paths-ignore: ["docs/**", "**/*.md", "spike-runs/**"]
   workflow_dispatch:
     inputs:
       release_tag:
         description: "Attach the APK to this (draft) release and publish it, e.g. v0.4.0"
         required: false
         default: ""
+      variant:
+        description: 'test: only a 64-bit APK of the separate test app (app.tomevoice.test, "TomeVoice Test"), never released'
+        type: choice
+        options: [release, test]
+        default: release
+      relock:
+        description: "Only re-resolve the pubspec.lock files with the pinned SDKs and upload them (builds nothing)"
+        type: boolean
+        required: false
+        default: false
+
+# Read-only unless a job says otherwise. Only "Attach to the release" writes.
+permissions:
+  contents: read
 
 # A newer push to the same ref makes the older build pointless. Each kind
 # of run keeps its own lane: a release run started right after a merge used
 # to cancel the merge's own build, leaving main's commit (and the README's
-# badge) marked failed.
+# badge) marked failed. A test-app build is a kind of its own.
 concurrency:
-  group: build-${{ github.ref }}-${{ github.event_name }}
+  group: build-${{ github.ref }}-${{ github.event_name }}-${{ inputs.variant || 'release' }}
   cancel-in-progress: true
+
+env:
+  # One toolchain for every job, never whatever stable is that day: a new
+  # Flutter could change the APK under an unchanged commit. Flutter 3.47.8
+  # ships Dart 3.13.7, so the Dart-only job and the app agree. To move: change
+  # both, run with relock, and commit the pubspec.lock files it uploads.
+  FLUTTER_VERSION: "3.47.8"
+  DART_VERSION: "3.13.7"
+  # The certificate of the TomeVoice release key (apksigner's SHA-256 digest,
+  # the same as v1.2.2's). An APK signed with any other key will not install
+  # over the last one, and the reader would lose their library to an
+  # uninstall: a release run refuses it.
+  TV_CERT_SHA256: bd4a3d53710525f9d2b7f540c5afb98450563b32f16dd0af1f131ff54257fd11
 
 jobs:
   # The gate that matters day to day. Runs in seconds, needs no Android
   # toolchain, and covers everything intellectually risky in the project.
   dart-core:
     name: Dart core (pipeline + tests)
+    if: github.event_name != 'workflow_dispatch' || !inputs.relock
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: dart-lang/setup-dart@v1
+      # Every action is pinned to a commit; the comment says which release.
+      - &checkout
+        name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          sdk: stable
+          persist-credentials: false
 
+      - &setup-dart
+        name: Set up Dart
+        uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
+        with:
+          sdk: ${{ env.DART_VERSION }}
+
+      # --enforce-lockfile: the committed pubspec.lock is the resolution. It
+      # fails rather than pick other versions, and checks every download
+      # against the hash in the lockfile.
       - name: Resolve audio
         working-directory: packages/tomevoice_audio
-        run: dart pub get
+        run: dart pub get --enforce-lockfile
 
       - name: Analyze audio
         working-directory: packages/tomevoice_audio
@@ -51,7 +91,7 @@ jobs:
 
       - name: Resolve document
         working-directory: packages/tomevoice_document
-        run: dart pub get
+        run: dart pub get --enforce-lockfile
 
       - name: Analyze document
         working-directory: packages/tomevoice_document
@@ -63,7 +103,7 @@ jobs:
 
       - name: Resolve tools
         working-directory: tools
-        run: dart pub get
+        run: dart pub get --enforce-lockfile
 
       - name: Analyze tools
         working-directory: tools
@@ -86,49 +126,68 @@ jobs:
           done
 
   # Only runs if the core is green, so a broken pipeline never produces an
-  # installable build.
+  # installable build. Nothing here can publish: see the release job.
   android-apk:
     name: Android release APK
     runs-on: ubuntu-latest
     needs: dart-core
-    permissions:
-      contents: write
+    timeout-minutes: 45
+    env:
+      # variant=test builds the separate test app (tools/prepare_android.py):
+      # it installs beside TomeVoice with an empty library of its own, so a
+      # risky build never touches the reader's books. Signed with the same key,
+      # so each test build installs over the last. Empty for every other run,
+      # which builds the real app.
+      TV_APP_ID: ${{ inputs.variant == 'test' && 'app.tomevoice.test' || '' }}
+      TV_APP_LABEL: ${{ inputs.variant == 'test' && 'TomeVoice Test' || '' }}
     steps:
-      - uses: actions/checkout@v4
+      - *checkout
 
-      - uses: actions/setup-java@v4
+      - &setup-java
+        name: Set up Java
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: "17"
 
-      - uses: subosito/flutter-action@v2
+      - &setup-flutter
+        name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
       # Gradle, AGP and PdfBox downloads dominate a cold Android build.
-      - uses: actions/cache@v4
+      - name: Cache Gradle
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('app/pubspec.yaml', 'tools/prepare_android.py') }}
+          key: gradle-${{ runner.os }}-${{ hashFiles('app/pubspec.lock', 'tools/prepare_android.py') }}
           restore-keys: gradle-${{ runner.os }}-
 
-      - name: Show toolchain
+      - &show-toolchain
+        name: Show toolchain
         run: flutter --version
 
       # There is no committed android/ directory: the developer has no local
       # Flutter install (docs/10 ADR-016), so the platform scaffolding is
       # generated here and our sources are laid back over it. This also means
       # the project self-heals across Flutter template changes.
-      - name: Generate Android scaffolding
+      - &scaffold
+        name: Generate Android scaffolding
         working-directory: app
         run: |
           cp -r lib /tmp/tv_lib
           cp -r test /tmp/tv_test
           cp pubspec.yaml /tmp/tv_pubspec.yaml
-          flutter create --platforms=android --project-name tomevoice_spike --org app.tomevoice .
+          # flutter create also writes a pubspec.lock of its own (the SDK's
+          # pins only), over ours: keep ours aside.
+          if [ -f pubspec.lock ]; then cp pubspec.lock /tmp/tv_pubspec.lock; fi
+          # --no-pub: the only resolution is the locked one further down.
+          flutter create --no-pub --platforms=android --project-name tomevoice_spike --org app.tomevoice .
           # flutter create writes lib/main.dart and pubspec.yaml, and also a
           # stub test/widget_test.dart referencing a MyApp class this project
           # does not have. All three are ours; restore all three.
@@ -136,28 +195,35 @@ jobs:
           cp -r /tmp/tv_lib lib
           cp -r /tmp/tv_test test
           cp /tmp/tv_pubspec.yaml pubspec.yaml
+          if [ -f /tmp/tv_pubspec.lock ]; then cp /tmp/tv_pubspec.lock pubspec.lock; fi
+          # Our sources and lockfile, exactly as committed.
+          changed=$(git status --porcelain --untracked-files=no -- lib test pubspec.yaml pubspec.lock)
+          if [ -n "$changed" ]; then echo "$changed"; echo "::error::flutter create changed our files"; exit 1; fi
 
       # A stable key means each build installs over the last one. Without the
-      # secret the APK is signed with a throwaway key and needs an uninstall
-      # (which wipes the library) before it will install.
-      - name: Restore signing key
+      # secret (a pull request from a fork) the APK is signed with a throwaway
+      # key and needs an uninstall (which wipes the library) before it will
+      # install. Here only the key's path is named, for prepare_android.py;
+      # the key is written just before the two builds and deleted after them.
+      - name: Name the signing key
         env:
-          TV_KEYSTORE_B64: ${{ secrets.TV_KEYSTORE_B64 }}
+          HAS_KEY: ${{ secrets.TV_KEYSTORE_B64 != '' }}
         run: |
-          if [ -n "$TV_KEYSTORE_B64" ]; then
-            echo "$TV_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/tomevoice.p12"
+          if [ "$HAS_KEY" = true ]; then
             echo "TV_KEYSTORE=$RUNNER_TEMP/tomevoice.p12" >> "$GITHUB_ENV"
           else
             echo "::warning::TV_KEYSTORE_B64 is not set; the APK will need an uninstall to install."
           fi
 
-      - name: Apply our Android sources
+      - &overlay
+        name: Apply our Android sources
         working-directory: app
         run: |
           cp -r android_overlay/. android/
           python3 ../tools/prepare_android.py .
 
-      - name: Verify the overlay landed
+      - &verify-overlay
+        name: Verify the overlay landed
         working-directory: app
         run: |
           set -e
@@ -170,42 +236,63 @@ jobs:
           grep -q "ReadAloudService" "$M"
           grep -q "ShareProvider" "$M"
           grep -q 'foregroundServiceType="mediaPlayback"' "$M"
-          grep -q 'android:label="TomeVoice"' "$M"
+          # TomeVoice, or the test app when TV_APP_ID / TV_APP_LABEL say so.
+          grep -qF "android:label=\"${TV_APP_LABEL:-TomeVoice}\"" "$M"
           # The secret shelf's fingerprint, face or PIN prompt.
           grep -q "USE_BIOMETRIC" "$M"
           # Look up and Translate: those apps are invisible without it.
           grep -q "android.intent.action.PROCESS_TEXT" "$M"
           grep -q "pdfbox-android" android/app/build.gradle.kts
+          # ...without BouncyCastle's post-quantum tables (4.1 MB).
+          grep -q 'excludes += "org/bouncycastle/pqc/' android/app/build.gradle.kts
           test -f android/app/proguard-rules.pro
           test -f android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
           grep -E "minSdk|targetSdk" android/app/build.gradle.kts
-          grep -q 'applicationId = "app.tomevoice"' android/app/build.gradle.kts
+          grep -qF "applicationId = \"${TV_APP_ID:-app.tomevoice}\"" android/app/build.gradle.kts
 
-      - name: Resolve dependencies
+      # Every package exactly as app/pubspec.lock pins it, each checked
+      # against its hash; flutter_qjs (a git package) at its locked commit.
+      # The commands after this one do not resolve again (--no-pub).
+      - &resolve-app
+        name: Resolve dependencies (locked)
         working-directory: app
-        run: flutter pub get
+        run: |
+          if ! flutter pub get --enforce-lockfile; then
+            echo "::error file=app/pubspec.lock::app/pubspec.lock does not match app/pubspec.yaml. Re-resolve with Flutter $FLUTTER_VERSION (gh workflow run build.yml --ref <branch> -f relock=true) and commit the lockfiles it uploads."
+            exit 1
+          fi
 
       - name: Analyze
         working-directory: app
-        run: flutter analyze
+        run: flutter analyze --no-pub
 
       - name: Widget tests
         working-directory: app
-        run: flutter test
+        run: flutter test --no-pub
+
+      # The key exists on disk only from here until "Delete the signing key".
+      - name: Write the signing key
+        if: env.TV_KEYSTORE != ''
+        env:
+          TV_KEYSTORE_B64: ${{ secrets.TV_KEYSTORE_B64 }}
+        run: |
+          umask 077
+          printf '%s' "$TV_KEYSTORE_B64" | base64 -d > "$TV_KEYSTORE"
 
       # Release, not debug: a debug build runs Dart unoptimised (JIT with
       # asserts) and was several times slower at everything the user touches.
       # Two APKs, one per CPU kind, built separately rather than with
       # --split-per-abi, which renumbers version codes: the 64-bit one is
       # what nearly every phone takes; the 32-bit one is for older and
-      # Android Go phones.
+      # Android Go phones. The test app is 64-bit only.
       - name: Build release APK (32-bit phones)
+        if: inputs.variant != 'test'
         working-directory: app
         env:
           TV_KEYSTORE_PASSWORD: ${{ secrets.TV_KEYSTORE_PASSWORD }}
           TV_ABIS: armeabi-v7a
         run: |
-          flutter build apk --release --target-platform android-arm
+          flutter build apk --release --no-pub --target-platform android-arm
           cp build/app/outputs/flutter-apk/app-release.apk "$RUNNER_TEMP/app-release-32bit.apk"
 
       - name: Build release APK
@@ -214,33 +301,291 @@ jobs:
           TV_KEYSTORE_PASSWORD: ${{ secrets.TV_KEYSTORE_PASSWORD }}
           TV_ABIS: arm64-v8a
         run: |
-          flutter build apk --release --target-platform android-arm64
+          flutter build apk --release --no-pub --target-platform android-arm64
           # Each APK holds one CPU's native code, compressed.
           unzip -l build/app/outputs/flutter-apk/app-release.apk | grep -E "lib/" | awk '{print $4}' | cut -d/ -f2 | sort -u
           ls -la build/app/outputs/flutter-apk/app-release.apk
 
-      - uses: actions/upload-artifact@v4
+      - name: Delete the signing key
+        if: always()
+        run: |
+          if [ -n "${TV_KEYSTORE:-}" ]; then rm -f "$TV_KEYSTORE"; fi
+
+      # Each APK's app id, size (with the latest release's for comparison),
+      # no BouncyCastle post-quantum data left in it, and the key it is signed
+      # with: the TomeVoice key, or a release run stops here.
+      - name: Check the APKs
+        working-directory: app
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          tools="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n 1)"
+          echo "Latest release, for comparison:"
+          gh release view --repo "$GITHUB_REPOSITORY" --json tagName,assets --jq '.tagName as $t | .assets[] | [$t, .name, (.size | tostring), "bytes"] | join(" ")' || true
+          for apk in build/app/outputs/flutter-apk/app-release.apk "$RUNNER_TEMP/app-release-32bit.apk"; do
+            [ -f "$apk" ] || continue
+            name=$(basename "$apk")
+            id=$("$tools/aapt2" dump badging "$apk" | awk -F"'" '/^package: name=/ { print $2 }')
+            size=$(stat -c %s "$apk")
+            pqc=$(unzip -l "$apk" | grep -c "org/bouncycastle/pqc/" || true)
+            signed=$("$tools/apksigner" verify --print-certs "$apk" 2>&1 || true)
+            cert=$(printf '%s\n' "$signed" | grep -oE "certificate SHA-256 digest: [0-9a-f]{64}" | head -n 1 | cut -d' ' -f4 || true)
+            # Not verified, or a format this did not expect: show what it said.
+            if [ -z "$cert" ]; then printf '%s\n' "$signed"; fi
+            echo "$name: $id, $size bytes, $pqc entries under org/bouncycastle/pqc/, signer certificate SHA-256 ${cert:-unknown}"
+            if [ "$id" != "${TV_APP_ID:-app.tomevoice}" ]; then
+              echo "::error::$name is $id, not ${TV_APP_ID:-app.tomevoice}"
+              exit 1
+            fi
+            if [ "$pqc" != 0 ]; then
+              echo "::error::$name still carries org/bouncycastle/pqc/"
+              exit 1
+            fi
+            if [ "$cert" != "$TV_CERT_SHA256" ]; then
+              if [ -n "$RELEASE_TAG" ]; then
+                echo "::error::$name is not signed with the TomeVoice key (${cert:-no certificate found}). Not releasing it: it would not install over the last version."
+                exit 1
+              fi
+              echo "::warning::$name is not signed with the TomeVoice key (${cert:-no certificate found})."
+            fi
+          done
+
+      - name: Upload the 32-bit APK
+        if: inputs.variant != 'test'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tomevoice-apk-32bit
           path: ${{ runner.temp }}/app-release-32bit.apk
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload the APK
+        if: inputs.variant != 'test'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tomevoice-apk
           path: app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 
-      # Releasing from CI: uploads from a home connection can stall.
+      # Named for what it is: adb install -r TomeVoice-test.apk.
+      - name: Name the test APK
+        if: inputs.variant == 'test'
+        run: cp app/build/app/outputs/flutter-apk/app-release.apk "$RUNNER_TEMP/TomeVoice-test.apk"
+
+      - name: Upload the test APK
+        if: inputs.variant == 'test'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tomevoice-test-apk
+          path: ${{ runner.temp }}/TomeVoice-test.apk
+          if-no-files-found: error
+
+  # Releasing from CI: uploads from a home connection can stall. The only job
+  # that can write to the repository, and it runs no build: it takes the APKs
+  # the build job checked, renames them and publishes the tag's draft release.
+  release:
+    name: Attach to the release
+    needs: android-apk
+    if: github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.variant != 'test'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download the APK
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tomevoice-apk
+          path: apk
+
+      - name: Download the 32-bit APK
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tomevoice-apk-32bit
+          path: apk-32bit
+
       - name: Attach to the release
-        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.release_tag }}
         run: |
           apk="TomeVoice-${TAG#v}.apk"
           old="TomeVoice-${TAG#v}-32bit.apk"
-          cp app/build/app/outputs/flutter-apk/app-release.apk "$apk"
-          cp "$RUNNER_TEMP/app-release-32bit.apk" "$old"
+          cp apk/app-release.apk "$apk"
+          cp apk-32bit/app-release-32bit.apk "$old"
           gh release upload "$TAG" "$apk" "$old" --clobber --repo "$GITHUB_REPOSITORY"
           gh release edit "$TAG" --draft=false --latest --repo "$GITHUB_REPOSITORY"
+
+  # The emulator tests' APK: built exactly as the release one (same pinned
+  # Flutter, scaffolding, overlay and lockfile) but for an x86_64 emulator,
+  # and signed with the throwaway debug key. It never leaves CI and this job
+  # never sees a secret. Not on pushes to main nor test-app builds, and
+  # nothing waits for it.
+  emulator-apk:
+    name: Emulator APK (x86_64)
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && !inputs.relock && inputs.variant != 'test')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - *checkout
+      - *setup-java
+      - *setup-flutter
+
+      - name: Cache Gradle
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-emulator-${{ runner.os }}-${{ hashFiles('app/pubspec.lock', 'tools/prepare_android.py') }}
+          restore-keys: |
+            gradle-emulator-${{ runner.os }}-
+            gradle-${{ runner.os }}-
+
+      - *show-toolchain
+      - *scaffold
+      - *overlay
+      - *verify-overlay
+      - *resolve-app
+
+      - name: Build release APK (x86_64 emulator)
+        working-directory: app
+        env:
+          TV_ABIS: x86_64
+        run: |
+          flutter build apk --release --no-pub --target-platform android-x64
+          unzip -l build/app/outputs/flutter-apk/app-release.apk | grep -E "lib/" | awk '{print $4}' | cut -d/ -f2 | sort -u
+          ls -la build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload the emulator APK
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tomevoice-emulator-apk
+          path: app/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  # The app on Android 14 and Android 16 emulators: the Maestro flows in
+  # mobile-qa/flows/, then the Back test (mobile-qa/ci/emulator-tests.sh;
+  # docs/13 §13.11). A failure here fails the run but blocks no APK: the
+  # release build and the release job do not depend on it.
+  emulator-test:
+    name: Emulator API ${{ matrix.api-level }}
+    needs: emulator-apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      # Each Android version reports on its own; one failing must not
+      # cancel the other.
+      fail-fast: false
+      matrix:
+        api-level: [34, 36]
+    steps:
+      - *checkout
+
+      - name: Download the emulator APK
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tomevoice-emulator-apk
+          path: ${{ runner.temp }}/apk
+
+      # Maestro runs on the JVM.
+      - *setup-java
+
+      # A pinned release, checked against its published SHA-256, rather than
+      # the install script from a URL.
+      - name: Install Maestro
+        env:
+          MAESTRO_VERSION: "2.12.0"
+          MAESTRO_SHA256: a6044a84542f522f434c5dc3d609e60c7446d423f3ed1b2ae513f5c48663ec5e
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/maestro.zip" "https://github.com/mobile-dev-inc/maestro/releases/download/cli-$MAESTRO_VERSION/maestro.zip"
+          echo "$MAESTRO_SHA256  $RUNNER_TEMP/maestro.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/maestro.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/maestro/bin" >> "$GITHUB_PATH"
+
+      # Hardware acceleration for the emulator (the runner action's README).
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Flows and the Back test on API ${{ matrix.api-level }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        env:
+          MAESTRO_CLI_NO_ANALYTICS: "1"
+          MAESTRO_CLI_ANALYSIS_NOTIFICATION_DISABLED: "true"
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 3
+          ram-size: 4096M
+          disk-size: 6G
+          emulator-boot-timeout: 900
+          script: bash mobile-qa/ci/emulator-tests.sh "$RUNNER_TEMP/apk/app-release.apk" "$RUNNER_TEMP/results"
+
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: emulator-results-api-${{ matrix.api-level }}
+          path: ${{ runner.temp }}/results
+          if-no-files-found: warn
+          retention-days: 14
+
+  # gh workflow run build.yml --ref <branch> -f relock=true, after changing a
+  # pubspec.yaml or the pinned SDKs: resolves all four packages with the
+  # pinned Dart and Flutter (the app after the same scaffolding and overlay as
+  # its build) and uploads their pubspec.lock files. Commit them from the
+  # repository root: gh run download <run-id> -n pubspec-locks
+  relock:
+    name: Re-resolve the lockfiles
+    if: github.event_name == 'workflow_dispatch' && inputs.relock
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - *checkout
+      - *setup-dart
+
+      - name: Resolve the Dart packages
+        run: |
+          set -e
+          for dir in packages/tomevoice_audio packages/tomevoice_document tools; do
+            echo "::group::$dir"
+            (cd "$dir" && dart pub get)
+            echo "::endgroup::"
+          done
+
+      - *setup-flutter
+      - *show-toolchain
+      - *scaffold
+      - *overlay
+
+      - name: Resolve the app
+        working-directory: app
+        run: flutter pub get
+
+      - name: Show the lockfiles
+        run: |
+          git status --short -- '*pubspec.lock'
+          git diff --stat -- '*pubspec.lock'
+          for f in packages/tomevoice_audio/pubspec.lock packages/tomevoice_document/pubspec.lock tools/pubspec.lock app/pubspec.lock; do
+            echo "::group::$f"
+            cat "$f"
+            echo "::endgroup::"
+          done
+
+      - name: Upload the lockfiles
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pubspec-locks
+          path: |
+            packages/tomevoice_audio/pubspec.lock
+            packages/tomevoice_document/pubspec.lock
+            tools/pubspec.lock
+            app/pubspec.lock
+          if-no-files-found: error

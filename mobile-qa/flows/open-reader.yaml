@@ -1,0 +1,15 @@
+# Open the starter book: its page, then Read, then the reader with its
+# top bar (Back to library, the title that opens Contents, Reading settings).
+appId: ${APP_ID || 'app.tomevoice'}
+name: Open the book in the reader
+---
+- runFlow: common/book-page.yaml
+- assertVisible: "Listen|Continue|Listen again"
+- tapOn:
+    text: "Read"
+    enabled: true
+- extendedWaitUntil:
+    visible: "Reading settings"
+    timeout: 60000
+- assertVisible: "Back to library"
+- assertVisible: "Contents.*Pride and Prejudice.*"

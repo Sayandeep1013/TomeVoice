@@ -1,0 +1,25 @@
+# Open the book, turn the screen to landscape and back: the reader must
+# still be showing, and the app must not crash. setOrientation turns the
+# phone's auto-rotate off; onFlowComplete leaves it upright whatever happens.
+appId: ${APP_ID || 'app.tomevoice'}
+name: The reader survives a rotation
+onFlowComplete:
+  - setOrientation: portrait
+---
+- runFlow: open-reader.yaml
+- setOrientation: landscape_left
+- waitForAnimationToEnd:
+    timeout: 5000
+- extendedWaitUntil:
+    visible: "Reading settings"
+    timeout: 20000
+- assertVisible: "Contents.*Pride and Prejudice.*"
+# CI measures this one: wider than tall, or the screen never turned.
+- takeScreenshot: reader-landscape
+- setOrientation: portrait
+- waitForAnimationToEnd:
+    timeout: 5000
+- extendedWaitUntil:
+    visible: "Reading settings"
+    timeout: 20000
+- assertVisible: "Back to library"

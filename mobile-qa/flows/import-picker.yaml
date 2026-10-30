@@ -1,8 +1,0 @@
-appId: app.tomevoice
----
-- launchApp:
-    clearState: false
-- tapOn:
-    text: "Library"
-    optional: true
-- tapOn: "IMPORT A FILE"
