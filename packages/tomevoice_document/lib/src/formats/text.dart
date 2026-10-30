@@ -161,7 +161,10 @@ List<DraftSection> _parts(List<Block> blocks, String title) {
 }
 
 /// Join hard-wrapped lines into one paragraph, mending words that were
-/// hyphenated across a line break ("exam-\nple" -> "example").
+/// hyphenated across a line break ("exam-\nple" -> "example"), in any script
+/// with lower case: Latin, Cyrillic, Greek. A soft hyphen (U+00AD) at a line
+/// end is where a word was broken, whatever follows it; anywhere else it is
+/// invisible, and goes.
 String joinWrappedLines(List<String> lines) {
   final parts = <String>[];
   for (final raw in lines) {
@@ -169,22 +172,28 @@ String joinWrappedLines(List<String> lines) {
     if (l.isEmpty) continue;
     if (parts.isNotEmpty) {
       final prev = parts.last;
-      if (prev.length >= 2 &&
-          prev.endsWith('-') &&
-          _isLetterUnit(prev.codeUnitAt(prev.length - 2)) &&
-          _isLowerUnit(l.codeUnitAt(0))) {
+      final end = prev.codeUnitAt(prev.length - 1);
+      if (end == _softHyphen ||
+          (prev.length >= 2 &&
+              (end == 0x2D || end == 0x2010) &&
+              _isLetterUnit(prev.codeUnitAt(prev.length - 2)) &&
+              _lowerFirst.hasMatch(l))) {
         parts[parts.length - 1] = prev.substring(0, prev.length - 1) + l;
         continue;
       }
     }
     parts.add(l);
   }
-  return collapseWhitespace(parts.join(' '));
+  return collapseWhitespace(
+    parts.join(' ').replaceAll(String.fromCharCode(_softHyphen), ''),
+  );
 }
+
+const _softHyphen = 0xAD;
+final _lowerFirst = RegExp(r'^\p{Ll}', unicode: true);
 
 bool _isLetterUnit(int c) =>
     (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c >= 0xC0;
-bool _isLowerUnit(int c) => (c >= 97 && c <= 122) || (c >= 0xDF && c <= 0xFF);
 
 Book _markdown(String id, BookMetadata metadata, String raw, String? filename) {
   final sections = <DraftSection>[];
