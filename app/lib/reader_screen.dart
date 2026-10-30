@@ -3510,7 +3510,9 @@ String encodeReport(Map<String, Object?> m) =>
 /// The word around [offset] in [text] (letters, digits, apostrophes,
 /// hyphens), or the one just beside it; empty far from any word.
 String wordAt(String text, int offset) {
-  final letter = RegExp(r"[\p{L}\p{N}'’-]", unicode: true);
+  // Marks too (\p{M}): Bengali and Hindi vowel signs and the virama are
+  // marks, and without them বাংলা came back as ব.
+  final letter = RegExp(r"[\p{L}\p{M}\p{N}'’-]", unicode: true);
   bool isLetter(int i) => i >= 0 && i < text.length && letter.hasMatch(text[i]);
   var i = offset.clamp(0, text.length);
   // A finger on a space or a comma means the word beside it.
