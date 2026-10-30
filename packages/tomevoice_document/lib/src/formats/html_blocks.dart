@@ -442,7 +442,9 @@ class _Walker {
       final name = el.localName.toLowerCase();
       final src = name == 'img' ? el.getAttribute('src') ?? '' : _attr(el, 'href');
       final alt = collapseWhitespace(el.getAttribute('alt') ?? '');
-      final path = href == null || src.isEmpty || src.startsWith('data:')
+      // A picture is a file of the book's: not one that has a scheme
+      // (data:, http:, a Kindle book's kindle:embed:0001).
+      final path = href == null || src.isEmpty || _scheme.hasMatch(src)
           ? null
           : zipJoin(_dirOfPath(href!), _decode(src));
       if (path == null && alt.isEmpty) continue;
@@ -855,6 +857,8 @@ List<Block> lenientHtmlBlocks(String html, {String? language}) {
 /// `&eacute;`, `&#233;` and `&#xE9;` as the characters they stand for: every
 /// HTML5 name, not only the handful a hand-written table remembered.
 String decodeEntities(String s) => _entities.decode(s);
+
+final _scheme = RegExp(r'^[A-Za-z][A-Za-z0-9+.-]*:');
 
 bool _isPicture(XmlElement e) {
   final n = e.localName.toLowerCase();

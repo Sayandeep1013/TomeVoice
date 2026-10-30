@@ -172,6 +172,21 @@ void main() {
       expect(blocks.map((b) => b.text), contains('He came home late* and said nothing to anyone that night.'));
     });
 
+    test("a picture is not taken for a file of the book's: its kindle:embed is no path", () {
+      final book = ingestBytes(
+        kf8Book(parts: [
+          [
+            '<div><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">'
+                '<image xlink:href="kindle:embed:0001?mime=image/jpeg"/></svg></div>'
+                '<h1>Chapter One</h1><p>The lamp was lit at dusk.</p>',
+          ],
+        ]),
+        filename: 'tale.azw3',
+      );
+      expect([for (final s in book.sections) for (final b in s.blocks) if (b.isImage) b.image], isEmpty);
+      expect(_texts(book), ['Chapter One', 'The lamp was lit at dusk.']);
+    });
+
     test('a joint MOBI 6 and KF8 file is read from its KF8 half', () {
       final book = ingestBytes(kf8Book(parts: parts, toc: toc, joint: true), filename: 'tale.mobi');
       expect(_texts(book), isNot(contains('The old copy.')));
