@@ -2,6 +2,7 @@
 // screen, and a stored novel's page. No network: what the page shows comes
 // from the copy on the phone.
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -31,6 +32,16 @@ class _FakeEngine extends SourceEngine {
   @override
   Future<SourceNovel> novel(PluginInfo p, String path) async =>
       novels[path] ?? (throw SourceException('No such novel.'));
+
+  /// Sources asked in a global search; "slow" never answers.
+  final searched = <String>[];
+
+  @override
+  Future<List<NovelItem>> search(PluginInfo p, String query, int page) async {
+    searched.add(p.id);
+    if (p.id == 'slow') return Completer<List<NovelItem>>().future;
+    return [NovelItem(name: '$query at ${p.name}', path: 'novel/1')];
+  }
 }
 
 /// Installed sources as the tests make them up, nothing on disk.
@@ -268,6 +279,35 @@ void main() {
     expect((asked.singleWhere((c) => c.method == 'clearWebCookies').arguments as Map)['url'], isNull);
     expect(Net.instance.cookieHeader('https://www.site.test/', partition: 'site'), isNull);
     await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets("global search asks the reader's languages, can be stopped, and marks what is in the library",
+      (tester) async {
+    phone(tester);
+    PluginInfo source(String id, String lang) =>
+        PluginInfo(id: id, name: 'Site $id', site: 'https://$id.test/', lang: lang, version: '1', url: 'u');
+    final plugins = [source('fast', 'English'), source('slow', 'English'), source('ru', 'Русский')];
+    final engine = _FakeEngine(const {});
+    final before = SourceEngine.instance;
+    SourceEngine.instance = engine;
+    addTearDown(() => SourceEngine.instance = before);
+    final store = LibraryStore(tmp);
+    await tester.runAsync(() => store.addWebNovel(plugins.first, const SourceNovel(path: 'novel/1', name: 'Kept')));
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: BrowseScreen(store: store, sources: _FakeSources(tmp, plugins))),
+    ));
+    await settle(tester, () => find.text('Site fast').evaluate().isNotEmpty);
+    await tester.enterText(find.byType(TextField), 'dragon');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await settle(tester, () => find.text('Stop').evaluate().isNotEmpty);
+    expect(engine.searched.toSet(), {'fast', 'slow'}, reason: "the phone's language (English) only");
+    expect(find.text('In library'), findsOneWidget, reason: 'the novel from fast is in the library');
+    await tester.tap(find.text('Stop'));
+    await settle(tester, () => find.text('Stopped.').evaluate().isNotEmpty);
+    expect(find.text('SEARCHED 2 SOURCES'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    // The stopped source's own wait runs out unseen.
+    await tester.pump(const Duration(seconds: 21));
   });
 
   testWidgets("a source's filters are shown as it defines them, and chosen", (tester) async {
