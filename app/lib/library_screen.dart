@@ -1047,13 +1047,14 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
             ),
           ),
         ),
+        // No gaps between the round buttons: each sits in a 48 dp target
+        // around its 42 dp circle, which already leaves 6 dp between them.
         RoundButton(
           icon: _searching ? Icons.search_off_rounded : Icons.search_rounded,
           tooltip: 'Search',
           size: size,
           onTap: () => _searching ? _closeSearch() : setState(() => _searching = true),
         ),
-        const SizedBox(width: 6),
         RoundButton(
           icon: _importing != null ? Icons.hourglass_top_rounded : Icons.add_rounded,
           tooltip: 'Add books',
@@ -1062,9 +1063,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
           iconColor: Skin.onAmber,
           onTap: _importing != null ? null : _addMenu,
         ),
-        const SizedBox(width: 6),
         _viewMenu(context, size),
-        const SizedBox(width: 6),
         RoundButton(
           icon: Icons.settings_outlined,
           tooltip: 'Settings',
