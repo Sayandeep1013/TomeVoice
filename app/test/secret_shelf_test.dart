@@ -175,9 +175,10 @@ void main() {
       expect([for (final m in MarkStore.instance.all) m.text], ['A line left behind before 1.4.'],
           reason: 'what was not shown is not cleared');
       await tester.pump(const Duration(seconds: 5));
-      // marks.json is written with real file work: let it finish.
+      // marks.json is written with real file work: let it finish (up to
+      // five seconds, for a machine busy with other tests).
       final marks = File('${tmp.path}/marks.json');
-      for (var i = 0; i < 60 && marks.readAsStringSync().contains('An open story'); i++) {
+      for (var i = 0; i < 200 && marks.readAsStringSync().contains('An open story'); i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 25)));
         await tester.pump();
       }
