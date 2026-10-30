@@ -128,6 +128,23 @@ class _WebNovelReaderState extends State<WebNovelReader> {
   void initState() {
     super.initState();
     ReadingRules.instance.changes.addListener(_onRules);
+    // Read aloud in the background: the page opens on the chapters the voice
+    // reads, and so takes the voice back with no break (on a window of its
+    // own, the voice was started again from its place).
+    final bg = BackgroundReading.current.value;
+    if (widget.at == null &&
+        widget.startChapter == null &&
+        bg != null &&
+        bg.bookId == _id &&
+        bg.rolling == null &&
+        !bg.layout.isEmpty) {
+      final layout = bg.layout;
+      _layout = layout;
+      _cursor = cursorOf(layout.units[bg.unit.clamp(0, layout.units.length - 1)]);
+      // Every chapter the novel lists has its section.
+      _total = layout.book.sections.length;
+      return;
+    }
     unawaited(_open(widget.at?.sectionIndex ?? widget.startChapter, autoplay: widget.autoplay, at: widget.at));
   }
 
