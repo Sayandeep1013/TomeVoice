@@ -163,6 +163,111 @@ int? skipTarget(ReadingLayout l, int u, int dir, SkipBy by, double speed, Durati
   }
 }
 
+// What a book's page and the background reading work out alike for the
+// card in the notification shade, its buttons and the phone's audio.
+
+/// Words before sentence [u] of [l]; [u] may be one past the end.
+int _wordsAt(ReadingLayout l, int u) => u < l.units.length ? l.wordsBefore[u] : l.totalWords;
+
+/// How long [words] take at [speed]: the same 165 words a minute as the
+/// time left under the player.
+int _msFor(int words, double speed) => (words / (165 * speed) * 60000).round();
+
+/// Where the card shows sentence [u] of [l] at [speed]: how far into its
+/// chapter, and how long the chapter is.
+({int positionMs, int durationMs}) cardClock(ReadingLayout l, int u, double speed) {
+  final (first, count) = l.chapterRange(l.chapterOfUnit(u));
+  return (
+    positionMs: _msFor(_wordsAt(l, u) - _wordsAt(l, first), speed),
+    durationMs: _msFor(_wordsAt(l, first + count) - _wordsAt(l, first), speed),
+  );
+}
+
+/// Where the card's seek bar, let go [ms] into the chapter of sentence
+/// [u], takes the reading at [speed].
+int seekTarget(ReadingLayout l, int u, int ms, double speed) {
+  final (first, count) = l.chapterRange(l.chapterOfUnit(u));
+  final target = _wordsAt(l, first) + ms / 60000 * 165 * speed;
+  var to = first;
+  while (to + 1 < first + count && _wordsAt(l, to + 1) <= target) {
+    to++;
+  }
+  return to;
+}
+
+/// Previous by chapter from sentence [u] at [speed]: the start of its
+/// chapter when more than three seconds into it, as a music player goes
+/// back to the start of a song; null within them, for the chapter before.
+int? chapterStartBehind(ReadingLayout l, int u, double speed) {
+  final (first, _) = l.chapterRange(l.chapterOfUnit(u));
+  return _msFor(_wordsAt(l, u) - _wordsAt(l, first), speed) > 3000 ? first : null;
+}
+
+/// The card's speed button: the next of the common speeds after [now],
+/// round to the slowest after the fastest.
+double nextSpeed(double now) => speedPresets.firstWhere((p) => p > now + 0.001, orElse: () => speedPresets.first);
+
+/// A sentence heard to its end, the reading moved on from [prev] to [u]
+/// (the one after it) while [playing]: its words counted, and a chapter
+/// finished when [u] begins the next.
+void countHeard(ReadingLayout l, int prev, int u, {required bool playing}) {
+  if (prev < 0 || u != prev + 1 || !playing || l.isEmpty) return;
+  StatsStore.instance.addWords(l.wordsBefore[u] - l.wordsBefore[prev]);
+  if (l.chapterOfUnit(u) == l.chapterOfUnit(prev) + 1) StatsStore.instance.addChapter();
+}
+
+/// A reading following the phone's audio: unplugged headphones pause it at
+/// once; the audio taken for good (another app playing) pauses it; taken
+/// for a moment (a ping, a call), it pauses, and plays on from the start of
+/// the sentence the loss cut into when the audio comes back, unless that
+/// took longer than [resumeAfterLossWithin] (the listener may have walked
+/// away). A book's page and the background reading follow it alike, each
+/// with its own pause and resume.
+class FocusFollower {
+  FocusFollower({required this.pause, required this.resume});
+
+  /// Pause; [now] cuts the word being said short.
+  final void Function({bool now}) pause;
+
+  /// Play on from the start of the sentence the loss cut into.
+  final VoidCallback resume;
+
+  bool _resumeOnFocus = false;
+  Timer? _lossTimer;
+
+  /// Follow platform event [type] while [player] reads: true for one about
+  /// the phone's audio, false for any other.
+  bool follow(Object? type, PlaybackScheduler player) {
+    switch (type) {
+      case 'noisy':
+        // Unplugged: not another word out of the speaker.
+        _resumeOnFocus = false;
+        pause(now: true);
+      case 'focusLoss':
+        _resumeOnFocus = false;
+        pause();
+      case 'focusLossTransient':
+        if (player.isPlaying) {
+          _resumeOnFocus = true;
+          _lossTimer?.cancel();
+          _lossTimer = Timer(resumeAfterLossWithin, () => _resumeOnFocus = false);
+          pause(now: true);
+        }
+      case 'focusGain':
+        // From the start of the sentence the interruption cut into; not at
+        // all after a long one (a call: the listener may have gone).
+        _lossTimer?.cancel();
+        if (_resumeOnFocus && player.state.value == PlayState.paused) resume();
+        _resumeOnFocus = false;
+      default:
+        return false;
+    }
+    return true;
+  }
+
+  void dispose() => _lossTimer?.cancel();
+}
+
 /// What a reader takes back from a book read on in the background.
 typedef TakenBack = ({
   PlaybackScheduler player,
@@ -237,10 +342,12 @@ class BackgroundReading {
   DateTime _lastTick = DateTime.now();
   StreamSubscription<Map<String, Object?>>? _events;
 
-  /// Paused for the phone's audio taken a moment: resumed when it comes
-  /// back, unless that took longer than [resumeAfterLossWithin].
-  bool _resumeOnFocus = false;
-  Timer? _lossTimer;
+  /// The phone's audio, followed with this reading's own pause and resume
+  /// (which keep the card up to date).
+  late final _focus = FocusFollower(
+    pause: ({bool now = false}) => unawaited(pause(now: now)),
+    resume: () => unawaited(resume(rewind: true)),
+  );
 
   /// The move into the next chapters under way, if one is.
   Future<bool?>? _rolling;
@@ -411,7 +518,7 @@ class BackgroundReading {
   void _release() {
     _detach();
     _sleepTimer?.cancel();
-    _lossTimer?.cancel();
+    _focus.dispose();
     _statsTimer?.cancel();
     _persistTimer?.cancel();
     unawaited(_events?.cancel());
@@ -495,10 +602,7 @@ class BackgroundReading {
     final u = player.unit.value;
     final prev = _lastUnit;
     _lastUnit = u;
-    if (prev >= 0 && u == prev + 1 && player.isPlaying && !layout.isEmpty) {
-      StatsStore.instance.addWords(layout.wordsBefore[u] - layout.wordsBefore[prev]);
-      if (layout.chapterOfUnit(u) == layout.chapterOfUnit(prev) + 1) StatsStore.instance.addChapter();
-    }
+    countHeard(layout, prev, u, playing: player.isPlaying);
     if (_sleep == SleepChoice.chapterEnd && _sleepChapter >= 0 && layout.chapterOfUnit(u) != _sleepChapter) {
       _sleep = SleepChoice.off;
       _sleepChapter = -1;
@@ -669,15 +773,13 @@ class BackgroundReading {
   // ----------------------------------------------------------------- card
 
   double get _speed => _prefs.speedFor(bookId);
-  int _wordsAt(int u) => u < layout.units.length ? layout.wordsBefore[u] : layout.totalWords;
-  int _msFor(int words) => (words / (165 * _speed) * 60000).round();
 
   void _updateCard() {
     if (!identical(current.value, this) || layout.isEmpty) return;
     final s = player.state.value;
     final u = unit.clamp(0, layout.units.length - 1);
     final chapter = layout.chapterOfUnit(u);
-    final (first, count) = layout.chapterRange(chapter);
+    final clock = cardClock(layout, u, _speed);
     // A book on a secret shelf is not named on the lock screen.
     final secret = store.isSecret(bookId);
     unawaited(_svc.session(
@@ -688,8 +790,8 @@ class BackgroundReading {
       // phone kept awake) stay with it.
       playing: s == PlayState.playing || s == PlayState.loading || (_rolling != null && _parkedAt == null),
       cover: secret ? null : cover,
-      positionMs: _msFor(_wordsAt(u) - _wordsAt(first)),
-      durationMs: _msFor(_wordsAt(first + count) - _wordsAt(first)),
+      positionMs: clock.positionMs,
+      durationMs: clock.durationMs,
       speed: _speed,
       book: secret ? null : bookId,
     ));
@@ -698,26 +800,6 @@ class BackgroundReading {
   /// The card's buttons, a headset's, and the phone's audio.
   void _onEvent(Map<String, Object?> e) {
     switch (e['type']) {
-      case 'noisy':
-        // Unplugged: not another word out of the speaker.
-        _resumeOnFocus = false;
-        unawaited(pause(now: true));
-      case 'focusLoss':
-        _resumeOnFocus = false;
-        unawaited(pause());
-      case 'focusLossTransient':
-        if (playing) {
-          _resumeOnFocus = true;
-          _lossTimer?.cancel();
-          _lossTimer = Timer(resumeAfterLossWithin, () => _resumeOnFocus = false);
-          unawaited(pause(now: true));
-        }
-      case 'focusGain':
-        // From the start of the sentence the interruption cut into; not at
-        // all after a long one (a call: the listener may have gone).
-        _lossTimer?.cancel();
-        if (_resumeOnFocus && player.state.value == PlayState.paused) unawaited(resume(rewind: true));
-        _resumeOnFocus = false;
       case 'action':
         switch (e['action']) {
           case 'play':
@@ -731,24 +813,17 @@ class BackgroundReading {
           case 'prev':
             _skip(-1);
           case 'seek':
-            final (first, count) = layout.chapterRange(layout.chapterOfUnit(unit));
-            final ms = (e['value'] as num?)?.toInt() ?? 0;
-            final target = _wordsAt(first) + ms / 60000 * 165 * _speed;
-            var u = first;
-            while (u + 1 < first + count && _wordsAt(u + 1) <= target) {
-              u++;
-            }
-            _moveTo(u);
+            _moveTo(seekTarget(layout, unit, (e['value'] as num?)?.toInt() ?? 0, _speed));
           case 'speed':
-            final now = _speed;
-            final next = speedPresets.firstWhere((p) => p > now + 0.001, orElse: () => speedPresets.first);
-            _prefs.setSpeed(next, book: bookId);
+            _prefs.setSpeed(nextSpeed(_speed), book: bookId);
             _prefs.save();
             if (playing) unawaited(player.play(unit));
             _updateCard();
           case 'save':
             unawaited(_saveLine());
         }
+      default:
+        _focus.follow(e['type'], player);
     }
   }
 
@@ -762,8 +837,7 @@ class BackgroundReading {
     } else if (dir > 0) {
       _moveTo(_chapterStart(layout.chapterOfUnit(unit) + 1));
     } else {
-      final (first, _) = layout.chapterRange(layout.chapterOfUnit(unit));
-      _moveTo(_msFor(_wordsAt(unit) - _wordsAt(first)) > 3000 ? first : _chapterStart(layout.chapterOfUnit(unit) - 1));
+      _moveTo(chapterStartBehind(layout, unit, _speed) ?? _chapterStart(layout.chapterOfUnit(unit) - 1));
     }
   }
 

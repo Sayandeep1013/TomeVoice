@@ -1341,6 +1341,49 @@ void main() {
     });
   });
 
+  group("the card's sums, one for a book's page and the background", () {
+    test('where the card shows a sentence: how far into its chapter, and how long the chapter is', () {
+      final layout = numbered();
+      final second = layout.chapterFirstUnit[1];
+      expect(cardClock(layout, 0, 1), (positionMs: 0, durationMs: msFor(layout.wordsBefore[second])));
+      expect(cardClock(layout, 3, 1.5),
+          (positionMs: msFor(layout.wordsBefore[3], speed: 1.5), durationMs: msFor(layout.wordsBefore[second], speed: 1.5)));
+      expect(cardClock(layout, second + 2, 1),
+          (positionMs: msFor(layout.wordsBefore[second + 2] - layout.wordsBefore[second]),
+           durationMs: msFor(layout.totalWords - layout.wordsBefore[second])));
+    });
+
+    test('the seek bar let go, previous by chapter, and the next speed', () {
+      final layout = numbered();
+      final second = layout.chapterFirstUnit[1];
+      expect(seekTarget(layout, 5, 0, 1), 0, reason: "the chapter's start");
+      expect(seekTarget(layout, second + 5, 0, 1), second);
+      // 20 seconds is 55 words at 165 a minute: past the heading and five
+      // sentences of ten words each.
+      expect(seekTarget(layout, 0, 20000, 1), 6);
+      expect(seekTarget(layout, 0, 20000, 2), 11, reason: 'twice the words at twice the speed');
+      expect(seekTarget(layout, 0, 1 << 30, 1), second - 1, reason: 'never past the chapter');
+      expect(chapterStartBehind(layout, second, 1), isNull, reason: 'at its start: the chapter before');
+      expect(chapterStartBehind(layout, second + 1, 1), isNull, reason: 'within three seconds');
+      expect(chapterStartBehind(layout, second + 3, 1), second);
+      expect([for (final s in [0.75, 1.0, 1.1, 1.25, 1.5, 2.0]) nextSpeed(s)], [1.0, 1.25, 1.25, 1.5, 2.0, 0.75]);
+    });
+
+    test('a sentence heard to its end counts its words, and the next chapter begun, a chapter', () {
+      StatsStore.instance.reset();
+      final layout = numbered();
+      final second = layout.chapterFirstUnit[1];
+      countHeard(layout, 3, 4, playing: true);
+      countHeard(layout, 4, 6, playing: true);
+      countHeard(layout, -1, 0, playing: true);
+      countHeard(layout, 6, 7, playing: false);
+      expect(StatsStore.instance.totals().words, layout.wordsBefore[4] - layout.wordsBefore[3]);
+      expect(StatsStore.instance.totals().chapters, 0);
+      countHeard(layout, second - 1, second, playing: true);
+      expect(StatsStore.instance.totals().chapters, 1);
+    });
+  });
+
   group('a book read on in the background', () {
     /// A book read aloud on its page and left: it reads on without the page.
     Future<BackgroundReading> readOnWithoutIt(WidgetTester tester, ReadingLayout layout) async {

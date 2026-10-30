@@ -152,10 +152,11 @@ class ReaderController {
   Timer? _persistTimer;
   Timer? _restartTimer;
 
-  /// Paused for the phone's audio taken a moment (a ping, a call): resumed
-  /// when it comes back, unless that took longer than resumeAfterLossWithin.
-  bool _resumeOnFocus = false;
-  Timer? _lossTimer;
+  /// The phone's audio, followed as the background reading follows it.
+  late final _focus = FocusFollower(
+    pause: ({bool now = false}) => unawaited(player.pause(now: now)),
+    resume: () => unawaited(player.resume(rewind: true)),
+  );
   int _sessionChapter = -1;
   int _sessionUnit = -1;
   double _sessionSpeed = 0;
@@ -254,7 +255,7 @@ class ReaderController {
     _persistTimer?.cancel();
     _restartTimer?.cancel();
     _sleepTimer?.cancel();
-    _lossTimer?.cancel();
+    _focus.dispose();
     _statsTimer?.cancel();
     countTime();
     unawaited(StatsStore.instance.flush());
@@ -554,7 +555,7 @@ class ReaderController {
       if (wasActive) unawaited(_svc.session(active: false));
       return;
     }
-    final (first, count) = layout.chapterRange(chapter);
+    final clock = cardClock(layout, u, speed);
     // A book on a secret shelf is not named on the lock screen.
     final secret = store?.isSecret(_book.id) ?? false;
     unawaited(_svc.session(
@@ -563,8 +564,8 @@ class ReaderController {
       subtitle: secret ? '' : layout.chapterTitle(chapter),
       playing: s != PlayState.paused,
       cover: secret ? null : cover,
-      positionMs: _msFor(_wordsAt(u) - _wordsAt(first)),
-      durationMs: _msFor(_wordsAt(first + count) - _wordsAt(first)),
+      positionMs: clock.positionMs,
+      durationMs: clock.durationMs,
       speed: speed,
     ));
   }
@@ -577,26 +578,6 @@ class ReaderController {
     switch (e['type']) {
       case 'pageKey':
         view.turnPage((e['delta'] as num?)?.toInt() ?? 1);
-      case 'noisy':
-        // Unplugged: not another word out of the speaker.
-        _resumeOnFocus = false;
-        unawaited(player.pause(now: true));
-      case 'focusLoss':
-        _resumeOnFocus = false;
-        unawaited(player.pause());
-      case 'focusLossTransient':
-        if (player.isPlaying) {
-          _resumeOnFocus = true;
-          _lossTimer?.cancel();
-          _lossTimer = Timer(resumeAfterLossWithin, () => _resumeOnFocus = false);
-          unawaited(player.pause(now: true));
-        }
-      case 'focusGain':
-        // From the start of the sentence the interruption cut into, and
-        // not at all after a long one (a call): the listener may be gone.
-        _lossTimer?.cancel();
-        if (_resumeOnFocus && player.state.value == PlayState.paused) unawaited(player.resume(rewind: true));
-        _resumeOnFocus = false;
       case 'action':
         switch (e['action']) {
           case 'play':
@@ -620,6 +601,8 @@ class ReaderController {
           case 'save':
             view.saveLine();
         }
+      default:
+        _focus.follow(e['type'], player);
     }
   }
 
@@ -627,15 +610,8 @@ class ReaderController {
     if (player.state.value == PlayState.paused) _parked = true;
   }
 
-  /// Words before unit [u]; [u] may be one past the end.
-  int _wordsAt(int u) => u < layout.units.length ? layout.wordsBefore[u] : layout.totalWords;
-
   /// The speed this book reads at: its own, or everyone's.
   double get speed => prefs.speedFor(_book.id);
-
-  /// How long [words] take at the reading speed: the same 165 words a minute
-  /// as the time left under the player.
-  int _msFor(int words) => (words / (165 * speed) * 60000).round();
 
   /// Next (+1) or previous (-1) on headphones, the lock screen or the
   /// notification: a sentence (the default: a double press once lost a
@@ -657,9 +633,8 @@ class ReaderController {
   /// previous chapter when within its first seconds, as a music player does.
   void _cardPrevious() {
     if (layout.isEmpty) return;
-    final u = cursor.value;
-    final (first, _) = layout.chapterRange(layout.chapterOfUnit(u));
-    if (_msFor(_wordsAt(u) - _wordsAt(first)) > 3000) {
+    final first = chapterStartBehind(layout, cursor.value, speed);
+    if (first != null) {
       unawaited(goTo(first));
     } else {
       goChapter(-1);
@@ -669,21 +644,13 @@ class ReaderController {
   /// The card's seek bar was dragged to [ms] into the chapter.
   void _seekInChapter(int ms) {
     if (layout.isEmpty) return;
-    final (first, count) = layout.chapterRange(layout.chapterOfUnit(cursor.value));
-    final target = _wordsAt(first) + ms / 60000 * 165 * speed;
-    var u = first;
-    while (u + 1 < first + count && _wordsAt(u + 1) <= target) {
-      u++;
-    }
-    unawaited(goTo(u));
+    unawaited(goTo(seekTarget(layout, cursor.value, ms, speed)));
   }
 
   /// The card's speed button: the next of the common speeds, round to the
   /// slowest after the fastest (this book's own speed, if it has one).
   void _nextSpeed() {
-    final now = speed;
-    final next = speedPresets.firstWhere((p) => p > now + 0.001, orElse: () => speedPresets.first);
-    prefs.setSpeed(next, book: _book.id);
+    prefs.setSpeed(nextSpeed(speed), book: _book.id);
     prefs.save();
     settingsChanged(restart: true);
   }
@@ -711,9 +678,7 @@ class ReaderController {
   void _countProgress(int u) {
     final prev = _statsUnit;
     _statsUnit = u;
-    if (prev < 0 || u != prev + 1 || !player.isPlaying || layout.isEmpty) return;
-    StatsStore.instance.addWords(layout.wordsBefore[u] - layout.wordsBefore[prev]);
-    if (layout.chapterOfUnit(u) == layout.chapterOfUnit(prev) + 1) StatsStore.instance.addChapter();
+    countHeard(layout, prev, u, playing: player.isPlaying);
   }
 
   void _onCursor() {
