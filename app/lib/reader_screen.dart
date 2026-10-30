@@ -18,7 +18,6 @@ import 'highlights.dart';
 import 'library_store.dart';
 import 'book_search.dart';
 import 'listen_sheet.dart';
-import 'listening_session.dart';
 import 'marks.dart';
 import 'neural_voices.dart';
 import 'now_playing.dart';
@@ -29,6 +28,7 @@ import 'pages_view.dart';
 import 'player_controls.dart';
 import 'prefs.dart';
 import 'quote_sheet.dart';
+import 'reader_controller.dart';
 import 'reader_player_bar.dart';
 import 'reader_text.dart';
 import 'reading_rules.dart';
@@ -301,40 +301,29 @@ class ReaderScreen extends StatefulWidget {
   State<ReaderScreen> createState() => _ReaderScreenState();
 }
 
-class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver {
+class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver implements ReaderView {
   ReadingLayout get _l => widget.layout;
   Book get _book => _l.book;
 
-  late final ValueNotifier<int> _cursor =
-      ValueNotifier(_l.isEmpty
-          ? 0
-          // A place saved before is restored as it was; a book opened
-          // for the first time skips a title page named like it.
-          : _l.unitForCursor(widget.initialCursor, saved: widget.initialCursor != ReadingCursor.zero));
-  final _detached = ValueNotifier<bool>(false);
+  /// The reading this page shows: the place, the voice, the card, the
+  /// sleep timer (see ReaderController).
+  late final ReaderController _reader;
+
+  ValueNotifier<int> get _cursor => _reader.cursor;
+  ValueNotifier<bool> get _detached => _reader.detached;
+  ValueNotifier<int> get _marked => _reader.marked;
+  PlaybackScheduler get _player => _reader.player;
+  ListeningPrefs get _prefs => _reader.prefs;
+  double get _speed => _reader.speed;
+  String? get _cover => _reader.cover;
 
   /// The text faded out for a moment, while it travels a long way to the voice.
   final _veiled = ValueNotifier<bool>(false);
-
-  /// The sentence washed on the page: the place, while it is read aloud,
-  /// and when the book opens (where you left off); -1 once the reader has
-  /// read on without the voice, when a wash moving with the eyes would only
-  /// be in the way.
-  final _marked = ValueNotifier<int>(-1);
-  bool _placeShown = true;
-
-  /// Set while the place follows the reader's eyes, so the page is not
-  /// moved to it: it is already where they are looking.
-  bool _quiet = false;
 
   /// A drag began while nothing was being read aloud: once the page
   /// settles, the place moves to what is being read.
   bool _eyes = false;
   Timer? _eyesTimer;
-
-  /// Where the reader was before a jump (Contents, a search match), while
-  /// reading without the voice: "Back to where you were".
-  int? _returnTo;
 
   /// Sentences with a bookmark in this book, and whether the page (or the
   /// paragraph read) shown has one: the ribbon, and the bar's button.
@@ -408,89 +397,29 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   double _viewport = 600;
   final _positions = ItemPositionsListener.create();
 
-  late final PlaybackScheduler _player;
-  ListeningPrefs _prefs = ListeningPrefs.memory;
   final _catalog = VoiceCatalog.instance;
-  late final String _language = primaryLanguage(_book.metadata.language);
 
   /// Arabic, Hebrew and the other right-to-left scripts are set and turned
   /// that way (they were laid out left to right).
-  late final TextDirection _direction = directionOfLanguage(_language);
-
-  StreamSubscription<Map<String, Object?>>? _events;
-  Timer? _persistTimer;
-  Timer? _restartTimer;
-
-  /// Paused for the phone's audio taken a moment (a ping, a call): resumed
-  /// when it comes back, unless that took longer than resumeAfterLossWithin.
-  bool _resumeOnFocus = false;
-  Timer? _lossTimer;
-  int _sessionChapter = -1;
-  int _sessionUnit = -1;
-  double _sessionSpeed = 0;
-  PlayState _sessionState = PlayState.idle;
-
-  /// The book's cover file, for the shade's media card.
-  String? _cover;
-
-  /// This book in the library (web source, author), once looked up.
-  LibraryEntry? _entry;
-
-  /// Reading time: counted every [_tick] as listening (playing) or reading
-  /// (scrolled in the last minute), from the time actually passed.
-  Timer? _statsTimer;
-  DateTime _lastTick = DateTime.now();
-  DateTime? _lastScroll;
-  int _statsUnit = -1;
+  late final TextDirection _direction = directionOfLanguage(_reader.language);
 
   /// Search matches being stepped through, and which one is shown.
   List<SearchHit> _hits = const [];
   int _hit = 0;
   String _hitQuery = '';
-
-  /// The card moved the place while paused. Moving stops the player, but
-  /// the card stays up, paused at the new place, until reading resumes.
-  bool _parked = false;
   bool _programmaticScroll = false;
 
   bool get _isPdf => _book.source == SourceKind.pdf && widget.sourcePath != null;
   bool get _showPages => _isPdf && _prefs.pdfPages;
 
-  SleepChoice _sleep = SleepChoice.off;
-  Timer? _sleepTimer;
-  DateTime? _sleepAt;
-  int _sleepChapter = -1;
-
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // This book reading on in the background: take its voice back, still
-    // reading, so opening the book again does not break the flow.
-    final bg = BackgroundReading.current.value;
-    final back = bg != null && bg.bookId == _book.id ? bg.takeBack(_l) : null;
-    var resumeAt = -1;
-    if (bg != null && bg.bookId == _book.id && back == null) {
-      // Its chapters changed meanwhile (a web novel): start again here.
-      final u = bg.unitIn(_l);
-      if (bg.playing) resumeAt = u;
-      _cursor.value = u;
-      unawaited(bg.stop());
-    }
-    _player = back?.player ??
-        readingScheduler(layout: _l, prefs: () => _prefs, language: _language, bookId: _book.id, service: _svc);
-    _player.onFinished = _onFinished;
-    if (back != null) {
-      _cursor.value = _player.unit.value;
-      _restoreSleep(back.sleep, back.sleepAt, back.sleepChapter);
-    }
-    _player.unit.addListener(_onPlayerUnit);
-    _player.state.addListener(_onPlayState);
+    // The place and the voice: this book's reading in the background taken
+    // back if it reads on there, else a voice of its own.
+    _reader = ReaderController(layout: _l, view: this, initialCursor: widget.initialCursor, store: widget.store);
     _player.word.addListener(_onWord);
-    _player.notice.addListener(_onNotice);
-    _cursor.addListener(_syncMarked);
-    _cursor.addListener(_onCursor);
-    _syncMarked();
     MarkStore.instance.changes.addListener(_onMarks);
     _onMarks();
     _positions.itemPositions.addListener(_onPositions);
@@ -500,74 +429,73 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     }
     _catalog.addListener(_onCatalog);
     unawaited(_catalog.ensureLoaded());
-    _events = SpeechService.events.listen(_onPlatformEvent);
     ListeningPrefs.revision.addListener(_onPrefs);
     ReadingRules.instance.changes.addListener(_onRules);
     unawaited(_loadPrefs());
-    unawaited(_loadCover());
-    _statsTimer = Timer.periodic(const Duration(seconds: 15), (_) => _countTime());
-    if (resumeAt >= 0) {
+    unawaited(_reader.loadCover());
+    if (_reader.resumeAt >= 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(_player.play(_cursor.value));
       });
-    } else if (widget.autoplay && back == null) {
+    } else if (widget.autoplay && !_reader.tookBack) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         // Looking ahead while it reads: carry on aloud where it was, and
         // leave the page where the reader is looking.
         if (_detached.value && !_l.isEmpty) {
           unawaited(_player.play(_cursor.value));
         } else {
-          unawaited(_togglePlay());
+          unawaited(_reader.togglePlay());
         }
       });
     }
   }
 
-  void _onPlayerUnit() => _cursor.value = _player.unit.value;
+  // ------------------------------------------- what the reading asks of it
 
-  /// A line from the player while it reads on (a natural voice that failed,
-  /// and the phone's reading instead).
-  void _onNotice() {
-    final note = _player.notice.value;
-    if (note != null) _snack(note);
+  @override
+  Future<void> Function({required bool playing, bool browse})? get onReachedEnd => widget.onReachedEnd;
+
+  @override
+  ValueChanged<int>? get onChapterChanged => widget.onChapterChanged;
+
+  @override
+  double Function(int u)? get progressOf => widget.progressOf;
+
+  @override
+  void changed() {
+    if (mounted) setState(() {});
   }
 
-  /// The sleep timer as the background reading left it. A time already
-  /// past fired there, and is not armed again (it paused the book a second
-  /// time when it was opened).
-  void _restoreSleep(SleepChoice choice, DateTime? at, int chapter) {
-    final live = at != null && at.isAfter(DateTime.now());
-    _sleep = at != null && !live ? SleepChoice.off : choice;
-    _sleepAt = live ? at : null;
-    _sleepChapter = chapter;
-    if (live) {
-      _player.fadeOutBy(at);
-      _sleepTimer = Timer(at.difference(DateTime.now()), () => _sleepNow('Sleep timer: paused.'));
-      _sleepTick = Timer.periodic(const Duration(seconds: 30), (_) {
-        if (mounted && _sleepAt != null) setState(() {});
-      });
+  @override
+  void reveal(int unit, {bool force = false}) => _reveal(unit, force: force);
+
+  @override
+  void placeMoved() => _syncBookmarkHere();
+
+  @override
+  void say(String text) => _snack(text);
+
+  @override
+  void saveLine() => unawaited(_save(MarkKind.quote));
+
+  @override
+  void turnPage(int delta) {
+    if (_inPages) {
+      _paged.turn(delta);
+    } else if (_pdfBook) {
+      _pdf.turn(delta);
     }
   }
 
-  /// The page is being left by Back (not replaced by another chapter's).
-  bool _leaving = false;
-
-  /// The voice went on past this page's chapters without it (see
-  /// [_readOn]): the reading, the card and the place are the background
-  /// reading's until the page for those chapters takes them back.
-  bool _handedOn = false;
-
-  /// Reading aloud goes on without this page: back goes to the library and
-  /// the voice reads on there (Settings > Listening).
-  bool get _readsOn =>
-      _leaving && _prefs.keepReading && _player.state.value != PlayState.idle && !_l.isEmpty && widget.store != null;
+  @override
+  void playStateChanged() => _applyReadingMode();
 
   Future<void> _loadPrefs() async {
     final dir = widget.store?.root.path;
     if (dir == null) return;
     final p = await ListeningPrefs.load(dir);
     if (!mounted) return;
-    setState(() => _prefs = p);
+    setState(() => _reader.prefs = p);
     _wasPaged = _inPages;
     _layoutKey = _layoutOf(p);
     _applyScreenOn();
@@ -600,26 +528,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     });
   }
 
-  Future<void> _loadCover() async {
-    final store = widget.store;
-    if (store == null) return;
-    try {
-      final entry = (await store.list(all: true)).where((e) => e.id == _book.id).firstOrNull;
-      if (!mounted) return;
-      setState(() {
-        _entry = entry;
-        _cover = entry?.shownCover;
-      });
-      _updateSession(force: true);
-    } on Object {
-      // The card goes without a picture.
-    }
-  }
-
   bool _screenOn = false;
 
   /// A pronunciation was fixed: say the current sentence again with it.
-  void _onRules() => _onSettingsChanged(restart: true);
+  void _onRules() => _reader.settingsChanged(restart: true);
 
   void _applyScreenOn() {
     if (_prefs.keepScreenOn == _screenOn) return;
@@ -703,13 +615,6 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     }
   }
 
-  void _syncMarked() => _marked.value = _placeShown ? _cursor.value : -1;
-
-  void _showPlace(bool on) {
-    _placeShown = on;
-    _syncMarked();
-  }
-
   /// Now Playing, while it is open over this reader, and the navigator it is on.
   Route<void>? _nowPlaying;
   NavigatorState? _nowPlayingNav;
@@ -717,9 +622,6 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// Now Playing's screen, for where a message sits over it (see
   /// [_snackMargin]); a new key each time it opens.
   GlobalKey _nowPlayingKey = GlobalKey();
-
-  /// Redraws the sleep countdown in the player bar.
-  Timer? _sleepTick;
 
   @override
   void dispose() {
@@ -732,7 +634,6 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         if (open.isActive) nav.removeRoute(open);
       });
     }
-    _sleepTick?.cancel();
     _eyesTimer?.cancel();
     _backTimer?.cancel();
     _insetsTimer?.cancel();
@@ -742,53 +643,13 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     ListeningPrefs.revision.removeListener(_onPrefs);
     ReadingRules.instance.changes.removeListener(_onRules);
     if (_screenOn) unawaited(_svc.keepScreenOn(false));
-    _persistTimer?.cancel();
-    _restartTimer?.cancel();
-    _sleepTimer?.cancel();
-    _lossTimer?.cancel();
-    _statsTimer?.cancel();
-    _countTime();
-    unawaited(StatsStore.instance.flush());
-    unawaited(_persist());
-    unawaited(_events?.cancel());
     _catalog.removeListener(_onCatalog);
     _player.word.removeListener(_onWord);
-    _player.notice.removeListener(_onNotice);
-    if (_handedOn) {
-      // The voice went on without this page (into the next chapters): the
-      // card and the stream are the background reading's now, unless Back
-      // left the book with reading on after leaving turned off.
-      final bg = BackgroundReading.current.value;
-      if (_leaving && !_prefs.keepReading && bg != null && bg.bookId == _book.id) unawaited(bg.stop());
-      _player.dispose();
-    } else if (_readsOn) {
-      _player.unit.removeListener(_onPlayerUnit);
-      _player.state.removeListener(_onPlayState);
-      _player.onFinished = null;
-      BackgroundReading.adopt(
-        player: _player,
-        layout: _l,
-        store: widget.store!,
-        bookId: _book.id,
-        title: _book.metadata.title,
-        cover: _cover,
-        language: _language,
-        web: widget.onReachedEnd != null,
-        sleepAt: _sleepAt,
-        sleepChapter: _sleepChapter,
-        sleep: _sleep,
-      );
-    } else {
-      // Only a page whose voice was on the card takes the card away: an idle
-      // page of another book must not end one reading in the background.
-      if (_sessionState != PlayState.idle) unawaited(_svc.session(active: false));
-      _player.dispose();
-    }
+    // The place saved and the time counted; the voice ended, or reading on
+    // without the page.
+    _reader.dispose();
     _positions.itemPositions.removeListener(_onPositions);
-    _cursor.dispose();
-    _detached.dispose();
     _veiled.dispose();
-    _marked.dispose();
     MarkStore.instance.changes.removeListener(_onMarks);
     _markedUnits.dispose();
     _bookmarkedHere.dispose();
@@ -802,8 +663,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
-      unawaited(_persist());
-      _countTime();
+      unawaited(_reader.persist());
+      _reader.countTime();
       unawaited(StatsStore.instance.flush());
     }
     _insetsTimer?.cancel();
@@ -872,52 +733,17 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _laidWidth = width;
   }
 
-  /// Read on past the chapters here (a web novel's, the rest still on the
-  /// site), handing the voice to the reading that goes on without a page.
-  /// Building the next chapters' page waits for a frame, and with the screen
-  /// off none comes: the voice stopped at the end of what was fetched. The
-  /// background reading needs none, keeps the card up meanwhile (Android 12
-  /// may refuse to start it again from the background), and the next page
-  /// takes the voice back when it is built. False with nowhere to hand it.
-  Future<bool> _readOn() async {
-    final store = widget.store;
-    if (_handedOn || store == null || _l.isEmpty) return false;
-    _handedOn = true;
-    _sleepTimer?.cancel();
-    _sleepTick?.cancel();
-    // Its own voice stops (it may be mid-chapter: Next chapter at the
-    // last one), leaving the card up for the reading that carries on.
-    await _player.stop();
-    _player.endFade();
-    if (!mounted) return false;
-    final bg = BackgroundReading.adopt(
-      player: readingScheduler(layout: _l, prefs: () => _prefs, language: _language, bookId: _book.id, service: _svc),
-      layout: _l,
-      store: store,
-      bookId: _book.id,
-      title: _book.metadata.title,
-      cover: _cover,
-      language: _language,
-      web: true,
-      sleepAt: _sleepAt,
-      sleepChapter: _sleepChapter,
-      sleep: _sleep,
-    );
-    unawaited(bg.readOn());
-    return true;
-  }
-
   void _onCatalog() {
     if (mounted) setState(() {});
   }
 
   ListenController get _listen => ListenController(
         prefs: _prefs,
-        language: _language,
+        language: _reader.language,
         bookId: _book.id,
-        onChanged: _onSettingsChanged,
-        sleep: _sleep,
-        onSleep: _setSleep,
+        onChanged: _reader.settingsChanged,
+        sleep: _reader.sleep,
+        onSleep: _reader.setSleep,
         onPreview: _previewVoice,
         isPlaying: () =>
             _player.state.value == PlayState.playing || _player.state.value == PlayState.loading,
@@ -948,407 +774,14 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     }
   }
 
-  /// Stop reading after a while, or at the end of this chapter — for
-  /// listening in bed with the screen off.
-  void _setSleep(SleepChoice choice) {
-    _sleepTimer?.cancel();
-    _sleepTimer = null;
-    _sleepTick?.cancel();
-    _sleepTick = null;
-    _sleepAt = null;
-    _sleepChapter = -1;
-    final minutes = switch (choice) {
-      SleepChoice.min15 => 15,
-      SleepChoice.min30 => 30,
-      SleepChoice.min60 => 60,
-      _ => 0,
-    };
-    if (minutes > 0) {
-      final d = Duration(minutes: minutes);
-      final at = DateTime.now().add(d);
-      _sleepAt = at;
-      _sleepTimer = Timer(d, () => _sleepNow('Sleep timer: paused.'));
-      // The voice fades over the last half minute rather than stopping dead.
-      _player.fadeOutBy(at);
-      // The countdown in the player bar is redrawn as it runs.
-      _sleepTick = Timer.periodic(const Duration(seconds: 30), (_) {
-        if (mounted && _sleepAt != null) setState(() {});
-      });
-    } else {
-      _player.endFade();
-      if (choice == SleepChoice.chapterEnd) _sleepChapter = _l.chapterOfUnit(_cursor.value);
-    }
-    setState(() => _sleep = choice);
-  }
-
-  void _sleepNow(String message) {
-    _sleepTimer?.cancel();
-    _sleepTimer = null;
-    _sleepTick?.cancel();
-    _sleepTick = null;
-    _sleepAt = null;
-    _sleepChapter = -1;
-    // Faded out already: paused at once, then back to full volume for Play.
-    unawaited(_player.pause(now: true).whenComplete(_player.endFade));
-    if (mounted) {
-      setState(() => _sleep = SleepChoice.off);
-      _snack(message);
-    }
-  }
-
-  String? get _sleepNote {
-    final at = _sleepAt;
-    if (at != null) {
-      // Round up: 29:59 left reads as 30 minutes, and so does 30:00.
-      final left = (at.difference(DateTime.now()).inSeconds / 60).ceil();
-      return 'SLEEP ${left}M';
-    }
-    if (_sleep == SleepChoice.chapterEnd) return 'SLEEP AT CHAPTER END';
-    return null;
-  }
-
-  // ------------------------------------------------------------- playback
-
-  Future<void> _togglePlay() async {
-    if (_l.isEmpty) return;
-    if (_handedOn) {
-      // Shown a moment longer while the next chapters load: the voice is
-      // the background reading's.
-      final bg = BackgroundReading.current.value;
-      if (bg != null && bg.bookId == _book.id) await bg.toggle();
-      return;
-    }
-    switch (_player.state.value) {
-      case PlayState.idle:
-        _follow();
-        await _player.play(_cursor.value);
-      case PlayState.paused:
-        // Scrolled away to look around: Play goes back to the voice first.
-        if (_detached.value) _follow();
-        await _player.resume();
-      case PlayState.playing:
-      case PlayState.loading:
-        await _player.pause();
-    }
-  }
-
-  /// Move to [unit]. Tapping text always means "read from here"; the
-  /// buttons keep playing if we were playing and just move if not.
-  Future<void> _goTo(int unit, {bool play = false}) async {
-    // Handed on: this page goes as soon as the next is built; the voice is
-    // not to be pulled back to it.
-    if (_l.isEmpty || _handedOn) return;
-    final next = unit.clamp(0, _l.units.length - 1);
-    _showPlace(true);
-    _cursor.value = next;
-    _follow();
-    final state = _player.state.value;
-    if (play || state == PlayState.playing || state == PlayState.loading) {
-      await _player.play(next);
-    } else if (state == PlayState.paused) {
-      await _player.stop();
-    }
-  }
-
-  void _goChapter(int delta) {
-    final more = widget.onReachedEnd;
-    if (delta > 0 && more != null && _l.chapterOfUnit(_cursor.value) >= _l.chapters.length - 1) {
-      // Past what is here: the next chapters are still on the site.
-      final s = _player.state.value;
-      final playing = s == PlayState.playing || s == PlayState.loading;
-      unawaited(_persist());
-      if (playing) {
-        // Read on there without waiting for a frame (the card's Next can
-        // come with the screen off).
-        unawaited(_readOn().then((_) => more(playing: true)));
-      } else {
-        unawaited(more(playing: false));
-      }
-      return;
-    }
-    final c = (_l.chapterOfUnit(_cursor.value) + delta).clamp(0, _l.chapters.length - 1);
-    unawaited(_goTo(_l.chapterFirstUnit[c]));
-  }
-
-  void _onSettingsChanged({required bool restart}) {
-    if (mounted) setState(() {});
-    _updateSession();
-    if (!restart) return;
-    // Make the change audible from the current sentence, once the user has
-    // stopped fiddling.
-    _restartTimer?.cancel();
-    _restartTimer = Timer(const Duration(milliseconds: 350), () {
-      final s = _player.state.value;
-      if (s == PlayState.playing || s == PlayState.loading) {
-        unawaited(_player.play(_cursor.value));
-      }
-    });
-  }
-
-  void _onFinished() {
-    unawaited(_persist());
-    final more = widget.onReachedEnd;
-    if (more != null) {
-      // The end of the chapters here: the voice reads on into the next ones
-      // without this page (see _readOn), and the web reader shows them.
-      unawaited(_readOn().then((_) => more(playing: true)));
-      return;
-    }
-    if (mounted) {
-      _snack('Finished. That is the end of the book.');
-    }
-  }
-
-  void _onPlayState() {
-    final s = _player.state.value;
-    if (s == PlayState.playing || s == PlayState.loading) _parked = false;
-    if (s != PlayState.idle) {
-      if (!_placeShown) _showPlace(true);
-      if (_returnTo != null && mounted) setState(() => _returnTo = null);
-    }
-    _applyReadingMode();
-    final err = _player.error.value;
-    if (s == PlayState.idle && err != null && mounted) {
-      _snack('Reading stopped: $err');
-    }
-    _updateSession();
-  }
-
-  void _updateSession({bool force = false}) {
-    // Handed on: the card is the background reading's.
-    if (_handedOn) return;
-    final actual = _player.state.value;
-    // The end of a web novel's chapters here, read on into the next: the
-    // card stays up (playing) while they load. Ended, Android 12 might not
-    // let it start again with the app in the background.
-    final rolling = actual == PlayState.idle && _player.reachedEnd && widget.onReachedEnd != null;
-    final s = actual == PlayState.idle && _parked
-        ? PlayState.paused
-        : rolling
-            ? PlayState.loading
-            : actual;
-    final u = _cursor.value;
-    final chapter = _l.chapterOfUnit(u);
-    final speed = _speed;
-    if (!force &&
-        s == _sessionState &&
-        chapter == _sessionChapter &&
-        u == _sessionUnit &&
-        speed == _sessionSpeed) {
-      return;
-    }
-    final wasActive = _sessionState != PlayState.idle;
-    _sessionState = s;
-    _sessionChapter = chapter;
-    _sessionUnit = u;
-    _sessionSpeed = speed;
-    if (s == PlayState.idle) {
-      if (wasActive) unawaited(_svc.session(active: false));
-      return;
-    }
-    final (first, count) = _l.chapterRange(chapter);
-    // A book on a secret shelf is not named on the lock screen.
-    final secret = widget.store?.isSecret(_book.id) ?? false;
-    unawaited(_svc.session(
-      active: true,
-      title: secret ? 'TomeVoice' : _book.metadata.title,
-      subtitle: secret ? '' : _l.chapterTitle(chapter),
-      playing: s != PlayState.paused,
-      cover: secret ? null : _cover,
-      positionMs: _msFor(_wordsAt(u) - _wordsAt(first)),
-      durationMs: _msFor(_wordsAt(first + count) - _wordsAt(first)),
-      speed: speed,
-    ));
-  }
-
-  void _onPlatformEvent(Map<String, Object?> e) {
-    // Another book reads on in the background (or this one, handed on): the
-    // card, the headset and the phone's audio are its, not this idle page's.
-    final bg = BackgroundReading.current.value;
-    if ((bg != null || _handedOn) && e['type'] != 'pageKey' && _player.state.value == PlayState.idle) return;
-    switch (e['type']) {
-      case 'pageKey':
-        final delta = (e['delta'] as num?)?.toInt() ?? 1;
-        if (_inPages) {
-          _paged.turn(delta);
-        } else if (_pdfBook) {
-          _pdf.turn(delta);
-        }
-      case 'noisy':
-        // Unplugged: not another word out of the speaker.
-        _resumeOnFocus = false;
-        unawaited(_player.pause(now: true));
-      case 'focusLoss':
-        _resumeOnFocus = false;
-        unawaited(_player.pause());
-      case 'focusLossTransient':
-        if (_player.isPlaying) {
-          _resumeOnFocus = true;
-          _lossTimer?.cancel();
-          _lossTimer = Timer(resumeAfterLossWithin, () => _resumeOnFocus = false);
-          unawaited(_player.pause(now: true));
-        }
-      case 'focusGain':
-        // From the start of the sentence the interruption cut into, and
-        // not at all after a long one (a call): the listener may be gone.
-        _lossTimer?.cancel();
-        if (_resumeOnFocus && _player.state.value == PlayState.paused) unawaited(_player.resume(rewind: true));
-        _resumeOnFocus = false;
-      case 'action':
-        switch (e['action']) {
-          case 'play':
-            if (_player.state.value != PlayState.playing) unawaited(_togglePlay());
-          case 'pause':
-            unawaited(_player.pause());
-          case 'stop':
-            _parked = false;
-            unawaited(_player.stop());
-          case 'next':
-            _park();
-            _cardSkip(1);
-          case 'prev':
-            _park();
-            _cardSkip(-1);
-          case 'seek':
-            _park();
-            _seekInChapter((e['value'] as num?)?.toInt() ?? 0);
-          case 'speed':
-            _nextSpeed();
-          case 'save':
-            unawaited(_save(MarkKind.quote));
-        }
-    }
-  }
-
-  // ----------------------------------------------------------- media card
-
-  void _park() {
-    if (_player.state.value == PlayState.paused) _parked = true;
-  }
-
-  /// Words before unit [u]; [u] may be one past the end.
-  int _wordsAt(int u) => u < _l.units.length ? _l.wordsBefore[u] : _l.totalWords;
-
-  /// The speed this book reads at: its own, or everyone's.
-  double get _speed => _prefs.speedFor(_book.id);
-
-  /// How long [words] take at the reading speed: the same 165 words a minute
-  /// as the time left under the player.
-  int _msFor(int words) => (words / (165 * _speed) * 60000).round();
-
-  /// Next (+1) or previous (-1) on headphones, the lock screen or the
-  /// notification: a sentence (the default: a double press once lost a
-  /// whole chapter), 30 seconds, or a chapter, as chosen in the sheet.
-  void _cardSkip(int dir) {
-    if (_l.isEmpty) return;
-    final heard = _player.state.value == PlayState.idle ? Duration.zero : _player.heard;
-    final to = skipTarget(_l, _cursor.value, dir, _prefs.skipBy, _speed, heard);
-    if (to != null) {
-      unawaited(_goTo(to));
-    } else if (dir > 0) {
-      _goChapter(1);
-    } else {
-      _cardPrevious();
-    }
-  }
-
-  /// The card's previous button: back to the start of this chapter, or to the
-  /// previous chapter when within its first seconds, as a music player does.
-  void _cardPrevious() {
-    if (_l.isEmpty) return;
-    final u = _cursor.value;
-    final (first, _) = _l.chapterRange(_l.chapterOfUnit(u));
-    if (_msFor(_wordsAt(u) - _wordsAt(first)) > 3000) {
-      unawaited(_goTo(first));
-    } else {
-      _goChapter(-1);
-    }
-  }
-
-  /// The card's seek bar was dragged to [ms] into the chapter.
-  void _seekInChapter(int ms) {
-    if (_l.isEmpty) return;
-    final (first, count) = _l.chapterRange(_l.chapterOfUnit(_cursor.value));
-    final target = _wordsAt(first) + ms / 60000 * 165 * _speed;
-    var u = first;
-    while (u + 1 < first + count && _wordsAt(u + 1) <= target) {
-      u++;
-    }
-    unawaited(_goTo(u));
-  }
-
-  /// The card's speed button: the next of the common speeds, round to the
-  /// slowest after the fastest (this book's own speed, if it has one).
-  void _nextSpeed() {
-    final now = _speed;
-    final next = speedPresets.firstWhere((p) => p > now + 0.001, orElse: () => speedPresets.first);
-    _prefs.setSpeed(next, book: _book.id);
-    _prefs.save();
-    _onSettingsChanged(restart: true);
-  }
-
   // --------------------------------------------------------------- cursor
-
-  int _lastSection = -1;
-
-  /// Time since the last count, to listening or reading. A gap longer than a
-  /// tick (the phone asleep with nothing playing) is not counted.
-  void _countTime() {
-    final now = DateTime.now();
-    final passed = now.difference(_lastTick);
-    _lastTick = now;
-    if (passed > const Duration(seconds: 20) || _l.isEmpty) return;
-    if (_player.isPlaying) {
-      StatsStore.instance.addTime(_book.id, passed, listening: true);
-    } else if (_lastScroll != null && now.difference(_lastScroll!) < const Duration(minutes: 1)) {
-      StatsStore.instance.addTime(_book.id, passed, listening: false);
-    }
-  }
-
-  /// A sentence heard to its end (reading moved on by one while playing),
-  /// and a chapter finished (the next one begun).
-  void _countProgress(int u) {
-    final prev = _statsUnit;
-    _statsUnit = u;
-    if (prev < 0 || u != prev + 1 || !_player.isPlaying || _l.isEmpty) return;
-    StatsStore.instance.addWords(_l.wordsBefore[u] - _l.wordsBefore[prev]);
-    if (_l.chapterOfUnit(u) == _l.chapterOfUnit(prev) + 1) StatsStore.instance.addChapter();
-  }
-
-  void _onCursor() {
-    _countProgress(_cursor.value);
-    final changed = widget.onChapterChanged;
-    if (changed != null && !_l.isEmpty) {
-      final section = _l.units[_cursor.value.clamp(0, _l.units.length - 1)].sectionIndex;
-      if (section != _lastSection) {
-        _lastSection = section;
-        changed(section);
-      }
-    }
-    if (_sleep == SleepChoice.chapterEnd &&
-        _sleepChapter >= 0 &&
-        _l.chapterOfUnit(_cursor.value) != _sleepChapter) {
-      _sleepNow('End of chapter: paused.');
-    }
-    _schedulePersist();
-    _updateSession();
-    if (!_detached.value && !_quiet) _reveal(_cursor.value);
-    _syncBookmarkHere();
-  }
-
-  /// Resume following the voice. [force] scrolls even if the paragraph is
-  /// already on screen (the "Back to reading" pill).
-  void _follow({bool force = false}) {
-    _detached.value = false;
-    _reveal(_cursor.value, force: force);
-  }
 
   /// On pages, the page turns as the voice reads onto the next, not when
   /// the sentence the last line begins is reached (half a page early in a
   /// long sentence).
   void _onWord() {
     final w = _player.word.value;
-    if (!_inPages || _detached.value || _quiet || w.start < 0 || w.unit != _cursor.value) return;
+    if (!_inPages || _detached.value || _reader.quiet || w.start < 0 || w.unit != _cursor.value) return;
     _paged.showUnit(w.unit, at: w.start);
   }
 
@@ -1450,7 +883,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   bool _onScrollNotification(ScrollNotification n) {
     if (n is ScrollUpdateNotification) _lastMove = DateTime.now();
-    if (n is ScrollUpdateNotification && n.dragDetails != null) _lastScroll = DateTime.now();
+    if (n is ScrollUpdateNotification && n.dragDetails != null) _reader.lastScroll = DateTime.now();
     if (n is ScrollStartNotification) _eyesTimer?.cancel();
     if (n is ScrollStartNotification && n.dragDetails != null && !_programmaticScroll) {
       // Listening, a scroll is a look around: the voice keeps its place.
@@ -1481,16 +914,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _eyes = false;
     if (!mounted || _listening || _l.isEmpty) return;
     final u = _unitAtEyes();
-    if (u != null) _moveQuietly(u);
-  }
-
-  void _moveQuietly(int u) {
-    _detached.value = false;
-    _placeShown = false;
-    _quiet = true;
-    _cursor.value = u.clamp(0, _l.units.length - 1);
-    _quiet = false;
-    _syncMarked();
+    if (u != null) _reader.moveQuietly(u);
   }
 
   /// The sentence crossing a line just under the top bar, where the eye
@@ -1526,22 +950,22 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _syncBookmarkHere();
     if (!byHand) return;
     if (_chrome.value) _chrome.value = false;
-    _lastScroll = DateTime.now();
+    _reader.lastScroll = DateTime.now();
     if (_listening) {
       _detached.value = true;
     } else {
-      _moveQuietly(unit);
+      _reader.moveQuietly(unit);
     }
   }
 
   /// A PDF's page turned to: as a text page is (see [_onPage]).
   void _onPdfPage(int page, {required bool byHand}) {
     if (!byHand || _l.isEmpty) return;
-    _lastScroll = DateTime.now();
+    _reader.lastScroll = DateTime.now();
     if (_listening) {
       _detached.value = true;
     } else {
-      _moveQuietly(_l.unitForPage(page));
+      _reader.moveQuietly(_l.unitForPage(page));
     }
   }
 
@@ -1553,38 +977,6 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       if (_l.unitOffset[u] <= offset) unit = u;
     }
     unawaited(_onLongPress(unit, wordAt(it.block?.text ?? '', offset)));
-  }
-
-  /// Jump, remembering where the reader was so they can go back.
-  void _jump(int unit) {
-    // Not while the voice reads (Back to reading is the way back then); a
-    // pause counts as reading here, as the jump ends it and with it that way.
-    if (!_player.isPlaying && unit != _cursor.value) {
-      setState(() => _returnTo = _cursor.value);
-    }
-    unawaited(_goTo(unit));
-  }
-
-  void _schedulePersist() {
-    _persistTimer?.cancel();
-    _persistTimer = Timer(const Duration(milliseconds: 1500), () => unawaited(_persist()));
-  }
-
-  Future<void> _persist() async {
-    final store = widget.store;
-    // Handed on: the place is the background reading's, further on.
-    if (store == null || _l.isEmpty || _handedOn) return;
-    final u = _cursor.value.clamp(0, _l.units.length - 1);
-    try {
-      await store.saveCursor(
-        _book.id,
-        cursorOf(_l.units[u]),
-        widget.progressOf?.call(u) ?? progressFraction(_l.units, u),
-        where: _l.chapterTitle(_l.unitChapter[u]),
-      );
-    } on Object {
-      // Losing a position save is not worth an error on screen.
-    }
   }
 
   /// The player's height, so a message shows above it instead of over it.
@@ -1675,7 +1067,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (!mounted || _l.isEmpty) return;
     unawaited(HapticFeedback.selectionClick());
     final sentence = _l.units[unit].text;
-    final web = _entry?.plugin != null;
+    final web = _reader.entry?.plugin != null;
     final picked = await showModalBottomSheet<String>(
       context: context,
       sheetAnimationStyle: sheetMotion(context),
@@ -1767,7 +1159,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (picked == null || !mounted) return;
     switch (picked) {
       case 'read':
-        await _goTo(unit, play: true);
+        await _reader.goTo(unit, play: true);
       case 'quote':
         // Widen it to the sentences around, add a note, then keep it.
         final choice = await showQuoteSheet(context, layout: _l, unit: unit);
@@ -1803,7 +1195,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           },
         );
       case 'skip':
-        final plugin = _entry?.plugin;
+        final plugin = _reader.entry?.plugin;
         if (plugin == null) return;
         final name = (await SourceEngine.instance.store.installedById(plugin))?.name ?? plugin;
         if (!mounted) return;
@@ -1829,7 +1221,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         });
         _detached.value = false;
         if (_inPages) _chrome.value = true;
-        _jump(hits[i].unit);
+        _reader.jump(hits[i].unit);
       },
     ));
   }
@@ -1837,7 +1229,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   void _stepHit(int delta) {
     if (_hits.isEmpty) return;
     setState(() => _hit = (_hit + delta) % _hits.length);
-    unawaited(_goTo(_hits[_hit].unit));
+    unawaited(_reader.goTo(_hits[_hit].unit));
   }
 
   /// "3 of 12 · ↑ ↓ ✕" while stepping through search matches.
@@ -1894,15 +1286,15 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       player: _player,
       speed: _speed,
       voiceLabel: _voiceLabel(),
-      sleepNote: _sleepNote,
-      onPlay: _togglePlay,
-      onPrevSentence: () => _goTo(_cursor.value - 1),
-      onNextSentence: () => _goTo(_cursor.value + 1),
-      onPrevChapter: () => _goChapter(-1),
-      onNextChapter: () => _goChapter(1),
+      sleepNote: _reader.sleepNote,
+      onPlay: _reader.togglePlay,
+      onPrevSentence: () => _reader.goTo(_cursor.value - 1),
+      onNextSentence: () => _reader.goTo(_cursor.value + 1),
+      onPrevChapter: () => _reader.goChapter(-1),
+      onNextChapter: () => _reader.goChapter(1),
       moreAfter: widget.onReachedEnd != null,
       progressOf: widget.progressOf,
-      onSeekInChapter: (u) => _goTo(u),
+      onSeekInChapter: (u) => _reader.goTo(u),
       onSpeed: () => showListenSheet(context, _listen, focus: ListenFocus.speed),
       onVoice: () => showListenSheet(context, _listen),
       onExpand: _openNowPlaying,
@@ -1949,7 +1341,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     return PopScope(
       canPop: _hits.isEmpty,
       onPopInvokedWithResult: (didPop, _) {
-        if (didPop) _leaving = true;
+        if (didPop) _reader.leaving = true;
         if (!didPop) setState(() => _hits = const []);
       },
       child: Scaffold(
@@ -2065,7 +1457,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                           layout: _l,
                           cursor: _cursor,
                           detached: _detached,
-                          onTapPage: (page) => _goTo(_l.unitForPage(page), play: true),
+                          onTapPage: (page) => _reader.goTo(_l.unitForPage(page), play: true),
                           controller: _pdf,
                           turn: _prefs.pages ? PageTurn.byName(_prefs.pageTurn) : null,
                           spread: MediaQuery.sizeOf(context).width > MediaQuery.sizeOf(context).height &&
@@ -2175,7 +1567,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       return;
     }
     unawaited(showQuoteActions(context, m, cover: _cover, author: _book.metadata.authorLine).then((read) {
-      if (read && mounted) unawaited(_goTo(_highlights.startOf(m) ?? unitOfMark(_l, m), play: true));
+      if (read && mounted) unawaited(_reader.goTo(_highlights.startOf(m) ?? unitOfMark(_l, m), play: true));
     }));
   }
 
@@ -2330,7 +1722,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                               onTap: () {
                                 Navigator.pop(ctx);
                                 if (_inPages) _chrome.value = true;
-                                _jump(x.u);
+                                _reader.jump(x.u);
                               },
                             ),
                         ],
@@ -2349,7 +1741,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// whichever is wanted, rising into place.
   Widget _pill(BuildContext context) {
     if (_hits.isNotEmpty) return KeyedSubtree(key: const ValueKey('matches'), child: _matches(context));
-    if (_returnTo != null) return KeyedSubtree(key: const ValueKey('return'), child: _returnPill(context));
+    if (_reader.returnTo != null) return KeyedSubtree(key: const ValueKey('return'), child: _returnPill(context));
     return KeyedSubtree(key: const ValueKey('back'), child: _backToReading(context));
   }
 
@@ -2364,9 +1756,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
               child: InkWell(
                 customBorder: const StadiumBorder(),
                 onTap: () {
-                  final back = _returnTo;
-                  setState(() => _returnTo = null);
-                  if (back != null) unawaited(_goTo(back));
+                  final back = _reader.returnTo;
+                  setState(() => _reader.returnTo = null);
+                  if (back != null) unawaited(_reader.goTo(back));
                 },
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
@@ -2390,7 +1782,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
               tooltip: 'Stay here',
               visualDensity: VisualDensity.compact,
               icon: Icon(Icons.close_rounded, size: 18, color: Skin.onDark(context)),
-              onPressed: () => setState(() => _returnTo = null),
+              onPressed: () => setState(() => _reader.returnTo = null),
             ),
           ],
         ),
@@ -2572,11 +1964,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           player: _player,
           speed: () => _speed,
           voiceLabel: _voiceLabel,
-          sleepNote: () => _sleepNote,
-          onPlay: _togglePlay,
-          onGoTo: (u) => _goTo(u),
-          onPrevChapter: () => _goChapter(-1),
-          onNextChapter: () => _goChapter(1),
+          sleepNote: () => _reader.sleepNote,
+          onPlay: _reader.togglePlay,
+          onGoTo: (u) => _reader.goTo(u),
+          onPrevChapter: () => _reader.goChapter(-1),
+          onNextChapter: () => _reader.goChapter(1),
           moreAfter: widget.onReachedEnd != null,
           onSpeed: () => showListenSheet(ctx, _listen, focus: ListenFocus.speed),
           onVoice: () => showListenSheet(ctx, _listen),
@@ -2822,7 +2214,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// The fast scroller's thumb taken or let go: as a scroll by hand, a look
   /// around while listening, and the place moved there while reading.
   void _onFastScroll(bool dragging) {
-    _lastScroll = DateTime.now();
+    _reader.lastScroll = DateTime.now();
     _eyesTimer?.cancel();
     if (dragging) {
       if (_listening) {
@@ -2930,7 +2322,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             wordWash: look.wordWash,
             heading: heading && !chapterStart,
             justify: _prefs.justify && !heading,
-            onTapUnit: (u) => _goTo(u, play: true),
+            onTapUnit: (u) => _reader.goTo(u, play: true),
             onLongPressUnit: _onLongPress,
             highlights: _highlights,
             onTapAt: _onTapText,
@@ -2972,7 +2364,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
               final s = _player.state.value;
               final playing = s == PlayState.playing || s == PlayState.loading;
               // Looking ahead: the place being read is saved and kept.
-              await _persist();
+              await _reader.persist();
               unawaited(widget.onReachedEnd!(playing: playing, browse: true));
             },
             icon: const Icon(Icons.arrow_forward_rounded),
@@ -3058,7 +2450,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             child: IgnorePointer(
               ignoring: !detached,
               child: Capsule(
-                onTap: () => _follow(force: true),
+                onTap: () => _reader.follow(force: true),
                 color: Skin.darkOn(context),
                 border: false,
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -3085,7 +2477,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final whole = widget.openContents;
     if (whole != null && !_l.isEmpty) {
       final s = _player.state.value;
-      unawaited(_persist());
+      unawaited(_reader.persist());
       whole(
         context,
         section: _l.units[_cursor.value.clamp(0, _l.units.length - 1)].sectionIndex,
@@ -3107,7 +2499,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       numberWidth: 40,
       dismissOnDrag: false,
     ).then((chapter) {
-      if (chapter != null && mounted) _jump(_l.chapterFirstUnit[chapter]);
+      if (chapter != null && mounted) _reader.jump(_l.chapterFirstUnit[chapter]);
     }));
   }
 }
@@ -3150,8 +2542,8 @@ class _TextScrollTarget extends FastScrollTarget {
   @override
   bool get byHand =>
       !_s._programmaticScroll &&
-      _s._lastScroll != null &&
-      DateTime.now().difference(_s._lastScroll!) < const Duration(seconds: 2);
+      _s._reader.lastScroll != null &&
+      DateTime.now().difference(_s._reader.lastScroll!) < const Duration(seconds: 2);
 
   @override
   double get fraction {
