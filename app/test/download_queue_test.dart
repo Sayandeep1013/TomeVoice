@@ -198,6 +198,25 @@ void main() {
     expect(store.downloadedChapters(a), {3});
   });
 
+  test('waited for by the closed-app check behind the screen: done, paused, or out of time', () async {
+    final (a, ac) = await novel('a', 'na', 3);
+    final q = queue(pace: const Duration(milliseconds: 50));
+    await q.attach(store);
+    expect(await q.settledBy(DateTime.now()), isTrue, reason: 'nothing to wait for');
+    await q.add(a, ac);
+    expect(await q.settledBy(DateTime.now().add(const Duration(seconds: 10))), isTrue);
+    expect(store.downloadedChapters(a), hasLength(3));
+
+    await q.pause();
+    final (b, bc) = await novel('b', 'nb', 2);
+    await q.add(b, bc);
+    expect(await q.settledBy(DateTime.now().add(const Duration(seconds: 10))), isTrue, reason: 'paused: none will come');
+    await q.resume();
+    expect(await q.settledBy(DateTime.now()), isFalse, reason: 'out of time with some to come');
+    expect(await q.settledBy(DateTime.now().add(const Duration(seconds: 10))), isTrue);
+    expect(store.downloadedChapters(b), hasLength(2));
+  });
+
   test("the notification names a novel and its chapter, but never a secret shelf's, open or not", () async {
     final shown = <Map<Object?, Object?>>[];
     const channel = MethodChannel('tomevoice/sources');

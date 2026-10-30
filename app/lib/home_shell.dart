@@ -118,6 +118,7 @@ Future<OpenLibrary> _open(String dir) async {
 /// describeNewChapters). Nothing when checks are turned off, or one ended
 /// in the last [recent] (the app checks on opening, and on coming back).
 Future<Map<String, Object?>> checkInApp({Duration recent = const Duration(minutes: 30)}) async {
+  final started = DateTime.now();
   final library = await openLibrary();
   if (UpdateEvery.byName(ListeningPrefs.loaded?.updateEvery).interval == null) return const {'found': 0};
   final updates = library.updates;
@@ -126,6 +127,13 @@ Future<Map<String, Object?>> checkInApp({Duration recent = const Duration(minute
     if (last != null && DateTime.now().difference(last) < recent) return const {'found': 0};
   }
   final r = await updates.checkAll();
+  // Behind the screen, chapters it queued to download by themselves come
+  // down while the worker waits for this answer: its run is what keeps the
+  // phone from freezing TomeVoice meanwhile (the downloads' own service may
+  // not start from the background). The worker gives it nine minutes.
+  if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+    await DownloadQueue.instance.settledBy(started.add(const Duration(minutes: 7)));
+  }
   return describeNewChapters(library.store, r.added);
 }
 

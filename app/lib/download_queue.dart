@@ -386,6 +386,19 @@ class DownloadQueue {
     }
   }
 
+  /// Wait, until [until] at most, for nothing to be left to download (those
+  /// that failed aside), or the queue to be paused. True if it got there.
+  /// For the closed-app check's worker asking this engine with TomeVoice
+  /// behind the screen: its run is what keeps the phone from freezing the
+  /// app meanwhile, as the downloads' own service may not start from there.
+  Future<bool> settledBy(DateTime until) async {
+    while (true) {
+      if (_paused || (_running.isEmpty && !_jobs.any((j) => j.failed == null))) return true;
+      if (!DateTime.now().isBefore(until)) return false;
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+  }
+
   /// Nothing downloading and the queue on disk as it is (tests).
   @visibleForTesting
   Future<void> whenIdle() async {
