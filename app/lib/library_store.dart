@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
@@ -110,12 +111,77 @@ class LibraryStore {
   /// while they are open, or with [all] (for what is not shown: imports,
   /// the starter book, checks for new chapters).
   Future<LibraryIndex> index({bool all = false}) async {
+    if (_known != null) _rereadIfChanged();
     var full = _known;
     if (full == null) {
       final read = await _readIndex();
       full = _known ??= read;
     }
     return all || secretOpen.value ? full : full.withoutSecret();
+  }
+
+  /// library.json's time and size when it was last read or written here
+  /// (a size of -1: there was none).
+  (DateTime, int)? _seen;
+
+  (DateTime, int) _stamp() {
+    final s = _indexFile.statSync();
+    return s.type == FileSystemEntityType.notFound ? (DateTime(0), -1) : (s.modified, s.size);
+  }
+
+  /// A library.json that is not as this copy last left it was written by
+  /// another copy of the app (an engine of its own, with the index in memory
+  /// too): it is read again, in the same step, before anything here changes
+  /// it, so that change cannot write over a book the other copy just added.
+  void _rereadIfChanged() {
+    final seen = _seen;
+    if (seen == null) return;
+    try {
+      final now = _stamp();
+      if (now == seen || now.$2 < 0) return;
+      final raw = jsonDecode(_indexFile.readAsStringSync());
+      if (raw is! Map) return;
+      final entries = <LibraryEntry>[];
+      _take(raw, entries);
+      entries.sort((a, b) => b.lastTouched.compareTo(a.lastTouched));
+      _known = LibraryIndex(entries: entries, categories: _categories, defaultCategory: _defaultCategory);
+      _seen = now;
+      // After this step: a listener may well call index() again.
+      scheduleMicrotask(() => changes.value++);
+    } on Object {
+      // Unreadable just now: the copy here stands.
+    }
+  }
+
+  /// [raw]'s books into [into], and its categories into this store. An
+  /// entry of the wrong shape (a newer or older app's, a damaged restore) is
+  /// passed over, not the whole shelf: one threw before, and nothing in the
+  /// library opened. Returns how many were passed over.
+  int _take(Map<Object?, Object?> raw, List<LibraryEntry> into) {
+    var skipped = 0;
+    T? one<T>(T Function() read) {
+      try {
+        return read();
+      } on Object {
+        skipped++;
+        return null;
+      }
+    }
+
+    final books = raw['books'];
+    into.addAll([
+      for (final b in books is List ? books : const [])
+        if (one(() => LibraryEntry.fromJson(Map<String, Object?>.from(b as Map))) case final e?) e,
+    ]);
+    final listed = raw['categories'];
+    final cats = [
+      for (final c in listed is List ? listed : const [])
+        if (one(() => Category.fromJson(Map<String, Object?>.from(c as Map))) case final c?) c,
+    ];
+    _categories = cats.isEmpty ? Category.defaults : cats;
+    final d = raw['defaultCategory'];
+    _defaultCategory = d is String && _categories.any((c) => c.id == d) ? d : _categories.first.id;
+    return skipped;
   }
 
   /// The ids of the books on secret shelves, open or not.
@@ -145,36 +211,13 @@ class LibraryStore {
   Future<LibraryIndex> _readIndex() async {
     await ensure();
     var entries = <LibraryEntry>[];
+    _seen = _stamp();
     if (await _indexFile.exists()) {
       try {
         final raw = jsonDecode(await _indexFile.readAsString());
         if (raw is Map) {
-          // An entry of the wrong shape (a newer or older app's, a damaged
-          // restore) is passed over, not the whole shelf: one threw before,
-          // and nothing in the library opened. A copy of the file is kept.
-          var skipped = 0;
-          T? one<T>(T Function() read) {
-            try {
-              return read();
-            } on Object {
-              skipped++;
-              return null;
-            }
-          }
-
-          final books = raw['books'];
-          entries = [
-            for (final b in books is List ? books : const [])
-              if (one(() => LibraryEntry.fromJson(Map<String, Object?>.from(b as Map))) case final e?) e,
-          ];
-          final listed = raw['categories'];
-          final cats = [
-            for (final c in listed is List ? listed : const [])
-              if (one(() => Category.fromJson(Map<String, Object?>.from(c as Map))) case final c?) c,
-          ];
-          _categories = cats.isEmpty ? Category.defaults : cats;
-          final d = raw['defaultCategory'];
-          _defaultCategory = d is String && _categories.any((c) => c.id == d) ? d : _categories.first.id;
+          // A copy of the file is kept when an entry was passed over.
+          final skipped = _take(raw, entries);
           if (skipped > 0) {
             try {
               await _indexFile.copy('${_indexFile.path}.broken');
@@ -209,6 +252,7 @@ class LibraryStore {
         'books': [for (final e in entries) e.toJson()],
       }),
     );
+    _seen = _stamp();
     if (place) {
       placeChanges.value++;
     } else {
