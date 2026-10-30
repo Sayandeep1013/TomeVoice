@@ -341,6 +341,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   final _paged = PagedController();
   final _chrome = ValueNotifier<bool>(false);
 
+  /// A PDF's real pages, turned from outside (the page keys).
+  final _pdf = PdfPagesController();
+
   /// The scroll's top bar and player: there until a tap on the text puts
   /// them away for reading alone, and back with another.
   final _scrollBars = ValueNotifier<bool>(true);
@@ -658,6 +661,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// The book in pages (not a PDF's real pages).
   bool get _inPages => _prefs.pages && !_showPages && !_l.isEmpty;
 
+  /// A PDF's real pages, turned as a book's: the page keys turn them too.
+  bool get _pdfBook => _prefs.pages && _showPages && !_l.isEmpty;
+
   /// The voice is reading, or paused in the middle of it.
   bool get _listening => _player.state.value != PlayState.idle;
 
@@ -670,7 +676,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       _fullScreen = full;
       unawaited(SystemChrome.setEnabledSystemUIMode(full ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge));
     }
-    final keys = _prefs.volumeKeys && _inPages && !_player.isPlaying;
+    final keys = _prefs.volumeKeys && (_inPages || _pdfBook) && !_player.isPlaying;
     if (keys != _volumeKeys) {
       _volumeKeys = keys;
       unawaited(_svc.volumeKeysTurnPages(keys));
@@ -1085,7 +1091,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if ((bg != null || _handedOn) && e['type'] != 'pageKey' && _player.state.value == PlayState.idle) return;
     switch (e['type']) {
       case 'pageKey':
-        if (_inPages) _paged.turn((e['delta'] as num?)?.toInt() ?? 1);
+        final delta = (e['delta'] as num?)?.toInt() ?? 1;
+        if (_inPages) {
+          _paged.turn(delta);
+        } else if (_pdfBook) {
+          _pdf.turn(delta);
+        }
       case 'noisy':
         // Unplugged: not another word out of the speaker.
         _resumeOnFocus = false;
@@ -1878,8 +1889,18 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     );
   }
 
-  /// The page's tone (a PDF's real pages keep their own paper).
+  /// The page's tone (a PDF's real pages keep their own paper, drawn dark
+  /// on a dark tone: see [_pdfInk]).
   PageTone get _tone => PageTone.byId(_prefs.pageTone);
+
+  /// On a dark page tone (Dusk, or the app's own in the dark), a PDF's real
+  /// page drawn in the tone's paper and ink, so a white page is no lamp at
+  /// night. Null on a light tone: the page as it was printed.
+  ({Color paper, Color ink})? _pdfInk(BuildContext context) {
+    final tone = _tone;
+    if (!(tone.dark || (tone.isApp && Skin.isDark(context)))) return null;
+    return (paper: tone.paper?.first ?? Skin.darkOn(context), ink: tone.inkOf(context));
+  }
 
   /// The ground under everything: the app's, or the page tone's paper, with
   /// the phone's bars drawn to suit it. One shape for every tone: another
@@ -1925,9 +1946,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                           cursor: _cursor,
                           detached: _detached,
                           onTapPage: (page) => _goTo(_l.unitForPage(page), play: true),
+                          controller: _pdf,
                           turn: _prefs.pages ? PageTurn.byName(_prefs.pageTurn) : null,
                           spread: MediaQuery.sizeOf(context).width > MediaQuery.sizeOf(context).height &&
                               MediaQuery.sizeOf(context).width >= 600,
+                          tapToTurn: _prefs.tapToTurn,
+                          dark: _pdfInk(context),
                           onTurned: _onPdfPage,
                         )
                       : ValueListenableBuilder<bool>(

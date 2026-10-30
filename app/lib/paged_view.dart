@@ -801,7 +801,7 @@ class _PagedBookState extends State<PagedBook> {
                 key: ValueKey(_row),
                 controller: _pages,
                 itemCount: _count,
-                physics: widget.turn == PageTurn.slide ? const PageScrollPhysics() : const _InstantPagePhysics(),
+                physics: widget.turn == PageTurn.slide ? const PageScrollPhysics() : const InstantPagePhysics(),
                 onPageChanged: (i) => _index = i,
                 itemBuilder: (context, i) => widget.spread
                     ? Stack(
@@ -1099,11 +1099,12 @@ class _SlicePainter extends CustomPainter {
 }
 
 /// Page turns with no slide: a swipe or a tap moves a whole page at once.
-class _InstantPagePhysics extends PageScrollPhysics {
-  const _InstantPagePhysics({super.parent});
+/// (A PDF's real pages turn the same way.)
+class InstantPagePhysics extends PageScrollPhysics {
+  const InstantPagePhysics({super.parent});
 
   @override
-  _InstantPagePhysics applyTo(ScrollPhysics? ancestor) => _InstantPagePhysics(parent: buildParent(ancestor));
+  InstantPagePhysics applyTo(ScrollPhysics? ancestor) => InstantPagePhysics(parent: buildParent(ancestor));
 
   @override
   SpringDescription get spring => const SpringDescription(mass: 0.1, stiffness: 4000, damping: 40);
