@@ -30,6 +30,14 @@ Book ingestBytes(
   String? id,
   LegacyDecoder? legacyDecoder,
 }) {
+  // A song or a picture is refused by what it is, whatever it is called.
+  switch (mediaKindOf(bytes)) {
+    case MediaKind.audio:
+      throw _audio;
+    case MediaKind.picture:
+      throw _pictures;
+    case null:
+  }
   final kind = detectFormat(bytes, filename: filename, mime: mime);
   final bookId = id ?? bookIdOf(bytes);
   try {
@@ -82,7 +90,7 @@ Book _parse(SourceKind kind, Uint8List bytes, String bookId, String? filename, L
     case SourceKind.text:
     case SourceKind.markdown:
     case SourceKind.html:
-      if (looksBinary(bytes)) throw _unknownFormat(filename);
+      if (looksBinary(bytes)) throw _unknownFormat(filename, bytes);
       book = parseText(bytes, id: bookId, filename: filename, kind: kind, legacy: legacy);
     case SourceKind.pdf:
       throw const UnsupportedDocumentException(
@@ -90,9 +98,23 @@ Book _parse(SourceKind kind, Uint8List bytes, String bookId, String? filename, L
       );
     case SourceKind.web:
     case SourceKind.unknown:
-      throw _unknownFormat(filename);
+      throw _unknownFormat(filename, bytes);
   }
   return book;
+}
+
+const _audio = UnsupportedDocumentException('That is already audio — TomeVoice turns text into speech.');
+const _pictures = UnsupportedDocumentException('That is a picture-based file. TomeVoice reads text, not images.');
+
+/// A zip of pictures (a comic book, whatever its name).
+bool _isPictureZip(Uint8List bytes) {
+  if (bytes.length < 4 || bytes[0] != 0x50 || bytes[1] != 0x4B) return false;
+  final files = [
+    for (final n in zipEntryNames(bytes))
+      if (!n.endsWith('/')) n.toLowerCase(),
+  ];
+  final pictures = files.where((n) => RegExp(r'\.(jpe?g|png|webp|gif|bmp|avif)$').hasMatch(n)).length;
+  return files.isNotEmpty && pictures * 10 >= files.length * 8;
 }
 
 /// [ingestBytes] with a decoder that answers later, such as Android's
@@ -202,22 +224,18 @@ final _letterOrDigit = RegExp(r'[\p{L}\p{N}]', unicode: true);
 bool _hasSomethingToSay(Book book) =>
     book.sections.any((s) => s.blocks.any((b) => b.speakable && _letterOrDigit.hasMatch(b.text)));
 
-UnsupportedDocumentException _unknownFormat(String? filename) {
+UnsupportedDocumentException _unknownFormat(String? filename, Uint8List bytes) {
   final name = (filename ?? '').toLowerCase();
   if (name.endsWith('.doc')) {
     return const UnsupportedDocumentException(
       'Old Word .doc files are not supported. Save it as .docx and import that.',
     );
   }
-  if (RegExp(r'\.(cbz|cbr|djvu|jpg|jpeg|png|webp)$').hasMatch(name)) {
-    return const UnsupportedDocumentException(
-      'That is a picture-based file. TomeVoice reads text, not images.',
-    );
+  if (RegExp(r'\.(cbz|cbr|djvu|jpg|jpeg|png|webp)$').hasMatch(name) || _isPictureZip(bytes)) {
+    return _pictures;
   }
   if (RegExp(r'\.(mp3|m4a|m4b|ogg|wav|flac|opus)$').hasMatch(name)) {
-    return const UnsupportedDocumentException(
-      'That is already audio — TomeVoice turns text into speech.',
-    );
+    return _audio;
   }
   return const UnsupportedDocumentException(
     'TomeVoice does not recognise this file. It reads EPUB, PDF, DOCX, ODT, '
