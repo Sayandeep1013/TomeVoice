@@ -12,6 +12,19 @@ import 'text.dart';
 /// PalmDOC (and uncompressed) text is supported; HUFF/CDIC books and anything
 /// encrypted get a clear message instead of garbage.
 Book parseMobi(Uint8List bytes, {required String id, String? filename}) {
+  try {
+    return _parseMobi(bytes, id: id, filename: filename);
+  } on RangeError {
+    // A header or table that points past the end of what is there.
+    throw _cutShort;
+  }
+}
+
+const _cutShort = ParseException(
+  'This Kindle book is incomplete or damaged: the file ends too soon.',
+);
+
+Book _parseMobi(Uint8List bytes, {required String id, String? filename}) {
   if (bytes.length < 86) throw const ParseException('File is too short to be a MOBI.');
   final bd = ByteData.sublistView(bytes);
   final type = String.fromCharCodes(bytes.sublist(60, 68));
@@ -19,10 +32,12 @@ Book parseMobi(Uint8List bytes, {required String id, String? filename}) {
     throw const ParseException('Not a MOBI/AZW file.');
   }
   final count = bd.getUint16(76);
+  if (count == 0 || 78 + count * 8 > bytes.length) throw _cutShort;
   final offsets = [
     for (var i = 0; i < count; i++) bd.getUint32(78 + i * 8),
   ];
   Uint8List record(int i) {
+    if (i < 0 || i >= count || offsets[i] > bytes.length) throw _cutShort;
     final start = offsets[i];
     final end = i + 1 < count ? offsets[i + 1] : bytes.length;
     return Uint8List.sublistView(bytes, start, end.clamp(start, bytes.length));
