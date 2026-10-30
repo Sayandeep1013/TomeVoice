@@ -227,14 +227,18 @@ void main() {
   bool? lastOn(String method) =>
       (_calls.where((c) => c.method == method).lastOrNull?.arguments as Map?)?['on'] as bool?;
 
-  /// The place saved in [store], once its writing is done.
+  /// The place saved in [store], once its writing is done: each test here
+  /// saves a place past the book's start, once, and a busy phone (or test
+  /// machine) can take a while to write it.
   Future<int> saved(WidgetTester tester, LibraryStore store, ReadingLayout layout) async {
-    for (var i = 0; i < 20; i++) {
+    var unit = 0;
+    for (var i = 0; i < 200 && unit == 0; i++) {
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 25)));
       await tester.pump();
+      final cursor = (await tester.runAsync(() => store.cursorFor(layout.book.id)))!;
+      unit = layout.unitForCursor(cursor, saved: true);
     }
-    final cursor = (await tester.runAsync(() => store.cursorFor(layout.book.id)))!;
-    return layout.unitForCursor(cursor, saved: true);
+    return unit;
   }
 
   /// A match in the search sheet, to tap.
