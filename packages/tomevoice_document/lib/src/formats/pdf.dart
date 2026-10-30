@@ -780,9 +780,20 @@ final _pageRef = RegExp(r'(\s|\.{2,}|…)(\d{1,4}|[ivxlc]{1,7})$');
 /// or a page that is mostly lines ending in page numbers, or naming chapters.
 bool _isContentsPage(List<_Line> page) {
   if (page.length < 3) return false;
-  var refs = 0, chapters = 0;
+  var refs = 0, chapters = 0, last = 0;
+  // A contents page's numbers go up; prose that happens to end its lines in
+  // numbers ("stood at 12 / feet, then fell to 3") is no contents page.
+  var rising = true;
   for (final l in page) {
-    if (_pageRef.hasMatch(l.text)) refs++;
+    final ref = _pageRef.firstMatch(l.text);
+    if (ref != null) {
+      refs++;
+      final value = _digitsValue(ref.group(2)!);
+      if (value != null) {
+        if (value < last) rising = false;
+        last = value;
+      }
+    }
     if (looksLikeChapterLine(l.text)) chapters++;
   }
   final titled = page.take(3).any(
@@ -791,7 +802,7 @@ bool _isContentsPage(List<_Line> page) {
         ),
       );
   return (titled && refs >= 2) ||
-      (refs >= 4 && refs * 2 >= page.length) ||
+      (rising && refs >= 4 && refs * 2 >= page.length) ||
       (chapters >= 4 && chapters * 2 >= page.length);
 }
 

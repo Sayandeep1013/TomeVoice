@@ -150,6 +150,24 @@ void main() {
       expect(units[firstReadingUnitIndex(units, book)].text, 'CHAPTER 1');
     });
 
+    test('prose whose lines end in numbers is not a contents page', () {
+      final book = ingestPdfText(id: 'x', pages: [
+        _page([
+          [
+            'The tide that morning stood at 12',
+            'feet, then fell to 3',
+            'by noon and rose again to 11',
+            'before the boats went out at 6',
+            'with the light still on the water.',
+          ],
+        ]),
+      ]);
+      expect(_texts(book), [
+        'The tide that morning stood at 12 feet, then fell to 3 by noon and rose again '
+            'to 11 before the boats went out at 6 with the light still on the water.',
+      ]);
+    });
+
     test('"1914" or "II" alone on a line is text, not a page number', () {
       final pages = [
         for (var p = 0; p < 6; p++)
