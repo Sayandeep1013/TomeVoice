@@ -295,13 +295,13 @@ final _corpus = <String, List<_Check>>{
       expect(r.spoken.first, 'THE FALL OF THE HOUSE OF USHER');
       expect(r.chapters, ['THE FALL OF THE HOUSE OF USHER']);
     }),
-    _check(
-      'says what the EPUB says',
-      (r) => expect(r.spoken, _read('pg932-images-3.epub').spoken),
-      skip: 'Known bug: a KF8 book\'s footnotes are read aloud and their marks said ("for other men* have '
-          'thought thus", then "* Watson, Dr. Percival..." in the flow). Its links are stripped from the HTML '
-          '(kindle:pos targets are not resolved), so markers and notes cannot be found.',
-    ),
+    _check('says what the EPUB says', (r) => expect(r.spoken, _read('pg932-images-3.epub').spoken)),
+    _check('the footnote is shown, not read, and its mark is not said', (r) {
+      // Its kindle:pos links found their places, as the EPUB's links do.
+      expect(r.displayOnlyOf(BlockRole.footnote), [startsWith('* Watson, Dr. Percival, Spallanzani')]);
+      expect(_with(r, 'for other men have thought thus'), hasLength(1));
+      expect(r.text, isNot(contains('men*')));
+    }),
   ],
 
   // The same book as Gutenberg's plain text: UTF-8, CRLF, hard-wrapped

@@ -28,8 +28,8 @@ import 'speech_service.dart';
 /// English; v7: front and back matter, licences and a page's navigation
 /// left unread, Gutenberg text in paragraphs, Markdown, ODT and FB2 fixes,
 /// found by the test corpus; v8: Russian and Ukrainian dialogue not cut
-/// after "!" or "?" before who spoke). PDFs keep their own version, on the
-/// entry (pdfParser).
+/// after "!" or "?" before who spoke, an AZW3 book's notes shown and not
+/// read). PDFs keep their own version, on the entry (pdfParser).
 const _parsedVersion = 8;
 
 /// On-device library: copied files, parsed books, reading positions.

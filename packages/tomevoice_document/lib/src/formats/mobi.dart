@@ -236,9 +236,31 @@ List<DraftSection>? _kf8Sections(
     }
   }
 
+  // The parts' links made links to ids, as in the EPUB the book was made
+  // from, so that a note's marker is found pointing at its note: notes are
+  // shown and not read, and their marks are not said. Ids in later parts
+  // that markers point at are notes (endnotes at the back).
+  final html = _linkedParts(parts, fragments, utf);
+  final names = {for (var i = 0; i < parts.length; i++) _partName(i)};
+  final notes = <String, Set<String>>{};
+  for (var i = 0; i < html.length; i++) {
+    for (final link in markerLinks(html[i])) {
+      final hash = link.indexOf('#');
+      final part = link.substring(0, hash);
+      final target = int.tryParse(_partNumber.firstMatch(part)?.group(1) ?? '');
+      if (target != null && target > i) (notes[part] ??= {}).add(link.substring(hash + 1));
+    }
+  }
+
   final sections = <DraftSection>[];
   for (var i = 0; i < parts.length; i++) {
-    final blocks = blocksFromHtml(_cleanKindleHtml(parts[i].html), language: language);
+    final blocks = htmlChapter(
+      _cleanKindleHtml(html[i], links: true),
+      language: language,
+      href: _partName(i),
+      notes: notes[_partName(i)] ?? const {},
+      hasFile: names.contains,
+    ).blocks;
     if (blocks.isEmpty) continue;
     final here = [
       for (final c in chapters)
@@ -284,8 +306,9 @@ Uint8List _htmlFlow(Uint8List text, Uint8List fdst) {
   return Uint8List.sublistView(text, start, math.min(end, text.length));
 }
 
-/// One HTML part of a KF8 book: where it was in the HTML flow, and its HTML.
-typedef _Part = ({int start, int end, String html});
+/// One HTML part of a KF8 book: where it was in the HTML flow, and its HTML
+/// as stored (links count places in it by the byte).
+typedef _Part = ({int start, int end, Uint8List bytes});
 
 /// One entry of a KF8 index: its key, and its tags' values.
 typedef _Entry = ({String key, Map<int, List<int>> tags});
@@ -314,10 +337,97 @@ List<_Part> _parts(Uint8List flow, List<_Entry> skeletons, List<_Entry> fragment
       html.insertAll(insert, Uint8List.sublistView(flow, next, next + size[1]));
       next += size[1];
     }
-    out.add((start: start, end: next, html: _str(html, utf)));
+    out.add((start: start, end: next, bytes: Uint8List.fromList(html)));
   }
   return out;
 }
+
+/// What a KF8 part is called in links between parts.
+String _partName(int i) => 'part$i.html';
+
+final _partNumber = RegExp(r'^part(\d+)\.html$');
+
+/// A KF8 link: a place in the HTML flow as a fragment and an offset into it,
+/// both in base 32 ("kindle:pos:fid:0008:off:00000001TE").
+final _kindlePos = RegExp(r'kindle:pos:fid:([0-9A-Va-v]{4}):off:([0-9A-Va-v]{10})');
+
+/// The parts' HTML, each kindle:pos link made a link to the id of the
+/// element that starts at its place ("part1.html#id_1"), as calibre's reader
+/// makes them. An element there with no id of its own (only Amazon's aid)
+/// is given one. A link to anywhere else is left as it is.
+List<String> _linkedParts(List<_Part> parts, List<_Entry> fragments, bool utf) {
+  // Each part a character a byte, for finding places in it by the byte.
+  final bytes = [for (final p in parts) latin1.decode(p.bytes)];
+  final targets = <String, String>{};
+  final given = <int, Map<int, String>>{};
+  for (final html in bytes) {
+    for (final m in _kindlePos.allMatches(html)) {
+      final link = m.group(0)!;
+      if (targets.containsKey(link)) continue;
+      final fid = int.parse(m.group(1)!, radix: 32);
+      final insert = fid < fragments.length ? int.tryParse(fragments[fid].key) : null;
+      if (insert == null) continue;
+      final place = insert + int.parse(m.group(2)!, radix: 32);
+      final part = parts.indexWhere((p) => place >= p.start && place < p.end);
+      if (part < 0) continue;
+      final at = place - parts[part].start;
+      final tag = _startTagAt(bytes[part], at);
+      if (tag == null) continue;
+      final id = _idOf(tag, utf) ?? (given[part] ??= {}).putIfAbsent(at, () => 'kf8-$place');
+      targets[link] = '${_partName(part)}#$id';
+    }
+  }
+  return [
+    for (var i = 0; i < parts.length; i++)
+      _str(_withIds(parts[i].bytes, bytes[i], given[i] ?? const {}), utf)
+          .replaceAllMapped(_kindlePos, (m) => targets[m.group(0)!] ?? m.group(0)!),
+  ];
+}
+
+/// The start tag that begins at [at] in [html] ("<p class=x aid=UGL3>"), or
+/// null when none does there.
+String? _startTagAt(String html, int at) {
+  if (at < 0 || at + 1 >= html.length || html.codeUnitAt(at) != 0x3C) return null;
+  final next = html.codeUnitAt(at + 1);
+  final letter = (next >= 0x41 && next <= 0x5A) || (next >= 0x61 && next <= 0x7A);
+  final end = html.indexOf('>', at);
+  if (!letter || end < 0 || end - at > 4000) return null;
+  return html.substring(at, end + 1);
+}
+
+final _idAttr = RegExp(r'''\s(?:id|ID)\s*=\s*(?:"([^"]*)"|'([^']*)')''');
+final _nameAttr = RegExp(r'''^<a\s(?:[^>]*\s)?(?:name|NAME)\s*=\s*(?:"([^"]*)"|'([^']*)')''');
+
+/// The id a start [tag] gives its element (an a's name will do), in the
+/// part's own encoding; null for none.
+String? _idOf(String tag, bool utf) {
+  final m = _idAttr.firstMatch(tag) ?? _nameAttr.firstMatch(tag);
+  final value = m == null ? null : m.group(1) ?? m.group(2);
+  return value == null || value.trim().isEmpty ? null : _str(value.trim().codeUnits, utf);
+}
+
+/// [bytes] (seen a character a byte as [html]) with each start tag at a
+/// place in [ids] given that id.
+Uint8List _withIds(Uint8List bytes, String html, Map<int, String> ids) {
+  if (ids.isEmpty) return bytes;
+  final out = BytesBuilder(copy: false);
+  var from = 0;
+  for (final at in ids.keys.toList()..sort()) {
+    // After the tag's name.
+    var name = at + 1;
+    while (name < html.length && _tagNameChar.hasMatch(html[name])) {
+      name++;
+    }
+    out
+      ..add(Uint8List.sublistView(bytes, from, name))
+      ..add(ascii.encode(' id="${ids[at]}"'));
+    from = name;
+  }
+  out.add(Uint8List.sublistView(bytes, from));
+  return out.takeBytes();
+}
+
+final _tagNameChar = RegExp('[A-Za-z0-9:_-]');
 
 /// The NCX's chapters in order: each title, the part it starts in, and its
 /// depth in the contents. A chapter's place is a fragment and an offset into
@@ -499,10 +609,18 @@ bool _sameTitle(String text, String title) {
   return b == t || b.startsWith('$t ') || (b.length >= 4 && t.startsWith('$b '));
 }
 
-String _cleanKindleHtml(String s) => s
-    .replaceAll(RegExp(r'</?mbp:[^>]*>', caseSensitive: false), '')
-    .replaceAll(RegExp(r'<(img|a)\b[^>]*/?>', caseSensitive: false), '')
-    .replaceAll(RegExp(r'</a>', caseSensitive: false), '');
+/// Kindle HTML without its own tags and its pictures (not read; the bytes
+/// of a picture are not where an EPUB's are). Links go too, unless [links]:
+/// a MOBI 6 book's point at file positions (`<a filepos=0001234>`), and are
+/// not XML; a KF8 book's are made links to ids first (see [_linkedParts]).
+String _cleanKindleHtml(String s, {bool links = false}) {
+  final out = s.replaceAll(_kindleTag, '').replaceAll(_picture, '');
+  return links ? out : out.replaceAll(_link, '');
+}
+
+final _kindleTag = RegExp(r'</?mbp:[^>]*>', caseSensitive: false);
+final _picture = RegExp(r'<img\b[^>]*/?>', caseSensitive: false);
+final _link = RegExp(r'</?a\b[^>]*>', caseSensitive: false);
 
 String _str(List<int> b, bool utf) =>
     utf ? utf8.decode(b, allowMalformed: true) : decodeCp1252(b);

@@ -18,11 +18,14 @@
   ],
   "blocks": {
     "heading": 2,
-    "paragraph": 47,
+    "paragraph": 46,
     "listItem": 2,
+    "footnote": 1,
     "table": 14
   },
-  "displayOnly": [],
+  "displayOnly": [
+    "footnote: * Watson, Dr. Percival, Spallanzani, and especially the Bishop of Landaff.—See “Chemical Essays,” v…"
+  ],
   "sentencesBeforeOpening": 0,
   "first": [
     "THE FALL OF THE HOUSE OF USHER",
@@ -32,13 +35,13 @@
     "De Béranger."
   ],
   "last": [
+    "The radiance was that of the full, setting, and blood-red moon which now shone vividly through that once barely-discernible fissure of which I have before spoken as extending from the roof of the building, in a zigzag direction, to the base.",
     "While I gazed, this fissure rapidly widened—there came a fierce breath of the whirlwind—the entire orb of the satellite burst at once upon my sight—my brain reeled as I saw the mighty walls rushing asunder—there was a long tumultuous shouting sound like the voice of a thousand",
     "waters—and the deep and dank tarn at my feet closed sullenly and silently over the fragments of the “House of Usher.”",
-    "* Watson, Dr. Percival, Spallanzani, and especially the Bishop of Landaff.—See “Chemical Essays,” vol. v.",
     "Transcriber’s Notes",
     "New original cover art included with this eBook is granted to the public domain."
   ],
-  "sentences": 298,
+  "sentences": 297,
   "words": 7106,
-  "spokenSha256": "183f68a3e1a55e87d2b525e727618cba9c51df74632f19c31c4f56fd50159170"
+  "spokenSha256": "264d933858d91c7b09d3113d9340262b70a44ec64dcbd898a5d15e344dfa7f75"
 }
