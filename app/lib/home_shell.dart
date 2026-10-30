@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import 'app_update.dart';
+import 'auto_backup.dart';
 import 'backup.dart';
 import 'backup_flow.dart';
 import 'book_tint.dart';
@@ -189,6 +190,8 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
       unawaited(Starter.seed(Directory(dir), store, sources));
       // A newer TomeVoice: on opening, and on coming back to the app.
       Future<void>.delayed(const Duration(seconds: 8), () => _offerUpdate(Directory(dir)));
+      // An automatic backup, when one is due (Settings > Library).
+      AutoBackup.start(store);
       _lifecycle = AppLifecycleListener(onResume: () => unawaited(_offerUpdate(Directory(dir))));
       // New chapters, at most as often as the reader asked, a moment after
       // the shelf is up so opening the app stays quick.

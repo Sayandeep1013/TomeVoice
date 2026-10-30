@@ -50,6 +50,10 @@ class ListeningPrefs {
     this.bookColours = true,
     this.naturalVoices,
     this.exportFolder,
+    this.backupEvery = 'off',
+    this.backupFolder,
+    this.backupChapters = false,
+    this.lastBackup,
   })  : voiceByLanguage = voiceByLanguage ?? {},
         voiceByBook = voiceByBook ?? {},
         dialogueByBook = dialogueByBook ?? {},
@@ -234,6 +238,15 @@ class ListeningPrefs {
   /// Where quotes exported as Markdown were last saved.
   PickedFolder? exportFolder;
 
+  /// Automatic backups: off, daily or weekly (see BackupEvery), into
+  /// [backupFolder], with downloaded chapters only if [backupChapters].
+  String backupEvery;
+  PickedFolder? backupFolder;
+  bool backupChapters;
+
+  /// When the last automatic backup was made.
+  DateTime? lastBackup;
+
   static ListeningPrefs? _cached;
   static File? _file;
   static Timer? _saveTimer;
@@ -326,6 +339,10 @@ class ListeningPrefs {
         'bookColours': bookColours,
         if (naturalVoices != null) 'naturalVoices': naturalVoices,
         if (exportFolder != null) 'exportFolder': exportFolder!.toJson(),
+        if (backupEvery != 'off') 'backupEvery': backupEvery,
+        if (backupFolder != null) 'backupFolder': backupFolder!.toJson(),
+        if (backupChapters) 'backupChapters': true,
+        if (lastBackup != null) 'lastBackup': lastBackup!.toIso8601String(),
       };
 
   static ListeningPrefs fromJson(Map<String, Object?> json) => ListeningPrefs(
@@ -390,6 +407,10 @@ class ListeningPrefs {
         bookColours: json['bookColours'] != false,
         naturalVoices: json['naturalVoices'] as bool?,
         exportFolder: PickedFolder.fromJson(json['exportFolder']),
+        backupEvery: json['backupEvery'] as String? ?? 'off',
+        backupFolder: PickedFolder.fromJson(json['backupFolder']),
+        backupChapters: json['backupChapters'] == true,
+        lastBackup: DateTime.tryParse(json['lastBackup'] as String? ?? ''),
       );
 }
 
