@@ -156,6 +156,7 @@ class SourceNovel {
     this.genres = const [],
     this.chapters = const [],
     this.totalPages,
+    this.complete = true,
   });
 
   final String path;
@@ -169,6 +170,11 @@ class SourceNovel {
 
   /// Plugins whose chapter list is paged say how many pages there are.
   final int? totalPages;
+
+  /// False when a page of a paged chapter list failed or came back empty:
+  /// [chapters] is then only part of the list, and must never replace a
+  /// stored one (its downloads would lose their places).
+  final bool complete;
 
   /// "AdventureFantasyMystery", as some sites' tag links read when their
   /// text is joined, as the words it was. Only when every part is a word

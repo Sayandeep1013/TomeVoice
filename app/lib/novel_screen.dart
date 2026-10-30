@@ -70,6 +70,9 @@ class _NovelScreenState extends State<NovelScreen> {
   SourceNovel? _novel;
   List<ChapterItem> _chapters = const [];
 
+  /// Why the site's latest chapter list was not taken, if it was not.
+  ListRefusal? _refusal;
+
   /// The list holding the chapters, for the fast scroller beside them.
   final _scroll = ScrollController();
   LibraryEntry? _entry;
@@ -143,6 +146,7 @@ class _NovelScreenState extends State<NovelScreen> {
       setState(() {
         _novel = stored.novel;
         _chapters = stored.chapters;
+        _refusal = stored.refusal;
         _loading = false;
       });
     }
@@ -152,23 +156,33 @@ class _NovelScreenState extends State<NovelScreen> {
       if (plugin == null) throw MissingSourceException(widget.plugin.id, widget.plugin.name);
       final fresh = await SourceEngine.instance.novel(plugin, widget.path);
       if (!mounted) return;
-      final before = stored?.chapters.length ?? _chapters.length;
-      final added = fresh.chapters.length - before;
-      if (pulled) {
-        showSnack(context, switch (added) {
-          > 1 => '$added new chapters.',
-          1 => 'One new chapter.',
-          _ => 'No new chapters yet.',
-        });
-      }
       // The rows open the reader by their place in the list, so they show
-      // the list the reader has: the site's, once it is stored.
-      final take = stored == null ? fresh.chapters.isNotEmpty : replacesChapterList(stored.chapters, fresh.chapters);
-      if (stored != null && take) await _store.saveWebChapters(_id, fresh.chapters);
+      // the list the reader has: the site's, once it is stored. A list that
+      // looks wrong (cut short, or every address changed) is not stored,
+      // and the page says why.
+      final verdict = stored == null ? null : await _store.offerWebChapters(_id, fresh.chapters, complete: fresh.complete);
+      final take = verdict == null ? fresh.chapters.isNotEmpty : verdict.taken;
+      final had = {for (final c in stored?.chapters ?? _chapters) c.path};
+      final added = take ? fresh.chapters.where((c) => !had.contains(c.path)).length : 0;
+      final refusal = verdict == null ? null : (await _store.webNovel(_id))?.refusal;
       if (!mounted) return;
+      if (pulled) {
+        showSnack(
+          context,
+          verdict != null && verdict.refused
+              ? verdict.why ?? 'The site\'s list was not taken.'
+              : switch (added) {
+                  > 1 => '$added new chapters.',
+                  1 => 'One new chapter.',
+                  _ => 'No new chapters yet.',
+                },
+          long: verdict?.refused ?? false,
+        );
+      }
       setState(() {
         _novel = fresh;
         if (take) _chapters = fresh.chapters;
+        _refusal = refusal;
         _loading = false;
         _error = null;
       });
@@ -180,6 +194,34 @@ class _NovelScreenState extends State<NovelScreen> {
       });
       if (pulled && stored != null) _problem(e);
     }
+  }
+
+  /// The list the site gave that was kept aside (its chapters all moved to
+  /// new addresses), taken because the reader chose it. Downloads find
+  /// their chapters by title; none is deleted.
+  Future<void> _useOffered() async {
+    final ok = await confirm(
+      context,
+      title: "Use the site's chapter list?",
+      body: 'The chapters on the phone are matched to the new list by their titles. '
+          'A download that matches nothing is kept aside, not deleted.',
+      action: 'Use it',
+    );
+    if (!ok || !mounted) return;
+    final verdict = await _store.useOfferedChapters(_id);
+    if (!mounted) return;
+    if (verdict.refused) {
+      showSnack(context, verdict.why ?? 'That did not work. Check the site again.', long: true);
+      return;
+    }
+    final info = await _store.webNovel(_id);
+    await _refreshLocal();
+    if (!mounted || info == null) return;
+    setState(() {
+      _chapters = info.chapters;
+      _refusal = info.refusal;
+    });
+    showSnack(context, "Now using the site's list.");
   }
 
   /// A failed check or download, said in a snack; a missing source comes
@@ -475,6 +517,17 @@ class _NovelScreenState extends State<NovelScreen> {
           ),
         ),
       ),
+      // The site's latest list was not taken: why, and (when its chapters
+      // all moved) the choice to take it.
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, 0),
+        sliver: SliverToBoxAdapter(
+          child: growIn(
+            context,
+            _refusal == null || _entry == null ? null : _refusalNote(context, _refusal!),
+          ),
+        ),
+      ),
       // The download line opens and closes instead of shifting the list.
       SliverPadding(
         padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, 0),
@@ -591,6 +644,34 @@ class _NovelScreenState extends State<NovelScreen> {
       ),
     );
   }
+
+  Widget _refusalNote(BuildContext context, ListRefusal r) => Padding(
+        padding: const EdgeInsets.only(bottom: Gap.s),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Icon(Icons.info_outline_rounded, size: 18, color: Skin.inkFaintOn(context)),
+            ),
+            const SizedBox(width: Gap.m),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(r.why, style: Skin.label(context, size: 13.5)),
+                  if (r.offered)
+                    TextButton(
+                      style: TextButton.styleFrom(padding: EdgeInsets.zero, visualDensity: VisualDensity.compact),
+                      onPressed: _useOffered,
+                      child: const Text("Use the site's list"),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
 
   /// What can be done with the picked chapters.
   Widget _pickBar(BuildContext context) {

@@ -69,19 +69,25 @@ class SourceEngine {
       _novels(await _call(p, 'searchNovels', [query, page]));
 
   /// A novel's details and its whole chapter list, oldest first. Sites that
-  /// split the list over pages are read to the end.
+  /// split the list over pages are read to the end; a page that comes back
+  /// empty before the last one leaves the list marked incomplete
+  /// ([SourceNovel.complete]), so it never replaces a stored list.
   Future<SourceNovel> novel(PluginInfo p, String path) async {
     final first = SourceNovel.fromJs(await _call(p, 'parseNovel', [path]), path: path);
     final pages = first.totalPages ?? 0;
     if (pages <= 1) return first;
     final chapters = [...first.chapters];
+    var complete = pages <= 400;
     for (var n = first.chapters.isEmpty ? 1 : 2; n <= pages && n <= 400; n++) {
       final page = await _call(p, 'parsePage', [path, '$n']);
       final more = [
         for (final c in ((page is Map ? page['chapters'] : null) as List? ?? const []))
           if (ChapterItem.fromJs(c) case final ch?) ch,
       ];
-      if (more.isEmpty) break;
+      if (more.isEmpty) {
+        complete = false;
+        break;
+      }
       chapters.addAll(more);
     }
     return SourceNovel(
@@ -93,6 +99,7 @@ class SourceEngine {
       status: first.status,
       genres: first.genres,
       chapters: chapters,
+      complete: complete,
     );
   }
 

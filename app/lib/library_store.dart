@@ -249,6 +249,7 @@ class LibraryStore {
       await writeSafely(File('${dir.path}/novel.json'), jsonEncode(info.toJson()));
     } else {
       await _replaceChapters(id, before, info);
+      await _discardOffered(id);
     }
     String? cover;
     final url = novel.cover;
@@ -309,26 +310,128 @@ class LibraryStore {
     }
   }
 
-  /// Replace a web novel's chapter list (after checking for new chapters).
+  /// Replace a web novel's chapter list with [chapters], whatever it is (the
+  /// reader chose it). Downloads follow their chapters and are never deleted
+  /// (see [_replaceChapters]); a list just fetched goes through
+  /// [offerWebChapters] instead, which refuses one that looks wrong.
   Future<void> saveWebChapters(String id, List<ChapterItem> chapters) async {
     final info = await settleWebChapters(id);
     if (info == null) return;
-    await _replaceChapters(id, info, info.copyWith(chapters: chapters, checkedAt: DateTime.now()));
+    await _replaceChapters(id, info, info.copyWith(chapters: chapters, checkedAt: DateTime.now(), clearRefusal: true));
+    await _discardOffered(id);
     await _change((entries) => [for (final e in entries) e.id == id ? e.copyWith(chapterCount: chapters.length) : e]);
+  }
+
+  /// A chapter list just fetched for web novel [id]: stored in place of the
+  /// one on the phone when that is safe (see [judgeChapterList]). Otherwise
+  /// the stored list and its downloads stay as they are and the reason is
+  /// kept with the novel, for its page and Updates to say; a list whose
+  /// chapters all moved to new addresses is also kept aside, for the reader
+  /// to take with [useOfferedChapters]. [complete]: false for a paged list
+  /// that was not read to its end. [force]: the reader chose this list.
+  Future<ListVerdict> offerWebChapters(
+    String id,
+    List<ChapterItem> fresh, {
+    bool complete = true,
+    bool force = false,
+  }) async {
+    final info = await settleWebChapters(id);
+    if (info == null) return const ListVerdict(ListChange.refused, why: 'This novel is not in the library.');
+    var verdict = judgeChapterList(info.chapters, fresh, complete: complete);
+    if (force && fresh.isNotEmpty && verdict.refused) verdict = const ListVerdict(ListChange.taken);
+    final now = DateTime.now();
+    final file = File('${bookDir(id)}/novel.json');
+    switch (verdict.change) {
+      case ListChange.same:
+        // Checked, and nothing came of it; a refusal recorded earlier no
+        // longer holds.
+        if (info.refusal != null) {
+          await writeSafely(file, jsonEncode(info.copyWith(checkedAt: now, clearRefusal: true).toJson()));
+          await _discardOffered(id);
+        }
+      case ListChange.taken:
+        await _replaceChapters(id, info, info.copyWith(chapters: fresh, checkedAt: now, clearRefusal: true));
+        await _discardOffered(id);
+        if (fresh.length != info.chapters.length) {
+          await _change((entries) => [for (final e in entries) e.id == id ? e.copyWith(chapterCount: fresh.length) : e]);
+        }
+      case ListChange.refused:
+        final refusal = ListRefusal(why: verdict.why ?? '', at: now, count: fresh.length, offered: verdict.offered);
+        await writeSafely(file, jsonEncode(info.copyWith(refusal: refusal).toJson()));
+        if (verdict.offered) {
+          await writeSafely(_offeredFile(id), jsonEncode([for (final c in fresh) c.toJson()]));
+        } else {
+          await _discardOffered(id);
+        }
+    }
+    return verdict;
+  }
+
+  /// Take the list [offerWebChapters] kept aside for web novel [id] (the
+  /// reader chose it). Downloads find their chapters by title.
+  Future<ListVerdict> useOfferedChapters(String id) async {
+    final f = _offeredFile(id);
+    List<ChapterItem> list;
+    try {
+      list = [
+        for (final c in jsonDecode(await f.readAsString()) as List) ChapterItem.fromJson(Map<String, Object?>.from(c as Map)),
+      ];
+    } on Object {
+      return const ListVerdict(ListChange.refused, why: 'Check the site again first.');
+    }
+    return offerWebChapters(id, list, force: true);
+  }
+
+  File _offeredFile(String id) => File('${bookDir(id)}/offered.json');
+
+  Future<void> _discardOffered(String id) async {
+    try {
+      await _offeredFile(id).delete();
+    } on FileSystemException {
+      // None kept.
+    }
+  }
+
+  /// The chapter counts a check made away from the app found (see
+  /// Updates), on the shelf's cards.
+  Future<void> noteChapterCounts(Map<String, int> counts) async {
+    if (counts.isEmpty) return;
+    await _change((entries) => [
+          for (final e in entries)
+            if (counts[e.id] case final n? when n != e.chapterCount) e.copyWith(chapterCount: n) else e,
+        ]);
   }
 
   /// Write [next] over [before]. Downloads, the saved place and saved quotes
   /// are filed by a chapter's place in the list, so when the site put an
-  /// entry in or took one out earlier on, they move with their chapter. The
-  /// list is marked unsettled until they have, so a stop half way is put
-  /// right the next time the novel opens.
+  /// entry in or took one out earlier on, they move with their chapter:
+  /// found by its address, else by its title. Nothing is deleted: a
+  /// download whose chapter is no longer listed is set aside (ch/orphaned)
+  /// and comes back if its chapter does. The list is marked unsettled until
+  /// they have moved, so a stop half way is put right the next time the
+  /// novel opens.
   Future<void> _replaceChapters(String id, WebNovelInfo before, WebNovelInfo next) async {
     final file = File('${bookDir(id)}/novel.json');
-    final moves = _movesByPath(before.chapters, next.chapters);
+    final moves = _refileMoves(before.chapters, next.chapters);
+    final orphans = Directory('${bookDir(id)}/ch/orphaned').existsSync();
     await writeSafely(file, jsonEncode(next.copyWith(filed: moves.isEmpty).toJson()));
-    if (moves.isEmpty) return;
-    await _refile(id, moves);
+    if (moves.isEmpty && !orphans) return;
+    await _refile(id, moves, [for (final c in next.chapters) c.name]);
     await writeSafely(file, jsonEncode(next.copyWith(filed: true).toJson()));
+  }
+
+  /// Append [fresh] to web novel [id]'s stored list without touching the
+  /// library index, its downloads, place or quotes: for a check made away
+  /// from the app (another engine may hold the index). Only when [fresh]
+  /// keeps every stored chapter where it was; false otherwise (left for the
+  /// app to take when it next checks).
+  Future<bool> appendWebChapters(String id, WebNovelInfo info, List<ChapterItem> fresh) async {
+    if (!info.filed || _refileMoves(info.chapters, fresh).isNotEmpty) return false;
+    await writeSafely(
+      File('${bookDir(id)}/novel.json'),
+      jsonEncode(info.copyWith(chapters: fresh, checkedAt: DateTime.now(), clearRefusal: true).toJson()),
+    );
+    return true;
   }
 
   final _settling = <String, Future<WebNovelInfo?>>{};
@@ -356,10 +459,10 @@ class LibraryStore {
   }
 
   /// Move [id]'s downloads by [moves] (old chapter to new; -1, no longer
-  /// listed), and the saved place and saved quotes with them.
-  Future<void> _refile(String id, Map<int, int> moves) async {
-    if (moves.isEmpty) return;
-    await _runMoveChapters(bookDir(id), moves);
+  /// listed: set aside), and the saved place and saved quotes with them;
+  /// then put back any set aside earlier whose chapter is in [names] again.
+  Future<void> _refile(String id, Map<int, int> moves, List<String> names) async {
+    await _runRefile(bookDir(id), moves, names);
     _downloads.remove(id);
     await _followMoves(id, moves);
   }
@@ -670,22 +773,72 @@ Future<void> _runSaveChapter(String path, int index, String title, String html, 
       _writeWholeSync(File(path), jsonEncode(section.toJson()));
     });
 
-Future<void> _runMoveChapters(String dir, Map<int, int> moves) => Isolate.run(() => _moveChaptersSync(dir, moves));
+Future<void> _runRefile(String dir, Map<int, int> moves, List<String> names) => Isolate.run(() {
+      _moveChaptersSync(dir, moves);
+      _adoptOrphansSync(dir, names);
+    });
 
 Future<Map<int, int>> _runSettle(String dir, List<String> names) => Isolate.run(() => _settleSync(dir, names));
 
 /// Where each chapter of [before] is in [after], for those that moved (-1:
-/// no longer listed).
-Map<int, int> _movesByPath(List<ChapterItem> before, List<ChapterItem> after) {
-  final at = <String, int>{};
-  for (var j = after.length - 1; j >= 0; j--) {
-    at[after[j].path] = j;
+/// found nowhere). A chapter is found by its address; failing that (a site
+/// that moved to another domain, a plugin that writes its addresses another
+/// way), by its title: the same one, nearest where its neighbours went, or
+/// a like one close by (a typo the site fixed). No place is given twice.
+Map<int, int> _refileMoves(List<ChapterItem> before, List<ChapterItem> after) {
+  final placeOf = <int, int>{};
+  final taken = <int>{};
+  int? nearest(List<int>? places, int to) {
+    int? best;
+    for (final j in places ?? const <int>[]) {
+      if (taken.contains(j)) continue;
+      if (best == null || (j - to).abs() < (best - to).abs()) best = j;
+    }
+    return best;
   }
-  return {
-    for (var i = 0; i < before.length; i++)
-      if (at[before[i].path] != i) i: at[before[i].path] ?? -1,
-  };
+
+  void place(int i, int j) {
+    placeOf[i] = j;
+    taken.add(j);
+  }
+
+  final byPath = <String, List<int>>{};
+  final byName = <String, List<int>>{};
+  for (var j = 0; j < after.length; j++) {
+    (byPath[after[j].path] ??= []).add(j);
+    (byName[after[j].name] ??= []).add(j);
+  }
+  for (var i = 0; i < before.length; i++) {
+    if (nearest(byPath[before[i].path], i) case final j?) place(i, j);
+  }
+  if (placeOf.length == before.length) return _changed(placeOf, before.length);
+  // Where chapter i would be now, going by the nearest one before it that
+  // was found: a list that gained a prologue moves everything on by one.
+  int expected(int i) {
+    for (var k = i - 1; k >= 0; k--) {
+      if (placeOf[k] case final j?) return j + (i - k);
+    }
+    return i;
+  }
+
+  for (var i = 0; i < before.length; i++) {
+    if (placeOf.containsKey(i)) continue;
+    if (nearest(byName[before[i].name], expected(i)) case final j?) place(i, j);
+  }
+  final names = [for (final c in after) c.name];
+  for (var i = 0; i < before.length; i++) {
+    if (placeOf.containsKey(i)) continue;
+    if (_likeTitle(before[i].name, names, expected(i), skip: taken) case final j?) place(i, j);
+  }
+  return _changed(placeOf, before.length);
 }
+
+/// [placeOf] as moves: each chapter of [count] whose place changed, to its
+/// new one (-1, found nowhere).
+Map<int, int> _changed(Map<int, int> placeOf, int count) => {
+      for (var i = 0; i < count; i++)
+        if (placeOf[i] != i) i: placeOf[i] ?? -1,
+    };
 
 /// Where old chapter [c] is now; one no longer listed hands on to the next
 /// one that is.
@@ -702,8 +855,9 @@ int _follow(Map<int, int> moves, int c) {
 /// (the nearest, should one be listed twice), else the nearby title most
 /// like it (a site that fixed a typo, "Siniste" for "Sinister", or gave a
 /// title its missing number). Where two downloads want one place the surer
-/// match keeps it; a download that matches nothing stays where it is.
-/// Returns the moves made, old place to new (-1: dropped).
+/// match keeps it, and the other is set aside (ch/orphaned), never deleted;
+/// a download that matches nothing stays where it is. Returns the moves
+/// made, old place to new (-1: set aside).
 Map<int, int> _settleSync(String dir, List<String> names) {
   final ch = Directory('$dir/ch');
   if (!ch.existsSync()) return const {};
@@ -758,7 +912,7 @@ Map<int, int> _settleSync(String dir, List<String> names) {
   for (final MapEntry(key: n, value: to) in moves.entries) {
     final f = files[n]!;
     if (to < 0) {
-      f.deleteSync();
+      _setAsideSync(f, ch.path, n);
     } else {
       parked[n] = f.path.endsWith('.moving') ? f : f.renameSync('${ch.path}/$n.json.moving');
     }
@@ -767,12 +921,52 @@ Map<int, int> _settleSync(String dir, List<String> names) {
     f.renameSync('${ch.path}/${moves[n]}.json');
   }
   moves.removeWhere((n, to) => n == to);
+  _adoptOrphansSync(dir, names);
   return moves;
 }
 
+/// Keep [f], a download of old chapter [n] that has no place in the list
+/// now, under ch/orphaned: out of the reader's way, never deleted, and put
+/// back if its chapter is listed again (see [_adoptOrphansSync]).
+void _setAsideSync(File f, String ch, int n) {
+  final dir = Directory('$ch/orphaned')..createSync(recursive: true);
+  var name = '$n.json';
+  for (var k = 1; File('${dir.path}/$name').existsSync(); k++) {
+    name = '$n-$k.json';
+  }
+  f.renameSync('${dir.path}/$name');
+}
+
+/// Downloads set aside earlier (ch/orphaned) whose chapter is listed in
+/// [names] again, by the very title they were saved with, and has no
+/// download of its own: put back there (the place nearest where they were,
+/// should the title be listed twice).
+void _adoptOrphansSync(String dir, List<String> names) {
+  final orphans = Directory('$dir/ch/orphaned');
+  if (!orphans.existsSync()) return;
+  final placesOf = <String, List<int>>{};
+  for (var j = 0; j < names.length; j++) {
+    (placesOf[names[j]] ??= []).add(j);
+  }
+  for (final f in orphans.listSync().whereType<File>()) {
+    final name = f.uri.pathSegments.last;
+    if (!name.endsWith('.json')) continue;
+    final title = _savedTitle(f);
+    final places = title == null ? null : placesOf[title];
+    if (places == null) continue;
+    final was = int.tryParse(name.split(RegExp(r'[-.]')).first) ?? 0;
+    final free = [for (final j in places) if (!File('$dir/ch/$j.json').existsSync()) j];
+    if (free.isEmpty) continue;
+    final to = free.reduce((a, b) => (a - was).abs() <= (b - was).abs() ? a : b);
+    f.renameSync('$dir/ch/$to.json');
+  }
+  if (orphans.listSync().isEmpty) orphans.deleteSync();
+}
+
 /// The place near [n] whose title in [names] is most like [title]: most of
-/// their words (and numbers) the same, "Chapter" aside.
-int? _likeTitle(String title, List<String> names, int n) {
+/// their words (and numbers) the same, "Chapter" aside. Places in [skip]
+/// are not offered.
+int? _likeTitle(String title, List<String> names, int n, {Set<int> skip = const {}}) {
   Set<String> words(String t) =>
       t.toLowerCase().split(RegExp(r'[^a-z0-9]+')).where((w) => w.isNotEmpty && w != 'chapter').toSet();
   final mine = words(title);
@@ -780,6 +974,7 @@ int? _likeTitle(String title, List<String> names, int n) {
   int? best;
   var bestScore = 0.5;
   for (var j = math.max(0, n - 8); j < math.min(names.length, n + 9); j++) {
+    if (skip.contains(j)) continue;
     final theirs = words(names[j]);
     final score = mine.intersection(theirs).length / mine.union(theirs).length;
     if (score > bestScore || (score == bestScore && best != null && (j - n).abs() < (best - n).abs())) {
@@ -810,10 +1005,12 @@ String? _savedTitle(File f) {
 }
 
 /// Move downloads by [moves]: all out of the way first, then each to its
-/// place, so a chain of moves never lands on a file still to go. One whose
-/// place already holds that chapter (or that is no longer listed) goes.
+/// place, so a chain of moves never lands on a file still to go. One with
+/// no place now (-1), or whose place already holds a download, is set
+/// aside (ch/orphaned), never deleted.
 void _moveChaptersSync(String dir, Map<int, int> moves) {
   final ch = '$dir/ch';
+  if (moves.isEmpty || !Directory(ch).existsSync()) return;
   for (final from in moves.keys) {
     final f = File('$ch/$from.json');
     if (f.existsSync()) f.renameSync('$ch/$from.json.moving');
@@ -822,24 +1019,85 @@ void _moveChaptersSync(String dir, Map<int, int> moves) {
     final f = File('$ch/$from.json.moving');
     if (!f.existsSync()) continue;
     if (to < 0 || File('$ch/$to.json').existsSync()) {
-      f.deleteSync();
+      _setAsideSync(f, ch, from);
     } else {
       f.renameSync('$ch/$to.json');
     }
   }
 }
 
-/// Whether [fresh], a chapter list just fetched, should replace [stored]:
-/// it differs, and is not a copy cut short (a site that failed part way
-/// through its list would otherwise take downloads with it).
-bool replacesChapterList(List<ChapterItem> stored, List<ChapterItem> fresh) {
-  if (fresh.isEmpty || fresh.length < stored.length - math.max(3, stored.length ~/ 50)) return false;
-  if (fresh.length != stored.length) return true;
-  for (var i = 0; i < fresh.length; i++) {
-    if (fresh[i].path != stored[i].path || fresh[i].name != stored[i].name) return true;
-  }
-  return false;
+/// What a chapter list just fetched does to the one stored.
+enum ListChange {
+  /// Nothing new.
+  same,
+
+  /// Stored in its place: new chapters, or entries renamed or moved.
+  taken,
+
+  /// Kept out: the stored list and its downloads stay as they are.
+  refused,
 }
+
+/// [judgeChapterList]'s answer.
+class ListVerdict {
+  const ListVerdict(this.change, {this.why, this.offered = false});
+
+  final ListChange change;
+
+  /// Why a list was refused, said to the reader.
+  final String? why;
+
+  /// A refused list was kept aside for the reader to choose instead (its
+  /// chapters all moved to new addresses).
+  final bool offered;
+
+  bool get taken => change == ListChange.taken;
+  bool get refused => change == ListChange.refused;
+}
+
+/// Whether [fresh], a chapter list just fetched, may replace [stored].
+///
+/// Refused: an empty list; one whose pages were not all read ([complete]
+/// false); one cut short (a site that failed part way would take the later
+/// chapters' places with it); and one in which most chapters on the phone
+/// are no longer listed. That is a site that moved to another domain or a
+/// plugin that now writes its addresses another way, more often than a
+/// novel rewritten: the reader is asked (it is offered, see
+/// LibraryStore.useOfferedChapters) rather than the downloads re-filed by
+/// guesswork.
+ListVerdict judgeChapterList(List<ChapterItem> stored, List<ChapterItem> fresh, {bool complete = true}) {
+  if (fresh.isEmpty) return const ListVerdict(ListChange.refused, why: 'The site listed no chapters.');
+  if (!complete) {
+    return ListVerdict(ListChange.refused,
+        why: "The site's chapter list came back incomplete (${fresh.length} chapters), so the list on the phone was kept.");
+  }
+  if (stored.isEmpty) return const ListVerdict(ListChange.taken);
+  if (fresh.length < stored.length - math.max(3, stored.length ~/ 50)) {
+    return ListVerdict(ListChange.refused,
+        why: 'The site listed ${fresh.length} chapters, fewer than the ${stored.length} on the phone, so those were kept.');
+  }
+  final listed = {for (final c in fresh) c.path};
+  final missing = stored.where((c) => !listed.contains(c.path)).length;
+  if (missing * 2 > stored.length) {
+    return ListVerdict(ListChange.refused,
+        offered: true,
+        why: 'The site now lists its chapters under new addresses '
+            '($missing of the ${stored.length} on the phone no longer match), so the list on the phone was kept.');
+  }
+  if (fresh.length == stored.length) {
+    var same = true;
+    for (var i = 0; i < fresh.length && same; i++) {
+      same = fresh[i].path == stored[i].path && fresh[i].name == stored[i].name;
+    }
+    if (same) return const ListVerdict(ListChange.same);
+  }
+  return const ListVerdict(ListChange.taken);
+}
+
+/// Whether [fresh], a chapter list just fetched, should replace [stored]
+/// (see [judgeChapterList]).
+bool replacesChapterList(List<ChapterItem> stored, List<ChapterItem> fresh, {bool complete = true}) =>
+    judgeChapterList(stored, fresh, complete: complete).taken;
 
 typedef _ImportJob = ({
   String booksDir,
@@ -1360,6 +1618,7 @@ class WebNovelInfo {
     required this.chapters,
     this.checkedAt,
     this.filed = false,
+    this.refusal,
   });
 
   final PluginInfo plugin;
@@ -1376,12 +1635,24 @@ class WebNovelInfo {
   /// LibraryStore.settleWebChapters).
   final bool filed;
 
-  WebNovelInfo copyWith({List<ChapterItem>? chapters, DateTime? checkedAt, bool? filed}) => WebNovelInfo(
+  /// Why the site's latest list was not taken, if it was not (see
+  /// LibraryStore.offerWebChapters).
+  final ListRefusal? refusal;
+
+  WebNovelInfo copyWith({
+    List<ChapterItem>? chapters,
+    DateTime? checkedAt,
+    bool? filed,
+    ListRefusal? refusal,
+    bool clearRefusal = false,
+  }) =>
+      WebNovelInfo(
         plugin: plugin,
         novel: novel,
         chapters: chapters ?? this.chapters,
         checkedAt: checkedAt ?? this.checkedAt,
         filed: filed ?? this.filed,
+        refusal: clearRefusal ? null : (refusal ?? this.refusal),
       );
 
   Map<String, Object?> toJson() => {
@@ -1398,6 +1669,7 @@ class WebNovelInfo {
         'chapters': [for (final c in chapters) c.toJson()],
         if (checkedAt != null) 'checkedAt': checkedAt!.toIso8601String(),
         if (filed) 'filed': true,
+        if (refusal != null) 'refused': refusal!.toJson(),
       };
 
   static WebNovelInfo fromJson(Map<String, Object?> j) {
@@ -1412,6 +1684,40 @@ class WebNovelInfo {
       ],
       checkedAt: DateTime.tryParse(j['checkedAt'] as String? ?? ''),
       filed: j['filed'] == true,
+      refusal: ListRefusal.fromJson(j['refused']),
+    );
+  }
+}
+
+/// A chapter list the site gave that was not taken, and why.
+class ListRefusal {
+  const ListRefusal({required this.why, required this.at, required this.count, this.offered = false});
+
+  final String why;
+  final DateTime at;
+
+  /// How many chapters the site listed.
+  final int count;
+
+  /// The list was kept aside for the reader to take instead.
+  final bool offered;
+
+  Map<String, Object?> toJson() => {
+        'why': why,
+        'at': at.toIso8601String(),
+        'count': count,
+        if (offered) 'offered': true,
+      };
+
+  static ListRefusal? fromJson(Object? o) {
+    if (o is! Map) return null;
+    final at = DateTime.tryParse(o['at'] as String? ?? '');
+    if (at == null) return null;
+    return ListRefusal(
+      why: o['why'] as String? ?? '',
+      at: at,
+      count: o['count'] as int? ?? 0,
+      offered: o['offered'] == true,
     );
   }
 }

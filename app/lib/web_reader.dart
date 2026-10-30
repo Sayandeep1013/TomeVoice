@@ -182,9 +182,12 @@ class _WebNovelReaderState extends State<WebNovelReader> {
     final current = layout.units.last.sectionIndex;
     var next = current + 1;
     if (next >= _total) {
-      final after = await _refreshChapters(current);
+      final (after, refused) = await _refreshChapters(current);
       if (after == null) {
-        if (mounted) showSnack(context, 'That is the latest chapter so far. New ones appear when the site adds them.');
+        if (mounted) {
+          showSnack(context, refused ?? 'That is the latest chapter so far. New ones appear when the site adds them.',
+              long: refused != null);
+        }
         return;
       }
       next = after;
@@ -193,24 +196,25 @@ class _WebNovelReaderState extends State<WebNovelReader> {
   }
 
   /// Ask the source for the chapter list again. If it grew, the chapter
-  /// after [current] (which may have moved in the new list); else null.
-  Future<int?> _refreshChapters(int current) async {
+  /// after [current] (which may have moved in the new list); else null, and
+  /// why the site's list was not taken, if it was not.
+  Future<(int?, String?)> _refreshChapters(int current) async {
     try {
       final info = await _store.webNovel(_id);
-      if (info == null) return null;
+      if (info == null) return (null, null);
       final plugin = await SourceEngine.instance.store.installedById(info.plugin.id);
-      if (plugin == null) return null;
+      if (plugin == null) return (null, null);
       if (mounted) showSnack(context, 'Checking for new chapters…');
       final fresh = await SourceEngine.instance.novel(plugin, info.novel.path);
-      if (!replacesChapterList(info.chapters, fresh.chapters)) return null;
-      await _store.saveWebChapters(_id, fresh.chapters);
+      final verdict = await _store.offerWebChapters(_id, fresh.chapters, complete: fresh.complete);
+      if (!verdict.taken) return (null, verdict.refused ? verdict.why : null);
       _total = fresh.chapters.length;
       final path = info.chapters.elementAtOrNull(current)?.path;
       final now = fresh.chapters.indexWhere((c) => c.path == path);
       final after = (now < 0 ? current : now) + 1;
-      return after < _total ? after : null;
+      return (after < _total ? after : null, null);
     } on Object {
-      return null;
+      return (null, null);
     }
   }
 

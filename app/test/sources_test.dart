@@ -344,6 +344,38 @@ void main() {
     expect(json.existsSync(), isFalse, reason: 'the temporary file is cleaned up');
   });
 
+  test("a NovelDokusha novel's paths are written as its plugin writes them", () async {
+    final dir = Directory.systemTemp.createTempSync('tv_nd_paths');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    // Installed: a plugin whose site has no slash at the end, so its paths
+    // start with one (it reads site + path).
+    Directory('${dir.path}/sources/plugins').createSync(recursive: true);
+    File('${dir.path}/sources/installed.json').writeAsStringSync(jsonEncode([
+      {'id': 'novels', 'name': 'Novels', 'site': 'https://example-novels.com', 'lang': 'English', 'version': '1', 'url': 'https://e/x.js'},
+    ]));
+    final json = File('${dir.path}/nd.json')
+      ..writeAsStringSync(jsonEncode({
+        'books': [
+          {
+            'title': 'Lord of Mysteries',
+            'url': 'https://www.example-novels.com/novel/lord-of-mysteries',
+            'cover': '',
+            'description': '',
+            'chapters': [
+              {'title': 'Chapter 1', 'url': 'https://www.example-novels.com/novel/lord-of-mysteries/chapter-1', 'read': false},
+            ],
+          },
+        ],
+      }));
+    final store = LibraryStore(dir);
+    final report = await importNovelDokushaJson(store, SourceStore(dir, defaults: const []), json.path);
+    expect(report.unmatched, isEmpty);
+    final e = (await store.list()).single;
+    expect(e.plugin, 'novels');
+    expect(e.novelPath, '/novel/lord-of-mysteries');
+    expect((await store.webNovel(e.id))!.chapters.single.path, '/novel/lord-of-mysteries/chapter-1');
+  });
+
   test("NovelDokusha's local books come across from the text in the backup", () async {
     final dir = Directory.systemTemp.createTempSync('tv_nd_local');
     addTearDown(() => dir.deleteSync(recursive: true));

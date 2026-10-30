@@ -157,8 +157,10 @@ class Updates {
               added.add(NewChapter(bookId: e.id, title: e.title, index: n, name: c.name, foundAt: now));
             }
           }
-          if (added.isNotEmpty && replacesChapterList(info.chapters, fresh.chapters)) {
-            await store.saveWebChapters(e.id, fresh.chapters);
+          // A list that looks wrong is not stored (the novel's page says
+          // why), and its "new" chapters are not new.
+          final verdict = await store.offerWebChapters(e.id, fresh.chapters, complete: fresh.complete);
+          if (verdict.taken && added.isNotEmpty) {
             log.insertAll(0, added.reversed);
             found += added.length;
           }

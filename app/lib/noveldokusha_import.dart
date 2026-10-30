@@ -210,15 +210,20 @@ String _bareHost(String url) {
   return h.startsWith('www.') ? h.substring(4) : h;
 }
 
-/// [url] relative to [site] when it is on that site (as LNReader plugins
-/// expect their paths), otherwise unchanged.
+/// [url] as the plugin for [site] writes its paths: what it adds to its
+/// site to make the address (LNReader resolves a path as site + path), so
+/// "https://x.com/" takes "novel/a" and "https://x.com" takes "/novel/a".
+/// A path written another way is not found again on the next check, and
+/// the novel's chapters would then be matched by title alone. Unchanged
+/// when [url] is not on that site.
 String _relative(String url, String site) {
   final u = Uri.tryParse(url);
   final s = Uri.tryParse(site);
-  if (u == null || s == null || _bareHost(url) != _bareHost(site)) return url;
-  var path = u.path;
-  if (path.startsWith('/')) path = path.substring(1);
-  return u.hasQuery ? '$path?${u.query}' : path;
+  if (u == null || s == null || !u.hasAuthority || _bareHost(url) != _bareHost(site)) return url;
+  final full = u.hasQuery ? '${u.path}?${u.query}' : u.path;
+  final base = s.path;
+  if (base.isEmpty) return full.startsWith('/') ? full : '/$full';
+  return full.startsWith(base) ? full.substring(base.length) : url;
 }
 
 /// NovelDokusha keeps chapter text as plain paragraphs separated by blank

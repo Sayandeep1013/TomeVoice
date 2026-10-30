@@ -133,5 +133,124 @@ void main() {
       expect(replacesChapterList(before, after), isTrue);
       expect(replacesChapterList(listOf([for (var i = 0; i < 100; i++) '$i']), listOf(['0', '1'])), isFalse);
     });
+
+    test('a list is judged: same, taken, or refused with a reason', () {
+      expect(judgeChapterList(before, before).change, ListChange.same);
+      expect(judgeChapterList(before, after).change, ListChange.taken);
+      expect(judgeChapterList(before, const []).why, contains('no chapters'));
+      final partial = judgeChapterList(before, [...before, ...listOf(['F'])], complete: false);
+      expect(partial.refused, isTrue);
+      expect(partial.why, contains('incomplete'));
+      final moved = judgeChapterList(before, [for (final c in before) ChapterItem(name: c.name, path: 'new/${c.path}')]);
+      expect((moved.refused, moved.offered), (true, true));
+      expect(moved.why, contains('5 of the 5'));
+    });
+
+    /// A novel of [names], its chapter i at [pathOf](i), with [downloaded]
+    /// saved under their titles.
+    Future<String> novelOf(String path, List<String> names, String Function(int i) pathOf, List<int> downloaded) async {
+      final list = [for (var i = 0; i < names.length; i++) ChapterItem(name: names[i], path: pathOf(i))];
+      final id = (await store.addWebNovel(plugin, SourceNovel(path: path, name: path, chapters: list))).id;
+      for (final i in downloaded) {
+        await store.saveChapter(id, i, names[i], '<p>The words of ${names[i]}.</p>');
+      }
+      return id;
+    }
+
+    Future<List<String>> texts(String id) async => [
+          for (final s in (await store.loadLayout(id)).book.sections) s.blocks.map((b) => b.text).join(' '),
+        ];
+
+    test('a site that moved to another domain keeps every download, and its list is taken only when chosen', () async {
+      final names = [for (var i = 1; i <= 6; i++) 'Chapter $i'];
+      final id = await novelOf('moved', names, (i) => 'https://old.site/novel/ch-${i + 1}', [2, 3]);
+      await store.saveCursor(id, const ReadingCursor(sectionIndex: 3), 0.5);
+      final fresh = [for (var i = 0; i < 6; i++) ChapterItem(name: names[i], path: 'https://new.site/novel/ch-${i + 1}')];
+
+      final verdict = await store.offerWebChapters(id, fresh);
+      expect((verdict.refused, verdict.offered), (true, true));
+      final kept = (await store.webNovel(id))!;
+      expect(kept.chapters.first.path, 'https://old.site/novel/ch-1', reason: 'the stored list stays');
+      expect(kept.refusal!.why, contains('new addresses'));
+      expect(store.downloadedChapters(id), {2, 3});
+
+      final chosen = await store.useOfferedChapters(id);
+      expect(chosen.taken, isTrue);
+      final now = (await store.webNovel(id))!;
+      expect(now.chapters.first.path, 'https://new.site/novel/ch-1');
+      expect(now.refusal, isNull);
+      expect(store.downloadedChapters(id), {2, 3});
+      expect((await texts(id))[3], contains('The words of Chapter 4.'));
+      expect((await store.cursorFor(id)).sectionIndex, 3);
+      expect(File('${tmp.path}/books/$id/offered.json').existsSync(), isFalse);
+    });
+
+    test('a plugin that writes its addresses another way: downloads find their chapters by title, shifted', () async {
+      final names = [for (var i = 1; i <= 6; i++) 'Chapter $i'];
+      final id = await novelOf('reformatted', names, (i) => 'chapter-${i + 1}', [1, 4]);
+      await store.saveCursor(id, const ReadingCursor(sectionIndex: 4, blockIndex: 0), 0.7);
+      await MarkStore.instance.add(
+        bookId: id,
+        bookTitle: 'Reformatted',
+        kind: MarkKind.quote,
+        at: const ReadingCursor(sectionIndex: 1),
+        text: 'The words of Chapter 2.',
+      );
+      // The new plugin also lists a prologue first, and a new chapter.
+      final fresh = [
+        const ChapterItem(name: 'Prologue', path: 'c/0'),
+        for (var i = 0; i < 6; i++) ChapterItem(name: names[i], path: 'c/${i + 1}'),
+        const ChapterItem(name: 'Chapter 7', path: 'c/7'),
+      ];
+      expect((await store.offerWebChapters(id, fresh)).refused, isTrue, reason: 'every address changed');
+      expect(store.downloadedChapters(id), {1, 4});
+
+      expect((await store.useOfferedChapters(id)).taken, isTrue);
+      expect(store.downloadedChapters(id), {2, 5});
+      final t = await texts(id);
+      expect(t[2], contains('The words of Chapter 2.'));
+      expect(t[5], contains('The words of Chapter 5.'));
+      expect((await store.cursorFor(id)).sectionIndex, 5);
+      expect(MarkStore.instance.forBook(id).single.at.sectionIndex, 2);
+      expect(Directory('${tmp.path}/books/$id/ch/orphaned').existsSync(), isFalse, reason: 'every download found its place');
+    });
+
+    test('a list cut short or not read to its end changes nothing; one taken anyway sets aside, never deletes', () async {
+      final names = [for (var i = 1; i <= 100; i++) 'Chapter $i'];
+      final id = await novelOf('long', names, (i) => 'ch/${i + 1}', [95, 96, 97, 98, 99]);
+      final full = [for (var i = 0; i < 100; i++) ChapterItem(name: names[i], path: 'ch/${i + 1}')];
+
+      final cut = await store.offerWebChapters(id, full.sublist(0, 50));
+      expect((cut.refused, cut.offered), (true, false));
+      expect(cut.why, contains('fewer than the 100'));
+      final partial = await store.offerWebChapters(id, [...full, const ChapterItem(name: 'Chapter 101', path: 'ch/101')],
+          complete: false);
+      expect(partial.refused, isTrue);
+      expect((await store.webNovel(id))!.chapters, hasLength(100));
+      expect(store.downloadedChapters(id), {95, 96, 97, 98, 99});
+
+      // The reader takes a list without the last three: their downloads are
+      // kept aside, and come back when the site lists them again.
+      await store.saveWebChapters(id, full.sublist(0, 97));
+      expect(store.downloadedChapters(id), {95, 96});
+      expect(Directory('${tmp.path}/books/$id/ch/orphaned').listSync(), hasLength(3));
+      expect((await store.offerWebChapters(id, full)).taken, isTrue);
+      expect(store.downloadedChapters(id), {95, 96, 97, 98, 99});
+      expect((await texts(id))[99], contains('The words of Chapter 100.'));
+      expect(Directory('${tmp.path}/books/$id/ch/orphaned').existsSync(), isFalse);
+    });
+
+    test('two downloads wanting one place: the other is set aside, not deleted', () async {
+      // An older build left chapter 3's text under both 2 and 3.
+      final names = ['A', 'B', 'C', 'D'];
+      final id = await novelOf('twice', names, (i) => names[i].toLowerCase(), [2]);
+      File('${tmp.path}/books/$id/ch/2.json').copySync('${tmp.path}/books/$id/ch/3.json');
+      final file = File('${tmp.path}/books/$id/novel.json');
+      final json = jsonDecode(file.readAsStringSync()) as Map<String, Object?>..remove('filed');
+      file.writeAsStringSync(jsonEncode(json));
+      await store.settleWebChapters(id);
+      expect(store.downloadedChapters(id), {2});
+      expect(Directory('${tmp.path}/books/$id/ch/orphaned').listSync(), hasLength(1));
+    });
   });
 }
