@@ -92,12 +92,14 @@ object PdfText {
     }
 
     /** [value] as org.json holds it: maps, lists and int arrays all the way down. */
-    private fun jsonOf(value: Any?): Any = when (value) {
-        null -> JSONObject.NULL
-        is IntArray -> JSONArray().also { a -> for (v in value) a.put(v) }
-        is Map<*, *> -> JSONObject().also { o -> for ((k, v) in value) o.put(k.toString(), jsonOf(v)) }
-        is List<*> -> JSONArray().also { a -> for (v in value) a.put(jsonOf(v)) }
-        else -> value
+    private fun jsonOf(value: Any?): Any {
+        if (value == null) return JSONObject.NULL
+        return when (value) {
+            is IntArray -> JSONArray().also { a -> for (v in value) a.put(v) }
+            is Map<*, *> -> JSONObject().also { o -> for ((k, v) in value) o.put(k.toString(), jsonOf(v)) }
+            is List<*> -> JSONArray().also { a -> for (v in value) a.put(jsonOf(v)) }
+            else -> value
+        }
     }
 
     /**

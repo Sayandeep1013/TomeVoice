@@ -48,6 +48,13 @@ a page and after a drop of more than 2.5 line heights, so paragraphs set in
 by an indent are run together, as Pride and Prejudice's dialogue was. Each
 file's `_note` says the same.
 
+A real extraction can be taken off a phone instead: `adb shell am start -n
+app.tomevoice/.tomevoice_spike.MainActivity --es dumpPdf <book id>` writes
+what `PdfText.extract` gives for that book's PDF to
+`pdf-dump-<book id>.json` in the library's folder, in this same shape (see
+`dumpPdfIfAsked` in `MainActivity.kt`). With its licence checked and a
+`_note` saying where it came from, it can join the corpus as it is.
+
 | File | Size | What it is | Text from | Licence |
 |---|---|---|---|---|
 | `pride-and-prejudice.pdftext.json` | 33 KB | Chapters I to III of *Pride and Prejudice* (1813) as a small printed book, 14 pages: an 1813-style title page, a contents page, chapters opening on a new page with the folio at the foot, running heads with folios (the book on left-hand pages, the chapter on right-hand ones), dialogue set in by an em, words broken at line ends, and an editor's footnote | Standard Ebooks' text of the chapters (https://standardebooks.org/ebooks/jane-austen/pride-and-prejudice); the footnote written for the corpus | Public domain and CC0; the note GPL-3.0 |
