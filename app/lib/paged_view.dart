@@ -252,6 +252,14 @@ class _PagedBookState extends State<PagedBook> {
   /// Set when a page is to be shown once the size is known.
   int? _pendingUnit;
 
+  /// The sentence the page shown is kept at: the one being read, or the
+  /// first of the page turned to. A new size, look or spread cuts new
+  /// pages, and the page that has it is shown.
+  int? _anchor;
+
+  /// The size, look and spread the page shown was found for.
+  Object? _cutAt;
+
   @override
   void initState() {
     super.initState();
@@ -550,6 +558,7 @@ class _PagedBookState extends State<PagedBook> {
       _pendingUnit = unit;
       return;
     }
+    _anchor = unit;
     final c = _l.chapterOfUnit(unit);
     // The voice reading on into the next chapter turns onto its first page,
     // already at the row's end, as a hand would.
@@ -612,7 +621,14 @@ class _PagedBookState extends State<PagedBook> {
       _moveTo(_chapter + 1, 1);
     }
     final page = _pageAt(_index);
-    if (page != null) widget.onPage(page.firstUnit, byHand: byHand);
+    if (page != null) {
+      // Kept while it is on the page shown, so new cuts find the same
+      // sentence again instead of drifting back a page each time.
+      final shown = _range();
+      final a = _anchor;
+      if (a == null || shown == null || a < shown.$1 || a >= shown.$2) _anchor = page.firstUnit;
+      widget.onPage(page.firstUnit, byHand: byHand);
+    }
     // Cut the chapters either side ahead of time, a frame apart, so
     // turning onto them never waits.
     final c = _chapter;
@@ -670,11 +686,16 @@ class _PagedBookState extends State<PagedBook> {
   Widget build(BuildContext context) => LayoutBuilder(
         builder: (context, box) {
           final size = Size(box.maxWidth, box.maxHeight);
-          if (size != _size) {
+          final cut = Object.hash(widget.look.key, size, widget.spread);
+          if (cut != _cutAt) {
+            _cutAt = cut;
             _size = size;
-            // A new size cuts new pages; the page keeps its first sentence.
-            final keep = _pendingUnit ?? _pageAt(_index)?.firstUnit;
+            // A new size, look or spread cuts new pages; the page keeps its
+            // sentence. (Asked of the pages after the cut, the old page's
+            // number came back, with other text on it.)
+            final keep = _pendingUnit ?? _anchor;
             if (keep != null) {
+              _anchor = keep;
               _chapter = _l.chapterOfUnit(keep);
               final i = _before + _itemOf(_chapter, keep);
               if (_pages == null) {
