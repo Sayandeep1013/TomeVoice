@@ -63,6 +63,19 @@ class SourcesBridge {
   /// before each write: it stops, and leaves the rest to the app).
   static Future<bool> appIsOpen() async => await _ask<bool>('appIsOpen') ?? false;
 
+  /// Answer the background check's worker when it finds the app's own
+  /// engine up (TomeVoice open, left in the background with Back, or a
+  /// book read with no screen): rather than start a second engine, which
+  /// must never write the library while this one may, it asks this one to
+  /// check ("runCheck"), and posts what [check] says to tell the reader,
+  /// as it would have from its own.
+  static void answerChecks(Future<Map<String, Object?>> Function() check) {
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == 'runCheck') return check();
+      throw MissingPluginException('No ${call.method} here');
+    });
+  }
+
   /// Whether the phone is on Wi-Fi now (a network not charged by the byte):
   /// what new chapters downloading by themselves wait for. Null where the
   /// platform does not say.

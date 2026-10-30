@@ -102,11 +102,31 @@ Future<OpenLibrary> _open(String dir) async {
   await MarkStore.instance.attach(Directory(dir));
   await StatsStore.instance.attach(Directory(dir));
   NeuralVoices.instance.attach(Directory(dir));
-  // One check for the whole engine (the shelves' and the Updates page's),
-  // which queues the new chapters of novels that download them by
-  // themselves.
+  // One check for the whole engine (the shelves', the Updates page's, and
+  // the closed-app check's worker's, see checkInApp), which queues the new
+  // chapters of novels that download them by themselves.
   final updates = Updates(store, auto: AutoDownloads());
   return (dir: dir, store: store, sources: sources, updates: updates);
+}
+
+/// What the closed-app check's worker asks of this engine when it finds it
+/// up (TomeVoice open, left in the background with Back, or reading a book
+/// with no screen) instead of starting an engine of its own: two engines
+/// must never write the library at once. The check runs here, on the
+/// engine's one [Updates] (a check already running is joined), and what to
+/// tell the reader is worded as from away from the app (see
+/// describeNewChapters). Nothing when checks are turned off, or one ended
+/// in the last [recent] (the app checks on opening, and on coming back).
+Future<Map<String, Object?>> checkInApp({Duration recent = const Duration(minutes: 30)}) async {
+  final library = await openLibrary();
+  if (UpdateEvery.byName(ListeningPrefs.loaded?.updateEvery).interval == null) return const {'found': 0};
+  final updates = library.updates;
+  if (!updates.running.value) {
+    final last = await updates.lastChecked();
+    if (last != null && DateTime.now().difference(last) < recent) return const {'found': 0};
+  }
+  final r = await updates.checkAll();
+  return describeNewChapters(library.store, r.added);
 }
 
 /// The app around the screens: storage and settings are opened once here,

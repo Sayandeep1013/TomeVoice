@@ -11,6 +11,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.webkit.CookieManager
+import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterEngineCache
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
@@ -39,6 +40,31 @@ object SourcesBridge {
         if (FlutterEngineCache.getInstance().get(ReadingCore.ENGINE_ID)?.dartExecutor?.isExecutingDart == true) return true
         val a = app?.get() ?: return false
         return !a.isFinishing && !a.isDestroyed
+    }
+
+    /**
+     * Ask the app's own engine (ReadingCore's, running Dart) to run the
+     * check for new chapters (home_shell.dart's checkInApp, answering
+     * "runCheck"), for NovelCheckWorker while that engine is up: a second
+     * engine must never write the library while it may. [answer] hears what
+     * to tell the reader, or null when it could not say. On the main thread;
+     * the engine asked, or null when there was none to ask.
+     */
+    fun askAppToCheck(answer: (Map<*, *>?) -> Unit): FlutterEngine? {
+        val engine = FlutterEngineCache.getInstance().get(ReadingCore.ENGINE_ID)
+        if (engine == null || !engine.dartExecutor.isExecutingDart) return null
+        MethodChannel(engine.dartExecutor.binaryMessenger, CHANNEL).invokeMethod(
+            "runCheck",
+            null,
+            object : MethodChannel.Result {
+                override fun success(result: Any?) = answer(result as? Map<*, *>)
+
+                override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) = answer(null)
+
+                override fun notImplemented() = answer(null)
+            },
+        )
+        return engine
     }
 
     fun attach(

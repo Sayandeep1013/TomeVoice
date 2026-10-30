@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
@@ -18,6 +19,7 @@ import androidx.work.Worker
 import androidx.work.WorkerParameters
 import io.flutter.FlutterInjector
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.embedding.engine.FlutterEngineCache
 import io.flutter.embedding.engine.dart.DartExecutor
 import io.flutter.view.FlutterCallbackInformation
 import java.util.concurrent.CountDownLatch
@@ -36,8 +38,10 @@ import java.util.concurrent.atomic.AtomicReference
  * waits for the Dart side to say it is done. Then it posts what was found,
  * as the Dart side worded it (novels on a secret shelf unnamed).
  *
- * While the app is open it does nothing: the app checks on opening and on
- * coming back to it, and two engines must not write the library at once.
+ * While the app's own engine is up (TomeVoice open, left in the background
+ * with Back, which keeps it, or reading a book with no screen), no engine is
+ * started: two engines must never write the library at once. That engine is
+ * asked to check instead ([askApp]), and what it found is posted the same way.
  */
 class NovelCheckWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
 
@@ -46,7 +50,10 @@ class NovelCheckWorker(context: Context, params: WorkerParameters) : Worker(cont
 
     override fun doWork(): Result {
         val app = applicationContext
-        if (SourcesBridge.appIsOpen()) return Result.success()
+        if (SourcesBridge.appIsOpen()) {
+            askApp()?.let { notify(app, it) }
+            return Result.success()
+        }
         val handle = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(KEY_HANDLE, 0L)
         if (handle == 0L || !running.compareAndSet(false, true)) return Result.success()
         val main = Handler(Looper.getMainLooper())
@@ -83,6 +90,33 @@ class NovelCheckWorker(context: Context, params: WorkerParameters) : Worker(cont
         }
         outcome.get()?.let { notify(app, it) }
         return Result.success()
+    }
+
+    /**
+     * The app's own engine, asked to check (SourcesBridge.askAppToCheck),
+     * and waited for: what it found, or null when it could not say (it has
+     * no check to answer with yet, or went before it answered, as when the
+     * app closes; or this run may wait no longer).
+     */
+    private fun askApp(): Map<*, *>? {
+        val answered = CountDownLatch(1)
+        val found = AtomicReference<Map<*, *>?>(null)
+        val asked = AtomicReference<FlutterEngine?>(null)
+        Handler(Looper.getMainLooper()).post {
+            val engine = SourcesBridge.askAppToCheck { result ->
+                found.set(result)
+                answered.countDown()
+            }
+            if (engine == null) answered.countDown() else asked.set(engine)
+        }
+        // WorkManager gives a run ten minutes, as for an engine of its own.
+        val deadline = SystemClock.elapsedRealtime() + TimeUnit.MINUTES.toMillis(9)
+        while (!answered.await(2, TimeUnit.SECONDS)) {
+            if (isStopped || SystemClock.elapsedRealtime() > deadline) return null
+            val engine = asked.get()
+            if (engine != null && FlutterEngineCache.getInstance().get(ReadingCore.ENGINE_ID) !== engine) return null
+        }
+        return found.get()
     }
 
     /** No longer allowed to run (out of time, or off Wi-Fi): end the engine. */
