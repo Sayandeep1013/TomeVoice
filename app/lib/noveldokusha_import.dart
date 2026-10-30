@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:isolate';
 
 import 'package:archive/archive.dart';
 
@@ -25,7 +24,9 @@ class ImportReport {
   final List<String> unmatched;
 }
 
-/// A novel from a NovelDokusha backup, as its Kotlin reader wrote it.
+/// A novel from a NovelDokusha backup, as its Kotlin reader wrote it: its
+/// details and chapter list; the chapters' text comes after it, one at a
+/// time (see [importNovelDokushaJson]).
 class _NdBook {
   _NdBook(this.title, this.url, this.cover, this.description, this.lastRead, this.chapters);
 
@@ -34,12 +35,26 @@ class _NdBook {
   final String cover;
   final String description;
   final String? lastRead;
-  final List<({String title, String url, bool read, String? body})> chapters;
+  final List<({String title, String url, bool read})> chapters;
+
+  static _NdBook fromJson(Map<Object?, Object?> b) => _NdBook(
+        b['title'] as String? ?? 'Untitled',
+        b['url'] as String? ?? '',
+        b['cover'] as String? ?? '',
+        b['description'] as String? ?? '',
+        b['lastReadChapter'] as String?,
+        [
+          for (final c in b['chapters'] as List? ?? const [])
+            if (c is Map) (title: c['title'] as String? ?? '', url: c['url'] as String? ?? '', read: c['read'] == true),
+        ],
+      );
 }
 
-/// Bring the web novels from a NovelDokusha backup's JSON (see
-/// NovelDokushaImport.kt) into the library: details, chapter list, the
-/// chapter text it had downloaded, and the place last read.
+/// Bring the web novels from a NovelDokusha backup (the file of JSON lines
+/// NovelDokushaImport.kt writes) into the library: details, chapter list,
+/// the chapter text it had downloaded, and the place last read. Read a line
+/// at a time: one book's list and one chapter's text are held at once, never
+/// the whole backup.
 ///
 /// Each novel is matched to an installed (or listed) source by its website,
 /// so updates keep working; one with no source is still imported and reads
@@ -50,19 +65,67 @@ Future<ImportReport> importNovelDokushaJson(
   String jsonPath, {
   void Function(String title, int done, int total)? onProgress,
 }) async {
-  final books = await Isolate.run(() => _parse(jsonPath));
   final candidates = [...await sources.installed(), ...await sources.available()];
-  var chapters = 0;
+  var chapters = 0, novels = 0, total = 0;
   final unmatched = <String>[];
-  for (var n = 0; n < books.length; n++) {
-    final b = books[n];
-    onProgress?.call(b.title, n, books.length);
+  _NdImport? current;
+
+  Future<void> finish() async {
+    final c = current;
+    current = null;
+    if (c != null) chapters += await c.finish(store);
+  }
+
+  final lines = File(jsonPath).openRead().transform(utf8.decoder).transform(const LineSplitter());
+  await for (final line in lines) {
+    if (line.trim().isEmpty) continue;
+    final o = jsonDecode(line);
+    if (o is! Map) continue;
+    if (o['v'] != null) {
+      total = o['books'] as int? ?? 0;
+    } else if (o['book'] is Map) {
+      await finish();
+      final b = _NdBook.fromJson(o['book'] as Map);
+      onProgress?.call(b.title, novels, total < novels + 1 ? novels + 1 : total);
+      novels++;
+      current = await _NdImport.start(store, b, candidates, unmatched);
+    } else if (o['body'] is Map) {
+      final body = o['body'] as Map;
+      final i = body['i'], text = body['text'];
+      if (i is int && text is String) chapters += await current?.add(store, i, text) ?? 0;
+    }
+  }
+  await finish();
+  try {
+    await File(jsonPath).delete();
+  } on FileSystemException {
+    // In the cache folder; Android clears it eventually.
+  }
+  return ImportReport(novels: novels, chapters: chapters, unmatched: unmatched);
+}
+
+/// One book being imported, while its chapters' text arrives.
+class _NdImport {
+  _NdImport._(this.book, this.entry);
+
+  final _NdBook book;
+
+  /// The web novel it became; null for a local book (an EPUB, made once all
+  /// its text is here).
+  final LibraryEntry? entry;
+
+  /// A local book's chapters' text, by place.
+  final _local = <int, String>{};
+
+  static Future<_NdImport> start(
+    LibraryStore store,
+    _NdBook b,
+    List<PluginInfo> candidates,
+    List<String> unmatched,
+  ) async {
     // A book NovelDokusha imported from a file: its text is all there is.
     // It comes back as the book it was (an EPUB), not a web novel.
-    if (b.url.startsWith('local://')) {
-      chapters += await _importLocalBook(store, b);
-      continue;
-    }
+    if (b.url.startsWith('local://')) return _NdImport._(b, null);
     final host = _bareHost(b.url);
     final plugin = candidates.where((p) => _bareHost(p.site) == host).firstOrNull ??
         PluginInfo(
@@ -82,13 +145,28 @@ Future<ImportReport> importNovelDokushaJson(
       summary: b.description.isEmpty ? null : b.description,
       chapters: [for (final c in b.chapters) ChapterItem(name: c.title, path: rel(c.url))],
     );
-    final entry = await store.addWebNovel(plugin, novel);
-    for (var i = 0; i < b.chapters.length; i++) {
-      final body = b.chapters[i].body;
-      if (body == null || body.trim().isEmpty || store.hasChapter(entry.id, i)) continue;
-      await store.saveChapter(entry.id, i, b.chapters[i].title, _bodyToHtml(body));
-      chapters++;
+    return _NdImport._(b, await store.addWebNovel(plugin, novel));
+  }
+
+  /// Chapter [i]'s [text]: saved (a web novel's), or kept for the EPUB (a
+  /// local book's). How many chapters it adds to the count.
+  Future<int> add(LibraryStore store, int i, String text) async {
+    if (i < 0 || i >= book.chapters.length || text.trim().isEmpty) return 0;
+    final e = entry;
+    if (e == null) {
+      _local[i] = text;
+      return 0;
     }
+    if (store.hasChapter(e.id, i)) return 0;
+    await store.saveChapter(e.id, i, book.chapters[i].title, _bodyToHtml(text));
+    return 1;
+  }
+
+  /// The book's text has all come: a local book is made, and the place set.
+  Future<int> finish(LibraryStore store) async {
+    final e = entry;
+    if (e == null) return _importLocalBook(store, book, _local);
+    final b = book;
     // The place: NovelDokusha's last chapter, else the first unread one.
     var at = b.lastRead == null ? -1 : b.chapters.indexWhere((c) => c.url == b.lastRead);
     if (at < 0) {
@@ -96,51 +174,22 @@ Future<ImportReport> importNovelDokushaJson(
       at = unread <= 0 ? -1 : unread;
     }
     if (at >= 0 && b.chapters.isNotEmpty) {
-      await store.saveCursor(entry.id, ReadingCursor(sectionIndex: at), at / b.chapters.length,
-          where: b.chapters[at].title);
+      await store.saveCursor(e.id, ReadingCursor(sectionIndex: at), at / b.chapters.length, where: b.chapters[at].title);
     }
+    return 0;
   }
-  try {
-    await File(jsonPath).delete();
-  } on FileSystemException {
-    // In the cache folder; Android clears it eventually.
-  }
-  return ImportReport(novels: books.length, chapters: chapters, unmatched: unmatched);
-}
-
-List<_NdBook> _parse(String path) {
-  final raw = jsonDecode(File(path).readAsStringSync()) as Map;
-  return [
-    for (final b in raw['books'] as List? ?? const [])
-      if (b is Map)
-        _NdBook(
-          b['title'] as String? ?? 'Untitled',
-          b['url'] as String? ?? '',
-          b['cover'] as String? ?? '',
-          b['description'] as String? ?? '',
-          b['lastReadChapter'] as String?,
-          [
-            for (final c in b['chapters'] as List? ?? const [])
-              if (c is Map)
-                (
-                  title: c['title'] as String? ?? '',
-                  url: c['url'] as String? ?? '',
-                  read: c['read'] == true,
-                  body: c['body'] as String?,
-                ),
-          ],
-        ),
-  ];
 }
 
 /// One of NovelDokusha's local books, as an EPUB made from the chapters in
-/// the backup and imported like any book: an EPUB on the shelf, with its
-/// chapters and NovelDokusha's place. Returns the chapters that had text.
-Future<int> _importLocalBook(LibraryStore store, _NdBook b) async {
+/// the backup ([texts], by place) and imported like any book: an EPUB on the
+/// shelf, with its chapters and NovelDokusha's place. Returns the chapters
+/// that had text.
+Future<int> _importLocalBook(LibraryStore store, _NdBook b, Map<int, String> texts) async {
   final title = _tidyFileName(b.title);
   final withText = [
-    for (final c in b.chapters)
-      if (c.body != null && c.body!.trim().isNotEmpty) c,
+    for (var i = 0; i < b.chapters.length; i++)
+      if (texts[i] case final body? when body.trim().isNotEmpty)
+        (title: b.chapters[i].title, url: b.chapters[i].url, body: body),
   ];
   // An earlier import brought it in as a web novel: that copy goes, even
   // when there is no text to bring this time (it had none to read either).
@@ -150,7 +199,7 @@ Future<int> _importLocalBook(LibraryStore store, _NdBook b) async {
 
   final dir = Directory('${store.root.path}/incoming')..createSync(recursive: true);
   final file = File('${dir.path}/${title.replaceAll(RegExp(r'[^\w .-]'), '')}.epub');
-  file.writeAsBytesSync(_epub(title, [for (final c in withText) (title: c.title, html: _bodyToHtml(c.body!))]));
+  file.writeAsBytesSync(_epub(title, [for (final c in withText) (title: c.title, html: _bodyToHtml(c.body))]));
   final entry = await store.importFile(PickedFile(path: file.path, name: '$title.epub', mime: 'application/epub+zip'));
 
   // The place: NovelDokusha's last chapter, among those with text.

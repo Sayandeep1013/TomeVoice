@@ -183,6 +183,24 @@ exports.default = {
 };
 ''';
 
+/// A NovelDokusha backup as NovelDokushaImport.kt writes it: a header, then
+/// each book's details and chapter list, then each downloaded chapter's
+/// text on a line of its own. [books] are given as the backup holds them,
+/// each chapter with its body.
+String _ndLines(List<Map<String, Object?>> books) => [
+      jsonEncode({'v': 2, 'books': books.length}),
+      for (final b in books) ...[
+        jsonEncode({
+          'book': {
+            ...b,
+            'chapters': [for (final c in b['chapters'] as List) {...c as Map}..remove('body')],
+          },
+        }),
+        for (final (i, c) in (b['chapters'] as List).indexed)
+          if ((c as Map)['body'] is String) jsonEncode({'body': {'i': i, 'text': c['body']}}),
+      ],
+    ].join('\n');
+
 /// A source worker, as far as cookies go: it reads the file, never writes
 /// it, and hands what the site set to the main isolate.
 Future<void> _cookieWorker(List<Object?> boot) async {
@@ -985,8 +1003,7 @@ exports.default = { id: "paged", name: "Paged", site: "https://p.test/", version
     final dir = Directory.systemTemp.createTempSync('tv_nd');
     addTearDown(() => dir.deleteSync(recursive: true));
     final json = File('${dir.path}/nd.json')
-      ..writeAsStringSync(jsonEncode({
-        'books': [
+      ..writeAsStringSync(_ndLines([
           {
             'title': 'Lord of Mysteries',
             'url': 'https://www.example-novels.com/novel/lord-of-mysteries',
@@ -1015,8 +1032,7 @@ exports.default = { id: "paged", name: "Paged", site: "https://p.test/", version
               },
             ],
           },
-        ],
-      }));
+        ]));
     final store = LibraryStore(dir);
     final report = await importNovelDokushaJson(store, SourceStore(dir, defaults: const []), json.path);
     expect(report.novels, 1);
@@ -1033,6 +1049,33 @@ exports.default = { id: "paged", name: "Paged", site: "https://p.test/", version
     expect(json.existsSync(), isFalse, reason: 'the temporary file is cleaned up');
   });
 
+  test('a NovelDokusha backup is read a line at a time, each text going to its own book', () async {
+    final dir = Directory.systemTemp.createTempSync('tv_nd_stream');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    Map<String, Object?> book(String name, int chapters) => {
+          'title': name,
+          'url': 'https://www.$name.test/novel',
+          'cover': '',
+          'description': '',
+          'chapters': [
+            for (var i = 1; i <= chapters; i++)
+              {'title': 'Chapter $i', 'url': 'https://www.$name.test/novel/$i', 'read': false, 'body': 'Words of $name, chapter $i.'},
+          ],
+        };
+    final json = File('${dir.path}/nd.json')..writeAsStringSync(_ndLines([book('first', 40), book('second', 3)]));
+    final store = LibraryStore(dir);
+    final seen = <String>[];
+    final report = await importNovelDokushaJson(store, SourceStore(dir, defaults: const []), json.path,
+        onProgress: (title, done, total) => seen.add('$title $done/$total'));
+    expect((report.novels, report.chapters), (2, 43));
+    expect(seen, ['first 0/2', 'second 1/2']);
+    final second = (await store.list()).firstWhere((e) => e.title == 'second');
+    expect(store.downloadedChapters(second.id), {0, 1, 2});
+    final text = (await store.loadLayout(second.id)).units.map((u) => u.text).join(' ');
+    expect(text, contains('Words of second, chapter 3.'));
+    expect(text, isNot(contains('first')));
+  });
+
   test("a NovelDokusha novel's paths are written as its plugin writes them", () async {
     final dir = Directory.systemTemp.createTempSync('tv_nd_paths');
     addTearDown(() => dir.deleteSync(recursive: true));
@@ -1043,8 +1086,7 @@ exports.default = { id: "paged", name: "Paged", site: "https://p.test/", version
       {'id': 'novels', 'name': 'Novels', 'site': 'https://example-novels.com', 'lang': 'English', 'version': '1', 'url': 'https://e/x.js'},
     ]));
     final json = File('${dir.path}/nd.json')
-      ..writeAsStringSync(jsonEncode({
-        'books': [
+      ..writeAsStringSync(_ndLines([
           {
             'title': 'Lord of Mysteries',
             'url': 'https://www.example-novels.com/novel/lord-of-mysteries',
@@ -1054,8 +1096,7 @@ exports.default = { id: "paged", name: "Paged", site: "https://p.test/", version
               {'title': 'Chapter 1', 'url': 'https://www.example-novels.com/novel/lord-of-mysteries/chapter-1', 'read': false},
             ],
           },
-        ],
-      }));
+        ]));
     final store = LibraryStore(dir);
     final report = await importNovelDokushaJson(store, SourceStore(dir, defaults: const []), json.path);
     expect(report.unmatched, isEmpty);
@@ -1069,8 +1110,7 @@ exports.default = { id: "paged", name: "Paged", site: "https://p.test/", version
     final dir = Directory.systemTemp.createTempSync('tv_nd_local');
     addTearDown(() => dir.deleteSync(recursive: true));
     final json = File('${dir.path}/nd.json')
-      ..writeAsStringSync(jsonEncode({
-        'books': [
+      ..writeAsStringSync(_ndLines([
           {
             'title': 'A_Game_of_Thrones_A_Song_of_Ice_and_Fire_1.epub',
             'url': 'local://A_Game_of_Thrones_A_Song_of_Ice_and_Fire_1.epub',
@@ -1087,8 +1127,7 @@ exports.default = { id: "paged", name: "Paged", site: "https://p.test/", version
               },
             ],
           },
-        ],
-      }));
+        ]));
     final store = LibraryStore(dir);
     // An earlier import brought it in as a web novel; that copy goes.
     await store.addWebNovel(
