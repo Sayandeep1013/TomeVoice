@@ -30,6 +30,7 @@ Book parseTextString(
   SourceKind kind = SourceKind.text,
 }) {
   raw = raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n').replaceAll(_ownMarks, '');
+  if (kind == SourceKind.text) raw = _withoutGutenbergLicence(raw);
   resetBlockIds();
   final title = titleFromFilename(filename) ?? _firstLineTitle(raw) ?? 'Untitled';
   final metadata = BookMetadata(title: title);
@@ -55,13 +56,41 @@ Book parseTextString(
   );
 }
 
+/// Project Gutenberg's lines around the book in its text files: "*** START
+/// OF THE PROJECT GUTENBERG EBOOK THE RAVEN ***", and the same with END
+/// (THIS for THE, and no spaces, in older files).
+final _gutenbergStart = RegExp(
+  r'^[ \t]*\*{3}\s*START OF (?:THE|THIS) PROJECT GUTENBERG E-?BOOK.*$',
+  multiLine: true,
+  caseSensitive: false,
+);
+final _gutenbergEnd = RegExp(
+  r'^[ \t]*\*{3}\s*END OF (?:THE|THIS) PROJECT GUTENBERG E-?BOOK.*$',
+  multiLine: true,
+  caseSensitive: false,
+);
+
+/// [raw] without Project Gutenberg's header before the book and its licence
+/// after it, some 3,000 words that were read aloud at the end of every book
+/// from there. Unchanged when the lines are not there, or nothing is
+/// between them.
+String _withoutGutenbergLicence(String raw) {
+  final start = _gutenbergStart.firstMatch(raw);
+  final from = start?.end ?? 0;
+  final end = _gutenbergEnd.allMatches(raw, from).firstOrNull;
+  if (start == null && end == null) return raw;
+  final book = raw.substring(from, end?.start ?? raw.length);
+  return book.trim().isEmpty ? raw : book;
+}
+
 /// Paragraphs and chapters out of plain text.
 ///
 /// Two shapes are common. Gutenberg-style files separate paragraphs with a
 /// blank line and hard-wrap the lines inside them; many other files (web
 /// dumps, phone notes, translated novels) put one paragraph per line with no
 /// blank lines at all. Treating the second shape like the first turned a
-/// whole novel into a single paragraph.
+/// whole novel into a single paragraph; the first like the second, every
+/// line of a story into a sentence of its own.
 List<DraftSection> sectionsFromPlainText(
   String raw, {
   required String fallbackTitle,
@@ -72,7 +101,9 @@ List<DraftSection> sectionsFromPlainText(
   for (var i = 1; i < lines.length; i++) {
     if (lines[i].trim().isEmpty && lines[i - 1].trim().isNotEmpty) blank++;
   }
-  final blankSeparated = nonEmpty > 0 && blank >= nonEmpty / 6;
+  // A blank line every few lines, or (paragraphs as long as a novel's)
+  // fewer blank lines between lines that carry their sentences over.
+  final blankSeparated = nonEmpty > 0 && (blank >= nonEmpty / 6 || (blank > 0 && _hardWrapped(lines)));
 
   final paragraphs = <String>[];
   if (blankSeparated) {
@@ -191,6 +222,21 @@ String joinWrappedLines(List<String> lines) {
 
 const _softHyphen = 0xAD;
 final _lowerFirst = RegExp(r'^\p{Ll}', unicode: true);
+
+/// Whether [lines] were wrapped at a width, sentences carried over from
+/// one line to the next: a quarter or more of the lines that follow
+/// another go on in lower case. A file of a paragraph a line starts each
+/// with a capital (or is in a script without case, which this cannot tell).
+bool _hardWrapped(List<String> lines) {
+  var pairs = 0, carried = 0;
+  for (var i = 1; i < lines.length; i++) {
+    final line = lines[i].trim();
+    if (line.isEmpty || lines[i - 1].trim().isEmpty) continue;
+    pairs++;
+    if (_lowerFirst.hasMatch(line)) carried++;
+  }
+  return pairs > 0 && carried * 4 >= pairs;
+}
 
 bool _isLetterUnit(int c) =>
     (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c >= 0xC0;
