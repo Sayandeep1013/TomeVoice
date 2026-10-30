@@ -9,6 +9,7 @@ import 'package:flutter/services.dart' show BackgroundIsolateBinaryMessenger, Me
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'marks.dart';
+import 'ocr.dart';
 import 'safe_file.dart';
 import 'sources/models.dart';
 import 'sources/net.dart';
@@ -461,13 +462,21 @@ class LibraryStore {
   /// Import [file]: parse it off the UI thread, store the source and the
   /// parsed book, and add it to the index. Re-importing a book keeps its
   /// reading position.
+  ///
+  /// A PDF whose pages are pictures throws [ScannedPdf], its file kept so it
+  /// can be read with OCR (ocr_sheet.dart). One with only a few pages of text
+  /// is imported, and [onScan], when given, is told so in place of [onNote]:
+  /// OCR can read the rest.
   Future<LibraryEntry> importFile(
     PickedFile file, {
     void Function(int done, int total)? onProgress,
     void Function(String note)? onNote,
+    void Function(OcrOffer offer)? onScan,
   }) async {
     await ensure();
     final source = File(file.path);
+    // A scan's file stays, for OCR.
+    var keep = false;
     try {
       final head = await _head(source);
       final isPdf = head.startsWith('%PDF-') ||
@@ -495,9 +504,22 @@ class LibraryStore {
         pdf: pdf,
         token: RootIsolateToken.instance,
       );
-      final made = await _runImport(job);
+      final _Imported made;
+      try {
+        made = await _runImport(job);
+      } on UnsupportedDocumentException catch (e) {
+        if (pdf == null) rethrow;
+        keep = true;
+        throw ScannedPdf(e.message, OcrOffer(path: file.path, name: file.name, pdf: pdf));
+      }
       final entry = made.entry;
-      if (made.note != null) onNote?.call(made.note!);
+      if (made.note != null) {
+        if (onScan != null) {
+          onScan(OcrOffer(path: entry.sourcePath, name: file.name, pdf: pdf!, bookId: entry.id, language: entry.language));
+        } else {
+          onNote?.call(made.note!);
+        }
+      }
 
       late LibraryEntry merged;
       await _change((existing) {
@@ -522,9 +544,49 @@ class LibraryStore {
       return merged;
     } finally {
       // The picker's copy: a duplicate of books/<id>/source.* once imported,
-      // and of no use when the import failed (it used to stay behind).
-      await _dropIncoming(source);
+      // and of no use when the import failed (it used to stay behind). A
+      // scan's is kept for OCR, and goes when OCR is declined (or is swept
+      // with the rest of incoming/ an hour on).
+      if (!keep) await _dropIncoming(source);
     }
+  }
+
+  /// A scan read by OCR made into a book (the import that OCR finishes):
+  /// [jobDir] holds what was read (ocr_jobs.dart). Its pages are its own
+  /// text where they had any and OCR's elsewhere, made into a book as any
+  /// PDF's are. The text is kept beside the book (ocr.json), so opening it,
+  /// or a newer PDF reader, never reads the pages again. A book on the shelf
+  /// already (a PDF with a few pages of text) keeps its place, shelf and
+  /// cover. The job's folder goes once the book is made.
+  Future<LibraryEntry> addOcrBook(String jobDir) async {
+    await ensure();
+    final made = await _runOcrImport((booksDir: _booksDir.path, jobDir: jobDir));
+    late LibraryEntry merged;
+    await _change((existing) {
+      final previous = existing.where((e) => e.id == made.id).firstOrNull;
+      merged = previous == null
+          ? made.copyWith(category: _defaultCategory)
+          : made
+              .copyWith(
+                cursor: previous.cursor,
+                progress: previous.progress,
+                openedAt: previous.openedAt,
+                where: previous.where,
+                category: previous.category,
+              )
+              .withCover(previous.coverMode, previous.customCover);
+      return [
+        merged,
+        for (final e in existing)
+          if (e.id != made.id) e,
+      ];
+    });
+    try {
+      await Directory(jobDir).delete(recursive: true);
+    } on FileSystemException {
+      // Its book is made; a folder left over is only space.
+    }
+    return merged;
   }
 
   /// Delete [source] if it is the picker's copy under incoming/, with the
@@ -586,7 +648,9 @@ class LibraryStore {
         source != null &&
         File(source).existsSync()) {
       try {
-        pdf = await _svc.extractPdf(source);
+        // A scan read by OCR is made again from the text OCR gave it, kept
+        // with the book: its pages are never read again.
+        pdf = entry.ocr != null ? readOcrText(bookDir(id)) : await _svc.extractPdf(source);
       } on Object {
         // Kept as it was; tried again next time.
       }
@@ -985,7 +1049,12 @@ Future<_Imported> _import(_ImportJob job) async {
   final id = bookIdOf(bytes);
   final Book book;
   final pdf = job.pdf;
-  if (pdf != null) {
+  // A scan read by OCR before: the text OCR gave it stands, and its pages
+  // are not read again (they have no text of their own).
+  final ocr = pdf == null ? null : readOcrText('${job.booksDir}/$id');
+  if (ocr != null) {
+    book = _pdfBook(id, ocr, job.name);
+  } else if (pdf != null) {
     book = _pdfBook(id, pdf, job.name);
   } else {
     book = await _ingest(bytes, filename: job.name, mime: job.mime, id: id, token: job.token);
@@ -1008,8 +1077,91 @@ Future<_Imported> _import(_ImportJob job) async {
     language: book.metadata.language,
     cover: coverFileOf(dir.path, book),
     pdfParser: pdf != null ? pdfParserVersion : 0,
+    ocr: ocr?['ocr'] as String?,
   );
-  return (entry: entry, note: pdf != null ? _scanNote(pdf) : null);
+  return (entry: entry, note: pdf != null && ocr == null ? _scanNote(pdf) : null);
+}
+
+/// What OCR read of a book's pages, as it is kept in the book's folder
+/// [dir] (ocr.json, in the platform's PDF form: see ocrPdfText); null for a
+/// book not read by OCR.
+Map<String, Object?>? readOcrText(String dir) {
+  final f = File('$dir/ocr.json');
+  try {
+    if (!f.existsSync()) return null;
+    final raw = jsonDecode(f.readAsStringSync());
+    return raw is Map ? Map<String, Object?>.from(raw) : null;
+  } on Object {
+    return null;
+  }
+}
+
+typedef _OcrImportJob = ({String booksDir, String jobDir});
+
+Future<LibraryEntry> _runOcrImport(_OcrImportJob job) => Isolate.run(() => _ocrImport(job));
+
+/// The book made from an OCR job's folder (see [LibraryStore.addOcrBook]):
+/// job.json says what was read and in which languages, pdf.json is the
+/// platform's text of the PDF, pages/<n>.txt what OCR read of page n.
+LibraryEntry _ocrImport(_OcrImportJob job) {
+  final info = Map<String, Object?>.from(jsonDecode(File('${job.jobDir}/job.json').readAsStringSync()) as Map);
+  final pdf = Map<String, Object?>.from(jsonDecode(File('${job.jobDir}/pdf.json').readAsStringSync()) as Map);
+  final name = info['name'] as String? ?? 'scan.pdf';
+  final languages = info['languages'] as String? ?? '';
+  final source = File(info['source'] as String? ?? '');
+  if (!source.existsSync()) throw ParseException('“$name” is no longer on the phone.');
+  final read = <int, String>{};
+  for (final p in info['pages'] as List? ?? const []) {
+    final page = File('${job.jobDir}/pages/$p.txt');
+    if (p is int && page.existsSync()) read[p] = page.readAsStringSync();
+  }
+  final text = ocrPdfText(pdf, read, languages: languages);
+  final id = info['id'] as String? ?? bookIdOf(source.readAsBytesSync());
+  final Book book;
+  try {
+    book = _pdfBook(id, text, name);
+  } on Exception catch (e) {
+    // Refused as a scan again: what OCR read was too little to be a book.
+    if (e is! UnsupportedDocumentException && e is! ParseException) rethrow;
+    final said = ocrLanguagesOf(languages).map((l) => l.name).join(' and ');
+    throw ParseException('OCR found nothing to read in “$name”${said.isEmpty ? '' : ' in $said'}. '
+        'If its pages are in another language, import it again and pick that one.');
+  }
+
+  final dir = Directory('${job.booksDir}/$id')..createSync(recursive: true);
+  final dest = File('${dir.path}/source.pdf');
+  if (source.absolute.path != dest.absolute.path) {
+    try {
+      source.renameSync(dest.path);
+    } on FileSystemException {
+      source.copySync(dest.path);
+    }
+  }
+  // The book as it was, when a few of its pages had text: the place the
+  // reader had reached there is found again in the whole book.
+  Book? before;
+  try {
+    final raw = jsonDecode(File('${dir.path}/parsed.json').readAsStringSync());
+    if (raw is Map && raw['book'] is Map) before = Book.fromJson(Map<String, Object?>.from(raw['book'] as Map));
+  } on Object {
+    // A new book.
+  }
+  _writeWholeSync(File('${dir.path}/ocr.json'), jsonEncode(text));
+  _writeParsed(dir.path, book);
+  if (before != null) _carryCursor(dir.path, before, ReadingLayout.build(book, displayOnly: true));
+  return LibraryEntry(
+    id: id,
+    title: book.metadata.title,
+    authors: book.metadata.authors,
+    source: book.source,
+    wordCount: book.wordCount,
+    sourcePath: dest.path,
+    addedAt: DateTime.now(),
+    language: book.metadata.language,
+    cover: coverFileOf(dir.path, book),
+    pdfParser: pdfParserVersion,
+    ocr: languages,
+  );
 }
 
 void _writeParsed(String dir, Book book) {
@@ -1220,6 +1372,7 @@ class LibraryEntry {
     this.novelPath,
     this.chapterCount = 0,
     this.pdfParser = 0,
+    this.ocr,
   });
 
   final String id;
@@ -1259,6 +1412,10 @@ class LibraryEntry {
   /// For a PDF: the PDF reader it was last read with (pdfParserVersion); 0
   /// from before that was kept. An older one is read again from the file.
   final int pdfParser;
+
+  /// For a scan read by OCR: the languages it was read in ("ben+eng"). Its
+  /// page says the text may have mistakes; its text is kept with it.
+  final String? ocr;
 
   bool get isWeb => source == SourceKind.web;
 
@@ -1327,6 +1484,7 @@ class LibraryEntry {
         novelPath: novelPath,
         chapterCount: chapterCount ?? this.chapterCount,
         pdfParser: pdfParser ?? this.pdfParser,
+        ocr: ocr,
       );
 
   Map<String, Object?> toJson() => {
@@ -1350,6 +1508,7 @@ class LibraryEntry {
         if (novelPath != null) 'novelPath': novelPath,
         if (chapterCount > 0) 'chapterCount': chapterCount,
         if (pdfParser > 0) 'pdfParser': pdfParser,
+        if (ocr != null) 'ocr': ocr,
       };
 
   static LibraryEntry fromJson(Map<String, Object?> json) => LibraryEntry(
@@ -1384,6 +1543,7 @@ class LibraryEntry {
         novelPath: json['novelPath'] as String?,
         chapterCount: json['chapterCount'] as int? ?? 0,
         pdfParser: json['pdfParser'] as int? ?? 0,
+        ocr: json['ocr'] as String?,
       );
 }
 
