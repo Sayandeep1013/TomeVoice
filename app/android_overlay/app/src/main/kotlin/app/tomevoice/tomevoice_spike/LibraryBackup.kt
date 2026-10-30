@@ -35,6 +35,9 @@ object LibraryBackup {
         if (rel == "app_update.json") return true
         // A cached copy of a source list; fetched again when needed.
         if (rel.startsWith("sources/index-")) return true
+        // Natural voices are a download away (64 to 110 MB each). Carried,
+        // every voice made every backup that much bigger (docs/11: never).
+        if (top == "voices") return true
         if (!includeChapters && rel.startsWith("books/") && rel.split('/').getOrNull(2) == "ch") return true
         return false
     }
@@ -118,6 +121,9 @@ object LibraryBackup {
                     manifest = zip.readBytes().toString(Charsets.UTF_8)
                     continue
                 }
+                // Older backups carried the natural voices: left out, so a
+                // restore keeps the phone's own (and no megabytes are spent).
+                if (entry.name.substringBefore('/') == "voices") continue
                 val dest = File(staging, entry.name)
                 // A name like "../../x" must not write outside the staging folder.
                 if (!dest.canonicalPath.startsWith(base)) {

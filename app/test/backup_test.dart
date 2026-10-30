@@ -84,6 +84,26 @@ void main() {
     expect(Directory('${root.path}/.before-restore').existsSync(), isFalse);
   });
 
+  test("replace keeps this phone's natural voices and its update choice", () async {
+    put(root, 'library.json', {
+      'books': [book('mine')],
+    });
+    put(root, 'voices/piper-en_US-kristin-medium/tokens.txt', 'a 1');
+    put(root, 'app_update.json', {'check': false});
+    put(staging, 'library.json', {
+      'books': [book('theirs')],
+    });
+    // A backup made before voices were left out still has some.
+    put(staging, 'voices/piper-en_US-ryan-high/tokens.txt', 'b 2');
+
+    await replaceLibrary(root, staged());
+
+    expect(File('${root.path}/voices/piper-en_US-kristin-medium/tokens.txt').readAsStringSync(), 'a 1');
+    expect(Directory('${root.path}/voices/piper-en_US-ryan-high').existsSync(), isFalse);
+    expect(read(root, 'app_update.json')['check'], false);
+    expect(staging.existsSync(), isFalse);
+  });
+
   test('add keeps my books, adds theirs, and keeps the further place', () async {
     put(root, 'library.json', {
       'categories': [
@@ -131,6 +151,121 @@ void main() {
     // Settings stay this phone's.
     expect(read(root, 'prefs.json')['palette'], 'forest');
     expect(staging.existsSync(), isFalse);
+  });
+
+  group('add brings what the books came with', () {
+    Map<String, Object?> mark(String id, String created) => {
+          'id': id,
+          'book': 'b1',
+          'bookTitle': 'Book',
+          'kind': 'quote',
+          'at': {'sectionIndex': 0, 'blockIndex': 0, 'sentenceIndex': 0},
+          'text': 'A line.',
+          'created': created,
+        };
+
+    void stage() {
+      staging.createSync(recursive: true);
+      put(staging, 'library.json', {'books': []});
+      put(staging, 'marks.json', [mark('q-old', '2026-09-01T10:00:00.000'), mark('q-new', '2026-10-20T10:00:00.000')]);
+      put(staging, 'stats.json', {
+        'goalMinutes': 20,
+        'days': {
+          '2026-10-01': {'listen': 600000, 'books': {'b1': 600000}},
+          '2026-10-02': {'listen': 60000},
+        },
+      });
+      put(staging, 'rules.json', {
+        'say': [
+          {'from': 'Sunny', 'to': 'Sonny'},
+          {'from': 'Klein', 'to': 'Kline', 'book': 'b1'},
+        ],
+        'skip': [
+          {'text': 'Read at site X'},
+        ],
+      });
+      put(staging, 'prefs.json', {'palette': 'ocean'});
+    }
+
+    setUp(() {
+      put(root, 'library.json', {'books': []});
+      put(root, 'marks.json', [mark('q-mine', '2026-10-10T10:00:00.000')]);
+      put(root, 'stats.json', {
+        'days': {
+          '2026-10-02': {'listen': 120000, 'read': 5000},
+        },
+      });
+      put(root, 'rules.json', {
+        'say': [
+          {'from': 'sunny', 'to': 'Sun-ee'},
+        ],
+      });
+      put(root, 'prefs.json', {'palette': 'forest'});
+      stage();
+    });
+
+    test('quotes, days of stats and reading rules, each once', () async {
+      final report = await addToLibrary(root, staged());
+      expect(report.marks, 2);
+      expect(report.days, 1, reason: 'one new day; the day on both had less listening there');
+      expect(report.rules, 2, reason: "this phone's own fix for Sunny wins");
+      final marks = [for (final m in jsonDecode(File('${root.path}/marks.json').readAsStringSync()) as List) (m as Map)['id']];
+      expect(marks, ['q-new', 'q-mine', 'q-old'], reason: 'newest first');
+      final days = read(root, 'stats.json')['days'] as Map;
+      expect((days['2026-10-01'] as Map)['listen'], 600000);
+      expect((days['2026-10-02'] as Map)['listen'], 120000);
+      expect((days['2026-10-02'] as Map)['read'], 5000);
+      expect(read(root, 'stats.json')['goalMinutes'], 20);
+      final rules = read(root, 'rules.json');
+      expect([for (final r in rules['say'] as List) (r as Map)['to']], ['Sun-ee', 'Kline']);
+      expect((rules['skip'] as List).single, {'text': 'Read at site X'});
+      expect(read(root, 'prefs.json')['palette'], 'forest');
+      expect(addSummary(report),
+          'Added 2 quotes and bookmarks, 2 reading rules and 1 day of stats from the backup.');
+
+      // The same backup added again counts nothing twice.
+      stage();
+      final again = await addToLibrary(root, staged());
+      expect((again.marks, again.days, again.rules), (0, 0, 0));
+      expect((read(root, 'stats.json')['days'] as Map)['2026-10-01'], {'listen': 600000, 'books': {'b1': 600000}});
+      expect(addSummary(again), 'Nothing new to add from the backup.');
+    });
+
+    test("the backup's settings only when asked", () async {
+      final report = await addToLibrary(root, staged(), settings: true);
+      expect(report.settings, isTrue);
+      expect(read(root, 'prefs.json')['palette'], 'ocean');
+      expect(addSummary(report), endsWith("The backup's settings are in use."));
+    });
+
+    test('the summary is there once, after the app starts again', () async {
+      await saveRestoreReport(root, 'Added 2 books from the backup.');
+      expect(await takeRestoreReport(root), 'Added 2 books from the backup.');
+      expect(await takeRestoreReport(root), isNull);
+    });
+  });
+
+  test('a secret shelf in a backup never merges into an open one here', () async {
+    put(root, 'library.json', {
+      'categories': [
+        {'id': 'later', 'name': 'Later'},
+      ],
+      'books': [],
+    });
+    put(staging, 'library.json', {
+      'categories': [
+        {'id': 'later', 'name': 'Later', 'secret': true},
+      ],
+      'books': [book('hidden', category: 'later')],
+    });
+    await addToLibrary(root, staged());
+    final index = read(root, 'library.json');
+    final cats = [for (final c in index['categories'] as List) Map<String, Object?>.from(c as Map)];
+    final secret = cats.singleWhere((c) => c['secret'] == true);
+    expect(secret['id'], isNot('later'));
+    expect(cats.where((c) => c['id'] == 'later').single['secret'], isNull);
+    final hidden = (index['books'] as List).cast<Map>().singleWhere((b) => b['id'] == 'hidden');
+    expect(hidden['category'], secret['id']);
   });
 
   test('add brings sources and source lists that are missing', () async {

@@ -163,6 +163,10 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
       }
       // A restore that was interrupted leaves its unpacked copy behind.
       unawaited(clearStaleRestore(Directory(dir)));
+      // A restore just made starts the app again: say what it did.
+      unawaited(takeRestoreReport(Directory(dir)).then((report) {
+        if (report != null && mounted) showSnack(context, report, long: true);
+      }));
       // A saved place can make another book the one being read, and moves
       // the widgets' progress on.
       store.changes.addListener(_scheduleFollow);
