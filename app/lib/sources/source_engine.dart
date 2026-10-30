@@ -155,14 +155,30 @@ class SourceEngine {
     }
   }
 
-  /// A page of the site's popular (or newest) novels.
-  Future<List<NovelItem>> popular(PluginInfo p, int page, {bool latest = false}) async {
+  /// A page of the site's popular (or newest) novels; with [filters] (key
+  /// to `{type, value}`, as LNReader hands them), only those the reader
+  /// chose (null: the plugin's own defaults).
+  Future<List<NovelItem>> popular(PluginInfo p, int page, {bool latest = false, Map<String, Object?>? filters}) async {
     final r = await _call(p, 'popularNovels', [
       page,
-      {'showLatestNovels': latest, 'filters': null},
+      {'showLatestNovels': latest, 'filters': filters},
     ]);
     return _novels(r);
   }
+
+  /// What plugin [p] says of itself: its filters and settings (see
+  /// LNReader's Plugin type), with what it was loaded as.
+  Future<Map<String, Object?>> meta(PluginInfo p) async =>
+      Map<String, Object?>.from(await _call(p, '__meta', const []) as Map? ?? const {});
+
+  /// The values plugin [p]'s settings have now (by key; null where unset).
+  Future<Map<String, Object?>> settings(PluginInfo p) async =>
+      Map<String, Object?>.from(await _call(p, '__settings', const []) as Map? ?? const {});
+
+  /// Set plugin [p]'s setting [key] to [value], kept as the plugin keeps
+  /// its own storage; the plugin is loaded again, as some read settings only
+  /// as they load.
+  Future<void> setSetting(PluginInfo p, String key, Object? value) => _call(p, '__setting', [key, value]);
 
   /// A page of search results.
   Future<List<NovelItem>> search(PluginInfo p, String query, int page) async =>
@@ -393,8 +409,15 @@ class _Worker {
           host.ensure(plugin, m['version'] as String, m['code'] as String,
               site: m['site'] as String? ?? '', sha256: m['sha256'] as String?, name: m['name'] as String?);
           final ms = m['timeout'] as int?;
-          final out = await host.call(plugin, m['method'] as String, (m['args'] as List).cast<Object?>(),
-              timeout: ms == null ? null : Duration(milliseconds: ms));
+          final method = m['method'] as String;
+          final args = (m['args'] as List).cast<Object?>();
+          // The host's own questions about a plugin, not the plugin's methods.
+          final Object? out = switch (method) {
+            '__meta' => host.meta(plugin),
+            '__settings' => host.settingsOf(plugin),
+            '__setting' => host.setSetting(plugin, args[0] as String, args[1]),
+            _ => await host.call(plugin, method, args, timeout: ms == null ? null : Duration(milliseconds: ms)),
+          };
           reply.send({'id': id, 'ok': out});
         } on TamperedSourceException catch (e) {
           reply.send({'id': id, 'err': e.message, 'tampered': e.pluginId, 'name': e.name});

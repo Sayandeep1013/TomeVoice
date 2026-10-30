@@ -902,6 +902,56 @@ exports.default = { id: "paged", name: "Paged", site: "https://p.test/", version
     expect(novel.chapters.any((c) => c.name.endsWith('m3')), isTrue, reason: 'three pages were asked at once');
   });
 
+  test("a source's filters and settings reach it", () async {
+    if (!_hasEngine()) {
+      markTestSkipped('QuickJS is not built on this machine');
+      return;
+    }
+    final dir = Directory.systemTemp.createTempSync('tv_filters');
+    final engine = SourceEngine.forTests(
+      libs: File('assets/js/lnreader_libs.js').readAsStringSync(),
+      shim: File('assets/js/lnreader_shim.js').readAsStringSync(),
+    );
+    addTearDown(() {
+      engine.close();
+      dir.deleteSync(recursive: true);
+    });
+    final store = SourceStore(dir, defaults: const []);
+    engine.attach(store);
+    // Reads its mirror setting as it loads, as many plugins do.
+    const code = r'''
+var storage_1 = require("@libs/storage");
+var mirror = storage_1.storage.get("mirror") || "a";
+exports.default = { id: "f", name: "F", site: "https://f.test/", version: "1",
+  filters: { genre: { label: "Genre", type: "Picker", value: "all",
+    options: [{ label: "All", value: "all" }, { label: "Fantasy", value: "fantasy" }] } },
+  pluginSettings: { mirror: { label: "Mirror", type: "Select", value: "a",
+    options: [{ label: "A", value: "a" }, { label: "B", value: "b" }] } },
+  popularNovels: function (page, o) {
+    return Promise.resolve([{ name: "genre=" + o.filters.genre.value + " mirror=" + mirror, path: "x" }]);
+  },
+};''';
+    File(store.codePath('f'))
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync(code);
+    final p = const PluginInfo(id: 'f', name: 'F', site: 'https://f.test/', lang: 'English', version: '1', url: '')
+        .withHash(sha256Hex(utf8.encode(code)));
+    File('${store.dir.path}/installed.json').writeAsStringSync(jsonEncode([p.toJson()]));
+
+    final meta = await engine.meta(p);
+    expect((meta['filters'] as Map).keys, ['genre']);
+    expect((meta['pluginSettings'] as Map).keys, ['mirror']);
+    expect((await engine.popular(p, 1)).single.name, 'genre=all mirror=a', reason: "the plugin's defaults");
+    final chosen = {
+      'genre': {'type': 'Picker', 'value': 'fantasy'},
+    };
+    expect((await engine.popular(p, 1, filters: chosen)).single.name, 'genre=fantasy mirror=a');
+    expect(await engine.settings(p), {'mirror': null});
+    await engine.setSetting(p, 'mirror', 'b');
+    expect(await engine.settings(p), {'mirror': 'b'});
+    expect((await engine.popular(p, 1)).single.name, 'genre=all mirror=b', reason: 'loaded again with it');
+  });
+
   test('a source that runs out of time has its worker replaced', () async {
     if (!_hasEngine()) {
       markTestSkipped('QuickJS is not built on this machine');

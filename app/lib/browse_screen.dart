@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'browser_check.dart';
 import 'library_store.dart';
 import 'novel_screen.dart';
+import 'plugin_options.dart';
 import 'sources/models.dart';
 import 'sources/net_image.dart';
 import 'sources/source_engine.dart';
@@ -387,10 +388,85 @@ class _SourceScreenState extends State<SourceScreen> {
   /// Bumped as each feed's first page comes in, which fades in from the top.
   int _shown = 0;
 
+  /// What the plugin says of itself: its filters and settings.
+  Map<String, Object?> _meta = const {};
+
+  /// The filters the reader chose (key to {type, value}); null: the
+  /// plugin's own defaults.
+  Map<String, Object?>? _filters;
+
+  Map<String, Object?> get _filterDefs => _defs(_meta['filters']);
+  Map<String, Object?> get _settingDefs => _defs(_meta['pluginSettings']);
+
+  static Map<String, Object?> _defs(Object? o) => o is Map ? Map<String, Object?>.from(o) : const {};
+
   @override
   void initState() {
     super.initState();
     unawaited(_reset());
+    unawaited(_loadMeta());
+  }
+
+  Future<void> _loadMeta() async {
+    try {
+      final meta = await SourceEngine.instance.meta(widget.plugin);
+      if (mounted) setState(() => _meta = meta);
+    } on Object {
+      // No filters or settings to offer, then.
+    }
+  }
+
+  /// The plugin's filters (genre, status, sort…), as it defines them.
+  Future<void> _openFilters() async {
+    final chosen = await showModalBottomSheet<Map<String, Object?>>(
+      context: context,
+      isScrollControlled: true,
+      sheetAnimationStyle: sheetMotion(context),
+      builder: (_) => PluginOptionsSheet(
+        title: 'Filters',
+        definitions: _filterDefs,
+        values: {
+          for (final e in _filterDefs.entries) e.key: ((_filters?[e.key] as Map?) ?? (e.value as Map?))?['value'],
+        },
+        action: 'Show',
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    setState(() {
+      _filters = {
+        for (final e in _filterDefs.entries) e.key: {'type': (e.value as Map?)?['type'], 'value': chosen[e.key]},
+      };
+      if (_feed == _Feed.search) _feed = _Feed.popular;
+    });
+    await _reset();
+  }
+
+  /// The plugin's own settings (a site's mirror, a language…), kept in its
+  /// storage as LNReader keeps them.
+  Future<void> _openSettings() async {
+    Map<String, Object?> now;
+    try {
+      now = await SourceEngine.instance.settings(widget.plugin);
+    } on Object {
+      now = const {};
+    }
+    if (!mounted) return;
+    final chosen = await showModalBottomSheet<Map<String, Object?>>(
+      context: context,
+      isScrollControlled: true,
+      sheetAnimationStyle: sheetMotion(context),
+      builder: (_) => PluginOptionsSheet(
+        title: 'Settings',
+        definitions: _settingDefs,
+        values: {for (final e in _settingDefs.entries) e.key: now[e.key] ?? (e.value as Map?)?['value']},
+        action: 'Save',
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    for (final e in chosen.entries) {
+      if (e.value != now[e.key]) await SourceEngine.instance.setSetting(widget.plugin, e.key, e.value);
+    }
+    if (mounted) await _reset();
   }
 
   @override
@@ -430,8 +506,8 @@ class _SourceScreenState extends State<SourceScreen> {
       final page = _page + 1;
       final engine = SourceEngine.instance;
       final got = switch (_feed) {
-        _Feed.popular => await engine.popular(widget.plugin, page),
-        _Feed.latest => await engine.popular(widget.plugin, page, latest: true),
+        _Feed.popular => await engine.popular(widget.plugin, page, filters: _filters),
+        _Feed.latest => await engine.popular(widget.plugin, page, latest: true, filters: _filters),
         _Feed.search => await engine.search(widget.plugin, _search.text.trim(), page),
       };
       if (!mounted || run != _run) return;
@@ -466,7 +542,25 @@ class _SourceScreenState extends State<SourceScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              ScreenTopBar(title: widget.plugin.name, onBack: () => Navigator.of(context).maybePop()),
+              Row(
+                children: [
+                  Expanded(child: ScreenTopBar(title: widget.plugin.name, onBack: () => Navigator.of(context).maybePop())),
+                  if (_filterDefs.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(right: Gap.s),
+                      child: RoundButton(
+                        icon: _filters == null ? Icons.tune_rounded : Icons.filter_alt_rounded,
+                        tooltip: 'Filters',
+                        onTap: _openFilters,
+                      ),
+                    ),
+                  if (_settingDefs.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(right: Gap.m),
+                      child: RoundButton(icon: Icons.settings_outlined, tooltip: '${widget.plugin.name} settings', onTap: _openSettings),
+                    ),
+                ],
+              ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
                 child: TextField(

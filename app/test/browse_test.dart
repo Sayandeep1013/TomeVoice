@@ -11,6 +11,7 @@ import 'package:tomevoice_spike/browse_screen.dart';
 import 'package:tomevoice_spike/browser_check.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/novel_screen.dart';
+import 'package:tomevoice_spike/plugin_options.dart';
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/sources/models.dart';
 import 'package:tomevoice_spike/sources/net.dart';
@@ -267,6 +268,62 @@ void main() {
     expect((asked.singleWhere((c) => c.method == 'clearWebCookies').arguments as Map)['url'], isNull);
     expect(Net.instance.cookieHeader('https://www.site.test/', partition: 'site'), isNull);
     await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets("a source's filters are shown as it defines them, and chosen", (tester) async {
+    phone(tester);
+    Map<String, Object?>? got;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => TextButton(
+            onPressed: () async => got = await showModalBottomSheet<Map<String, Object?>>(
+              context: context,
+              isScrollControlled: true,
+              builder: (_) => const PluginOptionsSheet(
+                title: 'Filters',
+                action: 'Show',
+                definitions: {
+                  'genre': {
+                    'label': 'Genre',
+                    'type': 'Picker',
+                    'options': [
+                      {'label': 'All', 'value': 'all'},
+                      {'label': 'Fantasy', 'value': 'fantasy'},
+                    ],
+                  },
+                  'tags': {
+                    'label': 'Tags',
+                    'type': 'XCheckbox',
+                    'options': [
+                      {'label': 'Magic', 'value': 'magic'},
+                    ],
+                  },
+                  'done': {'label': 'Completed only', 'type': 'Switch'},
+                },
+                values: {'genre': 'all', 'tags': null, 'done': false},
+              ),
+            ),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Fantasy'));
+    await tester.tap(find.text('Magic'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Magic'));
+    await tester.tap(find.text('Completed only'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Show'));
+    await tester.pumpAndSettle();
+    expect(got, {
+      'genre': 'fantasy',
+      'tags': {'include': <String>[], 'exclude': ['magic']},
+      'done': true,
+    });
   });
 
   testWidgets('a novel whose source is not installed offers to install it', (tester) async {

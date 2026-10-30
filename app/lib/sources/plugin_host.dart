@@ -472,6 +472,39 @@ class PluginHost {
     }
   }
 
+  /// The values plugin [id]'s declared settings (meta's pluginSettings)
+  /// have in its storage now; null where it has none yet (its default).
+  Map<String, Object?> settingsOf(String id) {
+    final declared = meta(id)['pluginSettings'];
+    if (declared is! Map) return const {};
+    final store = _storeOf(id);
+    return {
+      for (final key in declared.keys)
+        '$key': () {
+          final raw = store['$key'];
+          if (raw == null) return null;
+          try {
+            return (jsonDecode(raw) as Map)['value'];
+          } on Object {
+            return null;
+          }
+        }(),
+    };
+  }
+
+  /// Set plugin [id]'s setting [key] to [value], in its storage as the
+  /// plugin's own storage.set keeps it, and let its context go so it loads
+  /// again with it (some plugins read their settings only as they load).
+  Object? setSetting(String id, String key, Object? value) {
+    final store = _storeOf(id);
+    store[key] = jsonEncode({'created': DateTime.now().toIso8601String(), 'value': value});
+    _saveStore(id);
+    final p = _live.remove(id);
+    if (p != null) _retire(p);
+    _evict();
+    return null;
+  }
+
   /// Synchronous: plugins read settings while they load. The store is
   /// [p]'s own, whatever the JavaScript names: `[op, key, value]`.
   Object? _storage(_Plugin p, List<Object?> args) {
