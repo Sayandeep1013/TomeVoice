@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 
 import 'book_card.dart';
 import 'book_tint.dart';
+import 'highlights.dart';
 import 'library_store.dart';
 import 'marks.dart';
+import 'quote_export.dart';
 import 'quote_sheet.dart';
 import 'reader_screen.dart';
 import 'share_card.dart';
@@ -124,7 +126,16 @@ class _SavedScreenState extends State<SavedScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              ScreenTopBar(title: 'Saved', onBack: () => Navigator.of(context).maybePop()),
+              Row(
+                children: [
+                  Expanded(child: ScreenTopBar(title: 'Saved', onBack: () => Navigator.of(context).maybePop())),
+                  if (quotes > 0)
+                    Padding(
+                      padding: const EdgeInsets.only(right: Gap.s),
+                      child: ExportQuotesButton(store: widget.store, bookId: widget.bookId),
+                    ),
+                ],
+              ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.m),
                 child: ChoiceRow<MarkKind>(
@@ -228,7 +239,8 @@ class _SavedScreenState extends State<SavedScreen> {
               child: Container(
                 padding: const EdgeInsets.fromLTRB(Gap.l, Gap.m, Gap.s, Gap.m),
                 decoration: BoxDecoration(
-                  border: Border(left: BorderSide(color: Skin.accentOf(context), width: 3)),
+                  // A quote's edge in its colour on the page.
+                  border: Border(left: BorderSide(color: markSwatch(m.colour, Skin.accentOf(context)), width: 3)),
                 ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -268,11 +280,18 @@ class _SavedScreenState extends State<SavedScreen> {
                             ),
                           ],
                           const SizedBox(height: 6),
-                          Text(
-                            [if (m.chapter != null) m.chapter!, _when(m.created)].join(' · ').toUpperCase(),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Skin.meta(context, size: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  [if (m.chapter != null) m.chapter!, _when(m.created)].join(' · ').toUpperCase(),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Skin.meta(context, size: 10),
+                                ),
+                              ),
+                              if (m.kind == MarkKind.quote) _colourButton(context, m),
+                            ],
                           ),
                         ],
                       ),
@@ -308,6 +327,39 @@ class _SavedScreenState extends State<SavedScreen> {
         ),
       );
 
+  /// The quote's colour on the page, changed from a menu of the four.
+  Widget _colourButton(BuildContext context, Mark m) {
+    final accent = Skin.accentOf(context);
+    Widget dot(MarkColour c, double size) => Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(color: markSwatch(c, accent), shape: BoxShape.circle),
+        );
+    return PopupMenuButton<MarkColour>(
+      tooltip: 'Colour: ${m.colour.label}',
+      onSelected: (c) => unawaited(_marks.update(m.withColour(c))),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: Gap.s, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            dot(m.colour, 12),
+            const SizedBox(width: 6),
+            Text(m.colour.label.toUpperCase(), style: Skin.meta(context, size: 10)),
+          ],
+        ),
+      ),
+      itemBuilder: (_) => [
+        for (final c in MarkColour.values)
+          CheckedPopupMenuItem<MarkColour>(
+            value: c,
+            checked: c == m.colour,
+            child: Row(children: [dot(c, 14), const SizedBox(width: Gap.m), Text(c.label)]),
+          ),
+      ],
+    );
+  }
+
   static String _when(DateTime t) {
     final days = DateTime.now().difference(t).inDays;
     if (days == 0) return 'today';
@@ -338,6 +390,7 @@ class BookSavedSection extends StatelessWidget {
               Row(
                 children: [
                   Expanded(child: SectionTitle('Saved', note: '${marks.length}')),
+                  if (marks.any((m) => m.kind == MarkKind.quote)) ExportQuotesButton(store: store, bookId: entry.id),
                   TextButton(
                     onPressed: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(builder: (_) => SavedScreen(store: store, bookId: entry.id)),

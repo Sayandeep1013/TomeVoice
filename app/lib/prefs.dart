@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show ThemeMode;
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
+import 'folders.dart';
 import 'safe_file.dart';
 import 'theme.dart';
 
@@ -47,6 +48,7 @@ class ListeningPrefs {
     this.sort = LibrarySort.recent,
     this.bookColours = true,
     this.naturalVoices,
+    this.exportFolder,
   })  : voiceByLanguage = voiceByLanguage ?? {},
         voiceByBook = voiceByBook ?? {},
         dialogueByBook = dialogueByBook ?? {},
@@ -224,6 +226,9 @@ class ListeningPrefs {
   /// they want them offered. Declined, the app never suggests them.
   bool? naturalVoices;
 
+  /// Where quotes exported as Markdown were last saved.
+  PickedFolder? exportFolder;
+
   static ListeningPrefs? _cached;
   static File? _file;
   static Timer? _saveTimer;
@@ -314,6 +319,7 @@ class ListeningPrefs {
         'sort': sort.name,
         'bookColours': bookColours,
         if (naturalVoices != null) 'naturalVoices': naturalVoices,
+        if (exportFolder != null) 'exportFolder': exportFolder!.toJson(),
       };
 
   static ListeningPrefs fromJson(Map<String, Object?> json) => ListeningPrefs(
@@ -376,6 +382,7 @@ class ListeningPrefs {
             LibrarySort.recent,
         bookColours: json['bookColours'] != false,
         naturalVoices: json['naturalVoices'] as bool?,
+        exportFolder: PickedFolder.fromJson(json['exportFolder']),
       );
 }
 
