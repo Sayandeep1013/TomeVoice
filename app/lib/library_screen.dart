@@ -1328,7 +1328,7 @@ class _ContinueDockState extends State<ContinueDock> {
   }
 
   Widget _item(BuildContext context, LibraryEntry e, Color onDark) {
-    final left = e.wordCount > 0 ? listenLength((e.wordCount * (1 - e.progress)).round()) : '';
+    final left = e.wordCount > 0 ? listenLength((e.wordCount * (1 - e.progress)).round(), speed: speedOf(e.id)) : '';
     return InkWell(
       onTap: () => widget.onOpen(e),
       onLongPress: () => widget.onDetails(e),

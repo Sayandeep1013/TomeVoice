@@ -643,10 +643,18 @@ class LibraryStore {
       token: RootIsolateToken.instance,
     );
     final layout = await _runLoad(job);
-    if (pdf != null) {
+    // A book read again carried its place across in cursor.json (see
+    // _carryCursor); the index's copy of the place follows it, for what reads
+    // the place from there (Undo after Start over, the shelf).
+    final place = await cursorFor(id);
+    final carried = entry != null && !_samePlace(place, entry.cursor);
+    if (pdf != null || carried) {
       await _change((now) => [
             for (final e in now)
-              if (e.id == id) e.copyWith(pdfParser: pdfParserVersion) else e,
+              if (e.id == id)
+                e.copyWith(pdfParser: pdf != null ? pdfParserVersion : null, cursor: carried ? place : null)
+              else
+                e,
           ]);
     }
     // Books imported before covers were stored get theirs on first open.
@@ -1215,6 +1223,9 @@ Future<ReadingLayout> _loadLayout(_LoadJob job) async {
   if (before != null && !identical(before, book)) _carryCursor(dir, before, layout);
   return layout;
 }
+
+bool _samePlace(ReadingCursor a, ReadingCursor b) =>
+    a.sectionIndex == b.sectionIndex && a.blockIndex == b.blockIndex && a.sentenceIndex == b.sentenceIndex;
 
 /// A saved place is section/paragraph/sentence numbers. Re-parsing a book
 /// can regroup those (a PDF going from pages to chapters), and the old

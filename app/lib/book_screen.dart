@@ -374,11 +374,15 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                   case 'restart':
                     // One tap from the menu: the place it had is one tap away.
                     final was = _entry;
+                    // The book's own place file, which a re-read book's place
+                    // reaches first.
+                    final place = await _store.cursorFor(was.id);
                     await _store.saveCursor(_entry.id, ReadingCursor.zero, 0);
                     await _refreshEntry();
                     if (!context.mounted) break;
-                    showSnack(context, 'Back to the beginning.', actionLabel: 'Undo', onAction: () async {
-                      await _store.saveCursor(was.id, was.cursor, was.progress, where: was.where);
+                    // Long enough to reach: the place is otherwise gone.
+                    showSnack(context, 'Back to the beginning.', long: true, actionLabel: 'Undo', onAction: () async {
+                      await _store.saveCursor(was.id, place, was.progress, where: was.where);
                       await _refreshEntry();
                     });
                   case 'remove':
@@ -405,7 +409,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
     final facts = [
       e.formatLabel,
       if (e.language != null) languageName(e.language!),
-      if (e.wordCount > 0) listenLength(e.wordCount),
+      if (e.wordCount > 0) listenLength(e.wordCount, speed: _prefs.speedFor(e.id)),
     ];
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -466,7 +470,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
   Widget _actions(BuildContext context) {
     final e = _entry;
     final started = e.progress > 0 && !e.finished;
-    final left = e.wordCount > 0 ? listenLength((e.wordCount * (1 - e.progress)).round()) : '';
+    final left = e.wordCount > 0 ? listenLength((e.wordCount * (1 - e.progress)).round(), speed: _prefs.speedFor(e.id)) : '';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
