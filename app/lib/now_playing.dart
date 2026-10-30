@@ -8,6 +8,7 @@ import 'package:flutter/rendering.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'listen_sheet.dart' show trimSpeed;
+import 'page_style.dart';
 import 'player_controls.dart';
 import 'prefs.dart';
 import 'reader_text.dart' show wordAt;
@@ -572,10 +573,8 @@ class _PassageState extends State<_Passage> {
     final heading = _l.units[a].role == BlockRole.heading;
     final dim = Colors.white.withValues(alpha: 0.4);
     // The reader's text size (19 unless it was changed), as on the page.
-    final size = (ListeningPrefs.loaded ?? ListeningPrefs.memory).textSize;
-    final style = heading
-        ? Skin.title(context, size: size * 21 / 19, color: dim)
-        : TextStyle(fontFamily: 'Newsreader', fontSize: size, height: 1.5, color: dim);
+    final prefs = ListeningPrefs.loaded ?? ListeningPrefs.memory;
+    final style = PageStyle.passage(context, prefs, heading: heading, color: dim);
     final u = widget.unit;
     final current = u >= a && u < b;
     Widget text(WordMark word) => Text.rich(
