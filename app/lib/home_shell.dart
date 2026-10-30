@@ -24,6 +24,7 @@ import 'saved_screen.dart';
 import 'stats.dart';
 import 'stats_screen.dart';
 import 'settings_screen.dart';
+import 'sync.dart';
 import 'sources/net.dart';
 import 'sources/source_engine.dart';
 import 'sources/source_store.dart';
@@ -93,8 +94,13 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
     _store?.placeChanges.removeListener(_scheduleFollow);
     _store?.changes.removeListener(_scheduleWidgets);
     _store?.placeChanges.removeListener(_scheduleWidgets);
+    _store?.placeChanges.removeListener(_scheduleSync);
     super.dispose();
   }
+
+  /// A place was saved: sync once the library shows again (the book was
+  /// left), or soon if it already shows (a book reading on behind it).
+  void _scheduleSync() => whenShown(BookSync.instance.soon);
 
   /// The app's accent follows the book being read: the one opened last.
   /// Debounced, since every saved place is a change to the library; and
@@ -192,6 +198,10 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
       Future<void>.delayed(const Duration(seconds: 8), () => _offerUpdate(Directory(dir)));
       // An automatic backup, when one is due (Settings > Library).
       AutoBackup.start(store);
+      // Places, quotes and reading time to the reader's sync server, when
+      // one is set up: on opening, and on coming back from a book.
+      BookSync.instance.start(store);
+      store.placeChanges.addListener(_scheduleSync);
       _lifecycle = AppLifecycleListener(onResume: () => unawaited(_offerUpdate(Directory(dir))));
       // New chapters, at most as often as the reader asked, a moment after
       // the shelf is up so opening the app stays quick.

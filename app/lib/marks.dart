@@ -220,6 +220,14 @@ class MarkStore {
     await _save();
   }
 
+  /// Book [bookId]'s marks are [marks] now (synced from another phone):
+  /// those not among them go, the rest are added or replaced. One write.
+  Future<void> replaceBook(String bookId, List<Mark> marks) async {
+    final keep = [for (final m in _all) if (m.bookId != bookId) m];
+    _all = [...keep, ...marks.where((m) => m.bookId == bookId)]..sort((a, b) => b.created.compareTo(a.created));
+    await _save();
+  }
+
   /// Web novel [bookId]'s downloads were filed again (its list changed on
   /// the site): each mark goes to where its chapter is now, [to].
   Future<void> moveChapters(String bookId, int Function(int chapter) to) async {

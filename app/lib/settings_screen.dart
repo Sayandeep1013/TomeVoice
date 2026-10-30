@@ -26,6 +26,8 @@ import 'secret_shelf.dart';
 import 'sources_screen.dart';
 import 'stats_screen.dart' show addWidget;
 import 'speech_service.dart';
+import 'sync.dart';
+import 'sync_screen.dart';
 import 'theme.dart';
 import 'ui.dart';
 import 'updates.dart';
@@ -441,6 +443,17 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           ),
                           _AutoBackupStatus(store: widget.store, prefs: _prefs),
                         ],
+                        const SizedBox(height: Gap.s),
+                        _Link(
+                          icon: Icons.sync_rounded,
+                          title: 'Sync',
+                          subtitle: BookSync.on
+                              ? 'On: places, quotes and reading time'
+                              : 'Off. Keep places and quotes the same on your phones, or with KOReader',
+                          onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                            builder: (_) => SyncScreen(store: widget.store),
+                          )),
+                        ),
                         _Link(
                           icon: Icons.move_to_inbox_outlined,
                           title: 'Import from NovelDokusha',
