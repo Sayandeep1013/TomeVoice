@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'app_update.dart';
 import 'auto_backup.dart';
+import 'auto_download.dart';
 import 'background_check.dart';
 import 'backup.dart';
 import 'backup_flow.dart';
@@ -42,10 +43,10 @@ import 'theme.dart';
 import 'ui.dart';
 import 'update_flow.dart';
 
-/// The library as the app keeps it open: its folder, the books, and the
-/// sources (web novels), with the settings, rules, marks, stats and natural
-/// voices attached beside them.
-typedef OpenLibrary = ({String dir, LibraryStore store, SourceStore sources});
+/// The library as the app keeps it open: its folder, the books, the
+/// sources (web novels) and the check for their new chapters, with the
+/// settings, rules, marks, stats and natural voices attached beside them.
+typedef OpenLibrary = ({String dir, LibraryStore store, SourceStore sources, Updates updates});
 
 ({String dir, Future<OpenLibrary> opened})? _library;
 
@@ -101,7 +102,39 @@ Future<OpenLibrary> _open(String dir) async {
   await MarkStore.instance.attach(Directory(dir));
   await StatsStore.instance.attach(Directory(dir));
   NeuralVoices.instance.attach(Directory(dir));
-  return (dir: dir, store: store, sources: sources);
+  // One check for the whole engine (the shelves', the Updates page's, and
+  // the closed-app check's worker's, see checkInApp), which queues the new
+  // chapters of novels that download them by themselves.
+  final updates = Updates(store, auto: AutoDownloads());
+  return (dir: dir, store: store, sources: sources, updates: updates);
+}
+
+/// What the closed-app check's worker asks of this engine when it finds it
+/// up (TomeVoice open, left in the background with Back, or reading a book
+/// with no screen) instead of starting an engine of its own: two engines
+/// must never write the library at once. The check runs here, on the
+/// engine's one [Updates] (a check already running is joined), and what to
+/// tell the reader is worded as from away from the app (see
+/// describeNewChapters). Nothing when checks are turned off, or one ended
+/// in the last [recent] (the app checks on opening, and on coming back).
+Future<Map<String, Object?>> checkInApp({Duration recent = const Duration(minutes: 30)}) async {
+  final started = DateTime.now();
+  final library = await openLibrary();
+  if (UpdateEvery.byName(ListeningPrefs.loaded?.updateEvery).interval == null) return const {'found': 0};
+  final updates = library.updates;
+  if (!updates.running.value) {
+    final last = await updates.lastChecked();
+    if (last != null && DateTime.now().difference(last) < recent) return const {'found': 0};
+  }
+  final r = await updates.checkAll();
+  // Behind the screen, chapters it queued to download by themselves come
+  // down while the worker waits for this answer: its run is what keeps the
+  // phone from freezing TomeVoice meanwhile (the downloads' own service may
+  // not start from the background). The worker gives it nine minutes.
+  if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+    await DownloadQueue.instance.settledBy(started.add(const Duration(minutes: 7)));
+  }
+  return describeNewChapters(library.store, r.added);
 }
 
 /// The app around the screens: storage and settings are opened once here,
@@ -230,9 +263,8 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
   Future<void> _init() async {
     try {
       // Already open if a book began reading with no screen (openLibrary).
-      final (:dir, :store, :sources) = await openLibrary();
+      final (:dir, :store, :sources, :updates) = await openLibrary();
       StatsStore.instance.onSaved = _scheduleWidgets;
-      final updates = Updates(store);
       if (mounted) {
         setState(() {
           _store = store;
@@ -326,6 +358,9 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
         await Future<void>.delayed(const Duration(seconds: 2));
       }
       await updates.takeCounts();
+      // New chapters left to download by themselves (found with the app
+      // closed, or off Wi-Fi): queued, if they may go now.
+      await updates.takeWaiting();
       await updates.checkIfDue(UpdateEvery.byName(ListeningPrefs.loaded?.updateEvery));
     } on Object {
       // A failed check simply runs again next time.

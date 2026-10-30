@@ -204,5 +204,9 @@ void main() {
     expect((both['title'], both['text']), ('2 new chapters', 'Novel a0 and 1 more'));
     expect(both['lines'], ['Novel a0: a new chapter', 'A novel: a new chapter']);
     expect(jsonEncode(both), isNot(contains('b0')));
+    // Open in the app (the worker asks the app's engine): still unnamed, as
+    // the notification stays once the app is left and the shelf shuts.
+    LibraryStore.secretOpen.value = true;
+    expect(jsonEncode(describeNewChapters(store, [c(hidden, 'Novel b0', 4)])), isNot(contains('b0')));
   });
 }

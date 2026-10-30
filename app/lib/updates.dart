@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' show ValueNotifier;
 
+import 'auto_download.dart';
 import 'library_store.dart';
 import 'safe_file.dart';
 import 'sources/browser_hosts.dart';
@@ -170,10 +171,15 @@ enum UpdateEvery {
 /// app, and sources whose sites need a browser check are skipped, as no web
 /// view can run there.
 class Updates {
-  Updates(this.store, {this.background = false, this.stopWhen});
+  Updates(this.store, {this.background = false, this.stopWhen, this.auto});
 
   final LibraryStore store;
   final bool background;
+
+  /// In the app's engine: told what each check found, and asked on opening
+  /// with nothing (see [takeWaiting]), so new chapters of novels that
+  /// download them by themselves are queued (see AutoDownloads).
+  final AutoDownloads? auto;
 
   /// Asked before each novel and just before each write (away from the
   /// app: whether the app has opened since). True stops the check there;
@@ -243,6 +249,48 @@ class Updates {
         if (e.key is String && e.value is int) e.key as String: e.value as int,
     });
     await writeSafely(_log, jsonEncode({...raw}..remove('counts')));
+  }
+
+  /// New chapters waiting to download by themselves: those a check made
+  /// away from the app found and did not fetch, and those found off Wi-Fi
+  /// for a novel that waits for it. Taken out of the log, for the app to
+  /// queue (see AutoDownloads).
+  Future<List<NewChapter>> takeWaitingDownloads() async {
+    final raw = await _raw();
+    final list = raw['auto'];
+    if (list is! List || list.isEmpty) return const [];
+    await writeSafely(_log, jsonEncode({...raw}..remove('auto')));
+    return [
+      for (final o in list)
+        if (NewChapter.fromJson(o) case final c?) c,
+    ];
+  }
+
+  /// Keep [chapters] waiting to download by themselves (see
+  /// [takeWaitingDownloads]), with those waiting already; at most 2,000.
+  Future<void> keepWaitingDownloads(List<NewChapter> chapters) async {
+    if (chapters.isEmpty) return;
+    final raw = await _raw();
+    final seen = <String>{};
+    final all = [
+      for (final c in [
+        for (final o in raw['auto'] as List? ?? const [])
+          if (NewChapter.fromJson(o) case final c?) c,
+        ...chapters,
+      ])
+        if (c.path != null && seen.add('${c.bookId}|${c.path}')) c,
+    ];
+    await writeSafely(_log, jsonEncode({...raw, 'auto': [for (final c in all.take(2000)) c.toJson()]}));
+  }
+
+  /// On opening, and on coming back to the app: chapters waiting to
+  /// download by themselves, queued if they may go now.
+  Future<void> takeWaiting() async {
+    try {
+      await auto?.take(this, const []);
+    } on Object {
+      // Taken at the next check or opening.
+    }
   }
 
   /// Check now if the last successful check is older than [every] (or none
@@ -340,6 +388,14 @@ class Updates {
         problems: problems.values.toList(),
         counts: counts,
       );
+      // New chapters of novels that download them by themselves.
+      if (!background) {
+        try {
+          await auto?.take(this, added);
+        } on Object {
+          // Taken at the next check or opening.
+        }
+      }
     } finally {
       running.value = false;
       status.value = null;
@@ -444,6 +500,8 @@ class Updates {
         'new': [for (final c in kept) c.toJson()],
         'problems': [for (final p in problems) p.toJson()],
         if (counts.isNotEmpty || before is Map) 'counts': {if (before is Map) ...before, ...counts},
+        // Chapters waiting to download by themselves (see AutoDownloads).
+        if (raw['auto'] is List) 'auto': raw['auto'],
       }),
     );
   }

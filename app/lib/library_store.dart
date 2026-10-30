@@ -469,6 +469,14 @@ class LibraryStore {
     }
   }
 
+  /// Web novel [from] is [to] now, moved to another source (novel_move.dart,
+  /// which makes [to]'s folder first): its entry swapped in one step.
+  Future<void> swapWebNovel(String from, LibraryEntry to) async {
+    _downloads.remove(from);
+    _downloads.remove(to.id);
+    await _change((entries) => [to, for (final e in entries) if (e.id != from && e.id != to.id) e]);
+  }
+
   /// The chapter counts a check made away from the app found (see
   /// Updates), on the shelf's cards.
   Future<void> noteChapterCounts(Map<String, int> counts) async {

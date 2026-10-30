@@ -21,14 +21,18 @@ books/<id>/             one folder per book (id: 16 hex digits, or web- and 16 m
   novel.json            a web novel: its site, details and chapter list
   ch/                   a web novel's downloaded chapters (ch/orphaned/ for ones its site
                         no longer lists; they come back if it lists them again)
+  read.json             a web novel's chapters marked read or unread by hand, by address
   ocr.json              a scanned PDF's text, read once by OCR, never read again
 marks.json              quotes (with colour and note) and bookmarks, for every book
 stats.json              listening time per day, and the streak goal
 prefs.json              listening and reading settings (voice per language and per book,
-                        speeds, pauses, page, theme, sync and catalogue settings)
+                        speeds, pauses, page, theme, sync and catalogue settings, which
+                        web novels download their new chapters by themselves)
 rules.json              reading rules: how words are said, lines left out of web novels
 tints.json              colours taken from each book's cover
-updates.json            web novels' new-chapter checks and their results
+updates.json            web novels' new-chapter checks and their results; chapter counts
+                        and new chapters to download that a check with the app closed
+                        leaves for the app
 downloads.json          the chapter download queue, so it carries on after a restart
 sync_state.json         what sync last sent and saw (WebDAV, KOReader)
 starter.json            what the first-launch shelf has added, so it is never added twice
@@ -81,6 +85,15 @@ turns it into a unit with `unitForCursor`.
 - **Damaged files are kept aside, not written over.** An unreadable `library.json`
   becomes `library.json.broken`; an entry of the wrong shape is passed over and a copy
   of the file kept.
+- **One engine writes the library at a time.** The check for new chapters made with the
+  app closed starts an engine of its own only while the app's is down; while it is up
+  (TomeVoice open, left in the background, or reading with no screen), the worker asks
+  that engine to check instead (SourcesBridge's "runCheck") and posts what it found. The
+  check's own engine writes no `library.json`, stops before each write once the app
+  opens (its leftovers wait in `updates.json`), and the app waits for it to end.
+- **A web novel moved to another source** has its new folder made whole first (each
+  download moved to its chapter's place there, one that matches none to `ch/orphaned/`),
+  then its entry swapped in one write; the old folder goes last.
 
 ## 11.4 Places
 
@@ -115,4 +128,7 @@ turns it into a unit with `unitForCursor`.
 A category can be secret. Its books are left out of everything shown (shelves, search,
 Saved, stats, widgets, the media session, Android Auto) until it is opened with the
 phone's lock, and it shuts again when the app is left. Removing a book from a secret
-shelf removes its quotes and bookmarks with it.
+shelf removes its quotes and bookmarks with it. Notifications (new chapters, downloads)
+never name a novel on a secret shelf, open or not, as they stay once the app is left;
+exporting one as an EPUB asks for the lock first, and the NovelUpdates link is not
+offered for one while the shelf is shut.

@@ -113,6 +113,17 @@ class DownloadQueue {
 
   bool get paused => _paused;
 
+  /// Whether the queue kept in library [root] is paused (asked by the
+  /// background check's engine, which leaves the reader's pause alone).
+  static Future<bool> pausedIn(Directory root) async {
+    try {
+      final f = File('${root.path}/downloads.json');
+      return await f.exists() && (jsonDecode(await f.readAsString()) as Map)['paused'] == true;
+    } on Object {
+      return false;
+    }
+  }
+
   /// The library to download into; picks up where the queue was.
   Future<void> attach(LibraryStore store) async {
     _store = store;
@@ -204,6 +215,20 @@ class DownloadQueue {
     _jobs.removeWhere((j) => bookId == null || j.bookId == bookId);
     await _save();
     _kick();
+  }
+
+  /// Take novel [bookId]'s chapters out of the queue (it is moving to
+  /// another source), once none of them is on its way down: those that
+  /// were waiting, to be queued again at their places there.
+  Future<List<DownloadJob>> takeOut(String bookId) async {
+    final out = [for (final j in _jobs) if (j.bookId == bookId) j];
+    _jobs.removeWhere((j) => j.bookId == bookId);
+    await _save();
+    _kick();
+    for (var waited = 0; _running.values.any((j) => j.bookId == bookId) && waited < 300; waited++) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    return out;
   }
 
   /// Try again the chapters of [bookId] that failed.
@@ -361,6 +386,19 @@ class DownloadQueue {
     }
   }
 
+  /// Wait, until [until] at most, for nothing to be left to download (those
+  /// that failed aside), or the queue to be paused. True if it got there.
+  /// For the closed-app check's worker asking this engine with TomeVoice
+  /// behind the screen: its run is what keeps the phone from freezing the
+  /// app meanwhile, as the downloads' own service may not start from there.
+  Future<bool> settledBy(DateTime until) async {
+    while (true) {
+      if (_paused || (_running.isEmpty && !_jobs.any((j) => j.failed == null))) return true;
+      if (!DateTime.now().isBefore(until)) return false;
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+  }
+
   /// Nothing downloading and the queue on disk as it is (tests).
   @visibleForTesting
   Future<void> whenIdle() async {
@@ -384,18 +422,23 @@ class DownloadQueue {
       return;
     }
     final now = _running.values.firstOrNull;
-    final title = now == null ? 'Downloading chapters' : (_titles[now.bookId] ?? 'Downloading chapters');
+    // A novel on a secret shelf is never named here, nor its chapter, the
+    // shelf open or not: the notification shows on the lock screen, and
+    // stays once the app is left and the shelf shuts. Nor is one before its
+    // shelf is known (its title is found with the library's index).
+    final title = now == null ? null : _titles[now.bookId];
+    final shown = now != null && title != null && !(_store?.isSecret(now.bookId) ?? true) ? (title, now.name) : null;
     unawaited(SourcesBridge.downloadProgress({
-      'title': title,
-      'text': now == null ? '$waiting to go' : '${now.name} · $waiting to go',
+      'title': shown?.$1 ?? 'Downloading chapters',
+      'text': shown == null ? '$waiting to go' : '${shown.$2} · $waiting to go',
       'done': _done,
       'total': _done + waiting,
     }));
-    if (now != null && !_titles.containsKey(now.bookId)) unawaited(_title(now.bookId));
+    if (now != null && title == null) unawaited(_title(now.bookId));
   }
 
-  /// Novel titles for the notification (none for one on a secret shelf
-  /// while the shelves are shut).
+  /// Novel titles for the notification, found with the library's index
+  /// (never shown for one on a secret shelf).
   final _titles = <String, String>{};
 
   Future<void> _title(String bookId) async {
@@ -403,7 +446,7 @@ class DownloadQueue {
     if (store == null) return;
     final e = (await store.list(all: true)).where((e) => e.id == bookId).firstOrNull;
     if (e == null) return;
-    _titles[bookId] = store.isSecret(bookId) && !LibraryStore.secretOpen.value ? 'Downloading chapters' : e.title;
+    _titles[bookId] = e.title;
     _notify();
   }
 }
