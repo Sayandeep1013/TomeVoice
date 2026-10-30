@@ -319,12 +319,15 @@ class _Walker {
     return found;
   }
 
-  void walk(XmlNode node, String? language, {required BlockRole? inherited}) {
+  void walk(XmlNode node, String? inheritedLanguage, {required BlockRole? inherited}) {
     if (node is! XmlElement) return;
     final name = node.localName.toLowerCase();
     if (_skipTags.contains(name) || _isApparatus(node)) return;
     final id = _idOf(node);
     if (id != null) pending.add(id);
+    // A paragraph or passage marked in another language keeps it. The
+    // page's own <html lang> is usually a template's default, not a claim.
+    final language = name == 'html' || name == 'body' ? inheritedLanguage : _langOf(node) ?? inheritedLanguage;
 
     if (name == 'img' || name == 'svg') {
       _images(node, language);
@@ -568,6 +571,14 @@ String _role(XmlElement e) {
 bool _isPageBreak(XmlElement e) => _types(e).contains('pagebreak') || _role(e) == 'doc-pagebreak';
 
 String _href(XmlElement e) => _attr(e, 'href').trim();
+
+/// `xml:lang` or `lang`, when set.
+String? _langOf(XmlElement e) {
+  for (final a in e.attributes) {
+    if (a.name.local == 'lang' && a.value.trim().isNotEmpty) return a.value.trim();
+  }
+  return null;
+}
 
 String? _idOf(XmlElement e) {
   final id = e.getAttribute('id') ?? _attr(e, 'id');

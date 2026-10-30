@@ -122,15 +122,42 @@ List<DraftSection> sectionsFromPlainText(
   if (blocks.isNotEmpty) sections.add((title: title, blocks: blocks));
 
   // One "chapter" line in a whole file is probably prose, not structure.
-  if (chapters < 2 && sections.length > 1) {
-    return [
-      (
-        title: fallbackTitle,
-        blocks: [for (final s in sections) ...s.blocks],
-      ),
-    ];
+  if (chapters < 2) {
+    return _parts([for (final s in sections) ...s.blocks], fallbackTitle);
   }
   return sections;
+}
+
+/// About a chapter's worth of words: a long text with no chapters of its
+/// own is cut into parts of this size, at paragraph ends, so the reader
+/// has places to jump to and a chapter to finish.
+const _partWords = 4000;
+
+List<DraftSection> _parts(List<Block> blocks, String title) {
+  final total = blocks.fold<int>(0, (n, b) => n + countWords(b.text));
+  if (total < _partWords * 2) return [(title: title, blocks: blocks)];
+  final out = <DraftSection>[];
+  var part = <Block>[];
+  var words = 0;
+  for (final b in blocks) {
+    part.add(b);
+    words += countWords(b.text);
+    if (words >= _partWords) {
+      out.add((title: 'Part ${out.length + 1}', blocks: part));
+      part = [];
+      words = 0;
+    }
+  }
+  if (part.isNotEmpty) {
+    // A short tail joins the part before it rather than standing alone.
+    if (words < _partWords ~/ 3 && out.isNotEmpty) {
+      final last = out.removeLast();
+      out.add((title: last.title, blocks: [...last.blocks, ...part]));
+    } else {
+      out.add((title: 'Part ${out.length + 1}', blocks: part));
+    }
+  }
+  return out;
 }
 
 /// Join hard-wrapped lines into one paragraph, mending words that were

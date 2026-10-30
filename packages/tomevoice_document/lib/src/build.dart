@@ -251,29 +251,102 @@ String? titleFromFilename(String? filename) {
   return cleaned.isEmpty ? null : cleaned;
 }
 
+/// Words that begin a chapter heading, in the languages TomeVoice reads:
+/// "Chapter 12", "Глава 3", "Capítulo XII", "Kapitel 1", "অধ্যায় ৩".
+final _chapterKeyword =
+  r'hoofdstuk|capitolo|capitulo|capítulo|chapitre|kapitola|kapittel|'
+  r'rozdział|পরিচ্ছেদ|chapter|kapitel|частина|অধ্যায়|bagian|chap\.|chương|'
+  r'księga|partie|volume|розділ|अध्याय|bölüm|część|libro|livre|livro|parte|'
+  r'глава|книга|часть|boek|book|buch|deel|part|phần|teil|tome|tomo|část|'
+  r'খণ্ড|পর্ব|bab|том|खंड|भाग';
+
+/// Numbers a heading uses after its keyword: digits (also Bengali and
+/// Devanagari), roman numerals and words ("Chapter One", "Глава первая",
+/// "Chapitre premier", "অধ্যায় এক").
+final _chapterNumber = r'(?:\d+|[ivxlcdm]+|[০-৯]+|[०-९]+|'
+  r'seventeen|troisième|последний|последняя|четвертая|четвёртая|dernière|'
+  r'deuxième|eighteen|fourteen|nineteen|pierwsza|pierwszy|première|'
+  r'primeira|primeiro|terceira|terceiro|thirteen|dernier|fifteen|hundred|'
+  r'premier|primera|primero|quattro|seconde|segunda|segundo|seventh|'
+  r'seventy|sixteen|séptima|séptimo|tercera|tercero|trzecia|восьмая|'
+  r'девятая|десятая|седьмая|cinque|cuarta|cuarto|cuatro|décima|décimo|'
+  r'eighth|eighty|eleven|fourth|ninety|novena|noveno|octava|octavo|quatre|'
+  r'quatro|quinta|quinto|second|sieben|thirty|trzeci|twelve|twenty|ultima|'
+  r'ultimo|última|último|вторая|второе|второй|первая|первое|первый|третий|'
+  r'третье|третья|четыре|шестая|cinco|dieci|druga|drugi|eight|fifth|fifty|'
+  r'final|first|forty|negen|ninth|nueve|prima|primo|sechs|sette|seven|'
+  r'sexta|sexto|siete|sixth|sixty|tenth|terza|terzo|third|three|trois|'
+  r'zeven|друга|перша|пятая|третя|acht|cinq|deux|diez|dois|drei|drie|duas|'
+  r'eins|five|four|fünf|huit|last|neuf|neun|nine|nove|ocho|oito|otto|seis|'
+  r'sept|sete|tien|tres|três|twee|vier|vijf|zehn|zwei|один|пять|पाँच|पांच|'
+  r'পাঁচ|dez|dix|dos|due|one|sei|six|ten|tre|two|uno|zes|два|три|चार|तीन|'
+  r'सात|চার|ছয়|তিন|দুই|নয়|সাত|आठ|एक|छह|दस|दो|नौ|আট|এক|দশ'
+    r')';
+
+/// An ordinal before its keyword: "Erstes Kapitel", "Primera parte",
+/// "প্রথম অধ্যায়", "पहला अध्याय".
+final _ordinalFirst = r'(?:'
+  r'siebentes|troisième|dernière|deuxième|première|primeira|sechstes|'
+  r'terceira|দ্বিতীয়|dritter|drittes|fünftes|letzter|letztes|neuntes|'
+  r'premier|primera|seconda|seconde|segunda|siebtes|tercera|vierter|'
+  r'viertes|zehntes|zweiter|zweites|द्वितीय|achtes|cuarta|erster|erstes|'
+  r'second|última|चतुर्थ|চতুর্থ|তৃতীয়|দ্বাদশ|prima|terza|अंतिम|तीसरा|'
+  r'तृतीय|दूसरा|प्रथम|অষ্টম|একাদশ|পঞ্চম|প্রথম|সপ্তম|चौथा|पहला|ষষ্ঠ|দশম|নবম|'
+  r'শেষ'
+    r')\s+(?:'
+  r'chapitre|পরিচ্ছেদ|kapitel|অধ্যায়|partie|अध्याय|libro|livre|livro|'
+  r'parte|buch|teil|খণ্ড|পর্ব|खंड|भाग'
+    r')';
+
+/// Sections with a name of their own: "Prologue", "Epílogo", "Vorwort".
+final _namedSection = r'(?:'
+  r'avant\-propos|introducción|introduction|introduzione|послесловие|'
+  r'предисловие|einleitung|prefazione|вступление|afterword|interlude|'
+  r'epilogue|foreword|nachwort|prefacio|prologue|épilogue|введение|epilogo|'
+  r'epílogo|preface|prologo|préface|prólogo|vorwort|epilog|prolog|пролог|'
+  r'эпилог'
+    r')';
+
 /// Lines that begin a chapter in plain text: "Chapter 12", "CHAPTER XII.",
-/// "Part Two", "Prologue", and the Bengali / Hindi equivalents.
+/// "Part Two", "Prologue", and the same in other languages; "第十二章" and
+/// "第3話" in Chinese and Japanese, "제1장" in Korean.
 final chapterLine = RegExp(
   // A chapter keyword followed by its number ("Chapter 12", "CHAPTER XII.",
-  // "Part Two", "অধ্যায় ৩"), or a standalone named section. The number is
-  // required: "book of rules for shutting people up" is prose that happens
-  // to start with "book".
-  r'^(?:(?:chapter|chap\.|part|book|volume|অধ্যায়|পরিচ্ছেদ|পর্ব|अध्याय|भाग)'
+  // "Part Two", "অধ্যায় ৩"), an ordinal before one ("Erstes Kapitel"), or
+  // a standalone named section. The number is required: "book of rules for
+  // shutting people up" is prose that happens to start with "book".
+  '^(?:(?:$_chapterKeyword)'
   r'[\s.:\-–—]*'
-  r'(?:\d+|[ivxlcdm]+|[০-৯]+|[०-९]+|one|two|three|four|five|six|seven|eight|'
-  r'nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|'
-  r'eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|'
-  r'hundred|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|'
-  r'last|final)'
+  '$_chapterNumber'
   r'(?=$|[\s.:\-–—,])'
-  r'|(?:prologue|epilogue|interlude|afterword|introduction|preface|foreword)'
-  r'(?=$|[\s.:\-–—,]))'
+  '|$_ordinalFirst'
+  r'(?=$|[\s.:\-–—,])'
+  '|$_namedSection'
+  r'(?=$|[\s.:\-–—,])'
+  r'|第[0-9０-９零〇一二三四五六七八九十百千万两]+[章回节節卷部篇集话話幕]'
+  r'|제\s*[0-9]+\s*[장화부편]'
+  r'|序章|终章|終章|楔子|尾声|尾聲|序言|后记|後記|番外|プロローグ|エピローグ|프롤로그|에필로그'
+  r')'
   r'.{0,70}$',
   caseSensitive: false,
 );
 
+/// Bengali letters with a nukta, decomposed as Unicode normalises them
+/// (য় is য + ়): files have both forms, the patterns only one.
+String _nuktaDecomposed(String s) {
+  if (!s.contains(_yaNukta) && !s.contains(_ddaNukta) && !s.contains(_ddhaNukta)) return s;
+  return s
+      .replaceAll(_yaNukta, String.fromCharCodes(const [0x09AF, 0x09BC]))
+      .replaceAll(_ddaNukta, String.fromCharCodes(const [0x09A1, 0x09BC]))
+      .replaceAll(_ddhaNukta, String.fromCharCodes(const [0x09A2, 0x09BC]));
+}
+
+final _yaNukta = String.fromCharCode(0x09DF);
+final _ddaNukta = String.fromCharCode(0x09DC);
+final _ddhaNukta = String.fromCharCode(0x09DD);
+
 bool looksLikeChapterLine(String line) {
-  final t = line.trim();
+  final t = _nuktaDecomposed(line.trim());
   if (t.isEmpty || t.length > 90) return false;
   if (!chapterLine.hasMatch(t)) return false;
   // "Chapter one was the best part of the book." is prose, not a heading.
