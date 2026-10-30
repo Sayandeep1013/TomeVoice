@@ -241,6 +241,29 @@ void main() {
     expect(book.sections, hasLength(2));
   });
 
+  test("an FB2 book's own title and epigraph, before its first chapter, are kept", () {
+    const xml = '<?xml version="1.0" encoding="utf-8"?>'
+        '<FictionBook><description><title-info><book-title>The Lighthouse</book-title></title-info></description>'
+        '<body><title><p>The Lighthouse</p></title>'
+        '<epigraph><poem><stanza><v>A fire burns above the water,</v><v>and someone waits.</v></stanza></poem>'
+        '<text-author>A keepers’ song</text-author></epigraph>'
+        '<section><title><p>Chapter One</p></title><p>The keeper came in the spring.</p></section>'
+        '<section><title><p>Chapter Two</p></title><p>The storm came in November.</p></section>'
+        '</body></FictionBook>';
+    final book = ingestBytes(Uint8List.fromList(utf8.encode(xml)), filename: 'l.fb2');
+    expect(_texts(book), [
+      'The Lighthouse',
+      'A fire burns above the water,',
+      'and someone waits.',
+      'A keepers’ song',
+      'Chapter One',
+      'The keeper came in the spring.',
+      'Chapter Two',
+      'The storm came in November.',
+    ]);
+    expect(book.sections.map((s) => s.displayTitle), ['The Lighthouse', 'Chapter One', 'Chapter Two']);
+  });
+
   test('rtf', () {
     const rtf = r'''{\rtf1\ansi{\fonttbl{\f0 Times;}}{\*\generator Word;}\f0 Caf\'e9 is open.\par Second \u8212? line.\par}''';
     final bytes = Uint8List.fromList(rtf.codeUnits);
