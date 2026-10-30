@@ -4,8 +4,11 @@
 
 import 'dart:io';
 
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_spike/library_store.dart';
+import 'package:tomevoice_spike/secret_shelf.dart';
 import 'package:tomevoice_spike/speech_service.dart';
 
 void main() {
@@ -67,5 +70,45 @@ void main() {
     final fresh = LibraryStore(tmp);
     final all = await fresh.index(all: true);
     expect(all.categories.firstWhere((c) => c.id == secret.id).secret, isTrue);
+  });
+
+  test('its file opened again keeps it on the secret shelf, still hidden', () async {
+    final again = File('assets/starter/pride-and-prejudice.epub').copySync('${tmp.path}/again.epub');
+    final entry = await store.importFile(PickedFile(path: again.path, name: 'Pride and Prejudice.epub'));
+    expect(entry.id, id);
+    expect(store.isSecret(id), isTrue);
+    expect((await store.index()).entries, isEmpty);
+  });
+
+  testWidgets('shown while shut, a secret book asks for the lock first', (tester) async {
+    const channel = MethodChannel('tomevoice/tts');
+    final asked = <String>[];
+    var answer = false;
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      asked.add(call.method);
+      return call.method == 'confirmUser' ? answer : null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    await tester.pumpWidget(const MaterialApp(home: Scaffold(body: SizedBox())));
+    final context = tester.element(find.byType(SizedBox));
+
+    // Cancelled: not shown, and the shelf stays shut.
+    expect(await SecretShelf.mayShow(context, store, id), isFalse);
+    expect(asked, ['confirmUser']);
+    expect(SecretShelf.open.value, isFalse);
+    await tester.pump(const Duration(seconds: 1));
+
+    // The phone's lock given: shown, and the shelf is open.
+    answer = true;
+    expect(await SecretShelf.mayShow(context, store, id), isTrue);
+    expect(SecretShelf.open.value, isTrue);
+    // Open, nothing more is asked; a book on no secret shelf never asks.
+    asked.clear();
+    expect(await SecretShelf.mayShow(context, store, id), isTrue);
+    LibraryStore.secretOpen.value = false;
+    expect(await SecretShelf.mayShow(context, store, 'not-a-secret-book'), isTrue);
+    expect(asked.where((m) => m == 'confirmUser'), isEmpty);
+    await tester.pump(const Duration(seconds: 1));
   });
 }

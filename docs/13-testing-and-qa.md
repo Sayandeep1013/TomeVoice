@@ -199,19 +199,6 @@ Some things only a human ear catches. Before each release:
 - **A two-column paper**, listening for interleaved columns — this failure is obvious by
   ear and easy to miss by eye.
 
-## 13.11 Device flows (current slice)
-
-Maestro lives in `mobile-qa/`. Drive a real phone; there is no local Flutter.
-
-- `library-home.yaml` — wordmark, YOUR BOOKS, IMPORT A FILE. No Specimen.
-- `resume-and-start-here.yaml` — tap a sentence, leave, reopen; cursor must hold.
-  Do not `clearState: true`.
-- Chapter skip: next/previous chapter content-desc, not the sentence chevrons.
-- Sentence counter is `n / total` (slash). Chapter index is `n OF chapters`.
-- After `adb uninstall` the library is empty; re-import from Downloads.
-
-Listen to a chapter after every APK. Green widget tests do not prove the scheduler.
-
 ## 13.10 Feedback loop
 
 Text normalisation and pronunciation are permanently incomplete
@@ -223,3 +210,158 @@ was read wrong" to a fixture:
 - Reports become table-driven test cases, so each fix is permanent.
 - Users can convert their own report into a local pronunciation entry in the same
   gesture, so they get an immediate fix whether or not we ever ship one.
+
+## 13.11 Device flows and the emulator job
+
+Maestro flows live in `mobile-qa/flows/`. They drive the app by what is on screen, its
+visible text and Flutter's semantics (labels, button tooltips), never by coordinates, and
+none of them clears the app's data.
+
+| Flow | What it checks |
+|---|---|
+| `library-starter.yaml` | The shelf shows the starter book, Pride and Prejudice (a new install) |
+| `open-reader.yaml` | The book's page opens, and **Read** opens the reader with its top bar |
+| `rotate-reader.yaml` | Landscape and back: the reader is still showing, nothing crashed |
+| `contents-sheet.yaml` | The title in the reader's bar opens the contents; Back closes them |
+| `reading-settings.yaml` | **Reading settings** opens; its Listen tab shows speed and the sleep timer |
+| `listen-from-home.yaml` | Opened from the launcher, **Listen**, then the app's own Back buttons to the shelf: where the Back test starts |
+| `listen-to-library.yaml` | The same, TomeVoice opened by another app (Maestro) instead of the launcher |
+
+`common/` holds the subflows they share: launch to the shelf (`library`), open from the
+launcher's list of apps (`from-home`), the shelf to the book's page (`open-book`,
+`book-page`), and Listen then back to the shelf (`listen-and-return`).
+
+Writing selectors:
+
+- Maestro matches a selector as a whole-string, case-insensitive regular expression against
+  an element's text, hint or content description.
+- Flutter merges a widget's texts into one description, joined by newlines. The shelf tile
+  reads `Pride and Prejudice\nPride and Prejudice\nJane Austen\n…` and the reader's title bar
+  `Contents\nPride and Prejudice\n…`, hence `.*Pride and Prejudice.*Jane Austen.*`, which
+  also tells the shelf tile from the Continue dock (no author there).
+- A button with a tooltip and no label is described by its tooltip: `Back to library`,
+  `Reading settings`, `Add books`.
+- Buttons that wait for something (the book page's Listen and Read wait for the book's
+  layout) are matched with `enabled: true`.
+
+### Running them on a phone
+
+With the phone on adb and TomeVoice installed:
+
+```bash
+maestro test mobile-qa/flows/open-reader.yaml
+```
+
+They run on the library on that phone: they open Pride and Prejudice (`library-starter`
+passes only while it is still on the shelf), the two `listen-` flows read it aloud and so
+move its place, and `rotate-reader` turns auto-rotate off. To keep the real library out of
+it, install the test app (§13.12) and add `-e APP_ID=app.tomevoice.test`.
+
+The Back test by hand, after `listen-from-home`:
+
+```bash
+adb shell input keyevent KEYCODE_BACK
+adb shell dumpsys activity activities | grep -A12 "tomevoice_spike.MainActivity"
+```
+
+No record: MainActivity was destroyed. `state=STOPPED ... finishing=false`: it only moved
+to the back.
+
+### The emulator job
+
+On pull requests and manual runs (not on pushes to main), `build.yml` builds the app for an
+x86_64 emulator and runs it on Android 14 and Android 16:
+
+- `emulator-apk` builds exactly as the release job does (the pinned Flutter, the
+  scaffolding, the overlay, the lockfile) with `TV_ABIS=x86_64` and
+  `--target-platform android-x64`, signed with the throwaway debug key. It never sees a
+  secret and is never published.
+- `emulator-test` boots API 34 and API 36 (`google_apis` x86_64 images, Pixel 6 profile,
+  KVM) with reactivecircus/android-emulator-runner, installs Maestro (a pinned release,
+  checked against its SHA-256) and runs `mobile-qa/ci/emulator-tests.sh`:
+  1. installs the APK and records which text-to-speech engines the image has;
+  2. runs each flow above on a cleared app (`pm clear`, as if just installed); the
+     landscape screenshot from `rotate-reader` must be wider than tall;
+  3. runs the Back test after each `listen-` flow;
+  4. fails if TomeVoice shows up in the crash log.
+
+  A loaded CI emulator can put a system app's "isn't responding" dialog over everything
+  (the Pixel Launcher did once, and every flow failed behind it), so the script sets
+  `hide_error_dialogs` (Android then kills a process that stops responding instead of
+  asking; a TomeVoice hang still fails its flow) and closes system dialogs before each flow.
+
+Each check is a row in the run's summary. The `emulator-results-api-NN` artifact holds
+screenshots, Maestro's output (a screenshot before every step, the view hierarchy on a
+failure), the dumpsys snapshots and logcat. A failed check fails the job, but nothing waits
+for it: the release APKs build and release whatever it says.
+
+### The Back test
+
+Back on the library leaves the app. Whatever finishes MainActivity on the way out stops the
+reading too: its `onDestroy` ends the reading service, the player and TTS.
+
+- **Android 15 and older.** Flutter answers that Back with `SystemNavigator.pop()`, which
+  calls `Activity.finish()` on a `FlutterActivity`.
+- **Android 16** (an app targeting SDK 36 gets predictive back). With nothing in Flutter to
+  pop, Flutter's back callback is unregistered and the activity's own system callback takes
+  the Back. Android then moves the task to the back only if the home screen launched the
+  activity (`ActivityClientController.shouldMoveTaskToBack` asks for
+  `LAUNCH_SOURCE_TYPE_HOME` and a main intent); otherwise it finishes it. Opened from the
+  launcher, TomeVoice keeps reading, which is why the developer's phone never showed the
+  bug; started any other way (seen here when another app starts it), it stops as on
+  Android 14.
+
+The test runs twice per Android version, from the shelf with the book being read aloud
+(the images have Google's TTS engine): after `listen-from-home` (the reader's way in, the
+asserted one) and after `listen-to-library` (opened by another app, reported as a warning,
+not a failure). It presses Back, then decides from `logcat -b events` (`wm_finish_activity`,
+`wm_destroy_activity` for MainActivity) and `dumpsys activity activities` (its record and
+state) whether MainActivity was destroyed or moved to the back, and logs the media session
+and the reading service before and after. It reports one line, such as
+`BACK TEST: activity destroyed on API 34`, and a destroyed activity fails the job.
+
+What it found on the main of 2026-10-30 (1.2.2), reading aloud with Google's TTS (build
+run 41073818634):
+
+| | Opened from the launcher | Opened by another app |
+|---|---|---|
+| Android 14 (API 34) | destroyed: `wm_finish_activity … app-request`, `wm_destroy_activity`; reading stops | destroyed, the same |
+| Android 16 (API 36) | kept: `wm_pause_activity … pauseBackTasks`, `wm_stop_activity`, no finish; the media session stays `PLAYING(3)` and the service runs | destroyed: `wm_finish_activity … app-request`; the session and service are gone |
+
+On API 36 the window's top back callback at that moment was the activity's system one
+(`mPriority=-1` in `CoreBackPreview`), not Flutter's (`mPriority=0`, registered only
+while a route could pop): the system, not Flutter, made each call.
+
+## 13.12 Reproducible builds
+
+- CI pins Flutter 3.47.8 and Dart 3.13.7 (the Dart inside that Flutter) in `build.yml`'s
+  `env`, and every action by commit, its release in a comment.
+- All four `pubspec.lock` files are committed, and every `pub get` in CI is
+  `--enforce-lockfile`: the lockfile is the resolution, and each download is checked against
+  its hash. `flutter_qjs`, a git package, resolves to the commit its lockfile names.
+- After changing a `pubspec.yaml` or the pinned SDKs, re-resolve with the pinned SDKs (the
+  app needs Flutter, which only CI has) and commit what comes back. Until then the build
+  stops at "Resolve dependencies (locked)".
+
+  ```bash
+  gh workflow run build.yml --ref <branch> -f relock=true
+  gh run download <run-id> -n pubspec-locks   # from the repository root
+  ```
+
+- After the build, "Check the APKs" prints each APK's id, size (and the latest release's)
+  and signing certificate. An APK with `org/bouncycastle/pqc/` entries fails it, and so does,
+  on a release run, an APK not signed with the TomeVoice key (`TV_CERT_SHA256`): it would
+  not install over the last version.
+
+### The test app
+
+```bash
+gh workflow run build.yml --ref <branch> -f variant=test
+gh run download <run-id> -n tomevoice-test-apk
+adb install -r TomeVoice-test.apk
+```
+
+A 64-bit APK of a separate app, `app.tomevoice.test` ("TomeVoice Test"), signed with the
+same key so each test build installs over the last. It sits beside TomeVoice with a library
+of its own (the starter book arrives on its first launch), so a risky build or a flow never
+touches the reader's books. It is never attached to a release.

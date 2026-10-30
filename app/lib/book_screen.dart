@@ -123,7 +123,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
   int get _currentChapter {
     final l = _layout;
     if (l == null || l.isEmpty) return 0;
-    return l.chapterOfUnit(l.unitForCursor(_cursor));
+    return l.chapterOfUnit(l.unitForCursor(_cursor, saved: true));
   }
 
   /// Set while a book is being opened: a second tap does nothing.
@@ -178,7 +178,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
     final l = _layout;
     var text = 'This is how I will sound reading ${_entry.title}.';
     if (l != null && !l.isEmpty) {
-      final u = l.unitForCursor(_cursor);
+      final u = l.unitForCursor(_cursor, saved: true);
       final first = l.units[u].text;
       if (first.length >= 30) text = first.length > 200 ? '${first.substring(0, 200)}…' : first;
     }
@@ -372,8 +372,19 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                   case 'move':
                     await moveBook(context, _store, _entry);
                   case 'restart':
+                    // One tap from the menu: the place it had is one tap away.
+                    final was = _entry;
+                    // The book's own place file, which a re-read book's place
+                    // reaches first.
+                    final place = await _store.cursorFor(was.id);
                     await _store.saveCursor(_entry.id, ReadingCursor.zero, 0);
                     await _refreshEntry();
+                    if (!context.mounted) break;
+                    // Long enough to reach: the place is otherwise gone.
+                    showSnack(context, 'Back to the beginning.', long: true, actionLabel: 'Undo', onAction: () async {
+                      await _store.saveCursor(was.id, place, was.progress, where: was.where);
+                      await _refreshEntry();
+                    });
                   case 'remove':
                     final nav = Navigator.of(context);
                     if (await removeBook(context, _store, _entry)) await nav.maybePop();
@@ -398,7 +409,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
     final facts = [
       e.formatLabel,
       if (e.language != null) languageName(e.language!),
-      if (e.wordCount > 0) listenLength(e.wordCount),
+      if (e.wordCount > 0) listenLength(e.wordCount, speed: _prefs.speedFor(e.id)),
     ];
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -459,7 +470,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
   Widget _actions(BuildContext context) {
     final e = _entry;
     final started = e.progress > 0 && !e.finished;
-    final left = e.wordCount > 0 ? listenLength((e.wordCount * (1 - e.progress)).round()) : '';
+    final left = e.wordCount > 0 ? listenLength((e.wordCount * (1 - e.progress)).round(), speed: _prefs.speedFor(e.id)) : '';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -523,7 +534,8 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
   Widget _voice(BuildContext context) {
     final controller = _listen;
     final v = _catalog.byName(controller.voiceName);
-    final speed = trimSpeed(_prefs.settings.speedScale);
+    // This book's own speed, when it has one ("For this book only").
+    final speed = trimSpeed(_prefs.speedFor(_entry.id));
     return Material(
       color: Skin.capsuleOn(context),
       borderRadius: BorderRadius.circular(Radii.row + 4),

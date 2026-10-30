@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
@@ -5,6 +6,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show ValueNotifier;
+import 'package:flutter/services.dart' show BackgroundIsolateBinaryMessenger, MethodChannel, RootIsolateToken;
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'marks.dart';
@@ -18,8 +20,11 @@ import 'speech_service.dart';
 /// again from their source file (v2: multilingual sentences, compact JSON;
 /// v3: pictures and covers from EPUBs, page numbers in PDFs; v4: toc nav
 /// only, chapters named from first lines, drop caps, Gutenberg apparatus;
-/// v5: the book's description, shown on its page).
-const _parsedVersion = 5;
+/// v5: the book's description, shown on its page; v6: footnote markers
+/// silent and notes out of the flow, chapters by the contents, text in its
+/// own encoding, AZW3 by its chapters, chapters and languages beyond
+/// English). PDFs keep their own version, on the entry (pdfParser).
+const _parsedVersion = 6;
 
 /// On-device library: copied files, parsed books, reading positions.
 ///
@@ -106,12 +111,77 @@ class LibraryStore {
   /// while they are open, or with [all] (for what is not shown: imports,
   /// the starter book, checks for new chapters).
   Future<LibraryIndex> index({bool all = false}) async {
+    if (_known != null) _rereadIfChanged();
     var full = _known;
     if (full == null) {
       final read = await _readIndex();
       full = _known ??= read;
     }
     return all || secretOpen.value ? full : full.withoutSecret();
+  }
+
+  /// library.json's time and size when it was last read or written here
+  /// (a size of -1: there was none).
+  (DateTime, int)? _seen;
+
+  (DateTime, int) _stamp() {
+    final s = _indexFile.statSync();
+    return s.type == FileSystemEntityType.notFound ? (DateTime(0), -1) : (s.modified, s.size);
+  }
+
+  /// A library.json that is not as this copy last left it was written by
+  /// another copy of the app (an engine of its own, with the index in memory
+  /// too): it is read again, in the same step, before anything here changes
+  /// it, so that change cannot write over a book the other copy just added.
+  void _rereadIfChanged() {
+    final seen = _seen;
+    if (seen == null) return;
+    try {
+      final now = _stamp();
+      if (now == seen || now.$2 < 0) return;
+      final raw = jsonDecode(_indexFile.readAsStringSync());
+      if (raw is! Map) return;
+      final entries = <LibraryEntry>[];
+      _take(raw, entries);
+      entries.sort((a, b) => b.lastTouched.compareTo(a.lastTouched));
+      _known = LibraryIndex(entries: entries, categories: _categories, defaultCategory: _defaultCategory);
+      _seen = now;
+      // After this step: a listener may well call index() again.
+      scheduleMicrotask(() => changes.value++);
+    } on Object {
+      // Unreadable just now: the copy here stands.
+    }
+  }
+
+  /// [raw]'s books into [into], and its categories into this store. An
+  /// entry of the wrong shape (a newer or older app's, a damaged restore) is
+  /// passed over, not the whole shelf: one threw before, and nothing in the
+  /// library opened. Returns how many were passed over.
+  int _take(Map<Object?, Object?> raw, List<LibraryEntry> into) {
+    var skipped = 0;
+    T? one<T>(T Function() read) {
+      try {
+        return read();
+      } on Object {
+        skipped++;
+        return null;
+      }
+    }
+
+    final books = raw['books'];
+    into.addAll([
+      for (final b in books is List ? books : const [])
+        if (one(() => LibraryEntry.fromJson(Map<String, Object?>.from(b as Map))) case final e?) e,
+    ]);
+    final listed = raw['categories'];
+    final cats = [
+      for (final c in listed is List ? listed : const [])
+        if (one(() => Category.fromJson(Map<String, Object?>.from(c as Map))) case final c?) c,
+    ];
+    _categories = cats.isEmpty ? Category.defaults : cats;
+    final d = raw['defaultCategory'];
+    _defaultCategory = d is String && _categories.any((c) => c.id == d) ? d : _categories.first.id;
+    return skipped;
   }
 
   /// The ids of the books on secret shelves, open or not.
@@ -141,21 +211,20 @@ class LibraryStore {
   Future<LibraryIndex> _readIndex() async {
     await ensure();
     var entries = <LibraryEntry>[];
+    _seen = _stamp();
     if (await _indexFile.exists()) {
       try {
         final raw = jsonDecode(await _indexFile.readAsString());
         if (raw is Map) {
-          entries = [
-            for (final b in raw['books'] as List? ?? const [])
-              LibraryEntry.fromJson(Map<String, Object?>.from(b as Map)),
-          ];
-          final cats = [
-            for (final c in raw['categories'] as List? ?? const [])
-              if (c is Map) Category.fromJson(Map<String, Object?>.from(c)),
-          ];
-          _categories = cats.isEmpty ? Category.defaults : cats;
-          final d = raw['defaultCategory'] as String?;
-          _defaultCategory = _categories.any((c) => c.id == d) ? d! : _categories.first.id;
+          // A copy of the file is kept when an entry was passed over.
+          final skipped = _take(raw, entries);
+          if (skipped > 0) {
+            try {
+              await _indexFile.copy('${_indexFile.path}.broken');
+            } on Object {
+              // Nothing more to keep.
+            }
+          }
         }
       } on FormatException {
         // Unreadable: keep it as library.json.broken rather than let the next
@@ -183,6 +252,7 @@ class LibraryStore {
         'books': [for (final e in entries) e.toJson()],
       }),
     );
+    _seen = _stamp();
     if (place) {
       placeChanges.value++;
     } else {
@@ -438,66 +508,98 @@ class LibraryStore {
   Future<LibraryEntry> importFile(
     PickedFile file, {
     void Function(int done, int total)? onProgress,
+    void Function(String note)? onNote,
   }) async {
     await ensure();
     final source = File(file.path);
-    final head = await _head(source);
-    final isPdf = head.startsWith('%PDF-') ||
-        (file.name.toLowerCase().endsWith('.pdf') && !head.startsWith('PK'));
+    try {
+      final head = await _head(source);
+      final isPdf = head.startsWith('%PDF-') ||
+          (file.name.toLowerCase().endsWith('.pdf') && !head.startsWith('PK'));
 
-    Map<String, Object?>? pdf;
-    if (isPdf) {
-      final sub = SpeechService.events.listen((e) {
-        if (e['type'] == 'importProgress') {
-          onProgress?.call(e['done'] as int? ?? 0, e['total'] as int? ?? 0);
+      Map<String, Object?>? pdf;
+      if (isPdf) {
+        final sub = SpeechService.events.listen((e) {
+          if (e['type'] == 'importProgress') {
+            onProgress?.call(e['done'] as int? ?? 0, e['total'] as int? ?? 0);
+          }
+        });
+        try {
+          pdf = await _svc.extractPdf(file.path);
+        } finally {
+          await sub.cancel();
         }
+      }
+
+      final job = (
+        booksDir: _booksDir.path,
+        sourcePath: file.path,
+        name: file.name,
+        mime: file.mime,
+        pdf: pdf,
+        token: RootIsolateToken.instance,
+      );
+      final made = await _runImport(job);
+      final entry = made.entry;
+      if (made.note != null) onNote?.call(made.note!);
+
+      late LibraryEntry merged;
+      await _change((existing) {
+        final previous = existing.where((e) => e.id == entry.id).firstOrNull;
+        merged = previous == null
+            ? entry.copyWith(category: _defaultCategory)
+            : entry
+                .copyWith(
+                  cursor: previous.cursor,
+                  progress: previous.progress,
+                  openedAt: previous.openedAt,
+                  where: previous.where,
+                  category: previous.category,
+                )
+                .withCover(previous.coverMode, previous.customCover);
+        return [
+          merged,
+          for (final e in existing)
+            if (e.id != entry.id) e,
+        ];
       });
-      try {
-        pdf = await _svc.extractPdf(file.path);
-      } finally {
-        await sub.cancel();
-      }
+      return merged;
+    } finally {
+      // The picker's copy: a duplicate of books/<id>/source.* once imported,
+      // and of no use when the import failed (it used to stay behind).
+      await _dropIncoming(source);
     }
+  }
 
-    final job = (
-      booksDir: _booksDir.path,
-      sourcePath: file.path,
-      name: file.name,
-      mime: file.mime,
-      pdf: pdf,
-    );
-    final entry = await _runImport(job);
-
-    late LibraryEntry merged;
-    await _change((existing) {
-      final previous = existing.where((e) => e.id == entry.id).firstOrNull;
-      merged = previous == null
-          ? entry.copyWith(category: _defaultCategory)
-          : entry
-              .copyWith(
-                cursor: previous.cursor,
-                progress: previous.progress,
-                openedAt: previous.openedAt,
-                where: previous.where,
-                category: previous.category,
-              )
-              .withCover(previous.coverMode, previous.customCover);
-      return [
-        merged,
-        for (final e in existing)
-          if (e.id != entry.id) e,
-      ];
-    });
-
-    // The picker's copy is now a duplicate of books/<id>/source.*.
-    if (source.path.contains('/incoming/')) {
-      try {
+  /// Delete [source] if it is the picker's copy under incoming/, with the
+  /// folder of its own it came in (see MainActivity's copy into incoming).
+  static Future<void> _dropIncoming(File source) async {
+    if (!source.path.contains('/incoming/')) return;
+    try {
+      final slot = source.parent;
+      if (slot.parent.path.endsWith('/incoming')) {
+        await slot.delete(recursive: true);
+      } else if (await source.exists()) {
         await source.delete();
-      } on FileSystemException {
-        // Harmless; it is in our own folder.
       }
+    } on FileSystemException {
+      // Harmless: our own folder, swept at a later start.
     }
-    return merged;
+  }
+
+  /// Copies the picker left under incoming/ over an hour ago, by an import a
+  /// crash stopped. (A newer one may be a file just handed to the app.)
+  Future<void> sweepIncoming() async {
+    final dir = Directory('${root.path}/incoming');
+    try {
+      if (!await dir.exists()) return;
+      final before = DateTime.now().subtract(const Duration(hours: 1));
+      await for (final e in dir.list()) {
+        if ((await e.stat()).modified.isBefore(before)) await e.delete(recursive: true);
+      }
+    } on FileSystemException {
+      // Tried again next start.
+    }
   }
 
   /// The reading layout for [id], built on a background isolate.
@@ -518,12 +620,43 @@ class LibraryStore {
       }
       return layout;
     }
+    // A PDF read by an older PDF reader is read again from its file, once:
+    // its text from the platform, the book built anew, the place carried.
+    Map<String, Object?>? pdf;
+    final source = entry?.sourcePath;
+    if (entry != null &&
+        entry.source == SourceKind.pdf &&
+        entry.pdfParser < pdfParserVersion &&
+        source != null &&
+        File(source).existsSync()) {
+      try {
+        pdf = await _svc.extractPdf(source);
+      } on Object {
+        // Kept as it was; tried again next time.
+      }
+    }
     final job = (
       booksDir: _booksDir.path,
       id: id,
       sourcePath: entry?.sourcePath,
+      pdf: pdf,
+      token: RootIsolateToken.instance,
     );
     final layout = await _runLoad(job);
+    // A book read again carried its place across in cursor.json (see
+    // _carryCursor); the index's copy of the place follows it, for what reads
+    // the place from there (Undo after Start over, the shelf).
+    final place = await cursorFor(id);
+    final carried = entry != null && !_samePlace(place, entry.cursor);
+    if (pdf != null || carried) {
+      await _change((now) => [
+            for (final e in now)
+              if (e.id == id)
+                e.copyWith(pdfParser: pdf != null ? pdfParserVersion : null, cursor: carried ? place : null)
+              else
+                e,
+          ]);
+    }
     // Books imported before covers were stored get theirs on first open.
     final cover = coverFileOf(bookDir(id), layout.book);
     if (entry != null && entry.cover != cover && cover != null) {
@@ -657,9 +790,9 @@ class LibraryStore {
 // Top-level so the closure handed to Isolate.run captures only the job record.
 // A closure created inside a method can share a context with other captured
 // variables (callbacks holding widget state), which cannot be sent.
-Future<LibraryEntry> _runImport(_ImportJob job) => Isolate.run(() => _importSync(job));
+Future<_Imported> _runImport(_ImportJob job) => Isolate.run(() => _import(job));
 
-Future<ReadingLayout> _runLoad(_LoadJob job) => Isolate.run(() => _loadLayoutSync(job));
+Future<ReadingLayout> _runLoad(_LoadJob job) => Isolate.run(() => _loadLayout(job));
 
 Future<ReadingLayout> _runLoadWeb(String dir, String id) => Isolate.run(() => _loadWebSync(dir, id));
 
@@ -847,31 +980,67 @@ typedef _ImportJob = ({
   String name,
   String? mime,
   Map<String, Object?>? pdf,
+  RootIsolateToken? token,
 });
 
-typedef _LoadJob = ({String booksDir, String id, String? sourcePath});
+/// [pdf]: a PDF's text as the platform has just read it again, when the
+/// book was read by an older PDF reader (see [LibraryStore.loadLayout]).
+typedef _LoadJob = ({String booksDir, String id, String? sourcePath, Map<String, Object?>? pdf, RootIsolateToken? token});
 
-LibraryEntry _importSync(_ImportJob job) {
+/// [bytes] as a book, on a background isolate. Text in an East Asian legacy
+/// encoding (GBK, Big5, Shift_JIS, EUC-KR...) is decoded by Android's own
+/// charsets through [token]; without one (tests) such a book is refused, as
+/// it was misread before.
+Future<Book> _ingest(Uint8List bytes,
+    {String? filename, String? mime, String? id, RootIsolateToken? token}) async {
+  if (token == null) return ingestBytes(bytes, filename: filename, mime: mime, id: id);
+  BackgroundIsolateBinaryMessenger.ensureInitialized(token);
+  return ingestBytesAsync(bytes, filename: filename, mime: mime, id: id, decodeLegacy: (b, charset) async {
+    final text = await const MethodChannel('tomevoice/tts').invokeMethod<String>(
+      'decodeCharset',
+      {'bytes': b, 'charset': charset},
+    );
+    if (text == null) throw LegacyEncodingException(charset);
+    return text;
+  });
+}
+
+/// A book made from a file, and anything the reader should hear about it.
+typedef _Imported = ({LibraryEntry entry, String? note});
+
+/// A PDF from the text, bookmarks and line layout the platform read from it.
+Book _pdfBook(String id, Map<String, Object?> pdf, String? filename) {
+  final text = pdf['text'] as String? ?? '';
+  return ingestPdfText(
+    id: id,
+    pages: text.split(String.fromCharCode(0x0C)),
+    // Every bookmark level, and where lines sit (for footnotes and columns).
+    outline: pdfOutlineFromPlatform(pdf['outline']),
+    layout: pdfLayoutFromPlatform(pdf['layout']),
+    title: pdf['title'] as String?,
+    author: pdf['author'] as String?,
+    filename: filename,
+  );
+}
+
+/// What to say about a PDF whose pages are mostly pictures (a scan with a
+/// few typed pages): it imports, but only those pages read aloud.
+String? _scanNote(Map<String, Object?> pdf) {
+  final text = pdf['text'] as String? ?? '';
+  final c = pdfTextCoverage(text.split(String.fromCharCode(0x0C)), layout: pdfLayoutFromPlatform(pdf['layout']));
+  if (!c.mostlyPictures) return null;
+  return 'Most pages of this PDF are pictures: only ${c.pagesWithText} of ${c.pages} have text to read aloud.';
+}
+
+Future<_Imported> _import(_ImportJob job) async {
   final bytes = File(job.sourcePath).readAsBytesSync();
   final id = bookIdOf(bytes);
   final Book book;
   final pdf = job.pdf;
   if (pdf != null) {
-    final text = pdf['text'] as String? ?? '';
-    book = ingestPdfText(
-      id: id,
-      pages: text.split(String.fromCharCode(0x0C)),
-      outline: [
-        for (final o in (pdf['outline'] as List? ?? const []))
-          if (o is Map)
-            (title: o['title']?.toString() ?? '', page: o['page'] as int? ?? 0),
-      ],
-      title: pdf['title'] as String?,
-      author: pdf['author'] as String?,
-      filename: job.name,
-    );
+    book = _pdfBook(id, pdf, job.name);
   } else {
-    book = ingestBytes(bytes, filename: job.name, mime: job.mime, id: id);
+    book = await _ingest(bytes, filename: job.name, mime: job.mime, id: id, token: job.token);
   }
 
   final dir = Directory('${job.booksDir}/$id')..createSync(recursive: true);
@@ -880,7 +1049,7 @@ LibraryEntry _importSync(_ImportJob job) {
   _writeParsed(dir.path, book);
   _writeImages(dir.path, bytes, book);
 
-  return LibraryEntry(
+  final entry = LibraryEntry(
     id: id,
     title: book.metadata.title,
     authors: book.metadata.authors,
@@ -890,7 +1059,9 @@ LibraryEntry _importSync(_ImportJob job) {
     addedAt: DateTime.now(),
     language: book.metadata.language,
     cover: coverFileOf(dir.path, book),
+    pdfParser: pdf != null ? pdfParserVersion : 0,
   );
+  return (entry: entry, note: pdf != null ? _scanNote(pdf) : null);
 }
 
 void _writeParsed(String dir, Book book) {
@@ -957,7 +1128,8 @@ ReadingLayout _loadWebSync(String dir, String id) {
   final cover = File('$dir/img').existsSync()
       ? Directory('$dir/img').listSync().whereType<File>().where((f) => f.path.contains('cover')).firstOrNull?.path
       : null;
-  return ReadingLayout.build(webNovelBook(
+  // Notes shown on the page, not read aloud (see ReadingLayout.build).
+  return ReadingLayout.build(displayOnly: true, webNovelBook(
     id: id,
     title: info.novel.name,
     authors: [if (info.novel.author != null) info.novel.author!],
@@ -968,7 +1140,7 @@ ReadingLayout _loadWebSync(String dir, String id) {
   ));
 }
 
-ReadingLayout _loadLayoutSync(_LoadJob job) {
+Future<ReadingLayout> _loadLayout(_LoadJob job) async {
   final dir = '${job.booksDir}/${job.id}';
   final parsed = File('$dir/parsed.json');
   Book? book;
@@ -1000,10 +1172,11 @@ ReadingLayout _loadLayoutSync(_LoadJob job) {
       if (legacy.source != SourceKind.pdf && source != null && source.existsSync()) {
         try {
           final bytes = source.readAsBytesSync();
-          book = ingestBytes(
+          book = await _ingest(
             bytes,
             filename: legacy.sourceName ?? source.path,
             id: job.id,
+            token: job.token,
           );
           _writeParsed(dir, book);
           _writeImages(dir, bytes, book);
@@ -1015,13 +1188,26 @@ ReadingLayout _loadLayoutSync(_LoadJob job) {
       }
     }
   }
+  // A PDF read again by today's PDF reader (nested bookmarks, running
+  // heads, footnotes and columns): the place is carried across.
+  final pdf = job.pdf;
+  if (pdf != null) {
+    try {
+      final again = _pdfBook(job.id, pdf, book?.sourceName ?? job.sourcePath);
+      before ??= book;
+      book = again;
+      _writeParsed(dir, again);
+    } on Object {
+      // Kept as it was stored.
+    }
+  }
   if (book == null) {
     final source = job.sourcePath == null ? null : File(job.sourcePath!);
     if (source == null || !source.existsSync()) {
       throw const ParseException('This book\'s files are missing. Import it again.');
     }
     final bytes = source.readAsBytesSync();
-    book = ingestBytes(bytes, filename: source.path, id: job.id);
+    book = await _ingest(bytes, filename: source.path, id: job.id, token: job.token);
     _writeParsed(dir, book);
     _writeImages(dir, bytes, book);
   }
@@ -1032,10 +1218,14 @@ ReadingLayout _loadLayoutSync(_LoadJob job) {
     book = resectioned;
     _writeParsed(dir, book);
   }
-  final layout = ReadingLayout.build(book);
+  // Footnotes and captions shown on the page, not read aloud.
+  final layout = ReadingLayout.build(book, displayOnly: true);
   if (before != null && !identical(before, book)) _carryCursor(dir, before, layout);
   return layout;
 }
+
+bool _samePlace(ReadingCursor a, ReadingCursor b) =>
+    a.sectionIndex == b.sectionIndex && a.blockIndex == b.blockIndex && a.sentenceIndex == b.sentenceIndex;
 
 /// A saved place is section/paragraph/sentence numbers. Re-parsing a book
 /// can regroup those (a PDF going from pages to chapters), and the old
@@ -1049,21 +1239,9 @@ void _carryCursor(String dir, Book before, ReadingLayout after) {
     final cursor = ReadingCursor.fromJson(Map<String, Object?>.from(raw['cursor'] as Map? ?? const {}));
     final old = flattenSpeakable(before);
     if (old.isEmpty) return;
-    final at = indexOfCursor(old, cursor);
-    final text = old[at].text;
-    // Nearest unit with the same text to where it sat proportionally.
-    final guess = (at * after.units.length / old.length).round().clamp(0, after.units.length - 1);
-    var best = -1;
-    for (var d = 0; d < after.units.length; d++) {
-      for (final i in [guess - d, guess + d]) {
-        if (i >= 0 && i < after.units.length && after.units[i].text == text) {
-          best = i;
-          break;
-        }
-      }
-      if (best >= 0 || d > 3000) break;
-    }
-    final target = best >= 0 ? best : guess;
+    // Found again by its words, a sentence split or joined in the new parse
+    // as well (see relocateCursor).
+    final target = relocateCursor(old, cursor, after).clamp(0, after.units.length - 1);
     file.writeAsStringSync(jsonEncode({
       'cursor': cursorOf(after.units[target]).toJson(),
       'progress': raw['progress'],
@@ -1096,6 +1274,7 @@ class LibraryEntry {
     this.plugin,
     this.novelPath,
     this.chapterCount = 0,
+    this.pdfParser = 0,
   });
 
   final String id;
@@ -1131,6 +1310,10 @@ class LibraryEntry {
 
   /// For a web novel: how many chapters the source lists.
   final int chapterCount;
+
+  /// For a PDF: the PDF reader it was last read with (pdfParserVersion); 0
+  /// from before that was kept. An older one is read again from the file.
+  final int pdfParser;
 
   bool get isWeb => source == SourceKind.web;
 
@@ -1176,6 +1359,7 @@ class LibraryEntry {
     String? category,
     int? chapterCount,
     String? language,
+    int? pdfParser,
   }) =>
       LibraryEntry(
         id: id,
@@ -1197,6 +1381,7 @@ class LibraryEntry {
         plugin: plugin,
         novelPath: novelPath,
         chapterCount: chapterCount ?? this.chapterCount,
+        pdfParser: pdfParser ?? this.pdfParser,
       );
 
   Map<String, Object?> toJson() => {
@@ -1219,6 +1404,7 @@ class LibraryEntry {
         if (plugin != null) 'plugin': plugin,
         if (novelPath != null) 'novelPath': novelPath,
         if (chapterCount > 0) 'chapterCount': chapterCount,
+        if (pdfParser > 0) 'pdfParser': pdfParser,
       };
 
   static LibraryEntry fromJson(Map<String, Object?> json) => LibraryEntry(
@@ -1252,6 +1438,7 @@ class LibraryEntry {
         plugin: json['plugin'] as String?,
         novelPath: json['novelPath'] as String?,
         chapterCount: json['chapterCount'] as int? ?? 0,
+        pdfParser: json['pdfParser'] as int? ?? 0,
       );
 }
 

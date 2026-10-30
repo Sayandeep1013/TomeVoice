@@ -7,7 +7,7 @@ copied in. The generated project cannot know about any of this:
 1. **Package visibility for TTS engines.** Since Android 11 an app only sees
    packages it declares an interest in. Without a <queries> entry for the
    TTS_SERVICE intent, `TextToSpeech.getEngines()` returns almost nothing.
-   The same goes for the UPI apps About > Support offers to pay with.
+   The same goes for the dictionary and translate apps a held word goes to.
 
 2. **SDK levels.** minSdk 26 (`onRangeStart`, AudioFocusRequest), targetSdk 36
    (Google Play requirement since 31 August 2026, docs/07 section 7.1).
@@ -16,16 +16,27 @@ copied in. The generated project cannot know about any of this:
    permissions it needs. Without it Android freezes the app seconds after the
    screen turns off and the next sentence is never synthesised.
 
-4. **Open with / Share to TomeVoice** intent filters for document types, and a
-   singleTask launch mode so a file opened from another app lands in the
-   running reader instead of a second copy of it.
+4. **Open with / Share to TomeVoice** intent filters for document types, on
+   OpenActivity, which hands the file to the running reader in its own task.
+   singleTask alone did not do it: a file manager opens files for a result,
+   and that started a second copy inside the file manager's task.
 
-5. **PDF text extraction** via PdfBox-Android (Apache-2.0, GPL-3.0 compatible).
+5. **PDF text extraction** via PdfBox-Android (Apache-2.0, GPL-3.0 compatible),
+   without BouncyCastle's post-quantum tables, which it drags in and no PDF
+   needs.
 
 6. **A stable signing key** when TV_KEYSTORE is set, so each CI build installs
    over the last one instead of requiring an uninstall that wipes the library.
+   TV_KEYSTORE names the file; CI decodes it only for the build steps, so it
+   need not exist yet when this runs.
 
 7. The launcher label, which `flutter create` sets to the project name.
+
+8. **The app's identity:** applicationId app.tomevoice, labelled "TomeVoice".
+   TV_APP_ID and TV_APP_LABEL, when set, name a separate test app instead (CI
+   builds app.tomevoice.test, "TomeVoice Test", with variant=test): it installs
+   beside the real one with a library of its own, so a risky build never
+   touches the reader's books.
 
 Idempotent: running it twice changes nothing the second time.
 """
@@ -36,6 +47,14 @@ import os
 import re
 import sys
 from pathlib import Path
+from xml.sax.saxutils import escape
+
+# The id Android knows the app by, and its name on the launcher. The id was
+# changed once, in 0.6, from the template's app.tomevoice.tomevoice_spike; it
+# must never change again, or every install becomes a different app with an
+# empty library. TV_APP_ID / TV_APP_LABEL replace both only for the test app.
+APPLICATION_ID = "app.tomevoice"
+APP_LABEL = "TomeVoice"
 
 MIN_SDK = 26
 TARGET_SDK = 36
@@ -47,12 +66,14 @@ QUERIES_BLOCK = """    <!-- Required since Android 11 for TextToSpeech.getEngine
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
-        <!-- UPI apps, for About > Support (MainActivity payUpi). With the
-             host: the apps' filters name it, and a bare upi: matched none
-             of them, so none were visible. -->
+        <!-- The dictionary and translate apps a held word or sentence goes
+             to (MainActivity processText): invisible without these. -->
         <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="upi" android:host="pay" />
+            <action android:name="android.intent.action.PROCESS_TEXT" />
+            <data android:mimeType="text/plain" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.TRANSLATE" />
         </intent>
     </queries>
 """
@@ -164,11 +185,21 @@ DOC_MIME_TYPES = [
 ]
 
 
-def _filters() -> str:
+# Open with and Share to TomeVoice land on OpenActivity, which hands them to
+# the running TomeVoice in its own task (see OpenActivity.kt): MainActivity
+# opened by a file manager joined the file manager's task as a second copy.
+def _open_activity() -> str:
     data = "\n".join(
         f'                <data android:mimeType="{m}" />' for m in DOC_MIME_TYPES
     )
-    return f"""            <!-- Open with TomeVoice -->
+    return f"""        <activity
+            android:name=".OpenActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay">
+            <!-- Open with TomeVoice -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -181,10 +212,11 @@ def _filters() -> str:
                 <category android:name="android.intent.category.DEFAULT" />
 {data}
             </intent-filter>
+        </activity>
 """
 
 
-def patch_manifest(path: Path) -> str:
+def patch_manifest(path: Path, label: str = APP_LABEL) -> str:
     text = path.read_text(encoding="utf-8")
     notes = []
 
@@ -212,30 +244,32 @@ def patch_manifest(path: Path) -> str:
         text = text.replace("</application>", PROVIDER + "    </application>", 1)
         notes.append("share provider")
 
-    if "android.intent.action.SEND" not in text:
-        if "</activity>" not in text:
-            raise SystemExit("manifest: no </activity>")
-        text = text.replace("</activity>", _filters() + "        </activity>", 1)
-        notes.append("open-with filters")
+    if ".OpenActivity" not in text:
+        text = text.replace("</application>", _open_activity() + "    </application>", 1)
+        notes.append("open-with activity")
 
     text, n = re.subn(r'android:launchMode="singleTop"', 'android:launchMode="singleTask"', text)
     if n:
         notes.append("singleTask")
 
     text, n = re.subn(
-        r'(<application\b[^>]*?android:label=")[^"]*(")', r"\1TomeVoice\2", text, count=1
+        r'(<application\b[^>]*?android:label=")[^"]*(")',
+        lambda m: m.group(1) + escape(label, {'"': "&quot;"}) + m.group(2),
+        text,
+        count=1,
     )
     if n:
-        notes.append("label")
+        notes.append(f"label {label}")
 
     path.write_text(text, encoding="utf-8")
     return "manifest: " + (", ".join(notes) if notes else "already patched")
 
 
-APPLICATION_ID = "app.tomevoice"
-
 # Native code for the CPU this APK is for (TV_ABIS, set per build in CI),
-# stored compressed: about half the download.
+# stored compressed: about half the download. And no BouncyCastle
+# post-quantum data: PdfBox-Android brings the whole provider, whose SIKE and
+# Picnic tables (org/bouncycastle/pqc/, 4.1 MB of Java resources, a seventh of
+# the APK) no PDF uses. R8 shrinks code, not Java resources like these.
 PACKAGING = """
 
 android {
@@ -246,6 +280,9 @@ android {
             excludes += listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
                 .filter { it !in keep }
                 .map { "lib/$it/**" }
+        }
+        resources {
+            excludes += "org/bouncycastle/pqc/**"
         }
     }
 }
@@ -264,17 +301,17 @@ SIGNING_BLOCK = """    signingConfigs {
 """
 
 
-def patch_gradle(path: Path, signing: bool) -> str:
+def patch_gradle(path: Path, signing: bool, app_id: str = APPLICATION_ID) -> str:
     text = path.read_text(encoding="utf-8")
     original = text
     notes = []
 
-    # The id Android knows the app by. Changed once, in 0.6, from the
-    # template's app.tomevoice.tomevoice_spike; it must never change again,
-    # or every install becomes a different app with an empty library.
-    text, n = re.subn(r'applicationId\s*=\s*"[^"]*"', f'applicationId = "{APPLICATION_ID}"', text)
+    # The id Android knows the app by (see APPLICATION_ID). Only the
+    # applicationId: the namespace, and so the Kotlin package and class
+    # names, stay the same for the test app.
+    text, n = re.subn(r'applicationId\s*=\s*"[^"]*"', f'applicationId = "{app_id}"', text)
     if n:
-        notes.append(f"applicationId {APPLICATION_ID}")
+        notes.append(f"applicationId {app_id}")
 
     # Kotlin DSL uses `minSdk = flutter.minSdkVersion`, Groovy uses
     # `minSdkVersion flutter.minSdkVersion`. Handle both, plus already-numeric
@@ -298,7 +335,7 @@ def patch_gradle(path: Path, signing: bool) -> str:
         # Excluded at packaging: ndk.abiFilters alone left the plugins' other
         # CPUs in the APK (checked in a CI build).
         text = text.rstrip() + PACKAGING
-        notes.append("one CPU per APK, compressed native libraries")
+        notes.append("one CPU per APK, compressed native libraries, no BouncyCastle PQC data")
 
     if PDFBOX not in text:
         if path.suffix == ".kts":
@@ -341,10 +378,18 @@ def patch_gradle(path: Path, signing: bool) -> str:
 def main() -> int:
     app_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path.cwd()
 
+    # Unset or empty: the real app.
+    app_id = os.environ.get("TV_APP_ID") or APPLICATION_ID
+    label = os.environ.get("TV_APP_LABEL") or APP_LABEL
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+", app_id):
+        raise SystemExit(f"TV_APP_ID {app_id!r} is not an application id")
+    if app_id != APPLICATION_ID:
+        print(f"variant: {app_id} ({label}), a separate app beside {APPLICATION_ID}")
+
     manifest = app_dir / "android/app/src/main/AndroidManifest.xml"
     if not manifest.exists():
         raise SystemExit(f"not found: {manifest} (run flutter create first)")
-    print(patch_manifest(manifest))
+    print(patch_manifest(manifest, label))
 
     gradle_candidates = [
         app_dir / "android/app/build.gradle.kts",
@@ -353,11 +398,16 @@ def main() -> int:
     gradle = next((p for p in gradle_candidates if p.exists()), None)
     if gradle is None:
         raise SystemExit("no android/app/build.gradle[.kts] found")
+    # The path is enough: CI names it here and writes the key there only for
+    # the two build steps, deleting it straight after. Gradle reads it when it
+    # signs, and fails loudly if it is missing then.
     keystore = os.environ.get("TV_KEYSTORE", "")
-    signing = bool(keystore) and Path(keystore).exists()
+    signing = bool(keystore)
     if not signing:
         print("gradle: TV_KEYSTORE not set — release APK uses the throwaway debug key")
-    print(patch_gradle(gradle, signing))
+    elif not Path(keystore).exists():
+        print(f"gradle: {keystore} is written just before the build")
+    print(patch_gradle(gradle, signing, app_id))
 
     return 0
 

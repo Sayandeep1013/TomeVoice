@@ -152,6 +152,20 @@ Future<void> _install(BuildContext context, String path) async {
   if (again == true && context.mounted) await _install(context, path);
 }
 
+/// APKs left by earlier updates (about 30 MB each), installed or put off: the
+/// folder the installer reads kept every one. Shared pictures stay.
+Future<void> sweepUpdateDownloads() async {
+  final dir = await _svc.shareDir();
+  if (dir == null) return;
+  try {
+    await for (final e in Directory(dir).list()) {
+      if (e is File && e.path.endsWith('.apk')) await e.delete();
+    }
+  } on FileSystemException {
+    // Tried again next start.
+  }
+}
+
 /// Fetch [url] into the folder the installer can read, as [name]. Stops when
 /// [stop] completes, or after 30 seconds with nothing arriving.
 Future<String> _download(String url, String name, ValueNotifier<double?> progress, Future<void> stop) async {

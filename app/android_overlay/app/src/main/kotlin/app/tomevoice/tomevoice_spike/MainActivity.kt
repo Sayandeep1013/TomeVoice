@@ -4,7 +4,6 @@ import android.Manifest
 import android.app.Activity
 import android.app.KeyguardManager
 import android.content.BroadcastReceiver
-import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -18,10 +17,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.CancellationSignal
-import android.os.Environment
 import android.os.Handler
 import android.os.Looper
-import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
@@ -34,7 +31,6 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
-import java.io.IOException
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -97,56 +93,38 @@ class MainActivity : FlutterActivity() {
         private const val REQ_BACKUP = 74
         private const val REQ_RESTORE = 75
         private const val REQ_CONFIRM = 76
-        private const val REQ_SAVE_IMAGE = 77
     }
 
-    private var saveResult: MethodChannel.Result? = null
-    private var saveBytes: ByteArray? = null
-
     /**
-     * A picture into Pictures/TomeVoice, where the gallery and a payment
-     * app's "scan from gallery" find it. Before Android 10 that folder needs
-     * a storage permission, so the reader chooses where it goes instead.
+     * [text] to an app that looks words up or translates them: Android's own
+     * Translate when asked to translate (Android 10 and later), else every app
+     * that offers to act on chosen text (dictionaries, Translate, Wikipedia).
+     * False when the phone has none.
      */
-    private fun saveImage(bytes: ByteArray?, name: String, result: MethodChannel.Result) {
-        if (bytes == null) {
-            result.error("SAVE", "Nothing to save", null)
-            return
-        }
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            if (saveResult != null) {
-                result.error("BUSY", "Already saving", null)
-                return
-            }
-            saveResult = result
-            saveBytes = bytes
-            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "image/png"
-                putExtra(Intent.EXTRA_TITLE, name)
-            }
-            @Suppress("DEPRECATION")
-            startActivityForResult(intent, REQ_SAVE_IMAGE)
-            return
-        }
-        io.execute {
-            try {
-                val values = ContentValues().apply {
-                    put(MediaStore.Images.Media.DISPLAY_NAME, name)
-                    put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-                    put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/TomeVoice")
-                    put(MediaStore.Images.Media.IS_PENDING, 1)
+    private fun processText(text: String, translate: Boolean): Boolean {
+        if (text.isBlank()) return false
+        if (translate && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val t = Intent(Intent.ACTION_TRANSLATE).putExtra(Intent.EXTRA_TEXT, text)
+            if (t.resolveActivity(packageManager) != null) {
+                try {
+                    startActivity(t)
+                    return true
+                } catch (e: Exception) {
+                    // Then the apps that act on chosen text.
                 }
-                val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-                    ?: throw IOException("Pictures could not be written")
-                contentResolver.openOutputStream(uri)?.use { it.write(bytes) } ?: throw IOException("Pictures could not be written")
-                values.clear()
-                values.put(MediaStore.Images.Media.IS_PENDING, 0)
-                contentResolver.update(uri, values, null, null)
-                main.post { result.success(true) }
-            } catch (e: Exception) {
-                main.post { result.error("SAVE", e.message, null) }
             }
+        }
+        val pick = Intent(Intent.ACTION_PROCESS_TEXT)
+            .setType("text/plain")
+            .putExtra(Intent.EXTRA_PROCESS_TEXT, text)
+            .putExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, true)
+        @Suppress("DEPRECATION")
+        if (packageManager.queryIntentActivities(pick, 0).isEmpty()) return false
+        return try {
+            startActivity(Intent.createChooser(pick, if (translate) "Translate with" else "Look up with"))
+            true
+        } catch (e: Exception) {
+            false
         }
     }
 
@@ -189,23 +167,47 @@ class MainActivity : FlutterActivity() {
                         result.error("NO_PCM", "No audio", null)
                     } else {
                         if (!player.isActive) requestFocus()
-                        result.success(player.enqueue(pcm, rate))
+                        try {
+                            result.success(player.enqueue(pcm, rate))
+                        } catch (e: Exception) {
+                            result.error("PLAYER", e.message ?: "The audio could not be played", null)
+                        }
                     }
                 }
-                "playerPosition" -> result.success(player.position())
+                "playerPosition" -> result.success(player.position(call.argument<Boolean>("raw") == true))
                 "playerPause" -> {
                     player.pause()
                     result.success(null)
                 }
                 "playerResume" -> {
-                    requestFocus()
-                    player.resume()
+                    // Dart asked for focus first; during a call it waits for
+                    // the gain instead of reading over the call.
+                    if (requestFocus() == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) player.resume()
                     result.success(null)
                 }
                 "playerStop" -> {
                     player.stop()
                     result.success(null)
                 }
+                "requestFocus" -> result.success(
+                    when (requestFocus()) {
+                        AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> "granted"
+                        AudioManager.AUDIOFOCUS_REQUEST_DELAYED -> "delayed"
+                        else -> "failed"
+                    }
+                )
+                "playerVolume" -> {
+                    player.setVolume((call.argument<Double>("volume") ?: 1.0).toFloat())
+                    result.success(null)
+                }
+                "playerLatency" -> {
+                    player.setOffsets(
+                        (call.argument<Int>("bluetoothMs") ?: 0).toLong(),
+                        (call.argument<Int>("otherMs") ?: 0).toLong(),
+                    )
+                    result.success(null)
+                }
+                "playerRoute" -> result.success(if (player.onBluetoothNow() ?: bluetoothOut()) "bluetooth" else "other")
                 "session" -> session(call.arguments as Map<*, *>, result)
                 "pickDocuments" -> pickDocuments(result)
                 "pickImage" -> {
@@ -252,6 +254,32 @@ class MainActivity : FlutterActivity() {
                 }
                 "outputDir" -> result.success(outputDir().absolutePath)
                 "launchArgs" -> result.success(launchArgs())
+                // Text in an East Asian legacy encoding (GBK, Big5, Shift_JIS,
+                // EUC-KR...), decoded by Android's own charsets for an import.
+                "decodeCharset" -> {
+                    val bytes = call.argument<ByteArray>("bytes") ?: ByteArray(0)
+                    val name = call.argument<String>("charset").orEmpty()
+                    io.execute {
+                        try {
+                            // The Windows supersets: what files called these really are.
+                            val charset = java.nio.charset.Charset.forName(
+                                when (name.uppercase()) {
+                                    "SHIFT_JIS", "SJIS" -> "windows-31j"
+                                    "EUC-KR" -> "x-windows-949"
+                                    else -> name
+                                }
+                            )
+                            val text = String(bytes, charset)
+                            main.post { result.success(text) }
+                        } catch (e: Exception) {
+                            main.post { result.error("CHARSET", e.message, null) }
+                        }
+                    }
+                }
+                // A word or a sentence held in the reader, to the phone's own
+                // dictionary and translate apps: TomeVoice itself goes nowhere.
+                "lookUp" -> result.success(processText(call.argument<String>("text").orEmpty(), translate = false))
+                "translate" -> result.success(processText(call.argument<String>("text").orEmpty(), translate = true))
                 "openUrl" -> {
                     val scheme = Uri.parse(call.argument<String>("url").orEmpty()).scheme?.lowercase()
                     if (scheme != "https" && scheme != "http") {
@@ -344,22 +372,6 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "shareDir" -> result.success(ShareProvider.dir(cacheDir).absolutePath)
-                "payUpi" -> {
-                    // Every UPI app on the phone, to choose from: a payment
-                    // link opens straight in whichever one is the default.
-                    val pay = Intent(Intent.ACTION_VIEW, Uri.parse(call.argument<String>("url").orEmpty()))
-                    if (pay.data?.scheme?.lowercase() != "upi" || pay.resolveActivity(packageManager) == null) {
-                        result.success(false)
-                        return@setMethodCallHandler
-                    }
-                    try {
-                        startActivity(Intent.createChooser(pay, call.argument<String>("title") ?: "Pay with"))
-                        result.success(true)
-                    } catch (e: Exception) {
-                        result.success(false)
-                    }
-                }
-                "saveImage" -> saveImage(call.argument<ByteArray>("bytes"), call.argument<String>("name") ?: "TomeVoice.png", result)
                 "is64Bit" -> result.success(android.os.Process.is64Bit())
                 "playUrl" -> {
                     stopSample()
@@ -545,6 +557,17 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Back at the root, where Flutter has nothing to go back to, also
+        // puts TomeVoice behind when Android handles it itself (predictive
+        // back, Android 16): it finished an app another app had opened (a
+        // file manager's Open with), and the book being read stopped with
+        // it. Flutter registers its own callback whenever it has somewhere to
+        // go back to; being registered later, that one is asked first.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT
+            ) { moveTaskToBack(true) }
+        }
         // Draw into the camera cutout too. Without this, landscape leaves a
         // dark strip down the cutout side and under the gesture bar, where
         // the window background shows instead of the app's gradient.
@@ -566,6 +589,16 @@ class MainActivity : FlutterActivity() {
         // full-screen view, so that outline was a green line round the whole
         // screen, clipped by the rounded corners. Flutter draws its own focus.
         disableFocusHighlight(window.decorView)
+    }
+
+    // Back out of the library puts TomeVoice behind, as Home does, instead of
+    // finishing it. Finishing ran onDestroy, which ends the reading service
+    // and the player, so on Android 15 and older leaving with Back stopped the
+    // book being read. Android 16 (predictive back, targetSdk 36) already
+    // moved the app behind, which is why it never showed there.
+    override fun popSystemNavigator(): Boolean {
+        moveTaskToBack(true)
+        return true
     }
 
     private fun disableFocusHighlight(view: View) {
@@ -824,7 +857,23 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun synthesise(args: Map<*, *>, result: MethodChannel.Result) {
+    /**
+     * [engine] is dead: its service went away (an update of Speech Services
+     * kills it) and the binding still looks alive, so every sentence after
+     * failed or timed out. It is shut down and forgotten, and the next use
+     * makes a new one: still one warm engine, not one per sentence.
+     */
+    private fun ttsDied(engine: TextToSpeech?) {
+        if (engine == null || tts !== engine) return
+        try {
+            engine.shutdown()
+        } catch (_: Exception) {
+        }
+        tts = null
+        ttsReady = false
+    }
+
+    private fun synthesise(args: Map<*, *>, result: MethodChannel.Result, retried: Boolean = false) {
         val text = (args["text"] as? String).orEmpty()
         val engineId = args["engineId"] as? String
         val rate = (args["rate"] as? Number)?.toFloat() ?: 1.0f
@@ -840,7 +889,25 @@ class MainActivity : FlutterActivity() {
         fun reply(block: () -> Unit) {
             if (replied.compareAndSet(false, true)) main.post(block)
         }
+
+        /** The engine died under this sentence: a new one, and the sentence again, once. */
+        fun again(engine: TextToSpeech, fallback: () -> Unit) {
+            if (!retried && replied.compareAndSet(false, true)) {
+                main.post {
+                    ttsDied(engine)
+                    synthesise(args, result, retried = true)
+                }
+            } else {
+                main.post { ttsDied(engine) }
+                reply(fallback)
+            }
+        }
+
+        var used: TextToSpeech? = null
         main.postDelayed({
+            // No word from the engine in 30 s: it may be dead. The next
+            // sentence gets a new one.
+            if (!replied.get()) ttsDied(used)
             reply { result.error("TTS_TIMEOUT", "No callback within 30s", null) }
         }, 30_000)
 
@@ -849,6 +916,7 @@ class MainActivity : FlutterActivity() {
                 reply { result.error("TTS_INIT", "The voice engine did not start", null) }
                 return@withTts
             }
+            used = engine
             val events = CopyOnWriteArrayList<Map<String, Int>>()
             val utteranceId = "tv-" + System.nanoTime()
             val outFile = File(synthDir(), "$utteranceId.wav")
@@ -888,14 +956,17 @@ class MainActivity : FlutterActivity() {
 
                     override fun onError(id: String?, errorCode: Int) {
                         if (id != utteranceId) return
-                        reply {
+                        val failed = {
                             result.error("TTS_ERROR", "Synthesis failed (code $errorCode)", null)
                         }
+                        // The engine's service failed: a new engine, and again.
+                        if (errorCode == TextToSpeech.ERROR_SERVICE) again(engine, failed) else reply(failed)
                     }
                 })
                 val code = engine.synthesizeToFile(text, Bundle(), outFile, utteranceId)
                 if (code != TextToSpeech.SUCCESS) {
-                    reply { result.error("TTS_QUEUE", "synthesizeToFile returned $code", null) }
+                    // Not even queued: the binding is gone.
+                    again(engine) { result.error("TTS_QUEUE", "synthesizeToFile returned $code", null) }
                 }
             } catch (e: Exception) {
                 reply { result.error("TTS_EXCEPTION", e.message, null) }
@@ -905,7 +976,12 @@ class MainActivity : FlutterActivity() {
 
     // ---------------------------------------------------------- audio focus
 
-    private fun requestFocus() {
+    /**
+     * Ask for the audio; the answer is AudioManager's: granted, delayed (a
+     * call is on: AUDIOFOCUS_GAIN arrives as "focusGain" when it ends) or
+     * failed. It used to be ignored, and Play during a call read over it.
+     */
+    private fun requestFocus(): Int {
         val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         if (focusRequest == null) {
             val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
@@ -916,6 +992,7 @@ class MainActivity : FlutterActivity() {
                         .build()
                 )
                 .setWillPauseWhenDucked(true)
+                .setAcceptsDelayedFocusGain(true)
                 .setOnAudioFocusChangeListener { change ->
                     val type = when (change) {
                         AudioManager.AUDIOFOCUS_LOSS -> "focusLoss"
@@ -929,13 +1006,22 @@ class MainActivity : FlutterActivity() {
                 .build()
             focusRequest = req
         }
-        am.requestAudioFocus(focusRequest!!)
+        val answer = am.requestAudioFocus(focusRequest!!)
         if (!noisyRegistered) {
             val filter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
             val flags = if (Build.VERSION.SDK_INT >= 33) Context.RECEIVER_NOT_EXPORTED else 0
             registerReceiver(noisyReceiver, filter, flags)
             noisyRegistered = true
         }
+        return answer
+    }
+
+    /** Whether a Bluetooth output is connected, for when nothing is playing to ask. */
+    private fun bluetoothOut(): Boolean = try {
+        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { PcmPlayer.isBluetooth(it.type) }
+    } catch (e: Exception) {
+        false
     }
 
     private fun abandonFocus() {
@@ -1090,27 +1176,6 @@ class MainActivity : FlutterActivity() {
             finishBackup(resultCode, data?.data)
             return
         }
-        if (requestCode == REQ_SAVE_IMAGE) {
-            val reply = saveResult
-            val bytes = saveBytes
-            saveResult = null
-            saveBytes = null
-            val uri = data?.data
-            if (reply == null) return
-            if (resultCode != Activity.RESULT_OK || uri == null || bytes == null) {
-                reply.success(false)
-                return
-            }
-            io.execute {
-                try {
-                    contentResolver.openOutputStream(uri)?.use { it.write(bytes) } ?: throw IOException("Could not write there")
-                    main.post { reply.success(true) }
-                } catch (e: Exception) {
-                    main.post { reply.error("SAVE", e.message, null) }
-                }
-            }
-            return
-        }
         if (requestCode == REQ_RESTORE) {
             finishRestore(resultCode, data?.data)
             return
@@ -1205,7 +1270,9 @@ class MainActivity : FlutterActivity() {
     private fun copyIn(uri: Uri): Map<String, String> {
         val name = (queryDisplayName(uri) ?: "document")
             .replace(Regex("[\\\\/:*?\"<>|]"), "_")
-        val destDir = File(outputDir(), "incoming")
+        // Each file in a folder of its own, its name kept (the format and title
+        // come from it): two picked at once with one name wrote over each other.
+        val destDir = File(File(outputDir(), "incoming"), java.util.UUID.randomUUID().toString())
         destDir.mkdirs()
         val dest = File(destDir, name)
         contentResolver.openInputStream(uri).use { input ->

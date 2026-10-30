@@ -5,6 +5,71 @@ import 'model.dart';
 import 'navigate.dart';
 import 'segment.dart';
 
+/// Where a place saved in [before] (the units of the same book as an
+/// earlier build parsed it) is in [after], as a unit index.
+///
+/// A place is section, block and sentence numbers, and a new parse can
+/// renumber all three (a chapter split out of its file, notes taken out of
+/// the flow) or cut a sentence differently ('"No. Why..."' is now two). So
+/// the saved sentence is looked for by its words near where it sat
+/// proportionally: the same text first; then a sentence it now starts, or
+/// that starts it; then one opening with the same words; failing all, the
+/// same share of the way through the book.
+int relocateCursor(List<Speakable> before, ReadingCursor cursor, ReadingLayout after) {
+  final units = after.units;
+  if (units.isEmpty || before.isEmpty) return 0;
+  final at = indexOfCursor(before, cursor);
+  final text = before[at].text;
+  final guess = (at * units.length / before.length).round().clamp(0, units.length - 1);
+
+  int? nearest(bool Function(String other) same) {
+    for (var d = 0; d <= 3000; d++) {
+      for (final i in [guess - d, guess + d]) {
+        if (i >= 0 && i < units.length && same(units[i].text)) return i;
+      }
+      if (guess - d < 0 && guess + d >= units.length) break;
+    }
+    return null;
+  }
+
+  final key = _words(text);
+  final opening = key.split(' ').take(6).join(' ');
+  // Sentence i, alone or joined to the ones after it, says what the saved
+  // one said: its quotes or spacing changed, or it was cut in two.
+  bool startsSplit(int i) {
+    var joined = '';
+    for (var j = i; j < units.length && j < i + 4; j++) {
+      joined = joined.isEmpty ? _words(units[j].text) : '$joined ${_words(units[j].text)}';
+      if (joined.isEmpty || !key.startsWith(joined)) return false;
+      if (joined.length == key.length) return true;
+    }
+    return false;
+  }
+
+  int? nearestIndex(bool Function(int i) same) {
+    for (var d = 0; d <= 3000; d++) {
+      for (final i in [guess - d, guess + d]) {
+        if (i >= 0 && i < units.length && same(i)) return i;
+      }
+      if (guess - d < 0 && guess + d >= units.length) break;
+    }
+    return null;
+  }
+
+  return nearest((t) => t == text) ??
+      (key.isEmpty ? null : nearestIndex(startsSplit)) ??
+      // Joined to the sentence before or after it.
+      (key.length < 12 ? null : nearest((t) => _words(t).contains(key))) ??
+      (opening.split(' ').length >= 3 ? nearest((t) => _words(t).startsWith(opening)) : null) ??
+      guess;
+}
+
+final _notWord = RegExp(r'[^\p{L}\p{N}]+', unicode: true);
+
+/// [text]'s words, lowercase, one space apart: what a sentence says,
+/// whatever quotes and spacing an older parse gave it.
+String _words(String text) => text.toLowerCase().replaceAll(_notWord, ' ').trim();
+
 /// One row of the reading list: a chapter title, or one block of text with the
 /// speakable units it contains.
 class LayoutItem {
@@ -15,6 +80,7 @@ class LayoutItem {
     this.title,
     this.firstUnit = 0,
     this.unitCount = 0,
+    this.displayOnly = false,
   });
 
   /// Ordinal among reading chapters (0-based).
@@ -25,8 +91,16 @@ class LayoutItem {
   /// Set for a synthetic chapter-title row, when the chapter's own text does
   /// not open with a heading.
   final String? title;
+
+  /// For a block with units, its first; otherwise (a picture, a
+  /// display-only block) the unit that comes after it, which may be
+  /// `units.length` at the very end of the book.
   final int firstUnit;
   final int unitCount;
+
+  /// A block shown but never spoken (a footnote, a caption, a picture's
+  /// text): it has no units. Only in layouts built with displayOnly.
+  final bool displayOnly;
 
   bool get isTitle => block == null;
   bool get isImage => block?.isImage ?? false;
@@ -133,15 +207,25 @@ class ReadingLayout {
     return (first, end - first);
   }
 
-  /// Index of the unit a saved cursor points at, skipping front matter.
-  int unitForCursor(ReadingCursor cursor) {
+  /// Index of the unit a cursor points at, skipping front matter.
+  ///
+  /// A new book whose first "chapter" is only its title page (short, and
+  /// named like the book) starts at the next one. Not a collection whose
+  /// first story gives the book its name ("The Lottery" in "The Lottery and
+  /// Other Stories"), and never a place the reader [saved], even one on
+  /// the very first sentence.
+  int unitForCursor(ReadingCursor cursor, {bool saved = false}) {
     if (units.isEmpty) return 0;
-    // A new book whose first "chapter" is its title page starts at the next.
     final fresh = cursor.sectionIndex == 0 && cursor.blockIndex == 0 && cursor.sentenceIndex == 0;
-    if (fresh && chapters.length > 1 && _same(chapterTitle(0), book.metadata.title)) {
-      return chapterFirstUnit[1];
-    }
+    if (fresh && !saved && chapters.length > 1 && _isTitlePage(0)) return chapterFirstUnit[1];
     return readingIndexOfCursor(units, book, cursor);
+  }
+
+  /// Chapter [c] is a title page: a few short lines named like the book.
+  bool _isTitlePage(int c) {
+    final (first, count) = chapterRange(c);
+    final words = wordsBefore[first + count] - wordsBefore[first];
+    return count <= 12 && words < 60 && _same(chapterTitle(c), book.metadata.title);
   }
 
   static bool _same(String a, String b) {
@@ -150,7 +234,15 @@ class ReadingLayout {
     return x.isNotEmpty && (x == y || y.startsWith(x) || x.startsWith(y));
   }
 
-  static ReadingLayout build(Book book) {
+  /// Roles whose text [build] can show without speaking: notes, captions,
+  /// a picture's words.
+  static const displayOnlyRoles = {BlockRole.footnote, BlockRole.caption, BlockRole.figure};
+
+  /// The layout of [book]. With [displayOnly], blocks of [displayOnlyRoles]
+  /// that the voice skips are items too, with no units, where they stand
+  /// in their chapter; the units, chapters and word counts are the same
+  /// either way. Off by default: the reader shows what it always did.
+  static ReadingLayout build(Book book, {bool displayOnly = false}) {
     final raw = flattenSpeakable(book);
     final chapters = raw.isEmpty
         ? <int>[]
@@ -219,6 +311,13 @@ class ReadingLayout {
         final block = section.blocks[bi];
         if (block.isImage && block.imageWidth != null) {
           items.add(LayoutItem(chapter: c, section: sectionIndex, block: block, firstUnit: u));
+          continue;
+        }
+        if (displayOnly &&
+            block.text.isNotEmpty &&
+            displayOnlyRoles.contains(block.role) &&
+            defaultSkippedRoles.contains(block.role)) {
+          items.add(LayoutItem(chapter: c, section: sectionIndex, block: block, firstUnit: u, displayOnly: true));
           continue;
         }
         final first = u;

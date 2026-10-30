@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import '../build.dart';
 import '../model.dart';
 import '../segment.dart';
@@ -8,8 +10,132 @@ import 'text.dart';
 /// separated by `\n`.
 const pdfParagraphMark = '\u2029';
 
+/// Bumped when reading PDFs improves enough that a stored PDF should be read
+/// from its file again. Only the platform can extract a PDF's text, so the
+/// app keeps a PDF as it was parsed at import unless it stores this number
+/// with it and extracts again when it is older (2: running heads on nearby
+/// pages, contents pages, nested bookmarks, hyphens in any script, footnotes
+/// and columns from the line layout; 3: paragraphs set in by an indent,
+/// which the extractor ran together, dialogue above all).
+const pdfParserVersion = 3;
+
 /// One outline (bookmark) entry: a title and the 0-based page it points at.
 typedef PdfOutlineEntry = ({String title, int page});
+
+/// A bookmark as the platform lists it: every level, in document order, with
+/// its depth (0 at the top). The page is -1 when it points nowhere.
+typedef PdfBookmark = ({String title, int page, int level});
+
+/// The platform's bookmarks ("outline": maps of title, page and level) as the
+/// chapter list [bookFromPdfText] takes. See [flattenPdfOutline].
+List<PdfOutlineEntry> pdfOutlineFromPlatform(Object? raw) => flattenPdfOutline([
+      if (raw is List)
+        for (final o in raw)
+          if (o is Map)
+            (
+              title: collapseWhitespace(o['title']?.toString() ?? ''),
+              page: o['page'] is int ? o['page'] as int : -1,
+              level: o['level'] is int ? o['level'] as int : 0,
+            ),
+    ]);
+
+/// The platform's line layout ("layout": one list of numbers per page, see
+/// PdfText.kt) as [bookFromPdfText] takes it; null when there is none.
+List<List<int>>? pdfLayoutFromPlatform(Object? raw) {
+  if (raw is! List) return null;
+  return [
+    for (final page in raw)
+      page is List<int>
+          ? page
+          : [
+              if (page is List)
+                for (final v in page)
+                  if (v is int) v,
+            ],
+  ];
+}
+
+/// Nested bookmarks as one list of chapters.
+///
+/// A lone bookmark at the top is the book's own title over everything, and
+/// is unwrapped. A bookmark's children are listed after it when it groups
+/// chapters (Part One, Book II, a volume) rather than being a chapter: a book
+/// in Parts keeps its chapters, and a textbook's "Chapter 3" keeps its
+/// sections to itself. When chapters in different groups share titles
+/// ("Chapter 1" in every Part), each is named with its group's.
+List<PdfOutlineEntry> flattenPdfOutline(List<PdfBookmark> bookmarks) {
+  // A bookmark that points nowhere and holds nothing ("How to share this
+  // eBook") is no chapter, and does not keep the book's own title from
+  // being unwrapped.
+  var list = [
+    for (var i = 0; i < bookmarks.length; i++)
+      if (bookmarks[i].page >= 0 || (i + 1 < bookmarks.length && bookmarks[i + 1].level > bookmarks[i].level))
+        bookmarks[i],
+  ];
+  while (list.length > 1) {
+    final top = list.map((b) => b.level).reduce(math.min);
+    if (list.where((b) => b.level == top).length != 1) break;
+    list = [
+      for (final b in list)
+        if (b.level != top) b,
+    ];
+  }
+
+  final kept = <({PdfBookmark bookmark, String? group})>[];
+  final path = <PdfBookmark>[];
+  for (final b in list) {
+    while (path.isNotEmpty && path.last.level >= b.level) {
+      path.removeLast();
+    }
+    if (path.every((a) => !_chapterTitle.hasMatch(a.title))) {
+      kept.add((bookmark: b, group: path.isEmpty ? null : path.last.title));
+    }
+    path.add(b);
+  }
+
+  // Named with their groups when one title comes up in two of them; a title
+  // a publisher listed twice in one group is not told apart by it.
+  final groupsOf = <String, Set<String>>{};
+  for (final k in kept) {
+    final group = k.group;
+    if (group != null) (groupsOf[_words(k.bookmark.title)] ??= {}).add(group);
+  }
+  final repeated = groupsOf.values.any((groups) => groups.length > 1);
+  return [
+    for (final k in kept)
+      if (k.bookmark.page >= 0 && k.bookmark.title.isNotEmpty)
+        (
+          title: repeated && (k.group ?? '').isNotEmpty
+              ? '${k.group}: ${k.bookmark.title}'
+              : k.bookmark.title,
+          page: k.bookmark.page,
+        ),
+  ];
+}
+
+/// A bookmark that names a chapter or a numbered section ("Chapter 3",
+/// "3 The Trial", "1.2 Methods"): anything under it is its own sections.
+final _chapterTitle = RegExp(
+  r'^(chapter|chap\.?|ch\.|глава|kapitel|chapitre|capítulo|capitolo|hoofdstuk|'
+  r'rozdział|অধ্যায়|পরিচ্ছেদ|अध्याय)(?!\p{L})|^\p{Nd}',
+  caseSensitive: false,
+  unicode: true,
+);
+
+/// Letters and digits only, lower case: titles compared as words.
+String _words(String s) => collapseWhitespace(s.toLowerCase().replaceAll(_notWords, ' '));
+
+final _notWords = RegExp(r'[^\p{L}\p{N}]+', unicode: true);
+
+/// Whether a paragraph is [title] printed as a heading: the same words, the
+/// title with more after it on the line, or the first line of a title set
+/// over two ("Chapter 3" for "Chapter 3: The Trial").
+bool _isTitle(String text, String title) {
+  if (text.length > 100) return false;
+  final p = _words(text), t = _words(title);
+  if (p.isEmpty || t.isEmpty) return false;
+  return p == t || p.startsWith('$t ') || (p.length >= 4 && t.startsWith('$p '));
+}
 
 /// Build a [Book] from per-page text that the platform extracted.
 ///
@@ -17,42 +143,66 @@ typedef PdfOutlineEntry = ({String title, int page});
 /// that makes a PDF listenable: running headers/footers and page numbers are
 /// dropped, hyphenated line breaks are mended, a paragraph split across a
 /// page break is joined, and the PDF outline becomes the chapter list.
+///
+/// [layout], one list per page from the platform, says where each line sits
+/// (see [pdfLayoutFromPlatform]). With it, notes at a page's foot become
+/// footnote blocks and two columns are read one after the other. Without it,
+/// as from an older caller, the text is read as drawn.
 Book bookFromPdfText({
   required String id,
   required List<String> pages,
   List<PdfOutlineEntry> outline = const [],
+  List<List<int>>? layout,
   String? title,
   String? author,
   String? filename,
 }) {
+  const scanned = UnsupportedDocumentException(
+    'This PDF has no selectable text — it looks like scanned page images. '
+    'TomeVoice can only read PDFs that contain real text.',
+  );
   final textChars = pages.fold<int>(0, (n, p) => n + p.trim().length);
-  if (pages.isEmpty || textChars < 40 * pages.length.clamp(1, 20)) {
-    throw const UnsupportedDocumentException(
-      'This PDF has no selectable text — it looks like scanned page images. '
-      'TomeVoice can only read PDFs that contain real text.',
-    );
-  }
-
-  // Fonts without a proper Unicode map hand back control characters and
-  // private-use glyphs (a page number came out as U+0018). They are never
-  // readable text.
-  pages = [for (final p in pages) p.replaceAll(_unreadable, '')];
-  final repeated = _repeatedEdgeLines(pages);
+  if (pages.isEmpty || textChars < 40 * pages.length.clamp(1, 20)) throw scanned;
   resetBlockIds();
 
-  // Paragraphs per page, already cleaned.
-  final perPage = <List<String>>[];
-  for (final page in pages) {
-    final paras = <String>[];
-    for (final rawPara in page.split(pdfParagraphMark)) {
-      final lines = [
-        for (final l in rawPara.split('\n'))
-          if (!_isNoiseLine(l, repeated)) l,
-      ];
-      final text = joinWrappedLines(lines);
-      if (text.isNotEmpty) paras.add(text);
+  final lines = [
+    for (var p = 0; p < pages.length; p++)
+      _readingOrder(_linesOf(pages[p], layout != null && p < layout.length ? layout[p] : null)),
+  ];
+  final body = _bodySize(lines);
+  final furniture = _furniture(lines, body);
+  final coverage = _coverage(lines, furniture, pages);
+  // No page with words of its own, or a scan whose few typed lines come to
+  // less than a short paragraph: nothing worth listening to.
+  if (coverage.pagesWithText == 0 ||
+      (coverage.mostlyPictures && _letterCount(lines, furniture) < 400)) {
+    throw scanned;
+  }
+  final notes = <List<String>>[];
+  for (var p = 0; p < lines.length; p++) {
+    final foot = _footnotes([
+      for (var i = 0; i < lines[p].length; i++)
+        if (!furniture[p].contains(i)) lines[p][i],
+    ], body);
+    lines[p] = foot.text;
+    notes.add(foot.notes);
+  }
+
+  final valid = [
+    for (final o in outline)
+      if (o.page >= 0 && o.page < pages.length && o.title.trim().isNotEmpty) o,
+  ];
+  // In page order; bookmarks sharing a page keep theirs.
+  final order = [for (var i = 0; i < valid.length; i++) i]..sort((a, b) {
+      final byPage = valid[a].page.compareTo(valid[b].page);
+      return byPage != 0 ? byPage : a.compareTo(b);
+    });
+  final usable = [for (final i in order) valid[i]];
+  final titlesOn = <int, List<String>>{};
+  if (usable.length >= 2) {
+    for (final o in usable) {
+      (titlesOn[o.page] ??= []).add(o.title);
     }
-    perPage.add(paras);
   }
 
   // Reflow. The extractor's paragraph detection is unreliable: on a real
@@ -60,71 +210,48 @@ Book bookFromPdfText({
   // pause at every line break. A paragraph continues into the next one unless
   // it ends a sentence or is a heading. This also joins a paragraph that runs
   // over a page break; the joined text stays on the page where it started.
-  final merged = <({int page, String text})>[];
-  for (var p = 0; p < perPage.length; p++) {
-    for (final text in perPage[p]) {
-      if (merged.isNotEmpty && _continues(merged.last.text, text)) {
-        final last = merged.removeLast();
-        merged.add((page: last.page, text: joinWrappedLines([last.text, text])));
+  // A paragraph keeps its lines and is joined once, when it ends: joined as
+  // it grew, a long one was copied again for every page it ran over, and a
+  // word broken by a soft hyphen at a page's foot lost the hyphen first.
+  final paras = <_Para>[];
+  _Open? open;
+  // A page's footnotes follow the paragraph they hang from, which may run on
+  // to the next page.
+  var waiting = <_Para>[];
+  void close() {
+    if (open != null) paras.add(_Para(open!.page, joinWrappedLines(open!.lines)));
+    open = null;
+    paras.addAll(waiting);
+    waiting = [];
+  }
+
+  // The front matter ends with a printed contents page, when there is one.
+  var front = 0;
+  for (var p = 0; p < lines.length; p++) {
+    // A printed table of contents is read line by line, and none of its
+    // lines is a heading: they name chapters that come later.
+    final contents = _isContentsPage(lines[p]);
+    if (contents && p < 20) front = p + 1;
+    for (final group in _paragraphs(lines[p], lineByLine: contents)) {
+      final text = joinWrappedLines(group);
+      if (text.isEmpty) continue;
+      // A bookmarked chapter's printed title starts a paragraph of its own.
+      final opensChapter = titlesOn[p]?.any((t) => _isTitle(text, t)) ?? false;
+      final current = open;
+      if (!contents && !opensChapter && current != null && _continues(current, text)) {
+        current.add(group);
+        continue;
+      }
+      close();
+      if (contents) {
+        paras.add(_Para(p, text, role: BlockRole.paragraph));
       } else {
-        merged.add((page: p, text: text));
+        open = _Open(p)..add(group);
       }
     }
+    waiting.addAll([for (final n in notes[p]) _Para(p, n, role: BlockRole.footnote)]);
   }
-  for (final page in perPage) {
-    page.clear();
-  }
-  for (final m in merged) {
-    perPage[m.page].add(m.text);
-  }
-
-  // Blocks remember the page they start on, for the page view.
-  var page = 0;
-  Block block(String text) => makeBlock(
-        role: text.length <= 80 &&
-                !RegExp(r'[.!?,;:।]$').hasMatch(text) &&
-                looksLikeChapterLine(text)
-            ? BlockRole.heading
-            : BlockRole.paragraph,
-        text: text,
-        anchor: PageAnchor(page),
-      );
-  List<Block> blocksOf(int p) {
-    page = p;
-    return perPage[p].map(block).toList();
-  }
-
-  final usable = [
-    for (final o in outline)
-      if (o.page >= 0 && o.page < pages.length && o.title.trim().isNotEmpty) o,
-  ]..sort((a, b) => a.page.compareTo(b.page));
-
-  final sections = <DraftSection>[];
-  if (usable.length >= 2) {
-    // Chapters from the outline. Pages before the first entry are front
-    // matter and get their own section.
-    if (usable.first.page > 0) {
-      sections.add((
-        title: 'Opening pages',
-        blocks: [
-          for (var p = 0; p < usable.first.page; p++) ...blocksOf(p),
-        ],
-      ));
-    }
-    for (var i = 0; i < usable.length; i++) {
-      final from = usable[i].page;
-      final to = i + 1 < usable.length ? usable[i + 1].page : pages.length;
-      if (to <= from) continue;
-      sections.add((
-        title: collapseWhitespace(usable[i].title),
-        blocks: [for (var p = from; p < to; p++) ...blocksOf(p)],
-      ));
-    }
-  } else {
-    sections.addAll(sectionsWithoutOutline([
-      for (final m in merged) (page: m.page, text: m.text),
-    ]));
-  }
+  close();
 
   return assembleBook(
     id: id,
@@ -134,10 +261,453 @@ Book bookFromPdfText({
           : (titleFromFilename(filename) ?? 'Untitled PDF'),
       authors: (author ?? '').trim().isEmpty ? const [] : [author!.trim()],
     ),
-    sections: sections,
+    sections: usable.length >= 2
+        ? _sectionsFromOutline(paras, usable)
+        : _sectionsFromHeadings(paras, front: front),
     source: SourceKind.pdf,
     filename: filename,
   );
+}
+
+/// How much of a PDF is text. A scan with a few typed pages (a publisher's
+/// notice, an OCR'd title page) still imports, but its reader should hear why
+/// the book is so short: when [mostlyPictures] is set, the app says "Most
+/// pages of this PDF are pictures; only N pages have text."
+typedef PdfTextCoverage = ({int pages, int pagesWithText, bool mostlyPictures});
+
+/// How much of [pages], as the platform split its text, has something to
+/// read. Running heads, page numbers and a scanner's stamp on every page
+/// ("Digitized by Google") do not count.
+PdfTextCoverage pdfTextCoverage(List<String> pages, {List<List<int>>? layout}) {
+  final lines = [
+    for (var p = 0; p < pages.length; p++)
+      _linesOf(pages[p], layout != null && p < layout.length ? layout[p] : null),
+  ];
+  return _coverage(lines, _furniture(lines, _bodySize(lines)), pages);
+}
+
+PdfTextCoverage _coverage(List<List<_Line>> lines, List<Set<int>> furniture, List<String> pages) {
+  // The platform ends every page with a page break, so the empty string
+  // after the last page is not a page.
+  final count = pages.isNotEmpty && pages.last.isEmpty ? pages.length - 1 : pages.length;
+  var withText = 0;
+  for (var p = 0; p < count; p++) {
+    var letters = 0;
+    for (var i = 0; i < lines[p].length && letters < _pageOfText; i++) {
+      if (furniture[p].contains(i)) continue;
+      letters += _letters.allMatches(lines[p][i].text).take(_pageOfText).length;
+    }
+    if (letters >= _pageOfText) withText++;
+  }
+  return (pages: count, pagesWithText: withText, mostlyPictures: withText * 2 < count);
+}
+
+/// Letters a page needs, besides its furniture, to have something to read: a
+/// slide's one line does, the specks of OCR on a picture do not.
+const _pageOfText = 20;
+
+final _letters = RegExp(r'\p{L}', unicode: true);
+
+/// Letters outside the furniture, in the whole book.
+int _letterCount(List<List<_Line>> lines, List<Set<int>> furniture) {
+  var n = 0;
+  for (var p = 0; p < lines.length; p++) {
+    for (var i = 0; i < lines[p].length; i++) {
+      if (!furniture[p].contains(i)) n += _letters.allMatches(lines[p][i].text).length;
+    }
+  }
+  return n;
+}
+
+/// Where a line sits on its page, in points: x, its baseline's y from the
+/// top, its width and its font size.
+typedef _Box = ({double x, double y, double w, double size});
+
+/// One line of a page, which of the extractor's paragraphs it is in, and
+/// where it sits when the platform said.
+class _Line {
+  const _Line(this.text, this.para, [this.box]);
+  final String text;
+  final int para;
+  final _Box? box;
+}
+
+/// A paragraph of the reflowed text and the page it starts on.
+class _Para {
+  const _Para(this.page, this.text, {this.role});
+  final int page;
+  final String text;
+
+  /// Set when the role is already known (a footnote, a line of a contents
+  /// page); otherwise a chapter line is a heading.
+  final BlockRole? role;
+}
+
+/// Numbers per line in the platform's layout (see PdfText.kt): x, baseline y
+/// from the top, width, font size in tenths of a point, and the length of the
+/// line's text.
+const _perLine = 5;
+
+/// The page's lines as the extractor wrote them; a paragraph starts at each
+/// paragraph mark. [layout], when given, says where each line sits.
+List<_Line> _linesOf(String page, List<int>? layout) {
+  final raw = <({String text, int para})>[];
+  final chunks = page.split(pdfParagraphMark);
+  for (var c = 0; c < chunks.length; c++) {
+    for (final l in chunks[c].split('\n')) {
+      if (l.isNotEmpty) raw.add((text: l, para: c));
+    }
+  }
+  // The layout lists the same lines in the same order, each with its
+  // length. Where the two disagree, the page is read without it.
+  final at = layout ?? const <int>[];
+  var placed = at.length == raw.length * _perLine && raw.isNotEmpty;
+  for (var i = 0; placed && i < raw.length; i++) {
+    placed = at[i * _perLine + 4] == raw[i].text.length;
+  }
+  final out = <_Line>[];
+  for (var i = 0; i < raw.length; i++) {
+    // Fonts without a proper Unicode map hand back control characters and
+    // private-use glyphs (a page number came out as U+0018). They are never
+    // readable text.
+    final t = raw[i].text.replaceAll(_unreadable, '').trim();
+    if (t.isEmpty) continue;
+    final k = i * _perLine;
+    out.add(_Line(
+      t,
+      raw[i].para,
+      placed
+          ? (
+              x: at[k].toDouble(),
+              y: at[k + 1].toDouble(),
+              w: at[k + 2].toDouble(),
+              size: at[k + 3] / 10,
+            )
+          : null,
+    ));
+  }
+  return out;
+}
+
+/// The text's font size: the one most of the book's characters are set in.
+/// 0 when nothing says.
+double _bodySize(List<List<_Line>> pages) {
+  final chars = <int, int>{};
+  for (final page in pages) {
+    for (final l in page) {
+      final size = l.box?.size ?? 0;
+      if (size <= 0) continue;
+      final halves = (size * 2).round();
+      chars[halves] = (chars[halves] ?? 0) + l.text.length;
+    }
+  }
+  if (chars.isEmpty) return 0;
+  return chars.entries.reduce((a, b) => b.value > a.value ? b : a).key / 2;
+}
+
+/// Line indexes top to bottom; lines level with each other as drawn.
+List<int> _topToBottom(List<_Line> page) => [for (var i = 0; i < page.length; i++) i]
+  ..sort((a, b) {
+    final byY = page[a].box!.y.compareTo(page[b].box!.y);
+    return byY != 0 ? byY : a.compareTo(b);
+  });
+
+/// Two columns, read left then right.
+///
+/// Lines come in the order the PDF drew them, which is reading order for most
+/// books, but some PDFs draw across both columns, or the right one first. It
+/// takes a clear gutter with plenty of text on each side, so an indented
+/// quotation, a poem's line numbers or a note in the margin never reorders a
+/// page. Lines across the gutter (a title, a running head, a wide picture's
+/// caption) cut the page into bands, each read column by column.
+List<_Line> _readingOrder(List<_Line> lines) {
+  if (lines.length < 6 || lines.any((l) => l.box == null)) return lines;
+  var left = double.infinity, right = double.negativeInfinity;
+  for (final l in lines) {
+    left = math.min(left, l.box!.x);
+    right = math.max(right, l.box!.x + l.box!.w);
+  }
+  final width = right - left;
+  if (width < 100) return lines;
+
+  // The gutter: the middle of the stretch, in the middle of the page, that
+  // the fewest lines cross.
+  final start = left + width * 0.3;
+  final steps = (width * 0.4 / 2).floor();
+  var fewest = lines.length + 1, first = 0, last = 0;
+  for (var s = 0; s <= steps; s++) {
+    final x = start + s * 2;
+    final n = lines.where((l) => l.box!.x < x - 1 && l.box!.x + l.box!.w > x + 1).length;
+    if (n < fewest) {
+      fewest = n;
+      first = last = s;
+    } else if (n == fewest && s == last + 1) {
+      last = s;
+    }
+  }
+  // Steps are 2 points apart; the gutter is the middle one of that stretch.
+  final gutter = start + 2 * ((first + last) / 2);
+  bool onLeft(_Line l) => l.box!.x + l.box!.w <= gutter + 1;
+  bool onRight(_Line l) => !onLeft(l) && l.box!.x >= gutter - 1;
+
+  final lefts = lines.where(onLeft).toList();
+  final rights = lines.where(onRight).toList();
+  if (lefts.length < 3 || rights.length < 3) return lines;
+  int chars(Iterable<_Line> ls) => ls.fold(0, (n, l) => n + l.text.length);
+  final all = chars(lines);
+  if (chars(lefts) * 5 < all || chars(rights) * 5 < all) return lines;
+  double span(List<_Line> ls, double Function(_Line) from, double Function(_Line) to) =>
+      ls.map(to).reduce(math.max) - ls.map(from).reduce(math.min);
+  if (span(lefts, (l) => l.box!.x, (l) => l.box!.x + l.box!.w) < width * 0.25 ||
+      span(rights, (l) => l.box!.x, (l) => l.box!.x + l.box!.w) < width * 0.25) {
+    return lines;
+  }
+  // Side by side, not one under the other.
+  double top(List<_Line> ls) => ls.map((l) => l.box!.y).reduce(math.min);
+  double bottom(List<_Line> ls) => ls.map((l) => l.box!.y).reduce(math.max);
+  final shared = math.min(bottom(lefts), bottom(rights)) - math.max(top(lefts), top(rights));
+  final shorter = math.min(bottom(lefts) - top(lefts), bottom(rights) - top(rights));
+  if (shared < shorter * 0.5) return lines;
+
+  final out = <_Line>[];
+  final band = (left: <int>[], right: <int>[]);
+  void flush() {
+    for (final side in [band.left..sort(), band.right..sort()]) {
+      out.addAll(side.map((i) => lines[i]));
+      side.clear();
+    }
+  }
+
+  for (final i in _topToBottom(lines)) {
+    if (onLeft(lines[i])) {
+      band.left.add(i);
+    } else if (onRight(lines[i])) {
+      band.right.add(i);
+    } else {
+      flush();
+      out.add(lines[i]);
+    }
+  }
+  flush();
+  return out;
+}
+
+/// A footnote's mark: "1", "12.", "(3)", "[3]", "*", "†".
+final _noteMark = RegExp(
+  r'^(\d{1,3}|\(\d{1,3}\)|\[\d{1,3}\]|[*†‡§¶]{1,3})(?=[\s.)\]]|\p{L})',
+  unicode: true,
+);
+
+/// Notes at the foot of a page: its lowest lines, set smaller than the text,
+/// the first starting with its mark ("1 See the minutes…"). They leave the
+/// flow, so a sentence that runs on to the next page is not broken by them
+/// ("had come to an 1 See the minutes…"), and become footnote blocks. Small
+/// print with no mark stays where it is. Without the layout nothing moves.
+({List<_Line> text, List<String> notes}) _footnotes(List<_Line> page, double body) {
+  final none = (text: page, notes: const <String>[]);
+  if (body <= 0 || page.length < 2 || page.any((l) => l.box == null)) return none;
+  bool small(_Line l) => l.box!.size > 0 && l.box!.size < body * 0.92;
+  final down = _topToBottom(page);
+  final foot = <int>[];
+  for (final i in down.reversed) {
+    if (!small(page[i])) break;
+    foot.insert(0, i);
+  }
+  if (foot.isEmpty || foot.length == page.length || !_noteMark.hasMatch(page[foot.first].text)) {
+    return none;
+  }
+  final notes = <String>[];
+  var note = <String>[];
+  for (final i in foot) {
+    if (note.isNotEmpty && _noteMark.hasMatch(page[i].text)) {
+      notes.add(joinWrappedLines(note));
+      note = [];
+    }
+    note.add(page[i].text);
+  }
+  notes.add(joinWrappedLines(note));
+  final moved = foot.toSet();
+  return (
+    text: [
+      for (var i = 0; i < page.length; i++)
+        if (!moved.contains(i)) page[i],
+    ],
+    notes: notes,
+  );
+}
+
+/// The page's paragraphs as groups of lines: the lines of each of the
+/// extractor's paragraphs, or one line each when [lineByLine].
+List<List<String>> _paragraphs(List<_Line> lines, {required bool lineByLine}) {
+  final out = <List<String>>[];
+  for (var i = 0; i < lines.length; i++) {
+    if (i == 0 || lineByLine || lines[i].para != lines[i - 1].para || _indentedStart(lines, i)) out.add([]);
+    out.last.add(lines[i].text);
+  }
+  return out;
+}
+
+/// Whether line [i] starts a paragraph the extractor ran into the one
+/// before: the line before ends a sentence, and this one is set in from the
+/// column's edge, by more than the line before it was or after a line that
+/// stopped short. Novels set dialogue so ("'Is he married or single?'" over
+/// "'Oh! Single, my dear...'"), and Pride and Prejudice came out with a
+/// whole conversation in one paragraph.
+bool _indentedStart(List<_Line> lines, int i) {
+  final line = lines[i].box, prev = lines[i - 1].box;
+  if (line == null || prev == null || line.size <= 0) return false;
+  if (!_endsSentence.hasMatch(lines[i - 1].text)) return false;
+  final em = line.size;
+  // The column's edge: the line furthest left within a few ems of this one.
+  var margin = line.x;
+  for (final l in lines) {
+    final b = l.box;
+    if (b != null && b.x < margin && line.x - b.x <= 6 * em) margin = b.x;
+  }
+  final indent = line.x - margin;
+  if (indent < 0.8 * em || indent > 6 * em) return false;
+  // Lines at the edge carry the extractor's paragraph on, and one set in
+  // starts the next. A paragraph set in as a whole (a quotation, verse) has
+  // none at the edge, and stays as it is.
+  final para = lines[i].para;
+  var right = 0.0, atEdge = false;
+  for (final l in lines) {
+    final b = l.box;
+    if (l.para != para || b == null) continue;
+    if ((b.x - margin).abs() < 0.5 * em) atEdge = true;
+    right = math.max(right, b.x + b.w);
+  }
+  if (!atEdge) return false;
+  if (line.x - prev.x >= 0.8 * em) return true;
+  // After a paragraph of one line, set in itself: it stops well short of the
+  // full lines, as a full line of a justified paragraph does not.
+  return prev.x + prev.w < right - 2 * em;
+}
+
+/// A line that ends a sentence, closing quotes and brackets included.
+final _endsSentence = RegExp('[.!?…।"”’\')\\]]\$');
+
+/// The paragraph being reflowed: the page it starts on, and its lines so far.
+class _Open {
+  _Open(this.page);
+  final int page;
+  final lines = <String>[];
+  var _length = -1;
+
+  void add(List<String> group) {
+    lines.addAll(group);
+    for (final l in group) {
+      _length += l.length + 1;
+    }
+  }
+
+  /// The length of its text: exact while it is short enough to matter.
+  int get length => _length < 120 ? joinWrappedLines(lines).length : _length;
+}
+
+/// How many pages either side of a page to look for its running head again.
+const _near = 4;
+
+/// The furniture on each page, as line indexes: running heads and feet, and
+/// printed page numbers. None of it is read, and none of it may end up in
+/// the middle of a sentence that runs over the page ("over to the THE NOBLE
+/// BACHELOR 51"). [body] is the text's font size, 0 when unknown.
+List<Set<int>> _furniture(List<List<_Line>> pages, double body) {
+  final edges = [for (final page in pages) _edges(page)];
+  final out = [for (var p = 0; p < pages.length; p++) <int>{}];
+
+  // Page numbers: a number alone on a line at the top or bottom of the page
+  // that counts up with the pages. "1914" or "II" alone in the text is text.
+  final numbers = [
+    for (var p = 0; p < pages.length; p++)
+      [
+        for (final i in edges[p])
+          if (_pageNumberOf(pages[p][i].text) case final n?)
+            (line: i, value: n.value, roman: n.roman),
+      ],
+  ];
+  for (var p = 0; p < pages.length; p++) {
+    for (final n in numbers[p]) {
+      if (_countsWithPages(numbers, p, n)) out[p].add(n.line);
+    }
+  }
+
+  // Running heads and feet: the same words at the edge of many pages, or of
+  // a few pages close together (a story's title over its own pages, too few
+  // to count book-wide).
+  final keys = [
+    for (var p = 0; p < pages.length; p++)
+      [
+        for (final i in edges[p])
+          (key: _edgeKey(pages[p][i].text), numbered: _numbered(pages[p][i].text)),
+      ],
+  ];
+  final atEdges = [for (final k in keys) {for (final e in k) e.key}];
+  final bare = <String, int>{};
+  final numbered = <String, int>{};
+  for (final k in keys) {
+    for (final e in k) {
+      final counts = e.numbered ? numbered : bare;
+      counts[e.key] = (counts[e.key] ?? 0) + 1;
+    }
+  }
+  final everywhere = _repeatedEdgeLines(pages, atEdges);
+  for (var p = 0; p < pages.length; p++) {
+    final page = pages[p];
+    for (var i = 0; i < page.length; i++) {
+      if (out[p].contains(i)) continue;
+      final key = _edgeKey(page[i].text);
+      // Running heads are short; a long repeated line is probably prose.
+      if (key.isEmpty || key.length > 60) continue;
+      final atEdge = edges[p].contains(i);
+      if (!everywhere.contains(key) && !(atEdge && _pagesNearWith(atEdges, p, key) >= 2)) {
+        continue;
+      }
+      // The chapter's title under its "Chapter N" line is a heading, though
+      // the running heads repeat it.
+      if (i > 0 && !out[p].contains(i - 1) && looksLikeChapterLine(page[i - 1].text)) continue;
+      // So is the one copy without a number when every other copy has one:
+      // the heading the running heads ("THE NOBLE BACHELOR 51") are taken from.
+      if (atEdge && !_numbered(page[i].text) && bare[key] == 1 && (numbered[key] ?? 0) > 0) {
+        continue;
+      }
+      // And so is a line set larger than the text.
+      if (body > 0 && (page[i].box?.size ?? 0) >= body * 1.2) continue;
+      out[p].add(i);
+    }
+  }
+  return out;
+}
+
+/// The lines at a page's top and bottom edges: the two highest and two
+/// lowest when the layout says where lines sit, else the first and last two
+/// as drawn; all of a short page's.
+List<int> _edges(List<_Line> page) {
+  final n = page.length;
+  if (n <= 4) return [for (var i = 0; i < n; i++) i];
+  if (page.any((l) => l.box == null)) return [0, 1, n - 2, n - 1];
+  final down = _topToBottom(page);
+  return [down[0], down[1], down[n - 2], down[n - 1]];
+}
+
+final _digit = RegExp(r'\p{Nd}', unicode: true);
+
+/// Whether a line carries a number of its own, such as a running head's page
+/// number; a chapter line's number is part of its name.
+bool _numbered(String line) {
+  if (_leadingNumber.hasMatch(line)) return true;
+  final chapter = looksLikeChapterLine(line) ? _chapterNumber.firstMatch(line) : null;
+  return _digit.hasMatch(chapter == null ? line : line.substring(chapter.end));
+}
+
+/// How many pages near [p] have [key] at an edge.
+int _pagesNearWith(List<Set<String>> atEdges, int p, String key) {
+  var n = 0;
+  final last = math.min(atEdges.length - 1, p + _near);
+  for (var q = math.max(0, p - _near); q <= last; q++) {
+    if (q != p && atEdges[q].contains(key)) n++;
+  }
+  return n;
 }
 
 final _pageNumber = RegExp(
@@ -146,58 +716,175 @@ final _pageNumber = RegExp(
   caseSensitive: false,
 );
 
-bool _isNoiseLine(String line, Set<String> repeated) {
-  final t = line.trim();
-  if (t.isEmpty) return true;
-  if (_pageNumber.hasMatch(t)) return true;
-  return repeated.contains(_edgeKey(t));
+/// The value of a line that is only a page number ("12", "- 12 -", "Page 12
+/// of 300", "xiv"); null for anything else.
+({int value, bool roman})? _pageNumberOf(String line) {
+  final number = _pageNumber.firstMatch(line)?.group(3);
+  if (number == null) return null;
+  final digits = _digitsValue(number);
+  if (digits != null) return (value: digits, roman: false);
+  final roman = _romanValue(number);
+  return roman == null ? null : (value: roman, roman: true);
+}
+
+/// Western, Bengali and Devanagari digits.
+int? _digitsValue(String s) {
+  var v = 0;
+  for (final c in s.codeUnits) {
+    final d = c >= 0x30 && c <= 0x39
+        ? c - 0x30
+        : c >= 0x09E6 && c <= 0x09EF
+            ? c - 0x09E6
+            : c >= 0x0966 && c <= 0x096F
+                ? c - 0x0966
+                : -1;
+    if (d < 0) return null;
+    v = v * 10 + d;
+  }
+  return v;
+}
+
+/// A well-formed roman numeral's value ("xiv" is 14; "mid" is not one).
+int? _romanValue(String s) {
+  const values = {'I': 1, 'V': 5, 'X': 10, 'L': 50, 'C': 100, 'D': 500, 'M': 1000};
+  final u = s.toUpperCase();
+  var total = 0;
+  for (var i = 0; i < u.length; i++) {
+    final v = values[u[i]];
+    if (v == null) return null;
+    final next = i + 1 < u.length ? values[u[i + 1]] ?? 0 : 0;
+    total += v < next ? -v : v;
+  }
+  return total > 0 && _roman(total) == u ? total : null;
+}
+
+String _roman(int n) {
+  const table = [
+    (1000, 'M'), (900, 'CM'), (500, 'D'), (400, 'CD'), (100, 'C'), (90, 'XC'), //
+    (50, 'L'), (40, 'XL'), (10, 'X'), (9, 'IX'), (5, 'V'), (4, 'IV'), (1, 'I'),
+  ];
+  final out = StringBuffer();
+  for (final (value, letters) in table) {
+    while (n >= value) {
+      out.write(letters);
+      n -= value;
+    }
+  }
+  return out.toString();
+}
+
+/// Whether a number at page [p]'s edge counts with the pages: another page
+/// near it has a number that is as far on as the page is (or twice as far,
+/// for two book pages printed on one), or it is simply the page's place in
+/// the file.
+bool _countsWithPages(
+  List<List<({int line, int value, bool roman})>> numbers,
+  int p,
+  ({int line, int value, bool roman}) n,
+) {
+  if (!n.roman && n.value == p + 1) return true;
+  final last = math.min(numbers.length - 1, p + _near);
+  for (var q = math.max(0, p - _near); q <= last; q++) {
+    if (q == p) continue;
+    for (final o in numbers[q]) {
+      if (o.roman != n.roman) continue;
+      final ahead = o.value - n.value;
+      if (ahead == q - p || ahead == 2 * (q - p)) return true;
+    }
+  }
+  return false;
 }
 
 /// Running heads and feet compared by their letters only: page numbers,
-/// punctuation and stray glyphs differ from page to page.
-String _edgeKey(String line) => collapseWhitespace(
-      line.toLowerCase().replaceAll(_notLetters, ' '),
-    );
+/// punctuation and stray glyphs differ from page to page. A chapter line
+/// keeps its number, so "Chapter 12" and "Chapter 13" are two headings
+/// rather than one running head.
+String _edgeKey(String line) {
+  final letters = collapseWhitespace(line.toLowerCase().replaceAll(_notLetters, ' '));
+  final t = line.replaceFirst(_leadingNumber, '');
+  if (!looksLikeChapterLine(t)) return letters;
+  final number = _chapterNumber.firstMatch(t)?.group(1);
+  return number == null ? letters : '$letters #${number.toLowerCase()}';
+}
 
 final _notLetters = RegExp(r'[^\p{L}\s]', unicode: true);
+final _leadingNumber = RegExp(r'^\s*\d{1,4}\s+');
+final _chapterNumber = RegExp(r'^\s*\S+[\s.:\-–—]*([\p{L}\p{N}]+)', unicode: true);
 
 /// Lines that appear at the top or bottom of many pages: running headers,
 /// footers, the book title on every page.
-Set<String> _repeatedEdgeLines(List<String> pages) {
+Set<String> _repeatedEdgeLines(List<List<_Line>> pages, List<Set<String>> atEdges) {
   if (pages.length < 4) return const {};
   final counts = <String, int>{};
-  for (final page in pages) {
-    final lines = [
-      for (final l in page.replaceAll(pdfParagraphMark, '\n').split('\n'))
-        if (l.trim().isNotEmpty) l.trim(),
-    ];
+  for (var p = 0; p < pages.length; p++) {
     // A page that is nothing but its edges has no header to strip.
-    if (lines.length < 4) continue;
-    final edges = <String>{
-      ...lines.take(2).map(_edgeKey),
-      ...lines.reversed.take(2).map(_edgeKey),
-    };
-    for (final e in edges) {
-      // Running heads are short; a long repeated line is probably prose.
-      if (e.length > 60) continue;
+    if (pages[p].length < 4) continue;
+    for (final e in atEdges[p]) {
+      if (e.isEmpty || e.length > 60) continue;
       counts[e] = (counts[e] ?? 0) + 1;
     }
   }
-  final threshold = (pages.length * 0.3).ceil().clamp(3, 1 << 30);
+  final threshold = math.max(3, (pages.length * 0.3).ceil());
   return {
     for (final e in counts.entries)
       if (e.value >= threshold) e.key,
   };
 }
 
-/// Does [next] carry on the paragraph that [prev] started?
-bool _continues(String prev, String next) {
-  if (RegExp(r'[.!?।…"”’:;)\]]$').hasMatch(prev)) return false;
-  if (looksLikeChapterLine(prev) || looksLikeChapterLine(next)) return false;
-  if (RegExp(r'^[a-z]').hasMatch(next)) return true;
-  // A short line before a capital is a title, or a line of verse.
-  return prev.length >= 40;
+final _contentsHeading = RegExp(
+  r'^(table of )?contents$|^inhalt(sverzeichnis)?$|^table des matières$|'
+  r'^sommaire$|^índice$|^indice$|^содержание$|^оглавление$',
+);
+
+/// A line ending in a page reference: "The Salt Road 31", "Preface .... ix".
+final _pageRef = RegExp(r'(\s|\.{2,}|…)(\d{1,4}|[ivxlc]{1,7})$');
+
+/// A printed table of contents: a "Contents" heading over page references,
+/// or a page that is mostly lines ending in page numbers, or naming chapters.
+bool _isContentsPage(List<_Line> page) {
+  if (page.length < 3) return false;
+  var refs = 0, chapters = 0, last = 0;
+  // A contents page's numbers go up; prose that happens to end its lines in
+  // numbers ("stood at 12 / feet, then fell to 3") is no contents page.
+  var rising = true;
+  for (final l in page) {
+    final ref = _pageRef.firstMatch(l.text);
+    if (ref != null) {
+      refs++;
+      final value = _digitsValue(ref.group(2)!);
+      if (value != null) {
+        if (value < last) rising = false;
+        last = value;
+      }
+    }
+    if (looksLikeChapterLine(l.text)) chapters++;
+  }
+  final titled = page.take(3).any(
+        (l) => _contentsHeading.hasMatch(
+          collapseWhitespace(l.text.toLowerCase().replaceAll(_notLetters, ' ')),
+        ),
+      );
+  return (titled && refs >= 2) ||
+      (rising && refs >= 4 && refs * 2 >= page.length) ||
+      (chapters >= 4 && chapters * 2 >= page.length);
 }
+
+/// Does [next] carry on the paragraph that [prev] started?
+bool _continues(_Open prev, String next) {
+  if (RegExp(r'[.!?।…"”’:;)\]]$').hasMatch(prev.lines.last)) return false;
+  final length = prev.length;
+  // A chapter line is never longer than 90 characters.
+  if (looksLikeChapterLine(next) ||
+      (length <= 90 && looksLikeChapterLine(joinWrappedLines(prev.lines)))) {
+    return false;
+  }
+  if (_lowerFirst.hasMatch(next)) return true;
+  // A short line before a capital is a title, or a line of verse.
+  return length >= 40;
+}
+
+/// Lower case in any script that has it: "word" and "слово" both run on.
+final _lowerFirst = RegExp(r'^\p{Ll}', unicode: true);
 
 /// C0 controls (except newline and the paragraph mark), the replacement
 /// character and the private-use area.
@@ -205,40 +892,82 @@ final _unreadable = RegExp('[\x00-\x09\x0B-\x1F\uFFFD\uE000-\uF8FF]');
 
 bool _isChapterHeading(String t) => t.length <= 60 && looksLikeChapterLine(t);
 
-Block _pdfBlock(int page, String text, {bool? heading}) => makeBlock(
-      role: (heading ??
-              (text.length <= 80 &&
-                  !RegExp(r'[.!?,;:।]$').hasMatch(text) &&
-                  looksLikeChapterLine(text)))
+bool _looksLikeHeading(String text) =>
+    text.length <= 80 && !RegExp(r'[.!?,;:।]$').hasMatch(text) && looksLikeChapterLine(text);
+
+/// Blocks remember the page they start on, for the page view.
+Block _block(_Para p, {bool heading = false}) => makeBlock(
+      role: heading
           ? BlockRole.heading
-          : BlockRole.paragraph,
-      text: text,
-      anchor: PageAnchor(page),
+          : p.role ?? (_looksLikeHeading(p.text) ? BlockRole.heading : BlockRole.paragraph),
+      text: p.text,
+      anchor: PageAnchor(p.page),
     );
+
+/// Chapters from the outline. A chapter starts at its title when the title is
+/// printed on its page, so several chapters can share a page and one can
+/// begin halfway down; otherwise at the top of its page. Pages before the
+/// first entry are front matter and get their own section.
+List<DraftSection> _sectionsFromOutline(List<_Para> paras, List<PdfOutlineEntry> outline) {
+  final starts = <int>[];
+  var from = 0;
+  for (final o in outline) {
+    var start = from;
+    while (start < paras.length && paras[start].page < o.page) {
+      start++;
+    }
+    for (var i = start; i < paras.length && paras[i].page == o.page; i++) {
+      if (paras[i].role == null && _isTitle(paras[i].text, o.title)) {
+        start = i;
+        break;
+      }
+    }
+    starts.add(start);
+    from = start;
+  }
+
+  List<Block> blocks(int from, int to) => [for (final p in paras.sublist(from, to)) _block(p)];
+  final out = <DraftSection>[];
+  if (starts.first > 0) out.add((title: 'Opening pages', blocks: blocks(0, starts.first)));
+  for (var i = 0; i < outline.length; i++) {
+    final end = i + 1 < outline.length ? starts[i + 1] : paras.length;
+    // Its place taken by the next bookmark on the same page.
+    if (end <= starts[i]) continue;
+    out.add((title: collapseWhitespace(outline[i].title), blocks: blocks(starts[i], end)));
+  }
+  return out;
+}
 
 /// Chapters for a PDF without bookmarks. When the text has enough chapter
 /// headings ("CHAPTER II", "Part Two"), those are the chapters, named with
 /// the line after them when it is a short title. Otherwise ten pages per
 /// entry. Every page with text is in one or the other: listing a "chapter"
 /// per page and hiding the near-empty ones read as chapters being skipped.
-List<DraftSection> sectionsWithoutOutline(List<({int page, String text})> paras) {
+List<DraftSection> sectionsWithoutOutline(List<({int page, String text})> paras) =>
+    _sectionsFromHeadings([for (final p in paras) _Para(p.page, p.text)]);
+
+/// [front] is the number of pages of front matter, up to and including a
+/// printed contents page: they make their own section before the first ten
+/// pages. Ten pages that begin with the contents read as front matter, and
+/// were skipped when the book was opened, first chapter and all.
+List<DraftSection> _sectionsFromHeadings(List<_Para> paras, {int front = 0}) {
   final heads = [
     for (var i = 0; i < paras.length; i++)
-      if (_isChapterHeading(paras[i].text)) i,
+      if (paras[i].role == null && _isChapterHeading(paras[i].text)) i,
   ];
   if (heads.length >= 3) {
     final out = <DraftSection>[];
     if (heads.first > 0) {
       out.add((
         title: 'Opening pages',
-        blocks: [for (final p in paras.sublist(0, heads.first)) _pdfBlock(p.page, p.text)],
+        blocks: [for (final p in paras.sublist(0, heads.first)) _block(p)],
       ));
     }
     for (var h = 0; h < heads.length; h++) {
       final start = heads[h];
       final end = h + 1 < heads.length ? heads[h + 1] : paras.length;
       var title = tidyHeading(paras[start].text);
-      if (start + 1 < end) {
+      if (start + 1 < end && paras[start + 1].role == null) {
         final sub = paras[start + 1].text;
         if (sub.length <= 60 && !RegExp(r'[.!?,;]$').hasMatch(sub)) {
           title = '$title: ${tidyHeading(sub)}';
@@ -247,8 +976,8 @@ List<DraftSection> sectionsWithoutOutline(List<({int page, String text})> paras)
       out.add((
         title: title,
         blocks: [
-          _pdfBlock(paras[start].page, paras[start].text, heading: true),
-          for (final p in paras.sublist(start + 1, end)) _pdfBlock(p.page, p.text),
+          _block(paras[start], heading: true),
+          for (final p in paras.sublist(start + 1, end)) _block(p),
         ],
       ));
     }
@@ -257,12 +986,21 @@ List<DraftSection> sectionsWithoutOutline(List<({int page, String text})> paras)
 
   final out = <DraftSection>[];
   if (paras.isEmpty) return out;
+  if (front > 0) {
+    out.add((
+      title: 'Opening pages',
+      blocks: [
+        for (final p in paras)
+          if (p.page < front) _block(p),
+      ],
+    ));
+  }
   final last = paras.map((p) => p.page).reduce((a, b) => a > b ? a : b);
-  for (var from = 0; from <= last; from += 10) {
+  for (var from = front; from <= last; from += 10) {
     final to = from + 9 < last ? from + 9 : last;
     final blocks = [
       for (final p in paras)
-        if (p.page >= from && p.page <= to) _pdfBlock(p.page, p.text),
+        if (p.page >= from && p.page <= to) _block(p),
     ];
     if (blocks.isEmpty) continue;
     out.add((title: from == to ? 'Page ${from + 1}' : 'Pages ${from + 1}–${to + 1}', blocks: blocks));

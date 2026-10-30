@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:tomevoice_document/tomevoice_document.dart'
+    show SpeechHintKind, Speakable, speechHints;
 
 import 'safe_file.dart';
 
@@ -174,13 +176,59 @@ class Respelled {
   }
 }
 
+/// [unit] as its voice says it: its silent stretches (a footnote's marker,
+/// shown on the page but not read) left out, a web address said as its site
+/// (spelled out, a link went on letter by letter), a bracketed citation left
+/// out, then the reader's own [rules]. Positions map back to the page as for
+/// [respell]. A sentence that would be left with nothing to say is left as
+/// it is, for the lines-with-nothing-to-say rule to pass over.
+Respelled respellUnit(Speakable unit, List<SayRule> rules) {
+  final text = unit.text;
+  final hits = <(int, int, String)>[
+    for (final s in unit.silent)
+      if (s.start >= 0 && s.end <= text.length && s.start < s.end) (s.start, s.end, ''),
+  ];
+  for (final h in speechHints(text)) {
+    // A citation left out takes the space before it ("before [12], it").
+    final start = h.kind == SpeechHintKind.citation && h.start > 0 && text[h.start - 1] == ' ' ? h.start - 1 : h.start;
+    if (_overlaps(hits, start, h.end)) continue;
+    final say = switch (h.kind) {
+      SpeechHintKind.url => _siteOf(text.substring(h.start, h.end)),
+      SpeechHintKind.citation => '',
+      SpeechHintKind.email || SpeechHintKind.symbols => null,
+    };
+    if (say != null) hits.add((start, h.end, say));
+  }
+  final said = _respell(text, hits, rules);
+  return said.text.contains(_sayable) ? said : _respell(text, const [], rules);
+}
+
+/// Letters or digits in any script: something to say.
+final _sayable = RegExp(r'[\p{L}\p{N}]', unicode: true);
+
+bool _overlaps(List<(int, int, String)> hits, int s, int e) => hits.any((h) => s < h.$2 && e > h.$1);
+
+/// How a web address is said: its site ("youtu.be" for
+/// https://youtu.be/Vg_HBVOvVWk?t=44). A bare name in a sentence, such as
+/// Amazon.com, is said as written (null).
+String? _siteOf(String url) {
+  final m = RegExp(r'^(?:[a-z][a-z0-9+.-]*://)?(www\.)?([^/?#\s]+)(.*)$', caseSensitive: false).firstMatch(url);
+  if (m == null) return null;
+  final bare = !url.contains('://') && m.group(1) == null && (m.group(3) ?? '').isEmpty;
+  return bare ? null : m.group(2);
+}
+
 /// [text] with [rules] applied: each rule's word, whole and in any case,
 /// replaced by how it should sound. The longest words are tried first, so
 /// "Kael Ardent" wins over "Kael".
-Respelled respell(String text, List<SayRule> rules) {
-  if (rules.isEmpty) return Respelled.same(text);
+Respelled respell(String text, List<SayRule> rules) => _respell(text, const [], rules);
+
+/// [text] with the stretches in [fixed] replaced, then [rules] where they do
+/// not overlap those.
+Respelled _respell(String text, List<(int, int, String)> fixed, List<SayRule> rules) {
+  if (rules.isEmpty && fixed.isEmpty) return Respelled.same(text);
   final ordered = [...rules]..sort((a, b) => b.from.length.compareTo(a.from.length));
-  final hits = <(int, int, String)>[];
+  final hits = [...fixed];
   for (final r in ordered) {
     final pattern = RegExp('(?<![\\p{L}\\p{N}])${RegExp.escape(r.from)}(?![\\p{L}\\p{N}])',
         caseSensitive: false, unicode: true);

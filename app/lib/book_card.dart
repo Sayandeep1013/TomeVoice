@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'book_tint.dart';
 import 'library_store.dart';
+import 'prefs.dart';
 import 'theme.dart';
 import 'ui.dart';
 import 'voices.dart';
@@ -201,15 +202,19 @@ class CoverHero extends StatelessWidget {
   }
 }
 
-/// Listening time for [words] at normal speed, as "7 H 40 M".
-String listenLength(int words) {
+/// Listening time for [words] at [speed], as "7 H 40 M": the same 165 words
+/// a minute the player's time left counts, so the two agree.
+String listenLength(int words, {double speed = 1}) {
   if (words <= 0) return '';
-  final minutes = (words / 165).round();
+  final minutes = (words / (165 * speed)).round();
   if (minutes < 1) return '< 1 M';
   if (minutes < 60) return '$minutes M';
   final h = minutes ~/ 60, m = minutes % 60;
   return m == 0 ? '$h H' : '$h H $m M';
 }
+
+/// The speed book [id] is listened at: its own, or the one for every book.
+double speedOf(String id) => (ListeningPrefs.loaded ?? ListeningPrefs.memory).speedFor(id);
 
 /// "today", "yesterday", "3 days ago", "12 Oct".
 String relativeDay(DateTime when, {DateTime? now}) {
@@ -269,7 +274,7 @@ class BookRow extends StatelessWidget {
     final facts = [
       e.formatLabel,
       if (e.language != null) languageName(e.language!),
-      if (e.wordCount > 0) listenLength(e.wordCount),
+      if (e.wordCount > 0) listenLength(e.wordCount, speed: speedOf(e.id)),
     ];
     final radius = BorderRadius.circular(Radii.row + 4);
     final duration = Motion.of(context, Motion.quick);
@@ -413,7 +418,7 @@ class BookTile extends StatelessWidget {
     final tags = [
       e.formatLabel,
       if (e.language != null) languageName(e.language!),
-      if (e.wordCount > 0) listenLength(e.wordCount),
+      if (e.wordCount > 0) listenLength(e.wordCount, speed: speedOf(e.id)),
     ];
     const white = Colors.white;
     final radius = BorderRadius.circular(Radii.row - 4);

@@ -5,7 +5,9 @@ import 'package:flutter/services.dart' show PlatformException;
 
 import 'backup.dart';
 import 'library_store.dart';
+import 'listening_session.dart';
 import 'speech_service.dart';
+import 'stats.dart';
 import 'theme.dart';
 import 'ui.dart';
 
@@ -26,6 +28,8 @@ Future<void> runBackup(BuildContext context, LibraryStore store) async {
     _svc.backupSize(includeChapters: true),
     _svc.backupSize(includeChapters: false),
   ]);
+  // A backup is a plain file: it carries the secret shelves' books too.
+  final secret = (await store.index(all: true)).categories.any((c) => c.secret);
   if (!context.mounted) return;
   final all = sizes[0];
   final lean = sizes[1];
@@ -53,6 +57,14 @@ Future<void> runBackup(BuildContext context, LibraryStore store) async {
               label: 'Without downloaded chapters',
               detail: 'About ${sizeLabel(lean)} · Web novel chapters download again after a restore',
               onTap: () => Navigator.pop(ctx, false),
+            ),
+          if (secret)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(Gap.page, Gap.s, Gap.page, 0),
+              child: Text(
+                'The backup includes your secret shelf. Anyone who has the file can open its books.',
+                style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
+              ),
             ),
           const SizedBox(height: Gap.s),
         ],
@@ -115,11 +127,15 @@ Future<void> runRestore(BuildContext context, LibraryStore store) async {
 
   final info = staged.info;
   final made = MaterialLocalizations.of(context).formatMediumDate(info.created);
+  // Nothing read on this phone yet: likely a new phone, where the backup's
+  // settings are the ones wanted.
+  var takeSettings = StatsStore.instance.days.isEmpty;
   final how = await showModalBottomSheet<String>(
     context: context,
     useSafeArea: true,
     builder: (ctx) => SafeArea(
-      child: Column(
+      child: StatefulBuilder(
+        builder: (ctx, setSheet) => Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -130,8 +146,15 @@ Future<void> runRestore(BuildContext context, LibraryStore store) async {
           SheetAction(
             icon: Icons.library_add_outlined,
             label: 'Add to my library',
-            detail: 'Adds the books you don\'t have. For books in both, keeps whichever place is further',
-            onTap: () => Navigator.pop(ctx, 'add'),
+            detail: 'Adds the books, quotes, stats and reading rules you don\'t have. '
+                'For books in both, keeps whichever place is further',
+            onTap: () => Navigator.pop(ctx, takeSettings ? 'add+settings' : 'add'),
+          ),
+          SwitchRow(
+            title: 'Also use the backup\'s settings',
+            subtitle: 'Voice, speed, theme and page, for Add',
+            value: takeSettings,
+            onChanged: (v) => setSheet(() => takeSettings = v),
           ),
           SheetAction(
             icon: Icons.swap_horiz_rounded,
@@ -142,6 +165,7 @@ Future<void> runRestore(BuildContext context, LibraryStore store) async {
           ),
           const SizedBox(height: Gap.s),
         ],
+        ),
       ),
     ),
   );
@@ -161,22 +185,33 @@ Future<void> runRestore(BuildContext context, LibraryStore store) async {
     return;
   }
   if (!context.mounted) return;
-  unawaited(_progressDialog(context, how == 'add' ? 'Adding to your library' : 'Restoring', progress));
+  final adding = how != 'replace';
+  unawaited(_progressDialog(context, adding ? 'Adding to your library' : 'Restoring', progress));
+  // A book reading on in the background keeps saving its place and stats:
+  // stopped first, it cannot write into the library being swapped or over
+  // the files just merged.
+  await BackgroundReading.current.value?.stop();
   // Nothing may write the old book list back over the restored one before
   // the app starts again.
   store.hold();
   try {
-    if (how == 'add') {
-      await addToLibrary(store.root, staged);
+    if (adding) {
+      final report = await addToLibrary(store.root, staged, settings: how == 'add+settings');
+      await saveRestoreReport(store.root, addSummary(report));
     } else {
       await replaceLibrary(store.root, staged);
+      await saveRestoreReport(store.root, 'Your library is the backup made $made.');
     }
   } on Object catch (e) {
     store.release();
     await staged.discard();
     if (!context.mounted) return;
     Navigator.of(context, rootNavigator: true).pop();
-    showSnack(context, 'The restore failed and your library was left as it was: ${_reason(e)}', long: true);
+    showSnack(
+      context,
+      e is RestoreUnsettled ? '$e' : 'The restore failed and your library was left as it was: ${_reason(e)}',
+      long: true,
+    );
     return;
   }
   // Every store reads its files once; start the app again so all of them

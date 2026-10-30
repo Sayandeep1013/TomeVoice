@@ -111,13 +111,15 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
       VoiceCatalog.instance.neuralChanged();
       if (mounted) showSnack(context, '${v.name} is ready. Pick it in a book\'s voices.');
       unawaited(_test(v));
+    } on DownloadCancelled {
+      if (mounted) showSnack(context, 'Download stopped.');
     } on Object catch (e) {
       debugPrint('Natural voice ${v.id}: download failed: $e');
       if (mounted) {
         showSnack(
           context,
-          e is SocketException || e is HttpException
-              ? 'The download stopped. Check the internet connection and try again.'
+          e is SocketException || e is HttpException || e is TimeoutException
+              ? 'The download stopped. Check the internet connection and try again: it carries on from where it stopped.'
               : 'The voice could not be set up on this phone. Try again, or pick another voice.',
           long: true,
         );
@@ -293,6 +295,12 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
                 ],
               ),
             ),
+            if (progress != null && progress < 0.9)
+              IconButton(
+                tooltip: 'Stop downloading ${v.name}',
+                icon: Icon(Icons.close_rounded, color: Skin.inkSoftOn(context)),
+                onPressed: () => _voices.cancel(v),
+              ),
             if (progress == null && _testing != v.id)
               here
                   ? PopupMenuButton<String>(
