@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'sources/models.dart';
 import 'sources/net.dart';
+import 'sources/net_image.dart';
 import 'sources/source_store.dart';
 import 'theme.dart';
 import 'ui.dart';
@@ -22,6 +23,10 @@ class SourcesScreen extends StatefulWidget {
 
 class _SourcesScreenState extends State<SourcesScreen> {
   List<String> _repos = const [];
+
+  /// Lists on http:// addresses, added before only https was taken: not
+  /// read until added again with https.
+  Set<String> _insecure = const {};
   List<PluginInfo> _installed = const [];
   List<PluginInfo> _available = const [];
   Map<String, PluginInfo> _updates = const {};
@@ -55,18 +60,18 @@ class _SourcesScreenState extends State<SourcesScreen> {
   Future<void> _load({bool refresh = false}) async {
     setState(() => _loading = true);
     final repos = await _store.repos();
+    final insecure = await _store.insecureRepos();
     final installed = await _store.installed();
     final available = await _store.available(refresh: refresh);
-    final newest = {for (final p in available) p.id: p};
+    // Each source is updated from the list it came from, never another's.
+    final updates = await _store.updates();
     if (!mounted) return;
     setState(() {
       _repos = repos;
+      _insecure = insecure.toSet();
       _installed = installed;
       _available = available;
-      _updates = {
-        for (final p in installed)
-          if (newest[p.id] != null && p.olderThan(newest[p.id]!)) p.id: newest[p.id]!,
-      };
+      _updates = updates;
       _language ??= _defaultLanguage(available);
       _loading = false;
       _loadedAt ??= DateTime.now();
@@ -185,9 +190,13 @@ class _SourcesScreenState extends State<SourcesScreen> {
                         ),
                       for (final r in _repos)
                         ListTile(
-                          leading: const Icon(Icons.link_rounded),
+                          leading: Icon(_insecure.contains(r) ? Icons.link_off_rounded : Icons.link_rounded),
                           title: Text(_repoName(r), maxLines: 1, overflow: TextOverflow.ellipsis),
-                          subtitle: Text(r, maxLines: 1, overflow: TextOverflow.ellipsis),
+                          subtitle: Text(
+                            _insecure.contains(r) ? 'Not read: http:// is not safe for code. Add it again with https://' : r,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                           trailing: IconButton(
                             tooltip: 'Remove list',
                             icon: const Icon(Icons.close_rounded),
@@ -275,8 +284,9 @@ class _SourcesScreenState extends State<SourcesScreen> {
           height: 40,
           child: p.iconUrl == null
               ? ColoredBox(color: Skin.raisedOn(context), child: const Icon(Icons.public_rounded))
-              : Image.network(
-                  p.iconUrl!,
+              : Image(
+                  image: ResizeImage.resizeIfNeeded(
+                      (40 * MediaQuery.devicePixelRatioOf(context)).round(), null, NetImage(p.iconUrl!)),
                   fit: BoxFit.cover,
                   errorBuilder: (_, __, ___) =>
                       ColoredBox(color: Skin.raisedOn(context), child: const Icon(Icons.public_rounded)),

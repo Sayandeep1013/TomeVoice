@@ -225,7 +225,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
         body: SourceProblem(
-          error: ChallengeException('https://www.royalroad.com/fictions/search?title=x'),
+          error: ChallengeException('https://www.royalroad.com/fictions/search?title=x', pluginId: 'royalroad'),
           onRetry: () => retried++,
         ),
       ),
@@ -238,7 +238,10 @@ void main() {
     final check = asked.singleWhere((c) => c.method == 'browserCheck');
     expect((check.arguments as Map)['userAgent'], Net.userAgent);
     expect(retried, 1);
-    expect(Net.instance.cookieHeader('www.royalroad.com'), contains('cf_clearance=abc'));
+    expect(Net.instance.cookieHeader('https://www.royalroad.com/fictions', partition: 'royalroad'),
+        contains('cf_clearance=abc'));
+    expect(Net.instance.cookieHeader('https://www.royalroad.com/fictions', partition: 'another'), isNull,
+        reason: 'kept for the source that met the check, not every source');
     await Net.instance.clearCookies();
   });
 

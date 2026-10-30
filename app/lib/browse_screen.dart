@@ -6,6 +6,7 @@ import 'browser_check.dart';
 import 'library_store.dart';
 import 'novel_screen.dart';
 import 'sources/models.dart';
+import 'sources/net_image.dart';
 import 'sources/source_engine.dart';
 import 'sources/source_store.dart';
 import 'sources_screen.dart';
@@ -327,6 +328,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
                               child: RemoteNovelTile(
                                 item: items[i],
                                 referer: r.plugin.site,
+                                partition: r.plugin.id,
                                 onTap: () => _openNovel(r.plugin, items[i]),
                               ),
                             ),
@@ -514,6 +516,7 @@ class _SourceScreenState extends State<SourceScreen> {
                                 (context, i) => RemoteNovelTile(
                                   item: _items[i],
                                   referer: widget.plugin.site,
+                                  partition: widget.plugin.id,
                                   onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
                                     builder: (_) => NovelScreen(
                                       store: widget.store,
@@ -558,11 +561,14 @@ class _SourceScreenState extends State<SourceScreen> {
 /// A novel from a site: its cover with the title on a translucent band, the
 /// way the library shows books.
 class RemoteNovelTile extends StatelessWidget {
-  const RemoteNovelTile({super.key, required this.item, required this.onTap, this.referer});
+  const RemoteNovelTile({super.key, required this.item, required this.onTap, this.referer, this.partition = ''});
 
   final NovelItem item;
   final VoidCallback onTap;
   final String? referer;
+
+  /// Whose cookies the cover goes with: its source's plugin id.
+  final String partition;
 
   @override
   Widget build(BuildContext context) => Semantics(
@@ -578,7 +584,14 @@ class RemoteNovelTile extends StatelessWidget {
                 children: [
                   FittedBox(
                     fit: BoxFit.cover,
-                    child: NetworkCover(url: item.cover, title: item.name, width: c.maxWidth, referer: referer, titled: false),
+                    child: NetworkCover(
+                      url: item.cover,
+                      title: item.name,
+                      width: c.maxWidth,
+                      referer: referer,
+                      partition: partition,
+                      titled: false,
+                    ),
                   ),
                   Positioned(
                     left: 0,
@@ -631,7 +644,12 @@ class SourceIcon extends StatelessWidget {
         height: size,
         child: plugin.iconUrl == null
             ? fallback
-            : Image.network(plugin.iconUrl!, fit: BoxFit.cover, errorBuilder: (_, __, ___) => fallback),
+            : Image(
+                image: ResizeImage.resizeIfNeeded(
+                    (size * MediaQuery.devicePixelRatioOf(context)).round(), null, NetImage(plugin.iconUrl!)),
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => fallback,
+              ),
       ),
     );
   }

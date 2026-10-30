@@ -10,10 +10,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_document/tomevoice_document.dart' show SourceKind;
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/noveldokusha_import.dart';
+import 'package:tomevoice_spike/sources/cookies.dart';
 import 'package:tomevoice_spike/sources/models.dart';
 import 'package:tomevoice_spike/sources/net.dart';
 import 'package:tomevoice_spike/sources/plugin_host.dart';
 import 'package:tomevoice_spike/sources/qjs_runtime.dart';
+import 'package:tomevoice_spike/sources/sha256.dart';
 import 'package:tomevoice_spike/sources/source_store.dart';
 
 /// A plugin written the way the LNReader ones are (compiled CommonJS, ES5
@@ -61,6 +63,36 @@ var Plugin = function () {
 exports.default = new Plugin();
 ''';
 
+/// A plugin that fetches what it is told to and says what came back, keeps
+/// a secret, and tries what a hostile one would: another plugin's storage
+/// by its id, and replacing the bridge and the built-ins everything uses.
+const _probe = r'''
+"use strict";
+var fetch_1 = require("@libs/fetch");
+var storage_1 = require("@libs/storage");
+exports.default = {
+  id: ID, name: ID, site: SITE, version: "1.0.0",
+  popularNovels: function () { return Promise.resolve([]); },
+  searchNovels: function (term) {
+    if (term === "store") { storage_1.storage.set("secret", "pw-" + ID); return Promise.resolve([]); }
+    if (term === "steal") {
+      var raw = sendMessage("tv_storage", JSON.stringify(["get", "a", "secret"]));
+      return Promise.resolve([{ name: String(raw) + "|" + String(storage_1.storage.get("secret")), path: "x" }]);
+    }
+    if (term === "hijack") {
+      globalThis.sendMessage = function () { return Promise.resolve(JSON.stringify({ status: 200, body: "hijacked" })); };
+      Array.prototype.concat = function () { return ["get", "secret"]; };
+      JSON.parse = function () { return { status: 200, body: "hijacked" }; };
+      return Promise.resolve([]);
+    }
+    var url = term.indexOf(":") > 0 ? term : this.site + term;
+    return fetch_1.fetchApi(url).then(function (r) {
+      return r.text().then(function (body) { return [{ name: r.status + ":" + body, path: "x" }]; });
+    });
+  },
+};
+''';
+
 Future<HttpServer> _site() async {
   final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
   server.listen((req) async {
@@ -88,6 +120,15 @@ Future<HttpServer> _site() async {
     } else if (path == '/ch/1') {
       res.headers.contentType = ContentType.html;
       res.write('<div id="content"><p>It&#39;s the first chapter.</p><p>Second line.</p></div>');
+    } else if (path == '/setcookie') {
+      res.cookies.add(Cookie('sid', 'abc')..path = '/');
+      res.write('set');
+    } else if (path == '/echo-cookie') {
+      res.write('cookies:${req.headers.value(HttpHeaders.cookieHeader) ?? ''}');
+    } else if (path == '/blocked') {
+      res.statusCode = 403;
+      res.headers.set('cf-mitigated', 'challenge');
+      res.write('<title>Just a moment...</title>');
     } else {
       res.statusCode = 404;
     }
@@ -96,41 +137,54 @@ Future<HttpServer> _site() async {
   return server;
 }
 
-void main() {
-  JsRuntime? runtime() {
-    try {
-      return createJsRuntime();
-    } on UnsupportedError {
-      return null;
-    }
+/// Whether QuickJS is built here (CI, Linux); the engine tests skip
+/// themselves where it is not.
+bool _hasEngine() {
+  try {
+    createJsRuntime().dispose();
+    return true;
+  } on UnsupportedError {
+    return false;
   }
+}
+
+PluginHost _host(Directory dir, {Future<String?> Function(String url)? viaBrowser, int maxLive = 4}) => PluginHost(
+      createJsRuntime,
+      libs: File('assets/js/lnreader_libs.js').readAsStringSync(),
+      shim: File('assets/js/lnreader_shim.js').readAsStringSync(),
+      sourcesDir: dir.path,
+      viaBrowser: viaBrowser,
+      maxLive: maxLive,
+    );
+
+void main() {
+  // The test sites run on this machine, which the app itself never asks.
+  setUp(() => Net.allowPrivateAddresses = true);
+  tearDown(() => Net.allowPrivateAddresses = false);
 
   test('a source plugin searches, describes a novel and reads a chapter', () async {
-    final rt = runtime();
-    if (rt == null) {
+    if (!_hasEngine()) {
       markTestSkipped('QuickJS is not built on this machine');
       return;
     }
     final server = await _site();
     final dir = Directory.systemTemp.createTempSync('tv_sources');
+    late PluginHost host;
     addTearDown(() async {
       await server.close(force: true);
-      rt.dispose();
+      host.dispose();
       dir.deleteSync(recursive: true);
     });
     final site = 'http://127.0.0.1:${server.port}/';
     final code = File('${dir.path}/fake.js')..writeAsStringSync(_plugin.replaceAll('SITE', jsonEncode(site)));
     // The phone's web view, once the test hands one over.
     var browserOn = false;
-    final host = PluginHost(
-      rt,
-      libs: File('assets/js/lnreader_libs.js').readAsStringSync(),
-      shim: File('assets/js/lnreader_shim.js').readAsStringSync(),
-      sourcesDir: dir.path,
+    host = _host(
+      dir,
       viaBrowser: (url) async =>
           browserOn ? '<ul><li class="novel"><a href="novel/7">Seen by the browser</a></li></ul>' : null,
     );
-    host.ensure('fake', '1.0.0', code.path);
+    host.ensure('fake', '1.0.0', code.path, site: site);
 
     final found = [
       for (final o in await host.call('fake', 'searchNovels', ['dragon', 1]) as List) NovelItem.fromJs(o)!,
@@ -168,6 +222,105 @@ void main() {
     // Storage persisted to the plugin's file.
     final stored = jsonDecode(File('${dir.path}/storage-fake.json').readAsStringSync()) as Map;
     expect(jsonDecode(stored['last'] as String)['value'], 'novel/1');
+  });
+
+  test("plugins cannot reach each other's storage, cookies or globals, nor the phone's network", () async {
+    if (!_hasEngine()) {
+      markTestSkipped('QuickJS is not built on this machine');
+      return;
+    }
+    final server = await _site();
+    final dir = Directory.systemTemp.createTempSync('tv_isolation');
+    var browserAsked = 0;
+    final host = _host(dir, viaBrowser: (url) async {
+      browserAsked++;
+      return '<p>through the browser</p>';
+    });
+    addTearDown(() async {
+      await server.close(force: true);
+      host.dispose();
+      dir.deleteSync(recursive: true);
+    });
+    final site = 'http://127.0.0.1:${server.port}/';
+    for (final id in ['a', 'b', 'c']) {
+      File('${dir.path}/$id.js')
+          .writeAsStringSync(_probe.replaceAll('SITE', jsonEncode(site)).replaceAll('ID', jsonEncode(id)));
+      host.ensure(id, '1.0.0', '${dir.path}/$id.js', site: site);
+    }
+    Future<String> ask(String id, String term) async =>
+        NovelItem.fromJs(((await host.call(id, 'searchNovels', [term, 1])) as List).firstOrNull)?.name ?? '';
+
+    // Storage: b names a's, and gets its own (which has nothing).
+    await ask('a', 'store');
+    expect(await ask('b', 'steal'), isNot(contains('pw-a')));
+    expect(jsonDecode(File('${dir.path}/storage-a.json').readAsStringSync())['secret'], contains('pw-a'));
+
+    // Globals: b replaces the bridge and built-ins in its own context only.
+    await ask('b', 'hijack');
+    expect(await ask('a', 'echo-cookie'), '200:cookies:');
+
+    // Cookies: what a's site set goes back with a's requests alone.
+    await ask('a', 'setcookie');
+    expect(await ask('a', 'echo-cookie'), '200:cookies:sid=abc');
+    expect(await ask('c', 'echo-cookie'), '200:cookies:');
+
+    // The web view: only for a plugin's own site ("localhost" is another).
+    expect(await ask('a', 'blocked'), '200:<p>through the browser</p>');
+    expect(browserAsked, 1);
+    await expectLater(ask('a', 'http://localhost:${server.port}/blocked'), throwsA(isA<ChallengeException>()));
+    expect(browserAsked, 1);
+
+    // Nothing but web pages, and nothing on the phone or its network.
+    expect(await ask('c', 'file:///etc/hosts'), startsWith('0:'));
+    Net.allowPrivateAddresses = false;
+    expect(await ask('c', 'echo-cookie'), startsWith('0:'));
+  });
+
+  test('only addresses on the open internet are asked', () {
+    bool public(String a) => isPublicAddress(InternetAddress(a));
+    for (final a in [
+      '127.0.0.1', '10.1.2.3', '172.16.0.1', '172.31.255.255', '192.168.1.1', '169.254.169.254', '100.64.0.1',
+      '0.0.0.0', '224.0.0.1', '255.255.255.255', '192.0.2.1', '::1', '::', 'fe80::1', 'fd00::1', 'fc00::1', 'ff02::1',
+      '::ffff:127.0.0.1', '::ffff:192.168.0.1', '64:ff9b::a00:1', '2002:c0a8:101::1', '2001:db8::1',
+    ]) {
+      expect(public(a), isFalse, reason: a);
+    }
+    for (final a in ['1.1.1.1', '8.8.8.8', '172.32.0.1', '100.128.0.1', '2606:4700::1111', '::ffff:8.8.8.8', '2002:808:808::1']) {
+      expect(public(a), isTrue, reason: a);
+    }
+  });
+
+  test('cookies keep their domain, path, expiry and Secure flag, and each source its own', () {
+    final jar = CookieJar();
+    final page = Uri.parse('https://www.site.com/novel/1');
+    jar.take(page, [
+      Cookie('host', '1')..path = '/',
+      Cookie('shared', '2')
+        ..domain = '.site.com'
+        ..path = '/',
+      Cookie('deep', '3'), // no path: the page's own folder, /novel
+      Cookie('gone', '4')..maxAge = 0,
+      Cookie('safe', '5')
+        ..secure = true
+        ..path = '/',
+      Cookie('other', '6')..domain = 'example.com',
+    ], partition: 'p1');
+    Set<String>? header(String url, [String part = 'p1']) =>
+        jar.headerFor(Uri.parse(url), partition: part)?.split('; ').toSet();
+    expect(header('https://www.site.com/novel/2'), {'deep=3', 'host=1', 'shared=2', 'safe=5'});
+    expect(jar.headerFor(Uri.parse('https://www.site.com/novel/2'), partition: 'p1'), startsWith('deep=3'),
+        reason: 'the longer path first');
+    expect(header('https://m.site.com/'), {'shared=2'}, reason: 'host-only and path cookies stay put');
+    expect(header('http://www.site.com/'), {'host=1', 'shared=2'}, reason: 'Secure only over https');
+    expect(header('https://example.com/'), isNull, reason: 'a site cannot set cookies for another');
+    expect(header('https://www.site.com/novel/2', 'p2'), isNull, reason: 'another source has its own');
+
+    // Kept on disk and read back; a clear stays a clear.
+    final copy = CookieJar()..mergeJson(jsonDecode(jsonEncode(jar.toJson())));
+    expect(copy.headerFor(Uri.parse('https://www.site.com/novel/2'), partition: 'p1'), contains('deep=3'));
+    jar.clear();
+    jar.mergeJson(jsonDecode(jsonEncode(copy.toJson())));
+    expect(jar.isEmpty, isTrue, reason: 'an older copy does not bring cleared cookies back');
   });
 
   test('tag names a site ran together are split, short ones kept whole', () {
@@ -229,7 +382,8 @@ void main() {
       await server.close(force: true);
       dir.deleteSync(recursive: true);
     });
-    final store = SourceStore(dir, defaults: const []);
+    // Served over http from this machine; the app takes https only.
+    final store = SourceStore(dir, defaults: const [], allowInsecure: true);
 
     await expectLater(store.addRepo('$base/nothing.json'), throwsA(isA<FormatException>()));
     expect(await store.addRepo('$base/plugins.min.json'), 2);
@@ -237,18 +391,152 @@ void main() {
 
     final available = await store.available();
     expect(available.map((p) => p.id), ['fake', 'ru1'], reason: 'sorted by language, then name');
-    await store.install(available.first);
+    final installed = await store.install(available.first);
     expect((await store.installed()).single.id, 'fake');
     expect(await store.code('fake'), contains('version 1.0.0'));
+    expect(installed.sha256, sha256Hex(utf8.encode('exports.default = {}; // version 1.0.0')));
+    expect(installed.repo, '$base/plugins.min.json');
     expect(await store.updates(), isEmpty);
 
     version = '1.1.0';
     await store.available(refresh: true);
-    expect((await store.updates()).single.version, '1.1.0');
+    expect((await store.updates()).values.single.version, '1.1.0');
+    expect(store.pending.value.keys, ['fake']);
 
     await store.uninstall('fake');
     expect(await store.installed(), isEmpty);
     expect(File(store.codePath('fake')).existsSync(), isFalse);
+  });
+
+  test('SHA-256 gives the answers in FIPS 180-4', () {
+    expect(sha256Hex(const []), 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+    expect(sha256Hex(utf8.encode('abc')), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+    expect(sha256Hex(utf8.encode('abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq')),
+        '248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1');
+    expect(sha256Hex(List.filled(1000000, 0x61)), 'cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0');
+    // Lengths either side of a block's end.
+    expect(sha256Hex(List.filled(55, 0x61)), '9f4390f8d30c2dd92ec9f095b65e2b9ae9b0a925a5258e241c9f1e910f734318');
+    expect(sha256Hex(List.filled(64, 0x61)), 'ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb');
+  });
+
+  test('lists and code come over https only, and a source is updated only from its own list', () async {
+    var a = '1.0.0', b = '9.9.0';
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final base = 'http://127.0.0.1:${server.port}';
+    server.listen((req) async {
+      final res = req.response;
+      final p = req.uri.path;
+      if (p == '/a.json' || p == '/b.json') {
+        final v = p == '/a.json' ? a : b;
+        res.write(jsonEncode([
+          {'id': 'fake', 'name': 'Fake', 'site': '$base/', 'lang': 'English', 'version': v, 'url': '$base$p.js',
+            'sha256': '0' * 64, 'repo': 'https://elsewhere/'},
+        ]));
+      } else {
+        res.write('exports.default = {}; // from $p');
+      }
+      await res.close();
+    });
+    final dir = Directory.systemTemp.createTempSync('tv_https');
+    addTearDown(() async {
+      await server.close(force: true);
+      dir.deleteSync(recursive: true);
+    });
+    await expectLater(SourceStore(dir, defaults: const []).addRepo('$base/a.json'),
+        throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('https'))));
+    await expectLater(
+        SourceStore(dir, defaults: const []).install(
+            PluginInfo(id: 'x', name: 'X', site: '$base/', lang: 'English', version: '1', url: '$base/x.js')),
+        throwsA(isA<FormatException>()));
+
+    final store = SourceStore(dir, defaults: const [], allowInsecure: true);
+    await store.addRepo('$base/a.json');
+    await store.addRepo('$base/b.json');
+    expect((await store.available()).single.version, '9.9.0', reason: 'the newest is offered to install');
+    // Installed from list a: list b's newer copy never replaces it.
+    final fromA = await store.fromItsList(
+        PluginInfo(id: 'fake', name: 'Fake', site: '', lang: '', version: '0', url: '', repo: '$base/a.json'));
+    expect((fromA!.version, fromA.repo), ('1.0.0', '$base/a.json'), reason: "what list a says, under a's name");
+    await store.install(fromA);
+    final installed = (await store.installed()).single;
+    expect(installed.repo, '$base/a.json');
+    expect(installed.sha256, sha256Hex(utf8.encode('exports.default = {}; // from /a.json.js')),
+        reason: "the code's own hash, not what the list said");
+    expect(await store.updates(), isEmpty);
+    a = '1.1.0';
+    await store.available(refresh: true);
+    final update = (await store.updates())['fake']!;
+    expect((update.version, update.repo, update.url), ('1.1.0', '$base/a.json', '$base/a.json.js'));
+  });
+
+  test("a plugin whose code is not what was installed is not run", () {
+    final dir = Directory.systemTemp.createTempSync('tv_tamper');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final code = File('${dir.path}/p.js')..writeAsStringSync('exports.default = {}; // as installed');
+    final hash = sha256Hex(code.readAsBytesSync());
+    var made = 0;
+    final host = PluginHost(() {
+      made++;
+      throw UnsupportedError('no engine needed: the check comes first');
+    }, libs: '', shim: '', sourcesDir: dir.path);
+    code.writeAsStringSync('exports.default = {}; // changed by someone else');
+    expect(() => host.ensure('p', '1', code.path, sha256: hash, name: 'Pea'),
+        throwsA(isA<TamperedSourceException>().having((e) => e.name, 'name', 'Pea')));
+    expect(made, 0, reason: 'its code never reached an engine');
+  });
+
+  test('sources move to internal storage once, checked; a restored copy is adopted, its code never run', () async {
+    final tmp = Directory.systemTemp.createTempSync('tv_move');
+    addTearDown(() => tmp.deleteSync(recursive: true));
+    final library = Directory('${tmp.path}/external')..createSync();
+    final internal = Directory('${tmp.path}/internal')..createSync();
+    final old = Directory('${library.path}/sources/plugins')..createSync(recursive: true);
+    File('${old.path}/fake.js').writeAsStringSync('exports.default = {}; // fake');
+    File('${library.path}/sources/installed.json').writeAsStringSync(jsonEncode([
+      {'id': 'fake', 'name': 'Fake', 'site': 'https://fake.site/', 'lang': 'English', 'version': '1', 'url': 'https://e/f.js', 'repo': 'https://l/a.json'},
+    ]));
+    File('${library.path}/sources/repos.json').writeAsStringSync(jsonEncode(['https://l/a.json']));
+    File('${library.path}/sources/storage-fake.json').writeAsStringSync('{"k":"v"}');
+
+    final store = await SourceStore.open(internal, legacyRoot: library);
+    expect(store.dir.path, '${internal.path}/sources');
+    expect(Directory('${library.path}/sources').existsSync(), isFalse, reason: 'the old copy goes once checked');
+    expect(await store.code('fake'), contains('// fake'));
+    expect(await store.repos(), ['https://l/a.json']);
+    final fake = (await store.installed()).single;
+    expect(fake.sha256, sha256Hex(utf8.encode('exports.default = {}; // fake')), reason: 'its hash, kept from now on');
+
+    // A backup from before the move, restored into the library's folder.
+    Directory('${library.path}/sources/plugins').createSync(recursive: true);
+    File('${library.path}/sources/plugins/other.js').writeAsStringSync('exports.default = {}; // anything at all');
+    File('${library.path}/sources/installed.json').writeAsStringSync(jsonEncode([
+      {'id': 'fake', 'name': 'Fake', 'site': 'https://fake.site/', 'lang': 'English', 'version': '1', 'url': 'https://e/f.js', 'sha256': '0' * 64},
+      {'id': 'other', 'name': 'Other', 'site': 'https://other.site/', 'lang': 'English', 'version': '1', 'url': 'https://e/o.js', 'repo': 'https://l/b.json'},
+    ]));
+    File('${library.path}/sources/repos.json').writeAsStringSync(jsonEncode(['https://l/b.json', 'http://insecure/c.json']));
+    File('${library.path}/sources/storage-other.json').writeAsStringSync('{"x":"y"}');
+    final again = await SourceStore.open(internal, legacyRoot: library);
+    expect(Directory('${library.path}/sources').existsSync(), isFalse);
+    expect(await again.repos(), ['https://l/a.json', 'https://l/b.json'], reason: 'its https lists are taken');
+    expect(File('${again.dir.path}/storage-other.json').existsSync(), isTrue, reason: 'and its settings');
+    expect((await again.installed()).map((p) => p.id), ['fake'], reason: 'nothing it brought is run');
+    expect((await again.installed()).single.sha256, fake.sha256, reason: "the backup's hash is not taken");
+    expect(File(again.codePath('other')).existsSync(), isFalse);
+    expect((await again.restored()).map((p) => p.id), ['other'], reason: 'installed again from its list instead');
+  });
+
+  test('a move that cannot finish leaves the old copy in use', () async {
+    final tmp = Directory.systemTemp.createTempSync('tv_move_fail');
+    addTearDown(() => tmp.deleteSync(recursive: true));
+    final library = Directory('${tmp.path}/external')..createSync();
+    final internal = Directory('${tmp.path}/internal')..createSync();
+    Directory('${library.path}/sources/plugins').createSync(recursive: true);
+    File('${library.path}/sources/installed.json').writeAsStringSync('[]');
+    // Something in the way where the sources should go.
+    File('${internal.path}/sources').writeAsStringSync('in the way');
+    final store = await SourceStore.open(internal, legacyRoot: library);
+    expect(store.dir.path, '${library.path}/sources');
+    expect(File('${library.path}/sources/installed.json').existsSync(), isTrue);
   });
 
   test('a web novel in the library: fetched chapters are read, the rest wait', () async {

@@ -3,14 +3,31 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
+import 'cookies.dart';
+
 /// [e] in words a reader understands: no "SocketException" on screen.
 String friendlyError(Object e) {
+  if (e is BlockedAddressException) return e.message;
   if (e is SocketException) return 'Could not reach the site. Check the internet connection.';
   if (e is HandshakeException || e is TlsException) return "The site's secure connection failed.";
   if (e is TimeoutException) return 'The site took too long to answer.';
   if (e is HttpException) return 'The site answered with an error (${e.message}).';
   final s = '$e';
   return s.startsWith('FormatException: ') ? s.substring(17) : s;
+}
+
+/// An address the app will not ask: not a web page (http or https), or one
+/// on the phone itself or the network it is on (a source plugin reaching
+/// for the router, or another app's local server).
+class BlockedAddressException implements Exception {
+  BlockedAddressException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
 }
 
 /// What a source plugin gets back from a request.
@@ -52,11 +69,69 @@ class NetResponse {
   }
 }
 
+/// Whether [a] is an address on the open internet: not this phone
+/// (loopback), not its own network (private, link-local, carrier-grade
+/// NAT), not multicast, broadcast, reserved or documentation ranges, in
+/// IPv4 or IPv6 (and IPv4 inside IPv6, mapped, translated or 6to4).
+bool isPublicAddress(InternetAddress a) {
+  final b = a.rawAddress;
+  if (b.length == 4) return _publicV4(b);
+  if (b.length != 16) return false;
+  bool zeros(int from, int to) {
+    for (var i = from; i < to; i++) {
+      if (b[i] != 0) return false;
+    }
+    return true;
+  }
+
+  // ::ffff:a.b.c.d (mapped) and ::a.b.c.d (compatible), the latter also
+  // covering :: and ::1.
+  if (zeros(0, 10) && b[10] == 0xff && b[11] == 0xff) return _publicV4(b.sublist(12));
+  if (zeros(0, 12)) return false;
+  // 64:ff9b::/96, NAT64: the IPv4 address it translates to.
+  if (b[0] == 0 && b[1] == 0x64 && b[2] == 0xff && b[3] == 0x9b && zeros(4, 12)) return _publicV4(b.sublist(12));
+  // 2002::/16, 6to4: the IPv4 address it tunnels to.
+  if (b[0] == 0x20 && b[1] == 0x02) return _publicV4(b.sublist(2, 6));
+  if (b[0] == 0xff) return false; // multicast
+  if (b[0] == 0xfe && (b[1] & 0xc0) == 0x80) return false; // link-local fe80::/10
+  if (b[0] == 0xfe && (b[1] & 0xc0) == 0xc0) return false; // site-local fec0::/10
+  if ((b[0] & 0xfe) == 0xfc) return false; // unique local fc00::/7
+  if (b[0] == 0x20 && b[1] == 0x01 && b[2] == 0x0d && b[3] == 0xb8) return false; // documentation
+  if (b[0] == 0x01 && b[1] == 0x00 && zeros(2, 8)) return false; // discard 100::/64
+  return true;
+}
+
+bool _publicV4(List<int> b) {
+  final x = b[0], y = b[1];
+  if (x == 0 || x == 10 || x == 127) return false;
+  if (x == 100 && (y & 0xc0) == 64) return false; // 100.64/10, carrier-grade NAT
+  if (x == 169 && y == 254) return false; // link-local
+  if (x == 172 && (y & 0xf0) == 16) return false; // 172.16/12
+  if (x == 192 && y == 168) return false;
+  if (x == 192 && y == 0 && (b[2] == 0 || b[2] == 2)) return false; // 192.0.0/24, 192.0.2/24
+  if (x == 198 && (y == 18 || y == 19)) return false; // benchmarking
+  if (x == 198 && y == 51 && b[2] == 100) return false; // documentation
+  if (x == 203 && y == 0 && b[2] == 113) return false; // documentation
+  if (x >= 224) return false; // multicast, reserved, broadcast
+  return true;
+}
+
 /// HTTP for sources: one client, a phone browser's User-Agent, and cookies
-/// kept per site (and on disk), so a site that set a cookie once, such as
+/// kept per source (and on disk), so a site that set a cookie once, such as
 /// Cloudflare's clearance, keeps working.
+///
+/// Only web pages are asked for: http and https, on the open internet. The
+/// address a name resolves to is checked when the connection is made, on
+/// every redirect, and connected to as checked (a name that answers with a
+/// public address and then a private one gets nowhere).
 class Net {
-  Net._();
+  Net._() {
+    _client
+      ..connectionTimeout = const Duration(seconds: 20)
+      ..autoUncompress = true
+      ..findProxy = ((_) => 'DIRECT')
+      ..connectionFactory = _connect;
+  }
 
   static final instance = Net._();
 
@@ -69,14 +144,61 @@ class Net {
   /// view's, so a browser check passed there holds here too.
   static String userAgent = fallbackUserAgent;
 
-  final _client = HttpClient()
-    ..connectionTimeout = const Duration(seconds: 20)
-    ..autoUncompress = true;
+  /// Tests run their sites on this machine; the app never may.
+  @visibleForTesting
+  static bool allowPrivateAddresses = false;
 
-  /// host -> cookie name -> value.
-  final _cookies = <String, Map<String, String>>{};
+  final _client = HttpClient();
+
+  /// Cookies by source (see [CookieJar]).
+  final jar = CookieJar();
   File? _cookieFile;
   DateTime? _cookieStamp;
+
+  /// Whether [url] is one the app will ask for: http or https.
+  static bool isWebAddress(String url) {
+    final u = Uri.tryParse(url);
+    return u != null && (u.scheme == 'http' || u.scheme == 'https') && u.host.isNotEmpty;
+  }
+
+  /// The addresses [host] stands for, if every one is on the open internet.
+  static Future<List<InternetAddress>> vet(String host) async {
+    final literal = InternetAddress.tryParse(host);
+    final addresses = literal != null
+        ? [literal]
+        : await InternetAddress.lookup(host).timeout(const Duration(seconds: 20));
+    if (addresses.isEmpty) throw SocketException('No address for $host');
+    if (!allowPrivateAddresses && !addresses.every(isPublicAddress)) {
+      throw BlockedAddressException('$host is not on the open internet, so it is not asked.');
+    }
+    return addresses;
+  }
+
+  /// Every connection the client makes: to the addresses [vet] passed, in
+  /// turn, with TLS for https (the host named for its certificate).
+  static Future<ConnectionTask<Socket>> _connect(Uri uri, String? proxyHost, int? proxyPort) async {
+    if (uri.scheme != 'http' && uri.scheme != 'https') {
+      throw BlockedAddressException('Only web pages can be asked for.');
+    }
+    final addresses = await vet(uri.host);
+    var cancelled = false;
+    Future<Socket> open() async {
+      Object? last;
+      for (final a in addresses) {
+        if (cancelled) break;
+        try {
+          final socket = await Socket.connect(a, uri.port, timeout: const Duration(seconds: 20));
+          if (uri.scheme != 'https') return socket;
+          return await SecureSocket.secure(socket, host: uri.host);
+        } on Object catch (e) {
+          last = e;
+        }
+      }
+      throw last ?? SocketException('Could not reach ${uri.host}');
+    }
+
+    return ConnectionTask.fromSocket(open(), () => cancelled = true);
+  }
 
   /// Keep cookies in [dir] across launches.
   Future<void> attach(Directory dir) async {
@@ -90,10 +212,7 @@ class Net {
     try {
       if (await f.exists()) {
         _cookieStamp = await f.lastModified();
-        final raw = jsonDecode(await f.readAsString()) as Map;
-        for (final e in raw.entries) {
-          (_cookies[e.key as String] ??= {}).addAll(Map<String, String>.from(e.value as Map));
-        }
+        jar.mergeJson(jsonDecode(await f.readAsString()));
       }
     } on Object {
       // A broken cookie file only costs a fresh login.
@@ -116,60 +235,70 @@ class Net {
   /// [attach] by path, for background isolates.
   Future<void> attachPath(String dir) => attach(Directory(dir));
 
+  /// Write the jar, merged with what the file holds now (another isolate
+  /// may have written since), beside it and renamed over it.
   Future<void> _saveCookies() async {
     final f = _cookieFile;
     if (f == null) return;
     try {
-      await f.writeAsString(jsonEncode(_cookies));
+      if (await f.exists()) jar.mergeJson(jsonDecode(await f.readAsString()));
+    } on Object {
+      // Unreadable: ours replaces it.
+    }
+    try {
+      final tmp = File('${f.path}.${identityHashCode(this)}.tmp');
+      await tmp.writeAsString(jsonEncode(jar.toJson()), flush: true);
+      await tmp.rename(f.path);
       _cookieStamp = await f.lastModified();
     } on Object {
-      // Next request saves again.
+      // Next change saves again.
     }
   }
 
-  /// Cookies for [host] and its parent domains, as a Cookie header.
-  String? cookieHeader(String host) {
-    final parts = <String>[];
-    for (final e in _cookies.entries) {
-      if (host == e.key || host.endsWith('.${e.key}')) {
-        for (final c in e.value.entries) {
-          parts.add('${c.key}=${c.value}');
-        }
-      }
-    }
-    return parts.isEmpty ? null : parts.join('; ');
+  /// The Cookie header for a request to [url] from [partition] (a source's
+  /// plugin id; '' for the app's own requests).
+  String? cookieHeader(String url, {String partition = ''}) {
+    final u = Uri.tryParse(url);
+    return u == null ? null : jar.headerFor(u, partition: partition);
   }
 
-  /// Remember cookies a browser view collected for [host].
-  Future<void> setCookies(String host, Map<String, String> cookies) async {
-    (_cookies[_bareHost(host)] ??= {}).addAll(cookies);
+  /// Remember cookies a browser view collected for [host], for [partition].
+  Future<void> setCookies(String host, Map<String, String> cookies, {String partition = ''}) async {
+    jar.takeFromBrowser(host, cookies, partition: partition);
     await _saveCookies();
   }
 
-  /// Forget every cookie ("Clear cookies" in settings).
-  Future<void> clearCookies() async {
-    _cookies.clear();
+  /// Forget the cookies of [partition], or every one.
+  Future<void> clearCookies({String? partition}) async {
+    jar.clear(partition: partition);
     await _saveCookies();
   }
 
-  static String _bareHost(String host) => host.startsWith('www.') ? host.substring(4) : host;
+  /// The most a response may hold, unpacked: a page that is more is not a
+  /// page (and must not fill the phone's memory).
+  static const maxBody = 16 << 20;
 
-  /// Make a request. [body] is a String, bytes, or null.
+  /// Make a request. [body] is a String, bytes, or null. [partition]: whose
+  /// cookies go with it and keep what it sets (a source's plugin id).
+  /// [maxBytes]: a longer response is given up on.
   Future<NetResponse> request(
     String url, {
     String method = 'GET',
     Map<String, String> headers = const {},
     Object? body,
     Duration timeout = const Duration(seconds: 30),
+    String partition = '',
+    int maxBytes = maxBody,
   }) async {
     var uri = Uri.parse(url);
     // Follow redirects ourselves so cookies set along the way are kept and
     // POSTs that redirect become GETs, the way browsers do it.
     for (var hop = 0; hop < 8; hop++) {
+      if (!isWebAddress(uri.toString())) throw BlockedAddressException('Only web pages can be asked for.');
       final req = await _client.openUrl(method, uri).timeout(timeout);
       req.followRedirects = false;
       req.headers.set(HttpHeaders.userAgentHeader, userAgent);
-      final cookie = cookieHeader(uri.host);
+      final cookie = jar.headerFor(uri, partition: partition);
       if (cookie != null) req.headers.set(HttpHeaders.cookieHeader, cookie);
       req.headers.set(HttpHeaders.acceptLanguageHeader, 'en-US,en;q=0.9');
       if (!headers.keys.any((k) => k.toLowerCase() == 'accept')) {
@@ -189,11 +318,10 @@ class Net {
         req.add(body);
       }
       final res = await req.close().timeout(timeout);
-      final set = <String, String>{};
-      for (final c in res.cookies) {
-        set[c.name] = c.value;
+      if (res.cookies.isNotEmpty) {
+        jar.take(uri, res.cookies, partition: partition);
+        await _saveCookies();
       }
-      if (set.isNotEmpty) await setCookies(uri.host, set);
       final location = res.headers.value(HttpHeaders.locationHeader);
       if (res.isRedirect && location != null) {
         await res.drain<void>();
@@ -207,6 +335,9 @@ class Net {
       final builder = BytesBuilder(copy: false);
       await for (final chunk in res.timeout(timeout)) {
         builder.add(chunk);
+        // Counted as it is unpacked, so a small compressed page that would
+        // inflate to gigabytes stops here.
+        if (builder.length > maxBytes) throw HttpException('The page is too large', uri: uri);
       }
       final out = <String, String>{};
       res.headers.forEach((name, values) => out[name.toLowerCase()] = values.join(', '));

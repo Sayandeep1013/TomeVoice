@@ -31,8 +31,28 @@ object BrowserCheck {
             .replace("; wv)", ")")
             .replace(Regex("Version/\\d+(\\.\\d+)* "), "")
 
+    /**
+     * Only web pages are loaded: a source plugin names the address, and a
+     * file:, content: or javascript: one must never reach the web view.
+     */
+    fun isWebPage(url: String): Boolean {
+        val uri = Uri.parse(url)
+        val scheme = uri.scheme?.lowercase()
+        return (scheme == "https" || scheme == "http") && !uri.host.isNullOrEmpty()
+    }
+
+    /** Nothing on the phone is open to the pages: no files, no content providers. */
+    private fun lockDown(settings: WebSettings) {
+        settings.allowFileAccess = false
+        settings.allowContentAccess = false
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     fun open(activity: Activity, url: String, userAgent: String, done: (String?) -> Unit) {
+        if (!isWebPage(url)) {
+            done(null)
+            return
+        }
         val main = Handler(Looper.getMainLooper())
         val cookies = CookieManager.getInstance().apply { setAcceptCookie(true) }
         val web = WebView(activity)
@@ -42,6 +62,7 @@ object BrowserCheck {
             domStorageEnabled = true
             userAgentString = userAgent
         }
+        lockDown(web.settings)
         val host = Uri.parse(url).host ?: url
         val note = TextView(activity).apply {
             text = "Checking $host. Tick the box if the page asks; this closes by itself when the site lets you in."
@@ -123,6 +144,10 @@ object BrowserCheck {
      * the way through).
      */
     fun fetch(activity: Activity, url: String, userAgent: String, done: (String?) -> Unit) {
+        if (!isWebPage(url)) {
+            done(null)
+            return
+        }
         queue.addLast { load(activity, url, userAgent) { html -> done(html); next() } }
         if (!fetching) next()
     }
@@ -144,6 +169,7 @@ object BrowserCheck {
             blockNetworkImage = true
             userAgentString = userAgent
         }
+        lockDown(web.settings)
         // Attached, but one pixel and see-through: a detached web view may
         // never run the check's scripts.
         val parent = activity.window.decorView as ViewGroup

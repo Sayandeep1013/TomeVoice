@@ -12,10 +12,12 @@ import 'source_store.dart';
 
 /// Runs web-novel sources off the UI thread.
 ///
-/// Plugins execute in a small pool of background isolates, each with one
-/// QuickJS runtime holding the shared libraries and every plugin it has
-/// been asked for. A slow site never freezes the screen, and global search
-/// asks up to [_poolSize] sites at once.
+/// Plugins execute in a small pool of background isolates, each plugin in a
+/// QuickJS context of its own (see PluginHost) and always in the same
+/// isolate, so its context is made once. A slow site never freezes the
+/// screen, and global search asks up to [_poolSize] sites at once. A worker
+/// in which a call ran out of time takes no more calls and is replaced: what
+/// that call started may still be running there.
 class SourceEngine {
   SourceEngine._();
 
@@ -47,23 +49,45 @@ class SourceEngine {
     return s;
   }
 
-  Future<_Worker> _worker() async {
+  /// Which worker each plugin runs in.
+  final _assigned = <String, _Worker>{};
+  Future<_Worker>? _spawning;
+
+  Future<_Worker> _workerFor(String pluginId) async {
     _libs ??= await rootBundle.loadString('assets/js/lnreader_libs.js');
     _shim ??= await rootBundle.loadString('assets/js/lnreader_shim.js');
-    final idle = _workers.where((w) => w.busy == 0).firstOrNull;
-    if (idle != null) return idle;
-    if (_workers.length < _poolSize) {
-      final w = await _Worker.spawn(libs: _libs!, shim: _shim!, sourcesDir: store.dir.path);
-      _workers.add(w);
-      return w;
+    final have = _assigned[pluginId];
+    if (have != null && !have.retired) return have;
+    final live = [for (final w in _workers) if (!w.retired) w];
+    final _Worker w;
+    if (live.length < _poolSize) {
+      w = await (_spawning ??= _Worker.spawn(libs: _libs!, shim: _shim!, sourcesDir: store.dir.path).then((w) {
+        _workers.add(w);
+        return w;
+      }).whenComplete(() => _spawning = null));
+    } else {
+      int load(_Worker w) => _assigned.values.where((x) => identical(x, w)).length * 4 + w.busy;
+      w = live.reduce((a, b) => load(b) < load(a) ? b : a);
     }
-    _workers.sort((a, b) => a.busy.compareTo(b.busy));
-    return _workers.first;
+    return _assigned[pluginId] = w;
   }
 
-  Future<Object?> _call(PluginInfo p, String method, List<Object?> args) async {
-    final w = await _worker();
-    return w.call(p.id, p.version, store.codePath(p.id), method, args);
+  Future<Object?> _call(PluginInfo given, String method, List<Object?> args, {Duration? timeout}) async {
+    // The source as installed now (what a novel stored may be an older
+    // version): its code, site and the hash its code is checked against.
+    final p = await store.installedById(given.id) ?? (throw MissingSourceException(given.id, given.name));
+    final w = await _workerFor(p.id);
+    try {
+      return await w.call(p, store.codePath(p.id), method, args, timeout: timeout);
+    } finally {
+      if (w.retired) {
+        _assigned.removeWhere((_, x) => identical(x, w));
+        if (w.busy == 0) {
+          w.close();
+          _workers.remove(w);
+        }
+      }
+    }
   }
 
   /// A page of the site's popular (or newest) novels.
@@ -138,10 +162,16 @@ class _Worker {
   _Worker(this._send, this._receive) {
     _receive.listen((m) {
       if (m is! Map) return;
+      // A call ran out of time in there: no more calls (see SourceEngine).
+      if (m['stuck'] == true) retired = true;
       final c = _pending.remove(m['id']);
       if (c == null) return;
       if (m['challenge'] is String) {
-        c.completeError(ChallengeException(m['challenge'] as String));
+        c.completeError(ChallengeException(m['challenge'] as String, pluginId: m['plugin'] as String? ?? ''));
+      } else if (m['tampered'] is String) {
+        c.completeError(TamperedSourceException(m['tampered'] as String, m['name'] as String? ?? ''));
+      } else if (m['timeout'] == true) {
+        c.completeError(SourceTimeoutException());
       } else if (m.containsKey('err')) {
         c.completeError(SourceException(m['err'] as String));
       } else {
@@ -154,6 +184,9 @@ class _Worker {
   final ReceivePort _receive;
   final _pending = <int, Completer<Object?>>{};
   int _next = 0;
+
+  /// Takes no more calls; closed once those it has are done.
+  bool retired = false;
 
   int get busy => _pending.length;
 
@@ -172,19 +205,30 @@ class _Worker {
     return _Worker(send, receive);
   }
 
-  Future<Object?> call(String id, String version, String codePath, String method, List<Object?> args) {
+  Future<Object?> call(PluginInfo p, String codePath, String method, List<Object?> args, {Duration? timeout}) {
     final n = _next++;
     final c = Completer<Object?>();
     _pending[n] = c;
     _send.send({
       'id': n,
-      'plugin': id,
-      'version': version,
+      'plugin': p.id,
+      'name': p.name,
+      'version': p.version,
       'code': codePath,
+      'site': p.site,
+      'sha256': p.sha256,
       'method': method,
       'args': args,
+      if (timeout != null) 'timeout': timeout.inMilliseconds,
     });
     return c.future;
+  }
+
+  /// End the isolate: its engines are disposed, and what still ran in them
+  /// stops with it.
+  void close() {
+    _send.send(const {'exit': true});
+    _receive.close();
   }
 
   static Future<void> _main(List<Object?> boot) async {
@@ -209,7 +253,7 @@ class _Worker {
       };
     }
     final host = PluginHost(
-      createJsRuntime(),
+      createJsRuntime,
       libs: boot[2] as String,
       shim: boot[3] as String,
       sourcesDir: dir,
@@ -217,15 +261,27 @@ class _Worker {
     );
     await for (final m in requests) {
       if (m is! Map) continue;
+      if (m['exit'] == true) {
+        host.dispose();
+        Isolate.exit();
+      }
       final id = m['id'];
+      final plugin = m['plugin'] as String;
       unawaited(() async {
         try {
           await Net.instance.refreshCookies();
-          host.ensure(m['plugin'] as String, m['version'] as String, m['code'] as String);
-          final out = await host.call(m['plugin'] as String, m['method'] as String, (m['args'] as List).cast<Object?>());
+          host.ensure(plugin, m['version'] as String, m['code'] as String,
+              site: m['site'] as String? ?? '', sha256: m['sha256'] as String?, name: m['name'] as String?);
+          final ms = m['timeout'] as int?;
+          final out = await host.call(plugin, m['method'] as String, (m['args'] as List).cast<Object?>(),
+              timeout: ms == null ? null : Duration(milliseconds: ms));
           reply.send({'id': id, 'ok': out});
+        } on TamperedSourceException catch (e) {
+          reply.send({'id': id, 'err': e.message, 'tampered': e.pluginId, 'name': e.name});
         } on ChallengeException catch (e) {
-          reply.send({'id': id, 'err': e.message, 'challenge': e.url});
+          reply.send({'id': id, 'err': e.message, 'challenge': e.url, 'plugin': plugin, 'stuck': host.stuck});
+        } on SourceTimeoutException catch (e) {
+          reply.send({'id': id, 'err': e.message, 'timeout': true, 'stuck': true});
         } on SourceException catch (e) {
           reply.send({'id': id, 'err': e.message});
         } on JsException catch (e) {

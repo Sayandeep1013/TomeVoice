@@ -532,6 +532,10 @@ class MainActivity : FlutterActivity() {
             }
         }
 
+        // Web novels: their own channel (SourcesBridge.kt), also registered
+        // on the background check's engine, where this activity is not.
+        SourcesBridge.attach(this, flutterEngine.dartExecutor.binaryMessenger, this)
+
         ReadAloudService.onAction = { action, value ->
             main.post { event(mapOf("type" to "action", "action" to action, "value" to value)) }
         }

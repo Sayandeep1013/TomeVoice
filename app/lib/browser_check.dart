@@ -11,6 +11,7 @@ import 'ui.dart';
 /// cookies it hands out for the app's own requests. True when the site let
 /// the reader in, so the caller can try again.
 Future<bool> passBrowserCheck(BuildContext context, ChallengeException e) async {
+  if (!Net.isWebAddress(e.url)) return false;
   final jar = await const SpeechService().browserCheck(e.url, Net.userAgent);
   if (jar == null) {
     if (context.mounted) showSnack(context, 'The check did not finish. Try again in a moment.');
@@ -21,7 +22,8 @@ Future<bool> passBrowserCheck(BuildContext context, ChallengeException e) async 
     final at = part.indexOf('=');
     if (at > 0) cookies[part.substring(0, at).trim()] = part.substring(at + 1).trim();
   }
-  await Net.instance.setCookies(Uri.parse(e.url).host, cookies);
+  // Kept for the source that met the check, not for every source.
+  await Net.instance.setCookies(Uri.parse(e.url).host, cookies, partition: e.pluginId);
   return true;
 }
 
@@ -75,6 +77,20 @@ class SourceProblem extends StatelessWidget {
         ),
       );
     }
+    if (e is TamperedSourceException) {
+      return EmptyState(
+        icon: Icons.gpp_maybe_outlined,
+        title: 'Its source changed on the phone',
+        body: '${e.message} Installing it again from its list puts it right.',
+        action: FilledButton.icon(
+          onPressed: () async {
+            if (await reinstallSource(context, e.pluginId, e.name)) onRetry();
+          },
+          icon: const Icon(Icons.download_rounded),
+          label: Text('Reinstall ${e.name}'),
+        ),
+      );
+    }
     return EmptyState(
       icon: Icons.cloud_off_rounded,
       title: title,
@@ -107,6 +123,28 @@ Future<bool> installMissingSource(BuildContext context, MissingSourceException e
       return false;
     }
     if (context.mounted) showSnack(context, 'Installing ${e.name}…');
+    await store.install(listed);
+    return true;
+  } on Object catch (err) {
+    if (context.mounted) showSnack(context, friendlyError(err), long: true);
+    return false;
+  }
+}
+
+/// Install source [pluginId] again from the list it came from: its code on
+/// the phone did not match what was installed. True when it was.
+Future<bool> reinstallSource(BuildContext context, String pluginId, String name) async {
+  final store = SourceEngine.instance.store;
+  try {
+    final have = await store.installedById(pluginId);
+    final listed = have == null ? null : await store.fromItsList(have, refresh: true);
+    if (listed == null) {
+      if (context.mounted) {
+        showSnack(context, 'The list $name came from no longer has it. Remove it in Sources.', long: true);
+      }
+      return false;
+    }
+    if (context.mounted) showSnack(context, 'Installing $name again…');
     await store.install(listed);
     return true;
   } on Object catch (err) {

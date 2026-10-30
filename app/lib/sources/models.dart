@@ -14,6 +14,7 @@ class PluginInfo {
     required this.url,
     this.iconUrl,
     this.repo,
+    this.sha256,
   });
 
   final String id;
@@ -30,10 +31,19 @@ class PluginInfo {
   final String url;
   final String? iconUrl;
 
-  /// The repository index it came from.
+  /// The repository index it came from. An installed plugin is updated
+  /// from this list only.
   final String? repo;
 
-  PluginInfo withRepo(String repo) => PluginInfo(
+  /// For an installed plugin: the SHA-256 of its code as it was installed,
+  /// checked each time it is loaded.
+  final String? sha256;
+
+  PluginInfo withRepo(String repo) => _copy(repo: repo);
+
+  PluginInfo withHash(String sha256) => _copy(sha256: sha256);
+
+  PluginInfo _copy({String? repo, String? sha256}) => PluginInfo(
         id: id,
         name: name,
         site: site,
@@ -41,7 +51,8 @@ class PluginInfo {
         version: version,
         url: url,
         iconUrl: iconUrl,
-        repo: repo,
+        repo: repo ?? this.repo,
+        sha256: sha256 ?? this.sha256,
       );
 
   Map<String, Object?> toJson() => {
@@ -53,6 +64,7 @@ class PluginInfo {
         'url': url,
         if (iconUrl != null) 'iconUrl': iconUrl,
         if (repo != null) 'repo': repo,
+        if (sha256 != null) 'sha256': sha256,
       };
 
   static PluginInfo? fromJson(Map<String, Object?> j) {
@@ -68,6 +80,7 @@ class PluginInfo {
       url: url,
       iconUrl: j['iconUrl'] as String?,
       repo: j['repo'] as String?,
+      sha256: j['sha256'] as String?,
     );
   }
 

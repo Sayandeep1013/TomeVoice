@@ -1,12 +1,15 @@
 // TomeVoice host for LNReader source plugins. Evaluated after
 // lnreader_libs.js. Gives plugins the same `require` the LNReader app does
 // (src/plugins/pluginManager.ts, MIT), with fetch and storage bridged to
-// Dart through sendMessage. Several plugins can be loaded into one runtime;
-// each gets its own require, storage and exports.
+// Dart through sendMessage. Each plugin runs in a context of its own, and
+// Dart knows which one is asking from that, not from anything said here.
 (function () {
   'use strict';
   var g = globalThis;
   var L = g.__tvLibs;
+  // The bridge as it is now, before any plugin code runs: a plugin that
+  // replaces the global only changes it for itself.
+  var send = g.sendMessage;
 
   // flutter_qjs provides setTimeout but not clearTimeout.
   if (typeof g.clearTimeout !== 'function') g.clearTimeout = function () {};
@@ -81,7 +84,7 @@
   }
 
   function fetchApi(url, init) {
-    return sendMessage('tv_fetch', JSON.stringify([String(url), normalize(init)])).then(function (raw) {
+    return send('tv_fetch', JSON.stringify([String(url), normalize(init)])).then(function (raw) {
       return new Response(typeof raw === 'string' ? JSON.parse(raw) : raw);
     });
   }
@@ -89,7 +92,7 @@
   function fetchText(url, init, encoding) {
     var req = normalize(init);
     req.encoding = encoding || null;
-    return sendMessage('tv_fetch', JSON.stringify([String(url), req])).then(function (raw) {
+    return send('tv_fetch', JSON.stringify([String(url), req])).then(function (raw) {
       var r = new Response(typeof raw === 'string' ? JSON.parse(raw) : raw);
       return r.ok ? r._body : '';
     })['catch'](function () { return ''; });
@@ -119,9 +122,11 @@
     return false;
   };
 
-  function storageFor(pluginId) {
+  // The plugin's own storage: Dart files it under the plugin whose context
+  // this is.
+  function storageFor() {
     var call = function (op, args) {
-      return sendMessage('tv_storage', JSON.stringify([op, pluginId].concat(args || [])));
+      return send('tv_storage', JSON.stringify([op].concat(args || [])));
     };
     return {
       storage: {
@@ -172,7 +177,7 @@
   // Load a plugin's code; returns what TomeVoice needs to know about it.
   g.__tvLoadPlugin = function (pluginId, code) {
     var req = function (name) {
-      if (name === '@libs/storage') return storageFor(pluginId);
+      if (name === '@libs/storage') return storageFor();
       var lib = packages[name];
       if (lib === undefined) throw new Error('This source needs "' + name + '", which TomeVoice does not have yet.');
       return lib;

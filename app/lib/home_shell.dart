@@ -22,6 +22,7 @@ import 'saved_screen.dart';
 import 'stats.dart';
 import 'stats_screen.dart';
 import 'settings_screen.dart';
+import 'sources/bridge.dart';
 import 'sources/net.dart';
 import 'sources/source_engine.dart';
 import 'sources/source_store.dart';
@@ -143,8 +144,11 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
       // Sources ask as the phone's own browser does (see Net.userAgent).
       final agent = await const SpeechService().webUserAgent();
       if (agent != null && agent.isNotEmpty) Net.userAgent = agent;
-      final sources = SourceStore(Directory(dir));
-      await sources.ensure();
+      // Sources live in internal storage, moved there once from the library's
+      // folder (which other apps can read on Android 8 to 10).
+      final internal = await SourcesBridge.sourcesRoot();
+      final sources = await SourceStore.open(Directory(internal ?? dir), legacyRoot: Directory(dir));
+      await Net.instance.attach(sources.dir);
       SourceEngine.instance.attach(sources);
       final store = LibraryStore(Directory(dir));
       await TintCache.instance.attach(Directory(dir));

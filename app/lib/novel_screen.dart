@@ -17,6 +17,7 @@ import 'saved_screen.dart';
 import 'secret_shelf.dart';
 import 'sources/models.dart';
 import 'sources/net.dart';
+import 'sources/net_image.dart';
 import 'sources/plugin_host.dart';
 import 'sources/source_engine.dart';
 import 'speech_service.dart';
@@ -482,12 +483,15 @@ class _NovelScreenState extends State<NovelScreen> {
   }
 
   Future<void> _openInBrowser() async {
+    var url = widget.plugin.site;
     try {
-      final url = await SourceEngine.instance.resolveUrl(widget.plugin, widget.path);
-      await const SpeechService().openUrl(url);
+      // What the plugin says is only opened if it is a web page.
+      final resolved = await SourceEngine.instance.resolveUrl(widget.plugin, widget.path);
+      if (Net.isWebAddress(resolved)) url = resolved;
     } on Object {
-      await const SpeechService().openUrl(widget.plugin.site);
+      // The site's home page will do.
     }
+    if (Net.isWebAddress(url)) await const SpeechService().openUrl(url);
   }
 
   @override
@@ -874,7 +878,13 @@ class _NovelScreenState extends State<NovelScreen> {
     final e = _entry;
     if (e != null && e.shownCover != null) return BookCover(entry: e, width: 112);
     final url = _novel?.cover ?? widget.cover;
-    return NetworkCover(url: url, title: _novel?.name ?? widget.name ?? '', width: 112, referer: widget.plugin.site);
+    return NetworkCover(
+      url: url,
+      title: _novel?.name ?? widget.name ?? '',
+      width: 112,
+      referer: widget.plugin.site,
+      partition: widget.plugin.id,
+    );
   }
 
   Widget _hero(BuildContext context, SourceNovel? novel) {
@@ -1111,7 +1121,8 @@ class _NovelScreenState extends State<NovelScreen> {
 
 /// A cover from a web address, with the drawn cover while it loads or if it
 /// cannot be fetched. Some sites only serve images to their own pages, so
-/// the request names the site as its referrer.
+/// the request names the site as its referrer, and goes with the source's
+/// own cookies ([partition], its plugin id).
 class NetworkCover extends StatelessWidget {
   const NetworkCover({
     super.key,
@@ -1119,6 +1130,7 @@ class NetworkCover extends StatelessWidget {
     required this.title,
     required this.width,
     this.referer,
+    this.partition = '',
     this.titled = true,
   });
 
@@ -1126,6 +1138,7 @@ class NetworkCover extends StatelessWidget {
   final String title;
   final double width;
   final String? referer;
+  final String partition;
 
   /// As [BookCover.titled]: tiles with their own title band say false.
   final bool titled;
@@ -1146,7 +1159,7 @@ class NetworkCover extends StatelessWidget {
       titled: titled,
     );
     final u = url;
-    if (u == null || !u.startsWith('http')) return fallback;
+    if (u == null || !Net.isWebAddress(u)) return fallback;
     final dpr = MediaQuery.devicePixelRatioOf(context);
     return Container(
       width: width,
@@ -1158,15 +1171,13 @@ class NetworkCover extends StatelessWidget {
         ],
       ),
       clipBehavior: Clip.antiAlias,
-      child: Image.network(
-        u,
+      child: Image(
+        image: ResizeImage.resizeIfNeeded(
+          (width * dpr).round(),
+          null,
+          NetImage(u, referer: referer, partition: partition),
+        ),
         fit: BoxFit.cover,
-        cacheWidth: (width * dpr).round(),
-        headers: {
-          'User-Agent': Net.userAgent,
-          if (referer != null) 'Referer': referer!,
-          if (Net.instance.cookieHeader(Uri.parse(u).host) case final cookie?) 'Cookie': cookie,
-        },
         errorBuilder: (_, __, ___) => fallback,
         // Fades in over the drawn cover as it arrives, instead of a swap.
         frameBuilder: fadeInOver(fallback),
