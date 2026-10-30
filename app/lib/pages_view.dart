@@ -201,6 +201,8 @@ class _PdfPagesViewState extends State<PdfPagesView> {
       final plan = on ? await _planFor(info) : null;
       if (!mounted || _cropOn != on || plan == _plan) return;
       _keepPlace();
+      // About to change shape: every page back to its whole size.
+      if (_zoomed.isNotEmpty) _unzoom.value++;
       setState(() => _plan = plan);
     } on Object {
       // The pages cannot be shown: the view says so already.

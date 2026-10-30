@@ -440,6 +440,30 @@ void main() {
       await finish(tester);
     });
 
+    testWidgets('a page zoomed in comes back to its whole size as it is cut, and the list scrolls again',
+        (tester) async {
+      await openPdf(tester);
+      final first = find.byType(InteractiveViewer).first;
+      final c = tester.getCenter(first);
+      await tester.tapAt(c);
+      await tester.pump(const Duration(milliseconds: 60));
+      await tester.tapAt(c);
+      await tester.pumpAndSettle();
+      Matrix4 zoom() => tester.widget<InteractiveViewer>(first).transformationController!.value;
+      expect(zoom().getMaxScaleOnAxis(), greaterThan(2));
+      ListeningPrefs.memory
+        ..pdfCrop = true
+        ..save();
+      await tester.pumpAndSettle();
+      expect(frames(tester).first.aspectRatio, closeTo(plan().shownAspect, 1e-9));
+      expect(zoom().getMaxScaleOnAxis(), closeTo(1, 0.001));
+      // Whole again, a drag scrolls the list.
+      final top = tester.getTopLeft(first).dy;
+      await slide(tester, tester.getCenter(first), const Offset(0, -200));
+      expect(tester.getTopLeft(first).dy, lessThan(top - 100));
+      await finish(tester);
+    });
+
     testWidgets('turned as a book, each leaf is a cut page; the sides still turn it, and two taps zoom where tapped',
         (tester) async {
       ListeningPrefs.memory
