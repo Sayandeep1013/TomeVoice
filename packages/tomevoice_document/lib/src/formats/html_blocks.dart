@@ -125,6 +125,45 @@ List<Block> blocksFromHtml(
   return (blocks: joinDropCaps(_notesHeading(walker.out)), anchors: walker.anchors);
 }
 
+/// The text of each element of [html] whose id is in [ids], as the walker
+/// reads text into blocks: ruby readings, scripts, pictures, navigation and
+/// printed page numbers left out. A book's own narration names what each
+/// of its clips says by an element's id; this is what is looked for in the
+/// blocks to find it.
+Map<String, String> textsOfIds(String html, Set<String> ids) {
+  if (ids.isEmpty) return const {};
+  final doc = _parse(html);
+  if (doc == null) return const {};
+  final out = <String, String>{};
+  for (final e in doc.descendants.whereType<XmlElement>()) {
+    final id = _idOf(e);
+    if (id == null || !ids.contains(id) || out.containsKey(id)) continue;
+    final buf = StringBuffer();
+    void walk(XmlNode n) {
+      if (n is XmlText || n is XmlCDATA) {
+        buf.write(n.value);
+        return;
+      }
+      if (n is! XmlElement) return;
+      final name = n.localName.toLowerCase();
+      if (name == 'svg' || name == 'rt' || name == 'rp' || _skipTags.contains(name) || _isApparatus(n) || _isPageBreak(n)) {
+        return;
+      }
+      buf.write(' ');
+      for (final c in n.children) {
+        walk(c);
+      }
+      buf.write(' ');
+    }
+
+    for (final c in e.children) {
+      walk(c);
+    }
+    out[id] = buf.toString();
+  }
+  return out;
+}
+
 /// Ids of notes in this document: what its marker links point forward to.
 /// A note's link back to the text points backward, so the text it returns
 /// to is never taken for a note.

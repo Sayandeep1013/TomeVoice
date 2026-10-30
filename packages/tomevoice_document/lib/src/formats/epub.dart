@@ -9,6 +9,7 @@ import '../image_size.dart';
 import '../model.dart';
 import '../segment.dart';
 import 'html_blocks.dart';
+import 'media_overlays.dart';
 
 Book parseEpub(Uint8List bytes, {required String id, String? filename, LegacyDecoder? legacy}) {
   Archive archive;
@@ -106,6 +107,17 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename, LegacyDec
 
   final withImages = _measureImages(archive, indexed);
   final toc = _tocEntries(contents, parts, anchorsOf, withImages);
+  // The book's own recorded narration (EPUB 3 media overlays): where in the
+  // text each of its clips is said. Looked for only when the manifest names
+  // one, so every other book is read as it was.
+  final narration = readMediaOverlays(
+    opf: opf,
+    manifest: manifest,
+    resolve: (dir, href) => _resolvePath(dir, href, names),
+    read: (path) => _read(archive, path, legacy),
+    sections: withImages,
+    sectionPaths: [for (final p in parts) p.path],
+  );
   // Many EPUBs never declare a cover, or declare one that is not in the
   // archive; their first picture is the cover.
   final declared = _coverPath(opf, manifest);
@@ -137,6 +149,7 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename, LegacyDec
     source: SourceKind.epub,
     sourceName: filename,
     wordCount: 0,
+    narration: narration,
   );
   return Book(
     id: book.id,
@@ -146,6 +159,7 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename, LegacyDec
     source: book.source,
     sourceName: book.sourceName,
     wordCount: wordCountOf(book),
+    narration: book.narration,
   );
 }
 
