@@ -160,6 +160,121 @@ void main() {
       expect(texts.where((t) => RegExp(r'^(\d+|[ivx]+)$').hasMatch(t)), isEmpty);
     });
   });
+
+  group('bookmarks', () {
+    List<String> titles(List<PdfOutlineEntry> o) => [for (final e in o) e.title];
+
+    test('chapters inside Parts are kept', () {
+      final outline = pdfOutlineFromPlatform([
+        {'title': 'Part One', 'page': 1, 'level': 0},
+        {'title': 'The Arrival', 'page': 2, 'level': 1},
+        {'title': 'The Storm', 'page': 9, 'level': 1},
+        {'title': 'Part Two', 'page': 15, 'level': 0},
+        {'title': 'The Return', 'page': 16, 'level': 1},
+      ]);
+      expect(titles(outline), ['Part One', 'The Arrival', 'The Storm', 'Part Two', 'The Return']);
+      expect([for (final e in outline) e.page], [1, 2, 9, 15, 16]);
+    });
+
+    test('a lone top bookmark, the book itself, is unwrapped', () {
+      final outline = pdfOutlineFromPlatform([
+        {'title': 'Moby-Dick', 'page': 0, 'level': 0},
+        {'title': 'Loomings', 'page': 2, 'level': 1},
+        {'title': 'The Carpet-Bag', 'page': 6, 'level': 1},
+      ]);
+      expect(titles(outline), ['Loomings', 'The Carpet-Bag']);
+    });
+
+    test('titles repeated in each Part are named with their Part', () {
+      final outline = pdfOutlineFromPlatform([
+        {'title': 'Part I', 'page': -1, 'level': 0},
+        {'title': 'Chapter 1', 'page': 1, 'level': 1},
+        {'title': 'Chapter 2', 'page': 5, 'level': 1},
+        {'title': 'Part II', 'page': 9, 'level': 0},
+        {'title': 'Chapter 1', 'page': 10, 'level': 1},
+      ]);
+      expect(titles(outline), [
+        'Part I: Chapter 1',
+        'Part I: Chapter 2',
+        'Part II',
+        'Part II: Chapter 1',
+      ]);
+    });
+
+    test("a chapter's own sections are not chapters", () {
+      final outline = pdfOutlineFromPlatform([
+        {'title': 'Chapter 1 Cells', 'page': 0, 'level': 0},
+        {'title': '1.1 Membranes', 'page': 2, 'level': 1},
+        {'title': '1.2 Organelles', 'page': 5, 'level': 1},
+        {'title': '2 Tissues', 'page': 9, 'level': 0},
+        {'title': '2.1 Epithelium', 'page': 10, 'level': 1},
+      ]);
+      expect(titles(outline), ['Chapter 1 Cells', '2 Tissues']);
+    });
+
+    test('bookmarks without levels, from an older extractor, read as before', () {
+      final outline = pdfOutlineFromPlatform([
+        {'title': 'Intro', 'page': 0},
+        {'title': 'Part Two', 'page': 2},
+      ]);
+      expect(outline, [(title: 'Intro', page: 0), (title: 'Part Two', page: 2)]);
+    });
+
+    test('chapters sharing a page each start at their printed title', () {
+      final pages = [
+        _page([
+          ['A Book of Small Things'],
+          _prose(0),
+        ]),
+        _page([
+          ['First Thing'],
+          _prose(1),
+          ['Second Thing'],
+          _prose(2),
+          // Runs on: the next page's first line is the next chapter's title.
+          ['and then the long and patient wait was over, as all things'],
+        ]),
+        _page([
+          ['Third Thing'],
+          _prose(3),
+          ['Fourth Thing'],
+          _prose(4),
+        ]),
+        _page([_prose(5)]),
+      ];
+      final book = ingestPdfText(
+        id: 'x',
+        pages: pages,
+        outline: const [
+          (title: 'First Thing', page: 1),
+          (title: 'Second Thing', page: 1),
+          (title: 'Third Thing', page: 2),
+          (title: 'Fourth Thing', page: 2),
+        ],
+      );
+      expect(_titles(book), ['Opening pages', 'First Thing', 'Second Thing', 'Third Thing', 'Fourth Thing']);
+      for (final s in book.sections.skip(1)) {
+        expect(s.blocks.first.text, s.title);
+      }
+    });
+
+    test('a chapter whose title is not printed starts at the top of its page', () {
+      final pages = [
+        for (var p = 0; p < 4; p++)
+          _page([
+            _prose(p),
+            _prose(p + 10),
+          ]),
+      ];
+      final book = ingestPdfText(
+        id: 'x',
+        pages: pages,
+        outline: const [(title: 'One', page: 0), (title: 'Two', page: 2)],
+      );
+      expect(_titles(book), ['One', 'Two']);
+      expect(book.sections[1].blocks.first.anchor, isA<PageAnchor>().having((a) => a.page, 'page', 2));
+    });
+  });
 }
 
 const _roman = ['i', 'ii', 'iii'];

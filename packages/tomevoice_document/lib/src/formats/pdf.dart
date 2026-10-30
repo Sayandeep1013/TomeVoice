@@ -13,6 +13,95 @@ const pdfParagraphMark = '\u2029';
 /// One outline (bookmark) entry: a title and the 0-based page it points at.
 typedef PdfOutlineEntry = ({String title, int page});
 
+/// A bookmark as the platform lists it: every level, in document order, with
+/// its depth (0 at the top). The page is -1 when it points nowhere.
+typedef PdfBookmark = ({String title, int page, int level});
+
+/// The platform's bookmarks ("outline": maps of title, page and level) as the
+/// chapter list [bookFromPdfText] takes. See [flattenPdfOutline].
+List<PdfOutlineEntry> pdfOutlineFromPlatform(Object? raw) => flattenPdfOutline([
+      if (raw is List)
+        for (final o in raw)
+          if (o is Map)
+            (
+              title: collapseWhitespace(o['title']?.toString() ?? ''),
+              page: o['page'] is int ? o['page'] as int : -1,
+              level: o['level'] is int ? o['level'] as int : 0,
+            ),
+    ]);
+
+/// Nested bookmarks as one list of chapters.
+///
+/// A lone bookmark at the top is the book's own title over everything, and
+/// is unwrapped. A bookmark's children are listed after it when it groups
+/// chapters (Part One, Book II, a volume) rather than being a chapter: a book
+/// in Parts keeps its chapters, and a textbook's "Chapter 3" keeps its
+/// sections to itself. When chapters in different groups share titles
+/// ("Chapter 1" in every Part), each is named with its group's.
+List<PdfOutlineEntry> flattenPdfOutline(List<PdfBookmark> bookmarks) {
+  var list = bookmarks;
+  while (list.length > 1) {
+    final top = list.map((b) => b.level).reduce(math.min);
+    if (list.where((b) => b.level == top).length != 1) break;
+    list = [
+      for (final b in list)
+        if (b.level != top) b,
+    ];
+  }
+
+  final kept = <({PdfBookmark bookmark, String? group})>[];
+  final path = <PdfBookmark>[];
+  for (final b in list) {
+    while (path.isNotEmpty && path.last.level >= b.level) {
+      path.removeLast();
+    }
+    if (path.every((a) => !_chapterTitle.hasMatch(a.title))) {
+      kept.add((bookmark: b, group: path.isEmpty ? null : path.last.title));
+    }
+    path.add(b);
+  }
+
+  final grouped = <String>{};
+  var repeated = false;
+  for (final k in kept) {
+    if (k.group != null && !grouped.add(_words(k.bookmark.title))) repeated = true;
+  }
+  return [
+    for (final k in kept)
+      if (k.bookmark.page >= 0 && k.bookmark.title.isNotEmpty)
+        (
+          title: repeated && (k.group ?? '').isNotEmpty
+              ? '${k.group}: ${k.bookmark.title}'
+              : k.bookmark.title,
+          page: k.bookmark.page,
+        ),
+  ];
+}
+
+/// A bookmark that names a chapter or a numbered section ("Chapter 3",
+/// "3 The Trial", "1.2 Methods"): anything under it is its own sections.
+final _chapterTitle = RegExp(
+  r'^(chapter|chap\.?|ch\.|глава|kapitel|chapitre|capítulo|capitolo|hoofdstuk|'
+  r'rozdział|অধ্যায়|পরিচ্ছেদ|अध्याय)(?!\p{L})|^\p{Nd}',
+  caseSensitive: false,
+  unicode: true,
+);
+
+/// Letters and digits only, lower case: titles compared as words.
+String _words(String s) => collapseWhitespace(s.toLowerCase().replaceAll(_notWords, ' '));
+
+final _notWords = RegExp(r'[^\p{L}\p{N}]+', unicode: true);
+
+/// Whether a paragraph is [title] printed as a heading: the same words, the
+/// title with more after it on the line, or the first line of a title set
+/// over two ("Chapter 3" for "Chapter 3: The Trial").
+bool _isTitle(String text, String title) {
+  if (text.length > 100) return false;
+  final p = _words(text), t = _words(title);
+  if (p.isEmpty || t.isEmpty) return false;
+  return p == t || p.startsWith('$t ') || (p.length >= 4 && t.startsWith('$p '));
+}
+
 /// Build a [Book] from per-page text that the platform extracted.
 ///
 /// The platform does the glyph work; this does the reading-order clean-up
@@ -46,6 +135,23 @@ Book bookFromPdfText({
     ];
   }
 
+  final valid = [
+    for (final o in outline)
+      if (o.page >= 0 && o.page < pages.length && o.title.trim().isNotEmpty) o,
+  ];
+  // In page order; bookmarks sharing a page keep theirs.
+  final order = [for (var i = 0; i < valid.length; i++) i]..sort((a, b) {
+      final byPage = valid[a].page.compareTo(valid[b].page);
+      return byPage != 0 ? byPage : a.compareTo(b);
+    });
+  final usable = [for (final i in order) valid[i]];
+  final titlesOn = <int, List<String>>{};
+  if (usable.length >= 2) {
+    for (final o in usable) {
+      (titlesOn[o.page] ??= []).add(o.title);
+    }
+  }
+
   // Reflow. The extractor's paragraph detection is unreliable: on a real
   // device many PDFs came out one line per paragraph, which made the voice
   // pause at every line break. A paragraph continues into the next one unless
@@ -58,18 +164,19 @@ Book bookFromPdfText({
     final contents = _isContentsPage(lines[p]);
     for (final text in _paragraphs(lines[p], lineByLine: contents)) {
       final last = paras.isEmpty ? null : paras.last;
-      if (!contents && last != null && !last.fixed && _continues(last.text, text)) {
+      // A bookmarked chapter's printed title starts a paragraph of its own.
+      final opensChapter = titlesOn[p]?.any((t) => _isTitle(text, t)) ?? false;
+      if (!contents &&
+          !opensChapter &&
+          last != null &&
+          !last.fixed &&
+          _continues(last.text, text)) {
         paras[paras.length - 1] = _Para(last.page, joinWrappedLines([last.text, text]));
       } else {
         paras.add(contents ? _Para(p, text, role: BlockRole.paragraph, fixed: true) : _Para(p, text));
       }
     }
   }
-
-  final usable = [
-    for (final o in outline)
-      if (o.page >= 0 && o.page < pages.length && o.title.trim().isNotEmpty) o,
-  ]..sort((a, b) => a.page.compareTo(b.page));
 
   return assembleBook(
     id: id,
@@ -80,7 +187,7 @@ Book bookFromPdfText({
       authors: (author ?? '').trim().isEmpty ? const [] : [author!.trim()],
     ),
     sections: usable.length >= 2
-        ? _sectionsFromOutline(paras, usable, pages.length)
+        ? _sectionsFromOutline(paras, usable)
         : _sectionsFromHeadings(paras),
     source: SourceKind.pdf,
     filename: filename,
@@ -418,26 +525,36 @@ Block _block(_Para p, {bool heading = false}) => makeBlock(
       anchor: PageAnchor(p.page),
     );
 
-/// Chapters from the outline. Pages before the first entry are front matter
-/// and get their own section.
-List<DraftSection> _sectionsFromOutline(
-  List<_Para> paras,
-  List<PdfOutlineEntry> outline,
-  int pageCount,
-) {
-  List<Block> blocksOn(int from, int to) => [
-        for (final p in paras)
-          if (p.page >= from && p.page < to) _block(p),
-      ];
-  final out = <DraftSection>[];
-  if (outline.first.page > 0) {
-    out.add((title: 'Opening pages', blocks: blocksOn(0, outline.first.page)));
+/// Chapters from the outline. A chapter starts at its title when the title is
+/// printed on its page, so several chapters can share a page and one can
+/// begin halfway down; otherwise at the top of its page. Pages before the
+/// first entry are front matter and get their own section.
+List<DraftSection> _sectionsFromOutline(List<_Para> paras, List<PdfOutlineEntry> outline) {
+  final starts = <int>[];
+  var from = 0;
+  for (final o in outline) {
+    var start = from;
+    while (start < paras.length && paras[start].page < o.page) {
+      start++;
+    }
+    for (var i = start; i < paras.length && paras[i].page == o.page; i++) {
+      if (paras[i].role == null && _isTitle(paras[i].text, o.title)) {
+        start = i;
+        break;
+      }
+    }
+    starts.add(start);
+    from = start;
   }
+
+  List<Block> blocks(int from, int to) => [for (final p in paras.sublist(from, to)) _block(p)];
+  final out = <DraftSection>[];
+  if (starts.first > 0) out.add((title: 'Opening pages', blocks: blocks(0, starts.first)));
   for (var i = 0; i < outline.length; i++) {
-    final from = outline[i].page;
-    final to = i + 1 < outline.length ? outline[i + 1].page : pageCount;
-    if (to <= from) continue;
-    out.add((title: collapseWhitespace(outline[i].title), blocks: blocksOn(from, to)));
+    final end = i + 1 < outline.length ? starts[i + 1] : paras.length;
+    // Its place taken by the next bookmark on the same page.
+    if (end <= starts[i]) continue;
+    out.add((title: collapseWhitespace(outline[i].title), blocks: blocks(starts[i], end)));
   }
   return out;
 }

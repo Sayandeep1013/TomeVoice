@@ -62,7 +62,12 @@ object PdfText {
         }
     }
 
-    /** Top-level bookmarks, or the second level when there is a single root. */
+    /**
+     * Every bookmark, three levels deep, in document order: its title, page
+     * (-1 when it points nowhere) and depth ("level", 0 at the top). The Dart
+     * side (pdfOutlineFromPlatform) makes the chapter list: Parts keep their
+     * chapters, a lone top bookmark is unwrapped.
+     */
     private fun outline(doc: PDDocument): List<Map<String, Any>> {
         val root = try {
             doc.documentCatalog?.documentOutline
@@ -70,29 +75,38 @@ object PdfText {
             null
         } ?: return emptyList()
 
-        fun level(first: PDOutlineItem?): List<Map<String, Any>> {
-            val out = mutableListOf<Map<String, Any>>()
+        val out = mutableListOf<Map<String, Any>>()
+        var guard = 0
+        fun walk(first: PDOutlineItem?, level: Int) {
             var item = first
-            var guard = 0
             while (item != null && guard < 5000) {
                 guard++
-                try {
-                    val page = item.findDestinationPage(doc)
-                    val title = item.title
-                    if (page != null && !title.isNullOrBlank()) {
-                        val index = doc.pages.indexOf(page)
-                        if (index >= 0) out.add(mapOf("title" to title.trim(), "page" to index))
-                    }
+                val title = try {
+                    item.title
                 } catch (_: Exception) {
+                    null
+                }
+                if (!title.isNullOrBlank()) {
+                    val index = try {
+                        val page = item.findDestinationPage(doc)
+                        if (page != null) doc.pages.indexOf(page) else -1
+                    } catch (_: Exception) {
+                        -1
+                    }
+                    out.add(mapOf("title" to title.trim(), "page" to index, "level" to level))
+                }
+                if (level < 2) {
+                    val child = try {
+                        item.firstChild
+                    } catch (_: Exception) {
+                        null
+                    }
+                    walk(child, level + 1)
                 }
                 item = item.nextSibling
             }
-            return out
         }
-
-        val top = level(root.firstChild)
-        if (top.size >= 2) return top
-        val nested = root.firstChild?.firstChild
-        return if (nested != null) level(nested) else top
+        walk(root.firstChild, 0)
+        return out
     }
 }
