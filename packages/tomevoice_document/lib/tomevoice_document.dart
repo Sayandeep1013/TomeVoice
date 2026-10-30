@@ -21,3 +21,4 @@ export 'src/model.dart';
 export 'src/navigate.dart';
 export 'src/reading_layout.dart';
 export 'src/segment.dart';
+export 'src/speech.dart';

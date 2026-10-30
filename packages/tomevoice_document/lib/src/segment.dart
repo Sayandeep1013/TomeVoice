@@ -56,21 +56,32 @@ bool _isSoftStop(int c) => c == 0x2E || c == 0x21 || c == 0x3F; // . ! ?
 /// Latin letter (so it works for scripts without capitals). Abbreviations and
 /// decimals are kept whole. Anything longer than [maxSentenceChars] is split at
 /// the best clause boundary so speech starts quickly.
-List<Sentence> segmentSentences(String text) {
+///
+/// [silent] stretches (footnote markers) are shown but not spoken, so they
+/// are transparent here: "house.¹ The next" is two sentences, the marker
+/// ending the first, and nothing is ever cut inside one.
+List<Sentence> segmentSentences(String text, {List<TextStretch> silent = const []}) {
   if (text.isEmpty) return const [];
 
+  // Start of each silent stretch -> its end.
+  final quiet = {for (final r in silent) r.start: r.end};
   final bounds = <({int start, int end})>[];
   var start = _skipSpace(text, 0);
   final n = text.length;
 
   for (var i = start; i < n; i++) {
+    final skipTo = quiet[i];
+    if (skipTo != null) {
+      i = skipTo - 1;
+      continue;
+    }
     final c = text.codeUnitAt(i);
     final hard = _isHardStop(c);
     if (!hard && !_isSoftStop(c)) continue;
 
     if (c == 0x2E) {
       // 3.14, "...", or an abbreviation.
-      if (i + 1 < n && _isDigit(text.codeUnitAt(i + 1))) continue;
+      if (i + 1 < n && !quiet.containsKey(i + 1) && _isDigit(text.codeUnitAt(i + 1))) continue;
       if (i + 1 < n && text.codeUnitAt(i + 1) == 0x2E) continue;
       if (i > 0 && text.codeUnitAt(i - 1) == 0x2E) {
         // End of an ellipsis: only a boundary if a capital follows.
@@ -79,9 +90,17 @@ List<Sentence> segmentSentences(String text) {
       if (_endsWithAbbreviation(text, start, i)) continue;
     }
 
+    // Closing quotes and brackets, and a marker after the stop, belong to
+    // the sentence that ends here.
     var end = i + 1;
-    while (end < n && _isCloser(text.codeUnitAt(end))) {
-      end++;
+    while (end < n) {
+      if (_isCloser(text.codeUnitAt(end))) {
+        end++;
+        continue;
+      }
+      final markEnd = quiet[end];
+      if (markEnd == null) break;
+      end = markEnd;
     }
 
     if (!hard) {
@@ -110,19 +129,27 @@ List<Sentence> segmentSentences(String text) {
 
   final out = <Sentence>[];
   for (final b in bounds) {
-    for (final piece in _splitLong(text, b.start, b.end)) {
+    for (final piece in _splitLong(text, b.start, b.end, silent)) {
       out.add(Sentence(
         startOffset: piece.start,
         endOffset: piece.end,
         words: wordSpans(text, piece.start, piece.end),
+        silent: silent.isEmpty
+            ? const []
+            : [
+                for (final r in silent)
+                  if (r.start >= piece.start && r.end <= piece.end) r,
+              ],
       ));
     }
   }
   return out;
 }
 
-/// Break an over-long range at clause punctuation, else at a space.
-List<({int start, int end})> _splitLong(String text, int start, int end) {
+/// Break an over-long range at clause punctuation, else at a space, never
+/// inside a [silent] stretch.
+List<({int start, int end})> _splitLong(String text, int start, int end, List<TextStretch> silent) {
+  bool inside(int i) => silent.any((r) => i > r.start && i < r.end);
   final out = <({int start, int end})>[];
   var s = start;
   while (end - s > maxSentenceChars) {
@@ -139,20 +166,26 @@ List<({int start, int end})> _splitLong(String text, int start, int end) {
               c == 0x060C || // ،
               c == 0x3001) && // 、
           i < end &&
-          _isSpace(text.codeUnitAt(i))) {
+          _isSpace(text.codeUnitAt(i)) &&
+          !inside(i)) {
         cut = i;
         break;
       }
     }
     if (cut < 0) {
       for (var i = limit; i > s + 1; i--) {
-        if (_isSpace(text.codeUnitAt(i))) {
+        if (_isSpace(text.codeUnitAt(i)) && !inside(i)) {
           cut = i;
           break;
         }
       }
     }
-    if (cut < 0) cut = limit;
+    if (cut < 0) {
+      cut = limit;
+      for (final r in silent) {
+        if (cut > r.start && cut < r.end) cut = r.start > s ? r.start : r.end;
+      }
+    }
     var pieceEnd = cut;
     while (pieceEnd > s && _isSpace(text.codeUnitAt(pieceEnd - 1))) {
       pieceEnd--;

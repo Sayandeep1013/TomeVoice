@@ -483,7 +483,7 @@ List<Block> joinDropCaps(List<Block> blocks) {
     if (next.role == BlockRole.figure || !_continuesWord.hasMatch(next.text)) continue;
     out.add(makeBlock(
       role: next.role,
-      text: b.text + next.text,
+      text: b.text + markedText(next),
       anchor: next.anchor,
       language: next.language,
       id: next.id,

@@ -7,6 +7,36 @@ String _blockId() => 'b${_nextId++}';
 
 void resetBlockIds() => _nextId = 0;
 
+// Noncharacters around text that is shown but not spoken, from a parser to
+// [makeBlock]. Unicode promises they never stand for anything in a book.
+const _silentOpen = 0xFDD0;
+const _silentClose = 0xFDD1;
+
+final _openMark = String.fromCharCode(_silentOpen);
+final _closeMark = String.fromCharCode(_silentClose);
+
+/// [text] marked as shown but not spoken (a footnote marker), for a parser
+/// to put in the text it hands to [makeBlock].
+String silentMark(String text) => text.isEmpty ? '' : '$_openMark$text$_closeMark';
+
+/// [block]'s text with its silent stretches marked again, to build a new
+/// block from it (a drop cap joined to its word).
+String markedText(Block block) {
+  final silent = block.sentences.expand((s) => s.silent).toList();
+  if (silent.isEmpty) return block.text;
+  final out = StringBuffer();
+  var at = 0;
+  for (final r in silent) {
+    if (r.start < at || r.end > block.text.length) continue;
+    out
+      ..write(block.text.substring(at, r.start))
+      ..write(silentMark(block.text.substring(r.start, r.end)));
+    at = r.end;
+  }
+  out.write(block.text.substring(at));
+  return out.toString();
+}
+
 Block makeBlock({
   required BlockRole role,
   required String text,
@@ -15,15 +45,52 @@ Block makeBlock({
   String? id,
   String? image,
 }) {
-  final collapsed = collapseWhitespace(text);
+  final (:clean, :silent) = _takeSilent(collapseWhitespace(text));
   return Block(
     id: id ?? _blockId(),
     role: role,
-    text: collapsed,
-    sentences: segmentSentences(collapsed),
-    anchor: anchor ?? OffsetAnchor(0, collapsed.length),
+    text: clean,
+    sentences: segmentSentences(clean, silent: silent),
+    anchor: anchor ?? OffsetAnchor(0, clean.length),
     language: language,
     image: image,
+  );
+}
+
+/// [text] without its silent marks, and where the marked stretches are.
+/// Spaces are collapsed again across a mark, so offsets are final.
+({String clean, List<TextStretch> silent}) _takeSilent(String text) {
+  if (!text.contains(_openMark) && !text.contains(_closeMark)) {
+    return (clean: text, silent: const []);
+  }
+  final out = StringBuffer();
+  final silent = <TextStretch>[];
+  var open = -1;
+  var lastSpace = true;
+  for (var i = 0; i < text.length; i++) {
+    final c = text.codeUnitAt(i);
+    if (c == _silentOpen) {
+      if (open < 0) open = out.length;
+      continue;
+    }
+    if (c == _silentClose) {
+      if (open >= 0 && out.length > open) silent.add((start: open, end: out.length));
+      open = -1;
+      continue;
+    }
+    final space = c == 0x20;
+    if (space && lastSpace) continue;
+    out.writeCharCode(c);
+    lastSpace = space;
+  }
+  var clean = out.toString();
+  if (clean.endsWith(' ')) clean = clean.substring(0, clean.length - 1);
+  return (
+    clean: clean,
+    silent: [
+      for (final r in silent)
+        if (r.start < clean.length) (start: r.start, end: r.end > clean.length ? clean.length : r.end),
+    ],
   );
 }
 
@@ -38,7 +105,8 @@ List<Speakable> flattenSpeakable(
       if (skip.contains(block.role) || block.text.isEmpty) continue;
       for (var si = 0; si < block.sentences.length; si++) {
         final sentence = block.sentences[si];
-        final text = sentence.of(block.text).trim();
+        final raw = sentence.of(block.text);
+        final text = raw.trim();
         if (text.isEmpty) continue;
         out.add(Speakable(
           sectionIndex: section.index,
@@ -47,11 +115,27 @@ List<Speakable> flattenSpeakable(
           text: text,
           role: block.role,
           blockId: block.id,
+          silent: _relative(sentence, raw.length - raw.trimLeft().length, text.length),
         ));
       }
     }
   }
   return out;
+}
+
+/// [sentence]'s silent stretches as offsets in its trimmed text, which
+/// starts [lead] characters into it and is [length] long.
+List<TextStretch> _relative(Sentence sentence, int lead, int length) {
+  if (sentence.silent.isEmpty) return const [];
+  final base = sentence.startOffset + lead;
+  return [
+    for (final r in sentence.silent)
+      if (r.end - base > 0 && r.start - base < length)
+        (
+          start: r.start - base < 0 ? 0 : r.start - base,
+          end: r.end - base > length ? length : r.end - base,
+        ),
+  ];
 }
 
 int indexOfCursor(List<Speakable> units, ReadingCursor cursor) {
