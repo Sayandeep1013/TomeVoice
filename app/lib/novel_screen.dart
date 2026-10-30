@@ -14,6 +14,7 @@ import 'download_queue.dart';
 import 'fast_scroller.dart';
 import 'library_store.dart';
 import 'prefs.dart';
+import 'read_marks.dart';
 import 'saved_screen.dart';
 import 'secret_shelf.dart';
 import 'sources/models.dart';
@@ -81,6 +82,9 @@ class _NovelScreenState extends State<NovelScreen> {
   LibraryEntry? _entry;
   Set<int> _downloaded = const {};
   int _current = -1;
+
+  /// Chapters marked read or unread by hand (see ReadMarks).
+  ReadMarks _marks = ReadMarks.none;
   Object? _error;
   bool _loading = true;
   /// Newest chapter first: remembered for this novel (and, for novels not
@@ -114,6 +118,7 @@ class _NovelScreenState extends State<NovelScreen> {
     _store.placeChanges.addListener(_placeSaved);
     LibraryStore.secretOpen.addListener(_secretChanged);
     DownloadQueue.instance.changes.addListener(_queueChanged);
+    ReadMarkStore.instance.changes.addListener(_refreshLocal);
     _queueChanged();
     unawaited(_load());
   }
@@ -125,6 +130,7 @@ class _NovelScreenState extends State<NovelScreen> {
     _store.placeChanges.removeListener(_placeSaved);
     LibraryStore.secretOpen.removeListener(_secretChanged);
     DownloadQueue.instance.changes.removeListener(_queueChanged);
+    ReadMarkStore.instance.changes.removeListener(_refreshLocal);
     _scroll.dispose();
     super.dispose();
   }
@@ -191,12 +197,14 @@ class _NovelScreenState extends State<NovelScreen> {
     final hidden = !LibraryStore.secretOpen.value && _store.isSecret(_id);
     final entry = hidden ? null : (await _store.list()).where((e) => e.id == _id).firstOrNull;
     final cursor = entry == null ? null : await _store.cursorFor(_id);
+    final marks = entry == null ? ReadMarks.none : await ReadMarkStore.instance.of(_store, _id);
     if (!mounted) return;
     setState(() {
       _hidden = hidden;
       _entry = entry;
       _downloaded = hidden ? const {} : _store.downloadedChapters(_id);
       _current = entry == null || entry.openedAt == null ? -1 : cursor!.sectionIndex;
+      _marks = marks;
     });
   }
 
@@ -477,6 +485,34 @@ class _NovelScreenState extends State<NovelScreen> {
 
   /// One chapter, from the download button on its row: first in the queue.
   Future<void> _downloadOne(int chapter) => _downloadList([chapter], first: true);
+
+  /// Whether chapter [i] shows as read: its own mark, or the place past it.
+  bool _isRead(int i) => i >= 0 && i < _chapters.length && _marks.isRead(i, _chapters[i].path, _current);
+
+  /// The picked chapters marked read ([how] 'read') or unread ('unread');
+  /// or, for one chapter, every chapter before it marked read ('earlier':
+  /// those above it, oldest first, or below it, newest first).
+  Future<void> _markPicked(String how) async {
+    final picked = [..._picked]..sort();
+    setState(_picked.clear);
+    final paths = how == 'earlier'
+        ? chaptersBefore([for (final c in _chapters) c.path], picked.first)
+        : _pathsOf(picked);
+    if (paths.isEmpty) return;
+    // Marks are kept with the novel: one from Browse is added first.
+    final e = await _ensureAdded(announce: false);
+    if (e == null || !mounted) return;
+    final marks = await ReadMarkStore.instance.mark(_store, _id, paths, read: how != 'unread');
+    if (!mounted) return;
+    setState(() => _marks = marks);
+    final n = paths.length;
+    showSnack(
+      context,
+      how == 'unread'
+          ? (n == 1 ? 'Marked as unread.' : 'Marked $n chapters as unread.')
+          : (n == 1 ? 'Marked as read.' : 'Marked $n chapters as read.'),
+    );
+  }
 
   Future<void> _openInBrowser() async {
     var url = widget.plugin.site;
@@ -770,6 +806,7 @@ class _NovelScreenState extends State<NovelScreen> {
   Widget _pickBar(BuildContext context) {
     final toGet = _picked.where((i) => !_downloaded.contains(i)).length;
     final toDrop = _picked.length - toGet;
+    final read = _picked.where(_isRead).length;
     final onDark = Skin.onDark(context);
     return Center(
       key: const ValueKey('picking'),
@@ -810,6 +847,23 @@ class _NovelScreenState extends State<NovelScreen> {
                   tooltip: toDrop == 0 ? 'Remove download' : 'Remove $toDrop download${toDrop == 1 ? '' : 's'}',
                   icon: Icon(Icons.delete_outline_rounded, color: toDrop == 0 ? onDark.withValues(alpha: 0.3) : onDark),
                   onPressed: toDrop == 0 ? null : _removePicked,
+                ),
+                PopupMenuButton<String>(
+                  tooltip: 'Mark as read or unread',
+                  position: PopupMenuPosition.over,
+                  style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                  icon: Icon(Icons.done_all_rounded, color: onDark),
+                  onSelected: (how) => unawaited(_markPicked(how)),
+                  itemBuilder: (_) => [
+                    if (read < _picked.length) const PopupMenuItem(value: 'read', child: Text('Mark as read')),
+                    if (read > 0) const PopupMenuItem(value: 'unread', child: Text('Mark as unread')),
+                    // The chapters before the one picked, wherever they show.
+                    if (_picked.length == 1 && _picked.first > 0)
+                      PopupMenuItem(
+                        value: 'earlier',
+                        child: Text(_newestFirst ? 'Mark all below as read' : 'Mark all above as read'),
+                      ),
+                  ],
                 ),
                 const SizedBox(width: Gap.xs),
                 // Its own width first (as a Flexible beside the Expanded count
@@ -1023,7 +1077,7 @@ class _NovelScreenState extends State<NovelScreen> {
   Widget _chapterRow(BuildContext context, int i) {
     final c = _chapters[i];
     final isCurrent = i == _current;
-    final read = _current >= 0 && i < _current;
+    final read = _isRead(i);
     final have = _downloaded.contains(i);
     final release = _shortDate(c.releaseTime);
     final picked = _picked.contains(i);
