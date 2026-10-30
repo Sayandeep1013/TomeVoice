@@ -1,0 +1,44 @@
+{
+  "file": "pg932-images-kf8.mobi",
+  "source": "mobi",
+  "title": "The Fall of the House of Usher",
+  "authors": [
+    "Edgar Allan Poe"
+  ],
+  "language": "en",
+  "sections": [
+    "THE FALL OF THE HOUSE OF USHER",
+    "Table of Contents"
+  ],
+  "chapters": [
+    "THE FALL OF THE HOUSE OF USHER"
+  ],
+  "notRead": [
+    "Table of Contents"
+  ],
+  "blocks": {
+    "heading": 2,
+    "paragraph": 47,
+    "listItem": 2,
+    "table": 14
+  },
+  "displayOnly": [],
+  "sentencesBeforeOpening": 0,
+  "first": [
+    "THE FALL OF THE HOUSE OF USHER",
+    "BY",
+    "EDGAR ALLAN POE",
+    "Son cœur est un luth suspendu; Sitôt qu’on le touche il résonne.",
+    "De Béranger."
+  ],
+  "last": [
+    "While I gazed, this fissure rapidly widened—there came a fierce breath of the whirlwind—the entire orb of the satellite burst at once upon my sight—my brain reeled as I saw the mighty walls rushing asunder—there was a long tumultuous shouting sound like the voice of a thousand",
+    "waters—and the deep and dank tarn at my feet closed sullenly and silently over the fragments of the “House of Usher.”",
+    "* Watson, Dr. Percival, Spallanzani, and especially the Bishop of Landaff.—See “Chemical Essays,” vol. v.",
+    "Transcriber’s Notes",
+    "New original cover art included with this eBook is granted to the public domain."
+  ],
+  "sentences": 298,
+  "words": 7106,
+  "spokenSha256": "183f68a3e1a55e87d2b525e727618cba9c51df74632f19c31c4f56fd50159170"
+}

@@ -9,12 +9,14 @@ final _chapterTitle = RegExp(
 
 final _untitledSpine = RegExp(r'^section \d+$', caseSensitive: false);
 
-/// A contents page: hidden whatever its length (a long book's is long).
+/// A contents page: hidden whatever its length (a long book's is long). A
+/// list of illustrations is one too, each picture described in turn.
 const _contentsTitles = <String>{
   'landmarks',
   'table of contents',
   'contents',
   'toc',
+  'list of illustrations',
 };
 
 /// Other front matter: hidden only when short. "Cover Story" is a story.
@@ -27,13 +29,28 @@ const _shortFrontTitles = <String>{
   'full cover',
   'image',
   'dedication',
-  'colophon',
+  // What the PDF reader calls the pages before the first chapter, or the
+  // first bookmark: a title page and a contents page, as a rule.
+  'opening pages',
 };
 
-const _frontMatterTitles = {..._contentsTitles, ..._shortFrontTitles};
+/// Pages about the edition rather than the book, hidden when no longer
+/// than a copyright page: Standard Ebooks puts an imprint before every
+/// book, and a colophon and an "Uncopyright" (its licence, some 2,000
+/// characters) after it.
+const _editionTitles = <String>{'imprint', 'colophon', 'uncopyright'};
+
+const _frontMatterTitles = {..._contentsTitles, ..._shortFrontTitles, ..._editionTitles};
 
 /// Longest text a cover, title page or dedication has.
 const _shortFront = 1500;
+
+/// Longest text a copyright page, or another page about the edition, has.
+const _longestEditionPage = 4000;
+
+/// How long front matter called [title] may be and still be front matter.
+int _frontMatterLength(String title) =>
+    _editionTitles.contains(title) ? _longestEditionPage : _shortFront;
 
 /// Speakable characters in a section after role filters.
 String speakableTextOf(
@@ -70,7 +87,10 @@ bool isReadingSection(
   if (RegExp(r'^●+$').hasMatch(title)) return false;
   if (nearEdge) {
     if (_contentsTitles.contains(lower)) return false;
-    if (_shortFrontTitles.contains(lower) && text.length < _shortFront) return false;
+    if ((_shortFrontTitles.contains(lower) || _editionTitles.contains(lower)) &&
+        text.length < _frontMatterLength(lower)) {
+      return false;
+    }
     if (_opensAsFrontMatter(text)) return false;
     if (_looksLikeCopyrightPage(text)) return false;
     // Project Gutenberg's notes about editions and transcription.
@@ -175,7 +195,7 @@ bool _opensAsFrontMatter(String text) {
   final head = text.substring(0, end).toLowerCase().trim();
   for (final t in _frontMatterTitles) {
     if (head == t || head.startsWith('$t ')) {
-      return _contentsTitles.contains(t) || text.length < _shortFront;
+      return _contentsTitles.contains(t) || text.length < _frontMatterLength(t);
     }
   }
   return false;
@@ -195,7 +215,7 @@ final _copyrightMarkers = [
 /// The copyright / legal page: untitled in many EPUBs and long enough to pass
 /// for a chapter, but nobody sits down to listen to it.
 bool _looksLikeCopyrightPage(String text) {
-  if (text.length > 4000) return false;
+  if (text.length > _longestEditionPage) return false;
   var hits = 0;
   for (final m in _copyrightMarkers) {
     if (m.hasMatch(text)) hits++;

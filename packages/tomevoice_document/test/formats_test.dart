@@ -90,6 +90,54 @@ void main() {
           'The quick brown fox was an example of speed and grace.');
     });
 
+    test('hard-wrapped paragraphs longer than six lines are still joined', () {
+      // A Gutenberg story's paragraphs run to twenty lines and more: blank
+      // lines are few, and the file was once read a line to a sentence.
+      String wrap(String text) {
+        final lines = <String>[];
+        var line = '';
+        for (final word in text.split(' ')) {
+          if (line.isNotEmpty && line.length + word.length > 60) {
+            lines.add(line);
+            line = word;
+          } else {
+            line = line.isEmpty ? word : '$line $word';
+          }
+        }
+        return [...lines, line].join('\n');
+      }
+
+      const first = 'During the whole of a dull, dark, and soundless day in the autumn of the year, '
+          'when the clouds hung oppressively low in the heavens, I had been passing alone, on '
+          'horseback, through a singularly dreary tract of country; and at length found myself, '
+          'as the shades of the evening drew on, within view of the melancholy House of Usher. '
+          'I know not how it was; but, with the first glimpse of the building, a sense of '
+          'insufferable gloom pervaded my spirit.';
+      const second = 'Nevertheless, in this mansion of gloom I now proposed to myself a sojourn of '
+          'some weeks. Its proprietor, Roderick Usher, had been one of my boon companions in '
+          'boyhood; but many years had elapsed since our last meeting. A letter, however, had '
+          'lately reached me in a distant part of the country, a letter from him, which, in its '
+          'wildly importunate nature, had admitted of no other than a personal reply.';
+      final book = ingestString('${wrap(first)}\n\n${wrap(second)}\n', filename: 'usher.txt');
+      expect(_texts(book), [first, second]);
+    });
+
+    test("Project Gutenberg's header and licence around a text file are not read", () {
+      const book = 'The Raven\n\nOnce upon a midnight dreary, while I pondered, weak and weary.\n';
+      const raw = 'The Project Gutenberg eBook of The Raven\n\n'
+          'This eBook is for the use of anyone anywhere in the United States.\n\n'
+          'Title: The Raven\n\nAuthor: Edgar Allan Poe\n\n'
+          '*** START OF THE PROJECT GUTENBERG EBOOK THE RAVEN ***\n\n\n$book\n\n'
+          '*** END OF THE PROJECT GUTENBERG EBOOK THE RAVEN ***\n\n'
+          'Updated editions will replace the previous one.\n\n'
+          'START: FULL LICENSE\n\nPLEASE READ THIS BEFORE YOU DISTRIBUTE OR USE THIS WORK\n';
+      expect(_texts(ingestString(raw, filename: 'pg1065.txt')),
+          ['The Raven', 'Once upon a midnight dreary, while I pondered, weak and weary.']);
+      // Older files say THIS, and some leave out the spaces.
+      expect(_texts(ingestString('Header.\n\n***START OF THIS PROJECT GUTENBERG EBOOK RAVEN***\n\n$book', filename: 'r.txt')),
+          ['The Raven', 'Once upon a midnight dreary, while I pondered, weak and weary.']);
+    });
+
     test('chapter lines become sections', () {
       const raw = 'Preface text that comes first.\n\n'
           'Chapter 1\n\nIt began.\n\n'
@@ -191,6 +239,29 @@ void main() {
     expect(book.metadata.language, 'ru');
     expect(_texts(book), contains('Привет.'));
     expect(book.sections, hasLength(2));
+  });
+
+  test("an FB2 book's own title and epigraph, before its first chapter, are kept", () {
+    const xml = '<?xml version="1.0" encoding="utf-8"?>'
+        '<FictionBook><description><title-info><book-title>The Lighthouse</book-title></title-info></description>'
+        '<body><title><p>The Lighthouse</p></title>'
+        '<epigraph><poem><stanza><v>A fire burns above the water,</v><v>and someone waits.</v></stanza></poem>'
+        '<text-author>A keepers’ song</text-author></epigraph>'
+        '<section><title><p>Chapter One</p></title><p>The keeper came in the spring.</p></section>'
+        '<section><title><p>Chapter Two</p></title><p>The storm came in November.</p></section>'
+        '</body></FictionBook>';
+    final book = ingestBytes(Uint8List.fromList(utf8.encode(xml)), filename: 'l.fb2');
+    expect(_texts(book), [
+      'The Lighthouse',
+      'A fire burns above the water,',
+      'and someone waits.',
+      'A keepers’ song',
+      'Chapter One',
+      'The keeper came in the spring.',
+      'Chapter Two',
+      'The storm came in November.',
+    ]);
+    expect(book.sections.map((s) => s.displayTitle), ['The Lighthouse', 'Chapter One', 'Chapter Two']);
   });
 
   test('rtf', () {

@@ -1,0 +1,57 @@
+{
+  "file": "gen-madman.odt",
+  "source": "odt",
+  "title": "The Madman: Five parables",
+  "authors": [
+    "Kahlil Gibran"
+  ],
+  "language": "en",
+  "sections": [
+    "The Madman: Five parables",
+    "The Scarecrow",
+    "The Sleepwalkers",
+    "The Fox",
+    "The Two Cages",
+    "The Three Ants",
+    "About this selection"
+  ],
+  "chapters": [
+    "The Scarecrow",
+    "The Sleepwalkers",
+    "The Fox",
+    "The Two Cages",
+    "The Three Ants",
+    "About this selection"
+  ],
+  "notRead": [
+    "The Madman: Five parables"
+  ],
+  "blocks": {
+    "heading": 6,
+    "paragraph": 37,
+    "listItem": 3,
+    "footnote": 2
+  },
+  "displayOnly": [
+    "footnote: ¹ Gibran wrote these parables in English, in New York.",
+    "footnote: i Ninavah is Nineveh, on the Tigris."
+  ],
+  "sentencesBeforeOpening": 0,
+  "first": [
+    "The Scarecrow",
+    "Once I said to a scarecrow, “You must be tired of standing in this lonely field.”",
+    "And he said, “The joy of scaring is a deep and lasting one, and I never tire of it.”",
+    "Said I, after a minute of thought, “It is true; for I too have known that joy.”",
+    "Said he, “Only those who are stuffed with straw can know it.”"
+  ],
+  "last": [
+    "1",
+    "The Two Cages",
+    "2",
+    "The Three Ants",
+    "6"
+  ],
+  "sentences": 57,
+  "words": 592,
+  "spokenSha256": "e935052b41b49bd5fdfac9d0c750801ed14cda4f0fec5ea1a8e9a7b009270dfa"
+}

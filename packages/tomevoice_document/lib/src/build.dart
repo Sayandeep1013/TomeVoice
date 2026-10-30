@@ -19,6 +19,12 @@ final _closeMark = String.fromCharCode(_silentClose);
 /// to put in the text it hands to [makeBlock].
 String silentMark(String text) => text.isEmpty ? '' : '$_openMark$text$_closeMark';
 
+const _superscriptDigits = [0x2070, 0xB9, 0xB2, 0xB3, 0x2074, 0x2075, 0x2076, 0x2077, 0x2078, 0x2079];
+
+/// 12 as "¹²", as a note's number is shown.
+String superscriptNumber(int n) =>
+    String.fromCharCodes([for (final d in '$n'.codeUnits) _superscriptDigits[d - 0x30]]);
+
 /// [block]'s text with its silent stretches marked again, to build a new
 /// block from it (a drop cap joined to its word).
 String markedText(Block block) {

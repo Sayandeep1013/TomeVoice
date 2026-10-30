@@ -101,6 +101,31 @@ void main() {
       expect(i, units.indexOf(mid));
     });
 
+    test("Standard Ebooks' imprint, list of illustrations, colophon and Uncopyright are not read", () {
+      // As every Standard Ebooks book has them: an imprint before the book,
+      // and after it pictures described one by one, a colophon longer than
+      // a title page, and an "Uncopyright" of some 2,000 characters.
+      final book = _md(
+        '# Imprint\n\n'
+        '${'This ebook is the product of many hours of hard work by volunteers. ' * 16}\n\n'
+        '# I\n\n'
+        'I call our world Flatland, not because we call it so, but to make its '
+        'nature clearer to you, my happy readers, who are privileged to live in Space.\n\n'
+        '# II\n\n'
+        'As with you, so also with us, there are four points of the compass, North, '
+        'South, East, and West, and the rain falls from the North.\n\n'
+        '# List of Illustrations\n\n'
+        '${'A diagram of three triangles, points downwards, the second lower than the first. ' * 8}\n\n'
+        '# Colophon\n\n'
+        '${'This ebook was produced for Standard Ebooks by volunteers, from scans. ' * 24}\n\n'
+        '# Uncopyright\n\n'
+        '${'May you share freely, never taking more than you give. ' * 36}',
+      );
+      final units = flattenSpeakable(book);
+      expect(readingToc(book, units).map((t) => t.title), ['I', 'II']);
+      expect(units[firstReadingUnitIndex(units, book)].text, 'I');
+    });
+
     test('a cursor on the cover snaps to the first chapter', () {
       final book = _md(
         'Title page only\n\n'

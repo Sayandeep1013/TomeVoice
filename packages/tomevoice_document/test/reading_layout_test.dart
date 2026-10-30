@@ -291,6 +291,28 @@ void main() {
       expect(layout.units[layout.unitForCursor(ReadingCursor.zero)].text, 'The Daemon Lover');
     });
 
+    test('a title page named like the book is passed over in any script', () {
+      final book = Book(
+        id: 'm',
+        metadata: const BookMetadata(title: 'Маяк на Белом мысу'),
+        source: SourceKind.fb2,
+        toc: const [],
+        sections: [
+          Section(id: 'a', index: 0, title: 'Маяк на Белом мысу', blocks: [
+            makeBlock(role: BlockRole.heading, text: 'Маяк на Белом мысу'),
+            makeBlock(role: BlockRole.quote, text: 'Горит огонь над чёрною водой, и кто-то ждёт, и кто-то будет дома.'),
+            makeBlock(role: BlockRole.quote, text: 'Песня смотрителей.'),
+          ]),
+          Section(id: 'b', index: 1, title: 'Глава первая', blocks: [
+            makeBlock(role: BlockRole.heading, text: 'Глава первая'),
+            makeBlock(role: BlockRole.paragraph, text: 'Маяк построили давно. ${'Он горел каждую ночь. ' * 10}'),
+          ]),
+        ],
+      );
+      final layout = ReadingLayout.build(book);
+      expect(layout.units[layout.unitForCursor(ReadingCursor.zero)].text, 'Глава первая');
+    });
+
     test('but a place saved there is where it reopens', () {
       final layout = ReadingLayout.build(collection(
         firstTitle: 'The Lottery and Other Stories',

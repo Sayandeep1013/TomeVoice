@@ -1,0 +1,50 @@
+{
+  "file": "gen-coast-path.md",
+  "source": "markdown",
+  "title": "gen-coast-path",
+  "authors": [],
+  "language": "en",
+  "sections": [
+    "A Week on the Coast Path",
+    "Day One: Lantern Cove",
+    "Day Two: The Salt Road",
+    "Day Three: Gull Point"
+  ],
+  "chapters": [
+    "A Week on the Coast Path",
+    "Day One: Lantern Cove",
+    "Day Two: The Salt Road",
+    "Day Three: Gull Point"
+  ],
+  "notRead": [],
+  "blocks": {
+    "heading": 4,
+    "paragraph": 7,
+    "listItem": 6,
+    "footnote": 1,
+    "table": 4,
+    "figure": 1
+  },
+  "displayOnly": [
+    "figure: A sketch map of the second day's walk",
+    "footnote: ¹ The tide tables were an hour out all week; nobody knew why."
+  ],
+  "sentencesBeforeOpening": 0,
+  "first": [
+    "A Week on the Coast Path",
+    "Notes written up each evening, in the order the days came.",
+    "Day One: Lantern Cove",
+    "We left the station at nine and were on the cliffs by ten.",
+    "The path is well marked, with a white acorn on every gate, and the first miles are easy going."
+  ],
+  "last": [
+    "If the mist comes down, stop.",
+    "Day Three: Gull Point",
+    "We woke to rain and walked out of it by eleven.",
+    "The last stretch to Gull Point is the finest on the whole path: high, bare and loud with birds.",
+    "We sat on the headland until the light went, and nobody said much."
+  ],
+  "sentences": 29,
+  "words": 269,
+  "spokenSha256": "01b82aae709eeeba7dd3a29e985fcf8fcf408ab96eb3223d8487ae874c758ec7"
+}

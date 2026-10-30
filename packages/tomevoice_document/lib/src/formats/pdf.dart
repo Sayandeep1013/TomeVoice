@@ -560,10 +560,26 @@ final _noteMark = RegExp(
 List<List<String>> _paragraphs(List<_Line> lines, {required bool lineByLine}) {
   final out = <List<String>>[];
   for (var i = 0; i < lines.length; i++) {
-    if (i == 0 || lineByLine || lines[i].para != lines[i - 1].para || _indentedStart(lines, i)) out.add([]);
+    if (i == 0 ||
+        lineByLine ||
+        lines[i].para != lines[i - 1].para ||
+        _indentedStart(lines, i) ||
+        _sizeChanges(lines, i)) {
+      out.add([]);
+    }
     out.last.add(lines[i].text);
   }
   return out;
+}
+
+/// Whether line [i] is set in another size than the line before it: a
+/// title over its text, which the extractor ran into it when the space
+/// under the title was small. Run together, the title was read as the start
+/// of the first sentence, and a bookmark could not find it.
+bool _sizeChanges(List<_Line> lines, int i) {
+  final a = lines[i - 1].box?.size ?? 0, b = lines[i].box?.size ?? 0;
+  if (a <= 0 || b <= 0) return false;
+  return a >= b * 1.1 || b >= a * 1.1;
 }
 
 /// Whether line [i] starts a paragraph the extractor ran into the one
@@ -679,6 +695,15 @@ List<Set<int>> _furniture(List<List<_Line>> pages, double body) {
       // Running heads are short; a long repeated line is probably prose.
       if (key.isEmpty || key.length > 60) continue;
       final atEdge = edges[p].contains(i);
+      // A head that names the chapter and carries the page's number
+      // ("CHAPTER II. 5"), set smaller than the text: a chapter two or three
+      // pages long has one, too few to be seen repeating, and it was taken
+      // for the start of another chapter.
+      final size = page[i].box?.size ?? 0;
+      if (atEdge && body > 0 && size > 0 && size < body * 0.95 && _numbered(page[i].text) && looksLikeChapterLine(page[i].text)) {
+        out[p].add(i);
+        continue;
+      }
       if (!everywhere.contains(key) && !(atEdge && _pagesNearWith(atEdges, p, key) >= 2)) {
         continue;
       }

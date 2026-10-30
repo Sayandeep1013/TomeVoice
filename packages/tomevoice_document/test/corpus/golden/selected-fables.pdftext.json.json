@@ -1,0 +1,71 @@
+{
+  "file": "selected-fables.pdftext.json",
+  "source": "pdf",
+  "title": "Selected Fables of Aesop",
+  "authors": [],
+  "language": "en",
+  "sections": [
+    "Opening pages",
+    "The Shepherd’s Boy and the Wolf",
+    "The Fox and the Crow",
+    "The Milk-Woman and Her Pail",
+    "The Crow and the Pitcher",
+    "The Fox and the Grapes",
+    "The Oak and the Reeds",
+    "The Ant and the Dove",
+    "The Lion in Love",
+    "The Miller, His Son, and Their Ass",
+    "The Hen and the Golden Eggs",
+    "The Mice in Council",
+    "The Wolf and the Housedog",
+    "The Two Pots",
+    "The Fox and the Woodcutter",
+    "The Thirsty Pigeon",
+    "The Belly and the Members",
+    "The Old Man and Death"
+  ],
+  "chapters": [
+    "The Shepherd’s Boy and the Wolf",
+    "The Fox and the Crow",
+    "The Milk-Woman and Her Pail",
+    "The Crow and the Pitcher",
+    "The Fox and the Grapes",
+    "The Oak and the Reeds",
+    "The Ant and the Dove",
+    "The Lion in Love",
+    "The Miller, His Son, and Their Ass",
+    "The Hen and the Golden Eggs",
+    "The Mice in Council",
+    "The Wolf and the Housedog",
+    "The Two Pots",
+    "The Fox and the Woodcutter",
+    "The Thirsty Pigeon",
+    "The Belly and the Members",
+    "The Old Man and Death"
+  ],
+  "notRead": [
+    "Opening pages"
+  ],
+  "blocks": {
+    "paragraph": 40
+  },
+  "displayOnly": [],
+  "sentencesBeforeOpening": 0,
+  "first": [
+    "The Shepherd’s Boy and the Wolf",
+    "A SHEPHERD-BOY, who watched a flock of sheep near a village, brought out the villagers three or four times by crying out, “Wolf!",
+    "Wolf!” and when his neighbors came to help him, laughed at them for their pains.",
+    "The Wolf, however, did truly come at last.",
+    "The Shepherd-boy, now really alarmed, shouted in an agony of terror: “Pray, do come and help me; the Wolf is killing the sheep;” but no one paid any heed to his cries, nor rendered any assistance."
+  ],
+  "last": [
+    "The Old Man and Death",
+    "AN OLD MAN was employed in cutting wood in the forest, and, in carrying the faggots to the city for sale one day, became very wearied with his long journey.",
+    "He sat down by the wayside, and throwing down his load, besought “Death” to come.",
+    "“Death” immediately appeared in answer to his summons and asked for what reason he had called him.",
+    "The Old Man hurriedly replied, “That, lifting up the load, you may place it again upon my shoulders.”"
+  ],
+  "sentences": 110,
+  "words": 2032,
+  "spokenSha256": "348ed3fdc33f67c87ca2fd144f22f0364d6d96bca7089b295a5572e5aa6a8bd8"
+}

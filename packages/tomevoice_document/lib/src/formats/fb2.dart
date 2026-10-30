@@ -111,18 +111,10 @@ Book parseFb2(Uint8List bytes, {required String id, String? filename, LegacyDeco
     }
   }
 
+  // A body is read as a section is: its own title and epigraph (the book's
+  // epigraph, before the first chapter, used to be lost), then its sections.
   for (final body in bodies) {
-    final direct = body.children
-        .whereType<XmlElement>()
-        .where((c) => c.name.local == 'section')
-        .toList();
-    if (direct.isEmpty) {
-      addSection(body);
-    } else {
-      for (final s in direct) {
-        addSection(s);
-      }
-    }
+    addSection(body);
   }
 
   // The notes the text's markers point at: kept, as footnotes (shown on

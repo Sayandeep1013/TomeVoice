@@ -150,6 +150,54 @@ void main() {
       expect(units[firstReadingUnitIndex(units, book)].text, 'CHAPTER 1');
     });
 
+    test('a title page and a contents page are not read when the book opens', () {
+      final pages = [
+        _page([
+          ['PRIDE AND PREJUDICE:'],
+          ['A NOVEL. IN THREE VOLUMES.'],
+          ['VOL. I.'],
+          ['London: Printed for T. Egerton, Military Library, Whitehall. 1813.'],
+        ]),
+        _page([
+          ['CONTENTS'],
+          for (final (i, n) in ['I', 'II', 'III'].indexed) ['Chapter $n . . . . . . . ${i * 3 + 1}'],
+        ]),
+        for (var p = 2; p < 11; p++)
+          _page([
+            if (p % 3 == 2) ['CHAPTER ${['I', 'II', 'III'][(p - 2) ~/ 3]}.'],
+            _prose(p),
+          ]),
+      ];
+      final layout = ReadingLayout.build(ingestPdfText(id: 'x', pages: pages));
+      expect([for (var c = 0; c < layout.chapters.length; c++) layout.chapterTitle(c)],
+          ['Chapter I', 'Chapter II', 'Chapter III']);
+      expect(layout.units[layout.unitForCursor(ReadingCursor.zero)].text, 'CHAPTER I.');
+    });
+
+    test("a short chapter's one running head, set small, is not another chapter", () {
+      // Chapters two pages long: the second page's head names the chapter
+      // and carries the page's number ("CHAPTER II. 4"), once a chapter.
+      const roman = ['I', 'II', 'III', 'IV'];
+      final pages = <List<_At>>[];
+      for (var c = 0; c < 4; c++) {
+        for (var k = 0; k < 2; k++) {
+          final folio = c * 2 + k + 1;
+          final top = k == 0 ? 210 : 90;
+          pages.add([
+            if (k == 0)
+              _at('CHAPTER ${roman[c]}.', 160, 170, w: 100, size: 14, para: true)
+            else
+              _at('CHAPTER ${roman[c]}. $folio', 250, 50, w: 90, size: 9, para: true),
+            for (final (i, l) in _prose(folio).indexed) _at(l, 72, top + i * 13, size: 10.5, para: i == 0),
+            if (k == 0) _at('$folio', 205, 575, w: 6, size: 9, para: true),
+          ]);
+        }
+      }
+      final book = _laidBook(pages);
+      expect(_titles(book), ['Chapter I', 'Chapter II', 'Chapter III', 'Chapter IV']);
+      expect(_texts(book).join('\n'), isNot(contains('CHAPTER II. 4')));
+    });
+
     test('without chapter headings, the book opens after its contents page', () {
       // Stories with plain titles: no "Chapter N" to make chapters of, so
       // the book goes ten pages to an entry. The contents page heads the
@@ -527,6 +575,35 @@ void main() {
         'Mr. Bennet made no answer.',
         '‘Do you not want to know who has taken it?’ cried his wife impatiently. '
             'A full line of the same paragraph ends a sentence. and goes on at the edge, where it belongs, to its end.',
+      ]);
+    });
+
+    test('a title set larger than the text under it is a paragraph of its own', () {
+      // Two fables on a page, each title a little above its text: the
+      // extractor ran each title into its text, so the title was read as the
+      // start of the first sentence and the bookmarks could not find it.
+      final laid = _laid([
+        _at('The Fox and the Crow', 72, 100, w: 150, size: 12, para: true),
+        _at('A CROW having stolen a bit of meat, perched in a tree and held', 72, 116),
+        _at('it in her beak. A Fox, seeing this, longed to possess the meat.', 72, 128, w: 380),
+        _at('The Crow and the Pitcher', 72, 160, w: 170, size: 12, para: true),
+        _at('A CROW perishing with thirst saw a pitcher, and hoping to find', 72, 176),
+        _at('water, flew to it with delight. Necessity is the mother of invention.', 72, 188, w: 390),
+      ]);
+      final book = ingestPdfText(
+        id: 'x',
+        pages: [laid.text],
+        layout: [laid.layout],
+        outline: const [(title: 'The Fox and the Crow', page: 0), (title: 'The Crow and the Pitcher', page: 0)],
+      );
+      expect(_titles(book), ['The Fox and the Crow', 'The Crow and the Pitcher']);
+      expect(_texts(book), [
+        'The Fox and the Crow',
+        'A CROW having stolen a bit of meat, perched in a tree and held it in her beak. '
+            'A Fox, seeing this, longed to possess the meat.',
+        'The Crow and the Pitcher',
+        'A CROW perishing with thirst saw a pitcher, and hoping to find water, flew to it with delight. '
+            'Necessity is the mother of invention.',
       ]);
     });
 

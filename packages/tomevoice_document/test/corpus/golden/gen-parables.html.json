@@ -1,0 +1,46 @@
+{
+  "file": "gen-parables.html",
+  "source": "html",
+  "title": "gen-parables",
+  "authors": [],
+  "language": "en",
+  "sections": [
+    "gen-parables"
+  ],
+  "chapters": [
+    "gen-parables"
+  ],
+  "notRead": [],
+  "blocks": {
+    "heading": 5,
+    "paragraph": 26,
+    "quote": 1,
+    "caption": 1,
+    "footnote": 2,
+    "figure": 1
+  },
+  "displayOnly": [
+    "figure: A pomegranate split open, its seeds showing",
+    "caption: A pomegranate, from an old botanical print.",
+    "footnote: Wirani is not on any map: Gibran made the city up.↩︎",
+    "footnote: The senses quarrel the same way in older fables, from Aesop on.↩︎"
+  ],
+  "sentencesBeforeOpening": 0,
+  "first": [
+    "Four Parables",
+    "from The Madman (1918)",
+    "Kahlil Gibran",
+    "Four of the thirty-four parables in Gibran’s first book in English.",
+    "The book opens with the madman’s own account:"
+  ],
+  "last": [
+    "Then the Eye turned the other way, and they all began to talk together about the Eye’s strange delusion.",
+    "And they said, “Something must be the matter with the Eye.”",
+    "The New Pleasure",
+    "Last night I invented a new pleasure, and as I was giving it the first trial an angel and a devil came rushing toward my house.",
+    "They met at my door and fought with each other over my newly created pleasure; the one crying, “It is a sin!”—the other, “It is a virtue!”"
+  ],
+  "sentences": 42,
+  "words": 689,
+  "spokenSha256": "5a538444a90afb9105afcd5e0edf98bab955422eb861e310b8b53f390ad55c58"
+}
