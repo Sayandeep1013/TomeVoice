@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'browser_check.dart';
 import 'sources/bridge.dart';
 import 'sources/models.dart';
 import 'sources/net.dart';
@@ -406,8 +407,13 @@ class _SourcesScreenState extends State<SourcesScreen> {
             ),
           PopupMenuButton<String>(
             tooltip: 'Options for ${p.name}',
-            onSelected: (v) => v == 'cookies' ? _clearCookies(p) : _uninstall(p),
+            onSelected: (v) => switch (v) {
+              'signin' => signInToSite(context, p),
+              'cookies' => _clearCookies(p),
+              _ => _uninstall(p),
+            },
             itemBuilder: (_) => const [
+              PopupMenuItem(value: 'signin', child: Text('Sign in to its site')),
               PopupMenuItem(value: 'cookies', child: Text('Clear its cookies')),
               PopupMenuItem(value: 'remove', child: Text('Uninstall')),
             ],

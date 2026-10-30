@@ -32,6 +32,12 @@ class SourcesBridge {
   static Future<String?> decode(Uint8List bytes, String charset) =>
       _ask<String>('decode', {'bytes': bytes, 'charset': charset});
 
+  /// The site at [url] in a web view, for the reader to sign in to: its
+  /// cookies for [url] once they tap Done ("a=1; b=2"), or null if they
+  /// closed it (or there is no web view). [userAgent] is the app's own.
+  static Future<String?> browserLogin(String url, String userAgent) =>
+      _ask<String>('browserLogin', {'url': url, 'userAgent': userAgent});
+
   /// Forget the phone's web view cookies (browser checks, sign-ins): all of
   /// them, or those of [url]'s site.
   static Future<void> clearWebCookies({String? url}) => _ask<void>('clearWebCookies', {'url': url});

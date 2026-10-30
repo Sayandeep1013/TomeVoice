@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'sources/bridge.dart';
 import 'sources/models.dart';
 import 'sources/net.dart';
 import 'sources/source_engine.dart';
@@ -19,13 +20,40 @@ Future<bool> passBrowserCheck(BuildContext context, ChallengeException e) async 
     if (context.mounted) showSnack(context, 'The check did not finish. Try again in a moment.');
     return false;
   }
-  final cookies = <String, String>{};
-  for (final part in jar.split(';')) {
-    final at = part.indexOf('=');
-    if (at > 0) cookies[part.substring(0, at).trim()] = part.substring(at + 1).trim();
-  }
   // Kept for the source that met the check, not for every source.
-  await Net.instance.setCookies(Uri.parse(e.url).host, cookies, partition: e.pluginId);
+  await Net.instance.setCookies(Uri.parse(e.url).host, cookiesOf(jar), partition: e.pluginId);
+  return true;
+}
+
+/// A web view's cookies for a page ("a=1; b=2") by name.
+Map<String, String> cookiesOf(String jar) => {
+      for (final part in jar.split(';'))
+        if (part.indexOf('=') case final at when at > 0) part.substring(0, at).trim(): part.substring(at + 1).trim(),
+    };
+
+/// Sign in to [plugin]'s site in a web view, for a site that wants an
+/// account: what it sets for the site is kept in that source's own cookies
+/// (and no other source's), so its requests go signed in from then on.
+/// True once the reader tapped Done.
+Future<bool> signInToSite(BuildContext context, PluginInfo plugin) async {
+  final site = plugin.site;
+  if (!Net.isWebAddress(site)) {
+    showSnack(context, '${plugin.name} names no web page to sign in on.');
+    return false;
+  }
+  final jar = await SourcesBridge.browserLogin(site, Net.userAgent);
+  if (jar == null) return false;
+  final cookies = cookiesOf(jar);
+  await Net.instance.setCookies(Uri.parse(site).host, cookies, partition: plugin.id);
+  if (context.mounted) {
+    showSnack(
+      context,
+      cookies.isEmpty
+          ? 'Nothing was kept: ${plugin.name} set no cookies there.'
+          : 'Signed in to ${plugin.name}. Clear its cookies in Sources to sign out.',
+      long: cookies.isEmpty,
+    );
+  }
   return true;
 }
 

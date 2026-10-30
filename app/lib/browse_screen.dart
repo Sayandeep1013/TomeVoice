@@ -651,9 +651,21 @@ class _SourceScreenState extends State<SourceScreen> {
                     ),
                   if (_settingDefs.isNotEmpty)
                     Padding(
-                      padding: const EdgeInsets.only(right: Gap.m),
+                      padding: const EdgeInsets.only(right: Gap.s),
                       child: RoundButton(icon: Icons.settings_outlined, tooltip: '${widget.plugin.name} settings', onTap: _openSettings),
                     ),
+                  // A site that wants an account: signed in here, for this
+                  // source only.
+                  Padding(
+                    padding: const EdgeInsets.only(right: Gap.m),
+                    child: RoundButton(
+                      icon: Icons.login_rounded,
+                      tooltip: 'Sign in to ${widget.plugin.name}',
+                      onTap: () async {
+                        if (await signInToSite(context, widget.plugin) && mounted) await _reset();
+                      },
+                    ),
+                  ),
                 ],
               ),
               Padding(

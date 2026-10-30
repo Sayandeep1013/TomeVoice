@@ -118,6 +118,24 @@ object SourcesBridge {
                         }
                     }
                 }
+                // A source's site in a web view to sign in to (BrowserCheck.login):
+                // its cookies for the site, for that source's own jar. Only
+                // with the app's activity.
+                "browserLogin" -> {
+                    val a = activity
+                    val url = call.argument<String>("url")
+                    val agent = call.argument<String>("userAgent")
+                    if (a == null || url == null || agent == null) {
+                        result.success(null)
+                    } else {
+                        try {
+                            BrowserCheck.login(a, url, agent) { jar -> result.success(jar) }
+                        } catch (e: Exception) {
+                            // No web view on this phone.
+                            result.success(null)
+                        }
+                    }
+                }
                 "clearWebCookies" -> {
                     // The web view's cookies (browser checks, logins): all of
                     // them, or one site's ([url]) as far as it can be told.
