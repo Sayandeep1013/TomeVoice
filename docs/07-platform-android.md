@@ -118,6 +118,8 @@ scrubber works.
 | Resume card's Play | System UI binds with `EXTRA_RECENT` and calls `prepare`/`play`; nothing reading: the service goes foreground at once with the book (buffering), `ReadingCore.play` starts the engine at `backgroundMain` if none, Dart takes the request (`MediaRequests`) and reads it from its place (`BackgroundReading.playFromOutside`) |
 | Headset Play, app closed | The session's media button receiver (a `getForegroundService` PendingIntent to the service, kept by Android across reboots) starts the service with the key: Play, as above |
 | Android Auto | Binds to the browser: "Continue" (the book read last) and "Recent", playable, with covers and progress; a book picked carries on if it is the one on the card, else Dart switches (a page reading another book stops) |
+| Open with, Share | `OpenActivity` hands the file to MainActivity in TomeVoice's own task (fix-core); with a book reading and no activity, that MainActivity rejoins the engine and imports it (`openFile`, or `pendingOpen` once the shelf is built) |
+| A widget's play | With a reading on the card, to the service (play or pause); otherwise it opens the app and plays, as before |
 | Restore, in-app update | The process ends (unchanged) |
 
 **Media browser.** `ReadAloudService` is a framework `MediaBrowserService` (its session was
