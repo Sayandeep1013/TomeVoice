@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -10,8 +9,8 @@ import 'package:tomevoice_document/tomevoice_document.dart'
 
 import 'library_store.dart';
 import 'opds.dart';
+import 'prefs.dart';
 import 'reader_screen.dart';
-import 'safe_file.dart';
 import 'secrets.dart';
 import 'sources/net.dart' show friendlyError;
 import 'speech_service.dart';
@@ -100,68 +99,50 @@ class Catalogue {
 }
 
 /// The catalogues the reader added, and the user names they sign in to the
-/// built-in ones with, in `catalogues.json` at the library root (a backup
-/// carries it); their passwords are kept apart (see [Secrets]).
+/// built-in ones with: kept with the settings (prefs.json), so a backup
+/// carries them and a restore, or Add with the backup's settings, brings
+/// them back. Their passwords are kept apart (see [Secrets]).
 class CatalogueStore {
   CatalogueStore(this.root);
 
   final Directory root;
 
-  File get _file => File('${root.path}/catalogues.json');
-
-  Future<Map<String, Object?>> _read() async {
-    try {
-      if (await _file.exists()) {
-        final raw = jsonDecode(await _file.readAsString());
-        if (raw is Map) return Map<String, Object?>.from(raw);
-      }
-    } on Object {
-      await setAside(_file);
-    }
-    return {};
-  }
+  static ListeningPrefs get _prefs => ListeningPrefs.loaded ?? ListeningPrefs.memory;
 
   /// The built-in catalogues, then the reader's own.
-  Future<List<Catalogue>> all() async {
-    final raw = await _read();
-    final users = raw['users'] is Map ? Map<String, Object?>.from(raw['users'] as Map) : const <String, Object?>{};
-    return [
-      for (final p in Catalogue.presets) p.withUser(users[p.id] as String?),
-      for (final c in raw['catalogues'] is List ? raw['catalogues'] as List : const [])
-        if (Catalogue.fromJson(c) case final x?) x,
-    ];
-  }
+  Future<List<Catalogue>> all() async => [
+        for (final p in Catalogue.presets) p.withUser(_prefs.catalogueUsers[p.id]),
+        for (final c in _prefs.catalogues)
+          if (Catalogue.fromJson(c) case final x?) x,
+      ];
 
   /// Keep [c] (added, changed, or a built-in one signed in to) and its
   /// [password] (null leaves the one kept; empty forgets it).
   Future<void> save(Catalogue c, {String? password}) async {
-    final raw = await _read();
+    final p = _prefs;
     if (c.preset) {
-      final users = raw['users'] is Map ? Map<String, Object?>.from(raw['users'] as Map) : <String, Object?>{};
-      if (c.user == null) {
-        users.remove(c.id);
+      final user = c.user;
+      if (user == null) {
+        p.catalogueUsers.remove(c.id);
       } else {
-        users[c.id] = c.user;
+        p.catalogueUsers[c.id] = user;
       }
-      raw['users'] = users;
     } else {
-      final list = [
-        for (final o in raw['catalogues'] is List ? raw['catalogues'] as List : const [])
-          if (Catalogue.fromJson(o) case final x? when x.id != c.id) x.toJson(),
-      ];
-      raw['catalogues'] = [...list, c.toJson()];
+      final at = p.catalogues.indexWhere((o) => o['id'] == c.id);
+      if (at < 0) {
+        p.catalogues.add(c.toJson());
+      } else {
+        p.catalogues[at] = c.toJson();
+      }
     }
-    await writeSafely(_file, jsonEncode(raw));
+    p.save();
     if (password != null) await (await Secrets.of(root)).set('catalogue:${c.id}', password);
   }
 
   Future<void> remove(Catalogue c) async {
-    final raw = await _read();
-    raw['catalogues'] = [
-      for (final o in raw['catalogues'] is List ? raw['catalogues'] as List : const [])
-        if (Catalogue.fromJson(o) case final x? when x.id != c.id) x.toJson(),
-    ];
-    await writeSafely(_file, jsonEncode(raw));
+    _prefs
+      ..catalogues.removeWhere((o) => o['id'] == c.id)
+      ..save();
     await (await Secrets.of(root)).set('catalogue:${c.id}', null);
   }
 

@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_spike/catalogues_screen.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/opds.dart';
+import 'package:tomevoice_spike/prefs.dart';
 
 import 'support/opds_server.dart';
 
@@ -271,7 +272,10 @@ void main() {
   group('the catalogues kept', () {
     late Directory tmp;
 
-    setUp(() => tmp = Directory.systemTemp.createTempSync('tomevoice_cats'));
+    setUp(() {
+      tmp = Directory.systemTemp.createTempSync('tomevoice_cats');
+      ListeningPrefs.reset();
+    });
     tearDown(() {
       try {
         tmp.deleteSync(recursive: true);
@@ -280,7 +284,7 @@ void main() {
       }
     });
 
-    test('the built-in ones, then the reader’s; passwords kept apart from them', () async {
+    test('the built-in ones, then the reader’s, kept with the settings; passwords kept apart', () async {
       final store = CatalogueStore(tmp);
       final first = await store.all();
       expect([for (final c in first) c.id], ['gutenberg', 'standard-ebooks-new', 'standard-ebooks']);
@@ -289,14 +293,22 @@ void main() {
 
       const calibre = Catalogue(id: 'c1', title: 'Calibre', url: 'http://192.168.1.20:8080/opds', user: 'me');
       await store.save(calibre, password: 'hunter2');
+      await store.save(const Catalogue(id: 'c1', title: 'Calibre at home', url: 'http://192.168.1.20:8080/opds', user: 'me'));
       await store.save(Catalogue.standardAll.withUser('patron@example.com'));
       final all = await store.all();
-      expect(all.last.title, 'Calibre');
+      expect(all.last.title, 'Calibre at home');
+      expect(all.where((c) => c.id == 'c1'), hasLength(1));
       expect(all.firstWhere((c) => c.id == 'standard-ebooks').user, 'patron@example.com');
-      expect(await store.password(calibre), 'hunter2');
+      expect(await store.password(calibre), 'hunter2', reason: 'kept when not given again');
 
-      final kept = File('${tmp.path}/catalogues.json').readAsStringSync();
-      expect(kept, isNot(contains('hunter2')), reason: 'a backup carries this file');
+      // With the settings, so a backup carries them and a restore brings
+      // them back; the password never.
+      final settings = jsonEncode(ListeningPrefs.memory.toJson());
+      expect(settings, contains('Calibre at home'));
+      expect(settings, isNot(contains('hunter2')));
+      final restored = ListeningPrefs.fromJson(Map<String, Object?>.from(jsonDecode(settings) as Map));
+      expect(restored.catalogues.single['url'], 'http://192.168.1.20:8080/opds');
+      expect(restored.catalogueUsers['standard-ebooks'], 'patron@example.com');
       expect(jsonDecode(File('${tmp.path}/.secrets.json').readAsStringSync()), {'catalogue:c1': 'hunter2'});
 
       await store.remove(calibre);
