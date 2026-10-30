@@ -19,6 +19,7 @@ import 'listen_sheet.dart';
 import 'neural_screen.dart';
 import 'noveldokusha_import.dart';
 import 'prefs.dart';
+import 'problem_report.dart';
 import 'relayout.dart';
 import 'rules_screen.dart';
 import 'sources/source_engine.dart';
@@ -977,6 +978,12 @@ class _AboutScreenState extends State<AboutScreen> {
                         title: 'Releases',
                         subtitle: 'Download the latest version',
                         onTap: () => _svc.openUrl('$repositoryUrl/releases/latest'),
+                      ),
+                      _Link(
+                        icon: Icons.bug_report_outlined,
+                        title: 'Report a problem',
+                        subtitle: 'See every word it would say, then send it yourself on GitHub',
+                        onTap: () => unawaited(showProblemReport(context)),
                       ),
                       _Link(
                         icon: Icons.gavel_rounded,

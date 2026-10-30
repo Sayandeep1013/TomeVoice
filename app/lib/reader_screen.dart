@@ -168,8 +168,10 @@ class _ReaderSkeleton extends StatelessWidget {
       body: DecoratedBox(
         decoration: BoxDecoration(gradient: Skin.ground(context)),
         child: SafeArea(
+          // Two less each way round the back button: its target is 48 dp,
+          // its circle 44, and the circle stays where it was.
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -180,7 +182,7 @@ class _ReaderSkeleton extends StatelessWidget {
                       tooltip: 'Back to library',
                       onTap: () => Navigator.of(context).maybePop(),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: Text(title,
                           maxLines: 1,
@@ -189,7 +191,7 @@ class _ReaderSkeleton extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 28),
+                const SizedBox(height: 26),
                 if (error != null)
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -2486,8 +2488,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     return 'No voice';
   }
 
+  // The round buttons take 48 dp for a finger and draw 44: the gaps and the
+  // edges are 2 dp less on each side, so every circle stays where it was.
   Widget _topBar(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+        padding: const EdgeInsets.fromLTRB(10, 6, 10, 4),
         child: Row(
           children: [
             RoundButton(
@@ -2495,7 +2499,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
               tooltip: 'Back to library',
               onTap: () => Navigator.of(context).maybePop(),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
             Expanded(
               child: Semantics(
                 button: true,
@@ -2568,7 +2572,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
               ),
             ),
             if (_isPdf) ...[
-              const SizedBox(width: 8),
+              const SizedBox(width: 4),
               RoundButton(
                 icon: _showPages ? Icons.notes_rounded : Icons.auto_stories_rounded,
                 tooltip: _showPages ? 'Show as text' : 'Show the real pages',
@@ -2579,13 +2583,13 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                 },
               ),
             ],
-            const SizedBox(width: 8),
+            const SizedBox(width: 4),
             RoundButton(
               icon: Icons.search_rounded,
               tooltip: 'Search',
               onTap: _openSearch,
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 4),
             // Contents is the title's (its chapter line says so); the bar
             // keeps a page's bookmark at hand.
             ValueListenableBuilder<bool>(
@@ -2598,7 +2602,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                 onLongPress: _openBookmarks,
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 4),
             // How the page looks. The voice's settings are on the player
             // (its voice and speed), in the same sheet.
             RoundButton(
@@ -3277,27 +3281,40 @@ class _PlayerBar extends StatelessWidget {
     );
   }
 
-  /// The handle: says the bar swipes up to Now Playing, and opens it on a tap.
-  Widget _handle(BuildContext context, {double below = 6}) => Semantics(
-        button: true,
-        label: 'Open Now Playing',
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: onExpand,
-          child: Padding(
-            padding: EdgeInsets.only(bottom: below),
-            child: Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Skin.onDark(context).withValues(alpha: 0.28),
-                  borderRadius: BorderRadius.circular(2),
-                ),
+  /// The handle's drawing: says the bar swipes up to Now Playing. What a tap
+  /// on it reaches is [_opener]'s (the bar's) or the dock's own strip.
+  Widget _handle(BuildContext context, {double above = 0, double below = 6}) => IgnorePointer(
+        child: Padding(
+          padding: EdgeInsets.only(top: above, bottom: below),
+          child: Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Skin.onDark(context).withValues(alpha: 0.28),
+                borderRadius: BorderRadius.circular(2),
               ),
             ),
           ),
         ),
+      );
+
+  /// [child] (the handle and the row under it) over what opens Now Playing
+  /// on a tap: the whole of it, more than a finger's 48 dp tall, though the
+  /// handle is drawn 4 dp thin. What can be tapped in it (the chips) is
+  /// still its own; the rest of it is passed through to here.
+  Widget _opener(Widget child) => Stack(
+        children: [
+          Positioned.fill(
+            child: Semantics(
+              container: true,
+              button: true,
+              label: 'Open Now Playing',
+              child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: onExpand),
+            ),
+          ),
+          child,
+        ],
       );
 
   /// Landscape: everything the portrait bar has, and sleep and save, as one
@@ -3308,7 +3325,8 @@ class _PlayerBar extends StatelessWidget {
     return Container(
       constraints: const BoxConstraints(maxWidth: 980),
       margin: const EdgeInsets.fromLTRB(Gap.m, 0, Gap.m, Gap.s),
-      padding: const EdgeInsets.fromLTRB(Gap.s, Gap.s, Gap.s, Gap.xs),
+      // The top's room is the handle's (see below).
+      padding: const EdgeInsets.fromLTRB(Gap.s, 0, Gap.s, Gap.xs),
       decoration: BoxDecoration(
         color: Color.lerp(Skin.darkOn(context), Skin.accentOf(context), 0.16),
         borderRadius: BorderRadius.circular(Radii.card + 4),
@@ -3325,7 +3343,16 @@ class _PlayerBar extends StatelessWidget {
           return Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _handle(context, below: 2),
+              // The whole strip above the row opens Now Playing, not only
+              // the thin handle drawn in it. A screen reader is offered the
+              // cover instead, the dock's own 48 dp way in.
+              ExcludeSemantics(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onExpand,
+                  child: _handle(context, above: Gap.s, below: 2),
+                ),
+              ),
               // Three parts: the book at the left and the options at the
               // right share what is left equally, so the controls sit in the
               // very middle of the bar.
@@ -3334,27 +3361,33 @@ class _PlayerBar extends StatelessWidget {
                   Expanded(
                     child: Row(
                       children: [
+                        // The cover and the gap beside it: 52 dp across for
+                        // a finger, though the cover is drawn 40 wide.
                         Semantics(
+                          container: true,
                           button: true,
                           label: 'Open Now Playing',
                           child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
                             onTap: onExpand,
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(6),
-                              child: SizedBox(
-                                width: 40,
-                                height: 58,
-                                child: cover == null
-                                    ? ColoredBox(
-                                        color: Skin.accentOf(context).withValues(alpha: 0.35),
-                                        child: Icon(Icons.menu_book_rounded, size: 18, color: onDark),
-                                      )
-                                    : Image.file(File(cover!), fit: BoxFit.cover, cacheWidth: 120, gaplessPlayback: true),
+                            child: Padding(
+                              padding: const EdgeInsets.only(right: Gap.m),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(6),
+                                child: SizedBox(
+                                  width: 40,
+                                  height: 58,
+                                  child: cover == null
+                                      ? ColoredBox(
+                                          color: Skin.accentOf(context).withValues(alpha: 0.35),
+                                          child: Icon(Icons.menu_book_rounded, size: 18, color: onDark),
+                                        )
+                                      : Image.file(File(cover!), fit: BoxFit.cover, cacheWidth: 120, gaplessPlayback: true),
+                                ),
                               ),
                             ),
                           ),
                         ),
-                        const SizedBox(width: Gap.m),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -3405,16 +3438,17 @@ class _PlayerBar extends StatelessWidget {
                     child: Padding(
                       padding: const EdgeInsets.only(left: Gap.l),
                       // On a narrower phone, sleep and save (both in Now
-                      // Playing too) step aside before the row overflows.
+                      // Playing too) step aside before the row overflows
+                      // (each takes 48 dp, as the voice keeps its room).
                       child: LayoutBuilder(
                         builder: (context, box) => Row(
                           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                           children: [
                             _chip(context, '${trimSpeed(speed)}×', Icons.speed_rounded, onSpeed, tooltip: 'Speed'),
-                            if (onSleep != null && box.maxWidth >= 200)
+                            if (onSleep != null && box.maxWidth >= 208)
                               _small(context, sleepNote == null ? Icons.bedtime_outlined : Icons.bedtime_rounded,
                                   'Sleep timer', onSleep!, lit: sleepNote != null),
-                            if (onSave != null && box.maxWidth >= 250)
+                            if (onSave != null && box.maxWidth >= 266)
                               _small(context, Icons.bookmark_add_outlined, 'Save this line', onSave!),
                             Flexible(
                               child: _chip(context, voiceLabel, Icons.record_voice_over_rounded, onVoice, tooltip: 'Voice'),
@@ -3433,11 +3467,12 @@ class _PlayerBar extends StatelessWidget {
     );
   }
 
+  /// Sleep and save on the dock: the icon drawn small, the target a
+  /// finger's 48 dp (a compact button was 40).
   Widget _small(BuildContext context, IconData icon, String tip, VoidCallback onTap, {bool lit = false}) => IconButton(
         tooltip: tip,
         onPressed: onTap,
         iconSize: 21,
-        visualDensity: VisualDensity.compact,
         color: lit ? Skin.accentSoftOf(context) : Skin.onDark(context),
         icon: Icon(icon),
       );
@@ -3446,7 +3481,9 @@ class _PlayerBar extends StatelessWidget {
     final onDark = Skin.onDark(context);
     return Container(
       margin: const EdgeInsets.fromLTRB(Gap.m, 0, Gap.m, Gap.m),
-      padding: const EdgeInsets.fromLTRB(14, Gap.m, 14, 10),
+      // The top's room is the handle's: part of what a tap opens Now
+      // Playing from (see _opener).
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
       decoration: BoxDecoration(
         color: Skin.darkOn(context),
         borderRadius: BorderRadius.circular(Radii.card + 4),
@@ -3462,28 +3499,37 @@ class _PlayerBar extends StatelessWidget {
           return Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _handle(context),
-              Row(
-                children: [
-                  _chip(context, '${trimSpeed(speed)}×', Icons.speed_rounded, onSpeed,
-                      tooltip: 'Speed'),
-                  Expanded(
-                    child: Text(
-                      // With a sleep timer there is no room for all three.
-                      [
-                        if (sleepNote == null) '$pct%',
-                        partial ? '${_duration(minutes)} LEFT IN CHAPTER' : '${_duration(minutes)} LEFT',
-                        if (sleepNote != null) sleepNote!,
-                      ].join('  ·  '),
-                      textAlign: TextAlign.center,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Skin.meta(context, color: onDark.withValues(alpha: 0.62), size: 10.5),
+              _opener(
+                Column(
+                  children: [
+                    _handle(context, above: Gap.m),
+                    Row(
+                      children: [
+                        _chip(context, '${trimSpeed(speed)}×', Icons.speed_rounded, onSpeed,
+                            tooltip: 'Speed'),
+                        Expanded(
+                          // A tap here is the handle's.
+                          child: IgnorePointer(
+                            child: Text(
+                              // With a sleep timer there is no room for all three.
+                              [
+                                if (sleepNote == null) '$pct%',
+                                partial ? '${_duration(minutes)} LEFT IN CHAPTER' : '${_duration(minutes)} LEFT',
+                                if (sleepNote != null) sleepNote!,
+                              ].join('  ·  '),
+                              textAlign: TextAlign.center,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Skin.meta(context, color: onDark.withValues(alpha: 0.62), size: 10.5),
+                            ),
+                          ),
+                        ),
+                        _chip(context, voiceLabel, Icons.record_voice_over_rounded, onVoice,
+                            tooltip: 'Voice'),
+                      ],
                     ),
-                  ),
-                  _chip(context, voiceLabel, Icons.record_voice_over_rounded, onVoice,
-                      tooltip: 'Voice'),
-                ],
+                  ],
+                ),
               ),
               const SizedBox(height: 6),
               ChapterScrubber(

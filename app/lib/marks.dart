@@ -220,6 +220,14 @@ class MarkStore {
     await _save();
   }
 
+  /// Every mark of book [bookId] gone, in one write: a book on a secret
+  /// shelf leaves none behind it when it is removed (LibraryStore.remove).
+  Future<void> removeBook(String bookId) async {
+    if (!_all.any((m) => m.bookId == bookId)) return;
+    _all = [for (final m in _all) if (m.bookId != bookId) m];
+    await _save();
+  }
+
   /// Book [bookId]'s marks are [marks] now (synced from another phone):
   /// those not among them go, the rest are added or replaced. One write.
   Future<void> replaceBook(String bookId, List<Mark> marks) async {

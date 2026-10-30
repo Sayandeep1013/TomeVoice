@@ -11,6 +11,10 @@ import 'package:tomevoice_document/tomevoice_document.dart' show wordSpans;
 import 'neural_voices.dart';
 import 'scheduler.dart';
 
+/// The phone a problem report names: Android's version and API level, and
+/// its maker and model (see [SpeechService.deviceInfo]).
+typedef DeviceInfo = ({String android, int sdk, String maker, String model});
+
 /// Everything that talks to the platform, plus the decoding that has to happen
 /// before the pure-Dart pipeline can be handed anything.
 ///
@@ -400,6 +404,23 @@ class SpeechService {
   Future<String?> appVersion() async {
     try {
       return await _channel.invokeMethod<String>('appVersion');
+    } on Object {
+      return null;
+    }
+  }
+
+  /// The phone, for a problem report: Android's version ("14") and API
+  /// level, its maker and its model. Null where the platform cannot say.
+  Future<DeviceInfo?> deviceInfo() async {
+    try {
+      final raw = await _channel.invokeMapMethod<String, Object?>('deviceInfo');
+      if (raw == null) return null;
+      return (
+        android: raw['android'] as String? ?? '',
+        sdk: (raw['sdk'] as num?)?.toInt() ?? 0,
+        maker: raw['maker'] as String? ?? '',
+        model: raw['model'] as String? ?? '',
+      );
     } on Object {
       return null;
     }

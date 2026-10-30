@@ -40,7 +40,17 @@ class ShareProvider : ContentProvider() {
         return file
     }
 
-    override fun onCreate(): Boolean = true
+    // Android creates this before anything else in the app's process (an
+    // activity, a widget, a service, a background check), so the error log
+    // is set up here: it then hears of a crash wherever one happens. A log
+    // that could not be set up must not stop the app from starting.
+    override fun onCreate(): Boolean {
+        try {
+            context?.let { ErrorLog.install(it) }
+        } catch (_: Throwable) {
+        }
+        return true
+    }
 
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor =
         ParcelFileDescriptor.open(fileFor(uri), ParcelFileDescriptor.MODE_READ_ONLY)

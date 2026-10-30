@@ -1,13 +1,21 @@
-// Reading habits: days that start at 4 am, streaks, and the dot digits.
+// Reading habits: days that start at 4 am, streaks and their goal, and the
+// dot digits.
+
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/stats.dart';
+import 'package:tomevoice_spike/stats_screen.dart';
 
 void main() {
   final store = StatsStore.instance;
 
-  setUp(store.days.clear);
+  setUp(store.reset);
+  tearDown(store.reset);
 
   test('listening at 1 am counts toward the night before', () {
     expect(dayKey(DateTime(2026, 10, 24, 1, 30)), '2026-10-23');
@@ -53,5 +61,99 @@ void main() {
     final size = tester.getSize(find.byType(DotText));
     expect(size.width, closeTo(2 * 6 * 9 - 9, 0.01));
     expect(find.bySemanticsLabel('12'), findsOneWidget);
+  });
+
+  group('the daily goal', () {
+    late Directory tmp;
+
+    setUp(() => tmp = Directory.systemTemp.createTempSync('tv_goal'));
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    test("is the reader's: kept in stats.json, where the widgets read it, and read back", () async {
+      await store.attach(tmp);
+      expect(store.goal, const Duration(minutes: 5));
+      await store.setGoal(20);
+      final saved = jsonDecode(File('${tmp.path}/stats.json').readAsStringSync()) as Map;
+      expect(saved['goalMinutes'], 20);
+      store.reset();
+      await store.attach(tmp);
+      expect(store.goal, const Duration(minutes: 20));
+    });
+
+    test('only the goals offered can be picked', () async {
+      for (final m in [0, 7, 90]) {
+        await store.setGoal(m);
+        expect(store.goal, const Duration(minutes: 5), reason: '$m minutes');
+      }
+      expect(StatsStore.goals, [5, 10, 15, 20, 30, 45, 60]);
+    });
+
+    test('the streak, the best and a day met count by it', () async {
+      final now = DateTime(2026, 10, 24, 20);
+      for (var d = 1; d <= 3; d++) {
+        store.addTime('b', const Duration(minutes: 12), listening: true, now: now.subtract(Duration(days: d)));
+      }
+      expect(store.streak(now), 3);
+      await store.setGoal(15);
+      expect(store.streak(now), 0, reason: 'twelve minutes a day is short of fifteen');
+      expect(store.bestStreak(), 0);
+      expect(store.met(dayKey(now.subtract(const Duration(days: 1)))), isFalse);
+      await store.setGoal(10);
+      expect(store.streak(now), 3);
+    });
+
+    Future<List<String>> pumpStats(WidgetTester tester, {double text = 1}) async {
+      final calls = <String>[];
+      const channel = MethodChannel('tomevoice/tts');
+      final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call.method);
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      final library = LibraryStore(tmp);
+      await tester.runAsync(() => library.index());
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 2.75;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        builder: (context, child) =>
+            MediaQuery(data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(text)), child: child!),
+        home: StatsScreen(store: library),
+      ));
+      await tester.pumpAndSettle();
+      return calls;
+    }
+
+    testWidgets('is picked where the streak is shown, and the widgets are drawn again with it', (tester) async {
+      store.addTime('b', const Duration(minutes: 12), listening: true);
+      // Saved now, not in half a minute (no timer left behind).
+      await store.flush();
+      final calls = await pumpStats(tester);
+      expect(find.text('DONE TODAY'), findsOneWidget);
+      await tester.tap(find.text('15'));
+      // Written at once (real time, for the file), then the widgets told.
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
+      await tester.pumpAndSettle();
+      expect(store.goal, const Duration(minutes: 15));
+      expect(find.text('OF 15 MIN TODAY'), findsOneWidget);
+      expect(calls, contains('refreshWidgets'));
+      await tester.scrollUntilVisible(
+        find.textContaining('with 15 minutes of listening'),
+        300,
+        scrollable: find.byWidgetPredicate((w) => w is Scrollable && w.axisDirection == AxisDirection.down).first,
+      );
+      expect(find.textContaining('with 15 minutes of listening'), findsOneWidget);
+    });
+
+    testWidgets("the week's bars make room for the phone's larger text", (tester) async {
+      store.addTime('b', const Duration(minutes: 40), listening: true);
+      await store.flush();
+      await pumpStats(tester, text: 2);
+      // A fixed 140 overflowed: Flutter reports it as an error.
+      expect(tester.takeException(), isNull);
+      final bars = tester.getSize(find.byWidgetPredicate((w) => w.runtimeType.toString() == '_WeekBars'));
+      expect(bars.height, greaterThan(140));
+    });
   });
 }

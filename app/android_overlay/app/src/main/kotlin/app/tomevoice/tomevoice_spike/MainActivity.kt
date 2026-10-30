@@ -497,6 +497,16 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                 }
+                // The phone, for a problem report the reader reads and sends
+                // themselves (About > Report a problem).
+                "deviceInfo" -> result.success(
+                    mapOf(
+                        "android" to Build.VERSION.RELEASE,
+                        "sdk" to Build.VERSION.SDK_INT,
+                        "maker" to Build.MANUFACTURER,
+                        "model" to Build.MODEL,
+                    )
+                )
                 "pickFolder" -> {
                     if (folderResult != null) {
                         result.error("BUSY", "A folder is already being chosen", null)

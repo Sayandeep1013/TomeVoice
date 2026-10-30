@@ -33,6 +33,10 @@ object LibraryBackup {
         if (rel == "sources/cookies.json") return true
         // The update check's state names the APK to install: never carried.
         if (rel == "app_update.json") return true
+        // The error log is this phone's own (ErrorLog.kt). It is kept in the
+        // app's private storage, which is the library's folder too only on a
+        // phone with no storage outside the app.
+        if (rel == ErrorLog.FILE) return true
         // A cached copy of a source list; fetched again when needed.
         if (rel.startsWith("sources/index-")) return true
         // Natural voices are a download away (64 to 110 MB each). Carried,
@@ -142,8 +146,9 @@ object LibraryBackup {
                 // Older backups carried the natural voices: left out, so a
                 // restore keeps the phone's own (and no megabytes are spent).
                 // No backup carries OCR data, and one that did is not trusted.
+                // Nor another phone's error log.
                 val top = entry.name.substringBefore('/')
-                if (top == "voices" || top == "ocr") continue
+                if (top == "voices" || top == "ocr" || entry.name == ErrorLog.FILE) continue
                 val dest = File(staging, entry.name)
                 // A name like "../../x" must not write outside the staging folder.
                 if (!dest.canonicalPath.startsWith(base)) {

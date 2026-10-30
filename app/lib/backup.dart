@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'error_log.dart' show ErrorLog;
 import 'library_store.dart';
 import 'safe_file.dart';
 import 'speech_service.dart';
@@ -224,9 +225,11 @@ Future<void> rewritePaths(File index, {required String from, required String to}
 
 /// What stays on this phone through a restore: never in a backup, so never
 /// swapped. The natural voices (moved aside with the rest, a restore deleted
-/// them), the OCR language data and any scan being read (ocr.dart), and the
-/// update check's state, which holds whether to check at all.
-const keptOnPhone = {'voices', 'ocr', 'app_update.json'};
+/// them), the OCR language data and any scan being read (ocr.dart), the
+/// update check's state, which holds whether to check at all, and the error
+/// log, this phone's own (error_log.dart: it shares the library's folder
+/// only on a phone with no storage outside the app).
+const keptOnPhone = {'voices', 'ocr', 'app_update.json', ErrorLog.fileName};
 
 /// Swap the library for [staged]. The current one is moved aside first and
 /// put back if anything fails.

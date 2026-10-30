@@ -578,9 +578,11 @@ class _PassageState extends State<_Passage> {
     final key = _keys.putIfAbsent(a, GlobalKey.new);
     final heading = _l.units[a].role == BlockRole.heading;
     final dim = Colors.white.withValues(alpha: 0.4);
+    // The reader's text size (19 unless it was changed), as on the page.
+    final size = (ListeningPrefs.loaded ?? ListeningPrefs.memory).textSize;
     final style = heading
-        ? Skin.title(context, size: 21, color: dim)
-        : TextStyle(fontFamily: 'Newsreader', fontSize: 19, height: 1.5, color: dim);
+        ? Skin.title(context, size: size * 21 / 19, color: dim)
+        : TextStyle(fontFamily: 'Newsreader', fontSize: size, height: 1.5, color: dim);
     final u = widget.unit;
     final current = u >= a && u < b;
     Widget text(WordMark word) => Text.rich(

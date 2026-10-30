@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import 'book_card.dart';
 import 'library_store.dart';
+import 'marks.dart';
 import 'speech_service.dart';
 import 'theme.dart';
 import 'ui.dart';
@@ -84,11 +85,16 @@ Future<bool> moveBook(BuildContext context, LibraryStore store, LibraryEntry ent
 
 /// Ask, then remove [entry]. True if it was removed.
 Future<bool> removeBook(BuildContext context, LibraryStore store, LibraryEntry entry) async {
+  // A secret book takes what was saved from it along (LibraryStore.remove).
+  final saved = store.isSecret(entry.id) && MarkStore.instance.forBook(entry.id).isNotEmpty;
   final ok = await confirm(
     context,
     title: 'Remove this book?',
-    body: '"${entry.title}" is deleted from TomeVoice with its reading place. '
-        'The original file on your phone is not touched.',
+    body: saved
+        ? '"${entry.title}" is deleted from TomeVoice with its reading place and, as it is on a secret '
+            'shelf, everything saved from it. The original file on your phone is not touched.'
+        : '"${entry.title}" is deleted from TomeVoice with its reading place. '
+            'The original file on your phone is not touched.',
     action: 'Remove',
   );
   if (!ok) return false;

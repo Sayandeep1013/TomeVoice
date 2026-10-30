@@ -40,6 +40,12 @@ class _SavedScreenState extends State<SavedScreen> {
   /// instead of popping back.
   String? _back;
 
+  /// Rows folding shut before their marks go (Remove).
+  final _leaving = <String>{};
+
+  /// Rows swiped away, which shrink by themselves (Dismissible).
+  final _swiped = <String>{};
+
   @override
   void initState() {
     super.initState();
@@ -85,8 +91,19 @@ class _SavedScreenState extends State<SavedScreen> {
     await _marks.update(m.withNote(note));
   }
 
-  Future<void> _delete(Mark m) async {
+  /// Take [m] away: its row folds shut first, with its book's heading when
+  /// it is the last of that book's, so the rows below close up over them;
+  /// then the mark goes, and Undo is offered. A row swiped away ([swiped])
+  /// has shrunk by itself already, its heading with it.
+  Future<void> _delete(Mark m, {bool swiped = false}) async {
+    if (!swiped) {
+      if (!_leaving.add(m.id)) return;
+      setState(() {});
+      await Future<void>.delayed(Motion.of(context, Motion.standard));
+    }
     await _marks.remove(m.id);
+    _leaving.remove(m.id);
+    _swiped.remove(m.id);
     if (!mounted) return;
     showSnack(
       context,
@@ -185,41 +202,60 @@ class _SavedScreenState extends State<SavedScreen> {
 
   List<Widget> _group(BuildContext context, String bookId, List<Mark> marks) {
     final book = _books[bookId];
+    // The book's last rows going: its heading folds away with them, not
+    // before them (it vanished while the last row was still folding).
+    final closing = marks.every((m) => _leaving.contains(m.id) || _swiped.contains(m.id));
     return [
-      Padding(
-        padding: const EdgeInsets.only(top: Gap.l, bottom: Gap.s),
-        child: Row(
-          children: [
-            if (book != null) ...[
-              SizedBox(width: 30, child: BookCover(entry: book, width: 30, titled: false)),
-              const SizedBox(width: Gap.m),
+      Fold(
+        key: ValueKey('book $bookId'),
+        open: !closing,
+        // Its only mark brought back with Undo: it opens with that row.
+        appear: marks.length == 1 && marks.single.id == _back,
+        child: Padding(
+          padding: const EdgeInsets.only(top: Gap.l, bottom: Gap.s),
+          child: Row(
+            children: [
+              if (book != null) ...[
+                SizedBox(width: 30, child: BookCover(entry: book, width: 30, titled: false)),
+                const SizedBox(width: Gap.m),
+              ],
+              Expanded(
+                child: Text(marks.first.bookTitle,
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: Skin.title(context, size: 17)),
+              ),
             ],
-            Expanded(
-              child: Text(marks.first.bookTitle,
-                  maxLines: 1, overflow: TextOverflow.ellipsis, style: Skin.title(context, size: 17)),
-            ),
-          ],
+          ),
         ),
       ),
       for (final m in marks)
         // Keyed by mark, so each keeps its row as others come and go.
         Fold(
           key: ValueKey(m.id),
+          open: !_leaving.contains(m.id),
           appear: m.id == _back,
-          child: BookTint(
-            bookId: bookId,
-            cover: book?.shownCover,
-            child: Builder(builder: (context) => _tile(context, m, book)),
+          child: IgnorePointer(
+            ignoring: _leaving.contains(m.id),
+            child: BookTint(
+              bookId: bookId,
+              cover: book?.shownCover,
+              child: Builder(builder: (context) => _tile(context, m, book)),
+            ),
           ),
         ),
     ];
-
   }
 
   Widget _tile(BuildContext context, Mark m, LibraryEntry? book) => Dismissible(
         key: ValueKey(m.id),
         direction: DismissDirection.endToStart,
-        onDismissed: (_) => unawaited(_delete(m)),
+        // It shrinks as long as a row folds, so its heading (folding as it
+        // starts, when it is the last) is gone with it, not before.
+        resizeDuration: Motion.of(context, Motion.standard),
+        confirmDismiss: (_) async {
+          setState(() => _swiped.add(m.id));
+          return true;
+        },
+        onDismissed: (_) => unawaited(_delete(m, swiped: true)),
         background: Container(
           alignment: Alignment.centerRight,
           padding: const EdgeInsets.only(right: Gap.xl),
