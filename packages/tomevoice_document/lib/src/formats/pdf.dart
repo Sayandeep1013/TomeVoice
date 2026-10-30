@@ -502,10 +502,13 @@ bool _isContentsPage(List<_Line> page) {
 bool _continues(String prev, String next) {
   if (RegExp(r'[.!?।…"”’:;)\]]$').hasMatch(prev)) return false;
   if (looksLikeChapterLine(prev) || looksLikeChapterLine(next)) return false;
-  if (RegExp(r'^[a-z]').hasMatch(next)) return true;
+  if (_lowerFirst.hasMatch(next)) return true;
   // A short line before a capital is a title, or a line of verse.
   return prev.length >= 40;
 }
+
+/// Lower case in any script that has it: "word" and "слово" both run on.
+final _lowerFirst = RegExp(r'^\p{Ll}', unicode: true);
 
 /// C0 controls (except newline and the paragraph mark), the replacement
 /// character and the private-use area.

@@ -275,6 +275,40 @@ void main() {
       expect(book.sections[1].blocks.first.anchor, isA<PageAnchor>().having((a) => a.page, 'page', 2));
     });
   });
+
+  group('words broken over a line', () {
+    final soft = String.fromCharCode(0xAD);
+
+    test('Cyrillic and accented Latin are mended like English', () {
+      expect(joinWrappedLines(['Это было приме-', 'чательно.']), 'Это было примечательно.');
+      expect(joinWrappedLines(['Było to wy-', 'łącznie jego.']), 'Było to wyłącznie jego.');
+      expect(joinWrappedLines(['an exam-', 'ple']), 'an example');
+    });
+
+    test('a soft hyphen at a line end joins; one inside a word goes', () {
+      expect(joinWrappedLines(['an exam$soft', 'ple of it']), 'an example of it');
+      expect(joinWrappedLines(['Donau$soft', 'dampfschiff']), 'Donaudampfschiff');
+      expect(joinWrappedLines(['hy${soft}phen and dash']), 'hyphen and dash');
+    });
+
+    test('a hyphen before a capital or a number is not a broken word', () {
+      expect(joinWrappedLines(['Jean-', 'Paul came']), 'Jean- Paul came');
+      expect(joinWrappedLines(['in 1914-', '1918']), 'in 1914- 1918');
+      expect(joinWrappedLines(['a dash --', 'then more']), 'a dash -- then more');
+    });
+
+    test('a PDF paragraph broken before a lower-case Cyrillic word runs on', () {
+      final book = ingestPdfText(id: 'x', pages: [
+        '$_mОн смотрел на море и думал, что\n'
+            '$_mзавтра снова будет шторм, и лодки не выйдут.\n'
+            '$_mЭто было приме-\n$_mчательно, как всегда в это время года.',
+      ]);
+      expect(_texts(book), [
+        'Он смотрел на море и думал, что завтра снова будет шторм, и лодки не выйдут.',
+        'Это было примечательно, как всегда в это время года.',
+      ]);
+    });
+  });
 }
 
 const _roman = ['i', 'ii', 'iii'];
