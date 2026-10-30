@@ -801,10 +801,19 @@ String _decode(String s) {
   }
 }
 
-/// Things in a book's markup that are not the book: Project Gutenberg's
-/// header and licence, and printed page numbers ("[127]") that would
-/// otherwise be read aloud mid-sentence.
+/// Things in a book's markup that are not the book: navigation, Project
+/// Gutenberg's header and licence, and printed page numbers ("[127]") that
+/// would otherwise be read aloud mid-sentence.
+///
+/// A nav is links: a contents list (pandoc puts one at the top of a page),
+/// landmarks, a site's menu. Gutenberg's header and licence are known by
+/// their class, or by the ids its Ebookmaker gives them: a Kindle book made
+/// from the EPUB keeps the ids but not the class (calibre renames every
+/// class), and read its whole licence aloud after the story.
 bool _isApparatus(XmlElement e) {
+  if (e.localName.toLowerCase() == 'nav') return true;
+  final id = e.getAttribute('id');
+  if (id == 'pg-header' || id == 'pg-footer') return true;
   final cls = (e.getAttribute('class') ?? '').toLowerCase();
   if (cls.isEmpty) return false;
   return cls.contains('pg-boilerplate') ||

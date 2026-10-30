@@ -120,6 +120,28 @@ void main() {
       expect(book.sections.map((s) => s.displayTitle), ['Chapter One', 'Chapter Two']);
     });
 
+    test("Project Gutenberg's header and licence are not read, though calibre renamed their class", () {
+      // Gutenberg's Kindle files: Ebookmaker's header and footer keep their
+      // ids, the licence runs on into a part of its own, and every class
+      // is calibre's.
+      final book = ingestBytes(
+        kf8Book(parts: [
+          [
+            '<header id="pg-header" class="calibre1"><p class="calibre2">Title: A Tale of the Coast</p>'
+                '<p class="calibre2">Credits: Produced by volunteers</p></header>',
+            '<h1 class="calibre3">Chapter One</h1><p class="calibre4">The lamp was lit at dusk.</p>',
+            '<footer id="pg-footer" class="calibre5"><div class="calibre6">Updated editions will replace the previous one.</div></footer>',
+          ],
+          [
+            '<footer id="pg-footer" class="calibre5"><h2 class="calibre7">THE FULL LICENSE</h2>'
+                '<p class="calibre6">PLEASE READ THIS BEFORE YOU DISTRIBUTE OR USE THIS WORK.</p></footer>',
+          ],
+        ]),
+        filename: 'pg.azw3',
+      );
+      expect(_texts(book), ['Chapter One', 'The lamp was lit at dusk.']);
+    });
+
     test('a joint MOBI 6 and KF8 file is read from its KF8 half', () {
       final book = ingestBytes(kf8Book(parts: parts, toc: toc, joint: true), filename: 'tale.mobi');
       expect(_texts(book), isNot(contains('The old copy.')));

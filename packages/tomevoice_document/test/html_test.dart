@@ -92,6 +92,24 @@ void main() {
     });
   });
 
+  group('navigation', () {
+    test("a page's own contents list is not read before its text", () {
+      // pandoc --toc: a nav of links to the headings, at the top.
+      final blocks = blocksFromHtml('<html><body><h1 class="title">Four Parables</h1>'
+          '<nav id="TOC" role="doc-toc"><ul><li><a href="#the-fox">The Fox</a></li>'
+          '<li><a href="#war">War</a></li></ul></nav>'
+          '<h2 id="the-fox">The Fox</h2><p>A fox looked at his shadow at sunrise.</p>'
+          '<h2 id="war">War</h2><p>One night a feast was held in the palace.</p></body></html>');
+      expect(_texts(blocks), [
+        'Four Parables',
+        'The Fox',
+        'A fox looked at his shadow at sunrise.',
+        'War',
+        'One night a feast was held in the palace.',
+      ]);
+    });
+  });
+
   group('flattening', () {
     test('a line break is a space, not glue', () {
       expect(_texts(blocksFromHtml('<p>Roses are red,<br/>Violets are blue.</p>')),
