@@ -65,6 +65,7 @@ Pipeline buildStandardPipeline(PipelineSettings settings) => Pipeline([
         trimDb: settings.trimDb,
         normalise: settings.normaliseLoudness,
         compression: settings.compression,
+        gainDb: settings.levelGainDb,
       ),
     ]);
 

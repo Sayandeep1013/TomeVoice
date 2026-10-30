@@ -184,12 +184,15 @@ void main() {
   });
 
   group('gain', () {
-    test('normalisation brings a quiet buffer up', () {
+    test('normalisation brings a quiet buffer up to the voice level', () {
+      // To a measured loudness, not a peak (docs/05 section 5.5): a tone's
+      // RMS sits 3 dB under its peak.
       final quiet = syntheticSpeech(words: 3, wordMs: 100, amplitude: 0.05);
       final out = const GainStage(compression: Compression.off)
           .process(quiet.audio, quiet.timings);
 
-      expect(AudioAnalysis.peak(out.audio.samples), closeTo(0.89, 0.02));
+      expect(GainStage.speechLevelDb(out.audio.samples, kRate), closeTo(GainStage.defaultLevelDb, 0.3));
+      expect(AudioAnalysis.peak(out.audio.samples), closeTo(0.178, 0.01));
     });
 
     test('never clips', () {
