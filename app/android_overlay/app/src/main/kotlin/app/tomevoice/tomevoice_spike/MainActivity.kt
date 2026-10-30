@@ -929,6 +929,12 @@ class MainActivity : FlutterActivity() {
         val id = i.getStringExtra(EXTRA_DUMP_PDF) ?: return
         // Once: not again when the activity is made anew.
         i.removeExtra(EXTRA_DUMP_PDF)
+        // Any app may start this activity: only with USB debugging on, as
+        // adb is, so no other app can set a book's extraction going.
+        if (Settings.Global.getInt(contentResolver, Settings.Global.ADB_ENABLED, 0) != 1) {
+            android.util.Log.w(LOG_TAG, "dumpPdf: USB debugging is off")
+            return
+        }
         // A book's folder, as LibraryStore.isBookId has them: never a path.
         if (!Regex("[A-Za-z0-9_-]{1,64}").matches(id)) {
             android.util.Log.w(LOG_TAG, "dumpPdf: not a book id")
