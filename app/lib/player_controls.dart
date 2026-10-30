@@ -38,9 +38,13 @@ class PlayButton extends StatelessWidget {
                 clipBehavior: Clip.none,
                 children: [
                   // The ring fades in and out rather than popping, and is
-                  // gone (not spinning unseen) once it has.
+                  // gone (not spinning unseen) once it has. Each turn of it
+                  // is faded on its own, keyed by when it came, not by what
+                  // it is: loading and playing taking turns faster than the
+                  // fade left two rings on their way out, keyed alike.
                   AnimatedSwitcher(
                     duration: Motion.of(context, Motion.quick),
+                    transitionBuilder: (child, a) => FadeTransition(opacity: a, child: child),
                     child: state == PlayState.loading
                         ? SizedBox(
                             key: const ValueKey('ring'),
