@@ -224,8 +224,9 @@ Future<void> rewritePaths(File index, {required String from, required String to}
 
 /// What stays on this phone through a restore: never in a backup, so never
 /// swapped. The natural voices (moved aside with the rest, a restore deleted
-/// them) and the update check's state, which holds whether to check at all.
-const keptOnPhone = {'voices', 'app_update.json'};
+/// them), the OCR language data and any scan being read (ocr.dart), and the
+/// update check's state, which holds whether to check at all.
+const keptOnPhone = {'voices', 'ocr', 'app_update.json'};
 
 /// Swap the library for [staged]. The current one is moved aside first and
 /// put back if anything fails.

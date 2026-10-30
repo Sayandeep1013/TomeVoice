@@ -182,6 +182,27 @@ void main() {
     expect(staging.existsSync(), isFalse);
   });
 
+  test("replace keeps this phone's OCR language data and the scan it is reading", () async {
+    put(root, 'library.json', {
+      'books': [book('mine')],
+    });
+    put(root, 'ocr/tessdata/ben.traineddata', 'model');
+    put(root, 'ocr/jobs/scan/pages/0.txt', 'page one');
+    put(staging, 'library.json', {
+      'books': [book('theirs')],
+    });
+    // A backup never carries any (LibraryBackup.kt leaves ocr/ out); one
+    // that did is not taken.
+    put(staging, 'ocr/tessdata/hin.traineddata', 'other');
+
+    await replaceLibrary(root, staged());
+
+    expect(File('${root.path}/ocr/tessdata/ben.traineddata').readAsStringSync(), 'model');
+    expect(File('${root.path}/ocr/jobs/scan/pages/0.txt').readAsStringSync(), 'page one');
+    expect(File('${root.path}/ocr/tessdata/hin.traineddata').existsSync(), isFalse);
+    expect([for (final b in read(root, 'library.json')['books'] as List) (b as Map)['id']], ['theirs']);
+  });
+
   test('add keeps my books, adds theirs, and keeps the further place', () async {
     put(root, 'library.json', {
       'categories': [
