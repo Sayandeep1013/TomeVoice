@@ -234,9 +234,12 @@ class ReaderPlayerBar extends StatelessWidget {
                                 overflow: TextOverflow.ellipsis,
                                 style: Skin.meta(context, color: onDark.withValues(alpha: 0.62), size: 10),
                               ),
+                              // Its taps reach up over the lines above it,
+                              // which are no target: a finger's 48 dp.
                               ChapterScrubber(
                                 value: at.count <= 1 ? 0 : inChapter / (at.count - 1),
                                 onSeek: at.count <= 1 ? null : (f) => onSeekInChapter(at.first + (f * (at.count - 1)).round()),
+                                above: 22,
                               ),
                             ],
                           ),
@@ -258,20 +261,27 @@ class ReaderPlayerBar extends StatelessWidget {
                       // On a narrower phone, sleep and save (both in Now
                       // Playing too) step aside before the row overflows
                       // (each takes 48 dp, as the voice keeps its room).
+                      // The chips are drawn 33 dp tall in a row 48 tall, a
+                      // tap anywhere up it theirs.
                       child: LayoutBuilder(
-                        builder: (context, box) => Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            _chip(context, '${trimSpeed(speed)}×', Icons.speed_rounded, onSpeed, tooltip: 'Speed'),
-                            if (onSleep != null && box.maxWidth >= 208)
-                              _small(context, sleepNote == null ? Icons.bedtime_outlined : Icons.bedtime_rounded,
-                                  'Sleep timer', onSleep!, lit: sleepNote != null),
-                            if (onSave != null && box.maxWidth >= 266)
-                              _small(context, Icons.bookmark_add_outlined, 'Save this line', onSave!),
-                            Flexible(
-                              child: _chip(context, voiceLabel, Icons.record_voice_over_rounded, onVoice, tooltip: 'Voice'),
+                        builder: (context, box) => ConstrainedBox(
+                          constraints: const BoxConstraints(minHeight: kMinInteractiveDimension),
+                          child: TapBand(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: [
+                                _chip(context, '${trimSpeed(speed)}×', Icons.speed_rounded, onSpeed, tooltip: 'Speed'),
+                                if (onSleep != null && box.maxWidth >= 208)
+                                  _small(context, sleepNote == null ? Icons.bedtime_outlined : Icons.bedtime_rounded,
+                                      'Sleep timer', onSleep!, lit: sleepNote != null),
+                                if (onSave != null && box.maxWidth >= 266)
+                                  _small(context, Icons.bookmark_add_outlined, 'Save this line', onSave!),
+                                Flexible(
+                                  child: _chip(context, voiceLabel, Icons.record_voice_over_rounded, onVoice, tooltip: 'Voice'),
+                                ),
+                              ],
                             ),
-                          ],
+                          ),
                         ),
                       ),
                     ),
@@ -321,38 +331,49 @@ class ReaderPlayerBar extends StatelessWidget {
                 Column(
                   children: [
                     _handle(context, above: Gap.m),
-                    Row(
-                      children: [
-                        _chip(context, '${trimSpeed(speed)}×', Icons.speed_rounded, onSpeed,
-                            tooltip: 'Speed'),
-                        Expanded(
-                          // A tap here is the handle's.
-                          child: IgnorePointer(
-                            child: Text(
-                              // With a sleep timer there is no room for all three.
-                              [
-                                if (sleepNote == null) '$pct%',
-                                partial ? '${durationLabel(minutes)} LEFT IN CHAPTER' : '${durationLabel(minutes)} LEFT',
-                                if (sleepNote != null) sleepNote!,
-                              ].join('  ·  '),
-                              textAlign: TextAlign.center,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Skin.meta(context, color: onDark.withValues(alpha: 0.62), size: 10.5),
+                    // The chips are drawn 33 dp tall: a tap in the strip over
+                    // them is theirs too, a finger's 48, and the rest of the
+                    // strip (the handle between them, and its top) still
+                    // opens Now Playing.
+                    TapBand(
+                      above: 15,
+                      child: Row(
+                        children: [
+                          _chip(context, '${trimSpeed(speed)}×', Icons.speed_rounded, onSpeed,
+                              tooltip: 'Speed'),
+                          Expanded(
+                            // A tap here is the handle's.
+                            child: IgnorePointer(
+                              child: Text(
+                                // With a sleep timer there is no room for all three.
+                                [
+                                  if (sleepNote == null) '$pct%',
+                                  partial ? '${durationLabel(minutes)} LEFT IN CHAPTER' : '${durationLabel(minutes)} LEFT',
+                                  if (sleepNote != null) sleepNote!,
+                                ].join('  ·  '),
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Skin.meta(context, color: onDark.withValues(alpha: 0.62), size: 10.5),
+                              ),
                             ),
                           ),
-                        ),
-                        _chip(context, voiceLabel, Icons.record_voice_over_rounded, onVoice,
-                            tooltip: 'Voice'),
-                      ],
+                          _chip(context, voiceLabel, Icons.record_voice_over_rounded, onVoice,
+                              tooltip: 'Voice'),
+                        ],
+                      ),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 6),
+              // Between the chips and the buttons' own 48 dp there is room
+              // for 39: the gap over it and the strip over the buttons.
               ChapterScrubber(
                 value: count <= 1 ? 0 : inChapter / (count - 1),
                 onSeek: count <= 1 ? null : (f) => onSeekInChapter(first + (f * (count - 1)).round()),
+                above: 6,
+                below: 7,
               ),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,

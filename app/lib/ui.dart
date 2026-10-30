@@ -2,11 +2,58 @@ import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show BoxHitTestResult, RenderProxyBox;
 
 import 'theme.dart';
 
 /// The shared pieces every screen is built from. Each exists once, so a
 /// search box, a setting or a choice looks the same wherever it appears.
+
+/// [child] laid out and drawn as it is, taking a tap anywhere in a band
+/// [above] dp over it and [below] dp under it: a control drawn thinner than
+/// a finger's 48 dp (a row of choices, a slider, a row of chips) reaches that
+/// tall. Each tap in the band is tried on the child's middle line, at the
+/// same place across, so a margin inside it counts too; one that finds
+/// nothing there goes on to what is behind. The band must lie in the
+/// parent's room (a parent passes on only a tap inside itself), and what is
+/// laid out after the child (below it, in a column) is asked first, so it
+/// keeps its own taps.
+class TapBand extends SingleChildRenderObjectWidget {
+  const TapBand({super.key, this.above = 0, this.below = 0, required super.child});
+
+  final double above;
+  final double below;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderTapBand(above, below);
+
+  @override
+  void updateRenderObject(BuildContext context, RenderObject renderObject) => (renderObject as _RenderTapBand)
+    ..above = above
+    ..below = below;
+}
+
+class _RenderTapBand extends RenderProxyBox {
+  _RenderTapBand(this.above, this.below);
+
+  double above;
+  double below;
+
+  @override
+  bool hitTest(BoxHitTestResult result, {required Offset position}) {
+    if (position.dx < 0 || position.dx >= size.width || position.dy < -above || position.dy >= size.height + below) {
+      return false;
+    }
+    // A drag begun in the band keeps the same shift, so a slider follows
+    // the finger across.
+    final middle = Offset(position.dx, size.height / 2);
+    return result.addWithPaintOffset(
+      offset: position - middle,
+      position: position,
+      hitTest: (result, at) => super.hitTest(result, position: at),
+    );
+  }
+}
 
 /// A section heading in Bodoni, with an optional quiet note on the right.
 class SectionTitle extends StatelessWidget {
@@ -152,95 +199,105 @@ class _ChoiceRowState<T> extends State<ChoiceRow<T>> {
     });
   }
 
+  // The segments are drawn 32 dp tall in a 38 dp track: a tap across the
+  // track, or a little past its edges, is the segment's under it, a finger's
+  // 48 dp in all.
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
-        builder: (context, c) {
-          final options = widget.options;
-          // Each segment as wide as its label needs (so "Newsreader" is not
-          // cut to "Newsrea…" beside "Sans"), sharing out what is left over.
-          final widths = [
-            for (final (_, label) in options)
-              ChoiceRow._segmentWidth(label, MediaQuery.textScalerOf(context)).clamp(widget.minSegment, 400.0),
-          ];
-          final needed = widths.fold<double>(6, (a, b) => a + b);
-          final fits = needed <= c.maxWidth;
-          // Where each segment is laid out, for the highlight behind it.
-          final flexes = [for (final w in widths) w.round()];
-          final flexSum = flexes.fold<int>(0, (a, b) => a + b);
-          final spans = fits ? [for (final f in flexes) (c.maxWidth - 6) * f / flexSum] : widths;
-          final selected = options.indexWhere((o) => o.$1 == widget.value);
-          if (selected >= 0) _last = selected;
-          final at = options.isEmpty ? 0 : _last.clamp(0, options.length - 1);
-          final left = spans.take(at).fold<double>(0, (a, b) => a + b);
-          final duration = Motion.of(context, Motion.standard);
-          final segments = [
-            for (var i = 0; i < options.length; i++)
-              _Segment(
-                label: options[i].$2,
-                selected: i == selected,
-                onTap: () => widget.onChanged(options[i].$1),
-                flex: fits ? flexes[i] : null,
-                width: fits ? null : widths[i],
-              ),
-          ];
-          final track = Container(
-            padding: const EdgeInsets.all(3),
-            constraints: BoxConstraints(minWidth: c.maxWidth),
-            // A row that scrolls has its ground on the window round it (below).
-            decoration: BoxDecoration(
-              color: fits ? Skin.raisedOn(context) : null,
-              borderRadius: BorderRadius.circular(Radii.pill),
-            ),
-            child: Stack(
-              children: [
-                if (options.isNotEmpty)
-                  AnimatedPositioned(
-                    duration: duration,
-                    curve: Motion.emphasized,
-                    left: left,
-                    width: spans[at],
-                    top: 0,
-                    bottom: 0,
-                    child: AnimatedOpacity(
-                      opacity: selected >= 0 ? 1 : 0,
-                      duration: duration,
-                      curve: Motion.out,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: Skin.accentOf(context),
-                          borderRadius: BorderRadius.circular(Radii.pill),
-                        ),
-                      ),
-                    ),
-                  ),
-                Row(
-                  mainAxisSize: fits ? MainAxisSize.max : MainAxisSize.min,
-                  children: segments,
-                ),
-              ],
-            ),
-          );
-          if (fits) return track;
-          if (selected >= 0) _reveal(selected, left, spans[at], c.maxWidth);
-          // Too many to fit: the segments scroll inside a pill that stays
-          // put (scrolling the pill itself cut its ends off square), and fade
-          // at the edge so it is plainly more than what shows.
-          return ClipRRect(
-            borderRadius: BorderRadius.circular(Radii.pill),
-            child: ColoredBox(
-              color: Skin.raisedOn(context),
-              child: ShaderMask(
-                blendMode: BlendMode.dstIn,
-                shaderCallback: (rect) => const LinearGradient(
-                  colors: [Colors.black, Colors.black, Colors.transparent],
-                  stops: [0, 0.88, 1],
-                ).createShader(rect),
-                child: SingleChildScrollView(controller: _scroll, scrollDirection: Axis.horizontal, child: track),
-              ),
-            ),
-          );
-        },
+  Widget build(BuildContext context) => TapBand(
+        above: _reach,
+        below: _reach,
+        child: LayoutBuilder(builder: _row),
       );
+
+  Widget _row(BuildContext context, BoxConstraints c) {
+    final options = widget.options;
+    // Each segment as wide as its label needs (so "Newsreader" is not
+    // cut to "Newsrea…" beside "Sans"), sharing out what is left over.
+    final widths = [
+      for (final (_, label) in options)
+        ChoiceRow._segmentWidth(label, MediaQuery.textScalerOf(context)).clamp(widget.minSegment, 400.0),
+    ];
+    final needed = widths.fold<double>(6, (a, b) => a + b);
+    final fits = needed <= c.maxWidth;
+    // Where each segment is laid out, for the highlight behind it.
+    final flexes = [for (final w in widths) w.round()];
+    final flexSum = flexes.fold<int>(0, (a, b) => a + b);
+    final spans = fits ? [for (final f in flexes) (c.maxWidth - 6) * f / flexSum] : widths;
+    final selected = options.indexWhere((o) => o.$1 == widget.value);
+    if (selected >= 0) _last = selected;
+    final at = options.isEmpty ? 0 : _last.clamp(0, options.length - 1);
+    final left = spans.take(at).fold<double>(0, (a, b) => a + b);
+    final duration = Motion.of(context, Motion.standard);
+    final segments = [
+      for (var i = 0; i < options.length; i++)
+        _Segment(
+          label: options[i].$2,
+          selected: i == selected,
+          onTap: () => widget.onChanged(options[i].$1),
+          flex: fits ? flexes[i] : null,
+          width: fits ? null : widths[i],
+        ),
+    ];
+    final track = Container(
+      padding: const EdgeInsets.all(3),
+      constraints: BoxConstraints(minWidth: c.maxWidth),
+      // A row that scrolls has its ground on the window round it (below).
+      decoration: BoxDecoration(
+        color: fits ? Skin.raisedOn(context) : null,
+        borderRadius: BorderRadius.circular(Radii.pill),
+      ),
+      child: Stack(
+        children: [
+          if (options.isNotEmpty)
+            AnimatedPositioned(
+              duration: duration,
+              curve: Motion.emphasized,
+              left: left,
+              width: spans[at],
+              top: 0,
+              bottom: 0,
+              child: AnimatedOpacity(
+                opacity: selected >= 0 ? 1 : 0,
+                duration: duration,
+                curve: Motion.out,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Skin.accentOf(context),
+                    borderRadius: BorderRadius.circular(Radii.pill),
+                  ),
+                ),
+              ),
+            ),
+          Row(
+            mainAxisSize: fits ? MainAxisSize.max : MainAxisSize.min,
+            children: segments,
+          ),
+        ],
+      ),
+    );
+    if (fits) return track;
+    if (selected >= 0) _reveal(selected, left, spans[at], c.maxWidth);
+    // Too many to fit: the segments scroll inside a pill that stays
+    // put (scrolling the pill itself cut its ends off square), and fade
+    // at the edge so it is plainly more than what shows.
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(Radii.pill),
+      child: ColoredBox(
+        color: Skin.raisedOn(context),
+        child: ShaderMask(
+          blendMode: BlendMode.dstIn,
+          shaderCallback: (rect) => const LinearGradient(
+            colors: [Colors.black, Colors.black, Colors.transparent],
+            stops: [0, 0.88, 1],
+          ).createShader(rect),
+          child: SingleChildScrollView(controller: _scroll, scrollDirection: Axis.horizontal, child: track),
+        ),
+      ),
+    );
+  }
+
+  /// How far past the track's edges a tap still picks a segment.
+  static const _reach = 5.0;
 }
 
 class _Segment extends StatelessWidget {
