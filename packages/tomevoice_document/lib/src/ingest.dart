@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 
 import 'detect.dart';
+import 'encoding.dart';
 import 'formats/epub.dart';
 import 'formats/fb2.dart';
 import 'formats/mobi.dart';
@@ -17,34 +18,41 @@ import 'model.dart';
 /// Turn file bytes into a [Book]. This is the only ingestion entry point the
 /// app should call, except for PDFs, whose text the platform extracts first
 /// (see [ingestPdfText]).
+///
+/// Text in an East Asian legacy encoding (GBK, Big5, Shift_JIS, EUC-JP/KR)
+/// is decoded by [legacyDecoder]; without one such a book fails with a
+/// [LegacyEncodingException]. A decoder that has to wait (a platform
+/// channel) goes through [ingestBytesAsync] instead.
 Book ingestBytes(
   Uint8List bytes, {
   String? filename,
   String? mime,
   String? id,
+  LegacyDecoder? legacyDecoder,
 }) {
   final kind = detectFormat(bytes, filename: filename, mime: mime);
   final bookId = id ?? bookIdOf(bytes);
+  final legacy = legacyDecoder;
 
   final Book book;
   switch (kind) {
     case SourceKind.epub:
-      book = parseEpub(bytes, id: bookId, filename: filename);
+      book = parseEpub(bytes, id: bookId, filename: filename, legacy: legacy);
     case SourceKind.docx:
       book = parseDocx(bytes, id: bookId, filename: filename);
     case SourceKind.odt:
       book = parseOdt(bytes, id: bookId, filename: filename);
     case SourceKind.fb2:
-      book = parseFb2(bytes, id: bookId, filename: filename);
+      book = parseFb2(bytes, id: bookId, filename: filename, legacy: legacy);
     case SourceKind.mobi:
       book = parseMobi(bytes, id: bookId, filename: filename);
     case SourceKind.rtf:
-      book = parseRtf(bytes, id: bookId, filename: filename);
+      book = parseRtf(bytes, id: bookId, filename: filename, legacy: legacy);
     case SourceKind.text:
     case SourceKind.markdown:
     case SourceKind.html:
       if (looksBinary(bytes)) throw _unknownFormat(filename);
-      book = parseText(bytes, id: bookId, filename: filename, kind: kind);
+      book = parseText(bytes, id: bookId, filename: filename, kind: kind, legacy: legacy);
     case SourceKind.pdf:
       throw const UnsupportedDocumentException(
         'PDF text has to be extracted on the device first; call ingestPdfText.',
@@ -54,6 +62,69 @@ Book ingestBytes(
       throw _unknownFormat(filename);
   }
   return _finish(book);
+}
+
+/// [ingestBytes] with a decoder that answers later, such as Android's
+/// java.nio Charset behind a platform channel. The file is parsed to learn
+/// which stretches need it, those are decoded, and it is parsed again with
+/// the answers: twice the work (rarely three times), but only for such
+/// books.
+Future<Book> ingestBytesAsync(
+  Uint8List bytes, {
+  String? filename,
+  String? mime,
+  String? id,
+  required Future<String> Function(Uint8List bytes, String charset) decodeLegacy,
+}) async {
+  final answers = _Answers();
+  for (var pass = 0;; pass++) {
+    final asked = <(Uint8List, String)>[];
+    Book? book;
+    Object? error;
+    StackTrace? trace;
+    try {
+      book = ingestBytes(bytes, filename: filename, mime: mime, id: id, legacyDecoder: (b, charset) {
+        final hit = answers.of(b, charset);
+        if (hit != null) return hit;
+        asked.add((Uint8List.fromList(b), charset));
+        // A stand-in for now; this pass is only finding out what to ask.
+        return '';
+      });
+    } on Object catch (e, s) {
+      error = e;
+      trace = s;
+    }
+    if (asked.isEmpty || pass >= 3) {
+      if (error != null) Error.throwWithStackTrace(error, trace!);
+      if (asked.isNotEmpty) throw LegacyEncodingException(asked.first.$2);
+      return book!;
+    }
+    for (final (b, charset) in asked) {
+      answers.add(b, charset, await decodeLegacy(b, charset));
+    }
+  }
+}
+
+/// Decoded stretches, found again by their bytes.
+class _Answers {
+  final _byKey = <(String, int, int), List<(Uint8List, String)>>{};
+
+  (String, int, int) _key(Uint8List b, String charset) =>
+      (charset, b.length, b.isEmpty ? 0 : Object.hash(b.first, b.last, b[b.length ~/ 2]));
+
+  void add(Uint8List b, String charset, String text) =>
+      (_byKey[_key(b, charset)] ??= []).add((b, text));
+
+  String? of(Uint8List b, String charset) {
+    for (final (bytes, text) in _byKey[_key(b, charset)] ?? const <(Uint8List, String)>[]) {
+      var same = true;
+      for (var i = 0; i < b.length && same; i++) {
+        same = bytes[i] == b[i];
+      }
+      if (same) return text;
+    }
+    return null;
+  }
 }
 
 /// A PDF, from the per-page text the platform extracted.

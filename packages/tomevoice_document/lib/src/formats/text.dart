@@ -1,7 +1,7 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
 import '../build.dart';
+import '../encoding.dart';
 import '../model.dart';
 import '../segment.dart';
 import 'html_blocks.dart';
@@ -11,8 +11,17 @@ Book parseText(
   required String id,
   String? filename,
   SourceKind kind = SourceKind.text,
+  LegacyDecoder? legacy,
 }) =>
-    parseTextString(decodeText(bytes), id: id, filename: filename, kind: kind);
+    parseTextString(
+      decodeText(bytes, legacy: legacy, markup: kind == SourceKind.html),
+      id: id,
+      filename: filename,
+      kind: kind,
+    );
+
+/// Noncharacters TomeVoice uses inside its own pipeline; never book text.
+final _ownMarks = RegExp('[${String.fromCharCode(0xFDD0)}-${String.fromCharCode(0xFDD2)}]');
 
 Book parseTextString(
   String raw, {
@@ -20,7 +29,7 @@ Book parseTextString(
   String? filename,
   SourceKind kind = SourceKind.text,
 }) {
-  raw = raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+  raw = raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n').replaceAll(_ownMarks, '');
   resetBlockIds();
   final title = titleFromFilename(filename) ?? _firstLineTitle(raw) ?? 'Untitled';
   final metadata = BookMetadata(title: title);
@@ -217,66 +226,16 @@ String _stripInlineMarkdown(String s) => s
         (m) => m.group(1)!)
     .replaceAll('`', '');
 
-/// Bytes to text: BOMs first, then strict UTF-8, then UTF-16 without a BOM
-/// (common for files saved by Windows Notepad), then Windows-1252.
-String decodeText(Uint8List bytes) {
-  if (bytes.length >= 3 &&
-      bytes[0] == 0xEF &&
-      bytes[1] == 0xBB &&
-      bytes[2] == 0xBF) {
-    return utf8.decode(bytes.sublist(3), allowMalformed: true);
-  }
-  if (bytes.length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE) {
-    return _utf16(bytes, 2, littleEndian: true);
-  }
-  if (bytes.length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF) {
-    return _utf16(bytes, 2, littleEndian: false);
-  }
-  try {
-    return utf8.decode(bytes);
-  } on FormatException {
-    // Fall through.
-  }
-  if (bytes.length >= 4) {
-    var zeroOdd = 0, zeroEven = 0;
-    final n = bytes.length < 4000 ? bytes.length : 4000;
-    for (var i = 0; i < n; i++) {
-      if (bytes[i] != 0) continue;
-      if (i.isOdd) {
-        zeroOdd++;
-      } else {
-        zeroEven++;
-      }
-    }
-    if (zeroOdd > n / 5) return _utf16(bytes, 0, littleEndian: true);
-    if (zeroEven > n / 5) return _utf16(bytes, 0, littleEndian: false);
-  }
-  return decodeCp1252(bytes);
-}
-
-String _utf16(Uint8List bytes, int offset, {required bool littleEndian}) {
-  final units = <int>[];
-  for (var i = offset; i + 1 < bytes.length; i += 2) {
-    units.add(littleEndian
-        ? bytes[i] | (bytes[i + 1] << 8)
-        : (bytes[i] << 8) | bytes[i + 1]);
-  }
-  return String.fromCharCodes(units);
-}
+/// Bytes to text: a byte order mark, then (for HTML) the charset it
+/// declares, then UTF-8 when the bytes are mostly UTF-8, then UTF-16
+/// without a mark, an East Asian encoding through [legacy], a Cyrillic code
+/// page, and Windows-1252. See [decodeBytes].
+String decodeText(Uint8List bytes, {LegacyDecoder? legacy, bool markup = false}) =>
+    decodeBytes(bytes, markup: markup, legacy: legacy);
 
 /// Windows-1252: Latin-1 plus curly quotes and dashes in 0x80-0x9F, which is
 /// what nearly every "ANSI" text file actually is.
-String decodeCp1252(List<int> bytes) {
-  const high = [
-    0x20AC, 0x81, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, //
-    0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0x8D, 0x017D, 0x8F,
-    0x90, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014,
-    0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x9D, 0x017E, 0x0178,
-  ];
-  return String.fromCharCodes([
-    for (final b in bytes) b >= 0x80 && b < 0xA0 ? high[b - 0x80] : b,
-  ]);
-}
+String decodeCp1252(List<int> bytes) => decodeSingleByte(bytes, 'windows-1252');
 
 String? _firstLineTitle(String raw) {
   for (final line in raw.split('\n')) {

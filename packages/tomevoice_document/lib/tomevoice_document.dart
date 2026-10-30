@@ -5,6 +5,7 @@ library;
 
 export 'src/build.dart';
 export 'src/detect.dart';
+export 'src/encoding.dart';
 export 'src/formats/epub.dart';
 export 'src/formats/fb2.dart';
 export 'src/formats/html_blocks.dart';

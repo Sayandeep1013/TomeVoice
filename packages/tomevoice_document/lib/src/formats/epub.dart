@@ -1,16 +1,16 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:xml/xml.dart';
 
 import '../build.dart';
+import '../encoding.dart';
 import '../image_size.dart';
 import '../model.dart';
 import '../segment.dart';
 import 'html_blocks.dart';
 
-Book parseEpub(Uint8List bytes, {required String id, String? filename}) {
+Book parseEpub(Uint8List bytes, {required String id, String? filename, LegacyDecoder? legacy}) {
   Archive archive;
   try {
     archive = ZipDecoder().decodeBytes(bytes, verify: false);
@@ -52,7 +52,7 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename}) {
   // Each spine document's text, read once. Before any is parsed, their
   // marker links say which ids in later documents are notes (an endnotes
   // file at the back): a link that points back is a note's way home.
-  final texts = <String?>[for (final h in spineHrefs) _read(archive, h)];
+  final texts = <String?>[for (final h in spineHrefs) _read(archive, h, legacy)];
   final notes = _noteTargets(spineHrefs, texts);
 
   resetBlockIds();
@@ -165,14 +165,23 @@ String _decodeHref(String s) {
   }
 }
 
-String? _read(Archive archive, String path) {
+/// The text of [path] in the EPUB, in the encoding it declares (XHTML in
+/// ISO-8859-1 or windows-1252 came out full of U+FFFD as UTF-8).
+String? _read(Archive archive, String path, [LegacyDecoder? legacy]) {
+  final f = _entry(archive, path);
+  if (f == null) return null;
+  final data = f.readBytes();
+  if (data == null || data.isEmpty) return null;
+  return decodeBytes(data, markup: true, legacy: legacy);
+}
+
+ArchiveFile? _entry(Archive archive, String path) {
   final normalised = path.replaceAll('\\', '/');
+  final f = archive.findFile(normalised);
+  if (f != null) return f.isFile ? f : null;
+  // Zips written on Windows can name entries with backslashes.
   for (final f in archive.files) {
-    if (f.name.replaceAll('\\', '/') == normalised && f.isFile) {
-      final data = f.readBytes();
-      if (data == null || data.isEmpty) return null;
-      return utf8.decode(data, allowMalformed: true);
-    }
+    if (f.isFile && f.name.replaceAll('\\', '/') == normalised) return f;
   }
   return null;
 }

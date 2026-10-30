@@ -5,6 +5,7 @@ import 'package:archive/archive.dart';
 import 'package:xml/xml.dart';
 
 import '../build.dart';
+import '../encoding.dart';
 import '../model.dart';
 import '../segment.dart';
 
@@ -254,7 +255,7 @@ XmlDocument? _xml(Archive archive, String path) {
   final data = f.readBytes();
   if (data == null || data.isEmpty) return null;
   try {
-    return XmlDocument.parse(utf8.decode(data, allowMalformed: true));
+    return XmlDocument.parse(decodeBytes(Uint8List.fromList(data), markup: true));
   } on XmlException {
     return null;
   }
