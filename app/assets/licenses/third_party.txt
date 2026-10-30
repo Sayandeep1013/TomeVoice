@@ -72,4 +72,12 @@ Includes ONNX Runtime (MIT) and eSpeak NG data (GPL-3.0-or-later).
 Piper voices (downloaded on request, not part of the app)
 https://github.com/rhasspy/piper
 Each voice keeps the licence of the recordings it was trained on, given
-in the MODEL_CARD that comes with it in voices/<name>/ on the phone.
+in the MODEL_CARD that comes with it in voices/<name>/ on the phone, and
+shown beside it in Settings > Listening > Natural voices.
+
+Kokoro-82M (downloaded on request, not part of the app), Apache License 2.0
+https://huggingface.co/hexgrad/Kokoro-82M
+
+Kitten TTS nano 0.8 (downloaded on request, not part of the app),
+Apache License 2.0
+https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32
