@@ -191,34 +191,45 @@ Book bookFromPdfText({
   // pause at every line break. A paragraph continues into the next one unless
   // it ends a sentence or is a heading. This also joins a paragraph that runs
   // over a page break; the joined text stays on the page where it started.
+  // A paragraph keeps its lines and is joined once, when it ends: joined as
+  // it grew, a long one was copied again for every page it ran over, and a
+  // word broken by a soft hyphen at a page's foot lost the hyphen first.
   final paras = <_Para>[];
+  _Open? open;
   // A page's footnotes follow the paragraph they hang from, which may run on
   // to the next page.
   var waiting = <_Para>[];
+  void close() {
+    if (open != null) paras.add(_Para(open!.page, joinWrappedLines(open!.lines)));
+    open = null;
+    paras.addAll(waiting);
+    waiting = [];
+  }
+
   for (var p = 0; p < lines.length; p++) {
     // A printed table of contents is read line by line, and none of its
     // lines is a heading: they name chapters that come later.
     final contents = _isContentsPage(lines[p]);
-    for (final text in _paragraphs(lines[p], lineByLine: contents)) {
-      final last = paras.isEmpty ? null : paras.last;
+    for (final group in _paragraphs(lines[p], lineByLine: contents)) {
+      final text = joinWrappedLines(group);
+      if (text.isEmpty) continue;
       // A bookmarked chapter's printed title starts a paragraph of its own.
       final opensChapter = titlesOn[p]?.any((t) => _isTitle(text, t)) ?? false;
-      if (!contents &&
-          !opensChapter &&
-          last != null &&
-          !last.fixed &&
-          _continues(last.text, text)) {
-        paras[paras.length - 1] = _Para(last.page, joinWrappedLines([last.text, text]));
+      final current = open;
+      if (!contents && !opensChapter && current != null && _continues(current, text)) {
+        current.add(group);
+        continue;
+      }
+      close();
+      if (contents) {
+        paras.add(_Para(p, text, role: BlockRole.paragraph));
       } else {
-        paras
-          ..addAll(waiting)
-          ..add(contents ? _Para(p, text, role: BlockRole.paragraph, fixed: true) : _Para(p, text));
-        waiting = [];
+        open = _Open(p)..add(group);
       }
     }
-    waiting.addAll([for (final n in notes[p]) _Para(p, n, role: BlockRole.footnote, fixed: true)]);
+    waiting.addAll([for (final n in notes[p]) _Para(p, n, role: BlockRole.footnote)]);
   }
-  paras.addAll(waiting);
+  close();
 
   return assembleBook(
     id: id,
@@ -301,16 +312,13 @@ class _Line {
 
 /// A paragraph of the reflowed text and the page it starts on.
 class _Para {
-  const _Para(this.page, this.text, {this.role, this.fixed = false});
+  const _Para(this.page, this.text, {this.role});
   final int page;
   final String text;
 
-  /// Set when the role is already known; otherwise a chapter line is a
-  /// heading.
+  /// Set when the role is already known (a footnote, a line of a contents
+  /// page); otherwise a chapter line is a heading.
   final BlockRole? role;
-
-  /// Never joined to the paragraphs around it.
-  final bool fixed;
 }
 
 /// Numbers per line in the platform's layout (see PdfText.kt): x, baseline y
@@ -505,23 +513,33 @@ final _noteMark = RegExp(
   );
 }
 
-/// The page's paragraphs: lines joined within each of the extractor's
-/// paragraphs, or one paragraph per line when [lineByLine].
-List<String> _paragraphs(List<_Line> lines, {required bool lineByLine}) {
-  final out = <String>[];
-  var group = <String>[];
-  void flush() {
-    final text = joinWrappedLines(group);
-    if (text.isNotEmpty) out.add(text);
-    group = [];
+/// The page's paragraphs as groups of lines: the lines of each of the
+/// extractor's paragraphs, or one line each when [lineByLine].
+List<List<String>> _paragraphs(List<_Line> lines, {required bool lineByLine}) {
+  final out = <List<String>>[];
+  for (var i = 0; i < lines.length; i++) {
+    if (i == 0 || lineByLine || lines[i].para != lines[i - 1].para) out.add([]);
+    out.last.add(lines[i].text);
+  }
+  return out;
+}
+
+/// The paragraph being reflowed: the page it starts on, and its lines so far.
+class _Open {
+  _Open(this.page);
+  final int page;
+  final lines = <String>[];
+  var _length = -1;
+
+  void add(List<String> group) {
+    lines.addAll(group);
+    for (final l in group) {
+      _length += l.length + 1;
+    }
   }
 
-  for (var i = 0; i < lines.length; i++) {
-    if (i > 0 && (lineByLine || lines[i].para != lines[i - 1].para)) flush();
-    group.add(lines[i].text);
-  }
-  flush();
-  return out;
+  /// The length of its text: exact while it is short enough to matter.
+  int get length => _length < 120 ? joinWrappedLines(lines).length : _length;
 }
 
 /// How many pages either side of a page to look for its running head again.
@@ -778,12 +796,17 @@ bool _isContentsPage(List<_Line> page) {
 }
 
 /// Does [next] carry on the paragraph that [prev] started?
-bool _continues(String prev, String next) {
-  if (RegExp(r'[.!?।…"”’:;)\]]$').hasMatch(prev)) return false;
-  if (looksLikeChapterLine(prev) || looksLikeChapterLine(next)) return false;
+bool _continues(_Open prev, String next) {
+  if (RegExp(r'[.!?।…"”’:;)\]]$').hasMatch(prev.lines.last)) return false;
+  final length = prev.length;
+  // A chapter line is never longer than 90 characters.
+  if (looksLikeChapterLine(next) ||
+      (length <= 90 && looksLikeChapterLine(joinWrappedLines(prev.lines)))) {
+    return false;
+  }
   if (_lowerFirst.hasMatch(next)) return true;
   // A short line before a capital is a title, or a line of verse.
-  return prev.length >= 40;
+  return length >= 40;
 }
 
 /// Lower case in any script that has it: "word" and "слово" both run on.

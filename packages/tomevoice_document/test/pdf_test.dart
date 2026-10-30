@@ -327,6 +327,21 @@ void main() {
       expect(joinWrappedLines(['a dash --', 'then more']), 'a dash -- then more');
     });
 
+    test('a word broken by a soft hyphen at the foot of a page is mended', () {
+      final book = ingestPdfText(id: 'x', pages: [
+        _page([
+          ['The keeper had kept the lamp for thirty years, and all that time the exam$soft'],
+        ]),
+        _page([
+          ['ple he set was followed by every keeper who came after him.'],
+        ]),
+      ]);
+      expect(_texts(book), [
+        'The keeper had kept the lamp for thirty years, and all that time the example '
+            'he set was followed by every keeper who came after him.',
+      ]);
+    });
+
     test('a PDF paragraph broken before a lower-case Cyrillic word runs on', () {
       final book = ingestPdfText(id: 'x', pages: [
         '$_mОн смотрел на море и думал, что\n'
