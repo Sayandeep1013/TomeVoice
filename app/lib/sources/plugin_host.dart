@@ -48,6 +48,11 @@ class SourceException implements Exception {
   String toString() => message;
 }
 
+/// A page as the phone's web view gets it, or null: for sites whose
+/// Cloudflare turns away the app's own requests but lets a browser in. A
+/// POST ([method]) sends [body] as a form, the one kind the web view posts.
+typedef BrowserFetch = Future<String?> Function(String url, {String method, String? body});
+
 /// The site answered with a browser check (Cloudflare) instead of itself.
 /// Passing it once in a web view ([url]) lets the requests through.
 /// [pluginId]: the source that met it, whose cookies the check's go with.
@@ -177,9 +182,8 @@ class PluginHost {
   /// Where plugins' storage files live.
   final String sourcesDir;
 
-  /// A page's HTML as the phone's web view gets it, or null: for sites whose
-  /// Cloudflare turns away the app's own requests but lets a browser in.
-  final Future<String?> Function(String url)? viaBrowser;
+  /// A page's HTML as the phone's web view gets it (see [BrowserFetch]).
+  final BrowserFetch? viaBrowser;
 
   final int maxLive;
 
@@ -334,26 +338,31 @@ class PluginHost {
     }
     final method = (req['method'] as String? ?? 'GET').toUpperCase();
     final host = Uri.tryParse(url)?.host ?? '';
-    // Only the plugin's own site may be fetched through the web view, which
-    // keeps every site's cookies (logins too) in one place.
-    final browser = method == 'GET' && sameSite(host, p.site) ? viaBrowser : null;
+    final body = req['body'] as String?;
+    // A POST goes through the web view only as a form, the one kind it can
+    // send. Only the plugin's own site may be fetched there, which keeps
+    // every site's cookies (logins too) in one place.
+    final contentType = headers.entries.where((e) => e.key.toLowerCase() == 'content-type').firstOrNull?.value;
+    final form = method == 'POST' && (contentType == null || contentType.contains('x-www-form-urlencoded'));
+    final browser = (method == 'GET' || form) && sameSite(host, p.site) ? viaBrowser : null;
+    Future<String?> viaWebView() => browser!(url, method: method, body: body);
     try {
       if (browser != null && _browserHosts.contains(host)) {
         // The web view is held to the open internet as the app's own
         // requests are.
         await Net.vet(host);
-        final html = await browser(url);
+        final html = await viaWebView();
         if (html != null) return _page(url, html);
       }
       final r = await Net.instance.request(
         url,
         method: method,
         headers: headers,
-        body: req['body'] as String?,
+        body: body,
         partition: p.id,
       );
       if (r.isChallenge && browser != null) {
-        final html = await browser(url);
+        final html = await viaWebView();
         if (html != null) {
           if (_browserHosts.add(host)) onBrowserHost?.call(host);
           return _page(url, html);

@@ -320,14 +320,16 @@ class _Worker {
     // The main isolate keeps the cookie file; this one reads it, and sends
     // what sites set there.
     Net.instance.forwardCookiesTo(boot[8] as SendPort);
-    // The platform channel, for pages only the phone's web view gets.
-    Future<String?> Function(String)? viaBrowser;
+    // The platform channel, for pages only the phone's web view gets (none
+    // in the background check's engine, which has no activity: null there).
+    BrowserFetch? viaBrowser;
     if (boot[6] case final RootIsolateToken token) {
       BackgroundIsolateBinaryMessenger.ensureInitialized(token);
-      const channel = MethodChannel('tomevoice/tts');
-      viaBrowser = (url) async {
+      const channel = MethodChannel('tomevoice/sources');
+      viaBrowser = (url, {method = 'GET', body}) async {
         try {
-          return await channel.invokeMethod<String>('browserFetch', {'url': url, 'userAgent': Net.userAgent});
+          return await channel.invokeMethod<String>(
+              'browserFetch', {'url': url, 'userAgent': Net.userAgent, 'method': method, 'body': body});
         } on Object {
           return null;
         }

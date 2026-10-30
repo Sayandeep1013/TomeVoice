@@ -109,13 +109,19 @@ object BrowserCheck {
         val poll = object : Runnable {
             override fun run() {
                 if (finished) return
-                calm = if (!isCheck(web.title) && web.progress == 100) calm + 1 else 0
-                if (calm >= 2) {
-                    finish(true)
-                } else if (System.currentTimeMillis() - started > 180_000) {
+                if (System.currentTimeMillis() - started > 180_000) {
                     finish(false)
-                } else {
+                    return
+                }
+                if (web.progress < 100) {
+                    calm = 0
                     main.postDelayed(this, 500)
+                    return
+                }
+                val again = this
+                isCheckPage(web) { check ->
+                    calm = if (check) 0 else calm + 1
+                    if (calm >= 2) finish(true) else if (!finished) main.postDelayed(again, 500)
                 }
             }
         }
@@ -127,10 +133,32 @@ object BrowserCheck {
         main.postDelayed(poll, 1000)
     }
 
+    /** An English check page's title; the markup ([CHECK_JS]) tells in any language. */
     fun isCheck(title: String?): Boolean {
         val t = title ?: return true
         return t.isEmpty() || t.contains("Just a moment", true) ||
             t.contains("Attention Required", true) || t.contains("Checking your browser", true)
+    }
+
+    /**
+     * True when the page is a Cloudflare challenge, by what every one of them
+     * carries whatever its language: the challenge platform's script and
+     * options, or the old check's form. Its title was English-only.
+     */
+    private const val CHECK_JS = """(function () {
+  try {
+    if (window._cf_chl_opt) return true;
+    return !!document.querySelector('script[src*="/cdn-cgi/challenge-platform/"], #challenge-form, ' +
+      '#challenge-running, #challenge-stage, #cf-challenge-running, .cf-browser-verification, ' +
+      '#cf-please-wait, #turnstile-wrapper, iframe[src*="challenges.cloudflare.com"]');
+  } catch (e) {
+    return true;
+  }
+})()"""
+
+    /** Whether [web]'s page is a check: its markup, or (English) its title. */
+    private fun isCheckPage(web: WebView, answer: (Boolean) -> Unit) {
+        web.evaluateJavascript(CHECK_JS) { raw -> answer(raw != "false" || isCheck(web.title)) }
     }
 
     private val queue = ArrayDeque<() -> Unit>()
@@ -139,16 +167,24 @@ object BrowserCheck {
     /**
      * Load [url] in a web view nobody sees and hand back its HTML once it is
      * the site and not a check: for sites whose Cloudflare refuses the app's
-     * own requests whatever cookies they carry. One page at a time; null if
-     * the page is still a check after 25 seconds (the visible check is then
-     * the way through).
+     * own requests whatever cookies they carry. A POST ([method]) sends
+     * [body] as a form, the one kind a web view can post. One page at a
+     * time; null if the page is still a check after 25 seconds (the visible
+     * check is then the way through).
      */
-    fun fetch(activity: Activity, url: String, userAgent: String, done: (String?) -> Unit) {
-        if (!isWebPage(url)) {
+    fun fetch(
+        activity: Activity,
+        url: String,
+        userAgent: String,
+        method: String = "GET",
+        body: String? = null,
+        done: (String?) -> Unit,
+    ) {
+        if (!isWebPage(url) || (method != "GET" && method != "POST")) {
             done(null)
             return
         }
-        queue.addLast { load(activity, url, userAgent) { html -> done(html); next() } }
+        queue.addLast { load(activity, url, userAgent, method, body) { html -> done(html); next() } }
         if (!fetching) next()
     }
 
@@ -159,7 +195,7 @@ object BrowserCheck {
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private fun load(activity: Activity, url: String, userAgent: String, done: (String?) -> Unit) {
+    private fun load(activity: Activity, url: String, userAgent: String, method: String, body: String?, done: (String?) -> Unit) {
         val main = Handler(Looper.getMainLooper())
         val web = WebView(activity)
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
@@ -189,19 +225,33 @@ object BrowserCheck {
         val poll = object : Runnable {
             override fun run() {
                 if (finished) return
-                if (web.progress == 100 && !isCheck(web.title)) {
-                    web.evaluateJavascript("document.documentElement.outerHTML") { raw ->
-                        finish(if (raw == null || raw == "null") null else org.json.JSONArray("[$raw]").getString(0))
-                    }
-                } else if (System.currentTimeMillis() - started > 25_000) {
+                if (System.currentTimeMillis() - started > 25_000) {
                     finish(null)
-                } else {
+                    return
+                }
+                if (web.progress < 100) {
                     main.postDelayed(this, 400)
+                    return
+                }
+                val again = this
+                isCheckPage(web) { check ->
+                    if (finished) return@isCheckPage
+                    if (check) {
+                        main.postDelayed(again, 400)
+                    } else {
+                        web.evaluateJavascript("document.documentElement.outerHTML") { raw ->
+                            finish(if (raw == null || raw == "null") null else org.json.JSONArray("[$raw]").getString(0))
+                        }
+                    }
                 }
             }
         }
         web.webViewClient = object : WebViewClient() {}
-        web.loadUrl(url)
+        if (method == "POST") {
+            web.postUrl(url, (body ?: "").toByteArray(Charsets.UTF_8))
+        } else {
+            web.loadUrl(url)
+        }
         main.postDelayed(poll, 800)
     }
 }

@@ -56,10 +56,27 @@ class NetResponse {
     return utf8.decode(bytes, allowMalformed: true);
   }
 
-  /// A Cloudflare "checking your browser" page instead of the site.
-  bool get isChallenge =>
-      (status == 403 || status == 503) &&
-      (headers['cf-mitigated'] == 'challenge' || headers['server']?.toLowerCase() == 'cloudflare');
+  /// A Cloudflare "checking your browser" page instead of the site: said by
+  /// its cf-mitigated header, or a 403 or 503 from Cloudflare carrying a
+  /// challenge's own markup (its title is in the reader's language, so it
+  /// is not looked at). A plain 403 from Cloudflare (a page that is gone,
+  /// a blocked country) is the site's answer, not a check.
+  bool get isChallenge {
+    if (headers['cf-mitigated']?.toLowerCase() == 'challenge') return true;
+    if (status != 403 && status != 503) return false;
+    final server = headers['server']?.toLowerCase() ?? '';
+    if (!server.contains('cloudflare') && !headers.containsKey('cf-ray')) return false;
+    final head = latin1.decode(bytes.length > 65536 ? bytes.sublist(0, 65536) : bytes, allowInvalid: true);
+    return challengeMarkup.hasMatch(head);
+  }
+
+  /// What every Cloudflare challenge page carries, whatever its language:
+  /// the challenge platform's script and options, or the old check's form.
+  static final challengeMarkup = RegExp(
+    r'/cdn-cgi/challenge-platform/|_cf_chl_opt|id="challenge-(form|running|stage|error-text)"|'
+    r'cf-browser-verification|id="cf-please-wait"|challenges\.cloudflare\.com',
+    caseSensitive: false,
+  );
 
   static String? _charsetOf(String? contentType) {
     if (contentType == null) return null;

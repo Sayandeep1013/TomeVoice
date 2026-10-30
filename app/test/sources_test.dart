@@ -89,8 +89,17 @@ exports.default = {
       JSON.parse = function () { return { status: 200, body: "hijacked" }; };
       return Promise.resolve([]);
     }
+    var init;
+    if (term.indexOf("form:") === 0) {
+      var fd = new FormData(); fd.append("q", "dragons");
+      init = { method: "POST", body: fd };
+      term = term.substring(5);
+    } else if (term.indexOf("json:") === 0) {
+      init = { method: "POST", body: JSON.stringify({ q: "dragons" }), headers: { "Content-Type": "application/json" } };
+      term = term.substring(5);
+    }
     var url = term.indexOf(":") > 0 ? term : this.site + term;
-    return fetch_1.fetchApi(url).then(function (r) {
+    return fetch_1.fetchApi(url, init).then(function (r) {
       return r.text().then(function (body) { return [{ name: r.status + ":" + body, path: "x" }]; });
     });
   },
@@ -176,7 +185,7 @@ bool _hasEngine() {
   }
 }
 
-PluginHost _host(Directory dir, {Future<String?> Function(String url)? viaBrowser, int maxLive = 4}) => PluginHost(
+PluginHost _host(Directory dir, {BrowserFetch? viaBrowser, int maxLive = 4}) => PluginHost(
       createJsRuntime,
       libs: File('assets/js/lnreader_libs.js').readAsStringSync(),
       shim: File('assets/js/lnreader_shim.js').readAsStringSync(),
@@ -209,7 +218,7 @@ void main() {
     var browserOn = false;
     host = _host(
       dir,
-      viaBrowser: (url) async =>
+      viaBrowser: (url, {method = 'GET', body}) async =>
           browserOn ? '<ul><li class="novel"><a href="novel/7">Seen by the browser</a></li></ul>' : null,
     );
     host.ensure('fake', '1.0.0', code.path, site: site);
@@ -260,9 +269,9 @@ void main() {
     final server = await _site();
     final dir = Directory.systemTemp.createTempSync('tv_isolation');
     var browserAsked = 0;
-    final host = _host(dir, viaBrowser: (url) async {
+    final host = _host(dir, viaBrowser: (url, {method = 'GET', body}) async {
       browserAsked++;
-      return '<p>through the browser</p>';
+      return method == 'POST' ? '<p>posted $body</p>' : '<p>through the browser</p>';
     });
     addTearDown(() async {
       await server.close(force: true);
@@ -297,11 +306,29 @@ void main() {
     expect(browserAsked, 1);
     await expectLater(ask('a', 'http://localhost:${server.port}/blocked'), throwsA(isA<ChallengeException>()));
     expect(browserAsked, 1);
+    // A form POST goes through it too; a JSON one cannot (it posts forms only).
+    expect(await ask('c', 'form:blocked'), '200:<p>posted q=dragons</p>');
+    await expectLater(ask('c', 'json:http://localhost:${server.port}/blocked'), throwsA(isA<ChallengeException>()));
 
     // Nothing but web pages, and nothing on the phone or its network.
     expect(await ask('c', 'file:///etc/hosts'), startsWith('0:'));
     Net.allowPrivateAddresses = false;
     expect(await ask('c', 'echo-cookie'), startsWith('0:'));
+  });
+
+  test("a browser check is told by its markup, in any language, not by Cloudflare's name alone", () {
+    NetResponse page(int status, Map<String, String> headers, String body) =>
+        NetResponse(status: status, url: 'u', headers: headers, bytes: utf8.encode(body));
+    const cf = {'server': 'cloudflare', 'cf-ray': '1'};
+    // Russian title, the challenge platform's script.
+    expect(
+        page(403, cf, '<title>Одну минуту…</title><script src="/cdn-cgi/challenge-platform/h/b/orchestrate/x.js"></script>')
+            .isChallenge,
+        isTrue);
+    expect(page(503, cf, '<script>window._cf_chl_opt={cvId:"3"}</script>').isChallenge, isTrue);
+    expect(page(200, const {'cf-mitigated': 'challenge'}, '').isChallenge, isTrue);
+    expect(page(403, cf, '<h1>Error 1020: Access denied</h1>').isChallenge, isFalse, reason: "the site's own answer");
+    expect(page(403, const {'server': 'nginx'}, 'challenge-platform').isChallenge, isFalse);
   });
 
   test('only addresses on the open internet are asked', () {

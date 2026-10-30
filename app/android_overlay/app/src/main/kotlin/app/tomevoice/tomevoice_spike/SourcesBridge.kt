@@ -65,6 +65,29 @@ object SourcesBridge {
                     onDone?.invoke(args)
                 }
                 "backgroundBusy" -> result.success(NovelCheckWorker.running.get())
+                // A page through the web view, for sites that turn the app's
+                // own requests away (a POST is sent as a form). Only with the
+                // app's activity: the background check has none.
+                "browserFetch" -> {
+                    val a = activity
+                    val url = call.argument<String>("url")
+                    val agent = call.argument<String>("userAgent")
+                    if (a == null || url == null || agent == null) {
+                        result.success(null)
+                    } else {
+                        try {
+                            BrowserCheck.fetch(
+                                a,
+                                url,
+                                agent,
+                                call.argument<String>("method") ?: "GET",
+                                call.argument<String>("body"),
+                            ) { html -> result.success(html) }
+                        } catch (e: Exception) {
+                            result.success(null)
+                        }
+                    }
+                }
                 "clearWebCookies" -> {
                     // The web view's cookies (browser checks, logins): all of
                     // them, or one site's ([url]) as far as it can be told.
