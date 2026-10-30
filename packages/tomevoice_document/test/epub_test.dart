@@ -97,6 +97,148 @@ void main() {
     });
   });
 
+  group('chapters follow the contents', () {
+    String nav(String items) => xhtml('<nav epub:type="toc"><ol>$items</ol></nav>');
+    const x = 'application/xhtml+xml';
+
+    test('one file with five anchors is five chapters', () {
+      final body = [
+        for (var i = 1; i <= 5; i++) '<h2 id="ch$i">Chapter $i</h2>${chapterText('Chapter $i')}',
+      ].join();
+      final book = ingestBytes(
+        epubOf({
+          'OEBPS/content.opf': opfOf([('nav', 'nav.xhtml', x, 'nav'), ('all', 'all.xhtml', x, null)], ['all']),
+          'OEBPS/nav.xhtml': nav([for (var i = 1; i <= 5; i++) '<li><a href="all.xhtml#ch$i">Chapter $i</a></li>'].join()),
+          'OEBPS/all.xhtml': xhtml(body),
+        }),
+        filename: 'one-file.epub',
+      );
+      expect(_chapterTitles(book), ['Chapter 1', 'Chapter 2', 'Chapter 3', 'Chapter 4', 'Chapter 5']);
+      expect(book.sections.map((s) => s.blocks.first.text), ['Chapter 1', 'Chapter 2', 'Chapter 3', 'Chapter 4', 'Chapter 5']);
+    });
+
+    test('a nested contents names chapters with their part', () {
+      final book = ingestBytes(
+        epubOf({
+          'OEBPS/content.opf': opfOf([
+            ('nav', 'nav.xhtml', x, 'nav'),
+            for (final f in ['p1', 'a1', 'a2', 'p2', 'b1', 'b2']) (f, '$f.xhtml', x, null),
+          ], ['p1', 'a1', 'a2', 'p2', 'b1', 'b2']),
+          'OEBPS/nav.xhtml': nav('<li><a href="p1.xhtml">Part I</a><ol>'
+              '<li><a href="a1.xhtml">I</a></li><li><a href="a2.xhtml">II</a></li></ol></li>'
+              '<li><span>Part II</span><ol>'
+              '<li><a href="b1.xhtml">I</a></li><li><a href="b2.xhtml">II</a></li></ol></li>'),
+          'OEBPS/p1.xhtml': xhtml('<h1>Part I</h1>'),
+          'OEBPS/a1.xhtml': xhtml('<h2>I</h2>${chapterText('Part one, first')}'),
+          'OEBPS/a2.xhtml': xhtml('<h2>II</h2>${chapterText('Part one, second')}'),
+          'OEBPS/p2.xhtml': xhtml('<h1>Part II</h1>'),
+          'OEBPS/b1.xhtml': xhtml('<h2>I</h2>${chapterText('Part two, first')}'),
+          'OEBPS/b2.xhtml': xhtml('<h2>II</h2>${chapterText('Part two, second')}'),
+        }),
+        filename: 'parts.epub',
+      );
+      expect(_chapterTitles(book), ['Part I · I', 'Part I · II', 'Part II · I', 'Part II · II']);
+    });
+
+    test('a flat contents with parts, and a chapter it forgot (Crime and Punishment)', () {
+      final book = ingestBytes(
+        epubOf({
+          'OEBPS/content.opf': opfOf([
+            ('nav', 'nav.xhtml', x, 'nav'),
+            for (final f in ['d1', 'c1', 'c2', 'c3', 'c4', 'c5', 'end']) (f, '$f.xhtml', x, null),
+          ], ['d1', 'c1', 'c2', 'c3', 'c4', 'c5', 'end']),
+          'OEBPS/nav.xhtml': nav('<li><a href="d1.xhtml">PART I</a></li>'
+              '<li><a href="c1.xhtml">CHAPTER I</a></li><li><a href="c2.xhtml">CHAPTER II</a></li>'
+              '<li><a href="c3.xhtml">PART II</a></li><li><a href="c3.xhtml">CHAPTER I</a></li>'
+              '<li><a href="c5.xhtml">CHAPTER III</a></li><li><a href="end.xhtml">EPILOGUE</a></li>'),
+          'OEBPS/d1.xhtml': xhtml('<h1>●</h1>'),
+          for (final (f, h) in [('c1', 'I'), ('c2', 'II'), ('c3', 'I'), ('c4', 'II'), ('c5', 'III'), ('end', 'EPILOGUE')])
+            'OEBPS/$f.xhtml': xhtml('<h2>$h</h2>${chapterText('Chapter $f')}'),
+        }),
+        filename: 'crime.epub',
+      );
+      expect(_chapterTitles(book), [
+        'PART I · CHAPTER I',
+        'PART I · CHAPTER II',
+        'PART II · CHAPTER I',
+        'PART II · II',
+        'PART II · CHAPTER III',
+        'EPILOGUE',
+      ]);
+    });
+
+    test('an NCX outside the package folder resolves from its own folder', () {
+      final book = ingestBytes(
+        epubOf({
+          'OEBPS/content.opf': opfOf([
+            ('ncx', '../toc.ncx', 'application/x-dtbncx+xml', null),
+            ('c1', 'c1.xhtml', x, null),
+            ('c2', 'c2.xhtml', x, null),
+          ], ['c1', 'c2'], toc: 'ncx'),
+          'toc.ncx': '<?xml version="1.0"?><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/"><navMap>'
+              '<navPoint id="a"><navLabel><text>The Start</text></navLabel><content src="OEBPS/c1.xhtml"/></navPoint>'
+              '<navPoint id="b"><navLabel><text>The End</text></navLabel><content src="OEBPS/c2.xhtml"/></navPoint>'
+              '</navMap></ncx>',
+          'OEBPS/c1.xhtml': xhtml('<h2>1</h2>${chapterText('Chapter one')}'),
+          'OEBPS/c2.xhtml': xhtml('<h2>2</h2>${chapterText('Chapter two')}'),
+        }),
+        filename: 'ncx.epub',
+      );
+      expect(_chapterTitles(book), ['The Start', 'The End']);
+    });
+
+    test('a nested NCX', () {
+      final book = ingestBytes(
+        epubOf({
+          'OEBPS/content.opf': opfOf([
+            ('ncx', 'toc.ncx', 'application/x-dtbncx+xml', null),
+            ('c1', 'c1.xhtml', x, null),
+            ('c2', 'c2.xhtml', x, null),
+          ], ['c1', 'c2'], toc: 'ncx'),
+          'OEBPS/toc.ncx': '<?xml version="1.0"?><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/"><navMap>'
+              '<navPoint id="p"><navLabel><text>Book One</text></navLabel><content src="c1.xhtml"/>'
+              '<navPoint id="a"><navLabel><text>Chapter 1</text></navLabel><content src="c1.xhtml"/></navPoint>'
+              '<navPoint id="b"><navLabel><text>Chapter 2</text></navLabel><content src="c2.xhtml"/></navPoint>'
+              '</navPoint></navMap></ncx>',
+          'OEBPS/c1.xhtml': xhtml('<h2>1</h2>${chapterText('Chapter one')}'),
+          'OEBPS/c2.xhtml': xhtml('<h2>2</h2>${chapterText('Chapter two')}'),
+        }),
+        filename: 'ncx.epub',
+      );
+      expect(_chapterTitles(book), ['Book One · Chapter 1', 'Book One · Chapter 2']);
+    });
+
+    test('a part line before a chapter\'s anchor is read with the chapter, not lost', () {
+      final book = ingestBytes(
+        epubOf({
+          'OEBPS/content.opf': opfOf([('nav', 'nav.xhtml', x, 'nav'), ('all', 'all.xhtml', x, null)], ['all']),
+          'OEBPS/nav.xhtml': nav('<li><a href="all.xhtml#c1">Chapter 1</a></li><li><a href="all.xhtml#c2">Chapter 2</a></li>'),
+          'OEBPS/all.xhtml': xhtml('<h1>PART ONE</h1><h2 id="c1">Chapter 1</h2>${chapterText('One')}'
+              '<h2 id="c2">Chapter 2</h2>${chapterText('Two')}'),
+        }),
+        filename: 'part-line.epub',
+      );
+      final units = ReadingLayout.build(book).units;
+      expect(units.first.text, 'PART ONE');
+      expect(_chapterTitles(book), ['Chapter 1', 'Chapter 2']);
+    });
+
+    test('chapter titles that merely start with "Volume 1" are not parts', () {
+      final book = ingestBytes(
+        epubOf({
+          'OEBPS/content.opf': opfOf([
+            ('nav', 'nav.xhtml', x, 'nav'),
+            for (var i = 1; i <= 3; i++) ('c$i', 'c$i.xhtml', x, null),
+          ], ['c1', 'c2', 'c3']),
+          'OEBPS/nav.xhtml': nav([for (var i = 1; i <= 3; i++) '<li><a href="c$i.xhtml">Volume 1 Chapter $i: Name</a></li>'].join()),
+          for (var i = 1; i <= 3; i++) 'OEBPS/c$i.xhtml': xhtml('<h2>V1C$i</h2>${chapterText('Chapter $i')}'),
+        }),
+        filename: 'web.epub',
+      );
+      expect(_chapterTitles(book), [for (var i = 1; i <= 3; i++) 'Volume 1 Chapter $i: Name']);
+    });
+  });
+
   group('encryption.xml', () {
     test('obfuscated fonts are not DRM: the book opens', () {
       final book = ingestBytes(

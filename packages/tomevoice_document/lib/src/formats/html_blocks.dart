@@ -90,9 +90,21 @@ List<Block> blocksFromHtml(
   String? href,
   Set<String> notes = const {},
   bool Function(String path)? hasFile,
+}) =>
+    htmlChapter(html, language: language, href: href, notes: notes, hasFile: hasFile).blocks;
+
+/// One XHTML/HTML document: its [blocksFromHtml], and the index of the first
+/// block at or after each element id, so an EPUB can start chapters where
+/// its contents points (`book.xhtml#chapter3`).
+({List<Block> blocks, Map<String, int> anchors}) htmlChapter(
+  String html, {
+  String? language,
+  String? href,
+  Set<String> notes = const {},
+  bool Function(String path)? hasFile,
 }) {
   final doc = _parse(html);
-  if (doc == null) return lenientHtmlBlocks(html, language: language);
+  if (doc == null) return (blocks: lenientHtmlBlocks(html, language: language), anchors: const {});
 
   XmlElement body = doc.rootElement;
   if (doc.rootElement.localName.toLowerCase() == 'html') {
@@ -110,7 +122,7 @@ List<Block> blocksFromHtml(
     walker.notes = {...notes, ..._forwardNotes(body, walker)};
     walker.walk(body, language, inherited: null);
   }
-  return joinDropCaps(_notesHeading(walker.out));
+  return (blocks: joinDropCaps(_notesHeading(walker.out)), anchors: walker.anchors);
 }
 
 /// Ids of notes in this document: what its marker links point forward to.
@@ -231,6 +243,19 @@ class _Walker {
   Set<String> notes = const {};
   final out = <Block>[];
 
+  /// Element id -> the first block at or after it; ids seen since the
+  /// last block wait in [pending].
+  final anchors = <String, int>{};
+  final pending = <String>[];
+
+  void _add(Block b) {
+    for (final id in pending) {
+      anchors.putIfAbsent(id, () => out.length);
+    }
+    pending.clear();
+    out.add(b);
+  }
+
   /// The id a link points at in this same document, or null.
   String? sameDocument(String link) {
     final hash = link.indexOf('#');
@@ -298,9 +323,11 @@ class _Walker {
     if (node is! XmlElement) return;
     final name = node.localName.toLowerCase();
     if (_skipTags.contains(name) || _isApparatus(node)) return;
+    final id = _idOf(node);
+    if (id != null) pending.add(id);
 
     if (name == 'img' || name == 'svg') {
-      _images(node, out, language, href);
+      _images(node, language);
       return;
     }
 
@@ -314,7 +341,7 @@ class _Walker {
         name,
       );
       // <p><img/></p> is the usual way a picture sits in a chapter.
-      _images(node, out, language, href);
+      _images(node, language);
       return;
     }
     _container(node, role ?? inherited, language);
@@ -335,7 +362,7 @@ class _Walker {
         'p',
       );
       for (final n in run) {
-        if (n is XmlElement) _images(n, out, language, href);
+        if (n is XmlElement) _images(n, language);
       }
       run.clear();
     }
@@ -362,11 +389,38 @@ class _Walker {
       // Transcribers' notes about Gutenberg editions sit in the book's own
       // text.
       if (text.length < 600 && text.toLowerCase().contains('project gutenberg')) continue;
-      out.add(makeBlock(
+      _add(makeBlock(
         role: r,
         text: text,
         language: language,
         anchor: href != null ? EpubAnchor(_cfi(href, tag, out.length)) : OffsetAnchor(0, text.length),
+      ));
+    }
+  }
+
+  /// Figure blocks for every picture in [node] (itself included): `<img src>`
+  /// and `<svg><image href>`, which is how most EPUB covers are drawn. The
+  /// path is resolved against the chapter file so the importer can find the
+  /// bytes.
+  void _images(XmlElement node, String? language) {
+    final found = <XmlElement>[
+      if (_isPicture(node)) node,
+      ...node.descendants.whereType<XmlElement>().where(_isPicture),
+    ];
+    for (final el in found) {
+      final name = el.localName.toLowerCase();
+      final src = name == 'img' ? el.getAttribute('src') ?? '' : _attr(el, 'href');
+      final alt = collapseWhitespace(el.getAttribute('alt') ?? '');
+      final path = href == null || src.isEmpty || src.startsWith('data:')
+          ? null
+          : zipJoin(_dirOfPath(href!), _decode(src));
+      if (path == null && alt.isEmpty) continue;
+      _add(makeBlock(
+        role: BlockRole.figure,
+        text: alt,
+        language: language,
+        image: path,
+        anchor: EpubAnchor(_cfi(href, name, out.length)),
       ));
     }
   }
@@ -452,6 +506,8 @@ String _inlineText(List<XmlNode> nodes, _Walker walker) {
         _isPageBreak(n)) {
       return;
     }
+    final id = _idOf(n);
+    if (id != null) walker.pending.add(id);
     if ((name == 'a' || name == 'sup' || name == 'span') && _isMarker(n, walker, tail)) {
       write(silentMark(collapseWhitespace(n.innerText.replaceAll(_ownMarks, ''))));
       return;
@@ -715,32 +771,6 @@ List<Block> lenientHtmlBlocks(String html, {String? language}) {
 /// `&eacute;`, `&#233;` and `&#xE9;` as the characters they stand for: every
 /// HTML5 name, not only the handful a hand-written table remembered.
 String decodeEntities(String s) => _entities.decode(s);
-
-/// Figure blocks for every picture in [node] (itself included): `<img src>`
-/// and `<svg><image href>`, which is how most EPUB covers are drawn. The path
-/// is resolved against the chapter file so the importer can find the bytes.
-void _images(XmlElement node, List<Block> out, String? language, String? href) {
-  final found = <XmlElement>[
-    if (_isPicture(node)) node,
-    ...node.descendants.whereType<XmlElement>().where(_isPicture),
-  ];
-  for (final el in found) {
-    final name = el.localName.toLowerCase();
-    final src = name == 'img' ? el.getAttribute('src') ?? '' : _attr(el, 'href');
-    final alt = collapseWhitespace(el.getAttribute('alt') ?? '');
-    final path = href == null || src.isEmpty || src.startsWith('data:')
-        ? null
-        : zipJoin(_dirOfPath(href), _decode(src));
-    if (path == null && alt.isEmpty) continue;
-    out.add(makeBlock(
-      role: BlockRole.figure,
-      text: alt,
-      language: language,
-      image: path,
-      anchor: EpubAnchor(_cfi(href, name, out.length)),
-    ));
-  }
-}
 
 bool _isPicture(XmlElement e) {
   final n = e.localName.toLowerCase();

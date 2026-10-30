@@ -147,26 +147,26 @@ int readingIndexOfCursor(
   return firstReadingUnitIndex(units, book, skip: skip);
 }
 
-/// TOC rows for the chapter list: real chapters only, one row per section.
+/// TOC rows for the chapter list: real chapters only, one row per section,
+/// in reading order. A chapter's row is the book's contents entry for it
+/// when there is one, else its own title: a contents that forgot one
+/// chapter used to lose every name it did have.
 List<TocEntry> readingToc(
   Book book,
   List<Speakable> units, {
   Set<BlockRole> skip = defaultSkippedRoles,
 }) {
-  final chapters = readingSectionIndexes(book, units, skip: skip).toSet();
+  final chapters = readingSectionIndexes(book, units, skip: skip);
   if (chapters.isEmpty) return const [];
 
-  final seen = <int>{};
-  final fromNav = [
-    for (final t in book.toc)
-      if (chapters.contains(t.sectionIndex) && seen.add(t.sectionIndex)) t,
-  ];
-  if (fromNav.length >= chapters.length) return fromNav;
-
+  final named = <int, TocEntry>{};
+  for (final t in book.toc) {
+    named.putIfAbsent(t.sectionIndex, () => t);
+  }
   return [
-    for (final s in book.sections)
-      if (chapters.contains(s.index))
-        TocEntry(title: s.displayTitle, sectionIndex: s.index, href: s.href),
+    for (final c in chapters)
+      named[c] ??
+          TocEntry(title: book.sections[c].displayTitle, sectionIndex: c, href: book.sections[c].href),
   ];
 }
 

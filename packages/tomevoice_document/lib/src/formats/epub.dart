@@ -45,6 +45,14 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename, LegacyDec
   final spine = _spine(opf, manifest);
   final spineHrefs = [for (final s in spine) s.href];
 
+  // The contents first: where it points inside a document is where a
+  // chapter starts (a whole book in one file with a contents of anchors).
+  final contents = _contents(archive, opf, manifest, names, legacy);
+  final anchorsIn = <String, Set<String>>{};
+  for (final e in contents) {
+    if (e.path != null && e.fragment != null) (anchorsIn[e.path!] ??= {}).add(e.fragment!);
+  }
+
   // Each spine document's text, read once. Before any is parsed, their
   // marker links say which ids in later documents are notes (an endnotes
   // file at the back): a link that points back is a note's way home.
@@ -52,57 +60,52 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename, LegacyDec
   final notes = _noteTargets(spineHrefs, texts);
 
   resetBlockIds();
-  final sections = <Section>[];
-  final aside = <Section>[];
+  final parts = <_Part>[];
+  final aside = <_Part>[];
+  final anchorsOf = <String, Map<String, int>>{};
   for (var i = 0; i < spineHrefs.length; i++) {
     final href = spineHrefs[i];
     final html = texts[i];
     texts[i] = null;
     if (html == null) continue;
-    final blocks = blocksFromHtml(
+    final chapter = htmlChapter(
       html,
       language: metadata.language,
       href: href,
       notes: notes[href] ?? const {},
       hasFile: names.contains,
     );
-    if (blocks.isEmpty) continue;
-    final section = Section(
-      id: 's$i',
-      index: sections.length,
-      href: href,
-      title: _firstHeading(blocks) ?? _chapterLineTitle(blocks),
-      blocks: blocks,
-    );
+    if (chapter.blocks.isEmpty) continue;
+    anchorsOf[href] = chapter.anchors;
+    final split = _split(href, chapter.blocks, chapter.anchors, anchorsIn[href]);
     // linear="no" (answers, notes, pop-ups) is not part of the reading
     // order: it goes to the end, where the contents can still reach it.
     // One with nothing to say (a cover picture) keeps its place.
-    if (!spine[i].linear && blocks.any((b) => b.speakable)) {
-      aside.add(section);
+    if (!spine[i].linear && chapter.blocks.any((b) => b.speakable)) {
+      aside.addAll(split);
     } else {
-      sections.add(section);
+      parts.addAll(split);
     }
   }
-  sections.addAll(aside);
+  parts.addAll(aside);
 
-  if (sections.isEmpty) {
+  if (parts.isEmpty) {
     throw const ParseException('EPUB has no readable text in its spine.');
   }
 
-  // Re-index after dropped empty spine items.
   final indexed = [
-    for (var i = 0; i < sections.length; i++)
+    for (var i = 0; i < parts.length; i++)
       Section(
         id: 's$i',
         index: i,
-        href: sections[i].href,
-        title: sections[i].title,
-        blocks: sections[i].blocks,
+        href: parts[i].href,
+        title: _firstHeading(parts[i].blocks) ?? _chapterLineTitle(parts[i].blocks),
+        blocks: parts[i].blocks,
       ),
   ];
 
   final withImages = _measureImages(archive, indexed);
-  final toc = _toc(archive, opf, opfDir, manifest, withImages);
+  final toc = _tocEntries(contents, parts, anchorsOf, withImages);
   // Many EPUBs never declare a cover, or declare one that is not in the
   // archive; their first picture is the cover.
   final declared = _coverPath(opf, manifest);
@@ -158,7 +161,7 @@ final _uriAttr = RegExp(r'''URI\s*=\s*["']([^"']*)["']''');
 /// Throws [EncryptedDocumentException] when META-INF/encryption.xml says
 /// anything but fonts is encrypted, or uses anything but font
 /// obfuscation. A DRM-free book with obfuscated fonts used to be refused.
-void _refuseDrm(Archive archive, Map<String, ({String href, String media})> manifest) {
+void _refuseDrm(Archive archive, Map<String, ({String href, String media, String properties})> manifest) {
   final xml = _read(archive, 'META-INF/encryption.xml');
   if (xml == null) return;
   final entries = <(String, String)>[];
@@ -320,12 +323,12 @@ String _fallbackTitle(String? filename) {
   return dot > 0 ? slash.substring(0, dot) : slash;
 }
 
-Map<String, ({String href, String media})> _manifest(
+Map<String, ({String href, String media, String properties})> _manifest(
   XmlDocument opf,
   String opfDir,
   Set<String> names,
 ) {
-  final out = <String, ({String href, String media})>{};
+  final out = <String, ({String href, String media, String properties})>{};
   for (final el in opf.descendants.whereType<XmlElement>()) {
     if (el.localName.toLowerCase() != 'item') continue;
     final id = el.getAttribute('id');
@@ -334,6 +337,7 @@ Map<String, ({String href, String media})> _manifest(
     out[id] = (
       href: _resolvePath(opfDir, href, names),
       media: (el.getAttribute('media-type') ?? '').toLowerCase(),
+      properties: (el.getAttribute('properties') ?? '').toLowerCase(),
     );
   }
   return out;
@@ -352,7 +356,7 @@ String _resolvePath(String dir, String href, Set<String> names) {
 /// Spine items in order, with whether they are part of the reading order.
 List<({String href, bool linear})> _spine(
   XmlDocument opf,
-  Map<String, ({String href, String media})> manifest,
+  Map<String, ({String href, String media, String properties})> manifest,
 ) {
   const readable = {
     'application/xhtml+xml',
@@ -373,88 +377,140 @@ List<({String href, bool linear})> _spine(
   return out;
 }
 
-List<TocEntry> _toc(
-  Archive archive,
-  XmlDocument opf,
-  String opfDir,
-  Map<String, ({String href, String media})> manifest,
-  List<Section> sections,
-) {
-  final byHref = <String, int>{
-    for (final s in sections)
-      if (s.href != null) s.href!: s.index,
-  };
+/// One entry of a book's contents: its title (with its part's, "Part I ·
+/// I"), where it points, and how deep it sits.
+class _Entry {
+  _Entry(this.title, this.path, this.fragment, this.depth, this.parent);
 
-  int? sectionFor(String href) {
-    final resolved = zipJoin(opfDir, _decodeHref(href.split('#').first));
-    if (byHref.containsKey(resolved)) return byHref[resolved];
-    for (final e in byHref.entries) {
-      if (e.key.endsWith('/$resolved') || e.key.endsWith(resolved)) {
-        return e.value;
-      }
-    }
-    return null;
-  }
-
-  final navItem = manifest.values.where((i) =>
-      i.media.contains('xhtml') &&
-      (_read(archive, i.href)?.contains('epub:type="toc"') ?? false));
-  for (final nav in navItem) {
-    final html = _read(archive, nav.href);
-    if (html == null) continue;
-    final entries = _tocFromNav(html, sectionFor);
-    if (entries.isNotEmpty) return entries;
-  }
-
-  for (final item in manifest.values) {
-    if (!item.media.contains('dtbncx') && !item.href.endsWith('.ncx')) continue;
-    final ncx = _read(archive, item.href);
-    if (ncx == null) continue;
-    final entries = _tocFromNcx(ncx, sectionFor);
-    if (entries.isNotEmpty) return entries;
-  }
-
-  return [
-    for (final s in sections)
-      TocEntry(title: s.displayTitle, sectionIndex: s.index, href: s.href),
-  ];
+  String title;
+  final String? path;
+  final String? fragment;
+  final int depth;
+  String? parent;
 }
 
-List<TocEntry> _tocFromNcx(String ncx, int? Function(String href) sectionFor) {
-  late XmlDocument doc;
-  try {
-    doc = XmlDocument.parse(ncx);
-  } on XmlException {
-    return const [];
+/// Part of a spine document that is a section: the whole document, or the
+/// stretch from one contents anchor to the next.
+class _Part {
+  _Part(this.path, this.href, this.starts, this.blocks);
+
+  final String path;
+  final String href;
+
+  /// Block indexes in the document where this part begins; more than one
+  /// when an anchor with almost nothing after it joined the next.
+  final Set<int> starts;
+  final List<Block> blocks;
+}
+
+/// [blocks] of the document at [path], cut where the contents points into
+/// it ([fragments]). A stretch with almost nothing to say (a "PART ONE"
+/// line before the chapter's own anchor) joins the stretch after it, so it
+/// is still read, with its chapter.
+List<_Part> _split(String path, List<Block> blocks, Map<String, int> anchors, Set<String>? fragments) {
+  final names = <int, String>{0: ''};
+  for (final f in fragments ?? const <String>{}) {
+    final at = anchors[f];
+    if (at != null && at > 0 && at < blocks.length) names.putIfAbsent(at, () => f);
   }
-  final out = <TocEntry>[];
-  for (final point in doc.descendants.whereType<XmlElement>()) {
-    if (point.localName.toLowerCase() != 'navpoint') continue;
-    String title = '';
-    String href = '';
-    for (final child in point.childElements) {
-      if (child.localName.toLowerCase() == 'navlabel') {
-        title = collapseWhitespace(child.innerText);
-      }
-      if (child.localName.toLowerCase() == 'content') {
-        href = child.getAttribute('src') ?? '';
-      }
+  final starts = names.keys.toList()..sort();
+  if (starts.length == 1) return [_Part(path, path, {0}, blocks)];
+  final out = <_Part>[];
+  _Part? carry;
+  for (var k = 0; k < starts.length; k++) {
+    final from = starts[k];
+    final to = k + 1 < starts.length ? starts[k + 1] : blocks.length;
+    final name = names[from]!;
+    var part = _Part(path, name.isEmpty ? path : '$path#$name', {from}, blocks.sublist(from, to));
+    if (carry != null) {
+      part = _Part(path, part.href, {...carry.starts, from}, [...carry.blocks, ...part.blocks]);
+      carry = null;
     }
-    if (title.isEmpty) continue;
-    out.add(TocEntry(
-      title: title,
-      sectionIndex: sectionFor(href) ?? (out.isEmpty ? 0 : out.last.sectionIndex),
-      href: href,
-    ));
+    if (_spoken(part.blocks) < 80 && k + 1 < starts.length) {
+      carry = part;
+    } else {
+      out.add(part);
+    }
+  }
+  final last = out.last;
+  if (out.length > 1 && _spoken(last.blocks) < 80) {
+    final prev = out[out.length - 2];
+    out[out.length - 2] = _Part(path, prev.href, prev.starts, [...prev.blocks, ...last.blocks]);
+    out.removeLast();
   }
   return out;
 }
 
-List<TocEntry> _tocFromNav(String html, int? Function(String href) sectionFor) {
+int _spoken(List<Block> blocks) => blocks.where((b) => b.speakable).fold(0, (n, b) => n + b.text.length);
+
+/// The book's contents, flattened in order: the EPUB 3 nav (the manifest
+/// item with properties="nav"), else the NCX, each resolved from its own
+/// folder (an NCX at the root says "OEBPS/ch1.xhtml"). Nested entries carry
+/// their part's title; a flat list with "PART I", "PART II" between the
+/// chapters is read as nested too.
+List<_Entry> _contents(
+  Archive archive,
+  XmlDocument opf,
+  Map<String, ({String href, String media, String properties})> manifest,
+  Set<String> names,
+  LegacyDecoder? legacy,
+) {
+  final navs = [
+    for (final i in manifest.values)
+      if (i.properties.split(' ').contains('nav')) i.href,
+  ];
+  // EPUB 2 names its NCX in the spine; otherwise any NCX will do.
+  final tocId = opf.descendants
+      .whereType<XmlElement>()
+      .where((e) => e.localName.toLowerCase() == 'spine')
+      .firstOrNull
+      ?.getAttribute('toc');
+  final ncxs = [
+    if (tocId != null && manifest[tocId] != null) manifest[tocId]!.href,
+    for (final i in manifest.values)
+      if (i.media.contains('dtbncx') || i.href.toLowerCase().endsWith('.ncx')) i.href,
+  ];
+  for (final path in navs) {
+    final html = _read(archive, path, legacy);
+    final entries = html == null ? const <_Entry>[] : _fromNav(html, _dirOf(path), names);
+    if (entries.isNotEmpty) return _withParts(entries);
+  }
+  for (final path in ncxs.toSet()) {
+    final ncx = _read(archive, path, legacy);
+    final entries = ncx == null ? const <_Entry>[] : _fromNcx(ncx, _dirOf(path), names);
+    if (entries.isNotEmpty) return _withParts(entries);
+  }
+  // A book that declares neither: a document called nav or toc that has a
+  // toc nav in it (reading every document to find one was most of the
+  // memory a big book took).
+  for (final i in manifest.values) {
+    final file = i.href.split('/').last.toLowerCase();
+    if (!i.media.contains('html') || !(file.contains('nav') || file.contains('toc'))) continue;
+    final html = _read(archive, i.href, legacy);
+    if (html == null || !html.contains('toc')) continue;
+    final entries = _fromNav(html, _dirOf(i.href), names);
+    if (entries.isNotEmpty) return _withParts(entries);
+  }
+  return const [];
+}
+
+/// Path and fragment of [href] in a contents file in [dir].
+(String?, String?) _target(String href, String dir, Set<String> names) {
+  final h = href.trim();
+  if (h.isEmpty || h.contains(':')) return (null, null);
+  final hash = h.indexOf('#');
+  final path = hash < 0 ? h : h.substring(0, hash);
+  final fragment = hash < 0 || hash == h.length - 1 ? null : _decodeHref(h.substring(hash + 1));
+  if (path.isEmpty) return (null, fragment);
+  return (_resolvePath(dir, path, names), fragment);
+}
+
+List<_Entry> _fromNav(String html, String dir, Set<String> names) {
   late XmlDocument doc;
   try {
     doc = XmlDocument.parse(
       html.contains('<html') ? html : '<html>$html</html>',
+      entityMapping: const XmlDefaultEntityMapping.html5(),
     );
   } on XmlException {
     return const [];
@@ -466,28 +522,152 @@ List<TocEntry> _tocFromNav(String html, int? Function(String href) sectionFor) {
         for (final a in e.attributes)
           if (a.name.local == 'type') a.value.toLowerCase(),
       ].join(' ');
-  final navs = doc.descendants
-      .whereType<XmlElement>()
-      .where((e) => e.localName.toLowerCase() == 'nav')
-      .toList();
+  final navs = doc.descendants.whereType<XmlElement>().where((e) => e.localName.toLowerCase() == 'nav').toList();
   final toc = navs.where((n) => typeOf(n).contains('toc')).toList();
   final roots = toc.isNotEmpty
       ? toc
       : navs.where((n) => !typeOf(n).contains('page-list') && !typeOf(n).contains('landmarks')).toList();
-  final links = roots.isNotEmpty
-      ? roots.expand((n) => n.descendants.whereType<XmlElement>())
-      : doc.descendants.whereType<XmlElement>();
+  final out = <_Entry>[];
+
+  void list(XmlElement ol, int depth, String? parent) {
+    for (final li in ol.childElements.where((e) => e.localName.toLowerCase() == 'li')) {
+      final label = li.childElements
+          .where((e) => const {'a', 'span'}.contains(e.localName.toLowerCase()))
+          .firstOrNull;
+      final title = label == null ? '' : collapseWhitespace(label.innerText);
+      if (title.isNotEmpty) {
+        final href = label!.localName.toLowerCase() == 'a' ? label.getAttribute('href') ?? '' : '';
+        final (path, fragment) = _target(href, dir, names);
+        out.add(_Entry(title, path, fragment, depth, parent));
+      }
+      for (final sub in li.childElements.where((e) => const {'ol', 'ul'}.contains(e.localName.toLowerCase()))) {
+        list(sub, depth + 1, title.isEmpty ? parent : title);
+      }
+    }
+  }
+
+  for (final root in roots.isEmpty ? [doc.rootElement] : roots) {
+    final lists = root.localName.toLowerCase() == 'nav'
+        ? root.childElements.where((e) => const {'ol', 'ul'}.contains(e.localName.toLowerCase()))
+        : root.descendants.whereType<XmlElement>().where((e) => e.localName.toLowerCase() == 'ol').take(1);
+    for (final ol in lists) {
+      list(ol, 0, null);
+    }
+  }
+  return out;
+}
+
+List<_Entry> _fromNcx(String ncx, String dir, Set<String> names) {
+  late XmlDocument doc;
+  try {
+    doc = XmlDocument.parse(ncx, entityMapping: const XmlDefaultEntityMapping.html5());
+  } on XmlException {
+    return const [];
+  }
+  final out = <_Entry>[];
+  void points(XmlElement parent, int depth, String? parentTitle) {
+    for (final point in parent.childElements.where((e) => e.localName.toLowerCase() == 'navpoint')) {
+      var title = '';
+      var src = '';
+      for (final child in point.childElements) {
+        final name = child.localName.toLowerCase();
+        if (name == 'navlabel') title = collapseWhitespace(child.innerText);
+        if (name == 'content') src = child.getAttribute('src') ?? '';
+      }
+      if (title.isNotEmpty) {
+        final (path, fragment) = _target(src, dir, names);
+        out.add(_Entry(title, path, fragment, depth, parentTitle));
+      }
+      points(point, depth + 1, title.isEmpty ? parentTitle : title);
+    }
+  }
+
+  final map = doc.descendants.whereType<XmlElement>().where((e) => e.localName.toLowerCase() == 'navmap').firstOrNull;
+  if (map != null) points(map, 0, null);
+  return out;
+}
+
+/// "PART I", "Part Two", "Book 3: The Return": a part, the whole title (a
+/// chapter called "Volume 1 Chapter 4" is a chapter).
+final _partTitle = RegExp(
+  r'^(?:part|book|volume|vol\.|livre|partie|teil|buch|parte|libro|deel|boek|tom|część|часть|книга|том)\s+'
+  r'(?:[ivxlcdm]+|\d+|one|two|three|four|five|six|seven|eight|nine|ten|first|second|third|fourth|fifth|'
+  r'sixth|seventh|eighth|ninth|tenth|last)\b\.?(?:\s*[:.\-–—]\s*.*)?$',
+  caseSensitive: false,
+);
+
+/// Sections that stand alone, never one part's chapter.
+final _standalone = RegExp(
+  r'^(?:prologue|epilogue|afterword|appendix|notes?|endnotes|glossary|acknowledge?ments|about the author|'
+  r'introduction|preface|foreword|contents|bibliography|index|also by|copyright|dedication|epigraph)\b',
+  caseSensitive: false,
+);
+
+/// Entries with their part's title before theirs. In a flat contents that
+/// lists "PART I" before its chapters (and "PART II" before the next ones,
+/// as Crime and Punishment's does), each part is the parent of the
+/// chapters after it.
+List<_Entry> _withParts(List<_Entry> entries) {
+  final flat = entries.every((e) => e.depth == 0);
+  if (flat && entries.where((e) => _partTitle.hasMatch(e.title)).length >= 2) {
+    String? part;
+    for (final e in entries) {
+      if (_partTitle.hasMatch(e.title)) {
+        part = e.title;
+      } else if (_standalone.hasMatch(e.title)) {
+        part = null;
+      } else {
+        e.parent ??= part;
+      }
+    }
+  }
+  for (final e in entries) {
+    final p = e.parent;
+    if (p != null && !e.title.toLowerCase().contains(p.toLowerCase())) e.title = '$p · ${e.title}';
+  }
+  return entries;
+}
+
+/// One contents row per section that an entry starts: the most specific
+/// entry there ("PART II · CHAPTER I", not "PART II", when both point at
+/// the same file). A section the contents forgot, between chapters of a
+/// part, is still that part's: "PART II · V".
+List<TocEntry> _tocEntries(
+  List<_Entry> contents,
+  List<_Part> parts,
+  Map<String, Map<String, int>> anchorsOf,
+  List<Section> sections,
+) {
+  if (contents.isEmpty) {
+    return [
+      for (final s in sections) TocEntry(title: s.displayTitle, sectionIndex: s.index, href: s.href),
+    ];
+  }
+  final byPath = <String, List<int>>{};
+  for (var i = 0; i < parts.length; i++) {
+    (byPath[parts[i].path] ??= []).add(i);
+  }
+  final best = <int, _Entry>{};
+  for (final e in contents) {
+    final indexes = e.path == null ? null : byPath[e.path!];
+    if (indexes == null) continue;
+    final at = e.fragment == null ? 0 : anchorsOf[e.path!]?[e.fragment!];
+    if (at == null) continue;
+    final i = indexes.where((p) => parts[p].starts.contains(at)).firstOrNull;
+    if (i == null) continue;
+    final had = best[i];
+    if (had == null || e.depth >= had.depth) best[i] = e;
+  }
   final out = <TocEntry>[];
-  for (final a in links) {
-    if (a.localName.toLowerCase() != 'a') continue;
-    final href = a.getAttribute('href') ?? '';
-    final title = collapseWhitespace(a.innerText);
-    if (title.isEmpty || href.isEmpty) continue;
-    out.add(TocEntry(
-      title: title,
-      sectionIndex: sectionFor(href) ?? (out.isEmpty ? 0 : out.last.sectionIndex),
-      href: href,
-    ));
+  String? part;
+  for (var i = 0; i < sections.length; i++) {
+    final e = best[i];
+    if (e != null) {
+      part = e.parent;
+      out.add(TocEntry(title: e.title, sectionIndex: i, href: sections[i].href));
+    } else if (part != null && sections[i].blocks.any((b) => b.speakable)) {
+      out.add(TocEntry(title: '$part · ${sections[i].displayTitle}', sectionIndex: i, href: sections[i].href));
+    }
   }
   return out;
 }
@@ -543,7 +723,7 @@ List<Section> _measureImages(Archive archive, List<Section> sections) {
 /// EPUB 3 `properties="cover-image"`, else EPUB 2 `<meta name="cover">`.
 String? _coverPath(
   XmlDocument opf,
-  Map<String, ({String href, String media})> manifest,
+  Map<String, ({String href, String media, String properties})> manifest,
 ) {
   for (final el in opf.descendants.whereType<XmlElement>()) {
     if (el.localName.toLowerCase() == 'item' &&
