@@ -46,6 +46,32 @@ void main() {
     expect(File('${tmp.path}/library.json.broken').readAsStringSync(), contains('cut sho'));
   });
 
+  test("the picker's copies go, imported or refused, each from its own folder", () async {
+    PickedFile copyIn(String slot, String name, List<int> bytes) {
+      final f = File('${tmp.path}/incoming/$slot/$name')..createSync(recursive: true);
+      f.writeAsBytesSync(bytes);
+      return PickedFile(path: f.path, name: name);
+    }
+
+    // Two picked at once with one name: both arrive, neither over the other.
+    final a = await store.importFile(copyIn('s1', 'notes.txt', utf8.encode('The first book. It reads on for a while.')));
+    final b = await store.importFile(copyIn('s2', 'notes.txt', utf8.encode('The second book. Another text entirely.')));
+    expect(a.id, isNot(b.id));
+    expect((await store.list(all: true)).map((e) => e.id), containsAll([a.id, b.id]));
+    // Nothing to read: refused, and its copy goes too.
+    await expectLater(store.importFile(copyIn('s3', 'empty.txt', const [])), throwsA(anything));
+    expect(Directory('${tmp.path}/incoming').listSync(), isEmpty);
+  });
+
+  test('copies a crash left behind are swept after an hour; newer ones stay', () async {
+    final stale = File('${tmp.path}/incoming/old.epub')..createSync(recursive: true);
+    stale.setLastModifiedSync(DateTime.now().subtract(const Duration(hours: 2)));
+    final fresh = File('${tmp.path}/incoming/just-now/book.epub')..createSync(recursive: true);
+    await store.sweepIncoming();
+    expect(stale.existsSync(), isFalse);
+    expect(fresh.existsSync(), isTrue);
+  });
+
   test('an entry of the wrong shape is passed over, not the whole shelf', () async {
     final index = File('${tmp.path}/library.json');
     final raw = Map<String, Object?>.from(jsonDecode(index.readAsStringSync()) as Map);

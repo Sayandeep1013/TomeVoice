@@ -463,63 +463,91 @@ class LibraryStore {
   }) async {
     await ensure();
     final source = File(file.path);
-    final head = await _head(source);
-    final isPdf = head.startsWith('%PDF-') ||
-        (file.name.toLowerCase().endsWith('.pdf') && !head.startsWith('PK'));
+    try {
+      final head = await _head(source);
+      final isPdf = head.startsWith('%PDF-') ||
+          (file.name.toLowerCase().endsWith('.pdf') && !head.startsWith('PK'));
 
-    Map<String, Object?>? pdf;
-    if (isPdf) {
-      final sub = SpeechService.events.listen((e) {
-        if (e['type'] == 'importProgress') {
-          onProgress?.call(e['done'] as int? ?? 0, e['total'] as int? ?? 0);
+      Map<String, Object?>? pdf;
+      if (isPdf) {
+        final sub = SpeechService.events.listen((e) {
+          if (e['type'] == 'importProgress') {
+            onProgress?.call(e['done'] as int? ?? 0, e['total'] as int? ?? 0);
+          }
+        });
+        try {
+          pdf = await _svc.extractPdf(file.path);
+        } finally {
+          await sub.cancel();
         }
+      }
+
+      final job = (
+        booksDir: _booksDir.path,
+        sourcePath: file.path,
+        name: file.name,
+        mime: file.mime,
+        pdf: pdf,
+      );
+      final entry = await _runImport(job);
+
+      late LibraryEntry merged;
+      await _change((existing) {
+        final previous = existing.where((e) => e.id == entry.id).firstOrNull;
+        merged = previous == null
+            ? entry.copyWith(category: _defaultCategory)
+            : entry
+                .copyWith(
+                  cursor: previous.cursor,
+                  progress: previous.progress,
+                  openedAt: previous.openedAt,
+                  where: previous.where,
+                  category: previous.category,
+                )
+                .withCover(previous.coverMode, previous.customCover);
+        return [
+          merged,
+          for (final e in existing)
+            if (e.id != entry.id) e,
+        ];
       });
-      try {
-        pdf = await _svc.extractPdf(file.path);
-      } finally {
-        await sub.cancel();
-      }
+      return merged;
+    } finally {
+      // The picker's copy: a duplicate of books/<id>/source.* once imported,
+      // and of no use when the import failed (it used to stay behind).
+      await _dropIncoming(source);
     }
+  }
 
-    final job = (
-      booksDir: _booksDir.path,
-      sourcePath: file.path,
-      name: file.name,
-      mime: file.mime,
-      pdf: pdf,
-    );
-    final entry = await _runImport(job);
-
-    late LibraryEntry merged;
-    await _change((existing) {
-      final previous = existing.where((e) => e.id == entry.id).firstOrNull;
-      merged = previous == null
-          ? entry.copyWith(category: _defaultCategory)
-          : entry
-              .copyWith(
-                cursor: previous.cursor,
-                progress: previous.progress,
-                openedAt: previous.openedAt,
-                where: previous.where,
-                category: previous.category,
-              )
-              .withCover(previous.coverMode, previous.customCover);
-      return [
-        merged,
-        for (final e in existing)
-          if (e.id != entry.id) e,
-      ];
-    });
-
-    // The picker's copy is now a duplicate of books/<id>/source.*.
-    if (source.path.contains('/incoming/')) {
-      try {
+  /// Delete [source] if it is the picker's copy under incoming/, with the
+  /// folder of its own it came in (see MainActivity's copy into incoming).
+  static Future<void> _dropIncoming(File source) async {
+    if (!source.path.contains('/incoming/')) return;
+    try {
+      final slot = source.parent;
+      if (slot.parent.path.endsWith('/incoming')) {
+        await slot.delete(recursive: true);
+      } else if (await source.exists()) {
         await source.delete();
-      } on FileSystemException {
-        // Harmless; it is in our own folder.
       }
+    } on FileSystemException {
+      // Harmless: our own folder, swept at a later start.
     }
-    return merged;
+  }
+
+  /// Copies the picker left under incoming/ over an hour ago, by an import a
+  /// crash stopped. (A newer one may be a file just handed to the app.)
+  Future<void> sweepIncoming() async {
+    final dir = Directory('${root.path}/incoming');
+    try {
+      if (!await dir.exists()) return;
+      final before = DateTime.now().subtract(const Duration(hours: 1));
+      await for (final e in dir.list()) {
+        if ((await e.stat()).modified.isBefore(before)) await e.delete(recursive: true);
+      }
+    } on FileSystemException {
+      // Tried again next start.
+    }
   }
 
   /// The reading layout for [id], built on a background isolate.

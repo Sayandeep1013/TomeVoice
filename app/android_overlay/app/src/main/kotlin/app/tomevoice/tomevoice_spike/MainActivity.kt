@@ -1123,7 +1123,9 @@ class MainActivity : FlutterActivity() {
     private fun copyIn(uri: Uri): Map<String, String> {
         val name = (queryDisplayName(uri) ?: "document")
             .replace(Regex("[\\\\/:*?\"<>|]"), "_")
-        val destDir = File(outputDir(), "incoming")
+        // Each file in a folder of its own, its name kept (the format and title
+        // come from it): two picked at once with one name wrote over each other.
+        val destDir = File(File(outputDir(), "incoming"), java.util.UUID.randomUUID().toString())
         destDir.mkdirs()
         val dest = File(destDir, name)
         contentResolver.openInputStream(uri).use { input ->
