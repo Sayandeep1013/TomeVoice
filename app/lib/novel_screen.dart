@@ -14,6 +14,7 @@ import 'fast_scroller.dart';
 import 'library_store.dart';
 import 'prefs.dart';
 import 'saved_screen.dart';
+import 'secret_shelf.dart';
 import 'sources/models.dart';
 import 'sources/net.dart';
 import 'sources/plugin_host.dart';
@@ -99,11 +100,17 @@ class _NovelScreenState extends State<NovelScreen> {
     setState(() => _picked.contains(i) ? _picked.remove(i) : _picked.add(i));
   }
 
+  /// The novel is on a secret shelf that is shut: the page shows it as if it
+  /// were not in the library (no downloads, place or Continue), and asks
+  /// for the phone's lock before anything is done with it.
+  bool _hidden = false;
+
   @override
   void initState() {
     super.initState();
     _store.changes.addListener(_refreshLocal);
     _store.placeChanges.addListener(_placeSaved);
+    LibraryStore.secretOpen.addListener(_secretChanged);
     unawaited(_load());
   }
 
@@ -114,8 +121,43 @@ class _NovelScreenState extends State<NovelScreen> {
     _stopDownload = true;
     _store.changes.removeListener(_refreshLocal);
     _store.placeChanges.removeListener(_placeSaved);
+    LibraryStore.secretOpen.removeListener(_secretChanged);
     _scroll.dispose();
     super.dispose();
+  }
+
+  /// The secret shelves opened or shut: the stored novel shows, or hides
+  /// behind the site's own page again.
+  void _secretChanged() {
+    if (!mounted) return;
+    unawaited(LibraryStore.secretOpen.value ? _showStored() : _load());
+  }
+
+  /// The stored novel's details and chapters, when it may be shown.
+  Future<WebNovelInfo?> _showStored() async {
+    await _refreshLocal();
+    final stored = _hidden ? null : await _store.settleWebChapters(_id);
+    if (stored != null && mounted) {
+      setState(() {
+        _novel = stored.novel;
+        _chapters = stored.chapters;
+        _refusal = stored.refusal;
+        _loading = false;
+      });
+    }
+    return stored;
+  }
+
+  /// Before anything is done with a novel on a shut secret shelf: the
+  /// phone's lock. True once the stored novel may be used (never a second
+  /// copy of it).
+  Future<bool> _unlockIfHidden() async {
+    if (!_hidden) return true;
+    final ok = await SecretShelf.unlock(reason: 'Open a book on the secret shelf');
+    if (ok == null && mounted) showSnack(context, SecretShelf.cannotAsk);
+    if (ok != true || !mounted) return false;
+    await _showStored();
+    return !_hidden;
   }
 
   /// A place saved. While the reader covers this page (it saves every second
@@ -126,12 +168,16 @@ class _NovelScreenState extends State<NovelScreen> {
   }
 
   Future<void> _refreshLocal() async {
-    final entry = (await _store.list()).where((e) => e.id == _id).firstOrNull;
+    // Read in full first, so whether the novel is on a secret shelf is known.
+    await _store.index(all: true);
+    final hidden = !LibraryStore.secretOpen.value && _store.isSecret(_id);
+    final entry = hidden ? null : (await _store.list()).where((e) => e.id == _id).firstOrNull;
     final cursor = entry == null ? null : await _store.cursorFor(_id);
     if (!mounted) return;
     setState(() {
+      _hidden = hidden;
       _entry = entry;
-      _downloaded = _store.downloadedChapters(_id);
+      _downloaded = hidden ? const {} : _store.downloadedChapters(_id);
       _current = entry == null || entry.openedAt == null ? -1 : cursor!.sectionIndex;
     });
   }
@@ -139,17 +185,9 @@ class _NovelScreenState extends State<NovelScreen> {
   /// [pulled]: the reader pulled the page down to check for new chapters,
   /// so say what came of it.
   Future<void> _load({bool pulled = false}) async {
-    // What is on the phone first, so the page fills at once.
-    final stored = await _store.settleWebChapters(_id);
-    await _refreshLocal();
-    if (stored != null && mounted) {
-      setState(() {
-        _novel = stored.novel;
-        _chapters = stored.chapters;
-        _refusal = stored.refusal;
-        _loading = false;
-      });
-    }
+    // What is on the phone first, so the page fills at once (unless it is
+    // on a shut secret shelf: then the page is the site's alone).
+    final stored = await _showStored();
     // Then the site, for fresh details and new chapters.
     try {
       final plugin = await SourceEngine.instance.store.installedById(widget.plugin.id);
@@ -245,6 +283,7 @@ class _NovelScreenState extends State<NovelScreen> {
 
   /// In the library already, or added now (to the default category).
   Future<LibraryEntry?> _ensureAdded({bool announce = true}) async {
+    if (!await _unlockIfHidden()) return null;
     final have = _entry;
     if (have != null) return have;
     final novel = _novel;
@@ -273,6 +312,11 @@ class _NovelScreenState extends State<NovelScreen> {
   Future<void> _add() async {
     final novel = _novel;
     if (novel == null) return;
+    // On a shut secret shelf: in the library already, once the lock is given.
+    if (_hidden) {
+      if (await _unlockIfHidden() && mounted && _entry != null) showSnack(context, 'It is in your library.');
+      return;
+    }
     final cat = await pickCategory(context, _store, title: 'Add to');
     if (cat == null) return;
     await _store.addWebNovel(widget.plugin, _withChapters(novel), category: cat);
@@ -287,10 +331,27 @@ class _NovelScreenState extends State<NovelScreen> {
     if (_opening) return;
     _opening = true;
     try {
-      await _openReader(chapter: chapter, play: play);
+      // A row of the site's list, shown while the novel was hidden, is
+      // found again in the stored list once the lock is given.
+      final paths = _pathsOf([if (chapter != null) chapter]);
+      if (!await _unlockIfHidden()) return;
+      await _openReader(chapter: chapter == null ? null : _placesOf(paths, [chapter]).firstOrNull, play: play);
     } finally {
       _opening = false;
     }
+  }
+
+  List<String> _pathsOf(Iterable<int> chapters) => [
+        for (final i in chapters)
+          if (i >= 0 && i < _chapters.length) _chapters[i].path,
+      ];
+
+  /// Where chapters [paths] are in the list shown now; [fallback] where
+  /// they cannot be found.
+  List<int> _placesOf(List<String> paths, List<int> fallback) {
+    if (paths.length != fallback.length) return fallback;
+    final at = {for (var i = 0; i < _chapters.length; i++) _chapters[i].path: i};
+    return [for (var k = 0; k < paths.length; k++) at[paths[k]] ?? fallback[k]];
   }
 
   Future<void> _openReader({int? chapter, ReadingCursor? at, bool play = false}) async {
@@ -351,13 +412,15 @@ class _NovelScreenState extends State<NovelScreen> {
   /// progress and a Stop.
   Future<void> _downloadList(Iterable<int> chapters) async {
     if (_downloading != null) return;
-    final wanted = [for (final i in chapters) if (!_downloaded.contains(i)) i]..sort();
+    var wanted = [for (final i in chapters) if (!_downloaded.contains(i)) i]..sort();
     if (wanted.isEmpty) {
       showSnack(context, 'Those chapters are already on the phone.');
       return;
     }
+    final paths = _pathsOf(wanted);
     final e = await _ensureAdded(announce: false);
     if (e == null || !mounted) return;
+    wanted = [for (final i in _placesOf(paths, wanted)) if (!_downloaded.contains(i)) i]..sort();
     _stopDownload = false;
     setState(() => _downloading = 'Getting ready…');
     try {
@@ -401,9 +464,12 @@ class _NovelScreenState extends State<NovelScreen> {
   }
 
   /// One chapter, from the download button on its row.
-  Future<void> _downloadOne(int i) async {
+  Future<void> _downloadOne(int chapter) async {
+    final paths = _pathsOf([chapter]);
     final e = await _ensureAdded();
     if (e == null || !mounted) return;
+    final i = _placesOf(paths, [chapter]).single;
+    if (_downloaded.contains(i)) return;
     setState(() => _fetching.add(i));
     try {
       await fetchChapters(_store, _id, i, count: 1);

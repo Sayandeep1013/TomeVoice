@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:isolate';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart';
 
 import 'models.dart';
@@ -18,7 +19,17 @@ import 'source_store.dart';
 class SourceEngine {
   SourceEngine._();
 
-  static final instance = SourceEngine._();
+  /// For tests: an engine whose answers they make up (overriding [novel],
+  /// [chapter] and the like), set as [instance].
+  @visibleForTesting
+  SourceEngine.forTests();
+
+  static SourceEngine _instance = SourceEngine._();
+
+  static SourceEngine get instance => _instance;
+
+  @visibleForTesting
+  static set instance(SourceEngine engine) => _instance = engine;
 
   static const _poolSize = 3;
 
