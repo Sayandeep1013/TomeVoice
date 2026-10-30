@@ -602,6 +602,52 @@ class LibraryStore {
     }
   }
 
+  /// A book made in the app rather than picked: an article read from the
+  /// web, or words shared to TomeVoice, as [bytes] named [name] (".html",
+  /// ".txt"), kept as its source like a picked file. [id] makes it the same
+  /// book whenever it comes again (an article's is its address); a new one
+  /// goes on [category], never on a secret shelf. [details] are what the
+  /// file cannot say: a page's byline, site and address.
+  Future<LibraryEntry> importMade({
+    required String id,
+    required String name,
+    required Uint8List bytes,
+    String? category,
+    BookMetadata? details,
+  }) async {
+    await ensure();
+    final made = await _runMade((
+      dir: bookDir(id),
+      id: id,
+      name: name,
+      bytes: bytes,
+      details: details,
+      token: RootIsolateToken.instance,
+    ));
+    late LibraryEntry merged;
+    await _change((existing) {
+      final previous = existing.where((e) => e.id == id).firstOrNull;
+      final shelf = _categories.any((c) => c.id == category && !c.secret) ? category : _defaultCategory;
+      merged = previous == null
+          ? made.copyWith(category: shelf)
+          : made
+              .copyWith(
+                cursor: previous.cursor,
+                progress: previous.progress,
+                openedAt: previous.openedAt,
+                where: previous.where,
+                category: previous.category,
+              )
+              .withCover(previous.coverMode, previous.customCover);
+      return [
+        merged,
+        for (final e in existing)
+          if (e.id != id) e,
+      ];
+    });
+    return merged;
+  }
+
   /// The reading layout for [id], built on a background isolate.
   Future<ReadingLayout> loadLayout(String id) async {
     final entries = await list();
@@ -1064,6 +1110,55 @@ Future<_Imported> _import(_ImportJob job) async {
   return (entry: entry, note: pdf != null ? _scanNote(pdf) : null);
 }
 
+typedef _MadeJob = ({
+  String dir,
+  String id,
+  String name,
+  Uint8List bytes,
+  BookMetadata? details,
+  RootIsolateToken? token,
+});
+
+Future<LibraryEntry> _runMade(_MadeJob job) => Isolate.run(() => _made(job));
+
+/// A book made in the app (see [LibraryStore.importMade]), parsed and kept.
+Future<LibraryEntry> _made(_MadeJob job) async {
+  var book = await _ingest(job.bytes, filename: job.name, id: job.id, token: job.token);
+  if (job.details case final d?) book = _withDetails(book, d);
+  final dir = Directory(job.dir)..createSync(recursive: true);
+  final dest = File('${dir.path}/source${_ext(job.name)}');
+  dest.writeAsBytesSync(job.bytes, flush: true);
+  _writeParsed(dir.path, book);
+  return LibraryEntry(
+    id: job.id,
+    title: book.metadata.title,
+    authors: book.metadata.authors,
+    source: book.source,
+    wordCount: book.wordCount,
+    sourcePath: dest.path,
+    addedAt: DateTime.now(),
+    language: book.metadata.language,
+  );
+}
+
+/// [book] with [d] laid over what its parser found: an article's title,
+/// byline, site and address, which its file does not hold where the
+/// parser looks (a page's head is not read).
+Book _withDetails(Book book, BookMetadata d) {
+  final m = book.metadata;
+  return book.copyWith(
+    metadata: BookMetadata(
+      title: d.title.isEmpty ? m.title : d.title,
+      authors: d.authors.isEmpty ? m.authors : d.authors,
+      language: m.language,
+      publisher: d.publisher ?? m.publisher,
+      identifier: d.identifier ?? m.identifier,
+      cover: m.cover,
+      description: d.description ?? m.description,
+    ),
+  );
+}
+
 void _writeParsed(String dir, Book book) {
   _writeWholeSync(File('$dir/parsed.json'), jsonEncode({'v': _parsedVersion, 'book': book.toJson()}));
 }
@@ -1178,6 +1273,11 @@ Future<ReadingLayout> _loadLayout(_LoadJob job) async {
             id: job.id,
             token: job.token,
           );
+          // An article's byline, site and address came with it, not in its
+          // file (see importMade): they stay.
+          if (legacy.metadata.identifier != null && book.metadata.identifier == null) {
+            book = _withDetails(book, legacy.metadata);
+          }
           _writeParsed(dir, book);
           _writeImages(dir, bytes, book);
         } on Object {
