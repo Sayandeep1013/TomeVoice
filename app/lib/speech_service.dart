@@ -409,6 +409,17 @@ class SpeechService {
     }
   }
 
+  /// The colours Android 12 and later make from the wallpaper, by family
+  /// (accent1 to neutral2), each a list of ARGB values from shade 0 to 1000.
+  /// Null on older phones and where the platform cannot say.
+  Future<Object?> systemColours() async {
+    try {
+      return await _channel.invokeMethod<Object?>('systemColours');
+    } on Object {
+      return null;
+    }
+  }
+
   /// The phone, for a problem report: Android's version ("14") and API
   /// level, its maker and its model. Null where the platform cannot say.
   Future<DeviceInfo?> deviceInfo() async {

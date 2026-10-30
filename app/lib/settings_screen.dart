@@ -36,6 +36,7 @@ import 'ui.dart';
 import 'updates.dart';
 import 'update_flow.dart';
 import 'voices.dart';
+import 'wallpaper_colours.dart';
 
 const _svc = SpeechService();
 
@@ -73,6 +74,8 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   void initState() {
     super.initState();
     ListeningPrefs.revision.addListener(_rebuild);
+    // The wallpaper's theme shows once the phone has said it has colours.
+    WallpaperColours.current.addListener(_rebuild);
     unawaited(_loadIndex());
     AppUpdates.enabled(widget.store.root).then((on) {
       if (mounted) setState(() => _tellUpdates = on);
@@ -85,6 +88,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     _before?.dispose();
     _sampleTimer?.cancel();
     ListeningPrefs.revision.removeListener(_rebuild);
+    WallpaperColours.current.removeListener(_rebuild);
     super.dispose();
   }
 
@@ -286,8 +290,9 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                         const SectionTitle('Theme'),
                         const SizedBox(height: Gap.m),
                         _PaletteSwatches(
-                          selected: _prefs.paletteId,
+                          selected: chosenPaletteId(_prefs),
                           own: OwnColours.of(_prefs).made.palette,
+                          wallpaper: WallpaperColours.palette,
                           onPick: (id) => _changeTheme(() => _prefs.paletteId = id),
                           onOwn: _pickOwn,
                         ),
@@ -595,18 +600,21 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
 }
 
 /// The colour themes, each drawn as a little card of its own ground and
-/// accent, in the brightness it would show in now: the five, and the
-/// reader's own, which opens its colours.
+/// accent, in the brightness it would show in now: the five, the
+/// wallpaper's where the phone makes one, and the reader's own, which opens
+/// its colours.
 class _PaletteSwatches extends StatelessWidget {
   const _PaletteSwatches({
     required this.selected,
     required this.own,
+    required this.wallpaper,
     required this.onPick,
     required this.onOwn,
   });
 
   final String selected;
   final Palette own;
+  final Palette? wallpaper;
   final ValueChanged<String> onPick;
   final VoidCallback onOwn;
 
@@ -615,6 +623,7 @@ class _PaletteSwatches extends StatelessWidget {
     final dark = Skin.isDark(context);
     final themes = [
       for (final p in Palette.all) (p, p.id, p.label),
+      if (wallpaper != null) (wallpaper!, 'wallpaper', 'Wallpaper'),
       (own, 'own', 'Your own'),
     ];
     // Rows of as many as fit with their names whole (four on a phone held

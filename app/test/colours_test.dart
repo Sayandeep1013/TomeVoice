@@ -1,7 +1,8 @@
 // Colours that read: WCAG's contrast for every palette (the five, a book's
-// colour, a reader's own) and every colour each sets text, icons and a
-// control's marks in, on every surface each is drawn on; a reader's own
-// colours kept, carried in a backup and guarded; and on the reader's page.
+// colour, a reader's own, the wallpaper's) and every colour each sets text,
+// icons and a control's marks in, on every surface each is drawn on; a
+// reader's own colours kept, carried in a backup and guarded; the
+// wallpaper's theme where the phone has one; and both on the reader's page.
 
 import 'dart:convert';
 import 'dart:io';
@@ -9,7 +10,18 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:material_color_utilities/material_color_utilities.dart' show Hct;
+import 'package:material_color_utilities/material_color_utilities.dart'
+    show
+        DynamicScheme,
+        Hct,
+        SchemeExpressive,
+        SchemeFruitSalad,
+        SchemeMonochrome,
+        SchemeNeutral,
+        SchemeRainbow,
+        SchemeTonalSpot,
+        SchemeVibrant,
+        TonalPalette;
 import 'package:tomevoice_spike/backup.dart';
 import 'package:tomevoice_spike/contrast.dart';
 import 'package:tomevoice_spike/library_store.dart';
@@ -20,10 +32,39 @@ import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/settings_screen.dart';
 import 'package:tomevoice_spike/theme.dart';
 import 'package:tomevoice_spike/ui.dart';
+import 'package:tomevoice_spike/wallpaper_colours.dart';
 
 const _channel = MethodChannel('tomevoice/tts');
 
 double _tone(Color c) => Hct.fromInt(c.toARGB32()).tone;
+
+/// The wallpaper's colour styles Android offers, from the first (the tonal
+/// spot) to the plainest and the brightest.
+final _styles = <DynamicScheme Function(Hct)>[
+  (h) => SchemeTonalSpot(sourceColorHct: h, isDark: false, contrastLevel: 0),
+  (h) => SchemeVibrant(sourceColorHct: h, isDark: false, contrastLevel: 0),
+  (h) => SchemeExpressive(sourceColorHct: h, isDark: false, contrastLevel: 0),
+  (h) => SchemeFruitSalad(sourceColorHct: h, isDark: false, contrastLevel: 0),
+  (h) => SchemeRainbow(sourceColorHct: h, isDark: false, contrastLevel: 0),
+  (h) => SchemeNeutral(sourceColorHct: h, isDark: false, contrastLevel: 0),
+  (h) => SchemeMonochrome(sourceColorHct: h, isDark: false, contrastLevel: 0),
+];
+
+/// The wallpaper's colours as Android makes them from [seed] in [style]
+/// (the tonal spot unless said): its five families of tones, shade 0
+/// (white) to 1000 (black).
+Map<String, List<int>> systemFrom(int seed, [DynamicScheme Function(Hct)? style]) {
+  final s = (style ?? _styles.first)(Hct.fromInt(seed));
+  const tones = [100, 99, 95, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0];
+  List<int> of(TonalPalette t) => [for (final tone in tones) t.get(tone)];
+  return {
+    'accent1': of(s.primaryPalette),
+    'accent2': of(s.secondaryPalette),
+    'accent3': of(s.tertiaryPalette),
+    'neutral1': of(s.neutralPalette),
+    'neutral2': of(s.neutralVariantPalette),
+  };
+}
 
 void _ignore(int _) {}
 
@@ -39,6 +80,7 @@ void main() {
   setUp(() {
     tmp = Directory.systemTemp.createTempSync('tv_colours');
     ListeningPrefs.reset();
+    WallpaperColours.reset();
     Skin.palette = Palette.forest;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
       _channel,
@@ -48,6 +90,7 @@ void main() {
 
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(_channel, null);
+    WallpaperColours.reset();
     Skin.palette = Palette.forest;
     try {
       tmp.deleteSync(recursive: true);
@@ -298,6 +341,49 @@ void main() {
     });
   });
 
+  group("the wallpaper's colours", () {
+    test('make a theme that reads, whatever the wallpaper and its style', () {
+      for (final (i, style) in _styles.indexed) {
+        for (final seed in _seeds) {
+          final s = SystemColours.fromPlatform(systemFrom(seed, style))!;
+          expect(unmetNeeds(wallpaperPalette(s)), isEmpty, reason: 'style $i, ${seed.toRadixString(16)}');
+        }
+      }
+    });
+
+    test('take the main colour as the accent and its companions as the ground', () {
+      final raw = systemFrom(0xFF3A8FDB);
+      final p = wallpaperPalette(SystemColours.fromPlatform(raw)!);
+      expect(p.accent, Color(raw['accent1']![6]));
+      expect(p.day[0], Color(raw['accent2']![3]));
+      expect(p.only, isNull, reason: 'it follows light and dark');
+    });
+
+    test('are none where the phone sends none or too few', () {
+      expect(SystemColours.fromPlatform(null), isNull);
+      expect(SystemColours.fromPlatform({'accent1': [1, 2, 3]}), isNull);
+      final short = systemFrom(0xFF3A8FDB)..remove('neutral2');
+      expect(SystemColours.fromPlatform(short), isNull);
+    });
+
+    test('are read from the phone, and a theme kept from a newer phone shows Forest on one without', () async {
+      final prefs = ListeningPrefs(paletteId: 'wallpaper');
+      await WallpaperColours.refresh();
+      expect(WallpaperColours.palette, isNull);
+      expect(chosenPalette(prefs), Palette.forest);
+      expect(chosenPaletteId(prefs), 'forest');
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        _channel,
+        (call) async => call.method == 'systemColours' ? systemFrom(0xFF1FA39A) : null,
+      );
+      await WallpaperColours.refresh();
+      expect(WallpaperColours.palette, isNotNull);
+      expect(chosenPalette(prefs).label, 'Wallpaper');
+      expect(chosenPaletteId(prefs), 'wallpaper');
+    });
+  });
+
   group("on the reader's page", () {
     testWidgets("the page in the app's own colours is the palette's: ground, ink and the accent as text", (tester) async {
       final own = const OwnColours(page: Color(0xFFE6DFF2), accent: Color(0xFF1FA39A)).made.palette;
@@ -367,6 +453,7 @@ void main() {
       await tester.pumpWidget(MaterialApp(home: SettingsScreen(store: LibraryStore(tmp))));
       await settle(tester);
       expect(find.text('Your own'), findsOneWidget);
+      expect(find.text('Wallpaper'), findsNothing, reason: 'no wallpaper colours on this phone');
 
       await tester.tap(find.text('Your own'));
       await tester.pumpAndSettle();
@@ -413,6 +500,25 @@ void main() {
       await tester.pumpAndSettle();
       final ink = Color(ListeningPrefs.memory.ownInk!);
       expect(contrast(ink, const Color(0xFFF3EBDD)), greaterThanOrEqualTo(smallText));
+      await finish(tester);
+    });
+
+    testWidgets("the wallpaper's theme shows where the phone has its colours, and can be picked", (tester) async {
+      phone(tester);
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        _channel,
+        (call) async => call.method == 'systemColours' ? systemFrom(0xFF3A8FDB) : null,
+      );
+      await tester.pumpWidget(MaterialApp(home: SettingsScreen(store: LibraryStore(tmp))));
+      await settle(tester);
+      expect(find.text('Wallpaper'), findsNothing);
+      await tester.runAsync(WallpaperColours.refresh);
+      await tester.pumpAndSettle();
+      expect(find.text('Wallpaper'), findsOneWidget);
+      await tester.tap(find.text('Wallpaper'));
+      await tester.pumpAndSettle();
+      expect(ListeningPrefs.memory.paletteId, 'wallpaper');
+      expect(find.text('Light'), findsOneWidget, reason: 'it follows light and dark');
       await finish(tester);
     });
 

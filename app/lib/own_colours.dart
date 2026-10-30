@@ -6,6 +6,7 @@ import 'package:material_color_utilities/material_color_utilities.dart' show Hct
 import 'contrast.dart';
 import 'prefs.dart';
 import 'theme.dart';
+import 'wallpaper_colours.dart';
 
 /// The reader's own colours: a page and an accent, and the text if they
 /// chose it. They are made into a palette that always reads (see
@@ -180,9 +181,16 @@ Palette _palette(OwnColours c) {
   );
 }
 
-/// The palette [prefs] choose: one of [Palette.all], or the reader's own
-/// colours.
+/// The palette [prefs] choose: one of [Palette.all], the reader's own
+/// colours, or the wallpaper's where the phone has them (Forest where it
+/// has none, as on an older phone a backup was restored to).
 Palette chosenPalette(ListeningPrefs? prefs) => switch (prefs?.paletteId) {
       'own' => OwnColours.of(prefs!).made.palette,
+      'wallpaper' => WallpaperColours.palette ?? Palette.forest,
       final id => Palette.byId(id),
     };
+
+/// The theme Settings shows as chosen: Forest for the wallpaper's on a
+/// phone that has no wallpaper colours.
+String chosenPaletteId(ListeningPrefs prefs) =>
+    prefs.paletteId == 'wallpaper' && WallpaperColours.palette == null ? 'forest' : prefs.paletteId;

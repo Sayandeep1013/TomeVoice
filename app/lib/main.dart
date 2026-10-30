@@ -16,6 +16,7 @@ import 'reader_screen.dart';
 import 'secret_shelf.dart';
 import 'speech_service.dart';
 import 'theme.dart';
+import 'wallpaper_colours.dart';
 
 // Both ways in run in a guarded zone, with Flutter's errors and those
 // nothing caught going to the error log on the phone (error_log.dart) as
@@ -80,7 +81,13 @@ void _show() {
   if (_built) return;
   _built = true;
   runApp(const SpikeApp());
+  // The wallpaper's colours, for its theme: read now, and again each time
+  // the app comes back, since a new wallpaper brings new ones.
+  unawaited(WallpaperColours.refresh());
+  _wallpaper ??= AppLifecycleListener(onResume: () => unawaited(WallpaperColours.refresh()));
 }
+
+AppLifecycleListener? _wallpaper;
 
 /// The fonts ship inside the app, so their licences are listed on the About
 /// screen with everything else.
@@ -118,9 +125,9 @@ class SpikeApp extends StatelessWidget {
   const SpikeApp({super.key});
 
   @override
-  Widget build(BuildContext context) => ValueListenableBuilder<int>(
-        valueListenable: ListeningPrefs.revision,
-        builder: (context, _, __) {
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: Listenable.merge([ListeningPrefs.revision, WallpaperColours.current]),
+        builder: (context, _) {
           final prefs = ListeningPrefs.loaded;
           final follow = (prefs?.bookColours ?? true) ? Skin.followTint : null;
           final base = chosenPalette(prefs);
