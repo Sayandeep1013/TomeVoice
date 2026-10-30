@@ -224,7 +224,7 @@ List<DraftSection>? _kf8Sections(
     return _pageBreakSections(_str(flow, utf), language);
   }
 
-  var chapters = const <({String title, int part})>[];
+  var chapters = const <({String title, int part, int depth})>[];
   final ncx = h.getUint32(0xF4);
   if (ncx != _none) {
     try {
@@ -240,16 +240,24 @@ List<DraftSection>? _kf8Sections(
   for (var i = 0; i < parts.length; i++) {
     final blocks = blocksFromHtml(_cleanKindleHtml(parts[i].html), language: language);
     if (blocks.isEmpty) continue;
-    final titles = [
+    final here = [
       for (final c in chapters)
-        if (c.part == i) c.title,
+        if (c.part == i) c,
     ];
-    if (titles.isEmpty) {
+    if (here.isEmpty) {
       sections.add((title: null, blocks: blocks));
       continue;
     }
-    // A part can hold several chapters (a book that was one long file):
-    // each later one starts at its heading.
+    // A part can hold several chapters (a book that was one long file): each
+    // later one starts at its heading. Only entries as high in the contents
+    // as the part's first count, or deeper ones that are chapters ("Chapter
+    // 4"): a story keeps its parts I and II, as an EPUB's file would.
+    final top = here.map((c) => c.depth).reduce(math.min);
+    final titles = [
+      here.first.title,
+      for (final c in here.skip(1))
+        if (c.depth == top || looksLikeChapterLine(c.title)) c.title,
+    ];
     var from = 0;
     var title = titles.first;
     for (final next in titles.skip(1)) {
@@ -311,15 +319,15 @@ List<_Part> _parts(Uint8List flow, List<_Entry> skeletons, List<_Entry> fragment
   return out;
 }
 
-/// The NCX's chapters in order: each title, and the part it starts in. A
-/// chapter's place is a fragment and an offset into it, or (in older books)
-/// a place in the HTML flow.
-List<({String title, int part})> _chapters(
+/// The NCX's chapters in order: each title, the part it starts in, and its
+/// depth in the contents. A chapter's place is a fragment and an offset into
+/// it, or (in older books) a place in the HTML flow.
+List<({String title, int part, int depth})> _chapters(
   ({List<_Entry> entries, Map<int, String> strings}) ncx,
   List<_Entry> fragments,
   List<_Part> parts,
 ) {
-  final out = <({String title, int part})>[];
+  final out = <({String title, int part, int depth})>[];
   for (final e in ncx.entries) {
     final title = collapseWhitespace(ncx.strings[e.tags[3]?.first] ?? '');
     if (title.isEmpty) continue;
@@ -333,7 +341,7 @@ List<({String title, int part})> _chapters(
     if (at == null) continue;
     final place = at;
     final part = parts.indexWhere((p) => place >= p.start && place < p.end);
-    if (part >= 0) out.add((title: title, part: part));
+    if (part >= 0) out.add((title: title, part: part, depth: e.tags[4]?.first ?? 0));
   }
   return out;
 }

@@ -61,6 +61,40 @@ void main() {
       expect(book.sections[1].blocks.map((b) => b.text), ['Chapter Two', 'The tide turned at noon.']);
     });
 
+    test("a story's numbered parts stay inside it, as in an EPUB's file", () {
+      // calibre's contents for a story told in parts: the story, then its
+      // parts I and II one level down, all in one file.
+      final book = ingestBytes(
+        kf8Book(
+          parts: [
+            [
+              '<h1>A Scandal in Bohemia</h1><h2>I</h2><p>The lamp was lit at dusk.</p>',
+              '<h2>II</h2><p>The tide turned at noon.</p>',
+            ],
+            ['<h1>The Red-Headed League</h1><p>A visitor came at last.</p>'],
+            ['<h1>Chapter 3</h1><p>The road ran on.</p>', '<h2>Chapter 4</h2><p>It ended.</p>'],
+          ],
+          toc: const [
+            (title: 'A Scandal in Bohemia', fragment: 0),
+            (title: 'I', fragment: 0),
+            (title: 'II', fragment: 1),
+            (title: 'The Red-Headed League', fragment: 2),
+            (title: 'Chapter 3', fragment: 3),
+            (title: 'Chapter 4', fragment: 4),
+          ],
+          depths: const {1: 1, 2: 1, 5: 1},
+        ),
+        filename: 'holmes.azw3',
+      );
+      // A deeper entry still cuts when it is a chapter of its own.
+      expect(book.sections.map((s) => s.title), [
+        'A Scandal in Bohemia',
+        'The Red-Headed League',
+        'Chapter 3',
+        'Chapter 4',
+      ]);
+    });
+
     test('without an NCX, parts are chapters named by their headings', () {
       final book = ingestBytes(kf8Book(parts: parts), filename: 'tale.azw3');
       expect(book.sections.map((s) => s.displayTitle).skip(1), ['Chapter One', 'Chapter Two']);

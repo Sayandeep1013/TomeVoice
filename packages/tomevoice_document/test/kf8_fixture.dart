@@ -12,10 +12,12 @@ import 'dart:typed_data';
 /// body. [toc] names chapters by the fragment they start in. With [joint],
 /// the KF8 book follows a MOBI 6 copy of [mobi6Html], as kindlegen's .mobi
 /// files do, and EXTH 121 points at it. With [brokenSkeletons] the SKEL
-/// index field points at a record that is no index.
+/// index field points at a record that is no index. [depths] gives a [toc]
+/// entry, by its place in the list, a depth other than 0.
 Uint8List kf8Book({
   required List<List<String>> parts,
   List<({String title, int fragment})> toc = const [],
+  Map<int, int> depths = const {},
   String title = 'A Tale of the Coast',
   String css = 'p { margin: 0 } h1 { font-size: 2em } .note { color: red }',
   bool joint = false,
@@ -117,7 +119,7 @@ Uint8List kf8Book({
             fragments[toc[i].fragment].insert,
             fragments[toc[i].fragment].length,
             labels.add(toc[i].title),
-            0,
+            depths[i] ?? 0,
             toc[i].fragment,
             0,
           ],
