@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
@@ -182,6 +183,18 @@ object SourcesBridge {
                         DownloadService.stop(appContext)
                     }
                     result.success(null)
+                }
+                // On Wi-Fi (a network not charged by the byte): what new
+                // chapters downloading by themselves wait for.
+                "unmetered" -> {
+                    val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                    result.success(
+                        try {
+                            cm != null && cm.activeNetwork != null && !cm.isActiveNetworkMetered
+                        } catch (e: Exception) {
+                            false
+                        }
+                    )
                 }
                 "notificationsAllowed" -> result.success(NovelCheckWorker.allowed(appContext))
                 "askNotifications" -> {

@@ -436,7 +436,8 @@ Future<LibraryEntry> moveNovel(LibraryStore store, LibraryEntry entry, MovePlan 
 }
 
 /// [prefs]' settings of book [from] (voice, dialogue voice, speed, order of
-/// chapters) as book [to]'s. Whether any were.
+/// chapters, new chapters downloading by themselves) as book [to]'s.
+/// Whether any were.
 bool movePrefs(ListeningPrefs prefs, String from, String to) {
   var any = false;
   void move<T>(Map<String, T> m) {
@@ -449,6 +450,7 @@ bool movePrefs(ListeningPrefs prefs, String from, String to) {
   move(prefs.dialogueByBook);
   move(prefs.speedByBook);
   move(prefs.newestFirstByNovel);
+  move(prefs.autoDownloadByNovel);
   return any;
 }
 

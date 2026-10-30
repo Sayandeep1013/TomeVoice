@@ -63,6 +63,11 @@ class SourcesBridge {
   /// before each write: it stops, and leaves the rest to the app).
   static Future<bool> appIsOpen() async => await _ask<bool>('appIsOpen') ?? false;
 
+  /// Whether the phone is on Wi-Fi now (a network not charged by the byte):
+  /// what new chapters downloading by themselves wait for. Null where the
+  /// platform does not say.
+  static Future<bool?> unmetered() => _ask<bool>('unmetered');
+
   /// Whether TomeVoice may post notifications (asked for on Android 13 and
   /// later); null where the platform does not say.
   static Future<bool?> notificationsAllowed() => _ask<bool>('notificationsAllowed');

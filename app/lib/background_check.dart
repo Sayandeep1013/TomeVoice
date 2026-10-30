@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/widgets.dart';
 
+import 'auto_download.dart';
 import 'library_store.dart';
 import 'prefs.dart';
 import 'sources/bridge.dart';
@@ -51,6 +52,7 @@ Future<void> backgroundCheckMain() async {
 /// The check, from the app's folders ([libraryRoot] and [sourcesRoot], as
 /// SourcesBridge gives them, or a test's). What the notification says.
 Future<Map<String, Object?>> runBackgroundCheck({String? libraryRoot, String? sourcesRoot}) async {
+  final started = DateTime.now();
   final library = libraryRoot ?? await SourcesBridge.libraryRoot();
   final internal = sourcesRoot ?? await SourcesBridge.sourcesRoot();
   if (library == null || internal == null) return const {'found': 0};
@@ -65,7 +67,23 @@ Future<Map<String, Object?>> runBackgroundCheck({String? libraryRoot, String? so
   // The app opening mid-check takes over: this one stops before its next
   // write (the log of what it did is still kept; the app waits for it,
   // see SourcesBridge.backgroundBusy).
-  final result = await Updates(store, background: true, stopWhen: SourcesBridge.appIsOpen).checkAll();
+  final updates = Updates(store, background: true, stopWhen: SourcesBridge.appIsOpen);
+  final result = await updates.checkAll();
+  // New chapters of novels that download them by themselves, while there
+  // is time (the worker gives this engine nine minutes); the rest wait in
+  // the log for the app.
+  try {
+    await downloadAway(
+      store,
+      updates,
+      result.added,
+      stopWhen: SourcesBridge.appIsOpen,
+      unmetered: onWifi,
+      until: started.add(const Duration(minutes: 6)),
+    );
+  } on Object {
+    // What was found is still said.
+  }
   return describeNewChapters(store, result.added);
 }
 

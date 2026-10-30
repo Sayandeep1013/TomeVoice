@@ -113,6 +113,17 @@ class DownloadQueue {
 
   bool get paused => _paused;
 
+  /// Whether the queue kept in library [root] is paused (asked by the
+  /// background check's engine, which leaves the reader's pause alone).
+  static Future<bool> pausedIn(Directory root) async {
+    try {
+      final f = File('${root.path}/downloads.json');
+      return await f.exists() && (jsonDecode(await f.readAsString()) as Map)['paused'] == true;
+    } on Object {
+      return false;
+    }
+  }
+
   /// The library to download into; picks up where the queue was.
   Future<void> attach(LibraryStore store) async {
     _store = store;

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor, SourceKind, cursorOf;
 
+import 'auto_download.dart';
 import 'book_actions.dart';
 import 'book_card.dart';
 import 'book_search.dart';
@@ -516,6 +517,44 @@ class _NovelScreenState extends State<NovelScreen> {
     );
   }
 
+  /// Whether this novel's new chapters download by themselves as a check
+  /// finds them (see AutoDownload): off, on Wi-Fi, or on any network.
+  Future<void> _chooseAutoDownload() async {
+    final now = AutoDownload.of(_id);
+    final picked = await showModalBottomSheet<AutoDownload>(
+      context: context,
+      sheetAnimationStyle: sheetMotion(context),
+      useSafeArea: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SheetHeader('Download new chapters', subtitle: 'As the check for new chapters finds them'),
+            for (final a in AutoDownload.values)
+              SheetAction(
+                icon: a == now ? Icons.radio_button_checked_rounded : Icons.radio_button_unchecked_rounded,
+                label: a.label,
+                detail: a.detail,
+                onTap: () => Navigator.pop(ctx, a),
+              ),
+            const SizedBox(height: Gap.s),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || picked == now || !mounted) return;
+    AutoDownload.set(_id, picked);
+    showSnack(
+      context,
+      switch (picked) {
+        AutoDownload.off => 'New chapters wait for you to download them.',
+        AutoDownload.wifi => 'New chapters download by themselves on Wi-Fi.',
+        AutoDownload.any => 'New chapters download by themselves.',
+      },
+    );
+  }
+
   /// Find the novel at another source and move it there (see
   /// NovelMoveScreen); this page then makes way for the novel's page there.
   Future<void> _moveSource() async {
@@ -947,6 +986,8 @@ class _NovelScreenState extends State<NovelScreen> {
                     await _moveSource();
                   case 'epub':
                     if (e != null) await exportNovelEpub(context, _store, e);
+                  case 'auto':
+                    if (e != null) await _chooseAutoDownload();
                   case 'cover':
                     if (e != null) await changeCover(context, _store, e);
                   case 'remove':
@@ -968,6 +1009,7 @@ class _NovelScreenState extends State<NovelScreen> {
                     child: Text('Download all (${_chapters.length - _downloaded.length} to go)'),
                   ),
                 if (_entry != null) ...[
+                  const PopupMenuItem(value: 'auto', child: Text('Download new chapters…')),
                   const PopupMenuItem(value: 'move', child: Text('Move to…')),
                   const PopupMenuItem(value: 'source', child: Text('Move to another source')),
                   const PopupMenuItem(value: 'cover', child: Text('Change cover')),

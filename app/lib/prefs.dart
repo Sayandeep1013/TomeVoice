@@ -24,6 +24,7 @@ class ListeningPrefs {
     Map<String, int>? highlightOffsetMs,
     this.skipBy = SkipBy.sentence,
     Map<String, bool>? newestFirstByNovel,
+    Map<String, String>? autoDownloadByNovel,
     this.newestFirst = false,
     this.engineId,
     this.textSize = 19,
@@ -70,7 +71,8 @@ class ListeningPrefs {
         pitchByVoice = pitchByVoice ?? {},
         speedByBook = speedByBook ?? {},
         highlightOffsetMs = highlightOffsetMs ?? {},
-        newestFirstByNovel = newestFirstByNovel ?? {};
+        newestFirstByNovel = newestFirstByNovel ?? {},
+        autoDownloadByNovel = autoDownloadByNovel ?? {};
 
   /// Bumped on every change, so the app (theme) and open screens can follow.
   static final revision = ValueNotifier<int>(0);
@@ -165,6 +167,11 @@ class ListeningPrefs {
     newestFirst = value;
     save();
   }
+
+  /// Web novel id -> when its new chapters download by themselves as a
+  /// check finds them: "wifi" (on Wi-Fi only) or "any" (on any network).
+  /// A novel not here does not (see AutoDownload).
+  final Map<String, String> autoDownloadByNovel;
 
   String? engineId;
 
@@ -342,6 +349,7 @@ class ListeningPrefs {
         'highlightOffsetMs': highlightOffsetMs,
         'skipBy': skipBy.name,
         'newestFirstByNovel': newestFirstByNovel,
+        if (autoDownloadByNovel.isNotEmpty) 'autoDownloadByNovel': autoDownloadByNovel,
         'newestFirst': newestFirst,
         'engineId': engineId,
         'textSize': textSize,
@@ -415,6 +423,10 @@ class ListeningPrefs {
         newestFirstByNovel: {
           for (final e in (json['newestFirstByNovel'] as Map? ?? const {}).entries)
             if (e.value is bool) e.key.toString(): e.value as bool,
+        },
+        autoDownloadByNovel: {
+          for (final e in (json['autoDownloadByNovel'] is Map ? json['autoDownloadByNovel'] as Map : const {}).entries)
+            if (e.value is String) e.key.toString(): e.value as String,
         },
         newestFirst: json['newestFirst'] == true,
         engineId: json['engineId'] as String?,
