@@ -29,6 +29,11 @@ import 'speech_service.dart';
 /// copied to Audiobooks or to where the reader chose. A save that stops
 /// part way leaves no file behind.
 ///
+/// A save is the engine's, as reading aloud is (ReadingCore.kt), not the
+/// activity's: swiped away from Recents, TomeVoice goes on saving, its
+/// notification's Cancel still stops it, and opened again it shows how far
+/// the save is (showRunningExport).
+///
 /// The phone's speech engine is one, with one progress listener: a save
 /// cannot run while a book is read aloud. Reading aloud stops for a save,
 /// when the reader agrees, and a book started meanwhile stops the save.

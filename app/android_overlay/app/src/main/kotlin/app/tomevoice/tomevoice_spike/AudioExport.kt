@@ -45,6 +45,13 @@ import java.util.concurrent.Executors
  * chapter marks written in by Dart, copied to Audiobooks (MediaStore) or
  * to where the reader chose (Android's save dialog).
  *
+ * The engine's, not an activity's: ReadingCore makes one with the engine,
+ * on its messenger and the application, and closes it with the engine. A
+ * save goes on when TomeVoice is swiped away from Recents (the engine stays
+ * while one is [busy], see ReadingCore.saving), its notification's Cancel
+ * still reaches Dart, and the next activity takes it up ([attach]). Only
+ * the save dialog and the notification permission need an activity.
+ *
  * Each write is answered only once the encoder has taken it, and Dart keeps
  * no more than two unanswered: the PCM of a whole book never waits in
  * memory. Encoding runs on its own thread; answers go back on the main one.
@@ -53,11 +60,16 @@ import java.util.concurrent.Executors
  * and the document it was to fill, and one the app did not live to finish
  * is swept away the next time it starts (sweep).
  */
-class AudioExport(private val activity: Activity, messenger: BinaryMessenger) {
+class AudioExport(private val app: Context, messenger: BinaryMessenger) {
 
     companion object {
-        const val REQ_PICK = 77
-        private const val REQ_NOTIFY = 78
+        /**
+         * Their own numbers: 77 was MainActivity's folder picker's too, and
+         * this took that picker's answer (the folder for automatic backups
+         * and quotes was never set).
+         */
+        const val REQ_PICK = 7311
+        private const val REQ_NOTIFY = 7312
 
         /** Below this much free space the save stops, before the phone is full. */
         private const val MIN_FREE = 30L * 1024 * 1024
@@ -70,6 +82,17 @@ class AudioExport(private val activity: Activity, messenger: BinaryMessenger) {
     private val channel = MethodChannel(messenger, "tomevoice/export")
     private val work: ExecutorService = Executors.newSingleThreadExecutor()
 
+    /** The activity showing the app, while there is one (see [attach]). */
+    private var activity: Activity? = null
+
+    /**
+     * A save is under way: from Dart's "start" (or "begin") until "done" or
+     * "abort". The engine stays for it with no activity (ReadingCore.saving).
+     */
+    @Volatile
+    var busy = false
+        private set
+
     @Volatile
     private var writer: AacWriter? = null
 
@@ -78,6 +101,9 @@ class AudioExport(private val activity: Activity, messenger: BinaryMessenger) {
     private var temp: File? = null
     private var sinceCheck = 0L
     private var pickReply: MethodChannel.Result? = null
+
+    /** The activity the open save dialog was started from. */
+    private var pickFrom: Activity? = null
     private var askedNotify = false
 
     private val cancelHook: () -> Unit = { main.post { event("cancel") } }
@@ -90,10 +116,24 @@ class AudioExport(private val activity: Activity, messenger: BinaryMessenger) {
         work.execute { sweep() }
     }
 
-    private fun dir(): File = File(activity.noBackupFilesDir, "export").apply { mkdirs() }
+    /** [a] shows the app now: the save dialog and the permission prompt are its. */
+    fun attach(a: Activity) {
+        activity = a
+    }
+
+    /**
+     * [a] is going. A save goes on without it. A save dialog it had open is
+     * answered through the activity that comes next (Android gives it the
+     * result), or, if that answer never comes, when another is opened.
+     */
+    fun detach(a: Activity) {
+        if (activity === a) activity = null
+    }
+
+    private fun dir(): File = File(app.noBackupFilesDir, "export").apply { mkdirs() }
 
     /** The saves to Audiobooks or a chosen document under way: see [sweep]. */
-    private fun pendingFile(): File = File(activity.noBackupFilesDir, "export-pending")
+    private fun pendingFile(): File = File(app.noBackupFilesDir, "export-pending")
 
     private fun handle(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
@@ -107,10 +147,13 @@ class AudioExport(private val activity: Activity, messenger: BinaryMessenger) {
             }
             "audiobooksFolder" -> result.success(Build.VERSION.SDK_INT >= 29)
             "start", "progress" -> {
-                if (call.method == "start") askForNotifications()
+                if (call.method == "start") {
+                    busy = true
+                    askForNotifications()
+                }
                 try {
                     AudioExportService.show(
-                        activity,
+                        app,
                         call.argument<String>("title") ?: "Saving as audio",
                         call.argument<String>("text").orEmpty(),
                         call.argument<Int>("percent") ?: -1,
@@ -125,6 +168,7 @@ class AudioExport(private val activity: Activity, messenger: BinaryMessenger) {
             "begin" -> {
                 val rate = call.argument<Int>("sampleRate") ?: 24000
                 val bitRate = call.argument<Int>("bitRate") ?: 64000
+                busy = true
                 work.execute {
                     try {
                         writer?.release()
@@ -134,7 +178,9 @@ class AudioExport(private val activity: Activity, messenger: BinaryMessenger) {
                         writer = AacWriter(file, rate, bitRate)
                         sinceCheck = 0
                         main.post { result.success(file.absolutePath) }
-                    } catch (e: Exception) {
+                    } catch (e: Throwable) {
+                        // Throwable: an encoder's Error (out of memory, a class
+                        // missing) fails the save, not the app with it.
                         writer = null
                         main.post { result.error("ENCODER", e.message ?: "This phone could not make AAC audio", null) }
                     }
@@ -156,7 +202,7 @@ class AudioExport(private val activity: Activity, messenger: BinaryMessenger) {
                         }
                         w.write(pcm)
                         main.post { result.success(null) }
-                    } catch (e: Exception) {
+                    } catch (e: Throwable) {
                         main.post { result.error("ENCODER", e.message ?: "The audio could not be encoded", null) }
                     }
                 }
@@ -174,7 +220,7 @@ class AudioExport(private val activity: Activity, messenger: BinaryMessenger) {
                     main.post {
                         result.success(mapOf("path" to file.absolutePath, "bytes" to file.length(), "durationMs" to ms))
                     }
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     w.release()
                     main.post { result.error("ENCODER", e.message ?: "The audio could not be finished", null) }
                 }
@@ -188,8 +234,9 @@ class AudioExport(private val activity: Activity, messenger: BinaryMessenger) {
                     temp?.delete()
                     temp = null
                     main.post {
-                        AudioExportService.end(activity)
-                        if (notice != null) AudioExportService.notice(activity, title, notice, null)
+                        AudioExportService.end(app)
+                        if (notice != null) AudioExportService.notice(app, title, notice, null)
+                        ended()
                         result.success(null)
                     }
                 }
@@ -222,23 +269,28 @@ class AudioExport(private val activity: Activity, messenger: BinaryMessenger) {
                 }
             }
             "done" -> {
-                AudioExportService.end(activity)
+                AudioExportService.end(app)
                 val uri = call.argument<String>("uri")
                 AudioExportService.notice(
-                    activity,
+                    app,
                     call.argument<String>("title") ?: "Saved as audio",
                     call.argument<String>("text").orEmpty(),
                     uri?.let { Uri.parse(it) },
                 )
+                ended()
                 result.success(null)
             }
             "share" -> {
                 try {
                     val uri = Uri.parse(call.argument<String>("uri").orEmpty())
-                    activity.startActivity(
-                        Intent.createChooser(AudioExportService.sendIntent(uri), null)
-                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    )
+                    val chooser = Intent.createChooser(AudioExportService.sendIntent(uri), null)
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    val a = activity
+                    if (a != null) {
+                        a.startActivity(chooser)
+                    } else {
+                        app.startActivity(chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    }
                     result.success(null)
                 } catch (e: Exception) {
                     result.error("SHARE", e.message ?: "Could not share", null)
@@ -252,12 +304,22 @@ class AudioExport(private val activity: Activity, messenger: BinaryMessenger) {
         channel.invokeMethod("exportEvent", mapOf("type" to type))
     }
 
+    /**
+     * The save is over. With no activity the engine need not stay for it:
+     * it goes in a moment unless something else holds it (ReadingCore.idle).
+     */
+    private fun ended() {
+        busy = false
+        if (activity == null) ReadingCore.idle()
+    }
+
     /** Asked once: without it the progress shows only in the app. */
     private fun askForNotifications() {
+        val a = activity ?: return
         if (Build.VERSION.SDK_INT < 33 || askedNotify) return
-        if (activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
+        if (a.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
         askedNotify = true
-        activity.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIFY)
+        a.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIFY)
     }
 
     // ------------------------------------------------------------ where to
@@ -270,11 +332,22 @@ class AudioExport(private val activity: Activity, messenger: BinaryMessenger) {
     }
 
     private fun pick(name: String, result: MethodChannel.Result) {
-        if (pickReply != null) {
-            result.error("BUSY", "A save dialog is already open", null)
+        val a = activity
+        if (a == null) {
+            result.error("PICK", "Open TomeVoice to choose where it goes", null)
             return
         }
+        val open = pickReply
+        if (open != null) {
+            if (pickFrom === a) {
+                result.error("BUSY", "A save dialog is already open", null)
+                return
+            }
+            // Opened from an activity gone since, whose answer never came.
+            open.success(null)
+        }
         pickReply = result
+        pickFrom = a
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = mimeOf(name)
@@ -282,9 +355,10 @@ class AudioExport(private val activity: Activity, messenger: BinaryMessenger) {
         }
         try {
             @Suppress("DEPRECATION")
-            activity.startActivityForResult(intent, REQ_PICK)
+            a.startActivityForResult(intent, REQ_PICK)
         } catch (e: Exception) {
             pickReply = null
+            pickFrom = null
             result.error("PICK", e.message ?: "This phone has no save dialog", null)
         }
     }
@@ -294,6 +368,7 @@ class AudioExport(private val activity: Activity, messenger: BinaryMessenger) {
         if (requestCode != REQ_PICK) return false
         val reply = pickReply ?: return true
         pickReply = null
+        pickFrom = null
         val uri = data?.data
         if (resultCode != Activity.RESULT_OK || uri == null) {
             reply.success(null)
@@ -302,7 +377,7 @@ class AudioExport(private val activity: Activity, messenger: BinaryMessenger) {
         try {
             // Kept past a restart, so an empty document left by a save the
             // app did not finish can still be deleted.
-            activity.contentResolver.takePersistableUriPermission(
+            app.contentResolver.takePersistableUriPermission(
                 uri,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
             )
@@ -320,7 +395,7 @@ class AudioExport(private val activity: Activity, messenger: BinaryMessenger) {
      */
     private fun publish(file: File, name: String, folder: String, target: String?): Map<String, Any?> {
         if (!file.isFile) throw IllegalStateException("The audio is missing")
-        val resolver = activity.contentResolver
+        val resolver = app.contentResolver
         if (target != null) {
             val uri = Uri.parse(target)
             remember(uri, file.length())
@@ -364,7 +439,7 @@ class AudioExport(private val activity: Activity, messenger: BinaryMessenger) {
     }
 
     private fun displayName(uri: Uri): String? = try {
-        activity.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+        app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
             if (c.moveToFirst()) c.getString(0) else null
         }
     } catch (e: Exception) {
@@ -372,7 +447,7 @@ class AudioExport(private val activity: Activity, messenger: BinaryMessenger) {
     }
 
     private fun sizeOf(uri: Uri): Long = try {
-        activity.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { c ->
+        app.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { c ->
             if (c.moveToFirst() && !c.isNull(0)) c.getLong(0) else -1L
         } ?: -1L
     } catch (e: Exception) {
@@ -382,9 +457,9 @@ class AudioExport(private val activity: Activity, messenger: BinaryMessenger) {
     private fun deleteDocument(uri: Uri) {
         try {
             if (uri.authority == MediaStore.AUTHORITY) {
-                activity.contentResolver.delete(uri, null, null)
+                app.contentResolver.delete(uri, null, null)
             } else {
-                DocumentsContract.deleteDocument(activity.contentResolver, uri)
+                DocumentsContract.deleteDocument(app.contentResolver, uri)
             }
         } catch (_: Exception) {
         }
@@ -420,16 +495,20 @@ class AudioExport(private val activity: Activity, messenger: BinaryMessenger) {
         record.delete()
     }
 
-    /** The activity is going: so is its Dart side, and any save with it. */
+    /** The engine is going: so is its Dart side, and any save with it. */
     fun close() {
         if (AudioExportService.onCancel === cancelHook) AudioExportService.onCancel = null
         if (AudioExportService.onTimeout === timeoutHook) AudioExportService.onTimeout = null
+        channel.setMethodCallHandler(null)
         val w = writer
         val file = temp
         writer = null
         temp = null
         pickReply = null
-        if (w != null || file != null) AudioExportService.end(activity)
+        pickFrom = null
+        activity = null
+        if (busy || w != null || file != null) AudioExportService.end(app)
+        busy = false
         work.execute {
             w?.release()
             file?.delete()
@@ -566,20 +645,23 @@ class AacWriter(file: File, private val sampleRate: Int, bitRate: Int) {
 
 /**
  * Keeps TomeVoice alive while a book is saved as audio, so it goes on with
- * the screen off: a dataSync foreground service (the reading one is
- * mediaPlayback and belongs to reading aloud). It does no work itself; Dart
- * makes the speech and the encoder thread writes it. Its notification shows
- * how far the save is, with Cancel. Android 15 and later give a service of
- * this kind six hours a day: then it is stopped, and the save waits for the
- * app to be opened (onTimeout).
+ * the screen off and with no activity (swiped away from Recents): a dataSync
+ * foreground service (the reading one is mediaPlayback and belongs to
+ * reading aloud). It does no work itself; Dart makes the speech and the
+ * encoder thread writes it. Its notification shows how far the save is,
+ * with Cancel, and opens the app onto the save's progress. Android 15 and
+ * later give a service of this kind six hours a day: then it is stopped,
+ * and the save waits for the app to be opened (onTimeout).
  */
 class AudioExportService : Service() {
 
     companion object {
         const val ACTION_CANCEL = "app.tomevoice.action.EXPORT_CANCEL"
         private const val CHANNEL_ID = "export"
-        private const val NOTIFICATION_ID = 8
-        private const val NOTICE_ID = 9
+
+        /** Their own: 8 and 9 were OCR's as well, and a scan read during a save took its notification. */
+        private const val NOTIFICATION_ID = 7304
+        private const val NOTICE_ID = 7305
 
         /** The wake lock lets go after this unless renewed by progress. */
         private const val AWAKE_MS = 10 * 60 * 1000L
@@ -720,7 +802,7 @@ class AudioExportService : Service() {
             startForeground(NOTIFICATION_ID, n)
         }
         keepAwake()
-        // Nothing is saving (the app was closed since): stop again.
+        // Nothing is saving (the engine went since): stop again.
         if (onCancel == null) stopSelf()
         return START_NOT_STICKY
     }
@@ -791,7 +873,8 @@ class AudioExportService : Service() {
             .setSmallIcon(R.drawable.ic_stat_tomevoice)
             .setContentTitle(title)
             .setContentText(text)
-            .setContentIntent(openApp(this))
+            // Tapped: the app, the save's progress over it (home_shell.dart).
+            .setContentIntent(Widgets.openApp(this, NOTIFICATION_ID, null, false, "export"))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)

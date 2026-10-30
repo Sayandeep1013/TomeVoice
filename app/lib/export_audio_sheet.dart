@@ -67,13 +67,36 @@ Future<void> showSaveAsAudio(
 }
 
 /// How a save is going, with Stop; Share once it is saved. Hidden, it goes
-/// on (the notification shows it).
-Future<void> showExportProgress(BuildContext context, AudioExport job) => showModalBottomSheet<void>(
+/// on (the notification shows it). One at a time: asked again while it is
+/// open, it stays the one.
+Future<void> showExportProgress(BuildContext context, AudioExport job) async {
+  if (_progressShown != null) return;
+  final mine = Object();
+  _progressShown = mine;
+  try {
+    await showModalBottomSheet<void>(
       context: context,
       sheetAnimationStyle: sheetMotion(context),
       useSafeArea: true,
-      builder: (_) => carryTint(context, _ProgressSheet(job: job)),
+      builder: (_) => carryTint(context, _ProgressSheet(job: job, shown: mine)),
     );
+  } finally {
+    if (identical(_progressShown, mine)) _progressShown = null;
+  }
+}
+
+/// The save's progress sheet on screen now, if any: from the moment it is
+/// asked for until it closes, or goes with the screen under it.
+Object? _progressShown;
+
+/// The save going on now, shown again: when TomeVoice is opened onto it
+/// (swiped away from Recents, the save went on with no window) and from its
+/// notification. Nothing when no save is going on, or its progress shows.
+Future<void> showRunningExport(BuildContext context) async {
+  final job = AudioExport.current.value;
+  if (job == null || !job.status.value.running || !context.mounted) return;
+  await showExportProgress(context, job);
+}
 
 class _SaveSheet extends StatefulWidget {
   const _SaveSheet({
@@ -371,10 +394,28 @@ Future<Uint8List?> _coverBytes(String? path) async {
   }
 }
 
-class _ProgressSheet extends StatelessWidget {
-  const _ProgressSheet({required this.job});
+class _ProgressSheet extends StatefulWidget {
+  const _ProgressSheet({required this.job, required this.shown});
 
   final AudioExport job;
+
+  /// Which showing of the sheet this is (see [_progressShown]).
+  final Object shown;
+
+  @override
+  State<_ProgressSheet> createState() => _ProgressSheetState();
+}
+
+class _ProgressSheetState extends State<_ProgressSheet> {
+  AudioExport get job => widget.job;
+
+  @override
+  void dispose() {
+    // Gone with its route, or with the screen under it (whose route then
+    // never says it closed): another may show.
+    if (identical(_progressShown, widget.shown)) _progressShown = null;
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) => ValueListenableBuilder<ExportStatus>(

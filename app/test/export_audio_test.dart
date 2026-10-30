@@ -1,18 +1,23 @@
 // Saving a chapter or a book as audio: what a save covers, the renderer
 // that makes each sentence as reading aloud makes it (the same sound, with
 // chapters where they start), stopping part way, the encoder's
-// back-pressure, and the save from the first sentence to the file.
+// back-pressure, the save from the first sentence to the file, and a save
+// with no activity: swiped away from Recents it goes on, its notification's
+// Cancel stops it, and opened again TomeVoice shows it.
 
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'dart:ui' show AppLifecycleState, Size;
 
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart' show SizedBox;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart' show PipelineSettings;
 import 'package:tomevoice_document/tomevoice_document.dart';
 import 'package:tomevoice_spike/export_audio.dart';
+import 'package:tomevoice_spike/main.dart' show SpikeApp;
 import 'package:tomevoice_spike/marks.dart';
 import 'package:tomevoice_spike/mp4_chapters.dart';
 import 'package:tomevoice_spike/neural_voices.dart' show isNeural, wavBytes;
@@ -37,8 +42,10 @@ void main() {
     PlaybackScheduler.beforePlay = null;
     AudioExport.current.value = null;
   });
-  tearDown(() {
+  tearDown(() async {
     messenger.setMockMethodCallHandler(AudioExport.channel, null);
+    // A test that took the window away gives it back.
+    await _lifecycle(AppLifecycleState.resumed);
     try {
       _dir.deleteSync(recursive: true);
     } on FileSystemException {
@@ -412,8 +419,177 @@ void main() {
       expect(calls, isNot(contains('publish')));
       PlaybackScheduler.beforePlay = null;
     });
+
+    // With no activity: Android took the window (a swipe from Recents)
+    // and the engine stayed for the save (ReadingCore.kt), which nothing on
+    // this side may need a window for.
+
+    test('the window gone, it goes on to the file, and its end is said in a notification', () async {
+      platform();
+      final v = _Voices('g')..gateAt = 1;
+      final job = AudioExport.start(plan: ExportPlan.book(layout), voice: _recipe(v, layout, dialogue: null), bookTitle: 'Save');
+      await _until(() => v.atGate);
+      await _lifecycle(AppLifecycleState.inactive);
+      await _lifecycle(AppLifecycleState.hidden);
+      await _lifecycle(AppLifecycleState.paused);
+      await _lifecycle(AppLifecycleState.detached);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(job.status.value.running, isTrue, reason: 'the save stopped with the window');
+      expect(calls, isNot(contains('abort')));
+      v.gate.complete();
+      await ended(job);
+      expect(job.status.value.phase, ExportPhase.saved);
+      expect(calls, containsAllInOrder(['start', 'begin', 'write', 'finish', 'publish', 'done']));
+      expect(calls, isNot(contains('abort')));
+      expect(args['done']?['title'], 'Saved as audio: Save');
+      expect(args['done']?['uri'], 'content://media/external/audio/media/7');
+      PlaybackScheduler.beforePlay = null;
+    });
+
+    test("the window gone, its notification's Cancel still stops it: nothing kept, no notice", () async {
+      platform();
+      final v = _Voices('x')..holdAt = 1;
+      final job = AudioExport.start(
+        plan: ExportPlan.book(layout),
+        voice: _recipe(v, layout),
+        bookTitle: 'Save',
+        destination: 'content://documents/document/9',
+      );
+      await _until(() => v.holding);
+      await _lifecycle(AppLifecycleState.paused);
+      await _lifecycle(AppLifecycleState.detached);
+      // The notification's Cancel, as AudioExport.kt hands it on.
+      await _fromPlatform(const MethodCall('exportEvent', {'type': 'cancel'}));
+      await ended(job);
+      expect(job.status.value.phase, ExportPhase.cancelled);
+      expect(job.status.value.message, isNull);
+      expect(v.cancels, 1, reason: 'the sentence being made was not called off');
+      expect(calls, containsAllInOrder(['abort', 'discard']));
+      expect(args['abort']?['notice'], isNull, reason: 'a notice for a stop the reader asked for');
+      expect(args['discard']?['uri'], 'content://documents/document/9');
+      expect(calls, isNot(contains('finish')));
+      PlaybackScheduler.beforePlay = null;
+    });
+
+    test("stopped by Android's limit with no window, it waits, and goes on as TomeVoice is opened", () async {
+      platform();
+      final v = _Voices('t')..gateAt = 1;
+      final job = AudioExport.start(plan: ExportPlan.book(layout), voice: _recipe(v, layout, dialogue: null), bookTitle: 'Save');
+      await _until(() => v.atGate);
+      await _lifecycle(AppLifecycleState.paused);
+      await _lifecycle(AppLifecycleState.detached);
+      // Android 15's six hours a day used up: the service stopped.
+      await _fromPlatform(const MethodCall('exportEvent', {'type': 'timeout'}));
+      expect(job.status.value.waiting, isTrue);
+      final starts = calls.where((c) => c == 'start').length;
+      // Opened again: a new window on the same engine.
+      await _lifecycle(AppLifecycleState.resumed);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(calls.where((c) => c == 'start').length, starts + 1, reason: 'the service was not started again');
+      expect(job.status.value.waiting, isFalse);
+      v.gate.complete();
+      await ended(job);
+      expect(job.status.value.phase, ExportPhase.saved);
+      PlaybackScheduler.beforePlay = null;
+    });
+  });
+
+  group('opened again', () {
+    final layout = ReadingLayout.build(ingestString(
+      '# Chapter 1\n\nThe first chapter has a line or two. Then it ends.\n\n'
+      '# Chapter 2\n\nThe second chapter is short as well. It ends too.',
+      filename: 'again.md',
+    ));
+
+    /// A platform event on the reading channel, as the phone sends one.
+    Future<void> event(WidgetTester tester, Map<String, Object?> e) async {
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'tomevoice/tts',
+        const StandardMethodCodec().encodeMethodCall(MethodCall('platformEvent', e)),
+        (_) {},
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('onto a save going on, or from its notification: its progress shows once, and Stop stops it',
+        (tester) async {
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 2.75;
+      addTearDown(tester.view.reset);
+      const tts = MethodChannel('tomevoice/tts');
+      messenger.setMockMethodCallHandler(tts, (call) async => switch (call.method) {
+            'launchArgs' => <String, Object?>{},
+            'outputDir' => _dir.path,
+            // The save's notification, tapped (AudioExportService).
+            'widgetLaunch' => <String, Object?>{'page': 'export'},
+            'listEngines' => const <Object?>[],
+            'listVoices' => const <Object?>[],
+            _ => null,
+          });
+      addTearDown(() => messenger.setMockMethodCallHandler(tts, null));
+      final calls = <String>[];
+      messenger.setMockMethodCallHandler(AudioExport.channel, (call) async {
+        calls.add(call.method);
+        return null;
+      });
+      await tester.pumpWidget(const SpikeApp());
+      for (var i = 0; i < 40 && find.text('Library').evaluate().isEmpty; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+      expect(find.text('Saving as audio'), findsNothing, reason: 'progress with no save');
+
+      final v = _Voices('o')..holdAt = 0;
+      final job = AudioExport.start(plan: ExportPlan.book(layout), voice: _recipe(v, layout), bookTitle: 'Again');
+      await tester.pumpAndSettle();
+      expect(job.status.value.running, isTrue);
+
+      // A new window on the engine that went on saving.
+      await event(tester, {'type': 'shown'});
+      expect(find.text('Saving as audio'), findsOneWidget, reason: 'opened again, the save did not show');
+      // (The sheet's header sets the file's name in capitals.)
+      expect(find.text('AGAIN.M4B'), findsOneWidget);
+      // Then its notification, tapped: the same sheet, not a second.
+      await event(tester, {'type': 'widgetLaunch'});
+      expect(find.text('Saving as audio'), findsOneWidget);
+      expect(find.text('Stop saving'), findsOneWidget);
+
+      await tester.tap(find.text('Stop saving'));
+      await tester.pumpAndSettle();
+      expect(find.text('Not saved'), findsOneWidget);
+      expect(job.status.value.phase, ExportPhase.cancelled);
+      expect(calls, contains('abort'));
+      expect(AudioExport.current.value, isNull);
+      await tester.tap(find.text('Done'));
+      await tester.pumpAndSettle();
+      // Nothing going on now: opened again, nothing shows.
+      await event(tester, {'type': 'shown'});
+      expect(find.text('Not saved'), findsNothing);
+      expect(find.text('Saving as audio'), findsNothing);
+      PlaybackScheduler.beforePlay = null;
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 10));
+    });
   });
 }
+
+/// The app's window going or coming back, as the engine tells Dart.
+Future<void> _lifecycle(AppLifecycleState state) =>
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.handlePlatformMessage(
+      SystemChannels.lifecycle.name,
+      SystemChannels.lifecycle.codec.encodeMessage(state.toString()),
+      (_) {},
+    );
+
+/// A call from AudioExport.kt on the save's channel (its notification's
+/// Cancel, Android stopping its service).
+Future<void> _fromPlatform(MethodCall call) =>
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.handlePlatformMessage(
+      AudioExport.channel.name,
+      AudioExport.channel.codec.encodeMethodCall(call),
+      (_) {},
+    );
 
 Future<void> _until(bool Function() done, {Duration within = const Duration(seconds: 20)}) async {
   final watch = Stopwatch()..start();
@@ -454,7 +630,8 @@ PlaybackScheduler _recipe(
 /// Voices that say each line as a tone, a word a burst (the dialogue voice
 /// higher and at another rate), reporting where words start as Android
 /// does; a player that has heard whatever it was given. [failWith] makes a
-/// line fail; [holdAt] keeps that synthesis waiting until it is cancelled.
+/// line fail; [holdAt] keeps that synthesis waiting until it is cancelled;
+/// [gateAt] keeps it waiting until [gate] opens, then says it.
 class _Voices extends SpeechService {
   _Voices(this.prefix);
 
@@ -464,6 +641,9 @@ class _Voices extends SpeechService {
   Object? Function(String text, String? voice)? failWith;
   int? holdAt;
   bool holding = false;
+  int? gateAt;
+  final gate = Completer<void>();
+  bool atGate = false;
   int cancels = 0;
   Completer<void>? _held;
   var _n = 0;
@@ -487,6 +667,10 @@ class _Voices extends SpeechService {
       holding = true;
       await held.future;
       throw PlatformException(code: 'TTS_STOPPED', message: 'Synthesis cancelled');
+    }
+    if (k == gateAt) {
+      atGate = true;
+      await gate.future;
     }
     await Future<void>.delayed(const Duration(milliseconds: 1));
     return _speech(text, voiceName);
