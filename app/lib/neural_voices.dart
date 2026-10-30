@@ -990,7 +990,6 @@ class NeuralEngine {
     final parts = pieces ? clausePieces(text) : [(start: 0, text: text)];
     final job = _next++;
     final dir = NeuralVoices.instance.folder(voice).path;
-    if (!voice.lexicon) _espeakHome ??= dir;
     try {
       for (var k = 0; k < parts.length; k++) {
         if (_cancels != cancels) throw PlatformException(code: 'TTS_STOPPED', message: 'Synthesis cancelled');
@@ -1012,6 +1011,9 @@ class NeuralEngine {
           'out': '$outDir/neural-$job.wav',
         }, _timeoutFor(parts[k].text));
         if (r['error'] != null) throw Exception(r['error']);
+        // The first voice to load and speak this run is the one espeak-ng
+        // reads every voice's pronunciation through ([readsThrough]).
+        if (!voice.lexicon) _espeakHome ??= dir;
         final loadMs = r['loadMs'] as int? ?? 0;
         if (loadMs > 0) debugPrint('Natural voice ${voice.id}: loaded in $loadMs ms');
         if (!last) continue;
