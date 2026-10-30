@@ -148,6 +148,21 @@ void main() {
       ]);
     });
 
+    test('FB2 titles and table cells keep their word breaks', () {
+      const xml = '<?xml version="1.0" encoding="utf-8"?>'
+          '<FictionBook><description><title-info><book-title>Trip</book-title>'
+          '</title-info></description><body>'
+          '<section><title><p>Chapter 1</p><p>The Arrival</p></title>'
+          '<p>They came by night.</p>'
+          '<table><tr><td>Alice</td><td>30</td></tr></table></section>'
+          '<section><title><p>Chapter 2.</p><p>The Return</p></title><p>They left.</p></section>'
+          '</body></FictionBook>';
+      final book = ingestBytes(Uint8List.fromList(utf8.encode(xml)), filename: 't.fb2');
+      expect(book.sections.map((s) => s.displayTitle), ['Chapter 1: The Arrival', 'Chapter 2. The Return']);
+      expect(_texts(book.sections.first.blocks), ['Chapter 1', 'The Arrival', 'They came by night.', 'Alice 30']);
+      expect(book.sections.first.blocks.take(2).map((b) => b.role), [BlockRole.heading, BlockRole.heading]);
+    });
+
     test('decodeEntities knows more than a handful of names', () {
       expect(decodeEntities('&Agrave;&thorn;&alpha;&larr;&amp;'),
           String.fromCharCodes([0xC0, 0xFE, 0x3B1, 0x2190, 0x26]));
