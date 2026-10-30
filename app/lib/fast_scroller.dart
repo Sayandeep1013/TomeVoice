@@ -60,6 +60,8 @@ class ControllerScrollTarget extends FastScrollTarget {
 /// a long book's text): it slides in while the list moves and, held and
 /// dragged, carries the list straight there, a bubble beside it naming
 /// where ([labelAt], given how far down, 0 to 1). A short list has none.
+/// A screen reader has it as a slider that says where the list is and
+/// steps it on or back.
 class FastScroller extends StatefulWidget {
   FastScroller({
     super.key,
@@ -91,7 +93,11 @@ class FastScroller extends StatefulWidget {
 
 class _FastScrollerState extends State<FastScroller> {
   static const _thumbHeight = 52.0;
-  static const _hitWidth = 44.0;
+  static const _hitWidth = 48.0;
+
+  /// How far a screen reader's swipe up or down moves the list: a
+  /// twentieth of it, as Android's own sliders step.
+  static const _step = 0.05;
 
   bool _shown = false;
   bool _dragging = false;
@@ -158,6 +164,25 @@ class _FastScrollerState extends State<FastScroller> {
     }
   }
 
+  /// Where [f] is, as a screen reader says it: the place the bubble would
+  /// name ("Chapter 12"), and how far through the list.
+  String _valueAt(double f) {
+    final through = '${(f * 100).round()}%';
+    final at = widget.labelAt?.call(f);
+    return at == null || at.isEmpty ? through : '$at, $through';
+  }
+
+  /// A screen reader's swipe up or down on the thumb: on or back a
+  /// [_step], heard by the list as a drag let go there.
+  void _nudge(int direction) {
+    final f = (_fraction + direction * _step).clamp(0.0, 1.0);
+    widget.onDrag?.call(true);
+    _target.jumpTo(f);
+    widget.onDrag?.call(false);
+    setState(() => _shown = true);
+    _hideLater();
+  }
+
   @override
   Widget build(BuildContext context) {
     final accent = Skin.accentOf(context);
@@ -172,76 +197,105 @@ class _FastScrollerState extends State<FastScroller> {
           child: LayoutBuilder(
             builder: (context, box) {
               final track = box.maxHeight;
-              final y = _fraction * math.max(0, track - _thumbHeight);
-              final label = _dragging ? widget.labelAt?.call(_fraction) : null;
+              final f = _fraction;
+              final y = f * math.max(0, track - _thumbHeight);
+              final label = _dragging ? widget.labelAt?.call(f) : null;
               final d = Motion.of(context, Motion.standard);
-              return IgnorePointer(
-                ignoring: !_shown,
-                child: AnimatedOpacity(
-                  opacity: _shown ? 1 : 0,
-                  duration: d,
-                  curve: Motion.out,
-                  child: AnimatedSlide(
-                    offset: _shown ? Offset.zero : const Offset(0.08, 0),
-                    duration: d,
-                    curve: Motion.out,
-                    child: Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        if (label != null)
-                          Positioned(
-                            right: _hitWidth + 6,
-                            top: y + _thumbHeight / 2 - 22,
-                            child: _bubble(context, label),
-                          ),
-                        Positioned(
-                          right: 0,
-                          top: y,
-                          width: _hitWidth,
-                          height: _thumbHeight,
-                          child: Semantics(
-                            label: 'Fast scroll',
-                            slider: true,
-                            child: GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onVerticalDragStart: (g) {
-                                _hide?.cancel();
-                                _fromTop = y;
-                                _fromY = g.globalPosition.dy;
-                                setState(() => _dragging = true);
-                                widget.onDrag?.call(true);
-                              },
-                              onVerticalDragUpdate: (g) => _dragTo(g.globalPosition.dy, track),
-                              onVerticalDragEnd: (_) {
-                                setState(() => _dragging = false);
-                                _lastLabel = null;
-                                _hideLater();
-                                widget.onDrag?.call(false);
-                              },
-                              onVerticalDragCancel: () {
-                                setState(() => _dragging = false);
-                                _hideLater();
-                                widget.onDrag?.call(false);
-                              },
-                              child: Center(
-                                child: AnimatedContainer(
-                                  duration: Motion.of(context, Motion.quick),
-                                  curve: Motion.out,
-                                  width: _dragging ? 10 : 6,
-                                  height: _thumbHeight - 8,
-                                  decoration: BoxDecoration(
-                                    color: _dragging ? accent : accent.withValues(alpha: 0.7),
-                                    borderRadius: BorderRadius.circular(Radii.pill),
+              return Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  IgnorePointer(
+                    ignoring: !_shown,
+                    child: AnimatedOpacity(
+                      opacity: _shown ? 1 : 0,
+                      duration: d,
+                      curve: Motion.out,
+                      child: AnimatedSlide(
+                        offset: _shown ? Offset.zero : const Offset(0.08, 0),
+                        duration: d,
+                        curve: Motion.out,
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            if (label != null)
+                              Positioned(
+                                right: _hitWidth + 6,
+                                top: y + _thumbHeight / 2 - 22,
+                                child: _bubble(context, label),
+                              ),
+                            Positioned(
+                              right: 0,
+                              top: y,
+                              width: _hitWidth,
+                              height: _thumbHeight,
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                // A screen reader has the slider below.
+                                excludeFromSemantics: true,
+                                onVerticalDragStart: (g) {
+                                  _hide?.cancel();
+                                  _fromTop = y;
+                                  _fromY = g.globalPosition.dy;
+                                  setState(() => _dragging = true);
+                                  widget.onDrag?.call(true);
+                                },
+                                onVerticalDragUpdate: (g) => _dragTo(g.globalPosition.dy, track),
+                                onVerticalDragEnd: (_) {
+                                  setState(() => _dragging = false);
+                                  _lastLabel = null;
+                                  _hideLater();
+                                  widget.onDrag?.call(false);
+                                },
+                                onVerticalDragCancel: () {
+                                  setState(() => _dragging = false);
+                                  _hideLater();
+                                  widget.onDrag?.call(false);
+                                },
+                                child: ExcludeSemantics(
+                                  child: Center(
+                                    child: AnimatedContainer(
+                                      duration: Motion.of(context, Motion.quick),
+                                      curve: Motion.out,
+                                      width: _dragging ? 10 : 6,
+                                      height: _thumbHeight - 8,
+                                      decoration: BoxDecoration(
+                                        color: _dragging ? accent : accent.withValues(alpha: 0.7),
+                                        borderRadius: BorderRadius.circular(Radii.pill),
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                   ),
-                ),
+                  // The thumb as a screen reader has it: a slider that says
+                  // where the list is and steps through it, there whenever
+                  // the list is long enough for a thumb, shown or not (the
+                  // thumb fades a moment after a scroll, too soon to reach
+                  // with a swipe). It takes no touch of its own.
+                  if (_target.long)
+                    Positioned(
+                      right: 0,
+                      top: y,
+                      width: _hitWidth,
+                      height: _thumbHeight,
+                      child: Semantics(
+                        container: true,
+                        slider: true,
+                        label: 'Fast scroll',
+                        value: _valueAt(f),
+                        increasedValue: _valueAt((f + _step).clamp(0.0, 1.0)),
+                        decreasedValue: _valueAt((f - _step).clamp(0.0, 1.0)),
+                        onIncrease: f < 1 ? () => _nudge(1) : null,
+                        onDecrease: f > 0 ? () => _nudge(-1) : null,
+                        child: const SizedBox.expand(),
+                      ),
+                    ),
+                ],
               );
             },
           ),

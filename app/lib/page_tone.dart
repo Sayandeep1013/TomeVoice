@@ -51,23 +51,29 @@ class PageTone {
   );
 
   /// Old paper: warm, a brown ink, a sienna voice.
+  ///
+  /// The soft ink and the sienna set the 10 and 11 px labels (the chapter
+  /// above the page, the time left, "CHAPTER 3"), so each is just dark
+  /// enough to read at 4.5:1 on the paper; the soft ink also where the top
+  /// bar's chapter line sits, on the darkened edge of the scroll.
   static const papyrus = PageTone(
     'papyrus',
     'Papyrus',
     paper: [Color(0xFFF2E4C4), Color(0xFFE5D0A3)],
     ink: Color(0xFF3B2B19),
-    inkSoft: Color(0xFF6E5839),
-    accent: Color(0xFF9C5527),
+    inkSoft: Color(0xFF654F31),
+    accent: Color(0xFF8C471A),
     vignette: Color(0x38734A1A),
   );
 
   /// For the dark: a dim warm grey, soft low-contrast text, nothing glaring.
+  /// Its soft ink is only just light enough for small labels (4.5:1).
   static const dusk = PageTone(
     'dusk',
     'Dusk',
     paper: [Color(0xFF27231F), Color(0xFF1C1A17)],
     ink: Color(0xFFB9AD9C),
-    inkSoft: Color(0xFF8A7F71),
+    inkSoft: Color(0xFF95897B),
     accent: Color(0xFFC6A06A),
     dark: true,
     vignette: Color(0x73000000),

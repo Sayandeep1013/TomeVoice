@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show BoxHitTestResult, BoxParentData, RenderShiftedBox;
 import 'package:flutter/services.dart' show PredictiveBackEvent;
 import 'package:material_color_utilities/material_color_utilities.dart' show Hct;
 
@@ -906,6 +907,10 @@ class _CapsuleState extends State<Capsule> {
 }
 
 /// Circular icon button — the reader's top bar and the library header.
+///
+/// The circle is drawn at [size], but it takes a finger's 48 dp, as Android
+/// asks of a target: it sits in the middle of a 48 dp square, and a tap
+/// anywhere in that square is its own.
 class RoundButton extends StatelessWidget {
   const RoundButton({
     super.key,
@@ -930,26 +935,100 @@ class RoundButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final button = SizedBox(
-      width: size,
-      height: size,
-      child: Capsule(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        padding: EdgeInsets.zero,
-        color: color,
-        child: Icon(
-          icon,
-          size: size * 0.46,
-          color: iconColor ?? Skin.inkOn(context),
+    final button = _TapTarget(
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: Capsule(
+          onTap: onTap,
+          onLongPress: onLongPress,
+          padding: EdgeInsets.zero,
+          color: color,
+          child: Icon(
+            icon,
+            size: size * 0.46,
+            color: iconColor ?? Skin.inkOn(context),
+          ),
         ),
       ),
     );
+    // With no tooltip, it is the drawing of another's button (a menu's),
+    // which has the node a screen reader finds.
     if (tooltip == null) return button;
-    return Tooltip(
-      message: tooltip!,
-      triggerMode: onLongPress == null ? null : TooltipTriggerMode.manual,
-      child: button,
+    // One node for a screen reader, named by the tooltip, the size of the
+    // whole target.
+    return Semantics(
+      container: true,
+      button: onTap != null,
+      child: Tooltip(
+        message: tooltip!,
+        triggerMode: onLongPress == null ? null : TooltipTriggerMode.manual,
+        child: button,
+      ),
+    );
+  }
+}
+
+/// [child] in the middle of a square at least 48 dp across (a finger's
+/// target), with a tap anywhere in that square handed to [child] as if at
+/// its centre, as Material pads its own buttons. The drawing keeps its
+/// size; only the room it takes and the reach of a tap grow.
+class _TapTarget extends SingleChildRenderObjectWidget {
+  const _TapTarget({required super.child});
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderTapTarget();
+}
+
+class _RenderTapTarget extends RenderShiftedBox {
+  _RenderTapTarget() : super(null);
+
+  static const _min = kMinInteractiveDimension;
+
+  @override
+  double computeMinIntrinsicWidth(double height) => math.max(super.computeMinIntrinsicWidth(height), _min);
+
+  @override
+  double computeMaxIntrinsicWidth(double height) => math.max(super.computeMaxIntrinsicWidth(height), _min);
+
+  @override
+  double computeMinIntrinsicHeight(double width) => math.max(super.computeMinIntrinsicHeight(width), _min);
+
+  @override
+  double computeMaxIntrinsicHeight(double width) => math.max(super.computeMaxIntrinsicHeight(width), _min);
+
+  @override
+  Size computeDryLayout(covariant BoxConstraints constraints) {
+    final child = this.child;
+    if (child == null) return constraints.constrain(const Size(_min, _min));
+    final inner = child.getDryLayout(constraints.loosen());
+    return constraints.constrain(Size(math.max(inner.width, _min), math.max(inner.height, _min)));
+  }
+
+  @override
+  void performLayout() {
+    final child = this.child;
+    if (child == null) {
+      size = constraints.constrain(const Size(_min, _min));
+      return;
+    }
+    child.layout(constraints.loosen(), parentUsesSize: true);
+    size = constraints.constrain(Size(math.max(child.size.width, _min), math.max(child.size.height, _min)));
+    (child.parentData! as BoxParentData).offset = Alignment.center.alongOffset(size - child.size as Offset);
+  }
+
+  @override
+  bool hitTest(BoxHitTestResult result, {required Offset position}) {
+    if (super.hitTest(result, position: position)) return true;
+    final child = this.child;
+    // Outside the drawing but inside the square: the drawing's own, at its
+    // centre. Outside the square: not this button's.
+    if (child == null || !size.contains(position)) return false;
+    final centre = child.size.center(Offset.zero);
+    return result.addWithRawTransform(
+      transform: MatrixUtils.forceToPoint(centre),
+      position: centre,
+      hitTest: (result, _) => child.hitTest(result, position: centre),
     );
   }
 }
