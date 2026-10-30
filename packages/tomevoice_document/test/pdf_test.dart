@@ -731,6 +731,35 @@ void main() {
           'The road is dark at night. Mind the ford. It rises fast after the rain.');
     });
 
+    test("a note's mark set raised after a word is shown and not said", () {
+      // PdfText.kt says which runs of a line are set smaller and raised:
+      // here the "1" after "Michaelmas,", the "2" of "102" and the "st" of
+      // "1st". Only the first is a note's mark; a power follows a digit, and
+      // letters are not a mark.
+      const note = 'Michaelmas,1 and some of his servants are to be in the house by';
+      const more = 'the end of next week, when 102 of them, the 1st, would come.';
+      final laid = _laid([
+        _at('Mr. Morris immediately; that he is to take possession before', 72, 100, para: true),
+        _at(note, 72, 114),
+        _at(more, 72, 128),
+      ]);
+      Book read(List<List<int>>? raised) =>
+          ingestPdfText(id: 'x', pages: [laid.text], layout: [laid.layout], raised: raised);
+      String said(Book b) => [
+            for (final bl in b.sections.expand((s) => s.blocks))
+              spokenText(bl.text, [for (final s in bl.sentences) ...s.silent]).text,
+          ].join(' ');
+      final raised = [
+        [1, note.indexOf(',1') + 1, 1, 2, more.indexOf('102') + 2, 1, 2, more.indexOf('1st') + 1, 2],
+      ];
+      final book = read(raised);
+      expect(_texts(book).single, contains('before Michaelmas,1 and some'), reason: 'shown');
+      expect(said(book), contains('before Michaelmas, and some'));
+      expect(said(book), contains('when 102 of them, the 1st, would come.'));
+      // An older extraction says nothing of raised runs, and is read as before.
+      expect(said(read(null)), contains('before Michaelmas,1 and some'));
+    });
+
     test('a layout that does not match the text is ignored', () {
       final good = _laid([
         _at('He read the letter aloud to the room, slowly, as if every', 72, 100, para: true),

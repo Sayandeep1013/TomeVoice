@@ -1418,9 +1418,11 @@ Book _pdfBook(String id, Map<String, Object?> pdf, String? filename) {
   return ingestPdfText(
     id: id,
     pages: text.split(String.fromCharCode(0x0C)),
-    // Every bookmark level, and where lines sit (for footnotes and columns).
+    // Every bookmark level, where lines sit (for footnotes and columns),
+    // and their raised runs (notes' marks, not said).
     outline: pdfOutlineFromPlatform(pdf['outline']),
     layout: pdfLayoutFromPlatform(pdf['layout']),
+    raised: pdfRaisedFromPlatform(pdf['raised']),
     title: pdf['title'] as String?,
     author: pdf['author'] as String?,
     filename: filename,

@@ -174,10 +174,11 @@ void main() {
       expect(ocrPageText('\n\n'), '');
     });
 
-    test('pages with text keep theirs and their layout; the others are what OCR read', () {
+    test('pages with text keep theirs, their layout and raised runs; the others are what OCR read', () {
       final pdf = {
         ...scanText(4, typed: {1: '${_mark}A typed notice of the publisher, kept as it is.'}),
         'layout': [<int>[], [1, 2, 3, 4, 5], <int>[], <int>[]],
+        'raised': [<int>[], [0, 8, 1], <int>[], [0, 1, 1]],
         'title': 'The Lantern Keeper',
         'outline': [
           {'title': 'One', 'page': 0, 'level': 0},
@@ -191,6 +192,7 @@ void main() {
       expect(pages[1], '${_mark}A typed notice of the publisher, kept as it is.');
       expect(pages[3], isEmpty);
       expect(merged['layout'], [<int>[], [1, 2, 3, 4, 5], <int>[], <int>[]]);
+      expect(merged['raised'], [<int>[], [0, 8, 1], <int>[], <int>[]], reason: 'an OCR read page has none');
       expect(merged['pages'], 4);
       expect(merged['ocr'], 'ben+eng');
       expect(merged['ocrPages'], [0, 2, 3]);
@@ -348,6 +350,34 @@ void main() {
       final layout = await store.loadLayout(entry.id);
       expect(layout.units.map((u) => u.text).join(' '), contains('lighthouse'));
       expect(layout.chapters.length, greaterThanOrEqualTo(3));
+    });
+
+    test("a PDF's note mark, set small and raised, is shown in the book and not said", () async {
+      // As PdfText.kt reads a typed page: two lines, where they sit, and the
+      // "1" after "Michaelmas," set small and raised.
+      const lines = [
+        'The keeper climbed the stairs of the lighthouse every evening, long before',
+        'Michaelmas,1 and the gulls watched him go up the path and come down at dawn.',
+      ];
+      final f = picked('notes.pdf', utf8.encode('%PDF-1.4 a book with a note'));
+      pdfs[f.path] = {
+        'text': '$_mark${lines.join('\n')}$_ff',
+        'pages': 1,
+        'title': 'The Lantern Keeper',
+        'author': null,
+        'outline': const [],
+        'layout': [
+          [72, 100, 400, 105, lines[0].length, 72, 114, 400, 105, lines[1].length],
+        ],
+        'raised': [
+          [1, 11, 1],
+        ],
+      };
+      final entry = await store.importFile(PickedFile(path: f.path, name: 'notes.pdf'));
+      final layout = await store.loadLayout(entry.id);
+      final unit = layout.units.firstWhere((u) => u.text.contains('Michaelmas'));
+      expect(unit.text, contains('long before Michaelmas,1 and the gulls'), reason: 'shown');
+      expect(spokenText(unit.text, unit.silent).text, contains('long before Michaelmas, and the gulls'));
     });
 
     test("a scan's bookmarks, a picture's name on every page, are not its chapters", () async {

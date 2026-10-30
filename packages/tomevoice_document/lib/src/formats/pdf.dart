@@ -21,7 +21,7 @@ const pdfParagraphMark = '\u2029';
 /// not read on opening; 5: a scan's bookmarks named after its pictures, or
 /// one on every page, are not chapters; two speakers' lines set in one
 /// after the other, and a line ending in a colon over one set in, are two
-/// paragraphs).
+/// paragraphs; a note's mark set raised after a word is not said).
 const pdfParserVersion = 5;
 
 /// One outline (bookmark) entry: a title and the 0-based page it points at.
@@ -43,6 +43,12 @@ List<PdfOutlineEntry> pdfOutlineFromPlatform(Object? raw) => flattenPdfOutline([
               level: o['level'] is int ? o['level'] as int : 0,
             ),
     ]);
+
+/// The runs the platform found set smaller and raised ("raised": one list of
+/// numbers per page, three for each run: its line, start and length, see
+/// PdfText.kt) as [bookFromPdfText] takes them; null when there are none, as
+/// from an older extraction.
+List<List<int>>? pdfRaisedFromPlatform(Object? raw) => pdfLayoutFromPlatform(raw);
 
 /// The platform's line layout ("layout": one list of numbers per page, see
 /// PdfText.kt) as [bookFromPdfText] takes it; null when there is none.
@@ -191,12 +197,15 @@ bool _isTitle(String text, String title) {
 /// [layout], one list per page from the platform, says where each line sits
 /// (see [pdfLayoutFromPlatform]). With it, notes at a page's foot become
 /// footnote blocks and two columns are read one after the other. Without it,
-/// as from an older caller, the text is read as drawn.
+/// as from an older caller, the text is read as drawn. [raised] says which
+/// runs of a line are set smaller and raised (see [pdfRaisedFromPlatform]):
+/// a note's mark there is shown and not said.
 Book bookFromPdfText({
   required String id,
   required List<String> pages,
   List<PdfOutlineEntry> outline = const [],
   List<List<int>>? layout,
+  List<List<int>>? raised,
   String? title,
   String? author,
   String? filename,
@@ -211,7 +220,11 @@ Book bookFromPdfText({
 
   final lines = [
     for (var p = 0; p < pages.length; p++)
-      _readingOrder(_linesOf(pages[p], layout != null && p < layout.length ? layout[p] : null)),
+      _readingOrder(_linesOf(
+        pages[p],
+        layout != null && p < layout.length ? layout[p] : null,
+        raised != null && p < raised.length ? raised[p] : null,
+      )),
   ];
   final body = _bodySize(lines);
   final furniture = _furniture(lines, body);
@@ -263,7 +276,7 @@ Book bookFromPdfText({
   // to the next page.
   var waiting = <_Para>[];
   void close() {
-    if (open != null) paras.add(_Para(open!.page, joinWrappedLines(open!.lines)));
+    if (open != null) paras.add(_Para(open!.page, joinWrappedLines(open!.marked)));
     open = null;
     paras.addAll(waiting);
     waiting = [];
@@ -277,7 +290,7 @@ Book bookFromPdfText({
     final contents = _isContentsPage(lines[p]);
     if (contents && p < 20) front = p + 1;
     for (final group in _paragraphs(lines[p], lineByLine: contents)) {
-      final text = joinWrappedLines(group);
+      final text = joinWrappedLines([for (final l in group) l.text]);
       if (text.isEmpty) continue;
       // A bookmarked chapter's printed title starts a paragraph of its own.
       final opensChapter = titlesOn[p]?.any((t) => _isTitle(text, t)) ?? false;
@@ -288,7 +301,7 @@ Book bookFromPdfText({
       }
       close();
       if (contents) {
-        paras.add(_Para(p, text, role: BlockRole.paragraph));
+        paras.add(_Para(p, joinWrappedLines([for (final l in group) l.marked]), role: BlockRole.paragraph));
       } else {
         open = _Open(p)..add(group);
       }
@@ -415,10 +428,15 @@ typedef _Box = ({double x, double y, double w, double size});
 /// One line of a page, which of the extractor's paragraphs it is in, and
 /// where it sits when the platform said.
 class _Line {
-  const _Line(this.text, this.para, [this.box]);
+  const _Line(this.text, this.para, [this.box, String? marked]) : marked = marked ?? text;
   final String text;
   final int para;
   final _Box? box;
+
+  /// [text] with the marks of notes in it set silent ("Michaelmas,¹"): what
+  /// the paragraph is made of. Everything that looks at lines (running
+  /// heads, page numbers, sentence ends) looks at [text].
+  final String marked;
 }
 
 /// A paragraph of the reflowed text and the page it starts on.
@@ -438,8 +456,9 @@ class _Para {
 const _perLine = 5;
 
 /// The page's lines as the extractor wrote them; a paragraph starts at each
-/// paragraph mark. [layout], when given, says where each line sits.
-List<_Line> _linesOf(String page, List<int>? layout) {
+/// paragraph mark. [layout], when given, says where each line sits, and
+/// [raised] which of their runs are set smaller and raised.
+List<_Line> _linesOf(String page, List<int>? layout, [List<int>? raised]) {
   final raw = <({String text, int para})>[];
   final chunks = page.split(pdfParagraphMark);
   for (var c = 0; c < chunks.length; c++) {
@@ -454,14 +473,19 @@ List<_Line> _linesOf(String page, List<int>? layout) {
   for (var i = 0; placed && i < raw.length; i++) {
     placed = at[i * _perLine + 4] == raw[i].text.length;
   }
+  // The raised runs count lines as the layout does: of no use without it.
+  final runs = <int, List<({int start, int end})>>{};
+  if (placed && raised != null) {
+    for (var k = 0; k + 2 < raised.length; k += 3) {
+      (runs[raised[k]] ??= []).add((start: raised[k + 1], end: raised[k + 1] + raised[k + 2]));
+    }
+  }
   final out = <_Line>[];
   for (var i = 0; i < raw.length; i++) {
-    // Fonts without a proper Unicode map hand back control characters and
-    // private-use glyphs (a page number came out as U+0018). They are never
-    // readable text.
-    final t = raw[i].text.replaceAll(_unreadable, '').trim();
+    final t = _readable(raw[i].text);
     if (t.isEmpty) continue;
     final k = i * _perLine;
+    final marks = runs[i];
     out.add(_Line(
       t,
       raw[i].para,
@@ -473,10 +497,40 @@ List<_Line> _linesOf(String page, List<int>? layout) {
               size: at[k + 3] / 10,
             )
           : null,
+      marks == null ? null : _readable(_withSilentMarks(raw[i].text, marks)),
     ));
   }
   return out;
 }
+
+/// [line] without what is never text. Fonts without a proper Unicode map
+/// hand back control characters and private-use glyphs (a page number came
+/// out as U+0018).
+String _readable(String line) => line.replaceAll(_unreadable, '').trim();
+
+/// [line] with the [runs] set raised in it that are notes' marks shown and
+/// not said ("before Michaelmas,¹ and"): a number or a symbol right after a
+/// word or a stop. One after a digit is a power ("10⁶"); one after a space,
+/// or at the line's start, is not a mark on the word before.
+String _withSilentMarks(String line, List<({int start, int end})> runs) {
+  final out = StringBuffer();
+  var at = 0;
+  for (final r in [...runs]..sort((a, b) => a.start.compareTo(b.start))) {
+    if (r.start <= 0 || r.start < at || r.end > line.length || r.end <= r.start) continue;
+    final mark = line.substring(r.start, r.end);
+    if (!_raisedMark.hasMatch(mark) || _spaceOrDigit.hasMatch(line[r.start - 1])) continue;
+    out
+      ..write(line.substring(at, r.start))
+      ..write(silentMark(mark));
+    at = r.end;
+  }
+  out.write(line.substring(at));
+  return out.toString();
+}
+
+/// What a note's mark says: "1", "12", "*", "†".
+final _raisedMark = RegExp(r'^(\p{Nd}{1,3}|[*†‡§¶]{1,3})$', unicode: true);
+final _spaceOrDigit = RegExp(r'[\s\p{Nd}]', unicode: true);
 
 /// The text's font size: the one most of the book's characters are set in.
 /// 0 when nothing says.
@@ -627,8 +681,8 @@ final _noteMark = RegExp(
 
 /// The page's paragraphs as groups of lines: the lines of each of the
 /// extractor's paragraphs, or one line each when [lineByLine].
-List<List<String>> _paragraphs(List<_Line> lines, {required bool lineByLine}) {
-  final out = <List<String>>[];
+List<List<_Line>> _paragraphs(List<_Line> lines, {required bool lineByLine}) {
+  final out = <List<_Line>>[];
   for (var i = 0; i < lines.length; i++) {
     if (i == 0 ||
         lineByLine ||
@@ -637,7 +691,7 @@ List<List<String>> _paragraphs(List<_Line> lines, {required bool lineByLine}) {
         _sizeChanges(lines, i)) {
       out.add([]);
     }
-    out.last.add(lines[i].text);
+    out.last.add(lines[i]);
   }
   return out;
 }
@@ -700,17 +754,20 @@ bool _indentedStart(List<_Line> lines, int i) {
 /// runs on to the next page is ended (see [_continues]).
 final _endsSentence = RegExp('[.!?…।:;"”’\')\\]]\$');
 
-/// The paragraph being reflowed: the page it starts on, and its lines so far.
+/// The paragraph being reflowed: the page it starts on, and its lines so far,
+/// as they read and with notes' marks set silent (see [_Line.marked]).
 class _Open {
   _Open(this.page);
   final int page;
   final lines = <String>[];
+  final marked = <String>[];
   var _length = -1;
 
-  void add(List<String> group) {
-    lines.addAll(group);
+  void add(List<_Line> group) {
     for (final l in group) {
-      _length += l.length + 1;
+      lines.add(l.text);
+      marked.add(l.marked);
+      _length += l.text.length + 1;
     }
   }
 

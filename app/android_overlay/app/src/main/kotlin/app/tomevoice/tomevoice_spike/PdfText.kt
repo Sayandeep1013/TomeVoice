@@ -24,7 +24,11 @@ import java.io.File
  * per page, five numbers for each line in the order the lines are written:
  * x, baseline y from the top, width (points), font size (tenths of a point)
  * and the length of the line's text, by which the Dart side checks that the
- * two agree.
+ * two agree. "raised" (added later; an older extraction has none) is one
+ * IntArray per page, three numbers for each run of glyphs set smaller than
+ * their line and raised above it, a note's mark ("Michaelmas,¹"): the
+ * line's place among the page's lines, and the run's start and length in
+ * the line's text.
  */
 object PdfText {
     @Volatile
@@ -60,7 +64,8 @@ object PdfText {
                 "title" to info?.title,
                 "author" to info?.author,
                 "outline" to outline(d),
-                "layout" to stripper.layout
+                "layout" to stripper.layout,
+                "raised" to stripper.raised
             )
         }
     }
@@ -153,7 +158,15 @@ private class LineStripper(private val onPage: (Int) -> Unit) : PDFTextStripper(
     /** Per page: x, y, width, size x10 and text length for each line. */
     val layout = ArrayList<IntArray>()
 
+    /**
+     * Per page: line, start and length of each run set smaller than its line
+     * and raised above it (see raisedRuns). The layout's one size a line
+     * cannot tell a note's mark from the word before it.
+     */
+    val raised = ArrayList<IntArray>()
+
     private val pageLines = ArrayList<Int>()
+    private val pageRaised = ArrayList<Int>()
     private val sizes = HashMap<Int, Int>()
     private var lineLength = 0
     private var glyphs = 0
@@ -161,9 +174,17 @@ private class LineStripper(private val onPage: (Int) -> Unit) : PDFTextStripper(
     private var maxX = 0f
     private var maxY = 0f
 
+    // The line's glyphs: where each one's text starts in the line's (-1 when
+    // that cannot be told), how long it is, its size x10 and its baseline.
+    private val glyphAt = ArrayList<Int>()
+    private val glyphLength = ArrayList<Int>()
+    private val glyphSize = ArrayList<Int>()
+    private val glyphBase = ArrayList<Float>()
+
     override fun startPage(page: PDPage?) {
         super.startPage(page)
         pageLines.clear()
+        pageRaised.clear()
         resetLine()
         onPage(currentPageNo)
     }
@@ -171,6 +192,7 @@ private class LineStripper(private val onPage: (Int) -> Unit) : PDFTextStripper(
     override fun endPage(page: PDPage?) {
         endLine()
         layout.add(pageLines.toIntArray())
+        raised.add(pageRaised.toIntArray())
         super.endPage(page)
     }
 
@@ -184,8 +206,30 @@ private class LineStripper(private val onPage: (Int) -> Unit) : PDFTextStripper(
             raw
         }
         super.writeString(clean, textPositions)
+        val start = lineLength
         lineLength += clean.length
-        textPositions?.forEach { p ->
+        val positions: List<TextPosition> = textPositions ?: emptyList()
+        // Where each glyph's text is in the line's: a character each, or, when
+        // the stripper spelled a glyph out ("ﬁ" as "fi"), counted back from
+        // the word's end for as long as the glyphs' own text agrees. A note's
+        // mark ends its word.
+        val oneEach = positions.size == clean.length
+        val at = IntArray(positions.size) { -1 }
+        val length = IntArray(positions.size) { 1 }
+        if (oneEach) {
+            for (j in positions.indices) at[j] = start + j
+        } else {
+            var end = clean.length
+            for (j in positions.indices.reversed()) {
+                val u = positions[j].getUnicode() ?: ""
+                if (u.isEmpty() || u.length > end || !clean.regionMatches(end - u.length, u, 0, u.length)) break
+                end -= u.length
+                at[j] = start + end
+                length[j] = u.length
+            }
+        }
+        for (j in positions.indices) {
+            val p = positions[j]
             val x = p.getXDirAdj()
             val end = x + p.getWidthDirAdj()
             val y = p.getYDirAdj()
@@ -202,6 +246,10 @@ private class LineStripper(private val onPage: (Int) -> Unit) : PDFTextStripper(
             // Math.round, unlike roundToInt, takes NaN (a broken matrix) as 0.
             val size = Math.round(p.getYScale() * 10)
             sizes[size] = (sizes[size] ?: 0) + 1
+            glyphAt.add(at[j])
+            glyphLength.add(length[j])
+            glyphSize.add(size)
+            glyphBase.add(y)
         }
     }
 
@@ -256,13 +304,56 @@ private class LineStripper(private val onPage: (Int) -> Unit) : PDFTextStripper(
             }
             pageLines.add(size)
             pageLines.add(lineLength)
+            raisedRuns(pageLines.size / 5 - 1, size)
         }
         resetLine()
+    }
+
+    /**
+     * Adds to the page's the runs of this line's glyphs set at most four
+     * fifths of its [size] (x10) and raised above the baseline of the glyphs
+     * in its size by a sixth of that or more: notes' marks, and other
+     * superscripts (formats/pdf.dart tells which). [line] is the line's
+     * place among the page's.
+     */
+    private fun raisedRuns(line: Int, size: Int) {
+        if (size <= 0) return
+        var base = Float.NaN
+        for (k in glyphSize.indices) {
+            if (glyphSize[k] == size && (base.isNaN() || glyphBase[k] > base)) base = glyphBase[k]
+        }
+        if (base.isNaN()) return
+        val rise = size / 10f / 6f
+        var from = -1
+        var to = -1
+        for (k in glyphSize.indices) {
+            val at = glyphAt[k]
+            val up = at >= 0 && glyphSize[k] > 0 && glyphSize[k] * 5 <= size * 4 && glyphBase[k] < base - rise
+            if (up && from >= 0 && at == to) {
+                to = at + glyphLength[k]
+                continue
+            }
+            addRun(line, from, to)
+            from = if (up) at else -1
+            to = if (up) at + glyphLength[k] else -1
+        }
+        addRun(line, from, to)
+    }
+
+    private fun addRun(line: Int, from: Int, to: Int) {
+        if (from < 0 || to <= from) return
+        pageRaised.add(line)
+        pageRaised.add(from)
+        pageRaised.add(to - from)
     }
 
     private fun resetLine() {
         lineLength = 0
         glyphs = 0
         sizes.clear()
+        glyphAt.clear()
+        glyphLength.clear()
+        glyphSize.clear()
+        glyphBase.clear()
     }
 }

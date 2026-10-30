@@ -1864,5 +1864,28 @@
    51
   ]
  ],
- "_note": "Recorded extractor output, not live extraction: the shape PdfText.kt hands to Dart (pages split by form feed, U+2029 at each paragraph the extractor found, a layout of x, baseline y, width, size x10 and length per line), built from Standard Ebooks' text of chapters I-III set as a small printed book. See SOURCES.md."
+ "raised": [
+  [],
+  [],
+  [
+   23,
+   11,
+   1,
+   25,
+   0,
+   1
+  ],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  []
+ ],
+ "_note": "Recorded extractor output, not live extraction: the shape PdfText.kt hands to Dart (pages split by form feed, U+2029 at each paragraph the extractor found, a layout of x, baseline y, width, size x10 and length per line, and the runs set smaller and raised: line, start and length), built from Standard Ebooks' text of chapters I-III set as a small printed book. See SOURCES.md."
 }

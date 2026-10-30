@@ -38,9 +38,11 @@ them, so a PDF case is that extraction, not a PDF. These two are **recorded
 fixtures, not live extraction**: built by the same script, not captured from
 a device. Each is the map `PdfText.extract` returns: `text` (pages ended by a
 form feed, U+2029 where the extractor found a paragraph, lines split by a
-newline), `title`, `author`, `outline` (bookmarks with page and level) and
+newline), `title`, `author`, `outline` (bookmarks with page and level),
 `layout` (x, baseline y, width, size in tenths of a point and length, for
-each line). Lines are placed as a typesetter would place them; paragraph
+each line) and, in Pride and Prejudice, `raised` (the runs set smaller and
+raised, a note's mark: line, start and length; `selected-fables` is as an
+older extractor gave it, without). Lines are placed as a typesetter would place them; paragraph
 marks go where the extractor was seen to put them on a device, at the top of
 a page and after a drop of more than 2.5 line heights, so paragraphs set in
 by an indent are run together, as Pride and Prejudice's dialogue was. Each

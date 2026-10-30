@@ -132,6 +132,7 @@ _Reading _read(String file, {Map<String, Object?> Function(Map<String, Object?> 
     pages: (pdf['text'] as String? ?? '').split(String.fromCharCode(0x0C)),
     outline: pdfOutlineFromPlatform(pdf['outline']),
     layout: pdfLayoutFromPlatform(pdf['layout']),
+    raised: pdfRaisedFromPlatform(pdf['raised']),
     title: pdf['title'] as String?,
     author: pdf['author'] as String?,
     filename: file.replaceAll('.pdftext.json', '.pdf'),
@@ -503,12 +504,11 @@ final _corpus = <String, List<_Check>>{
       expect(r.displayOnlyOf(BlockRole.footnote), [startsWith('1 Michaelmas: the feast of St Michael')]);
       expect(r.text, isNot(contains('quarter day')));
     }),
-    _check(
-      "the footnote's mark is not said",
-      (r) => expect(r.text, isNot(contains('Michaelmas,1'))),
-      skip: 'Known bug: in a PDF a note\'s mark is a digit after a word ("before Michaelmas,1 and"), read aloud. '
-          'The line layout gives one size a line, so the raised digit cannot be told from the text.',
-    ),
+    _check("the footnote's mark is shown, not said", (r) {
+      expect(r.text, isNot(contains('Michaelmas,1')));
+      expect(r.spoken, contains(contains('that he is to take possession before Michaelmas, and some of his servants')));
+      expect(r.blocks.map((b) => b.text), contains(contains('before Michaelmas,1 and some')));
+    }),
   ],
 
   // Recorded PDF extraction: a two-column booklet with bookmarks, a running
