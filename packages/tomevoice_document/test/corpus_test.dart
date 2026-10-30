@@ -284,6 +284,10 @@ final _corpus = <String, List<_Check>>{
       expect(r.spoken, contains('Son cœur est un luth suspendu; Sitôt qu’on le touche il résonne.'));
       expect(_with(r, 'In the greenest of our valleys'), hasLength(1));
     }),
+    _check("the transcriber's notes after the story are not read", (r) {
+      expect(r.text, isNot(contains('Transcriber')));
+      expect(r.spoken.last, endsWith('over the fragments of the “House of Usher.”'));
+    }),
   ],
 
   // The same book as Gutenberg's Kindle file (KF8): calibre renames every
@@ -296,6 +300,10 @@ final _corpus = <String, List<_Check>>{
       expect(r.chapters, ['THE FALL OF THE HOUSE OF USHER']);
     }),
     _check('says what the EPUB says', (r) => expect(r.spoken, _read('pg932-images-3.epub').spoken)),
+    _check("the transcriber's notes after the story are not read, though calibre renamed their class", (r) {
+      expect(r.text, isNot(contains('Transcriber')));
+      expect(r.spoken.last, endsWith('over the fragments of the “House of Usher.”'));
+    }),
     _check('the footnote is shown, not read, and its mark is not said', (r) {
       // Its kindle:pos links found their places, as the EPUB's links do.
       expect(r.displayOnlyOf(BlockRole.footnote), [startsWith('* Watson, Dr. Percival, Spallanzani')]);
