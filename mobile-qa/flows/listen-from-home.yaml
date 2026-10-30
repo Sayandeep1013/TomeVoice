@@ -1,0 +1,17 @@
+# The Back test's start, as a reader gets there: TomeVoice opened from the
+# launcher, Listen, then the app's Back buttons to the shelf with the reading
+# going on. Next comes Back, to leave the app: it must keep reading. On
+# Android 15 and older that Back finishes MainActivity, whose onDestroy stops
+# the reading (docs/13 §13.11). CI presses that Back itself and checks what
+# became of the activity (mobile-qa/ci/emulator-tests.sh). On a phone:
+#   adb shell input keyevent KEYCODE_BACK
+#   adb shell dumpsys activity activities | grep -A12 "tomevoice_spike.MainActivity"
+appId: ${APP_ID || 'app.tomevoice'}
+name: Open from the home screen, listen, back to the library
+---
+# First an ordinary launch: it grants the notification permission (reading
+# aloud asks for it) and, on a new install, imports the starter book.
+- runFlow: common/library.yaml
+- runFlow: common/from-home.yaml
+- runFlow: common/open-book.yaml
+- runFlow: common/listen-and-return.yaml

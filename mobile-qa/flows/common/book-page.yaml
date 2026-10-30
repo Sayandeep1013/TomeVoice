@@ -1,13 +1,5 @@
-# Subflow: from the shelf to the starter book's page (Listen, Read and the
-# chapters). The shelf's tile names the author and the Continue dock does
-# not, so this always opens the book's page, never the dock's reader.
+# Subflow: launch TomeVoice and open the starter book's page.
 appId: ${APP_ID || 'app.tomevoice'}
 ---
 - runFlow: library.yaml
-- tapOn: ".*Pride and Prejudice.*Jane Austen.*"
-# Listen and Read stay disabled until the book's layout has loaded.
-- extendedWaitUntil:
-    visible:
-      text: "Read"
-      enabled: true
-    timeout: 60000
+- runFlow: open-book.yaml

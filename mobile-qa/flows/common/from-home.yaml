@@ -1,0 +1,18 @@
+# Subflow: open TomeVoice the way a reader does, from the launcher's list of
+# apps, with the app stopped first so that the launcher starts its activity.
+# Android 16 keeps an app running on Back only if the home screen launched it
+# (docs/13 §13.11). The label follows APP_ID: "TomeVoice Test" for the test app.
+appId: ${APP_ID || 'app.tomevoice'}
+---
+- stopApp
+- pressKey: Home
+# Up from the middle of the home screen opens the list of all apps.
+- swipe:
+    direction: UP
+- scrollUntilVisible:
+    element: "${APP_ID == 'app.tomevoice.test' ? 'TomeVoice Test' : 'TomeVoice'}"
+    timeout: 30000
+- tapOn: "${APP_ID == 'app.tomevoice.test' ? 'TomeVoice Test' : 'TomeVoice'}"
+- extendedWaitUntil:
+    visible: ".*Pride and Prejudice.*"
+    timeout: 120000
