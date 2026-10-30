@@ -16,8 +16,10 @@ const pdfParagraphMark = '\u2029';
 /// with it and extracts again when it is older (2: running heads on nearby
 /// pages, contents pages, nested bookmarks, hyphens in any script, footnotes
 /// and columns from the line layout; 3: paragraphs set in by an indent,
-/// which the extractor ran together, dialogue above all).
-const pdfParserVersion = 3;
+/// which the extractor ran together, dialogue above all; 4: a title run
+/// into its text, a short chapter's running head, title and contents pages
+/// not read on opening).
+const pdfParserVersion = 4;
 
 /// One outline (bookmark) entry: a title and the 0-based page it points at.
 typedef PdfOutlineEntry = ({String title, int page});

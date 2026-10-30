@@ -25,8 +25,11 @@ import 'speech_service.dart';
 /// v5: the book's description, shown on its page; v6: footnote markers
 /// silent and notes out of the flow, chapters by the contents, text in its
 /// own encoding, AZW3 by its chapters, chapters and languages beyond
-/// English). PDFs keep their own version, on the entry (pdfParser).
-const _parsedVersion = 6;
+/// English; v7: front and back matter, licences and a page's navigation
+/// left unread, Gutenberg text in paragraphs, Markdown, ODT and FB2 fixes,
+/// found by the test corpus). PDFs keep their own version, on the entry
+/// (pdfParser).
+const _parsedVersion = 7;
 
 /// On-device library: copied files, parsed books, reading positions.
 ///
