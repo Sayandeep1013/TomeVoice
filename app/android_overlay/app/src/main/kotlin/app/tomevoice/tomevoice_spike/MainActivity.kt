@@ -66,6 +66,9 @@ class MainActivity : FlutterActivity() {
     private var imageResult: MethodChannel.Result? = null
     private var pendingOpen: Map<String, String>? = null
 
+    /** A link or words shared to TomeVoice: id, text and subject (see takeSharedText). */
+    private var pendingShare: Map<String, String>? = null
+
     /** A widget was tapped: the book to open (and play), or the page to show. */
     private var pendingWidget: Map<String, Any>? = null
 
@@ -226,6 +229,10 @@ class MainActivity : FlutterActivity() {
                 "pendingOpen" -> {
                     result.success(pendingOpen)
                     pendingOpen = null
+                }
+                "pendingShare" -> {
+                    result.success(pendingShare)
+                    pendingShare = null
                 }
                 "extractPdf" -> extractPdf(call.argument<String>("path"), result)
                 "pdfInfo" -> {
@@ -1250,7 +1257,11 @@ class MainActivity : FlutterActivity() {
             }
             else -> null
         }
-        if (uri == null) return
+        if (uri == null) {
+            // No file: a link or words (Chrome's Share, chosen text).
+            if (intent.action == Intent.ACTION_SEND) takeSharedText(intent)
+            return
+        }
         if (uri.scheme != "content" || uri.authority?.startsWith(packageName) == true) return
         // Do not re-import the same file when the activity is recreated.
         intent.action = Intent.ACTION_MAIN
@@ -1265,6 +1276,26 @@ class MainActivity : FlutterActivity() {
                 event(mapOf("type" to "openFailed", "message" to (e.message ?: "")))
             }
         }
+    }
+
+    /**
+     * Words shared to TomeVoice, EXTRA_TEXT with no file: Dart reads a link
+     * as an article, anything else as a book. Kept as pendingShare as well,
+     * as a file is kept as pendingOpen, for a share that started the app
+     * before Dart was listening; the id lets Dart take one of the two.
+     */
+    private fun takeSharedText(intent: Intent) {
+        val text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
+        if (text.isNullOrBlank()) return
+        // Not read again when the activity is recreated.
+        intent.action = Intent.ACTION_MAIN
+        val share = mapOf(
+            "id" to java.util.UUID.randomUUID().toString(),
+            "text" to text,
+            "subject" to (intent.getCharSequenceExtra(Intent.EXTRA_SUBJECT)?.toString() ?: ""),
+        )
+        pendingShare = share
+        event(mapOf("type" to "sharedText") + share)
     }
 
     private fun copyIn(uri: Uri): Map<String, String> {
