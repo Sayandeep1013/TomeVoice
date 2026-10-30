@@ -367,6 +367,62 @@ void main() {
       await finish(tester);
     });
 
+    testWidgets("the book's Contents: parts as dividers, the chapter read marked, found by its number or words",
+        (tester) async {
+      final layout = ReadingLayout.build(ingestString(
+        [
+          '# Part One: Arrival',
+          'The part begins with a sentence or two of its own here.',
+          '# The Road',
+          'A chapter of the road, long enough to be read.',
+          '# The River',
+          'A chapter of the river, long enough to be read.',
+        ].join(blank),
+        filename: 'parts.md',
+        title: 'Parts',
+      ));
+      await open(tester, layout, at: cursorOf(layout.units[layout.chapterFirstUnit[1]]));
+      await tester.tap(find.byKey(const ValueKey('contents')));
+      await tester.pumpAndSettle();
+      final sheet = find.byType(BottomSheet);
+      Finder inSheet(Finder f) => find.descendant(of: sheet, matching: f);
+      expect(inSheet(find.text('Contents')), findsOneWidget);
+      expect(inSheet(find.text('3 CHAPTERS')), findsOneWidget);
+      expect(inSheet(find.text('Find a chapter')), findsOneWidget);
+      // A part reads as a divider, in capitals and the soft ink.
+      final part = tester.widget<Text>(inSheet(find.text('PART ONE: ARRIVAL')));
+      expect(part.style!.color, Skin.inkSoftOn(tester.element(find.byType(ReaderScreen))));
+      // The chapter being read, in the accent, with the voice's sign.
+      final road = tester.widget<Text>(inSheet(find.text('The Road')));
+      expect(road.style!.color, Skin.accentOf(tester.element(find.byType(ReaderScreen))));
+      expect(inSheet(find.byIcon(Icons.graphic_eq_rounded)), findsOneWidget);
+      // The numbers in a column for short ones.
+      expect(tester.getSize(find.ancestor(of: inSheet(find.text('2')), matching: find.byType(SizedBox)).first).width, 40);
+      // A drag down the list leaves the keyboard as it is.
+      expect(tester.widget<ListView>(inSheet(find.byType(ListView))).keyboardDismissBehavior,
+          isNot(ScrollViewKeyboardDismissBehavior.onDrag));
+      // Found by its number, or by words of its title.
+      await tester.enterText(inSheet(find.byType(TextField)), '3');
+      await tester.pumpAndSettle();
+      expect(inSheet(find.text('The River')), findsOneWidget);
+      expect(inSheet(find.text('The Road')), findsNothing);
+      await tester.enterText(inSheet(find.byType(TextField)), 'road');
+      await tester.pumpAndSettle();
+      expect(inSheet(find.text('The Road')), findsOneWidget);
+      expect(inSheet(find.text('The River')), findsNothing);
+      await tester.enterText(inSheet(find.byType(TextField)), 'nothing like it');
+      await tester.pumpAndSettle();
+      expect(inSheet(find.text('No chapters match.')), findsOneWidget);
+      await tester.enterText(inSheet(find.byType(TextField)), '');
+      await tester.pumpAndSettle();
+      await tester.tap(inSheet(find.text('The River')));
+      await tester.pumpAndSettle();
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(washed(tester), startsWith('The River'));
+      expect(find.text('Back to where you were'), findsOneWidget);
+      await finish(tester);
+    });
+
     testWidgets('a jump leaves a way back to where the reading was; Stay here keeps the new place', (tester) async {
       await open(tester, numbered());
       await tester.tap(find.byKey(const ValueKey('contents')));
