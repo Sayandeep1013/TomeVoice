@@ -1,0 +1,165 @@
+import 'package:test/test.dart';
+import 'package:tomevoice_document/tomevoice_document.dart';
+
+const _m = pdfParagraphMark;
+
+/// A page as the extractor writes it: each paragraph starts with the
+/// paragraph mark, lines within it end with a newline.
+String _page(List<List<String>> paragraphs) =>
+    paragraphs.map((p) => _m + p.join('\n')).join('\n');
+
+/// Words that differ from page to page, so no body line repeats like a
+/// running head would.
+const _words = [
+  'amber', 'birch', 'cedar', 'dune', 'ember', 'fern', 'gorse', 'heath', //
+  'iris', 'juniper', 'kelp', 'larch', 'moss', 'nettle', 'oak', 'pine',
+  'quartz', 'reed', 'sorrel', 'thyme', 'umber', 'vetch', 'willow', 'yarrow',
+];
+
+/// A paragraph of ordinary prose for page [p], three lines long.
+List<String> _prose(int p) => [
+      'The ${_words[p % _words.length]} path ran down to the water, where',
+      'the boats lay drawn up on the shingle in a long and patient row,',
+      'and nobody was about but the gulls and the ${_words[(p + 7) % _words.length]} sellers.',
+    ];
+
+List<String> _texts(Book b) => [
+      for (final s in b.sections)
+        for (final bl in s.blocks) bl.text,
+    ];
+
+List<String> _titles(Book b) => [for (final s in b.sections) s.displayTitle];
+
+void main() {
+  group('running heads and page numbers', () {
+    test('a head naming the story is dropped, though it tops few pages', () {
+      const stories = ['THE LANTERN KEEPER', 'THE SALT ROAD', 'THE GREY HARBOUR'];
+      final pages = <String>[];
+      for (var p = 0; p < 18; p++) {
+        final story = stories[p ~/ 6];
+        pages.add(_page([
+          // The story's title opens it; after that the left pages carry the
+          // book's title and the right pages the story's, each with its page
+          // number, as a printed collection does.
+          if (p % 6 == 0) [story] else if (p.isOdd) ['TALES OF THE COAST ${p + 1}'] else ['$story ${p + 1}'],
+          if (p == 2) ['next leaf of the log, which was blank.'],
+          _prose(p),
+          if (p == 1) ['At last the keeper turned it over to the'],
+        ]));
+      }
+      final book = ingestPdfText(id: 'x', pages: pages);
+      final all = _texts(book).join('\n');
+      expect(all, contains('turned it over to the next leaf of the log'));
+      expect(all, isNot(contains('KEEPER 3')));
+      expect(all, isNot(contains('TALES OF THE COAST')));
+      // Its one copy without a page number is the story's own heading.
+      expect(_texts(book).where((t) => t == 'THE LANTERN KEEPER'), hasLength(1));
+      expect(_texts(book).where((t) => t == 'THE SALT ROAD'), hasLength(1));
+    });
+
+    test('short chapters keep their "Chapter N" headings', () {
+      // A chapter every page or two: "Chapter N" tops most pages, which
+      // once read as one running head ("Chapter" with the number ignored).
+      const starts = {0: 1, 1: 2, 3: 3, 4: 4, 6: 5, 7: 6};
+      final pages = [
+        for (var p = 0; p < 9; p++)
+          _page([
+            if (starts[p] case final n?) ['Chapter $n'],
+            _prose(p),
+          ]),
+      ];
+      final book = ingestPdfText(id: 'x', pages: pages);
+      expect(_titles(book), [for (var n = 1; n <= 6; n++) 'Chapter $n']);
+    });
+
+    test('running heads that carry the chapter still go; the heading stays', () {
+      // "CHAPTER 2 6" over every page of chapter two after its first.
+      final pages = <String>[];
+      const names = ['The Crossing', 'The Watch', 'The Return'];
+      for (var p = 0; p < 12; p++) {
+        final n = p ~/ 4 + 1;
+        pages.add(_page([
+          if (p % 4 == 0) ...[
+            ['CHAPTER $n'],
+            [names[n - 1]],
+          ] else
+            ['CHAPTER $n ${p + 1}'],
+          _prose(p),
+        ]));
+      }
+      final book = ingestPdfText(id: 'x', pages: pages);
+      expect(_titles(book), [
+        'Chapter 1: The Crossing',
+        'Chapter 2: The Watch',
+        'Chapter 3: The Return',
+      ]);
+      expect(_texts(book).join('\n'), isNot(contains('CHAPTER 2 6')));
+    });
+
+    test('a printed contents page is not a list of chapters', () {
+      const names = ['The Lantern', 'The Salt Road', 'The Grey Harbour', 'Low Water'];
+      final pages = [
+        _page([
+          ['Contents'],
+          for (var i = 0; i < names.length; i++) ['Chapter ${i + 1} ${names[i]} ${i + 2}'],
+        ]),
+        for (var i = 0; i < names.length; i++)
+          _page([
+            ['CHAPTER ${i + 1}'],
+            [names[i]],
+            _prose(i),
+          ]),
+      ];
+      final book = ingestPdfText(id: 'x', pages: pages);
+      expect(_titles(book), [
+        'Opening pages',
+        for (var i = 0; i < names.length; i++) 'Chapter ${i + 1}: ${names[i]}',
+      ]);
+      // The book opens on chapter one, not on the contents.
+      final units = flattenSpeakable(book);
+      expect(units[firstReadingUnitIndex(units, book)].text, 'CHAPTER 1');
+    });
+
+    test('"1914" or "II" alone on a line is text, not a page number', () {
+      final pages = [
+        for (var p = 0; p < 6; p++)
+          _page([
+            _prose(p),
+            if (p == 2) ['II'],
+            if (p == 3) ['1914'],
+            _prose(p + 1),
+            // The printed page number, at the foot.
+            ['${p + 1}'],
+          ]),
+      ];
+      final texts = _texts(ingestPdfText(id: 'x', pages: pages));
+      expect(texts, containsAll(['II', '1914']));
+      expect(texts.where((t) => RegExp(r'^[1-6]$').hasMatch(t)), isEmpty);
+    });
+
+    test('page numbers at the top, starting after an unnumbered page, still go', () {
+      // A title page, then "1", "2"... at the head of each page: the printed
+      // number is one less than the page's place in the file. Front matter in
+      // roman numerals counts too.
+      final pages = [
+        _page([
+          ['A Book of the Coast'],
+        ]),
+        for (var p = 1; p < 4; p++)
+          _page([
+            [_roman[p - 1]],
+            _prose(p),
+          ]),
+        for (var p = 4; p < 9; p++)
+          _page([
+            ['${p - 3}'],
+            _prose(p),
+          ]),
+      ];
+      final texts = _texts(ingestPdfText(id: 'x', pages: pages));
+      expect(texts.where((t) => RegExp(r'^(\d+|[ivx]+)$').hasMatch(t)), isEmpty);
+    });
+  });
+}
+
+const _roman = ['i', 'ii', 'iii'];
