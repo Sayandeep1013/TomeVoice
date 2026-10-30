@@ -75,7 +75,9 @@ class PlaybackScheduler {
   });
 
   final SpeechService service;
-  final List<Speakable> units;
+
+  /// The sentences it reads; longer once [readOnInto] adds more after them.
+  List<Speakable> units;
   final PipelineSettings Function(String text) settingsFor;
   final String? Function() engineIdOf;
   final String? Function() voiceNameOf;
@@ -346,6 +348,19 @@ class PlaybackScheduler {
     level.value = 0;
   }
 
+  /// Read on into [longer]: [units], with more sentences after them (a web
+  /// novel's window of chapters rolled on). What is queued and being made
+  /// stays as it is, and the new sentences are made after it into the same
+  /// stream, so the voice goes on into them with no gap.
+  void readOnInto(List<Speakable> longer) {
+    units = longer;
+    // Everything there was had been made: making goes on.
+    if (_fillDone && active && _next < units.length) {
+      _fillDone = false;
+      unawaited(_fill(_gen));
+    }
+  }
+
   /// Fade the voice out over the [fadeLength] before [at] (the sleep timer):
   /// a voice that stops dead wakes the listener it was meant to let sleep.
   void fadeOutBy(DateTime at) {
@@ -566,6 +581,12 @@ class PlaybackScheduler {
       if (_failed.contains(narrator)) narrator = fallbackVoiceOf?.call() ?? narrator;
       var dialogue = dialogueVoiceOf?.call();
       if (_failed.contains(dialogue) || dialogue == narrator) dialogue = null;
+      // A natural voice switched away from (or one that failed) is let go
+      // now, before another loads, not minutes later.
+      NeuralEngine.instance.keepOnly([
+        for (final v in [narrator, dialogue])
+          if (neuralVoiceFor(v) case final natural?) natural,
+      ]);
       try {
         final r = await makeSentence(
           service: service,

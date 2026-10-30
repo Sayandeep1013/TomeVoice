@@ -28,7 +28,12 @@ PlaybackScheduler readingScheduler({
   ListenController listen() =>
       ListenController(prefs: prefs(), language: language, bookId: bookId, onChanged: ({required bool restart}) {});
 
+  // The chapters read: a web novel's window of them grows as the reading
+  // rolls it on (see readOnInto), and the pauses are found in it as it is.
+  final read = _Read(layout);
+
   int pauseAfter(int i) {
+    final layout = read.layout;
     final s = prefs().settings;
     if (i + 1 >= layout.units.length) return s.sentencePauseMs;
     final here = layout.units[i];
@@ -42,6 +47,7 @@ PlaybackScheduler readingScheduler({
   // over its paragraph's text before it: an odd number of straight quotes,
   // or more opening curly marks than closing ones.
   bool quoteOpenAt(int u) {
+    final layout = read.layout;
     if (u < 0 || u >= layout.units.length) return false;
     final text = layout.items[layout.unitItem[u]].block?.text ?? '';
     final before = text.substring(0, layout.unitOffset[u].clamp(0, text.length));
@@ -66,13 +72,47 @@ PlaybackScheduler readingScheduler({
     fallbackVoiceOf: () => VoiceCatalog.instance.bestFor(language)?.name,
   );
   _bookOf[scheduler] = bookId;
+  _readOf[scheduler] = read;
   return scheduler;
+}
+
+/// [player], made by [readingScheduler], reads on into [longer]: the layout
+/// it reads with the chapters after it joined on, its sentences the same
+/// and in the same places. The voice goes on into them with no gap.
+void readOnInto(PlaybackScheduler player, ReadingLayout longer) {
+  _readOf[player]?.layout = longer;
+  player.readOnInto(longer.units);
+}
+
+/// Whether [longer] begins with [now]'s sentences, the same and in the same
+/// order: a reading of [now] can then go on into it, every place kept.
+bool continuesLayout(ReadingLayout longer, ReadingLayout now) {
+  if (longer.units.length < now.units.length) return false;
+  for (var i = 0; i < now.units.length; i++) {
+    final a = now.units[i];
+    final b = longer.units[i];
+    if (a.sectionIndex != b.sectionIndex ||
+        a.blockIndex != b.blockIndex ||
+        a.sentenceIndex != b.sentenceIndex ||
+        a.text != b.text) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /// The book each scheduler reads (a book's page's, or the background's):
 /// a Play from outside the app for the book a page is reading carries on
 /// there.
 final _bookOf = Expando<String>('book');
+
+/// The layout each scheduler made by [readingScheduler] reads.
+final _readOf = Expando<_Read>('read');
+
+class _Read {
+  _Read(this.layout);
+  ReadingLayout layout;
+}
 
 /// The reader's Highlight timing, per route, to the player.
 void sendHighlightOffsets(ListeningPrefs p, [SpeechService service = const SpeechService()]) => unawaited(
@@ -205,6 +245,14 @@ class BackgroundReading {
   /// The move into the next chapters under way, if one is.
   Future<bool?>? _rolling;
 
+  /// The chapters after a web novel's window being joined to it, if they
+  /// are (see [_extend]).
+  Future<void>? _extending;
+
+  /// Where they were last looked for: the window's last chapter, and the
+  /// chapter being read then.
+  (int, int)? _extendTried;
+
   /// Moved by the card while paused: where Play carries on from.
   int? _parkedAt;
   int _lastUnit = -1;
@@ -282,7 +330,9 @@ class BackgroundReading {
         // Read what is on the phone.
       }
     }
-    final layout = await store.loadLayout(e.id);
+    // A web novel's window of chapters round its place, as its page opens
+    // one: a novel of thousands is never read in whole (see webWindow).
+    final layout = await store.loadLayout(e.id, around: web ? cursor.sectionIndex : null);
     if (layout.isEmpty) return;
     cursor = await store.cursorFor(e.id);
     final language = primaryLanguage(layout.book.metadata.language);
@@ -454,7 +504,11 @@ class BackgroundReading {
       _sleepChapter = -1;
       unawaited(pause());
     }
-    if (web) _fetchAhead(u);
+    if (web) {
+      _extendNear(u);
+      // (Joining them on fetches them too.)
+      if (_extending == null) _fetchAhead(u);
+    }
     _persistTimer?.cancel();
     _persistTimer = Timer(const Duration(milliseconds: 1500), _persistNow);
     _updateCard();
@@ -485,25 +539,33 @@ class BackgroundReading {
     if (!web || layout.isEmpty) return false;
     final last = layout.units.last.sectionIndex;
     try {
-      await fetchChapters(store, bookId, last + 1);
-      var next = await store.loadLayout(bookId);
-      var start = next.units.indexWhere((u) => u.sectionIndex > last);
-      if (start < 0) {
-        // The last chapter the site listed: ask it for new ones.
-        final after = await refreshWebChapters(store, bookId, last);
-        if (after == null) return false;
-        await fetchChapters(store, bookId, after);
-        next = await store.loadLayout(bookId);
-        start = next.units.indexWhere((u) => u.sectionIndex >= after);
-        if (start < 0) return false;
-      }
+      // The next chapters were being joined on as the last sentences were
+      // heard: read on there, in this player.
+      await _extending;
       if (!identical(current.value, this)) return null;
-      _detach();
-      final old = player;
-      _layout.value = next;
-      player = readingScheduler(layout: next, prefs: () => _prefs, language: language, bookId: bookId);
-      _attach();
-      old.dispose();
+      var start = layout.units.indexWhere((u) => u.sectionIndex > last);
+      if (start < 0) {
+        await fetchChapters(store, bookId, last + 1);
+        // A window of chapters from there, not every one on the phone.
+        var next = await store.loadLayout(bookId, around: last + 1);
+        start = next.units.indexWhere((u) => u.sectionIndex > last);
+        if (start < 0) {
+          // The last chapter the site listed: ask it for new ones.
+          final after = await refreshWebChapters(store, bookId, last);
+          if (after == null) return false;
+          await fetchChapters(store, bookId, after);
+          next = await store.loadLayout(bookId, around: after);
+          start = next.units.indexWhere((u) => u.sectionIndex >= after);
+          if (start < 0) return false;
+        }
+        if (!identical(current.value, this)) return null;
+        _detach();
+        final old = player;
+        _layout.value = next;
+        player = readingScheduler(layout: next, prefs: () => _prefs, language: language, bookId: bookId);
+        _attach();
+        old.dispose();
+      }
       _fetchedFor = -1;
       if (_sleep == SleepChoice.chapterEnd) {
         // Asked to stop at the chapter's end: waits at the next, paused.
@@ -519,6 +581,54 @@ class BackgroundReading {
       return true;
     } on Object {
       return identical(current.value, this) ? false : null;
+    }
+  }
+
+  /// The voice is in the last two chapters of a web novel's window: the
+  /// chapters after it are joined on while it reads (see [_extend]), with a
+  /// chapter to spare.
+  void _extendNear(int u) {
+    if (_extending != null || _rolling != null || layout.isEmpty) return;
+    final chapter = layout.chapterOfUnit(u);
+    if (chapter < layout.chapters.length - 2) return;
+    // Once a chapter, not at every sentence (offline, each would try the site).
+    final at = (layout.units.last.sectionIndex, chapter);
+    if (at == _extendTried) return;
+    _extendTried = at;
+    _extending = _extend().whenComplete(() => _extending = null);
+  }
+
+  /// Join the chapters after a web novel's window to it, fetched first if
+  /// they are not on the phone: the same player reads on into them, so the
+  /// voice goes on with no gap (a new player would start a new stream, and
+  /// wait for its first sentence to be made). Only the window and the
+  /// chapters after it are read, never the whole novel: listening used to
+  /// parse every chapter on the phone, thousands for a long novel, at every
+  /// Play and at every end of what was fetched. Nothing changes if the
+  /// window changed meanwhile, or its chapters no longer read the same (a
+  /// skip rule since).
+  Future<void> _extend() async {
+    final now = layout;
+    final reading = player;
+    final last = now.units.last.sectionIndex;
+    try {
+      await fetchChapters(store, bookId, last + 1);
+    } on Object {
+      // Offline: what is on the phone.
+    }
+    try {
+      final info = await store.webNovel(bookId);
+      if (info == null) return;
+      final more = webWindow(last + 1, info.chapters.length, store.downloadedChapters(bookId).contains, before: 0);
+      if (more.isEmpty || !identical(current.value, this)) return;
+      final longer = await store.loadLayout(bookId, chapters: {...now.chapters, ...more});
+      if (!identical(current.value, this) || !identical(layout, now) || !identical(player, reading)) return;
+      if (longer.units.length == now.units.length || !continuesLayout(longer, now)) return;
+      _layout.value = longer;
+      readOnInto(reading, longer);
+    } on Object catch (e) {
+      // Read on at the end instead, as before (see readOn).
+      debugPrint('TomeVoice: the next chapters could not be joined on: $e');
     }
   }
 

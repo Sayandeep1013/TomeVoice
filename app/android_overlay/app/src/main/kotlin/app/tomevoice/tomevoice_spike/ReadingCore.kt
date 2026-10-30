@@ -15,6 +15,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
@@ -644,6 +645,35 @@ object ReadingCore {
 
     private var focusRequest: AudioFocusRequest? = null
     private var noisyRegistered = false
+
+    /**
+     * When the phone's audio was last taken for a moment (a call, another
+     * app's sound), until it comes back or is lost for good; 0 when it was not.
+     */
+    @Volatile
+    private var lostAt = 0L
+
+    /** Play waits for a call to end: the audio was promised for later. */
+    @Volatile
+    private var focusDelayed = false
+
+    /**
+     * After a moment's loss longer than this, reading does not play on by
+     * itself when the audio comes back: Dart's resumeAfterLossWithin (a
+     * minute), and a few seconds over.
+     */
+    private const val RESUME_WITHIN_MS = 65_000L
+
+    /**
+     * Whether reading may play on by itself, without a tap: the audio was
+     * taken a moment ago and may come back, or Play waits for a call to end.
+     * ReadAloudService stays in the foreground while paused for that: an app
+     * in the background may not go foreground again of its own accord
+     * (Android 12 and later).
+     */
+    fun audioMayReturn(): Boolean =
+        focusDelayed || (lostAt != 0L && SystemClock.elapsedRealtime() - lostAt < RESUME_WITHIN_MS)
+
     private val noisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
@@ -677,12 +707,22 @@ object ReadingCore {
                         AudioManager.AUDIOFOCUS_GAIN -> "focusGain"
                         else -> null
                     }
+                    // Before Dart hears of it and pauses: the service, told
+                    // of the pause, looks here (audioMayReturn).
+                    if (type == "focusLossTransient") {
+                        lostAt = SystemClock.elapsedRealtime()
+                    } else if (type != null) {
+                        lostAt = 0L
+                        focusDelayed = false
+                    }
                     if (type != null) event(mapOf("type" to type))
                 }
                 .build()
             focusRequest = req
         }
         val answer = am.requestAudioFocus(focusRequest!!)
+        focusDelayed = answer == AudioManager.AUDIOFOCUS_REQUEST_DELAYED
+        if (answer == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) lostAt = 0L
         if (!noisyRegistered) {
             // On the application, not an activity: it must hear the
             // headphones come out with no activity at all.
@@ -703,6 +743,8 @@ object ReadingCore {
     }
 
     private fun abandonFocus() {
+        lostAt = 0L
+        focusDelayed = false
         if (!::app.isInitialized) return
         val am = app.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         focusRequest?.let { am.abandonAudioFocusRequest(it) }

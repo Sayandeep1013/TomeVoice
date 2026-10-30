@@ -823,14 +823,15 @@ class LibraryStore {
   /// chapter numbers), and the downloaded ones have their text; with
   /// [around], only those in a window round that chapter do (see
   /// [webWindow]): opening chapter 2,000 of a long novel reads a few dozen
-  /// files, not every one on the phone.
-  Future<ReadingLayout> loadLayout(String id, {int? around}) async {
+  /// files, not every one on the phone. With [chapters], only those do (a
+  /// window with the chapters after it joined on, read aloud).
+  Future<ReadingLayout> loadLayout(String id, {int? around, Set<int>? chapters}) async {
     final notes = ListeningPrefs.loaded?.notesAloud ?? false;
     final entries = await list();
     final entry = entries.where((e) => e.id == id).firstOrNull;
     if (entry != null && entry.isWeb) {
       final dir = bookDir(id);
-      final layout = await _runLoadWeb(dir, id, around, notes);
+      final layout = await _runLoadWeb(dir, id, around, chapters, notes);
       // The chapters' script settles the language the source only named;
       // the library's card says the same.
       final language = layout.book.metadata.language;
@@ -1019,8 +1020,8 @@ Future<_Imported> _runImport(_ImportJob job) => Isolate.run(() => _import(job));
 
 Future<ReadingLayout> _runLoad(_LoadJob job) => Isolate.run(() => _loadLayout(job));
 
-Future<ReadingLayout> _runLoadWeb(String dir, String id, int? around, bool notes) =>
-    Isolate.run(() => _loadWebSync(dir, id, around: around, notes: notes));
+Future<ReadingLayout> _runLoadWeb(String dir, String id, int? around, Set<int>? chapters, bool notes) =>
+    Isolate.run(() => _loadWebSync(dir, id, around: around, chapters: chapters, notes: notes));
 
 /// The roles read aloud beyond the usual: footnotes (endnotes are marked the
 /// same) when the reader asked for notes; captions stay on the page only.
@@ -1650,19 +1651,20 @@ Set<int> webWindow(int at, int count, bool Function(int chapter) have, {int befo
 
 /// A web novel as one book: every chapter in order, the fetched ones with
 /// their text, the rest empty (and so skipped by the reader). With [around],
-/// only the chapters of [webWindow] round it have their text. [notes]: the
-/// reader asked for notes read aloud.
-ReadingLayout _loadWebSync(String dir, String id, {int? around, bool notes = false}) {
+/// only the chapters of [webWindow] round it have their text; with
+/// [chapters], only those. [notes]: the reader asked for notes read aloud.
+ReadingLayout _loadWebSync(String dir, String id, {int? around, Set<int>? chapters, bool notes = false}) {
   final info = WebNovelInfo.fromJson(
     Map<String, Object?>.from(jsonDecode(File('$dir/novel.json').readAsStringSync()) as Map),
   );
   final sections = <Section>[];
   // Lines the reader chose not to hear, from rules.json at the library root.
   final skip = ReadingRules.skipTextsSync(Directory(dir).parent.parent.path, info.plugin.id);
-  final window = around == null
-      ? null
-      : webWindow(around.clamp(0, math.max(0, info.chapters.length - 1)), info.chapters.length,
-          (i) => File('$dir/ch/$i.json').existsSync());
+  final window = chapters ??
+      (around == null
+          ? null
+          : webWindow(around.clamp(0, math.max(0, info.chapters.length - 1)), info.chapters.length,
+              (i) => File('$dir/ch/$i.json').existsSync()));
   for (var i = 0; i < info.chapters.length; i++) {
     final title = info.chapters[i].name;
     final f = File('$dir/ch/$i.json');
