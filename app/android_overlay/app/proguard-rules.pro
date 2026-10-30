@@ -11,6 +11,16 @@
 # Our platform code is referenced from the manifest and the method channel.
 -keep class app.tomevoice.** { *; }
 
+# WorkManager (the check for new chapters with the app closed,
+# NovelCheckWorker.kt) makes its Room database by reflection. R8 took that
+# constructor away, and every launch crashed in androidx.startup with
+# NoSuchMethodException: WorkDatabase_Impl.<init>.
+-keep class * extends androidx.room.RoomDatabase { <init>(); }
+-keep class androidx.work.impl.WorkDatabase_Impl { <init>(); }
+-keep class * extends androidx.work.ListenableWorker {
+    public <init>(android.content.Context, androidx.work.WorkerParameters);
+}
+
 # Tesseract4Android (OCR, Ocr.kt) ships no rules of its own. Its native code
 # calls back into TessBaseAPI by name, and its classes hold native pointers;
 # kept whole, as it is small (about 80 KB of classes).
