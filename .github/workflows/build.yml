@@ -328,8 +328,11 @@ jobs:
             id=$("$tools/aapt2" dump badging "$apk" | awk -F"'" '/^package: name=/ { print $2 }')
             size=$(stat -c %s "$apk")
             pqc=$(unzip -l "$apk" | grep -c "org/bouncycastle/pqc/" || true)
-            cert=$("$tools/apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
-            echo "$name: $id, $size bytes, $pqc entries under org/bouncycastle/pqc/, signer certificate SHA-256 $cert"
+            signed=$("$tools/apksigner" verify --print-certs "$apk" 2>&1 || true)
+            cert=$(printf '%s\n' "$signed" | grep -oE "certificate SHA-256 digest: [0-9a-f]{64}" | head -n 1 | cut -d' ' -f4 || true)
+            # Not verified, or a format this did not expect: show what it said.
+            if [ -z "$cert" ]; then printf '%s\n' "$signed"; fi
+            echo "$name: $id, $size bytes, $pqc entries under org/bouncycastle/pqc/, signer certificate SHA-256 ${cert:-unknown}"
             if [ "$id" != "${TV_APP_ID:-app.tomevoice}" ]; then
               echo "::error::$name is $id, not ${TV_APP_ID:-app.tomevoice}"
               exit 1
@@ -340,10 +343,10 @@ jobs:
             fi
             if [ "$cert" != "$TV_CERT_SHA256" ]; then
               if [ -n "$RELEASE_TAG" ]; then
-                echo "::error::$name is not signed with the TomeVoice key ($cert). Not releasing it: it would not install over the last version."
+                echo "::error::$name is not signed with the TomeVoice key (${cert:-no certificate found}). Not releasing it: it would not install over the last version."
                 exit 1
               fi
-              echo "::warning::$name is not signed with the TomeVoice key ($cert)."
+              echo "::warning::$name is not signed with the TomeVoice key (${cert:-no certificate found})."
             fi
           done
 
