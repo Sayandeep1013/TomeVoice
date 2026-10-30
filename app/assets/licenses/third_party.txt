@@ -80,3 +80,14 @@ Piper voices (downloaded on request, not part of the app)
 https://github.com/rhasspy/piper
 Each voice keeps the licence of the recordings it was trained on, given
 in the MODEL_CARD that comes with it in voices/<name>/ on the phone.
+
+------------------------------------------------------------------------
+Tesseract4Android (reading scanned pages, OCR), Apache License 2.0
+https://github.com/adaptech-cz/Tesseract4Android
+Includes Tesseract OCR 5.5.1 (Apache License 2.0), Leptonica 1.85.0
+(BSD-style licence), libpng 1.6.48 (libpng licence) and libjpeg 9f.
+This software is based in part on the work of the Independent JPEG Group.
+
+Tesseract language data (downloaded on request, not part of the app)
+https://github.com/tesseract-ocr/tessdata_fast, Apache License 2.0
+Kept in ocr/tessdata on the phone.

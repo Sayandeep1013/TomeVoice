@@ -620,6 +620,20 @@ void main() {
       expect(pdfTextCoverage(pages), (pages: 40, pagesWithText: 35, mostlyPictures: false));
     });
 
+    test('the pages with text are told apart, for OCR to read the others', () {
+      // A scan's few typed pages, a stamp on every page, and the empty string
+      // after the last page break.
+      final pages = [
+        for (var p = 0; p < 12; p++)
+          p == 0 || p == 7 ? _page([_prose(p), _prose(p + 1)]) : _page([['Digitized by Google']]),
+        '',
+      ];
+      final withText = pdfPagesWithText(pages);
+      expect(withText, hasLength(12));
+      expect([for (var p = 0; p < withText.length; p++) if (withText[p]) p], [0, 7]);
+      expect(pdfTextCoverage(pages), (pages: 12, pagesWithText: 2, mostlyPictures: true));
+    });
+
     test('the layout from the platform is read as lists of numbers', () {
       expect(pdfLayoutFromPlatform(null), isNull);
       expect(pdfLayoutFromPlatform([

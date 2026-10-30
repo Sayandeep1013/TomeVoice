@@ -13,6 +13,9 @@ import 'categories_screen.dart';
 import 'library_store.dart';
 import 'listening_session.dart';
 import 'novel_screen.dart';
+import 'ocr.dart';
+import 'ocr_jobs.dart';
+import 'ocr_sheet.dart';
 import 'prefs.dart';
 import 'reader_screen.dart';
 import 'secret_shelf.dart';
@@ -106,6 +109,8 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     ListeningPrefs.revision.addListener(_onPrefs);
     BackgroundReading.current.addListener(_onBackground);
     unawaited(_open());
+    // Scans read with OCR while the app was away become books now.
+    unawaited(OcrJobs.instance.attach(_store));
   }
 
   @override
@@ -365,6 +370,8 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     final failures = <String>[];
     // Said once the books are in: a PDF that is mostly pictures, say.
     final notes = <String>[];
+    // Scanned PDFs, offered OCR once the rest are in.
+    final scans = <OcrOffer>[];
     for (final f in files) {
       final job = _Importing(f.name);
       setState(() => _importing = job);
@@ -380,8 +387,11 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
               });
             },
             onNote: (note) => notes.add(files.length > 1 ? '${f.name}: $note' : note),
+            onScan: scans.add,
           ),
         );
+      } on ScannedPdf catch (e) {
+        scans.add(e.offer);
       } on EncryptedDocumentException catch (e) {
         failures.add('${f.name}: ${e.message}');
       } on UnsupportedDocumentException catch (e) {
@@ -412,7 +422,14 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     } else if (imported.length > 1) {
       _snack('Added ${imported.length} books.');
     }
-    if (openAfter && imported.length == 1) await _showBook(imported.single);
+    for (final scan in scans) {
+      if (mounted && await offerOcr(context, _store, scan)) {
+        _snack('Reading “${scan.title}” with OCR. It goes on with the screen off; the shelf shows how far.', long: true);
+      } else if (!mounted) {
+        await declineOcr(scan);
+      }
+    }
+    if (openAfter && imported.length == 1 && mounted) await _showBook(imported.single);
   }
 
   /// The quiet way into the secret shelves (holding the word Library):
@@ -804,6 +821,8 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
                             child: _importCard(context, _importing!),
                           ),
                   ),
+                  // A scan being read with OCR, and one that stopped.
+                  const OcrProgressCard(lift: 84),
                   // Books fade out as they scroll under the dock. The content
                   // itself fades, so the real ground shows through: a painted
                   // band never matched the diagonal ground and read as a bar.

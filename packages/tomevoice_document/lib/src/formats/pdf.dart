@@ -286,20 +286,39 @@ PdfTextCoverage pdfTextCoverage(List<String> pages, {List<List<int>>? layout}) {
   return _coverage(lines, _furniture(lines, _bodySize(lines)), pages);
 }
 
+/// Which of [pages] have something to read, one answer a page, as
+/// [pdfTextCoverage] counts them: the pages a scan's OCR can leave as they
+/// are, and the ones it has to read.
+List<bool> pdfPagesWithText(List<String> pages, {List<List<int>>? layout}) {
+  final lines = [
+    for (var p = 0; p < pages.length; p++)
+      _linesOf(pages[p], layout != null && p < layout.length ? layout[p] : null),
+  ];
+  return _withText(lines, _furniture(lines, _bodySize(lines)), pages);
+}
+
 PdfTextCoverage _coverage(List<List<_Line>> lines, List<Set<int>> furniture, List<String> pages) {
+  final withText = _withText(lines, furniture, pages);
+  final n = withText.where((t) => t).length;
+  return (pages: withText.length, pagesWithText: n, mostlyPictures: n * 2 < withText.length);
+}
+
+List<bool> _withText(List<List<_Line>> lines, List<Set<int>> furniture, List<String> pages) {
   // The platform ends every page with a page break, so the empty string
   // after the last page is not a page.
   final count = pages.isNotEmpty && pages.last.isEmpty ? pages.length - 1 : pages.length;
-  var withText = 0;
-  for (var p = 0; p < count; p++) {
-    var letters = 0;
-    for (var i = 0; i < lines[p].length && letters < _pageOfText; i++) {
-      if (furniture[p].contains(i)) continue;
-      letters += _letters.allMatches(lines[p][i].text).take(_pageOfText).length;
-    }
-    if (letters >= _pageOfText) withText++;
+  return [
+    for (var p = 0; p < count; p++) _hasText(lines[p], furniture[p]),
+  ];
+}
+
+bool _hasText(List<_Line> page, Set<int> furniture) {
+  var letters = 0;
+  for (var i = 0; i < page.length && letters < _pageOfText; i++) {
+    if (furniture.contains(i)) continue;
+    letters += _letters.allMatches(page[i].text).take(_pageOfText).length;
   }
-  return (pages: count, pagesWithText: withText, mostlyPictures: withText * 2 < count);
+  return letters >= _pageOfText;
 }
 
 /// Letters a page needs, besides its furniture, to have something to read: a

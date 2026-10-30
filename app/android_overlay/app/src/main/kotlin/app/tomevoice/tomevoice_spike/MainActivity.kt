@@ -196,6 +196,19 @@ class MainActivity : FlutterActivity() {
                         }
                     }
                 }
+                // A scanned PDF read with OCR, in a foreground service (Ocr.kt).
+                "ocrStart" -> {
+                    try {
+                        result.success(OcrService.start(this, call.arguments as Map<*, *>))
+                    } catch (e: Exception) {
+                        result.error("OCR", e.message ?: "The scan could not be read", null)
+                    }
+                }
+                "ocrStop" -> {
+                    OcrService.stop()
+                    result.success(null)
+                }
+                "ocrStatus" -> result.success(OcrService.status())
                 "outputDir" -> result.success(outputDir().absolutePath)
                 "launchArgs" -> result.success(launchArgs())
                 // Text in an East Asian legacy encoding (GBK, Big5, Shift_JIS,
@@ -514,6 +527,8 @@ class MainActivity : FlutterActivity() {
         // Web novels: their own channel (SourcesBridge.kt), also registered
         // on the background check's engine, where this activity is not.
         SourcesBridge.attach(this, flutterEngine.dartExecutor.binaryMessenger, this)
+        // A scan being read says how far it has got (ocr_jobs.dart).
+        OcrService.onEvent = { e -> event(e) }
         cleanSynthDir()
         handleViewIntent(intent)
         // A widget's book for an app already running is told, as onNewIntent
@@ -1192,6 +1207,9 @@ class MainActivity : FlutterActivity() {
         exporter?.close()
         exporter = null
         stopSample()
+        // A scan being read goes on without the app; its book is made when
+        // the app is next opened (ocr_jobs.dart).
+        OcrService.onEvent = null
         // The reading, the voice and the player are the engine's and carry
         // on (ReadingCore): leaving the app, by a swipe from Recents too,
         // does not stop a book being read.

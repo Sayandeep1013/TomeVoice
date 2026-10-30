@@ -38,6 +38,9 @@ object LibraryBackup {
         // Natural voices are a download away (64 to 110 MB each). Carried,
         // every voice made every backup that much bigger (docs/11: never).
         if (top == "voices") return true
+        // So is the OCR language data (Ocr.kt), and a scan still being read
+        // is this phone's: its text is backed up with its book once made.
+        if (top == "ocr") return true
         if (!includeChapters && rel.startsWith("books/") && rel.split('/').getOrNull(2) == "ch") return true
         return false
     }
@@ -123,7 +126,9 @@ object LibraryBackup {
                 }
                 // Older backups carried the natural voices: left out, so a
                 // restore keeps the phone's own (and no megabytes are spent).
-                if (entry.name.substringBefore('/') == "voices") continue
+                // No backup carries OCR data, and one that did is not trusted.
+                val top = entry.name.substringBefore('/')
+                if (top == "voices" || top == "ocr") continue
                 val dest = File(staging, entry.name)
                 // A name like "../../x" must not write outside the staging folder.
                 if (!dest.canonicalPath.startsWith(base)) {

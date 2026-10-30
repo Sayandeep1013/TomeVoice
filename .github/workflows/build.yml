@@ -254,6 +254,9 @@ jobs:
           # Look up and Translate: those apps are invisible without it.
           grep -q "android.intent.action.PROCESS_TEXT" "$M"
           grep -q "pdfbox-android" android/app/build.gradle.kts
+          # OCR for scanned PDFs: Tesseract4Android and its service.
+          grep -q "tesseract4android" android/app/build.gradle.kts
+          grep -q 'foregroundServiceType="dataSync"' "$M"
           # ...without BouncyCastle's post-quantum tables (4.1 MB).
           grep -q 'excludes += "org/bouncycastle/pqc/' android/app/build.gradle.kts
           test -f android/app/proguard-rules.pro
@@ -354,6 +357,11 @@ jobs:
               echo "::error::$name still carries org/bouncycastle/pqc/"
               exit 1
             fi
+            # 64-bit libraries aligned for 16 KB pages: OCR's must be (a
+            # failure here stops the run); any other is warned about.
+            echo "::group::$name native libraries"
+            python3 ../tools/check_16kb.py "$apk" --require libtesseract.so libleptonica.so libjpeg.so libpngx.so
+            echo "::endgroup::"
             if [ "$cert" != "$TV_CERT_SHA256" ]; then
               if [ -n "$RELEASE_TAG" ]; then
                 echo "::error::$name is not signed with the TomeVoice key (${cert:-no certificate found}). Not releasing it: it would not install over the last version."
