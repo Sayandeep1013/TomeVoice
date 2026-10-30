@@ -72,6 +72,12 @@ class SourceEngine {
   final _assigned = <String, _Worker>{};
   Future<_Worker>? _spawning;
 
+  /// Cookies the workers' sites set: kept by this (the main) isolate, the
+  /// one that writes cookies.json.
+  ReceivePort? _cookies;
+
+  SendPort get _cookieSink => (_cookies ??= ReceivePort()..listen(Net.instance.takeForwarded)).sendPort;
+
   Future<_Worker> _workerFor(String pluginId) async {
     _libs ??= await rootBundle.loadString('assets/js/lnreader_libs.js');
     _shim ??= await rootBundle.loadString('assets/js/lnreader_shim.js');
@@ -80,7 +86,8 @@ class SourceEngine {
     final live = [for (final w in _workers) if (!w.retired) w];
     final _Worker w;
     if (live.length < _poolSize) {
-      w = await (_spawning ??= _Worker.spawn(libs: _libs!, shim: _shim!, sourcesDir: store.dir.path).then((w) {
+      w = await (_spawning ??=
+          _Worker.spawn(libs: _libs!, shim: _shim!, sourcesDir: store.dir.path, cookies: _cookieSink).then((w) {
         _workers.add(w);
         return w;
       }).whenComplete(() => _spawning = null));
@@ -243,7 +250,12 @@ class _Worker {
 
   int get busy => _pending.length;
 
-  static Future<_Worker> spawn({required String libs, required String shim, required String sourcesDir}) async {
+  static Future<_Worker> spawn({
+    required String libs,
+    required String shim,
+    required String sourcesDir,
+    required SendPort cookies,
+  }) async {
     final receive = ReceivePort();
     final ready = Completer<SendPort>();
     final init = ReceivePort();
@@ -261,6 +273,7 @@ class _Worker {
           Net.userAgent,
           RootIsolateToken.instance,
           Net.allowPrivateAddresses,
+          cookies,
         ],
         debugName: 'source-worker');
     final send = await ready.future;
@@ -304,6 +317,9 @@ class _Worker {
     // Tests' sites are on this machine (see Net.allowPrivateAddresses).
     Net.allowPrivateAddresses = boot[7] == true;
     await Net.instance.attachPath(dir);
+    // The main isolate keeps the cookie file; this one reads it, and sends
+    // what sites set there.
+    Net.instance.forwardCookiesTo(boot[8] as SendPort);
     // The platform channel, for pages only the phone's web view gets.
     Future<String?> Function(String)? viaBrowser;
     if (boot[6] case final RootIsolateToken token) {

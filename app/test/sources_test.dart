@@ -6,6 +6,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_document/tomevoice_document.dart' show SourceKind;
@@ -138,6 +139,19 @@ Future<HttpServer> _site() async {
     await res.close();
   });
   return server;
+}
+
+/// A source worker, as far as cookies go: it reads the file, never writes
+/// it, and hands what the site set to the main isolate.
+Future<void> _cookieWorker(List<Object?> boot) async {
+  final owner = boot[0] as SendPort;
+  Net.allowPrivateAddresses = true;
+  await Net.instance.attachPath(boot[1] as String);
+  Net.instance.forwardCookiesTo(owner);
+  await Net.instance.request(boot[2] as String, partition: 'p1');
+  await Future<void>.delayed(const Duration(milliseconds: 400));
+  if (File('${boot[1]}/cookies.json').existsSync()) throw StateError('a worker wrote the cookie file');
+  owner.send('done');
 }
 
 /// An engine whose smoke test answers as [verdict] says, by plugin.
@@ -769,6 +783,33 @@ void main() {
     // The next call gets a fresh one.
     expect(await engine.smokeTest(p, code.path, sha256Hex(utf8.encode(hang)), timeout: const Duration(seconds: 1)),
         contains('too long'));
+  });
+
+  test("a worker's cookies reach the file through the main isolate, its one writer", () async {
+    final server = await _site();
+    final dir = Directory.systemTemp.createTempSync('tv_owner');
+    final inbox = ReceivePort();
+    addTearDown(() async {
+      inbox.close();
+      await server.close(force: true);
+      await Net.instance.clearCookies();
+      dir.deleteSync(recursive: true);
+    });
+    final done = Completer<void>();
+    inbox.listen((m) {
+      if (m == 'done') {
+        done.complete();
+      } else {
+        Net.instance.takeForwarded(m);
+      }
+    });
+    await Isolate.spawn(_cookieWorker, [inbox.sendPort, dir.path, 'http://127.0.0.1:${server.port}/setcookie']);
+    await done.future;
+    expect(Net.instance.cookieHeader('http://127.0.0.1:${server.port}/', partition: 'p1'), 'sid=abc');
+    // This isolate keeps the file: written when it next saves.
+    await Net.instance.attach(dir);
+    await Net.instance.clearCookies(partition: 'another');
+    expect(File('${dir.path}/cookies.json').readAsStringSync(), contains('"sid"'));
   });
 
   test('a web novel in the library: fetched chapters are read, the rest wait', () async {

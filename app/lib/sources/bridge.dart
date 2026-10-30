@@ -26,6 +26,10 @@ class SourcesBridge {
   /// The library's folder (external app storage), as MainActivity has it.
   static Future<String?> libraryRoot() => _ask<String>('libraryRoot');
 
+  /// Forget the phone's web view cookies (browser checks, sign-ins): all of
+  /// them, or those of [url]'s site.
+  static Future<void> clearWebCookies({String? url}) => _ask<void>('clearWebCookies', {'url': url});
+
   // ------------------------------------------------- the background check
 
   /// Have Android run the Dart function behind [handle] (a callback handle,

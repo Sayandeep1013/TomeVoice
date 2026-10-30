@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'cookies.dart';
@@ -245,11 +246,41 @@ class Net {
   /// [attach] by path, for background isolates.
   Future<void> attachPath(String dir) => attach(Directory(dir));
 
-  /// Write the jar, merged with what the file holds now (another isolate
-  /// may have written since), beside it and renamed over it.
+  /// Where a source worker sends the cookies sites set, instead of writing
+  /// the file itself: the main isolate is its one writer (four isolates
+  /// each rewriting it lost cookies, a fresh clearance among them).
+  SendPort? _owner;
+
+  /// Hand cookies to [owner] rather than keep the file (worker isolates).
+  void forwardCookiesTo(SendPort owner) => _owner = owner;
+
+  /// Cookies a worker sent ([forwardCookiesTo]): kept, and saved soon.
+  void takeForwarded(Object? message) {
+    if (message is! Map) return;
+    final part = message['part'];
+    final list = message['cookies'];
+    if (part is! String || list is! List) return;
+    jar.merge([
+      for (final o in list)
+        if (StoredCookie.fromJson(o) case final c?) c,
+    ], partition: part);
+    _saveSoon();
+  }
+
+  Timer? _saveTimer;
+
+  /// Save in a moment: a page that sets ten cookies is one write.
+  void _saveSoon() {
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 300), () => unawaited(_saveCookies()));
+  }
+
+  /// Write the jar, merged with what the file holds now (the background
+  /// check's engine may have written since), beside it and renamed over it.
   Future<void> _saveCookies() async {
+    _saveTimer?.cancel();
     final f = _cookieFile;
-    if (f == null) return;
+    if (f == null || _owner != null) return;
     try {
       if (await f.exists()) jar.mergeJson(jsonDecode(await f.readAsString()));
     } on Object {
@@ -262,6 +293,22 @@ class Net {
       _cookieStamp = await f.lastModified();
     } on Object {
       // Next change saves again.
+    }
+  }
+
+  /// Cookies a response to [uri] set, for [partition]: to the owner, or
+  /// saved soon.
+  void _took(Uri uri, List<Cookie> cookies, String partition) {
+    final changed = jar.take(uri, cookies, partition: partition);
+    if (changed.isEmpty) return;
+    final owner = _owner;
+    if (owner != null) {
+      owner.send({
+        'part': partition,
+        'cookies': [for (final c in changed) c.toJson()],
+      });
+    } else {
+      _saveSoon();
     }
   }
 
@@ -360,10 +407,7 @@ class Net {
         req.add(body);
       }
       final res = await req.close().timeout(step());
-      if (res.cookies.isNotEmpty) {
-        jar.take(uri, res.cookies, partition: partition);
-        await _saveCookies();
-      }
+      if (res.cookies.isNotEmpty) _took(uri, res.cookies, partition);
       final location = res.headers.value(HttpHeaders.locationHeader);
       if (res.isRedirect && location != null) {
         await res.drain<void>().timeout(step());

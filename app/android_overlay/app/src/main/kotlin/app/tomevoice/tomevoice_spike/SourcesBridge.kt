@@ -4,8 +4,10 @@ import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.webkit.CookieManager
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
 import java.lang.ref.WeakReference
@@ -63,6 +65,37 @@ object SourcesBridge {
                     onDone?.invoke(args)
                 }
                 "backgroundBusy" -> result.success(NovelCheckWorker.running.get())
+                "clearWebCookies" -> {
+                    // The web view's cookies (browser checks, logins): all of
+                    // them, or one site's ([url]) as far as it can be told.
+                    try {
+                        val cookies = CookieManager.getInstance()
+                        val url = call.argument<String>("url")
+                        if (url == null) {
+                            cookies.removeAllCookies(null)
+                        } else {
+                            val host = Uri.parse(url).host.orEmpty()
+                            val names = cookies.getCookie(url)?.split(";")
+                                ?.mapNotNull { it.substringBefore('=').trim().takeIf { n -> n.isNotEmpty() } }
+                                .orEmpty()
+                            val domains = listOf(host, host.removePrefix("www."), "." + host.removePrefix("www."))
+                            for (name in names) {
+                                for (domain in domains) {
+                                    cookies.setCookie(
+                                        url,
+                                        "$name=; Max-Age=0; Path=/; Domain=$domain; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+                                    )
+                                }
+                                cookies.setCookie(url, "$name=; Max-Age=0; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT")
+                            }
+                        }
+                        cookies.flush()
+                        result.success(true)
+                    } catch (e: Exception) {
+                        // No web view on this phone: nothing kept there.
+                        result.success(false)
+                    }
+                }
                 "downloadProgress" -> {
                     if (call.argument<Boolean>("active") == true) {
                         DownloadService.update(

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'sources/bridge.dart';
 import 'sources/models.dart';
 import 'sources/net.dart';
 import 'sources/net_image.dart';
@@ -172,6 +173,21 @@ class _SourcesScreenState extends State<SourcesScreen> {
     await _load();
   }
 
+  /// Forget the cookies sites set (sign-ins and browser checks among them),
+  /// the app's and the web view's: every site's, or [p]'s.
+  Future<void> _clearCookies([PluginInfo? p]) async {
+    final ok = await confirm(
+      context,
+      title: p == null ? 'Clear site cookies?' : 'Clear ${p.name}\'s cookies?',
+      body: 'Sites forget you were here: any sign-in ends, and a site with a browser check may ask for it again.',
+      action: 'Clear',
+    );
+    if (!ok) return;
+    await Net.instance.clearCookies(partition: p?.id);
+    await SourcesBridge.clearWebCookies(url: p?.site);
+    if (mounted) showSnack(context, p == null ? 'Site cookies cleared.' : '${p.name}\'s cookies cleared.');
+  }
+
   static String _message(Object e) => friendlyError(e);
 
   @override
@@ -199,14 +215,21 @@ class _SourcesScreenState extends State<SourcesScreen> {
                 children: [
                   Expanded(child: ScreenTopBar(title: 'Sources', onBack: () => Navigator.of(context).maybePop())),
                   if (_repos.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(right: Gap.m),
-                      child: RoundButton(
-                        icon: Icons.refresh_rounded,
-                        tooltip: 'Check for updates',
-                        onTap: () => _load(refresh: true),
-                      ),
+                    RoundButton(
+                      icon: Icons.refresh_rounded,
+                      tooltip: 'Check for updates',
+                      onTap: () => _load(refresh: true),
                     ),
+                  Padding(
+                    padding: const EdgeInsets.only(right: Gap.s),
+                    child: PopupMenuButton<String>(
+                      tooltip: 'More',
+                      onSelected: (v) {
+                        if (v == 'cookies') unawaited(_clearCookies());
+                      },
+                      itemBuilder: (_) => const [PopupMenuItem(value: 'cookies', child: Text('Clear site cookies'))],
+                    ),
+                  ),
                 ],
               ),
               Expanded(
@@ -372,8 +395,11 @@ class _SourcesScreenState extends State<SourcesScreen> {
             ),
           PopupMenuButton<String>(
             tooltip: 'Options for ${p.name}',
-            onSelected: (_) => _uninstall(p),
-            itemBuilder: (_) => const [PopupMenuItem(value: 'remove', child: Text('Uninstall'))],
+            onSelected: (v) => v == 'cookies' ? _clearCookies(p) : _uninstall(p),
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'cookies', child: Text('Clear its cookies')),
+              PopupMenuItem(value: 'remove', child: Text('Uninstall')),
+            ],
           ),
         ],
       ),

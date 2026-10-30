@@ -245,6 +245,30 @@ void main() {
     await Net.instance.clearCookies();
   });
 
+  testWidgets("Sources clears the sites' cookies, the app's and the web view's", (tester) async {
+    phone(tester);
+    const sources = MethodChannel('tomevoice/sources');
+    final asked = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(sources, (call) async {
+      asked.add(call);
+      return null;
+    });
+    addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(sources, null));
+    await tester.runAsync(() => Net.instance.setCookies('www.site.test', {'sid': '1'}, partition: 'site'));
+    await tester.pumpWidget(MaterialApp(home: SourcesScreen(store: SourceStore(tmp, defaults: const []))));
+    await settle(tester, () => find.byType(CircularProgressIndicator).evaluate().isEmpty);
+    await tester.tap(find.byTooltip('More'));
+    await settle(tester, () => find.text('Clear site cookies').evaluate().isNotEmpty);
+    await tester.tap(find.text('Clear site cookies'));
+    await settle(tester, () => find.text('Clear').evaluate().isNotEmpty);
+    await tester.tap(find.text('Clear'));
+    await settle(tester, () => asked.any((c) => c.method == 'clearWebCookies'));
+    expect((asked.singleWhere((c) => c.method == 'clearWebCookies').arguments as Map)['url'], isNull);
+    expect(Net.instance.cookieHeader('https://www.site.test/', partition: 'site'), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('a novel whose source is not installed offers to install it', (tester) async {
     phone(tester);
     await tester.pumpWidget(MaterialApp(
