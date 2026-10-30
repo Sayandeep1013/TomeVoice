@@ -306,15 +306,16 @@ class MainActivity : FlutterActivity() {
                         startActivityForResult(intent, REQ_RESTORE)
                     }
                 }
-                "shareImage" -> {
-                    // A picture in cache/share, with words to go with it.
+                "shareImage", "shareFile" -> {
+                    // A picture in cache/share (or another file made to be
+                    // passed on, as its type), with words to go with it.
                     try {
                         val file = File(call.argument<String>("path").orEmpty())
                         val shared = File(ShareProvider.dir(cacheDir), file.name)
                         if (file.canonicalPath != shared.canonicalPath) file.copyTo(shared, overwrite = true)
                         val uri = ShareProvider.uriFor("$packageName.share", shared)
                         val send = Intent(Intent.ACTION_SEND).apply {
-                            type = "image/png"
+                            type = call.argument<String>("mime") ?: "image/png"
                             putExtra(Intent.EXTRA_STREAM, uri)
                             call.argument<String>("text")?.let { putExtra(Intent.EXTRA_TEXT, it) }
                             clipData = android.content.ClipData.newRawUri("", uri)
