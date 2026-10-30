@@ -9,11 +9,16 @@ final _chapterTitle = RegExp(
 
 final _untitledSpine = RegExp(r'^section \d+$', caseSensitive: false);
 
-final _frontMatterTitles = <String>{
+/// A contents page: hidden whatever its length (a long book's is long).
+const _contentsTitles = <String>{
   'landmarks',
   'table of contents',
   'contents',
   'toc',
+};
+
+/// Other front matter: hidden only when short. "Cover Story" is a story.
+const _shortFrontTitles = <String>{
   'copyright',
   'copyright page',
   'title page',
@@ -24,6 +29,11 @@ final _frontMatterTitles = <String>{
   'dedication',
   'colophon',
 };
+
+const _frontMatterTitles = {..._contentsTitles, ..._shortFrontTitles};
+
+/// Longest text a cover, title page or dedication has.
+const _shortFront = 1500;
 
 /// Speakable characters in a section after role filters.
 String speakableTextOf(
@@ -42,9 +52,14 @@ String speakableTextOf(
 /// Spine items that are a cover, TOC, part-divider, or image sheet — not a
 /// chapter you sit down to read. Lithium, Apple Books and Moon+ all skip these
 /// when opening a book; the TOC still lists real chapters.
+///
+/// Front matter is only looked for [nearEdge] (see [isNearEdge]): in the
+/// middle of a book a story called "Cover Story", a chapter that opens "Image
+/// after image..." or one about a publisher is a chapter.
 bool isReadingSection(
   Section section, {
   Set<BlockRole> skip = defaultSkippedRoles,
+  bool nearEdge = true,
 }) {
   final text = speakableTextOf(section, skip: skip);
   if (text.isEmpty) return false;
@@ -52,20 +67,32 @@ bool isReadingSection(
   final title = section.displayTitle.trim();
   final lower = title.toLowerCase();
   if (_chapterTitle.hasMatch(lower)) return true;
-  if (_frontMatterTitles.contains(lower)) return false;
   if (RegExp(r'^●+$').hasMatch(title)) return false;
-  if (_opensAsFrontMatter(text)) return false;
-  if (_looksLikeCopyrightPage(text)) return false;
-  // Project Gutenberg's notes about editions and transcription.
-  if (text.length < 3000 &&
-      text.substring(0, text.length < 400 ? text.length : 400).toLowerCase().contains('project gutenberg')) {
-    return false;
+  if (nearEdge) {
+    if (_contentsTitles.contains(lower)) return false;
+    if (_shortFrontTitles.contains(lower) && text.length < _shortFront) return false;
+    if (_opensAsFrontMatter(text)) return false;
+    if (_looksLikeCopyrightPage(text)) return false;
+    // Project Gutenberg's notes about editions and transcription.
+    if (text.length < 3000 &&
+        text.substring(0, text.length < 400 ? text.length : 400).toLowerCase().contains('project gutenberg')) {
+      return false;
+    }
+    // Untitled calibre/z-lib sheets: "Section 12" with a handful of glyphs.
+    if (_untitledSpine.hasMatch(lower) && text.length < 800) return false;
   }
 
-  // Untitled calibre/z-lib sheets: "Section 12" with a handful of glyphs.
-  if (_untitledSpine.hasMatch(lower) && text.length < 800) return false;
-
   return text.length >= 80;
+}
+
+/// Whether section [index] of [count] is near the start or the end of a
+/// book, where covers, contents, title and copyright pages are: the first
+/// tenth (at least 6, at most 20 sections) or the last twentieth (at least
+/// 4, at most 10).
+bool isNearEdge(int index, int count) {
+  final front = (count / 10).ceil().clamp(6, 20);
+  final back = (count / 20).ceil().clamp(4, 10);
+  return index < front || index >= count - back;
 }
 
 /// Spine indexes that have speakable units *and* look like chapters.
@@ -78,9 +105,12 @@ List<int> readingSectionIndexes(
   final spoken = <int>{
     for (final u in units) u.sectionIndex,
   };
+  final count = book.sections.length;
   final kept = [
     for (final s in book.sections)
-      if (spoken.contains(s.index) && isReadingSection(s, skip: skip)) s.index,
+      if (spoken.contains(s.index) &&
+          isReadingSection(s, skip: skip, nearEdge: isNearEdge(s.index, count)))
+        s.index,
   ];
   if (kept.isNotEmpty) return kept;
   return spoken.toList()..sort();
@@ -117,26 +147,26 @@ int readingIndexOfCursor(
   return firstReadingUnitIndex(units, book, skip: skip);
 }
 
-/// TOC rows for the chapter list: real chapters only, one row per section.
+/// TOC rows for the chapter list: real chapters only, one row per section,
+/// in reading order. A chapter's row is the book's contents entry for it
+/// when there is one, else its own title: a contents that forgot one
+/// chapter used to lose every name it did have.
 List<TocEntry> readingToc(
   Book book,
   List<Speakable> units, {
   Set<BlockRole> skip = defaultSkippedRoles,
 }) {
-  final chapters = readingSectionIndexes(book, units, skip: skip).toSet();
+  final chapters = readingSectionIndexes(book, units, skip: skip);
   if (chapters.isEmpty) return const [];
 
-  final seen = <int>{};
-  final fromNav = [
-    for (final t in book.toc)
-      if (chapters.contains(t.sectionIndex) && seen.add(t.sectionIndex)) t,
-  ];
-  if (fromNav.length >= chapters.length) return fromNav;
-
+  final named = <int, TocEntry>{};
+  for (final t in book.toc) {
+    named.putIfAbsent(t.sectionIndex, () => t);
+  }
   return [
-    for (final s in book.sections)
-      if (chapters.contains(s.index))
-        TocEntry(title: s.displayTitle, sectionIndex: s.index, href: s.href),
+    for (final c in chapters)
+      named[c] ??
+          TocEntry(title: book.sections[c].displayTitle, sectionIndex: c, href: book.sections[c].href),
   ];
 }
 
@@ -144,7 +174,9 @@ bool _opensAsFrontMatter(String text) {
   final end = text.length < 64 ? text.length : 64;
   final head = text.substring(0, end).toLowerCase().trim();
   for (final t in _frontMatterTitles) {
-    if (head == t || head.startsWith('$t ')) return true;
+    if (head == t || head.startsWith('$t ')) {
+      return _contentsTitles.contains(t) || text.length < _shortFront;
+    }
   }
   return false;
 }

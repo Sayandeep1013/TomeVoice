@@ -38,12 +38,67 @@ void main() {
     expect(e.category, later);
   });
 
+  test('a book another copy of the app added is not written over', () async {
+    // Opened by a file manager, TomeVoice ran twice, each copy with the
+    // index in memory: this one saving a place wrote out its list, without
+    // the book the other had just imported.
+    final other = LibraryStore(tmp);
+    final text = File('${tmp.path}/incoming/s/other.txt')..createSync(recursive: true);
+    text.writeAsStringSync('A book the other copy imported. It has a sentence or two.');
+    final added = await other.importFile(PickedFile(path: text.path, name: 'other.txt'));
+    await store.saveCursor(id, const ReadingCursor(sectionIndex: 1), 0.25);
+    final onDisk = LibraryStore(tmp);
+    expect([for (final e in await onDisk.list(all: true)) e.id], containsAll([id, added.id]));
+    expect((await onDisk.list(all: true)).firstWhere((e) => e.id == id).progress, 0.25);
+    // And this copy shows it too.
+    expect((await store.list(all: true)).map((e) => e.id), contains(added.id));
+  });
+
   test('an unreadable library list is kept aside, not written over', () async {
     File('${tmp.path}/library.json').writeAsStringSync('{"books": [ {"id": "cut sho');
     // As the app finds it when it next starts.
     final fresh = LibraryStore(tmp);
     expect(await fresh.list(), isEmpty);
     expect(File('${tmp.path}/library.json.broken').readAsStringSync(), contains('cut sho'));
+  });
+
+  test("the picker's copies go, imported or refused, each from its own folder", () async {
+    PickedFile copyIn(String slot, String name, List<int> bytes) {
+      final f = File('${tmp.path}/incoming/$slot/$name')..createSync(recursive: true);
+      f.writeAsBytesSync(bytes);
+      return PickedFile(path: f.path, name: name);
+    }
+
+    // Two picked at once with one name: both arrive, neither over the other.
+    final a = await store.importFile(copyIn('s1', 'notes.txt', utf8.encode('The first book. It reads on for a while.')));
+    final b = await store.importFile(copyIn('s2', 'notes.txt', utf8.encode('The second book. Another text entirely.')));
+    expect(a.id, isNot(b.id));
+    expect((await store.list(all: true)).map((e) => e.id), containsAll([a.id, b.id]));
+    // Nothing to read: refused, and its copy goes too.
+    await expectLater(store.importFile(copyIn('s3', 'empty.txt', const [])), throwsA(anything));
+    expect(Directory('${tmp.path}/incoming').listSync(), isEmpty);
+  });
+
+  test('copies a crash left behind are swept after an hour; newer ones stay', () async {
+    final stale = File('${tmp.path}/incoming/old.epub')..createSync(recursive: true);
+    stale.setLastModifiedSync(DateTime.now().subtract(const Duration(hours: 2)));
+    final fresh = File('${tmp.path}/incoming/just-now/book.epub')..createSync(recursive: true);
+    await store.sweepIncoming();
+    expect(stale.existsSync(), isFalse);
+    expect(fresh.existsSync(), isTrue);
+  });
+
+  test('an entry of the wrong shape is passed over, not the whole shelf', () async {
+    final index = File('${tmp.path}/library.json');
+    final raw = Map<String, Object?>.from(jsonDecode(index.readAsStringSync()) as Map);
+    final books = [...raw['books'] as List];
+    // As a newer app, or a damaged restore, might have written it.
+    books.add({'id': 'b${'0' * 15}', 'title': 'Odd', 'progress': 'half'});
+    index.writeAsStringSync(jsonEncode({...raw, 'books': books}));
+    final fresh = LibraryStore(tmp);
+    expect([for (final e in await fresh.list(all: true)) e.id], [id]);
+    // The odd one is still on the phone, in a copy the next save cannot touch.
+    expect(File('${tmp.path}/library.json.broken').readAsStringSync(), contains('"Odd"'));
   });
 
   test('a book whose parsed copy was cut short opens from its own file', () async {

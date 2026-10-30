@@ -18,6 +18,7 @@ import 'src/stages/stretch_stub.dart';
 import 'src/stages/word_gap.dart';
 import 'src/types.dart';
 
+export 'src/align.dart';
 export 'src/analysis.dart';
 export 'src/pipeline.dart';
 export 'src/stages/edges.dart';
@@ -64,6 +65,7 @@ Pipeline buildStandardPipeline(PipelineSettings settings) => Pipeline([
         trimDb: settings.trimDb,
         normalise: settings.normaliseLoudness,
         compression: settings.compression,
+        gainDb: settings.levelGainDb,
       ),
     ]);
 

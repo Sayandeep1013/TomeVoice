@@ -297,7 +297,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   Book get _book => _l.book;
 
   late final ValueNotifier<int> _cursor =
-      ValueNotifier(_l.isEmpty ? 0 : _l.unitForCursor(widget.initialCursor));
+      ValueNotifier(_l.isEmpty
+          ? 0
+          // A place saved before is restored as it was; a book opened
+          // for the first time skips a title page named like it.
+          : _l.unitForCursor(widget.initialCursor, saved: widget.initialCursor != ReadingCursor.zero));
   final _detached = ValueNotifier<bool>(false);
 
   /// The text faded out for a moment, while it travels a long way to the voice.
@@ -381,10 +385,18 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   final _catalog = VoiceCatalog.instance;
   late final String _language = primaryLanguage(_book.metadata.language);
 
+  /// Arabic, Hebrew and the other right-to-left scripts are set and turned
+  /// that way (they were laid out left to right).
+  late final TextDirection _direction = directionOfLanguage(_language);
+
   StreamSubscription<Map<String, Object?>>? _events;
   Timer? _persistTimer;
   Timer? _restartTimer;
+
+  /// Paused for the phone's audio taken a moment (a ping, a call): resumed
+  /// when it comes back, unless that took longer than resumeAfterLossWithin.
   bool _resumeOnFocus = false;
+  Timer? _lossTimer;
   int _sessionChapter = -1;
   int _sessionUnit = -1;
   double _sessionSpeed = 0;
@@ -447,6 +459,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _player.unit.addListener(_onPlayerUnit);
     _player.state.addListener(_onPlayState);
     _player.word.addListener(_onWord);
+    _player.notice.addListener(_onNotice);
     _cursor.addListener(_syncMarked);
     _cursor.addListener(_onCursor);
     _syncMarked();
@@ -484,12 +497,23 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   void _onPlayerUnit() => _cursor.value = _player.unit.value;
 
-  /// The sleep timer as the background reading left it.
+  /// A line from the player while it reads on (a natural voice that failed,
+  /// and the phone's reading instead).
+  void _onNotice() {
+    final note = _player.notice.value;
+    if (note != null) _snack(note);
+  }
+
+  /// The sleep timer as the background reading left it. A time already
+  /// past fired there, and is not armed again (it paused the book a second
+  /// time when it was opened).
   void _restoreSleep(SleepChoice choice, DateTime? at, int chapter) {
-    _sleep = choice;
-    _sleepAt = at;
+    final live = at != null && at.isAfter(DateTime.now());
+    _sleep = at != null && !live ? SleepChoice.off : choice;
+    _sleepAt = live ? at : null;
     _sleepChapter = chapter;
-    if (at != null) {
+    if (live) {
+      _player.fadeOutBy(at);
       _sleepTimer = Timer(at.difference(DateTime.now()), () => _sleepNow('Sleep timer: paused.'));
       _sleepTick = Timer.periodic(const Duration(seconds: 30), (_) {
         if (mounted && _sleepAt != null) setState(() {});
@@ -499,6 +523,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   /// The page is being left by Back (not replaced by another chapter's).
   bool _leaving = false;
+
+  /// The voice went on past this page's chapters without it (see
+  /// [_readOn]): the reading, the card and the place are the background
+  /// reading's until the page for those chapters takes them back.
+  bool _handedOn = false;
 
   /// Reading aloud goes on without this page: back goes to the library and
   /// the voice reads on there (Settings > Listening).
@@ -523,12 +552,23 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   /// A natural voice is loaded while the page settles, so Play does not
-  /// wait for it (a second or two, longer for HD, the first time).
+  /// wait for it (a second or two, longer for HD, the first time); a natural
+  /// dialogue voice too, where the phone keeps two loaded (with room for
+  /// one, loading it would only push the narrator out).
   void _warmVoice() {
-    final natural = neuralVoiceFor(_listen.voiceName);
-    if (natural == null) return;
-    Timer(const Duration(milliseconds: 1200), () {
-      if (mounted && _player.state.value == PlayState.idle) unawaited(NeuralEngine.instance.warm(natural));
+    final listen = _listen;
+    final narrator = neuralVoiceFor(listen.voiceName);
+    final dialogue = neuralVoiceFor(listen.dialogueVoice);
+    final voices = [
+      if (narrator != null) narrator,
+      if (dialogue != null && (narrator == null || NeuralEngine.instance.holdsTwo)) dialogue,
+    ];
+    if (voices.isEmpty) return;
+    Timer(const Duration(milliseconds: 1200), () async {
+      for (final v in voices) {
+        if (!mounted || _player.state.value != PlayState.idle) return;
+        await NeuralEngine.instance.warm(v);
+      }
     });
   }
 
@@ -668,6 +708,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _persistTimer?.cancel();
     _restartTimer?.cancel();
     _sleepTimer?.cancel();
+    _lossTimer?.cancel();
     _statsTimer?.cancel();
     _countTime();
     unawaited(StatsStore.instance.flush());
@@ -675,7 +716,15 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     unawaited(_events?.cancel());
     _catalog.removeListener(_onCatalog);
     _player.word.removeListener(_onWord);
-    if (_readsOn) {
+    _player.notice.removeListener(_onNotice);
+    if (_handedOn) {
+      // The voice went on without this page (into the next chapters): the
+      // card and the stream are the background reading's now, unless Back
+      // left the book with reading on after leaving turned off.
+      final bg = BackgroundReading.current.value;
+      if (_leaving && !_prefs.keepReading && bg != null && bg.bookId == _book.id) unawaited(bg.stop());
+      _player.dispose();
+    } else if (_readsOn) {
       _player.unit.removeListener(_onPlayerUnit);
       _player.state.removeListener(_onPlayState);
       _player.onFinished = null;
@@ -721,6 +770,54 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     }
   }
 
+  /// The width the scroll was last laid out at.
+  double? _laidWidth;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Turned on its side (or into a split screen), the text reflows: the
+    // paragraph at the top stays there, as for a new text size.
+    final width = MediaQuery.sizeOf(context).width;
+    if (_laidWidth != null && width != _laidWidth && !_inPages) _keepAnchor();
+    _laidWidth = width;
+  }
+
+  /// Read on past the chapters here (a web novel's, the rest still on the
+  /// site), handing the voice to the reading that goes on without a page.
+  /// Building the next chapters' page waits for a frame, and with the screen
+  /// off none comes: the voice stopped at the end of what was fetched. The
+  /// background reading needs none, keeps the card up meanwhile (Android 12
+  /// may refuse to start it again from the background), and the next page
+  /// takes the voice back when it is built. False with nowhere to hand it.
+  Future<bool> _readOn() async {
+    final store = widget.store;
+    if (_handedOn || store == null || _l.isEmpty) return false;
+    _handedOn = true;
+    _sleepTimer?.cancel();
+    _sleepTick?.cancel();
+    // Its own voice stops (it may be mid-chapter: Next chapter at the
+    // last one), leaving the card up for the reading that carries on.
+    await _player.stop();
+    _player.endFade();
+    if (!mounted) return false;
+    final bg = BackgroundReading.adopt(
+      player: readingScheduler(layout: _l, prefs: () => _prefs, language: _language, bookId: _book.id, service: _svc),
+      layout: _l,
+      store: store,
+      bookId: _book.id,
+      title: _book.metadata.title,
+      cover: _cover,
+      language: _language,
+      web: true,
+      sleepAt: _sleepAt,
+      sleepChapter: _sleepChapter,
+      sleep: _sleep,
+    );
+    unawaited(bg.readOn());
+    return true;
+  }
+
   void _onCatalog() {
     if (mounted) setState(() {});
   }
@@ -753,7 +850,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       await speakSample(
         voiceName: voiceName,
         text: text,
-        settings: _prefs.settingsFor(voiceName),
+        settings: _prefs.settingsFor(voiceName, book: _book.id),
         engineId: _prefs.engineId ?? _catalog.engineId,
       );
     } on Object catch (e) {
@@ -779,14 +876,18 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     };
     if (minutes > 0) {
       final d = Duration(minutes: minutes);
-      _sleepAt = DateTime.now().add(d);
+      final at = DateTime.now().add(d);
+      _sleepAt = at;
       _sleepTimer = Timer(d, () => _sleepNow('Sleep timer: paused.'));
+      // The voice fades over the last half minute rather than stopping dead.
+      _player.fadeOutBy(at);
       // The countdown in the player bar is redrawn as it runs.
       _sleepTick = Timer.periodic(const Duration(seconds: 30), (_) {
         if (mounted && _sleepAt != null) setState(() {});
       });
-    } else if (choice == SleepChoice.chapterEnd) {
-      _sleepChapter = _l.chapterOfUnit(_cursor.value);
+    } else {
+      _player.endFade();
+      if (choice == SleepChoice.chapterEnd) _sleepChapter = _l.chapterOfUnit(_cursor.value);
     }
     setState(() => _sleep = choice);
   }
@@ -798,7 +899,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _sleepTick = null;
     _sleepAt = null;
     _sleepChapter = -1;
-    unawaited(_player.pause());
+    // Faded out already: paused at once, then back to full volume for Play.
+    unawaited(_player.pause(now: true).whenComplete(_player.endFade));
     if (mounted) {
       setState(() => _sleep = SleepChoice.off);
       _snack(message);
@@ -820,6 +922,13 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   Future<void> _togglePlay() async {
     if (_l.isEmpty) return;
+    if (_handedOn) {
+      // Shown a moment longer while the next chapters load: the voice is
+      // the background reading's.
+      final bg = BackgroundReading.current.value;
+      if (bg != null && bg.bookId == _book.id) await bg.toggle();
+      return;
+    }
     switch (_player.state.value) {
       case PlayState.idle:
         _follow();
@@ -837,7 +946,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// Move to [unit]. Tapping text always means "read from here"; the
   /// buttons keep playing if we were playing and just move if not.
   Future<void> _goTo(int unit, {bool play = false}) async {
-    if (_l.isEmpty) return;
+    // Handed on: this page goes as soon as the next is built; the voice is
+    // not to be pulled back to it.
+    if (_l.isEmpty || _handedOn) return;
     final next = unit.clamp(0, _l.units.length - 1);
     _showPlace(true);
     _cursor.value = next;
@@ -855,8 +966,15 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (delta > 0 && more != null && _l.chapterOfUnit(_cursor.value) >= _l.chapters.length - 1) {
       // Past what is here: the next chapters are still on the site.
       final s = _player.state.value;
+      final playing = s == PlayState.playing || s == PlayState.loading;
       unawaited(_persist());
-      unawaited(more(playing: s == PlayState.playing || s == PlayState.loading));
+      if (playing) {
+        // Read on there without waiting for a frame (the card's Next can
+        // come with the screen off).
+        unawaited(_readOn().then((_) => more(playing: true)));
+      } else {
+        unawaited(more(playing: false));
+      }
       return;
     }
     final c = (_l.chapterOfUnit(_cursor.value) + delta).clamp(0, _l.chapters.length - 1);
@@ -882,7 +1000,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     unawaited(_persist());
     final more = widget.onReachedEnd;
     if (more != null) {
-      unawaited(more(playing: true));
+      // The end of the chapters here: the voice reads on into the next ones
+      // without this page (see _readOn), and the web reader shows them.
+      unawaited(_readOn().then((_) => more(playing: true)));
       return;
     }
     if (mounted) {
@@ -906,11 +1026,21 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   void _updateSession({bool force = false}) {
+    // Handed on: the card is the background reading's.
+    if (_handedOn) return;
     final actual = _player.state.value;
-    final s = actual == PlayState.idle && _parked ? PlayState.paused : actual;
+    // The end of a web novel's chapters here, read on into the next: the
+    // card stays up (playing) while they load. Ended, Android 12 might not
+    // let it start again with the app in the background.
+    final rolling = actual == PlayState.idle && _player.reachedEnd && widget.onReachedEnd != null;
+    final s = actual == PlayState.idle && _parked
+        ? PlayState.paused
+        : rolling
+            ? PlayState.loading
+            : actual;
     final u = _cursor.value;
     final chapter = _l.chapterOfUnit(u);
-    final speed = _prefs.settings.speedScale;
+    final speed = _speed;
     if (!force &&
         s == _sessionState &&
         chapter == _sessionChapter &&
@@ -943,25 +1073,32 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   void _onPlatformEvent(Map<String, Object?> e) {
-    // Another book reads on in the background: the card, the headset and the
-    // phone's audio are its, not this idle page's.
+    // Another book reads on in the background (or this one, handed on): the
+    // card, the headset and the phone's audio are its, not this idle page's.
     final bg = BackgroundReading.current.value;
-    if (bg != null && e['type'] != 'pageKey' && _player.state.value == PlayState.idle) return;
+    if ((bg != null || _handedOn) && e['type'] != 'pageKey' && _player.state.value == PlayState.idle) return;
     switch (e['type']) {
       case 'pageKey':
         if (_inPages) _paged.turn((e['delta'] as num?)?.toInt() ?? 1);
       case 'noisy':
+        // Unplugged: not another word out of the speaker.
+        _resumeOnFocus = false;
+        unawaited(_player.pause(now: true));
       case 'focusLoss':
+        _resumeOnFocus = false;
         unawaited(_player.pause());
       case 'focusLossTransient':
         if (_player.isPlaying) {
           _resumeOnFocus = true;
-          unawaited(_player.pause());
+          _lossTimer?.cancel();
+          _lossTimer = Timer(resumeAfterLossWithin, () => _resumeOnFocus = false);
+          unawaited(_player.pause(now: true));
         }
       case 'focusGain':
-        if (_resumeOnFocus && _player.state.value == PlayState.paused) {
-          unawaited(_player.resume());
-        }
+        // From the start of the sentence the interruption cut into, and
+        // not at all after a long one (a call): the listener may be gone.
+        _lossTimer?.cancel();
+        if (_resumeOnFocus && _player.state.value == PlayState.paused) unawaited(_player.resume(rewind: true));
         _resumeOnFocus = false;
       case 'action':
         switch (e['action']) {
@@ -974,10 +1111,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             unawaited(_player.stop());
           case 'next':
             _park();
-            _goChapter(1);
+            _cardSkip(1);
           case 'prev':
             _park();
-            _cardPrevious();
+            _cardSkip(-1);
           case 'seek':
             _park();
             _seekInChapter((e['value'] as num?)?.toInt() ?? 0);
@@ -998,9 +1135,28 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// Words before unit [u]; [u] may be one past the end.
   int _wordsAt(int u) => u < _l.units.length ? _l.wordsBefore[u] : _l.totalWords;
 
+  /// The speed this book reads at: its own, or everyone's.
+  double get _speed => _prefs.speedFor(_book.id);
+
   /// How long [words] take at the reading speed: the same 165 words a minute
   /// as the time left under the player.
-  int _msFor(int words) => (words / (165 * _prefs.settings.speedScale) * 60000).round();
+  int _msFor(int words) => (words / (165 * _speed) * 60000).round();
+
+  /// Next (+1) or previous (-1) on headphones, the lock screen or the
+  /// notification: a sentence (the default: a double press once lost a
+  /// whole chapter), 30 seconds, or a chapter, as chosen in the sheet.
+  void _cardSkip(int dir) {
+    if (_l.isEmpty) return;
+    final heard = _player.state.value == PlayState.idle ? Duration.zero : _player.heard;
+    final to = skipTarget(_l, _cursor.value, dir, _prefs.skipBy, _speed, heard);
+    if (to != null) {
+      unawaited(_goTo(to));
+    } else if (dir > 0) {
+      _goChapter(1);
+    } else {
+      _cardPrevious();
+    }
+  }
 
   /// The card's previous button: back to the start of this chapter, or to the
   /// previous chapter when within its first seconds, as a music player does.
@@ -1019,7 +1175,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   void _seekInChapter(int ms) {
     if (_l.isEmpty) return;
     final (first, count) = _l.chapterRange(_l.chapterOfUnit(_cursor.value));
-    final target = _wordsAt(first) + ms / 60000 * 165 * _prefs.settings.speedScale;
+    final target = _wordsAt(first) + ms / 60000 * 165 * _speed;
     var u = first;
     while (u + 1 < first + count && _wordsAt(u + 1) <= target) {
       u++;
@@ -1028,11 +1184,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   /// The card's speed button: the next of the common speeds, round to the
-  /// slowest after the fastest.
+  /// slowest after the fastest (this book's own speed, if it has one).
   void _nextSpeed() {
-    final now = _prefs.settings.speedScale;
+    final now = _speed;
     final next = speedPresets.firstWhere((p) => p > now + 0.001, orElse: () => speedPresets.first);
-    _prefs.settings = _prefs.settings.copyWith(speedScale: next);
+    _prefs.setSpeed(next, book: _book.id);
     _prefs.save();
     _onSettingsChanged(restart: true);
   }
@@ -1322,7 +1478,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   Future<void> _persist() async {
     final store = widget.store;
-    if (store == null || _l.isEmpty) return;
+    // Handed on: the place is the background reading's, further on.
+    if (store == null || _l.isEmpty || _handedOn) return;
     final u = _cursor.value.clamp(0, _l.units.length - 1);
     try {
       await store.saveCursor(
@@ -1429,6 +1586,18 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                 SheetAction(icon: Icons.copy_rounded, label: 'Copy', onTap: () => Navigator.pop(ctx, 'copy')),
                 if (word.isNotEmpty)
                   SheetAction(
+                    icon: Icons.menu_book_outlined,
+                    label: 'Look up "$word"',
+                    onTap: () => Navigator.pop(ctx, 'lookup'),
+                  ),
+                SheetAction(
+                  icon: Icons.translate_rounded,
+                  label: 'Translate',
+                  detail: 'This sentence, in your translate app',
+                  onTap: () => Navigator.pop(ctx, 'translate'),
+                ),
+                if (word.isNotEmpty)
+                  SheetAction(
                     icon: Icons.record_voice_over_outlined,
                     label: 'Fix how "$word" is said',
                     onTap: () => Navigator.pop(ctx, 'say'),
@@ -1465,6 +1634,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       case 'copy':
         await Clipboard.setData(ClipboardData(text: sentence));
         _snack('Copied.');
+      case 'lookup':
+        if (!await _svc.lookUp(word) && mounted) _snack('No app on this phone looks words up. A dictionary app can.');
+      case 'translate':
+        if (!await _svc.translate(sentence) && mounted) _snack('No app on this phone translates. Google Translate can.');
       case 'say':
         await showSayDialog(
           context,
@@ -1570,7 +1743,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       layout: _l,
       cursor: _cursor,
       player: _player,
-      speed: _prefs.settings.speedScale,
+      speed: _speed,
       voiceLabel: _voiceLabel(),
       sleepNote: _sleepNote,
       onPlay: _togglePlay,
@@ -1627,13 +1800,17 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           child: Stack(
                   // The glow reaches past the safe area.
                   clipBehavior: Clip.none,
+                  // One shape upright and on its side, the parts not wanted
+                  // left empty: with the text second here and first there,
+                  // turning the phone built the text afresh, and the book
+                  // went back to where it was opened.
                   children: [
                     // The voice, glowing out from behind the player as it
                     // reads; the text and the player sit over it. (Pages
                     // have it over their paper, which hid all but the strip
                     // under the screen's edge: see _pagedReading.)
-                    if (!rail && !paged) glow,
-                    reading,
+                    if (!rail && !paged) glow else const SizedBox.shrink(),
+                    KeyedSubtree(key: ValueKey(paged), child: reading),
                     // The text fades out before the dock, instead of showing
                     // in the gap beneath it. Out to the screen's edges like
                     // the glow: stopping at the safe area, its edge showed.
@@ -1655,15 +1832,19 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                           ),
                         ),
                       ),
-                    ),
-                    if (rail && !paged) glow,
+                    )
+                    else
+                      const SizedBox.shrink(),
+                    if (rail && !paged) glow else const SizedBox.shrink(),
                     if (rail && !paged)
                       Positioned(
                         left: 0,
                         right: 0,
                         bottom: 0,
                         child: _overBar(context, top: false, shownBy: _scrollBars, child: Center(child: bar)),
-                      ),
+                      )
+                    else
+                      const SizedBox.shrink(),
                   ],
                 ),
         ),
@@ -2070,6 +2251,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             tapToTurn: _prefs.tapToTurn,
             endButton: widget.onReachedEnd == null ? null : _more(context),
             marks: _markedUnits,
+            textDirection: _direction,
           )),
         ),
         Positioned(
@@ -2228,7 +2410,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           layout: _l,
           cursor: _cursor,
           player: _player,
-          speed: () => _prefs.settings.speedScale,
+          speed: () => _speed,
           voiceLabel: _voiceLabel,
           sleepNote: () => _sleepNote,
           onPlay: _togglePlay,
@@ -2396,12 +2578,20 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           child: Text(
             'This file has no text that can be read aloud.',
             textAlign: TextAlign.center,
-            style: Skin.page(context, size: 20),
+            style: Skin.page(context, size: 20).copyWith(color: _tone.inkOf(context)),
           ),
         ),
       );
     }
-    final initial = _scrollFrom ?? _startItem;
+    // Built afresh after the first time (back from a PDF's real pages), the
+    // list opens at the place, not where the book was opened.
+    final initial = _scrollFrom ??
+        (_textShown ? _l.unitItem[_cursor.value.clamp(0, _l.units.length - 1)] : _startItem);
+    _textShown = true;
+    // The same look as pages, so the scroll is in the page tone's ink too:
+    // its text kept the app's, which turned near-white on Papyrus when the
+    // phone went dark.
+    _look = _pageLook(context);
     // A wide screen keeps a comfortable line (about 70 characters), centred.
     final side = math.max(_prefs.margin, (MediaQuery.sizeOf(context).width - 720) / 2);
     // Text fades out under the top bar and the player instead of being cut
@@ -2427,7 +2617,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           child: LayoutBuilder(
             builder: (context, box) {
               _viewport = box.maxHeight;
-              return ScrollablePositionedList.builder(
+              return Directionality(
+                textDirection: _direction,
+                child: ScrollablePositionedList.builder(
                 // One more item at the end when there is more to fetch: the way on.
                 itemCount: _l.items.length + (widget.onReachedEnd == null ? 0 : 1),
                 itemScrollController: _scroll,
@@ -2437,6 +2629,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                 initialAlignment: initial == 0 ? 0 : 0.12,
                 padding: EdgeInsets.fromLTRB(side, 16, side, 120),
                 itemBuilder: (context, i) => i == _l.items.length ? _more(context) : _item(context, i),
+              ),
               );
             },
           ),
@@ -2446,6 +2639,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   late final _fastText = _TextScrollTarget(this);
+
+  /// The page's type and colours for the scroll, set as it is built.
+  late PageLook _look;
+
+  /// The scroll has been shown once (see [_text]).
+  bool _textShown = false;
 
   /// The fast scroller's thumb taken or let go: as a scroll by hand, a look
   /// around while listening, and the place moved there while reading.
@@ -2471,7 +2670,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final chapterStart = i == _l.chapterFirstItem[item.chapter];
     // Every chapter opens the same way, in the book's colour, so a chapter
     // start is never scrolled past unnoticed.
-    final accent = Skin.accentOf(context);
+    final look = _look;
+    final accent = look.accent;
     final label = chapterStart && _l.chapters.length > 1
         ? Padding(
             padding: EdgeInsets.only(top: i == 0 ? 8 : 56, bottom: 12),
@@ -2481,8 +2681,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                 // Liberation") is not given a second one: a site's list
                 // can be one off from its titles.
                 if (!_digit.hasMatch(_l.chapterTitle(item.chapter))) ...[
-                  Text('CHAPTER ${_chapterNumber(item.chapter)}',
-                      style: Skin.meta(context, size: 11, color: accent).copyWith(fontWeight: FontWeight.w600)),
+                  Text('CHAPTER ${_chapterNumber(item.chapter)}', style: look.label),
                   const SizedBox(width: Gap.m),
                 ],
                 Expanded(child: Container(height: 1, color: accent.withValues(alpha: 0.35))),
@@ -2508,20 +2707,29 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           if (label != null) label,
           Padding(
             padding: const EdgeInsets.only(bottom: 18),
-            child: Text(item.title ?? '',
-                style: Skin.title(context, size: 30 * _prefs.textSize / 19, weight: FontWeight.w500)
-                    .copyWith(color: accent)),
+            child: Text(item.title ?? '', style: look.title),
+          ),
+        ],
+      );
+    }
+
+    if (item.displayOnly) {
+      // A note (or a caption): on the page in smaller type, never read
+      // aloud. Its marker in the text is silent too.
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (label != null) label,
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(item.block!.text, style: noteStyle(look)),
           ),
         ],
       );
     }
 
     final heading = item.block!.role == BlockRole.heading;
-    final scale = _prefs.textSize / 19;
-    final style = heading
-        ? Skin.title(context, size: (chapterStart ? 30 : 22) * scale, weight: FontWeight.w500)
-            .copyWith(height: 1.2, color: chapterStart ? accent : null)
-        : Skin.page(context, size: _prefs.textSize, font: _prefs.bookFont, height: _prefs.lineHeight);
+    final style = heading ? (chapterStart ? look.chapterHeading : look.heading) : look.text;
     final indent = _prefs.indent && indentedAt(_l, i)
         ? MediaQuery.textScalerOf(context).scale(_prefs.textSize) * indentEm
         : 0.0;
@@ -2544,6 +2752,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             indent: indent,
             word: _player.word,
             style: style,
+            wash: look.sentenceWash,
+            wordWash: look.wordWash,
             heading: heading && !chapterStart,
             justify: _prefs.justify && !heading,
             onTapUnit: (u) => _goTo(u, play: true),
@@ -2636,7 +2846,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       errorBuilder: (_, __, ___) => SizedBox(width: width, height: height),
     );
     if (ornament) {
-      final ink = Skin.inkSoftOn(context);
+      final ink = _tone.inkSoft ?? Skin.inkSoftOn(context);
       image = ColorFiltered(
         colorFilter: ColorFilter.matrix([
           0, 0, 0, 0, ink.r * 255, //
@@ -2735,6 +2945,8 @@ class _BlockText extends StatefulWidget {
     required this.cursor,
     required this.word,
     required this.style,
+    required this.wash,
+    required this.wordWash,
     required this.onTapUnit,
     required this.onLongPressUnit,
     this.heading = false,
@@ -2747,6 +2959,10 @@ class _BlockText extends StatefulWidget {
   final ValueListenable<int> cursor;
   final ValueListenable<WordMark> word;
   final TextStyle style;
+
+  /// Behind the sentence being read, and behind its word: the page tone's.
+  final Color wash;
+  final Color wordWash;
   final ValueChanged<int> onTapUnit;
 
   /// Press and hold: the sentence, and the word under the finger.
@@ -2851,7 +3067,7 @@ class _BlockTextState extends State<_BlockText> {
     final l = widget.layout;
     final s = l.unitOffset[_current].clamp(0, text.length);
     final e = (s + l.units[_current].text.length).clamp(s, text.length);
-    final wash = widget.heading ? Skin.sentenceWash(context).withValues(alpha: 0.08) : Skin.sentenceWash(context);
+    final wash = widget.heading ? widget.wash.withValues(alpha: 0.08) : widget.wash;
     final spoken = widget.heading ? TextStyle(color: Skin.accentOf(context)) : null;
     final spans = <InlineSpan>[
       ...lead,
@@ -2867,7 +3083,7 @@ class _BlockTextState extends State<_BlockText> {
         ..add(TextSpan(text: text.substring(s, ws), style: sentence))
         ..add(TextSpan(
           text: text.substring(ws, we),
-          style: TextStyle(backgroundColor: Skin.wordWash(context), color: spoken?.color),
+          style: TextStyle(backgroundColor: widget.wordWash, color: spoken?.color),
         ))
         ..add(TextSpan(text: text.substring(we, e), style: sentence));
     }
@@ -3472,8 +3688,17 @@ String encodeReport(Map<String, Object?> m) =>
 
 /// The word around [offset] in [text] (letters, digits, apostrophes,
 /// hyphens), or the one just beside it; empty far from any word.
+/// Right to left for the scripts read that way: Arabic (and Persian, Urdu,
+/// Pashto, Sindhi, Uyghur, Sorani), Hebrew and Yiddish, Thaana and Syriac.
+TextDirection directionOfLanguage(String language) =>
+    const {'ar', 'fa', 'ur', 'ps', 'sd', 'ug', 'ckb', 'he', 'iw', 'yi', 'dv', 'syr'}.contains(language)
+        ? TextDirection.rtl
+        : TextDirection.ltr;
+
 String wordAt(String text, int offset) {
-  final letter = RegExp(r"[\p{L}\p{N}'’-]", unicode: true);
+  // Marks too (\p{M}): Bengali and Hindi vowel signs and the virama are
+  // marks, and without them বাংলা came back as ব.
+  final letter = RegExp(r"[\p{L}\p{M}\p{N}'’-]", unicode: true);
   bool isLetter(int i) => i >= 0 && i < text.length && letter.hasMatch(text[i]);
   var i = offset.clamp(0, text.length);
   // A finger on a space or a comma means the word beside it.

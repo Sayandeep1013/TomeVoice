@@ -113,16 +113,26 @@ class WordSpan {
       );
 }
 
+/// A stretch of text as character offsets, end exclusive.
+typedef TextStretch = ({int start, int end});
+
 class Sentence {
   const Sentence({
     required this.startOffset,
     required this.endOffset,
     required this.words,
+    this.silent = const [],
   });
 
   final int startOffset;
   final int endOffset;
   final List<WordSpan> words;
+
+  /// Stretches of this sentence that are shown but not spoken: a footnote
+  /// marker ("house.¹"). Offsets in the block's text, like [startOffset],
+  /// in order. The voice treats each one as a pronunciation rule whose
+  /// replacement is nothing (see `spokenText`).
+  final List<TextStretch> silent;
 
   String of(String blockText) =>
       blockText.substring(startOffset, endOffset);
@@ -133,6 +143,7 @@ class Sentence {
         'start': startOffset,
         'end': endOffset,
         'words': [for (final w in words) w.toJson()],
+        if (silent.isNotEmpty) 'silent': _flat(silent),
       };
 
   static Sentence fromJson(Map<String, Object?> json) => Sentence(
@@ -142,7 +153,23 @@ class Sentence {
           for (final w in (json['words'] as List? ?? const []))
             WordSpan.fromJson(Map<String, Object?>.from(w as Map)),
         ],
+        silent: _stretches(json['silent']),
       );
+}
+
+/// [start, end, start, end, ...]: how stretches are stored.
+List<int> _flat(Iterable<TextStretch> stretches) => [
+      for (final r in stretches) ...[r.start, r.end],
+    ];
+
+/// Stretches from their stored form; anything else (absent, as in books
+/// stored before there were any) is none.
+List<TextStretch> _stretches(Object? flat) {
+  if (flat is! List || flat.length < 2) return const [];
+  return [
+    for (var i = 0; i + 1 < flat.length; i += 2)
+      if (flat[i] is int && flat[i + 1] is int) (start: flat[i] as int, end: flat[i + 1] as int),
+  ];
 }
 
 class Block {
@@ -200,6 +227,10 @@ class Block {
         'sb': [
           for (final s in sentences) ...[s.startOffset, s.endOffset],
         ],
+        // Silent stretches of every sentence, in the same flat form; left
+        // out when there are none, which is nearly every block.
+        if (sentences.any((s) => s.silent.isNotEmpty))
+          'sl': _flat(sentences.expand((s) => s.silent)),
         'anchor': anchor.toJson(),
         if (language != null) 'language': language,
         if (image != null) 'img': image,
@@ -240,12 +271,19 @@ class Block {
 List<Sentence> _sentencesFromJson(Map<String, Object?> json) {
   final flat = json['sb'];
   if (flat is List) {
+    final silent = _stretches(json['sl']);
     return [
       for (var i = 0; i + 1 < flat.length; i += 2)
         Sentence(
           startOffset: flat[i] as int,
           endOffset: flat[i + 1] as int,
           words: const [],
+          silent: silent.isEmpty
+              ? const []
+              : [
+                  for (final r in silent)
+                    if (r.start >= (flat[i] as int) && r.end <= (flat[i + 1] as int)) r,
+                ],
         ),
     ];
   }
@@ -465,6 +503,7 @@ class Speakable {
     required this.text,
     required this.role,
     required this.blockId,
+    this.silent = const [],
   });
 
   final int sectionIndex;
@@ -473,6 +512,10 @@ class Speakable {
   final String text;
   final BlockRole role;
   final String blockId;
+
+  /// Stretches of [text] that are shown but not spoken, as offsets in
+  /// [text] itself. `spokenText(text, silent)` is what the voice is given.
+  final List<TextStretch> silent;
 
   int get linearIndex =>
       (sectionIndex * 1000000) + (blockIndex * 1000) + sentenceIndex;

@@ -1,0 +1,27 @@
+# Subflow: from the book's page, Listen, then back to the shelf with the
+# app's own Back buttons, the reading going on. Reading aloud needs a
+# text-to-speech engine; without one the player never shows Pause, and this
+# goes on regardless.
+appId: ${APP_ID || 'app.tomevoice'}
+---
+- tapOn:
+    text: "Listen|Continue|Listen again"
+    enabled: true
+- extendedWaitUntil:
+    visible: "Reading settings"
+    timeout: 60000
+- extendedWaitUntil:
+    visible: "Pause"
+    timeout: 20000
+    optional: true
+- tapOn: "Back to library"
+- extendedWaitUntil:
+    visible:
+      text: "Read"
+      enabled: true
+    timeout: 30000
+- tapOn: "Back"
+- extendedWaitUntil:
+    visible: ".*Pride and Prejudice.*Jane Austen.*"
+    timeout: 30000
+- assertVisible: "Library"

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'page_curl.dart';
@@ -51,6 +52,14 @@ class PageLook {
   /// break, and the colours painted with them.
   Object get key => Object.hash(text, heading, chapterHeading, title, label, textScaler, justify, indent, margin);
 }
+
+/// A note's type (a footnote, a caption): smaller than the text, in the
+/// page's soft ink; shown on the page, never read aloud.
+TextStyle noteStyle(PageLook look) => look.text.copyWith(
+      fontSize: (look.text.fontSize ?? 19) * 0.82,
+      height: 1.4,
+      color: look.status.color ?? look.text.color?.withValues(alpha: 0.7),
+    );
 
 /// Whether paragraph [item] of [l] opens with an indent when paragraphs are
 /// indented: not the first of a chapter, nor one after a heading or a
@@ -176,10 +185,14 @@ class PagedBook extends StatefulWidget {
     this.topInset = 0,
     this.bottomInset = 0,
     this.marks,
+    this.textDirection = TextDirection.ltr,
   });
 
   final ReadingLayout layout;
   final PageLook look;
+
+  /// The book's own: an Arabic or Hebrew book is set and turned right to left.
+  final TextDirection textDirection;
   final PagedController controller;
   final int startUnit;
 
@@ -252,6 +265,14 @@ class _PagedBookState extends State<PagedBook> {
   /// Set when a page is to be shown once the size is known.
   int? _pendingUnit;
 
+  /// The sentence the page shown is kept at: the one being read, or the
+  /// first of the page turned to. A new size, look or spread cuts new
+  /// pages, and the page that has it is shown.
+  int? _anchor;
+
+  /// The size, look and spread the page shown was found for.
+  Object? _cutAt;
+
   @override
   void initState() {
     super.initState();
@@ -291,6 +312,8 @@ class _PagedBookState extends State<PagedBook> {
 
   // ------------------------------------------------------------- geometry
 
+  bool get _rtl => widget.textDirection == TextDirection.rtl;
+
   double get _leafWidth => widget.spread ? _size.width / 2 : _size.width;
   double get _sideFor => math.max(widget.look.margin, (_leafWidth - 720) / 2);
   double get _columnWidth => math.max(120, _leafWidth - 2 * _sideFor);
@@ -315,6 +338,10 @@ class _PagedBookState extends State<PagedBook> {
         if (item.isTitle) {
           style = look.title;
           text = item.title ?? '';
+        } else if (item.displayOnly) {
+          // A note (or a caption): shown in smaller type, never read aloud.
+          style = noteStyle(look);
+          text = item.block!.text;
         } else {
           final heading = item.block!.role == BlockRole.heading;
           style = heading ? (chapterStart ? look.chapterHeading : look.heading) : look.text;
@@ -328,7 +355,7 @@ class _PagedBookState extends State<PagedBook> {
         final heading = !item.isTitle && item.block!.role == BlockRole.heading;
         final tp = TextPainter(
           text: TextSpan(style: style, children: spans),
-          textDirection: TextDirection.ltr,
+          textDirection: widget.textDirection,
           textAlign: look.justify && !heading && !item.isTitle ? TextAlign.justify : TextAlign.start,
           textScaler: look.textScaler,
         );
@@ -372,7 +399,7 @@ class _PagedBookState extends State<PagedBook> {
   }
 
   List<_Page> _pagesOf(int c) {
-    final key = Object.hash(widget.look.key, _size, widget.spread);
+    final key = Object.hash(widget.look.key, _size, widget.spread, widget.textDirection);
     if (_cutFor != key) {
       _forget();
       _cutFor = key;
@@ -456,13 +483,20 @@ class _PagedBookState extends State<PagedBook> {
           }
           b = a + 1; // A line taller than the page: it goes alone.
         }
-        final at = a == 0 ? 0 : math.max(0, laid.painter.getPositionForOffset(Offset(1, tops[a] + 1)).offset - laid.shift);
-        final unit = a == 0 ? item.firstUnit : _unitAt(i, at);
+        // A line begins at its left edge, or its right in a right-to-left book.
+        final lineStart = _rtl ? _columnWidth - 1 : 1.0;
+        final lineEnd = _rtl ? 1.0 : _columnWidth - 1;
+        final at = a == 0 ? 0 : math.max(0, laid.painter.getPositionForOffset(Offset(lineStart, tops[a] + 1)).offset - laid.shift);
         final whole = b == lines;
+        // A note holds no sentence: a page of notes claims none.
+        final note = item.displayOnly;
+        final unit = note ? -1 : (a == 0 ? item.firstUnit : _unitAt(i, at));
         // The sentence the last line here ends in.
-        final ends = whole
-            ? item.firstUnit + item.unitCount - 1
-            : _unitAt(i, laid.painter.getPositionForOffset(Offset(_columnWidth - 1, tops[b] - 1)).offset - laid.shift);
+        final ends = note
+            ? -1
+            : whole
+                ? item.firstUnit + item.unitCount - 1
+                : _unitAt(i, laid.painter.getPositionForOffset(Offset(lineEnd, tops[b] - 1)).offset - laid.shift);
         place(_Piece(_Kind.text, i, tops[a], tops[b] - tops[a], gapAfter: whole ? gap : 0),
             unit: unit, lastUnit: ends, at: at);
         a = b;
@@ -550,6 +584,7 @@ class _PagedBookState extends State<PagedBook> {
       _pendingUnit = unit;
       return;
     }
+    _anchor = unit;
     final c = _l.chapterOfUnit(unit);
     // The voice reading on into the next chapter turns onto its first page,
     // already at the row's end, as a hand would.
@@ -612,7 +647,14 @@ class _PagedBookState extends State<PagedBook> {
       _moveTo(_chapter + 1, 1);
     }
     final page = _pageAt(_index);
-    if (page != null) widget.onPage(page.firstUnit, byHand: byHand);
+    if (page != null) {
+      // Kept while it is on the page shown, so new cuts find the same
+      // sentence again instead of drifting back a page each time.
+      final shown = _range();
+      final a = _anchor;
+      if (a == null || shown == null || a < shown.$1 || a >= shown.$2) _anchor = page.firstUnit;
+      widget.onPage(page.firstUnit, byHand: byHand);
+    }
     // Cut the chapters either side ahead of time, a frame apart, so
     // turning onto them never waits.
     final c = _chapter;
@@ -667,14 +709,21 @@ class _PagedBookState extends State<PagedBook> {
   // --------------------------------------------------------------- build
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
+  Widget build(BuildContext context) => Directionality(
+        textDirection: widget.textDirection,
+        child: LayoutBuilder(
         builder: (context, box) {
           final size = Size(box.maxWidth, box.maxHeight);
-          if (size != _size) {
+          final cut = Object.hash(widget.look.key, size, widget.spread, widget.textDirection);
+          if (cut != _cutAt) {
+            _cutAt = cut;
             _size = size;
-            // A new size cuts new pages; the page keeps its first sentence.
-            final keep = _pendingUnit ?? _pageAt(_index)?.firstUnit;
+            // A new size, look or spread cuts new pages; the page keeps its
+            // sentence. (Asked of the pages after the cut, the old page's
+            // number came back, with other text on it.)
+            final keep = _pendingUnit ?? _anchor;
             if (keep != null) {
+              _anchor = keep;
               _chapter = _l.chapterOfUnit(keep);
               final i = _before + _itemOf(_chapter, keep);
               if (_pages == null) {
@@ -691,12 +740,12 @@ class _PagedBookState extends State<PagedBook> {
           }
           _ensureController(0);
           if (widget.turn == PageTurn.curl) {
-            return PageCurl(
+            final curl = PageCurl(
               key: ValueKey(_row),
               controller: _curl,
               itemCount: _count,
               initialIndex: _index,
-              leaf: _leafView,
+              leaf: _rtl ? (context, i, side) => _mirror(_leafView(context, i, side)) : _leafView,
               paper: widget.paper,
               spread: widget.spread,
               crease: widget.crease,
@@ -707,8 +756,11 @@ class _PagedBookState extends State<PagedBook> {
                 _settled(byHand: byHand);
               },
             );
+            // A right-to-left book turns from the left: the curl is mirrored
+            // whole, and each page mirrored back so its words read.
+            return _turnable(_rtl ? _mirror(curl) : curl);
           }
-          return NotificationListener<ScrollNotification>(
+          return _turnable(NotificationListener<ScrollNotification>(
             onNotification: (n) {
               if (n.depth != 0) return false;
               if (n is ScrollStartNotification && n.dragDetails != null) _turningByHand = true;
@@ -723,8 +775,13 @@ class _PagedBookState extends State<PagedBook> {
             },
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
+              // TalkBack turns pages by the actions in _turnable: its double
+              // tap arrives here with no place on the page, read as "back".
+              excludeFromSemantics: true,
               onTapUp: (d) {
-                final x = d.localPosition.dx / size.width;
+                final across = d.localPosition.dx / size.width;
+                // Back is on the right in a right-to-left book.
+                final x = _rtl ? 1 - across : across;
                 if (widget.tapToTurn && x < 0.28) {
                   _turn(-1);
                 } else if (widget.tapToTurn && x > 0.72) {
@@ -759,9 +816,40 @@ class _PagedBookState extends State<PagedBook> {
                     : _leafView(context, i, 0),
               ),
             ),
-          );
+          ));
         },
+      ),
       );
+
+  Widget _mirror(Widget child) => Transform.flip(flipX: true, child: child);
+
+  /// The page turns, and the bars, as TalkBack actions (with the two-finger
+  /// swipe): the pages are painted and turned by taps at their sides, which
+  /// a screen reader could not reach.
+  Widget _turnable(Widget child) => Semantics(
+        container: true,
+        explicitChildNodes: true,
+        onScrollLeft: () => _turn(_rtl ? -1 : 1),
+        onScrollRight: () => _turn(_rtl ? 1 : -1),
+        customSemanticsActions: {
+          const CustomSemanticsAction(label: 'Next page'): () => _turn(1),
+          const CustomSemanticsAction(label: 'Previous page'): () => _turn(-1),
+          const CustomSemanticsAction(label: 'Show the controls'): widget.onTapMiddle,
+        },
+        child: child,
+      );
+
+  /// The words a slice of a paragraph shows, for TalkBack: the page is
+  /// painted, and read out only the chapter's name and the page count.
+  String _sliceText(_Piece p, _Laid laid) {
+    final text = laid.painter.plainText;
+    final first = Offset(_rtl ? _columnWidth : 0, p.top + 1);
+    final last = Offset(_rtl ? 0 : _columnWidth, p.top + p.height - 1);
+    final s = laid.painter.getPositionForOffset(first).offset.clamp(0, text.length);
+    final e = laid.painter.getPositionForOffset(last).offset.clamp(s, text.length);
+    // The indent is a placeholder in the painter's text.
+    return text.substring(s, e).replaceAll(String.fromCharCode(0xFFFC), '').trim();
+  }
 
   Widget _leafView(BuildContext context, int index, int side) {
     if (_itemAt(index) == null && _hasEnd) {
@@ -785,7 +873,7 @@ class _PagedBookState extends State<PagedBook> {
             SizedBox(
               height: _statusBand,
               child: Align(
-                alignment: Alignment.centerLeft,
+                alignment: AlignmentDirectional.centerStart,
                 child: Text(widget.chapterName(page.chapter).toUpperCase(),
                     maxLines: 1, overflow: TextOverflow.ellipsis, style: look.status),
               ),
@@ -826,9 +914,9 @@ class _PagedBookState extends State<PagedBook> {
     return Stack(
       children: [
         body,
-        Positioned(
+        PositionedDirectional(
           top: widget.topInset,
-          right: margin - 6,
+          end: margin - 6,
           child: ValueListenableBuilder<Set<int>>(
             valueListenable: marks,
             builder: (context, set, _) => AnimatedSwitcher(
@@ -884,8 +972,10 @@ class _PagedBookState extends State<PagedBook> {
         final laid = _lay(p.item);
         return Padding(
           padding: EdgeInsets.only(bottom: last ? 0 : p.gapAfter),
-          child: GestureDetector(
-            onLongPressStart: p.kind == _Kind.title
+          child: Semantics(
+            label: _sliceText(p, laid),
+            child: GestureDetector(
+            onLongPressStart: p.kind == _Kind.title || _l.items[p.item].displayOnly
                 ? null
                 : (d) {
                     final at = laid.painter.getPositionForOffset(d.localPosition + Offset(0, p.top)).offset;
@@ -904,6 +994,7 @@ class _PagedBookState extends State<PagedBook> {
                 wordWash: look.wordWash,
               ),
             ),
+          ),
           ),
         );
     }

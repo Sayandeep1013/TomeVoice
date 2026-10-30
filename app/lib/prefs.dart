@@ -19,6 +19,9 @@ class ListeningPrefs {
     Map<String, String>? voiceByBook,
     Map<String, String>? dialogueByBook,
     Map<String, double>? pitchByVoice,
+    Map<String, double>? speedByBook,
+    Map<String, int>? highlightOffsetMs,
+    this.skipBy = SkipBy.sentence,
     Map<String, bool>? newestFirstByNovel,
     this.newestFirst = false,
     this.engineId,
@@ -48,6 +51,8 @@ class ListeningPrefs {
         voiceByBook = voiceByBook ?? {},
         dialogueByBook = dialogueByBook ?? {},
         pitchByVoice = pitchByVoice ?? {},
+        speedByBook = speedByBook ?? {},
+        highlightOffsetMs = highlightOffsetMs ?? {},
         newestFirstByNovel = newestFirstByNovel ?? {};
 
   /// Bumped on every change, so the app (theme) and open screens can follow.
@@ -84,8 +89,48 @@ class ListeningPrefs {
     }
   }
 
-  /// The listening settings as [voice] is heard with them: its own pitch.
-  PipelineSettings settingsFor(String? voice) => settings.copyWith(pitchSemitones: pitchOf(voice));
+  /// The listening settings as [voice] is heard with them in [book]: the
+  /// voice's own pitch, and the book's own speed if it has one.
+  PipelineSettings settingsFor(String? voice, {String? book}) =>
+      settings.copyWith(pitchSemitones: pitchOf(voice), speedScale: speedFor(book));
+
+  /// Book id -> its own speed, for a book given one ("for this book only"):
+  /// people read fiction at 1x and skim reports at 2.5x (docs/05 section
+  /// 5.1). Every other book reads at the speed in [settings].
+  final Map<String, double> speedByBook;
+
+  /// The speed [book] is read at.
+  double speedFor(String? book) => (book == null ? null : speedByBook[book]) ?? settings.speedScale;
+
+  /// A new speed for [book]: its own, if it has one, else the one for every book.
+  void setSpeed(double speed, {String? book}) {
+    if (book != null && speedByBook.containsKey(book)) {
+      speedByBook[book] = speed;
+    } else {
+      settings = settings.copyWith(speedScale: speed);
+    }
+  }
+
+  /// Give [book] a speed of its own (at the speed it reads at now), or take
+  /// it away so it reads at everyone's again.
+  void setOwnSpeed(String book, bool own) {
+    if (own) {
+      speedByBook[book] = speedFor(book);
+    } else {
+      speedByBook.remove(book);
+    }
+  }
+
+  /// What next and previous do on headphones, the lock screen and the
+  /// notification.
+  SkipBy skipBy;
+
+  /// Route (`bluetooth`, `other`) -> how much later the highlight moves than
+  /// the platform says the voice is heard, in ms: the listener's own fix for
+  /// a headset whose delay the phone does not know (docs/05 section 5.9).
+  final Map<String, int> highlightOffsetMs;
+
+  int highlightOffset(String route) => highlightOffsetMs[route] ?? 0;
 
   /// Web novel id -> whether its page lists the newest chapter first, as
   /// the reader last turned it.
@@ -241,6 +286,9 @@ class ListeningPrefs {
         'voiceByBook': voiceByBook,
         'dialogueByBook': dialogueByBook,
         'pitchByVoice': pitchByVoice,
+        'speedByBook': speedByBook,
+        'highlightOffsetMs': highlightOffsetMs,
+        'skipBy': skipBy.name,
         'newestFirstByNovel': newestFirstByNovel,
         'newestFirst': newestFirst,
         'engineId': engineId,
@@ -289,6 +337,15 @@ class ListeningPrefs {
           for (final e in (json['pitchByVoice'] as Map? ?? const {}).entries)
             if (e.value is num) e.key.toString(): (e.value as num).toDouble().clamp(-12, 12).toDouble(),
         },
+        speedByBook: {
+          for (final e in (json['speedByBook'] as Map? ?? const {}).entries)
+            if (e.value is num) e.key.toString(): (e.value as num).toDouble().clamp(0.5, 3.0).toDouble(),
+        },
+        highlightOffsetMs: {
+          for (final e in (json['highlightOffsetMs'] as Map? ?? const {}).entries)
+            if (e.value is num) e.key.toString(): (e.value as num).toInt().clamp(-300, 500),
+        },
+        skipBy: SkipBy.values.where((s) => s.name == json['skipBy']).firstOrNull ?? SkipBy.sentence,
         newestFirstByNovel: {
           for (final e in (json['newestFirstByNovel'] as Map? ?? const {}).entries)
             if (e.value is bool) e.key.toString(): e.value as bool,
@@ -320,6 +377,19 @@ class ListeningPrefs {
         bookColours: json['bookColours'] != false,
         naturalVoices: json['naturalVoices'] as bool?,
       );
+}
+
+/// What next and previous do on headphones, the lock screen and the
+/// notification. A sentence by default: a whole chapter was lost to an
+/// accidental double press.
+enum SkipBy {
+  sentence('Sentence'),
+  seconds('30 seconds'),
+  chapter('Chapter');
+
+  const SkipBy(this.label);
+
+  final String label;
 }
 
 /// How the library orders books.

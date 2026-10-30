@@ -1,0 +1,10 @@
+# A new install's shelf holds the starter book, Pride and Prejudice, which
+# ships inside the app. (The starter also adds two web novels when the
+# network allows; nothing here depends on them.) On a phone this passes only
+# while the book is still in the library: a removed starter book stays gone.
+appId: ${APP_ID || 'app.tomevoice'}
+name: The library shows the starter book
+---
+- runFlow: common/library.yaml
+- assertVisible: "Library"
+- assertVisible: "Add books"

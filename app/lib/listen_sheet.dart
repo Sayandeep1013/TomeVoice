@@ -71,6 +71,13 @@ class ListenController {
     // novel once taken for English was saved as English's default.
     final usual = catalog.byName(prefs.voiceByLanguage[language]);
     if (usual != null && usual.language == language) return usual.name;
+    // None of its own on the phone: the usual voice of the language read
+    // in its place (a Ukrainian book in the reader's Russian voice).
+    final near = catalog.voiceLanguageFor(language);
+    if (near != language) {
+      final stand = catalog.byName(prefs.voiceByLanguage[near]);
+      if (stand != null && stand.language == near) return stand.name;
+    }
     return catalog.bestFor(language)?.name;
   }
 
@@ -152,10 +159,17 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
   ListeningPrefs get _prefs => widget.controller.prefs;
   PipelineSettings get _s => _prefs.settings;
 
+  /// Where the voice is heard now, for Highlight timing (each route keeps
+  /// its own).
+  String _route = SpeechService.routeOther;
+
   @override
   void initState() {
     super.initState();
     _catalog.addListener(_refresh);
+    unawaited(const SpeechService().highlightRoute().then((r) {
+      if (mounted) setState(() => _route = r);
+    }));
   }
 
   @override
@@ -192,7 +206,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
         ? [
             const SectionTitle('Speed'),
             const SizedBox(height: Gap.m),
-            SpeedControl(prefs: _prefs, onChanged: _speedChanged),
+            SpeedControl(prefs: _prefs, onChanged: _speedChanged, bookId: widget.controller.bookId),
           ]
         : [
             ChoiceRow<int>(
@@ -249,7 +263,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
   List<Widget> _listen(BuildContext context) => [
         const SectionTitle('Speed'),
         const SizedBox(height: Gap.m),
-        SpeedControl(prefs: _prefs, onChanged: _speedChanged),
+        SpeedControl(prefs: _prefs, onChanged: _speedChanged, bookId: widget.controller.bookId),
         const SizedBox(height: Gap.xl),
         const SectionTitle('Sleep timer'),
         const SizedBox(height: Gap.m),
@@ -282,6 +296,24 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
         _style(context),
         const SizedBox(height: Gap.l),
         _fineTuneSection(context),
+        const SizedBox(height: Gap.xl),
+        const SectionTitle('Skip buttons'),
+        const SizedBox(height: Gap.m),
+        ChoiceRow<SkipBy>(
+          options: [for (final s in SkipBy.values) (s, s.label)],
+          value: _prefs.skipBy,
+          minSegment: 80,
+          onChanged: (s) {
+            setState(() => _prefs.skipBy = s);
+            _prefs.save();
+          },
+        ),
+        const SizedBox(height: Gap.xs),
+        Text(
+          'What next and previous do on headphones, the lock screen and the notification. '
+          'Previous starts the sentence again once it is under way.',
+          style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
+        ),
       ];
 
   Widget _voiceCard(BuildContext context) {
@@ -367,10 +399,17 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
 
   Future<void> _pickDialogue(BuildContext context) async {
     final c = widget.controller;
-    final voices = [
+    // A natural narrator on a phone that keeps one natural voice loaded:
+    // a second one is loaded again at every quote, a pause of a second or
+    // more each time, so the phone's voices come first and it says so.
+    final oneAtATime = isNeural(c.voiceName) && !NeuralEngine.instance.holdsTwo;
+    final all = [
       for (final v in _catalog.forLanguage(c.language, keep: c.dialogueVoice))
         if (v.name != c.voiceName) v,
     ];
+    final voices = oneAtATime
+        ? [...all.where((v) => !isNeural(v.name)), ...all.where((v) => isNeural(v.name))]
+        : all;
     final picked = await showModalBottomSheet<String>(
       context: context,
       sheetAnimationStyle: sheetMotion(context),
@@ -385,6 +424,15 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
               shrinkWrap: true,
               children: [
                 const SheetHeader('Dialogue voice', subtitle: 'Who reads the words in quotation marks'),
+                if (oneAtATime)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(Gap.xl, 0, Gap.xl, Gap.s),
+                    child: Text(
+                      'This phone keeps one natural voice loaded at a time, so a second natural voice '
+                      'pauses at every quote while it loads. A phone voice switches at once.',
+                      style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkFaintOn(ctx)),
+                    ),
+                  ),
                 SheetAction(
                   icon: Icons.person_outline_rounded,
                   label: 'The same voice',
@@ -395,7 +443,9 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
                   SheetAction(
                     icon: isNeural(v.name) ? Icons.auto_awesome_rounded : Icons.record_voice_over_outlined,
                     label: _catalog.friendlyName(v),
-                    detail: v.languageLabel,
+                    detail: oneAtATime && isNeural(v.name)
+                        ? '${v.languageLabel} · pauses at each quote here'
+                        : v.languageLabel,
                     onTap: () => Navigator.pop(ctx, v.name),
                   ),
                 const SizedBox(height: Gap.s),
@@ -482,11 +532,21 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
     );
   }
 
-  /// The pitch of the voice in use, which is that voice's own. None for a
-  /// natural voice, which takes no pitch.
-  Widget? _pitchRow() {
+  /// The pitch of the voice in use, which is that voice's own. A natural
+  /// voice takes no pitch (no pitch shift is built), and says so rather
+  /// than leaving a pitch set elsewhere to vanish unexplained.
+  Widget? _pitchRow(BuildContext context) {
     final voice = widget.controller.voiceName;
-    if (voice == null || isNeural(voice)) return null;
+    if (voice == null) return null;
+    if (isNeural(voice)) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: Gap.m),
+        child: Text(
+          'Pitch: a natural voice speaks at its own pitch, which cannot be changed.',
+          style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
+        ),
+      );
+    }
     final pitch = _prefs.pitchOf(voice);
     final google = (_prefs.engineId ?? _catalog.engineId) == 'com.google.android.tts';
     void set(double v) => setState(() => _prefs.setPitch(voice, v));
@@ -511,6 +571,35 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
     );
   }
 
+  /// How much later than the phone says the highlight (and the page) moves
+  /// with the voice, for where it is heard now: Bluetooth headphones play a
+  /// moment after the phone sends the sound, and not every one tells the
+  /// phone how long (docs/05 section 5.9).
+  Widget _highlightTiming() {
+    final bluetooth = _route == SpeechService.routeBluetooth;
+    final ms = _prefs.highlightOffset(_route);
+    void set(double v) => setState(() => _prefs.highlightOffsetMs[_route] = (v / 10).round() * 10);
+    return LabeledSlider(
+      label: 'Highlight timing',
+      value: ms.toDouble(),
+      min: -200,
+      max: 400,
+      display: ms == 0 ? 'As heard' : '${ms > 0 ? '+' : ''}$ms ms',
+      note: bluetooth
+          ? 'For Bluetooth. Move it right if the highlight runs ahead of the voice.'
+          : "For the phone's speaker and wired headphones. Move it right if the highlight runs ahead of the voice.",
+      onChanged: set,
+      onChangeEnd: (v) {
+        set(v);
+        _prefs.save();
+        unawaited(const SpeechService().setHighlightOffsets(
+          bluetoothMs: _prefs.highlightOffset(SpeechService.routeBluetooth),
+          otherMs: _prefs.highlightOffset(SpeechService.routeOther),
+        ));
+      },
+    );
+  }
+
   Widget _fineTuneBody(BuildContext context) {
     final p = _s.punctuation;
     Widget row(String label, double value, double min, double max, String unit,
@@ -531,7 +620,8 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SizedBox(height: Gap.s),
-        if (_pitchRow() case final pitch?) pitch,
+        if (_pitchRow(context) case final pitch?) pitch,
+        _highlightTiming(),
         row('Space between words', _s.wordGapMs.toDouble(), 0, 500, ' ms',
             (v) => _s.copyWith(wordGapMs: v.round())),
         row('Pause at commas', p.commaMs.toDouble(), 0, 800, ' ms',
@@ -590,25 +680,38 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
 /// card's speed button (which has an icon for each).
 const speedPresets = [0.75, 1.0, 1.25, 1.5, 2.0];
 
-/// Speed: − value + for fine steps, and one row of common speeds.
+/// Speed: − value + for fine steps, and one row of common speeds. With a
+/// [bookId], the speed that book reads at, and the choice to keep it for
+/// that book only (docs/05 section 5.1); without, everyone's.
 class SpeedControl extends StatefulWidget {
-  const SpeedControl({super.key, required this.prefs, required this.onChanged});
+  const SpeedControl({super.key, required this.prefs, required this.onChanged, this.bookId});
 
   final ListeningPrefs prefs;
   final void Function({required bool restart}) onChanged;
+  final String? bookId;
 
   @override
   State<SpeedControl> createState() => _SpeedControlState();
 }
 
 class _SpeedControlState extends State<SpeedControl> {
-  double get _speed => widget.prefs.settings.speedScale;
+  double get _speed => widget.prefs.speedFor(widget.bookId);
+
+  bool get _own => widget.bookId != null && widget.prefs.speedByBook.containsKey(widget.bookId);
 
   void _setSpeed(double v) {
-    final next = (v * 20).round() / 20; // Steps of 0.05.
-    setState(() => widget.prefs.settings = widget.prefs.settings.copyWith(speedScale: next.clamp(0.5, 3.0)));
+    final next = ((v * 20).round() / 20).clamp(0.5, 3.0).toDouble(); // Steps of 0.05.
+    setState(() => widget.prefs.setSpeed(next, book: widget.bookId));
     widget.prefs.save();
     widget.onChanged(restart: true);
+  }
+
+  void _setOwn(bool own) {
+    final before = _speed;
+    setState(() => widget.prefs.setOwnSpeed(widget.bookId!, own));
+    widget.prefs.save();
+    // Back to everyone's speed is heard if it differs.
+    widget.onChanged(restart: _speed != before);
   }
 
   @override
@@ -630,6 +733,15 @@ class _SpeedControlState extends State<SpeedControl> {
           minSegment: 54,
           onChanged: (v) => _setSpeed(v!),
         ),
+        if (widget.bookId != null)
+          SwitchRow(
+            title: _own
+                ? 'For this book only (others ${trimSpeed(widget.prefs.settings.speedScale)}×)'
+                : 'For this book only',
+            value: _own,
+            padding: EdgeInsets.zero,
+            onChanged: _setOwn,
+          ),
       ],
     );
   }
@@ -1197,7 +1309,7 @@ class _VoicePickerState extends State<_VoicePicker> {
                     Text('${v.languageLabel} · ${_catalog.friendlyName(v)}',
                         style: Skin.ui(size: 16, weight: FontWeight.w700, color: Skin.inkOn(context))),
                     Text(
-                      '${_availability(v)} · ${trimSpeed(_prefs.settings.speedScale)}×',
+                      '${_availability(v)} · ${trimSpeed(_prefs.speedFor(widget.controller.bookId))}×',
                       style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
                     ),
                   ],

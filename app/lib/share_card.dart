@@ -37,8 +37,14 @@ class QuoteCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final accent = Skin.accentOf(context);
     final deep = Color.lerp(accent, Colors.black, 0.78)!;
-    final words = mark.text.length > 420 ? '${mark.text.substring(0, mark.text.lastIndexOf(' ', 420))}…' : mark.text;
-    final size = words.length < 120 ? 26.0 : (words.length < 240 ? 21.0 : 17.0);
+    // A long quote is cut at a space, or where there is none (Chinese,
+    // Japanese: cut at "no space found", it threw). Its length is the room it
+    // takes, a wide character counting two letters: 420 of them were twice
+    // the card.
+    final cut = _cutAt(mark.text, 420);
+    final words = cut < mark.text.length ? '${mark.text.substring(0, cut)}…' : mark.text;
+    final room = _room(words);
+    final size = room < 120 ? 26.0 : (room < 240 ? 21.0 : 17.0);
     return AspectRatio(
       aspectRatio: shape.ratio,
       child: DecoratedBox(
@@ -114,6 +120,37 @@ class QuoteCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A character drawn about twice a Latin letter's width: Chinese, Japanese
+/// and Korean, and the full-width forms.
+bool _wide(int r) =>
+    (r >= 0x1100 && r <= 0x115F) ||
+    (r >= 0x2E80 && r <= 0xA4CF) ||
+    (r >= 0xAC00 && r <= 0xD7A3) ||
+    (r >= 0xF900 && r <= 0xFAFF) ||
+    (r >= 0xFE30 && r <= 0xFE4F) ||
+    (r >= 0xFF00 && r <= 0xFF60) ||
+    (r >= 0xFFE0 && r <= 0xFFE6) ||
+    (r >= 0x20000 && r <= 0x3FFFD);
+
+/// The room [text] takes, in Latin letters.
+int _room(String text) => text.runes.fold(0, (n, r) => n + (_wide(r) ? 2 : 1));
+
+/// Where to cut [text] to fit [room]: at the last space before that point,
+/// or at it where there is none; its length when it all fits.
+int _cutAt(String text, int room) {
+  var used = 0;
+  var i = 0;
+  for (final r in text.runes) {
+    final w = _wide(r) ? 2 : 1;
+    if (used + w > room) break;
+    used += w;
+    i += r > 0xFFFF ? 2 : 1;
+  }
+  if (i >= text.length) return text.length;
+  final space = text.lastIndexOf(' ', i);
+  return space > 0 ? space : i;
 }
 
 /// Preview [mark] as a picture, then share it (or copy its words).

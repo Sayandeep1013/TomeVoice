@@ -219,7 +219,7 @@ class MarkStore {
 /// words, otherwise the nearest sentence that does (a book re-parsed since).
 int unitOfMark(ReadingLayout layout, Mark m) {
   if (layout.isEmpty) return 0;
-  final u = layout.unitForCursor(m.at);
+  final u = layout.unitForCursor(m.at, saved: true);
   final want = m.text.split(RegExp(r'\s+')).take(6).join(' ');
   bool holds(int i) => i >= 0 && i < layout.units.length && layout.units[i].text.startsWith(want);
   if (want.isEmpty || holds(u)) return u;

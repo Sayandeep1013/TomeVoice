@@ -1,20 +1,25 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:xml/xml.dart';
 
 import '../build.dart';
+import '../encoding.dart';
 import '../model.dart';
 import '../segment.dart';
 
 /// FictionBook 2 (.fb2, .fb2.zip).
 ///
-/// Plain XML, but frequently declared as windows-1251, which `dart:convert`
-/// has no codec for, so that one is decoded here.
-Book parseFb2(Uint8List bytes, {required String id, String? filename}) {
+/// Plain XML, but frequently declared as windows-1251 or KOI8-R, which
+/// `dart:convert` has no codec for; see [decodeBytes].
+Book parseFb2(Uint8List bytes, {required String id, String? filename, LegacyDecoder? legacy}) {
   if (bytes.length > 4 && bytes[0] == 0x50 && bytes[1] == 0x4B) {
-    final archive = ZipDecoder().decodeBytes(bytes, verify: false);
+    final Archive archive;
+    try {
+      archive = ZipDecoder().decodeBytes(bytes, verify: false);
+    } on Object {
+      throw const ParseException('This FB2 file is damaged: it cannot be opened as a zip archive.');
+    }
     final inner = archive.files
         .where((f) => f.isFile && f.name.toLowerCase().endsWith('.fb2'))
         .firstOrNull;
@@ -25,9 +30,9 @@ Book parseFb2(Uint8List bytes, {required String id, String? filename}) {
 
   final XmlDocument doc;
   try {
-    doc = XmlDocument.parse(_decodeXml(bytes));
-  } on XmlException catch (e) {
-    throw ParseException('Broken FB2: ${e.message}');
+    doc = XmlDocument.parse(decodeBytes(bytes, markup: true, legacy: legacy));
+  } on XmlException {
+    throw const ParseException('This FB2 file is damaged: its XML cannot be read.');
   }
 
   XmlElement? find(XmlNode root, String local) {
@@ -67,9 +72,17 @@ Book parseFb2(Uint8List bytes, {required String id, String? filename}) {
     for (final c in section.children.whereType<XmlElement>()) {
       switch (c.name.local) {
         case 'title':
-          final t = collapseWhitespace(c.innerText);
-          if (t.isNotEmpty) {
-            heading ??= t;
+          // "Chapter 1" and "The Arrival" are two lines of one title: two
+          // headings on the page, "Chapter 1: The Arrival" in the contents.
+          final lines = [
+            for (final p in c.childElements)
+              if (collapseWhitespace(_text(p)).isNotEmpty) collapseWhitespace(_text(p)),
+          ];
+          if (lines.isEmpty && collapseWhitespace(_text(c)).isNotEmpty) {
+            lines.add(collapseWhitespace(_text(c)));
+          }
+          if (lines.isNotEmpty) heading ??= _joinTitle(lines);
+          for (final t in lines) {
             blocks.add(makeBlock(role: BlockRole.heading, text: t));
           }
         case 'section':
@@ -82,7 +95,7 @@ Book parseFb2(Uint8List bytes, {required String id, String? filename}) {
         case 'cite':
         case 'poem':
           for (final p in c.descendants.whereType<XmlElement>()) {
-            if (p.name.local == 'p' || p.name.local == 'v') {
+            if (p.name.local == 'p' || p.name.local == 'v' || p.name.local == 'text-author') {
               _add(blocks, p, BlockRole.quote);
             }
           }
@@ -112,6 +125,21 @@ Book parseFb2(Uint8List bytes, {required String id, String? filename}) {
     }
   }
 
+  // The notes the text's markers point at: kept, as footnotes (shown on
+  // request, never read in the flow), in one section at the end.
+  for (final body in doc.descendants.whereType<XmlElement>().where((e) =>
+      e.name.local == 'body' && const {'notes', 'comments'}.contains(e.getAttribute('name')))) {
+    final from = sections.length;
+    addSection(body); // its title, then each note's section
+    if (sections.length == from) continue;
+    final notes = [
+      for (final s in sections.sublist(from))
+        for (final b in s.blocks) b.withRole(BlockRole.footnote),
+    ];
+    sections.removeRange(from, sections.length);
+    sections.add((title: _bodyTitle(body), blocks: notes));
+  }
+
   return assembleBook(
     id: id,
     metadata: BookMetadata(
@@ -128,41 +156,73 @@ Book parseFb2(Uint8List bytes, {required String id, String? filename}) {
 }
 
 void _add(List<Block> blocks, XmlElement e, BlockRole role) {
-  final t = collapseWhitespace(e.innerText);
+  final t = collapseWhitespace(_text(e));
   if (t.isNotEmpty) blocks.add(makeBlock(role: role, text: t));
 }
 
-String _decodeXml(Uint8List bytes) {
-  final end = bytes.length < 200 ? bytes.length : 200;
-  final head = String.fromCharCodes(bytes.sublist(0, end)).toLowerCase();
-  final enc = RegExp(r'''encoding\s*=\s*["']([\w-]+)["']''')
-      .firstMatch(head)
-      ?.group(1);
-  if (enc == 'windows-1251' || enc == 'cp1251') return decodeCp1251(bytes);
-  if (enc == 'iso-8859-1' || enc == 'latin1') return latin1.decode(bytes);
-  final text = utf8.decode(bytes, allowMalformed: true);
-  return text.startsWith('\uFEFF') ? text.substring(1) : text;
+/// Lines of one title as a single name: "Chapter 1: The Arrival", or
+/// "Chapter 2. The Return" when the first line has its own stop.
+String _joinTitle(List<String> lines) {
+  final out = StringBuffer(lines.first);
+  for (final l in lines.skip(1)) {
+    final prev = out.toString();
+    out.write(RegExp(r'[.:;!?\-–—]$').hasMatch(prev) ? ' ' : ': ');
+    out.write(l);
+  }
+  return out.toString();
+}
+
+String? _bodyTitle(XmlElement body) {
+  for (final t in body.children.whereType<XmlElement>()) {
+    if (t.name.local == 'title') {
+      final text = collapseWhitespace(_text(t));
+      return text.isEmpty ? null : text;
+    }
+  }
+  return null;
+}
+
+/// Elements whose edges are word breaks: paragraphs, verse lines, cells.
+const _breaking = {'p', 'v', 'subtitle', 'text-author', 'td', 'th', 'tr', 'empty-line', 'stanza'};
+
+/// "[1]", "1", "*": what a note link says.
+final _markerText = RegExp(r'^[\[({]?(\p{Nd}{1,4}|[*†‡§¶#]{1,3})[\])}]?$', unicode: true);
+
+/// A link to a note: `<a l:href="#n1" type="note">`, or a short numbered
+/// link to a place in the book.
+bool _isNoteLink(XmlElement a) {
+  if (a.name.local != 'a') return false;
+  if (a.getAttribute('type') == 'note') return true;
+  final href = [for (final at in a.attributes) if (at.name.local == 'href') at.value].firstOrNull ?? '';
+  return href.startsWith('#') && _markerText.hasMatch(collapseWhitespace(a.innerText));
+}
+
+/// The text of [e] with a space wherever one paragraph, line or cell ends
+/// and the next begins (`innerText` glued "Chapter 1" to "The Arrival"),
+/// and note markers shown but not spoken.
+String _text(XmlElement e) {
+  final buf = StringBuffer();
+  void walk(XmlNode n) {
+    for (final c in n.children) {
+      if (c is XmlText || c is XmlCDATA) {
+        buf.write(c.value);
+      } else if (c is XmlElement) {
+        if (c.name.local == 'image') continue;
+        if (_isNoteLink(c)) {
+          buf.write(silentMark(collapseWhitespace(c.innerText)));
+          continue;
+        }
+        final edge = _breaking.contains(c.name.local);
+        if (edge) buf.write(' ');
+        walk(c);
+        if (edge) buf.write(' ');
+      }
+    }
+  }
+
+  walk(e);
+  return buf.toString();
 }
 
 /// Windows-1251 (Cyrillic).
-String decodeCp1251(List<int> bytes) {
-  const high = [
-    0x0402, 0x0403, 0x201A, 0x0453, 0x201E, 0x2026, 0x2020, 0x2021, //
-    0x20AC, 0x2030, 0x0409, 0x2039, 0x040A, 0x040C, 0x040B, 0x040F,
-    0x0452, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014,
-    0x0098, 0x2122, 0x0459, 0x203A, 0x045A, 0x045C, 0x045B, 0x045F,
-    0x00A0, 0x040E, 0x045E, 0x0408, 0x00A4, 0x0490, 0x00A6, 0x00A7,
-    0x0401, 0x00A9, 0x0404, 0x00AB, 0x00AC, 0x00AD, 0x00AE, 0x0407,
-    0x00B0, 0x00B1, 0x0406, 0x0456, 0x0491, 0x00B5, 0x00B6, 0x00B7,
-    0x0451, 0x2116, 0x0454, 0x00BB, 0x0458, 0x0405, 0x0455, 0x0457,
-  ];
-  return String.fromCharCodes([
-    for (final b in bytes)
-      if (b < 0x80)
-        b
-      else if (b < 0xC0)
-        high[b - 0x80]
-      else
-        0x0410 + (b - 0xC0),
-  ]);
-}
+String decodeCp1251(List<int> bytes) => decodeSingleByte(bytes, 'windows-1251');

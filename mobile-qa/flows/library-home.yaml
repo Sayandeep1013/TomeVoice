@@ -1,7 +1,0 @@
-appId: app.tomevoice
----
-- launchApp:
-    clearState: false
-- assertVisible: "TomeVoice"
-- assertVisible: "IMPORT A FILE"
-- assertVisible: "YOUR BOOKS"

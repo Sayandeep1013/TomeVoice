@@ -94,6 +94,17 @@ class SecretShelf {
   }
 
   static const cannotAsk = 'Your phone could not ask for its lock. Is a screen lock set?';
+
+  /// Whether book [id] may be shown: always, unless it is on a secret shelf
+  /// that is shut, when the phone's lock is asked for first. (Its file
+  /// opened again brought it back, and its page showed its cover, place and
+  /// quotes with the shelf locked.)
+  static Future<bool> mayShow(BuildContext context, LibraryStore store, String id) async {
+    if (open.value || !store.isSecret(id)) return true;
+    final ok = await unlock(reason: 'Open a book on the secret shelf');
+    if (ok == null && context.mounted) showSnack(context, cannotAsk);
+    return ok == true;
+  }
 }
 
 /// Settings > Secret shelf: what it is, and making, opening and shutting it.

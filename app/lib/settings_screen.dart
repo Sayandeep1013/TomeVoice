@@ -750,13 +750,8 @@ class _AboutScreenState extends State<AboutScreen> {
                           applicationLegalese: 'GPL-3.0',
                         ),
                       ),
-                      _Link(
-                        icon: Icons.volunteer_activism_outlined,
-                        title: 'Support TomeVoice',
-                        subtitle: 'Help keep it free',
-                        // Nothing yet: how readers support it is still to be decided.
-                        onTap: () {},
-                      ),
+                      // No Support row until there is a page to point it
+                      // at: a row that did nothing on a tap read as broken.
                     ],
                   ),
                 ),

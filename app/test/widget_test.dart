@@ -8,12 +8,14 @@
 
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
+import 'package:tomevoice_audio/tomevoice_audio.dart' show PipelineSettings;
 import 'package:tomevoice_document/tomevoice_document.dart';
 import 'package:tomevoice_spike/app_update.dart';
 import 'package:tomevoice_spike/book_card.dart';
@@ -25,15 +27,18 @@ import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/listening_session.dart';
 import 'package:tomevoice_spike/main.dart';
 import 'package:tomevoice_spike/marks.dart';
-import 'package:tomevoice_spike/neural_voices.dart' show wavBytes;
+import 'package:tomevoice_spike/neural_voices.dart' show isNeural, wavBytes;
 import 'package:tomevoice_spike/page_curl.dart';
 import 'package:tomevoice_spike/page_tone.dart';
 import 'package:tomevoice_spike/paged_view.dart';
 import 'package:tomevoice_spike/pages_view.dart';
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/reader_screen.dart';
+import 'package:tomevoice_spike/scheduler.dart';
 import 'package:tomevoice_spike/settings_screen.dart';
 import 'package:tomevoice_spike/sources/models.dart';
+import 'package:tomevoice_spike/sources/source_engine.dart';
+import 'package:tomevoice_spike/sources/source_store.dart';
 import 'package:tomevoice_spike/speech_service.dart';
 import 'package:tomevoice_spike/theme.dart';
 import 'package:tomevoice_spike/update_flow.dart';
@@ -379,6 +384,25 @@ void main() {
       await finish(tester);
     });
 
+    testWidgets('a held word can be looked up, and its sentence translated', (tester) async {
+      await pumpReader(tester, specimenBook());
+      await tester.longPress(find.textContaining('Pack my box').first);
+      await tester.pumpAndSettle();
+      final lookUp = find.textContaining(RegExp(r'^Look up "'));
+      expect(lookUp, findsOneWidget);
+      await tester.tap(lookUp);
+      await tester.pumpAndSettle();
+      expect(_calls, contains('lookUp'));
+      // No dictionary app answered (the test's phone has none): it says so.
+      expect(find.textContaining('No app on this phone looks words up'), findsOneWidget);
+      await tester.longPress(find.textContaining('Pack my box').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Translate'));
+      await tester.pumpAndSettle();
+      expect(_calls, contains('translate'));
+      await finish(tester);
+    });
+
     testWidgets('book text is set in the reading face', (tester) async {
       await pumpReader(tester, specimenBook());
       final text = tester.widget<Text>(find.textContaining('quick brown fox').first);
@@ -632,6 +656,92 @@ void main() {
         ..save();
       await tester.pumpAndSettle();
       expect(tester.widget<PageGround>(find.byType(PageGround)).tone, PageTone.app);
+      await finish(tester);
+    });
+
+    testWidgets('turning the phone keeps the scroll where it was read to', (tester) async {
+      // On its side the reader's parts sat in another order, so the text
+      // was built afresh at the place the book was opened.
+      await pumpLong(tester, longBook());
+      final list = find.byType(ScrollablePositionedList);
+      final beta = find.text('Beta', findRichText: true);
+      await tester.dragUntilVisible(beta, list, const Offset(0, -600), maxIteration: 100);
+      final top = tester.getTopLeft(list).dy;
+      await tester.drag(list, Offset(0, top + 40 - tester.getTopLeft(beta).dy));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('2/2'), findsOneWidget);
+      // The place stayed in the second chapter all along; what is on the
+      // screen went back to the first.
+      final opening = find.textContaining('Beta opens here', findRichText: true);
+      expect(opening, findsOneWidget);
+      for (final size in const [Size(2340, 1080), Size(1080, 2340)]) {
+        tester.view.physicalSize = size;
+        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.pumpAndSettle();
+        expect(opening, findsOneWidget, reason: 'the second chapter still on screen at $size');
+        expect(find.textContaining('2/2'), findsOneWidget, reason: 'at $size');
+      }
+      await finish(tester);
+    });
+
+    testWidgets('a footnote is on the page, in both modes, but not among what is read', (tester) async {
+      const html = '<html><body><h1>One</h1>'
+          '<p>It was a dark night.<a role="doc-noteref" href="#n1">1</a> Then it rained for a long while.</p>'
+          '<aside role="doc-footnote" id="n1"><p>A note on the night.</p></aside>'
+          '<p>The morning came at last and the road was dry again.</p></body></html>';
+      final layout = ReadingLayout.build(ingestString(html, filename: 'note.html'), displayOnly: true);
+      expect(layout.units.map((u) => u.text).join(' '), isNot(contains('A note on the night')));
+      expect(layout.items.where((i) => i.displayOnly), hasLength(1));
+      final semantics = tester.ensureSemantics();
+      await pumpLong(tester, layout);
+      expect(find.textContaining('A note on the night'), findsOneWidget);
+      ListeningPrefs.memory
+        ..pages = true
+        ..save();
+      await tester.pumpAndSettle();
+      expect(find.bySemanticsLabel(RegExp('A note on the night')), findsWidgets);
+      semantics.dispose();
+      await finish(tester);
+    });
+
+    testWidgets('an Arabic book is set right to left', (tester) async {
+      final para = List.filled(10, 'هذه جملة من القصة تستمر قليلا.').join(' ');
+      await pumpLong(tester, ReadingLayout.build(ingestString('# الفصل\n\n$para\n\n$para', filename: 'book.md')));
+      final para0 = find.byWidgetPredicate((w) => w is RichText && w.text.toPlainText().startsWith('هذه')).first;
+      expect(Directionality.of(tester.element(para0)), TextDirection.rtl);
+      // The reader's own bars stay as they are.
+      expect(Directionality.of(tester.element(find.byType(ScrollablePositionedList))), TextDirection.rtl);
+      expect(Directionality.of(tester.element(find.byType(ReaderScreen))), TextDirection.ltr);
+      await finish(tester);
+    });
+
+    testWidgets("the scroll is in the page tone's ink, whatever the phone's theme", (tester) async {
+      // A paper tone on a phone that has gone dark (and the dim one on a light
+      // phone): the text took the app's ink, near-white on cream paper.
+      Color inkOfText() {
+        final para = find.byWidgetPredicate((w) =>
+            w is RichText && w.text.toPlainText().startsWith('A long paragraph of the story'));
+        return (tester.widget<RichText>(para.first).text as TextSpan).style!.color!;
+      }
+
+      for (final (tone, brightness) in [
+        (PageTone.papyrus, Brightness.dark),
+        (PageTone.eink, Brightness.dark),
+        (PageTone.dusk, Brightness.light),
+      ]) {
+        ListeningPrefs.memory.pageTone = tone.id;
+        phone(tester);
+        await tester.pumpWidget(MaterialApp(
+          key: ValueKey(tone.id),
+          theme: ThemeData(useMaterial3: true, brightness: brightness),
+          home: ReaderScreen(layout: longBook()),
+        ));
+        await tester.pumpAndSettle();
+        expect(inkOfText(), tone.ink, reason: '${tone.id} on a ${brightness.name} phone');
+      }
       await finish(tester);
     });
 
@@ -904,6 +1014,371 @@ void main() {
       await nav.maybePop();
       await tester.pumpAndSettle();
       expect(BackgroundReading.current.value, isNull);
+      await finish(tester);
+    });
+  });
+
+  group('listening controls', () {
+    // A player the tests can steer: the head where they put it, the phone's
+    // answer to a request for its audio, and every card update kept.
+    var head = 0;
+    var queued = 0;
+    var focus = 'granted';
+    final sessions = <Map<Object?, Object?>>[];
+
+    /// [tone]: each sentence a second of sound, so its words have places.
+    void withPlayer({bool tone = false}) {
+      head = 0;
+      queued = 0;
+      focus = 'granted';
+      sessions.clear();
+      var n = 0;
+      final said = tone
+          ? Float32List.fromList([for (var i = 0; i < 24000; i++) 0.5 * math.sin(i * 2 * math.pi * 220 / 24000)])
+          : Float32List(2400);
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(_channel, (call) async {
+        _calls.add(call.method);
+        return switch (call.method) {
+          'synthesise' => () {
+              final f = File('${_tmp.path}/s${n++}.wav')..writeAsBytesSync(wavBytes(said, 24000));
+              return <String, Object?>{'wavPath': f.path, 'engineId': 'test', 'rangeEvents': const []};
+            }(),
+          'playerEnqueue' => () {
+              final start = queued;
+              queued += ((call.arguments as Map)['pcm'] as Uint8List).length ~/ 2;
+              return start;
+            }(),
+          'playerStop' => () {
+              queued = 0;
+              head = 0;
+              return null;
+            }(),
+          'playerPosition' => head,
+          'requestFocus' => focus,
+          'session' => () {
+              sessions.add(call.arguments as Map);
+              return null;
+            }(),
+          'outputDir' => _tmp.path,
+          'listEngines' => const [],
+          'listVoices' => const [],
+          _ => null,
+        };
+      });
+    }
+
+    /// A platform event, as the phone sends one.
+    Future<void> event(WidgetTester tester, Map<String, Object?> e) async {
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'tomevoice/tts',
+        const StandardMethodCodec().encodeMethodCall(MethodCall('platformEvent', e)),
+        (_) {},
+      );
+      await tester.pump();
+    }
+
+    /// Let real IO and isolates (the render after each sentence) run, a frame
+    /// between, until [until] holds. (Not pumpAndSettle: the ring round Play
+    /// turns for as long as a sentence is being made.)
+    Future<void> io(WidgetTester tester, bool Function() until) async {
+      for (var i = 0; i < 80 && !until(); i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+    }
+
+    Future<void> playing(WidgetTester tester) async {
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump();
+      await io(tester, () => _calls.contains('playerEnqueue'));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.byTooltip('Pause'), findsOneWidget);
+    }
+
+    Future<void> openReader(WidgetTester tester, Book book, {LibraryStore? store}) async {
+      phone(tester);
+      await tester.pumpWidget(MaterialApp(home: ReaderScreen(layout: ReadingLayout.build(book), store: store)));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('nothing is polled while paused', (tester) async {
+      withPlayer();
+      await openReader(tester, specimenBook());
+      await playing(tester);
+      await tester.tap(find.byTooltip('Pause'));
+      await tester.pump(const Duration(seconds: 1));
+      final polled = _calls.where((c) => c == 'playerPosition').length;
+      await tester.pump(const Duration(seconds: 3));
+      expect(_calls.where((c) => c == 'playerPosition').length, polled,
+          reason: 'the 40 ms poll ran on while paused');
+      await finish(tester);
+    });
+
+    testWidgets('Pause lets the word being said finish', (tester) async {
+      withPlayer(tone: true);
+      await openReader(tester, specimenBook());
+      await playing(tester);
+      head = 100;
+      await tester.pump(const Duration(milliseconds: 80));
+      _calls.clear();
+      await tester.tap(find.byTooltip('Pause'));
+      await tester.pump(const Duration(milliseconds: 60));
+      expect(find.byTooltip('Play'), findsOneWidget, reason: 'the button answers at once');
+      expect(_calls, isNot(contains('playerPause')), reason: 'cut in the middle of a word');
+      head = 24000;
+      await tester.pump(const Duration(milliseconds: 60));
+      expect(_calls, contains('playerPause'));
+      await finish(tester);
+    });
+
+    testWidgets('Play during a call waits for it to end, then reads', (tester) async {
+      withPlayer();
+      focus = 'delayed';
+      await openReader(tester, specimenBook());
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump();
+      await io(tester, () => _calls.contains('playerEnqueue'));
+      expect(find.byTooltip('Play'), findsOneWidget, reason: 'it read over the call');
+      expect(_calls, isNot(contains('playerResume')));
+
+      focus = 'granted';
+      await event(tester, {'type': 'focusGain'});
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(_calls, contains('playerResume'));
+      expect(find.byTooltip('Pause'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('with the audio refused, Play says so instead of reading over it', (tester) async {
+      withPlayer();
+      focus = 'failed';
+      await openReader(tester, specimenBook());
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.byTooltip('Play'), findsOneWidget);
+      expect(find.textContaining("The phone's audio is taken"), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('after a short interruption it goes on from the sentence\'s start; after a long one it waits',
+        (tester) async {
+      withPlayer();
+      await openReader(tester, specimenBook());
+      await playing(tester);
+      head = 100;
+      await tester.pump(const Duration(milliseconds: 80));
+
+      await event(tester, {'type': 'focusLossTransient'});
+      expect(find.byTooltip('Play'), findsOneWidget);
+      _calls.clear();
+      await event(tester, {'type': 'focusGain'});
+      await io(tester, () => _calls.contains('playerEnqueue'));
+      // Queued again from the start, not resumed mid-word.
+      expect(_calls, containsAllInOrder(['playerStop', 'playerEnqueue']));
+      expect(_calls, isNot(contains('playerResume')));
+      expect(find.byTooltip('Pause'), findsOneWidget);
+
+      await event(tester, {'type': 'focusLossTransient'});
+      await tester.pump(const Duration(minutes: 2));
+      await event(tester, {'type': 'focusGain'});
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.byTooltip('Play'), findsOneWidget, reason: 'a long call does not resume on its own');
+      await finish(tester);
+    });
+
+    testWidgets('after a pause of a few seconds, Play goes back to the start of the sentence', (tester) async {
+      withPlayer();
+      await openReader(tester, specimenBook());
+      await playing(tester);
+      head = 100;
+      await tester.pump(const Duration(milliseconds: 80));
+
+      // A moment: it carries on where it was.
+      await tester.tap(find.byTooltip('Pause'));
+      await tester.pump(const Duration(seconds: 1));
+      _calls.clear();
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(_calls, contains('playerResume'));
+      expect(_calls, isNot(contains('playerStop')));
+
+      // Longer: from the sentence's start, queued again (nothing made again).
+      await tester.tap(find.byTooltip('Pause'));
+      await tester.pump(const Duration(seconds: 4));
+      _calls.clear();
+      await tester.tap(find.byTooltip('Play'));
+      await io(tester, () => _calls.contains('playerEnqueue'));
+      expect(_calls, containsAllInOrder(['playerStop', 'playerEnqueue']));
+      await finish(tester);
+    });
+
+    testWidgets('a player that stops moving is started again once, then reading stops and says why', (tester) async {
+      withPlayer();
+      await openReader(tester, specimenBook());
+      await playing(tester);
+      head = 10;
+      _calls.clear();
+      for (var i = 0; i < 140; i++) {
+        await tester.pump(const Duration(milliseconds: 40));
+      }
+      expect(_calls, containsAllInOrder(['playerStop', 'playerEnqueue']), reason: 'started again from the sentence');
+      expect(find.byTooltip('Pause'), findsOneWidget);
+
+      head = 10;
+      for (var i = 0; i < 140; i++) {
+        await tester.pump(const Duration(milliseconds: 40));
+      }
+      expect(find.byTooltip('Play'), findsOneWidget);
+      expect(find.textContaining('The audio stopped'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('headphones skip a sentence; set to Chapter, a chapter', (tester) async {
+      withPlayer();
+      await openReader(tester, chaptered);
+      final first = washed(tester);
+      await event(tester, {'type': 'action', 'action': 'next', 'value': 0});
+      await tester.pumpAndSettle();
+      final second = washed(tester);
+      expect(second, isNot(first));
+      expect(second, isNot(startsWith('Chapter 2')), reason: 'one double press lost a whole chapter');
+
+      ListeningPrefs.memory.skipBy = SkipBy.chapter;
+      await event(tester, {'type': 'action', 'action': 'next', 'value': 0});
+      await tester.pumpAndSettle();
+      expect(washed(tester), startsWith('Chapter 2'));
+      await finish(tester);
+    });
+
+    testWidgets('speed can be a book\'s own, leaving every other book\'s alone', (tester) async {
+      withPlayer();
+      final book = specimenBook();
+      await openReader(tester, book);
+      await tester.tap(find.byTooltip('Speed'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('For this book only'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('1.5×'));
+      await tester.pumpAndSettle();
+      final prefs = ListeningPrefs.memory;
+      expect(prefs.speedFor(book.id), 1.5);
+      expect(prefs.settings.speedScale, 1.0, reason: 'other books keep theirs');
+      expect(prefs.speedFor('another book'), 1.0);
+      expect(prefs.settingsFor(null, book: book.id).speedScale, 1.5, reason: 'and it is what the voice is given');
+      await finish(tester);
+    });
+
+    testWidgets('a natural voice that fails hands the sentence to the phone\'s voice, and says so', (tester) async {
+      withPlayer();
+      final service = _NaturalFails(_tmp);
+      final layout = ReadingLayout.build(specimenBook());
+      final player = PlaybackScheduler(
+        service: service,
+        units: layout.units,
+        settingsFor: (text) => const PipelineSettings().copyWith(text: text),
+        engineIdOf: () => null,
+        voiceNameOf: () => 'neural:en_US-kristin-medium',
+        pauseAfter: (_) => 100,
+        fallbackVoiceOf: () => 'en-gb-x-gba-local',
+      );
+      await tester.pumpWidget(const SizedBox());
+      unawaited(player.play(0));
+      await io(tester, () => _calls.contains('playerEnqueue'));
+      expect(service.asked.take(2), ['neural:en_US-kristin-medium', 'en-gb-x-gba-local']);
+      expect(player.notice.value, contains('Kristin'));
+      expect(player.unit.value, 0, reason: 'the sentence was read, not skipped');
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(service.asked.skip(2), everyElement('en-gb-x-gba-local'), reason: 'not asked again');
+      await player.stop();
+      player.dispose();
+      await finish(tester);
+    });
+
+    testWidgets('the sleep timer that fired in the background does not fire again; Save works there', (tester) async {
+      withPlayer();
+      final store = LibraryStore(_tmp);
+      final layout = ReadingLayout.build(specimenBook());
+      phone(tester);
+      final nav = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(MaterialApp(navigatorKey: nav, home: const Scaffold(body: Text('Shelf'))));
+      unawaited(nav.currentState!.push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(layout: layout, store: store))));
+      await tester.pumpAndSettle();
+      await playing(tester);
+      await tester.tap(find.byTooltip('Voice'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('15 min'));
+      await tester.pump(const Duration(milliseconds: 300));
+      Navigator.of(tester.element(find.text('Sleep timer'))).pop();
+      await tester.pump(const Duration(milliseconds: 500));
+      await nav.currentState!.maybePop();
+      await tester.pumpAndSettle();
+      final bg = BackgroundReading.current.value!;
+      await bg.pause();
+
+      // The card's Save this line, with no page open.
+      final before = MarkStore.instance.forBook(layout.book.id).length;
+      await event(tester, {'type': 'action', 'action': 'save', 'value': 0});
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(MarkStore.instance.forBook(layout.book.id).length, before + 1);
+
+      // The timer runs out while it reads in the background.
+      await tester.pump(const Duration(minutes: 16));
+      unawaited(nav.currentState!.push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(layout: layout, store: store))));
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('Sleep timer: paused.'), findsNothing, reason: 'it fired again on opening the book');
+      expect(find.textContaining('SLEEP'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+      await BackgroundReading.current.value?.stop();
+      await finish(tester);
+    });
+
+    testWidgets('a web novel read aloud goes on into its next chapters with no page built for them', (tester) async {
+      withPlayer();
+      final store = LibraryStore(_tmp);
+      const plugin = PluginInfo(id: 'fake', name: 'Fake', site: 'https://fake.site/', lang: 'English', version: '1', url: 'u');
+      late String id;
+      late ReadingLayout first;
+      await tester.runAsync(() async {
+        SourceEngine.instance.attach(SourceStore(_tmp, defaults: const []));
+        id = (await store.addWebNovel(
+          plugin,
+          SourceNovel(path: 'n', name: 'Novel', chapters: [
+            for (var i = 0; i < 3; i++) ChapterItem(name: 'Chapter ${i + 1}', path: 'c$i'),
+          ]),
+        ))
+            .id;
+        await store.saveChapter(id, 0, 'Chapter 1', '<p>The first chapter is short. It ends here.</p>');
+        first = await store.loadLayout(id);
+        // Fetched ahead while it read: not in this page's chapters.
+        await store.saveChapter(id, 1, 'Chapter 2', '<p>The second chapter begins now. It goes on.</p>');
+        await store.saveChapter(id, 2, 'Chapter 3', '<p>The third chapter waits. It is there.</p>');
+      });
+      final reached = <bool>[];
+      phone(tester);
+      await tester.pumpWidget(MaterialApp(
+        home: ReaderScreen(
+          layout: first,
+          store: store,
+          onReachedEnd: ({required bool playing, bool browse = false}) async => reached.add(playing),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await playing(tester);
+      // Everything here heard: the end.
+      await io(tester, () => queued > 0 && _calls.where((c) => c == 'playerEnqueue').length >= first.units.length);
+      sessions.clear();
+      head = 1 << 30;
+      await io(tester, () => (BackgroundReading.current.value?.layout.units.length ?? 0) > first.units.length);
+      final bg = BackgroundReading.current.value;
+      expect(bg, isNotNull, reason: 'the voice waited for a page to be built');
+      expect(bg!.bookId, id);
+      head = 0;
+      await io(tester, () => bg.player.isPlaying);
+      expect(bg.layout.units[bg.player.unit.value].sectionIndex, 1, reason: 'reading on at the next chapter');
+      expect(sessions.where((s) => s['active'] == false), isEmpty, reason: 'the card was ended between chapters');
+      expect(reached, [true]);
+      await bg.stop();
       await finish(tester);
     });
   });
@@ -1587,4 +2062,28 @@ void main() {
     await tester.pumpAndSettle();
     expect(picked, 321);
   });
+}
+
+/// A speech service whose natural voices all fail (a model that will not
+/// load), and whose phone voices say a moment of silence.
+class _NaturalFails extends SpeechService {
+  _NaturalFails(this.dir);
+
+  final Directory dir;
+  final asked = <String?>[];
+
+  @override
+  Future<Map<String, Object?>> synthesise({
+    required String text,
+    String? engineId,
+    String? voiceName,
+    double rate = 1.0,
+    double pitch = 1.0,
+    bool urgent = true,
+  }) async {
+    asked.add(voiceName);
+    if (isNeural(voiceName)) throw Exception('the model would not load');
+    final f = File('${dir.path}/n${asked.length}.wav')..writeAsBytesSync(wavBytes(Float32List(2400), 24000));
+    return {'wavPath': f.path, 'engineId': 'test', 'rangeEvents': const []};
+  }
 }

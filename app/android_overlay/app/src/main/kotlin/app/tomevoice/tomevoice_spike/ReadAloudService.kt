@@ -16,6 +16,7 @@ import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 
 /**
  * Keeps the process alive while a book is being read, so speech continues with
@@ -48,6 +49,15 @@ class ReadAloudService : Service() {
         private const val ART_MAX = 480
 
         /**
+         * The wake lock lets go after this unless renewed: every sentence
+         * read renews it, so only an app that died holding it is let off.
+         */
+        private const val AWAKE_MS = 10 * 60 * 1000L
+
+        /** After a Play from the lock screen or a headset, until Dart answers. */
+        private const val WAKE_FOR_PLAY_MS = 30 * 1000L
+
+        /**
          * Set by the activity; receives "play", "pause", "stop", "next",
          * "prev", "speed", and "seek" with a position in milliseconds.
          */
@@ -73,6 +83,7 @@ class ReadAloudService : Service() {
             }
             val running = instance
             if (running != null) {
+                running.keepAwake(next.playing)
                 // A new sentence only moves the seek bar; leave the
                 // notification itself alone.
                 if (next.copy(positionMs = previous.positionMs) == previous) {
@@ -135,6 +146,33 @@ class ReadAloudService : Service() {
     private var session: MediaSession? = null
     private var artPath: String? = null
     private var art: Bitmap? = null
+    private var wake: PowerManager.WakeLock? = null
+
+    /**
+     * Keeps the CPU awake while a book is read aloud or about to be (playing
+     * includes making the next sentence). Without it, with the screen off,
+     * the phone could doze while a sentence was being made, when the queue
+     * ran dry, or before the first sentence after a Play from the lock screen
+     * or a headset. Let go when paused or stopped, so a paused book costs
+     * nothing; [ms] is a safety for an app that died holding it.
+     */
+    fun keepAwake(on: Boolean, ms: Long = AWAKE_MS) {
+        try {
+            if (on) {
+                val w = wake ?: (getSystemService(Context.POWER_SERVICE) as PowerManager)
+                    .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TomeVoice:reading")
+                    .also {
+                        it.setReferenceCounted(false)
+                        wake = it
+                    }
+                // Asked again, the timeout starts again.
+                w.acquire(ms)
+            } else {
+                wake?.let { if (it.isHeld) it.release() }
+            }
+        } catch (_: Exception) {
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -144,6 +182,8 @@ class ReadAloudService : Service() {
         val s = MediaSession(this, "TomeVoice")
         s.setCallback(object : MediaSession.Callback() {
             override fun onPlay() {
+                // Awake until the app has the first sentence under way.
+                if (!now.playing) keepAwake(true, WAKE_FOR_PLAY_MS)
                 onAction?.invoke("play", 0)
             }
 
@@ -180,7 +220,10 @@ class ReadAloudService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_PLAY -> onAction?.invoke("play", 0)
+            ACTION_PLAY -> {
+                if (!now.playing) keepAwake(true, WAKE_FOR_PLAY_MS)
+                onAction?.invoke("play", 0)
+            }
             ACTION_PAUSE -> onAction?.invoke("pause", 0)
             ACTION_NEXT -> onAction?.invoke("next", 0)
             ACTION_PREV -> onAction?.invoke("prev", 0)
@@ -192,6 +235,7 @@ class ReadAloudService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, n)
         }
+        if (now.playing) keepAwake(true)
         if (onAction == null) {
             // Nothing is reading (the app was closed since): stop again, and
             // redraw the widgets so their buttons open the app instead.
@@ -204,6 +248,7 @@ class ReadAloudService : Service() {
 
     override fun onDestroy() {
         instance = null
+        keepAwake(false)
         session?.isActive = false
         session?.release()
         session = null

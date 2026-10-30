@@ -219,6 +219,8 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
   Future<void> _importAll(List<PickedFile> files, {required bool openAfter}) async {
     final imported = <LibraryEntry>[];
     final failures = <String>[];
+    // Said once the books are in: a PDF that is mostly pictures, say.
+    final notes = <String>[];
     for (final f in files) {
       final job = _Importing(f.name);
       setState(() => _importing = job);
@@ -233,6 +235,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
                 job.total = total;
               });
             },
+            onNote: (note) => notes.add(files.length > 1 ? '${f.name}: $note' : note),
           ),
         );
       } on EncryptedDocumentException catch (e) {
@@ -260,8 +263,8 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
       final page = idx.categories.indexWhere((c) => c.id == cat);
       if (page >= 0) _goToPage(page);
     }
-    if (failures.isNotEmpty) {
-      _snack(failures.join('\n'), long: true);
+    if (failures.isNotEmpty || notes.isNotEmpty) {
+      _snack([...failures, ...notes].join('\n'), long: true);
     } else if (imported.length > 1) {
       _snack('Added ${imported.length} books.');
     }
@@ -320,6 +323,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
   /// the shelf unless [fromShelf] is false.
   Future<void> _showBook(LibraryEntry entry, {bool fromShelf = true}) async {
     FocusManager.instance.primaryFocus?.unfocus();
+    if (!await SecretShelf.mayShow(context, _store, entry.id) || !mounted) return;
     // A web novel's page lists every chapter on the site, not only the ones
     // fetched so far.
     if (entry.isWeb) {
@@ -342,6 +346,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
 
   /// Straight into the reader, at the saved place.
   Future<void> _resume(LibraryEntry entry, {bool autoplay = false}) async {
+    if (!await SecretShelf.mayShow(context, _store, entry.id) || !mounted) return;
     await openBook(context, _store, entry, autoplay: autoplay);
     await _refresh();
   }

@@ -264,6 +264,9 @@ class _PageCurlState extends State<PageCurl> with SingleTickerProviderStateMixin
           _size = Size(box.maxWidth, box.maxHeight);
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
+            // TalkBack turns pages by the book's own actions: its double tap
+            // arrives here with no place on the page, read as "back".
+            excludeFromSemantics: true,
             onTapUp: _onTapUp,
             onHorizontalDragStart: _onDragStart,
             onHorizontalDragUpdate: _onDragUpdate,

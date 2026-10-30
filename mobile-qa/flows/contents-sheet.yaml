@@ -1,0 +1,21 @@
+# The reader's contents: the title in the top bar opens the chapter list
+# (with its search field and chapter count); Back closes it.
+appId: ${APP_ID || 'app.tomevoice'}
+name: The reader's contents open and close
+---
+- runFlow: open-reader.yaml
+- tapOn: "Contents.*Pride and Prejudice.*"
+- extendedWaitUntil:
+    visible: "Find a chapter"
+    timeout: 20000
+- assertVisible: ".*[0-9]+ CHAPTERS.*"
+- back
+# A first Back may only have put the keyboard away.
+- runFlow:
+    when:
+      visible: "Find a chapter"
+    commands:
+      - back
+- extendedWaitUntil:
+    visible: "Reading settings"
+    timeout: 20000
