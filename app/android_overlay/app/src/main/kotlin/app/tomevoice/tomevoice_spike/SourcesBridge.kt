@@ -1,32 +1,101 @@
 package app.tomevoice.tomevoice_spike
 
+import android.Manifest
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.provider.Settings
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
+import java.lang.ref.WeakReference
 
 /**
  * Web novels' own channel to the platform ("tomevoice/sources"), kept out of
  * MainActivity. It is registered on the app's engine (MainActivity, with
- * [activity]) and on the engine the background check starts, which has no
- * activity: calls that need one answer null there.
+ * [activity]) and on the engine the background check starts
+ * (NovelCheckWorker), which has no activity: calls that need one answer null
+ * there, and [onDone] hears that check finish.
  */
 object SourcesBridge {
     const val CHANNEL = "tomevoice/sources"
+    private const val REQ_NOTIFY = 7302
 
-    fun attach(context: Context, messenger: BinaryMessenger, activity: Activity?): MethodChannel {
-        val app = context.applicationContext
+    /** The app's activity while it lives (see [appIsOpen]). */
+    private var app: WeakReference<Activity>? = null
+
+    /** Whether the app's own engine is up: the background check then stays out of its way. */
+    fun appIsOpen(): Boolean {
+        val a = app?.get() ?: return false
+        return !a.isFinishing && !a.isDestroyed
+    }
+
+    fun attach(
+        context: Context,
+        messenger: BinaryMessenger,
+        activity: Activity?,
+        onDone: ((Map<*, *>) -> Unit)? = null,
+    ): MethodChannel {
+        val appContext = context.applicationContext
+        if (activity != null) app = WeakReference(activity)
         val channel = MethodChannel(messenger, CHANNEL)
         channel.setMethodCallHandler { call, result ->
             when (call.method) {
                 // Sources (plugin code, their storage, site cookies) live in
                 // internal storage, which no other app can read or change.
-                "sourcesRoot" -> result.success(app.filesDir.absolutePath)
+                "sourcesRoot" -> result.success(appContext.filesDir.absolutePath)
                 // The library, where MainActivity keeps it.
-                "libraryRoot" -> result.success((app.getExternalFilesDir(null) ?: app.filesDir).absolutePath)
+                "libraryRoot" -> result.success((appContext.getExternalFilesDir(null) ?: appContext.filesDir).absolutePath)
+                "scheduleChecks" -> {
+                    val handle = (call.argument<Any>("handle") as? Number)?.toLong() ?: 0L
+                    val minutes = (call.argument<Any>("minutes") as? Number)?.toLong() ?: 0L
+                    val unmetered = call.argument<Boolean>("unmetered") != false
+                    try {
+                        NovelCheckWorker.schedule(appContext, handle, minutes, unmetered)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("SCHEDULE", e.message, null)
+                    }
+                }
+                "backgroundDone" -> {
+                    val args = call.arguments as? Map<*, *> ?: emptyMap<String, Any>()
+                    result.success(null)
+                    onDone?.invoke(args)
+                }
+                "backgroundBusy" -> result.success(NovelCheckWorker.running.get())
+                "notificationsAllowed" -> result.success(NovelCheckWorker.allowed(appContext))
+                "askNotifications" -> {
+                    val a = activity
+                    if (a == null) {
+                        result.success(false)
+                    } else if (Build.VERSION.SDK_INT >= 33 &&
+                        a.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+                        android.content.pm.PackageManager.PERMISSION_GRANTED &&
+                        (!asked || a.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS))
+                    ) {
+                        asked = true
+                        a.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIFY)
+                        result.success(true)
+                    } else {
+                        // Refused before, or turned off: only Android's own
+                        // settings can turn them on now.
+                        try {
+                            a.startActivity(
+                                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                    .putExtra(Settings.EXTRA_APP_PACKAGE, a.packageName)
+                            )
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.success(false)
+                        }
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
         return channel
     }
+
+    /** The permission prompt was shown once this run. */
+    private var asked = false
 }

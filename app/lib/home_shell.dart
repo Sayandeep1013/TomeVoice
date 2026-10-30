@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import 'app_update.dart';
+import 'background_check.dart';
 import 'backup.dart';
 import 'backup_flow.dart';
 import 'book_tint.dart';
@@ -74,6 +75,15 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
       unawaited(Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => StatsScreen(store: store))));
       return;
     }
+    // The new-chapters notification: the Updates page.
+    if (launch['page'] == 'updates') {
+      Navigator.of(context).popUntil((r) => r.isFirst);
+      setState(() {
+        _place = _Place.updates;
+        _visited.add(_Place.updates);
+      });
+      return;
+    }
     final id = launch['book'] as String?;
     final entry = (await store.list()).where((e) => e.id == id).firstOrNull;
     if (entry == null || !mounted) return;
@@ -88,6 +98,7 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
     _widgetTimer?.cancel();
     unawaited(_widgetEvents?.cancel());
     _lifecycle?.dispose();
+    ListeningPrefs.revision.removeListener(_scheduleChecks);
     _store?.changes.removeListener(_scheduleFollow);
     _store?.placeChanges.removeListener(_scheduleFollow);
     _store?.changes.removeListener(_scheduleWidgets);
@@ -150,6 +161,8 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
       final sources = await SourceStore.open(Directory(internal ?? dir), legacyRoot: Directory(dir));
       await Net.instance.attach(sources.dir);
       SourceEngine.instance.attach(sources);
+      // The check made with the app closed asks with the same agent.
+      if (agent != null && agent.isNotEmpty) unawaited(sources.saveUserAgent(agent));
       final store = LibraryStore(Directory(dir));
       await TintCache.instance.attach(Directory(dir));
       await ReadingRules.instance.attach(Directory(dir));
@@ -191,19 +204,44 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
       _lifecycle = AppLifecycleListener(onResume: () {
         unawaited(_offerUpdate(Directory(dir)));
         unawaited(_refreshSources(sources));
+        unawaited(_checkChapters(updates));
       });
       // New chapters, at most as often as the reader asked, a moment after
-      // the shelf is up so opening the app stays quick.
-      Future<void>.delayed(const Duration(seconds: 4), () async {
-        final every = UpdateEvery.byName(ListeningPrefs.loaded?.updateEvery);
-        try {
-          await updates.checkIfDue(every);
-        } on Object {
-          // A failed check simply runs again next time.
-        }
-      });
+      // the shelf is up so opening the app stays quick; on coming back to
+      // the app too; and with the app closed (background_check.dart).
+      Future<void>.delayed(const Duration(seconds: 4), () => _checkChapters(updates));
+      unawaited(_scheduleChecks());
+      ListeningPrefs.revision.addListener(_scheduleChecks);
     } on Object catch (e) {
       if (mounted) setState(() => _error = '$e');
+    }
+  }
+
+  /// The interval the background check was last given, so it is only asked
+  /// for again when the reader changes it.
+  UpdateEvery? _scheduled;
+
+  Future<void> _scheduleChecks() async {
+    final every = UpdateEvery.byName(ListeningPrefs.loaded?.updateEvery);
+    if (every == _scheduled) return;
+    _scheduled = every;
+    try {
+      await BackgroundChecks.schedule(every);
+    } on Object {
+      _scheduled = null;
+    }
+  }
+
+  /// Check for new chapters if one is due, unless a check with the app
+  /// closed is running now (two engines must not write the library at
+  /// once). Chapter counts such a check found reach the shelf first.
+  Future<void> _checkChapters(Updates updates) async {
+    try {
+      if (await SourcesBridge.backgroundBusy()) return;
+      await updates.takeCounts();
+      await updates.checkIfDue(UpdateEvery.byName(ListeningPrefs.loaded?.updateEvery));
+    } on Object {
+      // A failed check simply runs again next time.
     }
   }
 

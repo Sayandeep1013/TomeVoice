@@ -132,8 +132,12 @@ class PluginHost {
     required this.shim,
     required this.sourcesDir,
     this.viaBrowser,
-    this.maxLive = 4,
+    this.maxLive = 5,
+    this.onBrowserHost,
   });
+
+  /// A site turned out to need [viaBrowser] (see browser_hosts.dart).
+  final void Function(String host)? onBrowserHost;
 
   final JsRuntime Function() newRuntime;
   final String libs;
@@ -317,7 +321,7 @@ class PluginHost {
       if (r.isChallenge && browser != null) {
         final html = await browser(url);
         if (html != null) {
-          _browserHosts.add(host);
+          if (_browserHosts.add(host)) onBrowserHost?.call(host);
           return _page(url, html);
         }
       }

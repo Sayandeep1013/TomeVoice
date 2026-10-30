@@ -27,6 +27,9 @@ copied in. The generated project cannot know about any of this:
 
 7. The launcher label, which `flutter create` sets to the project name.
 
+8. Web novels: WorkManager for the check for new chapters made with the app
+   closed (NovelCheckWorker.kt).
+
 Idempotent: running it twice changes nothing the second time.
 """
 
@@ -40,6 +43,9 @@ from pathlib import Path
 MIN_SDK = 26
 TARGET_SDK = 36
 PDFBOX = 'implementation("com.tom-roush:pdfbox-android:2.0.27.0")'
+# Web novels: WorkManager runs the check for new chapters with the app closed
+# (NovelCheckWorker.kt). Apache-2.0 (AndroidX).
+WORK = 'implementation("androidx.work:work-runtime:2.10.0")'
 
 QUERIES_BLOCK = """    <!-- Required since Android 11 for TextToSpeech.getEngines() to see
          installed engines. -->
@@ -306,6 +312,11 @@ def patch_gradle(path: Path, signing: bool) -> str:
         else:
             text = text.rstrip() + "\n\ndependencies {\n    implementation 'com.tom-roush:pdfbox-android:2.0.27.0'\n}\n"
         notes.append("pdfbox")
+
+    # Web novels: the background check for new chapters (NovelCheckWorker.kt).
+    if WORK not in text and path.suffix == ".kts":
+        text = text.rstrip() + f"\n\ndependencies {{\n    {WORK}\n}}\n"
+        notes.append("workmanager")
 
     if 'proguardFiles("proguard-rules.pro")' not in text and path.suffix == ".kts":
         text, n = re.subn(

@@ -532,6 +532,32 @@ class SourceStore {
     await _saveInstalled(next);
   }
 
+  File get _agentFile => File('${dir.path}/agent.txt');
+
+  /// Keep the phone's web view agent (Net.userAgent): the check made with
+  /// the app closed cannot ask the web view for it, and must ask as the app
+  /// does.
+  Future<void> saveUserAgent(String agent) async {
+    try {
+      if (await _agentFile.exists() && await _agentFile.readAsString() == agent) return;
+      await _agentFile.writeAsString(agent);
+    } on Object {
+      // The built-in agent will do.
+    }
+  }
+
+  Future<String?> savedUserAgent() async {
+    try {
+      if (await _agentFile.exists()) {
+        final a = (await _agentFile.readAsString()).trim();
+        return a.isEmpty ? null : a;
+      }
+    } on Object {
+      // None kept.
+    }
+    return null;
+  }
+
   /// Where an installed plugin's code lives.
   String codePath(String id) => '${_pluginDir.path}/${_safe(id)}.js';
 

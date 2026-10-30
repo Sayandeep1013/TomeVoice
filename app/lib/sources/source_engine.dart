@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:isolate';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart';
 
+import 'browser_hosts.dart';
 import 'models.dart';
 import 'net.dart';
 import 'plugin_host.dart';
@@ -315,6 +317,7 @@ class _Worker {
       shim: boot[3] as String,
       sourcesDir: dir,
       viaBrowser: viaBrowser,
+      onBrowserHost: (host) => unawaited(noteBrowserHost(Directory(dir), host)),
     );
     await for (final m in requests) {
       if (m is! Map) continue;
