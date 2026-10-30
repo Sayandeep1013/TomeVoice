@@ -1441,7 +1441,7 @@ class _VoicePickerState extends State<_VoicePicker> {
               Icon(
                 selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
                 size: 22,
-                color: selected ? Skin.accentOf(context) : Skin.inkFaintOn(context),
+                color: selected ? Skin.accentInkOf(context) : Skin.inkFaintOn(context),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -1455,7 +1455,7 @@ class _VoicePickerState extends State<_VoicePicker> {
                   ],
                 ),
               ),
-              Icon(Icons.headphones_rounded, color: Skin.accentSoftOf(context), size: 24),
+              Icon(Icons.headphones_rounded, color: Skin.accentInkOf(context), size: 24),
             ],
           ),
         ),
