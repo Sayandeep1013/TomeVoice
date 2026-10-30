@@ -15,8 +15,9 @@ const pdfParagraphMark = '\u2029';
 /// app keeps a PDF as it was parsed at import unless it stores this number
 /// with it and extracts again when it is older (2: running heads on nearby
 /// pages, contents pages, nested bookmarks, hyphens in any script, footnotes
-/// and columns from the line layout).
-const pdfParserVersion = 2;
+/// and columns from the line layout; 3: paragraphs set in by an indent,
+/// which the extractor ran together, dialogue above all).
+const pdfParserVersion = 3;
 
 /// One outline (bookmark) entry: a title and the 0-based page it points at.
 typedef PdfOutlineEntry = ({String title, int page});
@@ -63,7 +64,14 @@ List<List<int>>? pdfLayoutFromPlatform(Object? raw) {
 /// sections to itself. When chapters in different groups share titles
 /// ("Chapter 1" in every Part), each is named with its group's.
 List<PdfOutlineEntry> flattenPdfOutline(List<PdfBookmark> bookmarks) {
-  var list = bookmarks;
+  // A bookmark that points nowhere and holds nothing ("How to share this
+  // eBook") is no chapter, and does not keep the book's own title from
+  // being unwrapped.
+  var list = [
+    for (var i = 0; i < bookmarks.length; i++)
+      if (bookmarks[i].page >= 0 || (i + 1 < bookmarks.length && bookmarks[i + 1].level > bookmarks[i].level))
+        bookmarks[i],
+  ];
   while (list.length > 1) {
     final top = list.map((b) => b.level).reduce(math.min);
     if (list.where((b) => b.level == top).length != 1) break;
@@ -85,11 +93,14 @@ List<PdfOutlineEntry> flattenPdfOutline(List<PdfBookmark> bookmarks) {
     path.add(b);
   }
 
-  final grouped = <String>{};
-  var repeated = false;
+  // Named with their groups when one title comes up in two of them; a title
+  // a publisher listed twice in one group is not told apart by it.
+  final groupsOf = <String, Set<String>>{};
   for (final k in kept) {
-    if (k.group != null && !grouped.add(_words(k.bookmark.title))) repeated = true;
+    final group = k.group;
+    if (group != null) (groupsOf[_words(k.bookmark.title)] ??= {}).add(group);
   }
+  final repeated = groupsOf.values.any((groups) => groups.length > 1);
   return [
     for (final k in kept)
       if (k.bookmark.page >= 0 && k.bookmark.title.isNotEmpty)
@@ -530,11 +541,51 @@ final _noteMark = RegExp(
 List<List<String>> _paragraphs(List<_Line> lines, {required bool lineByLine}) {
   final out = <List<String>>[];
   for (var i = 0; i < lines.length; i++) {
-    if (i == 0 || lineByLine || lines[i].para != lines[i - 1].para) out.add([]);
+    if (i == 0 || lineByLine || lines[i].para != lines[i - 1].para || _indentedStart(lines, i)) out.add([]);
     out.last.add(lines[i].text);
   }
   return out;
 }
+
+/// Whether line [i] starts a paragraph the extractor ran into the one
+/// before: the line before ends a sentence, and this one is set in from the
+/// column's edge, by more than the line before it was or after a line that
+/// stopped short. Novels set dialogue so ("'Is he married or single?'" over
+/// "'Oh! Single, my dear...'"), and Pride and Prejudice came out with a
+/// whole conversation in one paragraph.
+bool _indentedStart(List<_Line> lines, int i) {
+  final line = lines[i].box, prev = lines[i - 1].box;
+  if (line == null || prev == null || line.size <= 0) return false;
+  if (!_endsSentence.hasMatch(lines[i - 1].text)) return false;
+  final em = line.size;
+  // The column's edge: the line furthest left within a few ems of this one.
+  var margin = line.x;
+  for (final l in lines) {
+    final b = l.box;
+    if (b != null && b.x < margin && line.x - b.x <= 6 * em) margin = b.x;
+  }
+  final indent = line.x - margin;
+  if (indent < 0.8 * em || indent > 6 * em) return false;
+  // Lines at the edge carry the extractor's paragraph on, and one set in
+  // starts the next. A paragraph set in as a whole (a quotation, verse) has
+  // none at the edge, and stays as it is.
+  final para = lines[i].para;
+  var right = 0.0, atEdge = false;
+  for (final l in lines) {
+    final b = l.box;
+    if (l.para != para || b == null) continue;
+    if ((b.x - margin).abs() < 0.5 * em) atEdge = true;
+    right = math.max(right, b.x + b.w);
+  }
+  if (!atEdge) return false;
+  if (line.x - prev.x >= 0.8 * em) return true;
+  // After a paragraph of one line, set in itself: it stops well short of the
+  // full lines, as a full line of a justified paragraph does not.
+  return prev.x + prev.w < right - 2 * em;
+}
+
+/// A line that ends a sentence, closing quotes and brackets included.
+final _endsSentence = RegExp('[.!?…।"”’\')\\]]\$');
 
 /// The paragraph being reflowed: the page it starts on, and its lines so far.
 class _Open {

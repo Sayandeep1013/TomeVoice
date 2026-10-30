@@ -274,6 +274,32 @@ void main() {
       ]);
     });
 
+    test('the book over its chapters is unwrapped beside bookmarks to nowhere', () {
+      // Pride and Prejudice from Planet eBook: two bookmarks that point
+      // nowhere at the top, and Chapters 19 and 20 listed twice.
+      final outline = pdfOutlineFromPlatform([
+        {'title': 'Pride and Prejudice', 'page': 0, 'level': 0},
+        {'title': 'Chapter 1', 'page': 1, 'level': 1},
+        {'title': 'Chapter 19', 'page': 120, 'level': 1},
+        {'title': 'Chapter 19', 'page': 127, 'level': 1},
+        {'title': 'Chapter 2', 'page': 5, 'level': 1},
+        {'title': 'How to share this eBook', 'page': -1, 'level': 0},
+        {'title': 'Free eBooks at Planet eBook', 'page': -1, 'level': 0},
+      ]);
+      expect(titles(outline), ['Chapter 1', 'Chapter 19', 'Chapter 19', 'Chapter 2']);
+    });
+
+    test('a title listed twice in one group is not named with it', () {
+      final outline = pdfOutlineFromPlatform([
+        {'title': 'Volume One', 'page': 0, 'level': 0},
+        {'title': 'Chapter 1', 'page': 1, 'level': 1},
+        {'title': 'Chapter 1', 'page': 4, 'level': 1},
+        {'title': 'Volume Two', 'page': 9, 'level': 0},
+        {'title': 'Chapter 2', 'page': 10, 'level': 1},
+      ]);
+      expect(titles(outline), ['Volume One', 'Chapter 1', 'Chapter 1', 'Volume Two', 'Chapter 2']);
+    });
+
     test("a chapter's own sections are not chapters", () {
       final outline = pdfOutlineFromPlatform([
         {'title': 'Chapter 1 Cells', 'page': 0, 'level': 0},
@@ -476,6 +502,46 @@ void main() {
       final texts = _texts(_laidBook(pages));
       expect(texts.where((t) => t == 'THE LANTERN KEEPER'), hasLength(1));
       expect(texts.where((t) => t.contains('LANTERN KEEPER')), hasLength(1));
+    });
+
+    test('dialogue the extractor ran together is split where each line is set in', () {
+      // As Pride and Prejudice came out: one extractor paragraph for a
+      // whole exchange, each speaker's first line indented an em.
+      final book = _laidBook([
+        [
+          _at('‘My dear Mr. Bennet,’ said his lady to him one day, ‘have', 82, 100, w: 390, para: true),
+          _at('you heard that Netherfield Park is let at last?’', 72, 114, w: 260),
+          _at('Mr. Bennet replied that he had not.', 82, 128, w: 180),
+          _at('‘But it is,’ returned she; ‘for Mrs. Long has just been here,', 82, 142, w: 390),
+          _at('and she told me all about it.’', 72, 156, w: 170),
+          _at('Mr. Bennet made no answer.', 82, 170, w: 150),
+          _at('‘Do you not want to know who has taken it?’ cried his wife', 82, 184, w: 390),
+          _at('impatiently. A full line of the same paragraph ends a sentence.', 72, 198),
+          _at('and goes on at the edge, where it belongs, to its end.', 72, 212, w: 300),
+        ],
+      ]);
+      expect(_texts(book), [
+        '‘My dear Mr. Bennet,’ said his lady to him one day, ‘have you heard that Netherfield Park is let at last?’',
+        'Mr. Bennet replied that he had not.',
+        '‘But it is,’ returned she; ‘for Mrs. Long has just been here, and she told me all about it.’',
+        'Mr. Bennet made no answer.',
+        '‘Do you not want to know who has taken it?’ cried his wife impatiently. '
+            'A full line of the same paragraph ends a sentence. and goes on at the edge, where it belongs, to its end.',
+      ]);
+    });
+
+    test('a quotation set in as a whole stays one paragraph', () {
+      final book = _laidBook([
+        [
+          _at('He read the letter aloud to the room, slowly, as if every', 72, 100, para: true),
+          _at('word of it might change its meaning on the second reading:', 72, 114),
+          _at('Come home before the tide turns. Bring the lantern, and', 120, 140, w: 300, para: true),
+          _at('the key to the gate. The road is dark at night.', 120, 154, w: 300),
+          _at('Mind the ford. It rises fast after the rain.', 120, 168, w: 260),
+        ],
+      ]);
+      expect(_texts(book).last, 'Come home before the tide turns. Bring the lantern, and the key to the gate. '
+          'The road is dark at night. Mind the ford. It rises fast after the rain.');
     });
 
     test('a layout that does not match the text is ignored', () {
