@@ -277,6 +277,16 @@ Book parseOdt(Uint8List bytes, {required String id, String? filename}) {
         case 'tracked-changes':
         case 'sequence-decls':
           break;
+        // Indexes LibreOffice generates, a table of contents above all: page
+        // numbers and titles that come later (Word's are not read either).
+        case 'table-of-content':
+        case 'illustration-index':
+        case 'table-index':
+        case 'object-index':
+        case 'user-index':
+        case 'alphabetical-index':
+        case 'bibliography':
+          break;
         default:
           visit(c, inList: inList);
       }
@@ -297,6 +307,8 @@ Book parseOdt(Uint8List bytes, {required String id, String? filename}) {
     filename: filename,
   );
 }
+
+const _svg = 'urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0';
 
 /// The text of [e]; each note in it adds its (mark, body) to [notes] and
 /// leaves its mark, silent, in the text.
@@ -325,6 +337,11 @@ String _odtText(XmlElement e, [List<(String, String)>? notes]) {
             if (text.isNotEmpty) notes?.add((mark, text));
           case 'annotation':
             break;
+          // A picture's title and description (its alt text): words about
+          // the picture, which ran into the sentence it sits in.
+          case 'title':
+          case 'desc':
+            if (c.name.namespaceUri != _svg) walk(c);
           default:
             walk(c);
         }

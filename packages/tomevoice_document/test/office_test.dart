@@ -102,6 +102,44 @@ void main() {
     });
   });
 
+  group('odt', () {
+    Uint8List odt(String body) {
+      final a = Archive();
+      void add(String name, String text) => a.addFile(ArchiveFile.bytes(name, utf8.encode(text)));
+      add('mimetype', 'application/vnd.oasis.opendocument.text');
+      add('meta.xml', '<office:document-meta xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+          'xmlns:dc="http://purl.org/dc/elements/1.1/"><office:meta><dc:title>Parables</dc:title></office:meta></office:document-meta>');
+      add('content.xml', '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+          'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" '
+          'xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink">'
+          '<office:body><office:text>$body</office:text></office:body></office:document-content>');
+      return Uint8List.fromList(ZipEncoder().encode(a));
+    }
+
+    test("LibreOffice's table of contents and a picture's description are not read", () {
+      final book = ingestBytes(
+        odt('<text:p text:style-name="Title">Parables</text:p>'
+            '<text:table-of-content text:name="Table of Contents1"><text:index-body>'
+            '<text:index-title><text:p>Table of Contents</text:p></text:index-title>'
+            '<text:p><text:a xlink:href="#__RefHeading___Toc1_1">The Scarecrow<text:tab/>2</text:a></text:p>'
+            '</text:index-body></text:table-of-content>'
+            '<text:h text:outline-level="1">The Scarecrow</text:h>'
+            '<text:p><draw:frame draw:name="Image1"><draw:image xlink:href="Pictures/a.png"/>'
+            '<svg:title>A scarecrow</svg:title><svg:desc>A scarecrow in a field.</svg:desc></draw:frame>'
+            'Once I said to a scarecrow, “You must be tired.”</text:p>'
+            '<text:h text:outline-level="1">The Fox</text:h><text:p>A fox looked at his shadow.</text:p>'),
+        filename: 'p.odt',
+      );
+      expect(_texts(book), [
+        'Parables',
+        'The Scarecrow',
+        'Once I said to a scarecrow, “You must be tired.”',
+        'The Fox',
+        'A fox looked at his shadow.',
+      ]);
+    });
+  });
+
   group('markdown', () {
     test('front matter, tables and raw HTML are not read', () {
       final book = ingestString(
