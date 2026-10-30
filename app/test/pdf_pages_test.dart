@@ -1,7 +1,8 @@
 // A PDF's real pages on a phone: each page zooms (a pinch, or two taps),
 // and a pinch never turns a page; at night a dark page tone draws the page
-// dark; and the page keys and the taps at the sides turn its pages as they
-// turn the text's.
+// dark; the page keys and the taps at the sides turn its pages as they turn
+// the text's; and with Crop margins each page shows only its print, every
+// page one shape.
 
 import 'dart:io';
 
@@ -11,6 +12,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 import 'package:tomevoice_spike/marks.dart';
+import 'package:tomevoice_spike/page_crop.dart';
+import 'package:tomevoice_spike/page_curl.dart';
 import 'package:tomevoice_spike/page_tone.dart';
 import 'package:tomevoice_spike/pages_view.dart';
 import 'package:tomevoice_spike/prefs.dart';
@@ -23,6 +26,17 @@ const _channel = MethodChannel('tomevoice/tts');
 late Directory _tmp;
 final _calls = <MethodCall>[];
 
+/// Where the phone finds each page's print (fractions of the page); a page
+/// not named has margins all round.
+final _printsAt = <int, List<double>?>{};
+const _usual = [0.12, 0.08, 0.88, 0.92];
+const _letter = 612 / 792;
+
+Rect? _printOf(int page) {
+  final b = _printsAt.containsKey(page) ? _printsAt[page] : _usual;
+  return b == null ? null : Rect.fromLTRB(b[0], b[1], b[2], b[3]);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -30,6 +44,7 @@ void main() {
     MarkStore.instance.reset();
     _tmp = Directory.systemTemp.createTempSync('tv_pdf_pages');
     _calls.clear();
+    _printsAt.clear();
     ListeningPrefs.reset();
     SpeechService.resetQueue();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(_channel, (call) async {
@@ -51,6 +66,9 @@ void main() {
         // Never drawn in a test: the page shows its number, which says which
         // page is on screen.
         'pdfRender' => '${_tmp.path}/page.jpg',
+        'pdfPrint' => [
+            for (final p in (call.arguments as Map)['pages'] as List) _printsAt.containsKey(p) ? _printsAt[p] : _usual,
+          ],
         'playerEnqueue' => 0,
         _ => null,
       };
@@ -307,5 +325,135 @@ void main() {
     expect(shown(), '3');
     semantics.dispose();
     await finish(tester);
+  });
+
+  group('Crop margins', () {
+    /// The book's cut, as the view should find it from the three pages.
+    CropPlan plan() => CropPlan.from(const [0, 1, 2], [for (var p = 0; p < 3; p++) _printOf(p)], List.filled(3, _letter))!;
+
+    List<double> sides(Rect r) => [r.left, r.top, r.right, r.bottom];
+
+    /// What each page was last drawn as: its pdfRender call's arguments.
+    Map<int, Map<Object?, Object?>> drawn() => {
+          for (final c in _calls.where((c) => c.method == 'pdfRender'))
+            (c.arguments as Map)['page'] as int: c.arguments as Map,
+        };
+
+    Iterable<AspectRatio> frames(WidgetTester tester) => tester.widgetList<AspectRatio>(
+        find.descendant(of: find.byType(PdfPagesView), matching: find.byType(AspectRatio)));
+
+    testWidgets('it opens under Show the real pages in the reading settings, and is remembered', (tester) async {
+      await openPdf(tester);
+      await tester.tap(find.byTooltip('Reading settings'));
+      await tester.pumpAndSettle();
+      final crop = find.text('Crop margins');
+      expect(crop, findsOneWidget);
+      await tester.ensureVisible(crop);
+      await tester.pumpAndSettle();
+      await tester.tap(crop);
+      await tester.pumpAndSettle();
+      expect(ListeningPrefs.memory.pdfCrop, isTrue);
+      expect(ListeningPrefs.fromJson(ListeningPrefs.memory.toJson()).pdfCrop, isTrue);
+      expect(ListeningPrefs.fromJson(const {}).pdfCrop, isFalse, reason: 'off unless chosen');
+      // The pages behind the sheet were cut at once.
+      expect(_calls.where((c) => c.method == 'pdfPrint'), isNotEmpty);
+      for (final f in frames(tester)) {
+        expect(f.aspectRatio, closeTo(plan().shownAspect, 1e-9));
+      }
+      // Text instead of the real pages: nothing to cut, so it is not offered.
+      await tester.tap(find.text('Show the real pages'));
+      await tester.pumpAndSettle();
+      expect(find.text('Crop margins'), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets("scrolled, each page shows only its print, every page one shape; one the cut cannot hold shows whole",
+        (tester) async {
+      // Page 2 is a picture to its edges.
+      _printsAt[1] = [0, 0, 1, 1];
+      ListeningPrefs.memory.pdfCrop = true;
+      await openPdf(tester);
+      final p = plan();
+      expect(p.shownAspect, lessThan(_letter), reason: 'cut narrower than tall: the print fills the width');
+      expect(frames(tester), isNotEmpty);
+      for (final f in frames(tester)) {
+        expect(f.aspectRatio, closeTo(p.shownAspect, 1e-9));
+      }
+      // Each page drawn as its own part of the page, at the width it shows.
+      final pages = drawn();
+      expect(pages[0]!['crop'], sides(p.cropFor(0, _printOf(0), _letter)!));
+      expect(pages[1]!.containsKey('crop'), isFalse, reason: 'the picture is drawn whole');
+      // The whole one sits in a cut page's place, kept whole.
+      await tester.pumpAndSettle();
+      final images = tester.widgetList<Image>(find.descendant(of: find.byType(PdfPagesView), matching: find.byType(Image)));
+      expect(images.map((i) => i.fit), containsAll([BoxFit.fill, BoxFit.contain]));
+      // Only the pages the cut was found from were looked at.
+      expect(_calls.where((c) => c.method == 'pdfPrint'), hasLength(1));
+      await finish(tester);
+    });
+
+    testWidgets('turned off and on again, the pages are whole and cut again, the top one kept in place',
+        (tester) async {
+      ListeningPrefs.memory.pdfCrop = true;
+      await openPdf(tester);
+      final first = find.descendant(of: find.byType(PdfPagesView), matching: find.byType(AspectRatio)).first;
+      final top = tester.getTopLeft(first).dy;
+      ListeningPrefs.memory
+        ..pdfCrop = false
+        ..save();
+      await tester.pumpAndSettle();
+      for (final f in frames(tester)) {
+        expect(f.aspectRatio, _letter);
+      }
+      expect(tester.getTopLeft(first).dy, closeTo(top, 1));
+      expect(drawn()[0]!.containsKey('crop'), isFalse);
+      ListeningPrefs.memory
+        ..pdfCrop = true
+        ..save();
+      await tester.pumpAndSettle();
+      for (final f in frames(tester)) {
+        expect(f.aspectRatio, closeTo(plan().shownAspect, 1e-9));
+      }
+      expect(_calls.where((c) => c.method == 'pdfPrint'), hasLength(1), reason: 'the cut is found once');
+      await finish(tester);
+    });
+
+    testWidgets('turned as a book, each leaf is a cut page; the sides still turn it, and two taps zoom where tapped',
+        (tester) async {
+      ListeningPrefs.memory
+        ..pdfCrop = true
+        ..pages = true
+        ..pageTurn = 'curl'
+        ..pageTone = 'dusk';
+      await openPdf(tester);
+      final p = plan();
+      final leaf = tester.getSize(find.byType(PageCurl));
+      expect(leaf.width / leaf.height, closeTo(p.shownAspect, 0.01));
+      // The dark tone still draws the cut page dark.
+      expect(find.descendant(of: find.byType(PdfPagesView), matching: find.byType(ColorFiltered)), findsWidgets);
+      expect(drawn()[0]?['crop'], sides(p.cropFor(0, _printOf(0), _letter)!));
+      expect(shown(), '1');
+
+      final box = tester.getRect(find.byType(PageCurl));
+      await tester.tapAt(Offset(box.right - 10, box.center.dy));
+      await tester.pumpAndSettle();
+      expect(shown(), '2');
+      expect(drawn()[1]?['crop'], sides(p.cropFor(1, _printOf(1), _letter)!));
+      expect(p.cropFor(1, _printOf(1), _letter)!.left, closeTo(p.odd.left, 1e-9), reason: 'an odd page by its own box');
+
+      // Two taps zoom in on the point tapped: it stays under the finger.
+      final at = box.center + const Offset(20, -40);
+      await tester.tapAt(at);
+      await tester.pump(const Duration(milliseconds: 60));
+      await tester.tapAt(at);
+      await tester.pumpAndSettle();
+      final view = find.byType(InteractiveViewer);
+      final zoom = zoomOf(tester);
+      expect(zoom.getMaxScaleOnAxis(), greaterThan(2));
+      final local = at - tester.getTopLeft(view);
+      final moved = MatrixUtils.transformPoint(zoom, local);
+      expect((moved - local).distance, lessThan(1));
+      await finish(tester);
+    });
   });
 }

@@ -189,12 +189,27 @@ class MainActivity : FlutterActivity() {
                     val path = call.argument<String>("path").orEmpty()
                     val index = call.argument<Int>("page") ?: 0
                     val width = call.argument<Int>("width") ?: 1080
+                    // Only this part of the page, when its margins are cut.
+                    val crop = call.argument<List<Number>>("crop")?.map { it.toFloat() }?.toFloatArray()
                     pages.execute {
                         try {
-                            val file = PdfPages.render(path, index, width, cacheDir)
+                            val file = PdfPages.render(path, index, width, cacheDir, crop)
                             main.post { result.success(file) }
                         } catch (e: Throwable) {
                             main.post { result.error("PDF_PAGES", e.message ?: "Cannot draw page", null) }
+                        }
+                    }
+                }
+                // Where the print lies on pages, for Crop margins.
+                "pdfPrint" -> {
+                    val path = call.argument<String>("path").orEmpty()
+                    val indices = call.argument<List<Number>>("pages").orEmpty().map { it.toInt() }
+                    pages.execute {
+                        try {
+                            val found = PdfPages.prints(path, indices, cacheDir)
+                            main.post { result.success(found) }
+                        } catch (e: Throwable) {
+                            main.post { result.error("PDF_PAGES", e.message ?: "Cannot look at the pages", null) }
                         }
                     }
                 }

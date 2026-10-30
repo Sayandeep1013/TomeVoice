@@ -28,6 +28,7 @@ class ListeningPrefs {
     this.engineId,
     this.textSize = 19,
     this.pdfPages = false,
+    this.pdfCrop = false,
     this.bookFont = BookFont.newsreader,
     this.lineHeight = 1.6,
     this.margin = 22,
@@ -173,6 +174,11 @@ class ListeningPrefs {
 
   /// Show PDFs as their real pages instead of reflowed text.
   bool pdfPages;
+
+  /// The real pages' white margins cut away, so the print is larger (see
+  /// page_crop.dart). Off unless chosen: a mark too faint or small to be
+  /// found in a margin would go with it.
+  bool pdfCrop;
 
   /// The typeface of the page.
   BookFont bookFont;
@@ -346,6 +352,7 @@ class ListeningPrefs {
         'engineId': engineId,
         'textSize': textSize,
         'pdfPages': pdfPages,
+        if (pdfCrop) 'pdfCrop': true,
         'bookFont': bookFont.name,
         'lineHeight': lineHeight,
         'margin': margin,
@@ -420,6 +427,7 @@ class ListeningPrefs {
         engineId: json['engineId'] as String?,
         textSize: ((json['textSize'] as num?)?.toDouble() ?? 19).clamp(14, 30).toDouble(),
         pdfPages: json['pdfPages'] == true,
+        pdfCrop: json['pdfCrop'] == true,
         bookFont: BookFont.byName(json['bookFont'] as String?),
         lineHeight: ((json['lineHeight'] as num?)?.toDouble() ?? 1.6).clamp(1.3, 2.0).toDouble(),
         margin: ((json['margin'] as num?)?.toDouble() ?? 22).clamp(8, 48).toDouble(),

@@ -9,8 +9,10 @@ import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
+import 'page_crop.dart';
 import 'page_curl.dart';
 import 'paged_view.dart' show InstantPagePhysics, PageTurn;
+import 'prefs.dart';
 import 'speech_service.dart';
 import 'theme.dart';
 import 'ui.dart';
@@ -60,6 +62,12 @@ List<double> invertedPageMatrix({required Color paper, required Color ink}) {
 /// back. A page zoomed in moves under the finger, and the book does not turn
 /// (nor the pages scroll) by hand until it is back to its whole size; a key
 /// still turns it.
+///
+/// With Crop margins on (the reader's settings, followed as they change)
+/// each page shows only its print, its white margins cut away, by the
+/// book's [CropPlan]: every cut page the same shape and scale, and a page
+/// whose print the cut cannot hold shown whole in its place. Nothing here is
+/// placed by where it lies on the page; what is goes through [ShownPage].
 class PdfPagesView extends StatefulWidget {
   const PdfPagesView({
     super.key,
@@ -108,12 +116,30 @@ class PdfPagesView extends StatefulWidget {
 class _PdfPagesViewState extends State<PdfPagesView> {
   late final Future<({int pages, List<double> aspects})> _info =
       _svc.pdfInfo(widget.path);
+
+  /// The pages known, and cut if Crop margins is on as they open, so they
+  /// first show as they stay.
+  late final Future<({int pages, List<double> aspects})> _opened = _open();
   final _scroll = ItemScrollController();
   final _positions = ItemPositionsListener.create();
-  final _renders = <String, Future<String>>{};
+
+  /// Each page drawn, by page, width and whether cut.
+  final _renders = <String, Future<ShownPage>>{};
   int _pageCount = 0;
+  List<double> _aspects = const [];
   int _current = 0;
   bool _programmatic = false;
+
+  /// Crop margins, as the reader's settings have it.
+  static bool get _cropSetting => (ListeningPrefs.loaded ?? ListeningPrefs.memory).pdfCrop;
+  bool _cropOn = _cropSetting;
+
+  /// How the pages are cut once that is found; null shows them whole.
+  CropPlan? _plan;
+  Future<CropPlan?>? _planned;
+
+  /// Where the print lies on each page asked about (null: a blank page).
+  final _prints = <int, Future<Rect?>>{};
 
   /// Pages zoomed in just now. While any is, a finger moves the page and
   /// does not turn or scroll the book.
@@ -128,6 +154,7 @@ class _PdfPagesViewState extends State<PdfPagesView> {
     widget.controller?._state = this;
     widget.cursor.addListener(_onCursor);
     widget.detached.addListener(_onDetached);
+    ListeningPrefs.revision.addListener(_onPrefs);
   }
 
   @override
@@ -144,9 +171,100 @@ class _PdfPagesViewState extends State<PdfPagesView> {
     if (widget.controller?._state == this) widget.controller?._state = null;
     widget.cursor.removeListener(_onCursor);
     widget.detached.removeListener(_onDetached);
+    ListeningPrefs.revision.removeListener(_onPrefs);
     _turner.dispose();
     _unzoom.dispose();
     super.dispose();
+  }
+
+  Future<({int pages, List<double> aspects})> _open() async {
+    final info = await _info;
+    if (_cropOn) {
+      final plan = await _planFor(info);
+      if (_cropOn) _plan = plan;
+    }
+    return info;
+  }
+
+  /// Crop margins turned on or off: the pages cut, or whole again, once the
+  /// cut is found.
+  void _onPrefs() {
+    final on = _cropSetting;
+    if (on == _cropOn) return;
+    _cropOn = on;
+    unawaited(_recrop(on));
+  }
+
+  Future<void> _recrop(bool on) async {
+    try {
+      final info = await _info;
+      final plan = on ? await _planFor(info) : null;
+      if (!mounted || _cropOn != on || plan == _plan) return;
+      _keepPlace();
+      setState(() => _plan = plan);
+    } on Object {
+      // The pages cannot be shown: the view says so already.
+    }
+  }
+
+  /// The book's cut, found once from a few of its pages.
+  Future<CropPlan?> _planFor(({int pages, List<double> aspects}) info) => _planned ??= _findPlan(info);
+
+  Future<CropPlan?> _findPlan(({int pages, List<double> aspects}) info) async {
+    final sample = cropSample(info.pages);
+    try {
+      final prints = await _svc.pdfPrint(widget.path, sample);
+      for (final (i, page) in sample.indexed) {
+        _prints.putIfAbsent(page, () => Future.value(prints[i]));
+      }
+      return CropPlan.from(sample, prints, info.aspects);
+    } on Object {
+      // Not looked at: the pages show whole.
+      return null;
+    }
+  }
+
+  /// Where the print lies on page [index], asked of the phone once.
+  Future<Rect?> _printOf(int index) =>
+      _prints.putIfAbsent(index, () async => (await _svc.pdfPrint(widget.path, [index])).single);
+
+  /// Page [index] drawn [px] wide: cut as the plan has it once its print is
+  /// found, else whole.
+  Future<ShownPage> _render(int index, int px) {
+    final plan = _plan;
+    return _renders.putIfAbsent('$index@$px${plan == null ? '' : ' cut'}', () async {
+      final aspect = index < _aspects.length ? _aspects[index] : 0.0;
+      Rect? crop;
+      if (plan != null && plan.fits(aspect)) {
+        try {
+          crop = plan.cropFor(index, await _printOf(index), aspect);
+        } on Object {
+          // Its print not found: the page shows whole.
+        }
+      }
+      return ShownPage(await _svc.pdfRender(widget.path, index, px, crop: crop), crop: crop);
+    });
+  }
+
+  /// Pixels across for a page [width] wide here, rounded up so a small
+  /// change of layout does not draw every page again.
+  int _px(BuildContext context, double width) =>
+      ((width * MediaQuery.devicePixelRatioOf(context)) / 120).ceil() * 120;
+
+  /// The page at the top of the screen stays there as the pages change
+  /// shape (cut, or whole again).
+  void _keepPlace() {
+    if (widget.turn != null || !_scroll.isAttached) return;
+    ItemPosition? top;
+    for (final p in _positions.itemPositions.value) {
+      if (p.itemTrailingEdge <= 0) continue;
+      if (top == null || p.index < top.index) top = p;
+    }
+    final at = top;
+    if (at == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _scroll.isAttached) _scroll.jumpTo(index: at.index, alignment: at.itemLeadingEdge);
+    });
   }
 
   int _pageOf(int unit) {
@@ -263,7 +381,7 @@ class _PdfPagesViewState extends State<PdfPagesView> {
 
   @override
   Widget build(BuildContext context) => FutureBuilder(
-        future: _info,
+        future: _opened,
         builder: (context, snap) {
           if (snap.hasError) {
             return Center(
@@ -288,10 +406,13 @@ class _PdfPagesViewState extends State<PdfPagesView> {
             );
           }
           _pageCount = info.pages;
+          _aspects = info.aspects;
           _current = _pageOf(widget.cursor.value);
-          if (widget.turn != null) return FadeIn(child: _book(context, info.pages, info.aspects));
+          // Cut or whole again, the pages fade into their new shape.
+          if (widget.turn != null) return FadeIn(trigger: _plan, child: _book(context, info.pages, info.aspects));
           // The pages fade in over the spinner's place, rather than cut in.
           return FadeIn(
+            trigger: _plan,
             child: NotificationListener<ScrollNotification>(
               onNotification: (n) {
                 if (n is ScrollStartNotification && n.dragDetails != null && !_programmatic) {
@@ -314,12 +435,12 @@ class _PdfPagesViewState extends State<PdfPagesView> {
         },
       );
 
-  /// The pages as a book: each leaf the page's own shape, so the paper
-  /// that turns is the page itself.
+  /// The pages as a book: each leaf the page's own shape (a cut page's,
+  /// when cut), so the paper that turns is the page itself.
   Widget _book(BuildContext context, int pages, List<double> aspects) => LayoutBuilder(
         builder: (context, box) {
           final per = _per;
-          final aspect = aspects.isEmpty ? 0.75 : aspects.first;
+          final aspect = _plan?.shownAspect ?? (aspects.isEmpty ? 0.75 : aspects.first);
           final room = Size(box.maxWidth - 24, box.maxHeight - 24);
           var w = room.width;
           var h = w / (aspect * per);
@@ -438,40 +559,37 @@ class _PdfPagesViewState extends State<PdfPagesView> {
       );
 
   /// Page [index] rendered for a width of [width], fading in over its number.
-  Widget _image(BuildContext context, int index, double width) {
-    final dpr = MediaQuery.devicePixelRatioOf(context);
-    final px = ((width * dpr) / 120).ceil() * 120;
-    final file = _renders.putIfAbsent('$index@$px', () => _svc.pdfRender(widget.path, index, px));
-    return FutureBuilder<String>(
-      future: file,
-      builder: (context, snap) {
-        final path = snap.data;
-        final number = Center(
-          child: Text('${index + 1}', style: Skin.meta(context, color: Skin.inkFaint, size: 11)),
-        );
-        if (path == null) return number;
-        return Image.file(
-          File(path),
-          fit: BoxFit.contain,
-          gaplessPlayback: true,
-          filterQuality: FilterQuality.medium,
-          frameBuilder: fadeInOver(number),
-        );
-      },
-    );
-  }
+  /// A page shown whole in a cut page's leaf sits in the middle of it.
+  Widget _image(BuildContext context, int index, double width) => FutureBuilder<ShownPage>(
+        future: _render(index, _px(context, width)),
+        builder: (context, snap) {
+          final shown = snap.data;
+          final number = Center(
+            child: Text('${index + 1}', style: Skin.meta(context, color: Skin.inkFaint, size: 11)),
+          );
+          if (shown == null) return number;
+          return Image.file(
+            File(shown.file),
+            fit: BoxFit.contain,
+            gaplessPlayback: true,
+            filterQuality: FilterQuality.medium,
+            frameBuilder: fadeInOver(number),
+          );
+        },
+      );
 
   Widget _page(BuildContext context, int index, double aspect) {
     final current = index == _current;
+    // Cut, every page of the book's shape takes a cut page's shape; one
+    // shown whole (its print past the cut) sits in it, so the pages below
+    // do not move as it arrives.
+    final plan = _plan;
+    final cut = plan != null && plan.fits(aspect) ? plan.shownAspect : null;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: LayoutBuilder(
         builder: (context, c) {
-          final dpr = MediaQuery.devicePixelRatioOf(context);
-          // Round so a small layout change does not render every page again.
-          final px = ((c.maxWidth * dpr) / 120).ceil() * 120;
-          final key = '$index@$px';
-          final file = _renders.putIfAbsent(key, () => _svc.pdfRender(widget.path, index, px));
+          final drawn = _render(index, _px(context, c.maxWidth));
           // Press and hold reads from the page, as on the text: a tap (to
           // stop a fling) must not move the voice. A screen reader's double
           // tap still does.
@@ -496,7 +614,7 @@ class _PdfPagesViewState extends State<PdfPagesView> {
                   boxShadow: Skin.lift(context),
                 ),
                 child: AspectRatio(
-                  aspectRatio: aspect,
+                  aspectRatio: cut ?? aspect,
                   child: _ZoomPage(
                     key: ValueKey(index),
                     page: index,
@@ -504,19 +622,19 @@ class _PdfPagesViewState extends State<PdfPagesView> {
                     onZoom: _onZoom,
                     // A tap on the scrolling pages does nothing else.
                     quiet: (_, __) => true,
-                    child: _ink(FutureBuilder<String>(
-                      future: file,
+                    child: _ink(FutureBuilder<ShownPage>(
+                      future: drawn,
                       builder: (context, snap) {
-                        final path = snap.data;
+                        final shown = snap.data;
                         final number = Center(
                           child: Text('${index + 1}', style: Skin.meta(context, color: Skin.inkFaint, size: 11)),
                         );
-                        if (path == null) return number;
+                        if (shown == null) return number;
                         // The page fades in over its number as it decodes,
                         // instead of popping over it.
                         return Image.file(
-                          File(path),
-                          fit: BoxFit.fill,
+                          File(shown.file),
+                          fit: cut != null && shown.crop == null ? BoxFit.contain : BoxFit.fill,
                           gaplessPlayback: true,
                           filterQuality: FilterQuality.medium,
                           frameBuilder: fadeInOver(number),
