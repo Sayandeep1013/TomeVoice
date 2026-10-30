@@ -5,6 +5,8 @@ import 'package:flutter/rendering.dart' show BoxHitTestResult, BoxParentData, Re
 import 'package:flutter/services.dart' show PredictiveBackEvent;
 import 'package:material_color_utilities/material_color_utilities.dart' show Hct;
 
+import 'contrast.dart';
+
 /// The visual language, in one place.
 ///
 /// The ground is the forest-to-amber diagonal the app has always had; the
@@ -22,8 +24,9 @@ import 'package:material_color_utilities/material_color_utilities.dart' show Hct
 class Skin {
   const Skin._();
 
-  /// The colour theme in use (Forest, Lavender, Ocean, Black, Paper). The
-  /// colours below read from it, so every screen follows a change.
+  /// The colour theme in use (Forest, Lavender, Ocean, Black, Paper, the
+  /// reader's own or the wallpaper's). The colours below read from it, so
+  /// every screen follows a change.
   static Palette palette = Palette.forest;
 
   /// The cover colour of the book being read, which the whole app follows
@@ -41,6 +44,14 @@ class Skin {
   static Color accentDeepOf(BuildContext c) => paletteOf(c).accentDeep;
   static Color onAccentOf(BuildContext c) => paletteOf(c).onAccent;
 
+  /// The accent as text or an icon: the deep one on a light ground, the soft
+  /// one on a dark ground, where the full one (a fill) would not read.
+  static Color accentInkOf(BuildContext c) => isDark(c) ? accentSoftOf(c) : accentDeepOf(c);
+
+  /// The accent as a control's mark (a bar's fill, a switch that is on): the
+  /// deep one by day, where the full one is too pale on white.
+  static Color accentMarkOf(BuildContext c) => isDark(c) ? accentOf(c) : accentDeepOf(c);
+
   // ---- ground ----------------------------------------------------------
   static Color get mint => palette.day[0];
   static Color get mintDeep => palette.day[1];
@@ -48,9 +59,31 @@ class Skin {
   static Color get peach => palette.day[3];
 
   // ---- ink -------------------------------------------------------------
+  // The soft and faint inks are just dark enough for small text at 4.5:1
+  // on every light ground here, deepest band and a chosen row's wash
+  // included (see contrast.dart), so the two now meet; the faint one stays
+  // quiet by its size, capitals and tracking.
   static const ink = Color(0xFF14170F);
-  static const inkSoft = Color(0xFF4A5245);
-  static const inkFaint = Color(0xFF6B7466);
+  static const inkSoft = Color(0xFF464E41);
+  static const inkFaint = Color(0xFF464E41);
+
+  // ---- warning ---------------------------------------------------------
+  // Errors and what cannot be undone, in red; by day and by night each just
+  // strong enough for small text at 4.5:1.
+  static const danger = Color(0xFF8C2713);
+  static const nightDanger = Color(0xFFFF8F77);
+
+  /// The warning red where [c] is.
+  static Color dangerOn(BuildContext c) => paletteOf(c).dangerFor(Theme.of(c).brightness);
+
+  /// A gentler warning in amber (a voice that may not be sold with), at the
+  /// red's tone a shade further from the ground, so it reads wherever the
+  /// red does.
+  static Color cautionOn(BuildContext c) {
+    final red = Hct.fromInt(dangerOn(c).toARGB32());
+    final amber = Hct.fromInt(0xFFC98A2B);
+    return Color(Hct.from(amber.hue, amber.chroma, red.tone + (isDark(c) ? 0.5 : -0.5)).toInt());
+  }
 
   // ---- chrome ----------------------------------------------------------
   static Color get capsule => palette.dayCapsule;
@@ -74,9 +107,11 @@ class Skin {
   static Color get nightMid => palette.night[1];
   static Color get nightWarm => palette.night[2];
   static Color get nightBottom => palette.night[3];
-  static const nightInk = Color(0xFFF2EADA);
+  // By night the faint ink is just light enough for small text at 4.5:1 on
+  // a capsule, and the ink on the word read aloud in Lavender's wash.
+  static const nightInk = Color(0xFFF8EFDF);
   static const nightInkSoft = Color(0xFFB9B2A0);
-  static const nightInkFaint = Color(0xFF948E80);
+  static const nightInkFaint = Color(0xFFB4AE9F);
   static Color get nightCapsule => palette.nightCapsule;
 
   /// Sheets, the player, the Continue card: the deepest surface.
@@ -102,19 +137,31 @@ class Skin {
   /// the bottom of the screen has no seam.
   static Color groundFoot(BuildContext c) => isDark(c) ? nightBottom : peach;
 
-  static Color inkOn(BuildContext c) => isDark(c) ? nightInk : ink;
-  static Color inkSoftOn(BuildContext c) => isDark(c) ? nightInkSoft : inkSoft;
-  static Color inkFaintOn(BuildContext c) => isDark(c) ? nightInkFaint : inkFaint;
+  // The type is the palette's: the same in every palette here, a reader's
+  // own colours and the wallpaper's fitted to their grounds.
+  static Color inkOn(BuildContext c) => paletteOf(c).inkFor(Theme.of(c).brightness);
+  static Color inkSoftOn(BuildContext c) => paletteOf(c).inkSoftFor(Theme.of(c).brightness);
+  static Color inkFaintOn(BuildContext c) => paletteOf(c).inkFaintFor(Theme.of(c).brightness);
   static Color capsuleOn(BuildContext c) => isDark(c) ? nightCapsule : capsule;
-  static Color darkOn(BuildContext c) => isDark(c) ? nightSheet : dark;
-  static Color onDark(BuildContext c) => isDark(c) ? nightInk : cream;
+  static Color darkOn(BuildContext c) => darkFor(paletteOf(c), Theme.of(c).brightness);
+  static Color onDark(BuildContext c) => onDarkFor(paletteOf(c), Theme.of(c).brightness);
+
+  /// The dark bar under a player or a scroller's bubble, in [p] and [b], and
+  /// what is written on it (and on a snack bar).
+  static Color darkFor(Palette p, Brightness b) => b == Brightness.dark ? p.nightSheet : dark;
+  static Color onDarkFor(Palette p, Brightness b) => b == Brightness.dark ? p.nightInk : p.day[2];
+
+  /// A snack bar or a tooltip in [p] and [b].
+  static Color snackFor(Palette p, Brightness b) =>
+      b == Brightness.dark ? Color.lerp(p.nightSheet, Colors.white, 0.12)! : dark2;
 
   /// A hairline: borders of rows, fields and dividers.
   static Color outlineOn(BuildContext c) =>
       isDark(c) ? Colors.white.withValues(alpha: 0.09) : capsuleEdge;
 
   /// Something raised on a sheet (a choice, a voice row).
-  static Color raisedOn(BuildContext c) => Colors.white.withValues(alpha: 0.07);
+  static Color raisedOn(BuildContext c) => raised;
+  static final raised = Colors.white.withValues(alpha: 0.07);
 
   /// The cream discs the reference uses for the prev/next pair.
   static Color disc(BuildContext c) =>
@@ -201,12 +248,16 @@ class Skin {
   }
 
   /// Wash behind the sentence being spoken.
-  static Color sentenceWash(BuildContext c) =>
-      accentOf(c).withValues(alpha: isDark(c) ? 0.20 : 0.16);
+  static Color sentenceWash(BuildContext c) => sentenceWashOf(paletteOf(c), Theme.of(c).brightness);
 
   /// Stronger wash behind the word being spoken.
-  static Color wordWash(BuildContext c) =>
-      accentOf(c).withValues(alpha: isDark(c) ? 0.55 : 0.45);
+  static Color wordWash(BuildContext c) => wordWashOf(paletteOf(c), Theme.of(c).brightness);
+
+  static Color sentenceWashOf(Palette p, Brightness b) =>
+      p.accent.withValues(alpha: b == Brightness.dark ? 0.20 : 0.16);
+
+  static Color wordWashOf(Palette p, Brightness b) =>
+      p.accent.withValues(alpha: b == Brightness.dark ? 0.55 : 0.45);
 
   // ---- shape -----------------------------------------------------------
   static const capsuleRadius = BorderRadius.all(Radius.circular(Radii.pill));
@@ -240,9 +291,14 @@ class Skin {
   static ThemeData theme(Brightness b) {
     final dark = b == Brightness.dark;
     final deep = palette.accentDeep;
-    final inkColor = dark ? nightInk : ink;
-    final soft = dark ? nightInkSoft : inkSoft;
-    final faint = dark ? nightInkFaint : inkFaint;
+    // A control's mark (a switch that is on, a bar's fill): the full accent
+    // is too pale on a light ground, so by day it is the deep one. A slider
+    // by day is on light sheets and on the player's dark bar: a tone between.
+    final mark = dark ? amber : deep;
+    final slide = dark ? amber : sliderMarkOf(palette);
+    final inkColor = palette.inkFor(b);
+    final soft = palette.inkSoftFor(b);
+    final faint = palette.inkFaintFor(b);
     final sheet = dark ? nightSheet : palette.daySheet;
     final outline = dark ? Colors.white.withValues(alpha: 0.10) : capsuleEdge;
     final scheme = ColorScheme.fromSeed(seedColor: amber, brightness: b).copyWith(
@@ -274,17 +330,17 @@ class Skin {
       scaffoldBackgroundColor: dark ? nightBottom : peach,
       splashFactory: InkSparkle.splashFactory,
       textSelectionTheme: TextSelectionThemeData(
-        cursorColor: amber,
+        cursorColor: mark,
         selectionColor: amber.withValues(alpha: 0.32),
-        selectionHandleColor: amber,
+        selectionHandleColor: mark,
       ),
       iconTheme: IconThemeData(color: inkColor, size: 22),
       dividerTheme: DividerThemeData(color: outline, thickness: 1, space: 1),
       sliderTheme: SliderThemeData(
         trackHeight: 3,
-        activeTrackColor: amber,
+        activeTrackColor: slide,
         inactiveTrackColor: inkColor.withValues(alpha: 0.14),
-        thumbColor: amberSoft,
+        thumbColor: dark ? amberSoft : slide,
         overlayColor: amber.withValues(alpha: 0.12),
         thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
         overlayShape: const RoundSliderOverlayShape(overlayRadius: 18),
@@ -296,30 +352,31 @@ class Skin {
       ),
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith(
-          (s) => s.contains(WidgetState.selected) ? amber : soft,
+          (s) => s.contains(WidgetState.selected) ? mark : soft,
         ),
         trackColor: WidgetStateProperty.resolveWith(
           (s) => s.contains(WidgetState.selected)
-              ? amber.withValues(alpha: 0.42)
+              ? mark.withValues(alpha: 0.42)
               : inkColor.withValues(alpha: 0.14),
         ),
         trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
       ),
       radioTheme: RadioThemeData(
         fillColor: WidgetStateProperty.resolveWith(
-          (s) => s.contains(WidgetState.selected) ? amber : faint,
+          (s) => s.contains(WidgetState.selected) ? mark : faint,
         ),
       ),
       checkboxTheme: CheckboxThemeData(
         fillColor: WidgetStateProperty.resolveWith(
-          (s) => s.contains(WidgetState.selected) ? amber : Colors.transparent,
+          (s) => s.contains(WidgetState.selected) ? mark : Colors.transparent,
         ),
-        checkColor: WidgetStatePropertyAll(onAmber),
+        // The deep accent by day takes a light tick.
+        checkColor: WidgetStatePropertyAll(dark ? onAmber : palette.daySheet),
         side: BorderSide(color: faint, width: 1.5),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
       ),
       progressIndicatorTheme: ProgressIndicatorThemeData(
-        color: amber,
+        color: mark,
         linearTrackColor: inkColor.withValues(alpha: 0.12),
         circularTrackColor: Colors.transparent,
       ),
@@ -351,8 +408,8 @@ class Skin {
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: dark ? Color.lerp(sheet, Colors.white, 0.12) : dark2,
-        contentTextStyle: uiStyle(14, FontWeight.w500, dark ? nightInk : cream),
+        backgroundColor: snackFor(palette, b),
+        contentTextStyle: uiStyle(14, FontWeight.w500, onDarkFor(palette, b)),
         actionTextColor: amberSoft,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.row)),
         elevation: 0,
@@ -382,7 +439,7 @@ class Skin {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(Radii.pill),
-          borderSide: BorderSide(color: amber, width: 1.4),
+          borderSide: BorderSide(color: mark, width: 1.4),
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
@@ -453,10 +510,10 @@ class Skin {
       ),
       tooltipTheme: TooltipThemeData(
         decoration: BoxDecoration(
-          color: dark ? Color.lerp(sheet, Colors.white, 0.12) : dark2,
+          color: snackFor(palette, b),
           borderRadius: BorderRadius.circular(Radii.chip),
         ),
-        textStyle: uiStyle(12.5, FontWeight.w500, dark ? nightInk : cream),
+        textStyle: uiStyle(12.5, FontWeight.w500, onDarkFor(palette, b)),
       ),
       // One way of arriving on a screen, everywhere.
       pageTransitionsTheme: const PageTransitionsTheme(
@@ -477,7 +534,9 @@ class Skin {
 
 /// A colour theme: the ground the app sits on by day and by night, its
 /// surfaces, and its one accent. Type, spacing and shape stay the same in
-/// every palette.
+/// every palette here; a reader's own colours and the wallpaper's have the
+/// type's tones fitted to their grounds. Each keeps what it draws text and
+/// icons with readable on every surface it is drawn on (see contrast.dart).
 class Palette {
   const Palette({
     required this.id,
@@ -493,6 +552,14 @@ class Palette {
     this.dayCapsule = const Color(0xF2FFFFFF),
     this.daySheet = const Color(0xFFF7F1E6),
     this.only,
+    this.dayInk = Skin.ink,
+    this.dayInkSoft = Skin.inkSoft,
+    this.dayInkFaint = Skin.inkFaint,
+    this.nightInk = Skin.nightInk,
+    this.nightInkSoft = Skin.nightInkSoft,
+    this.nightInkFaint = Skin.nightInkFaint,
+    this.dayDanger = Skin.danger,
+    this.nightDanger = Skin.nightDanger,
   });
 
   final String id;
@@ -511,6 +578,8 @@ class Palette {
   final Color accentSoft;
 
   /// The accent as text on a light ground, where the full one is too pale.
+  /// Each palette's is just deep enough for small text at 4.5:1 on its
+  /// deepest band (see contrast.dart).
   final Color accentDeep;
 
   /// Text on an accent fill.
@@ -523,6 +592,24 @@ class Palette {
   /// A palette that only exists in one brightness (Black, Paper).
   final Brightness? only;
 
+  /// The type by day and by night: the same in every palette here, a
+  /// reader's own and the wallpaper's fitted to their grounds.
+  final Color dayInk;
+  final Color dayInkSoft;
+  final Color dayInkFaint;
+  final Color nightInk;
+  final Color nightInkSoft;
+  final Color nightInkFaint;
+
+  /// The warning red by day and by night.
+  final Color dayDanger;
+  final Color nightDanger;
+
+  Color inkFor(Brightness b) => b == Brightness.dark ? nightInk : dayInk;
+  Color inkSoftFor(Brightness b) => b == Brightness.dark ? nightInkSoft : dayInkSoft;
+  Color inkFaintFor(Brightness b) => b == Brightness.dark ? nightInkFaint : dayInkFaint;
+  Color dangerFor(Brightness b) => b == Brightness.dark ? nightDanger : dayDanger;
+
   static const forest = Palette(
     id: 'forest',
     label: 'Forest',
@@ -530,7 +617,7 @@ class Palette {
     night: [Color(0xFF16241C), Color(0xFF1F3128), Color(0xFF33291F), Color(0xFF3D2E1F)],
     accent: Color(0xFFE07B39),
     accentSoft: Color(0xFFF2A05B),
-    accentDeep: Color(0xFFB4561C),
+    accentDeep: Color(0xFF803500),
     onAccent: Color(0xFF1A120B),
     nightCapsule: Color(0xF23A4238),
     nightSheet: Color(0xFF0E120C),
@@ -543,7 +630,7 @@ class Palette {
     night: [Color(0xFF1C1830), Color(0xFF28213F), Color(0xFF35263F), Color(0xFF3D2A40)],
     accent: Color(0xFFB48CF2),
     accentSoft: Color(0xFFCBAEFF),
-    accentDeep: Color(0xFF6E4BC7),
+    accentDeep: Color(0xFF5B37B3),
     onAccent: Color(0xFF1A1229),
     nightCapsule: Color(0xF2403A55),
     nightSheet: Color(0xFF120F1D),
@@ -557,7 +644,7 @@ class Palette {
     night: [Color(0xFF0E1D25), Color(0xFF15303C), Color(0xFF1C2B33), Color(0xFF25303A)],
     accent: Color(0xFFE8805E),
     accentSoft: Color(0xFFF2A385),
-    accentDeep: Color(0xFFB5532F),
+    accentDeep: Color(0xFF8E3715),
     onAccent: Color(0xFF1F0F0A),
     nightCapsule: Color(0xF2324650),
     nightSheet: Color(0xFF0A151B),
@@ -579,15 +666,16 @@ class Palette {
     only: Brightness.dark,
   );
 
-  /// Warm sepia, for reading by day.
+  /// Warm sepia, for reading by day. Its sienna is just deep enough for the
+  /// cream on a button to read at 4.5:1.
   static const paper = Palette(
     id: 'paper',
     label: 'Paper',
     day: [Color(0xFFF3EBDD), Color(0xFFEFE4D1), Color(0xFFF2E7D5), Color(0xFFEADBC3)],
     night: [Color(0xFF16241C), Color(0xFF1F3128), Color(0xFF33291F), Color(0xFF3D2E1F)],
-    accent: Color(0xFFB5652B),
+    accent: Color(0xFFA95B22),
     accentSoft: Color(0xFFD98B4E),
-    accentDeep: Color(0xFF8F4A1C),
+    accentDeep: Color(0xFF884517),
     onAccent: Color(0xFFFBF3E6),
     nightCapsule: Color(0xF23A4238),
     nightSheet: Color(0xFF0E120C),
@@ -602,28 +690,74 @@ class Palette {
 
   /// This palette with its accent taken from [seed], a book cover's colour:
   /// the same grounds, and an accent of the seed's hue at the tones the
-  /// palettes use, so text on it and it on the ground still read. A pale
-  /// seed is given enough colour to be an accent.
+  /// palettes use, each moved as little as it takes for text on it and it
+  /// on the ground to read (see [readable]). A pale seed is given enough
+  /// colour to be an accent.
   Palette withTint(int seed) {
-    final hct = Hct.fromInt(seed);
-    final chroma = math.max(hct.chroma, 36.0);
-    Color tone(double t) => Color(Hct.from(hct.hue, chroma, t).toInt());
-    return Palette(
-      id: '${id.split('~').first}~${seed.toRadixString(16)}',
-      label: label,
-      day: day,
-      night: night,
-      accent: tone(66),
-      accentSoft: tone(78),
-      accentDeep: tone(40),
-      onAccent: tone(10),
-      nightCapsule: nightCapsule,
-      nightSheet: nightSheet,
-      dayCapsule: dayCapsule,
-      daySheet: daySheet,
-      only: only,
-    );
+    final key = '${id.split('~').first}~${seed.toRadixString(16)}';
+    return _tinted[key] ??= () {
+      final hct = Hct.fromInt(seed);
+      final chroma = math.max(hct.chroma, 36.0);
+      Color tone(double t) => Color(Hct.from(hct.hue, chroma, t).toInt());
+      return readable(copyWith(
+        id: key,
+        accent: tone(66),
+        accentSoft: tone(78),
+        accentDeep: tone(40),
+        onAccent: tone(10),
+      ));
+    }();
   }
+
+  /// Tinted palettes, worked out once each: every book's card asks.
+  static final _tinted = <String, Palette>{};
+
+  /// This palette with the colours given in place of its own.
+  Palette copyWith({
+    String? id,
+    String? label,
+    List<Color>? day,
+    List<Color>? night,
+    Color? accent,
+    Color? accentSoft,
+    Color? accentDeep,
+    Color? onAccent,
+    Color? nightCapsule,
+    Color? nightSheet,
+    Color? dayCapsule,
+    Color? daySheet,
+    Color? dayInk,
+    Color? dayInkSoft,
+    Color? dayInkFaint,
+    Color? nightInk,
+    Color? nightInkSoft,
+    Color? nightInkFaint,
+    Color? dayDanger,
+    Color? nightDanger,
+  }) =>
+      Palette(
+        id: id ?? this.id,
+        label: label ?? this.label,
+        day: day ?? this.day,
+        night: night ?? this.night,
+        accent: accent ?? this.accent,
+        accentSoft: accentSoft ?? this.accentSoft,
+        accentDeep: accentDeep ?? this.accentDeep,
+        onAccent: onAccent ?? this.onAccent,
+        nightCapsule: nightCapsule ?? this.nightCapsule,
+        nightSheet: nightSheet ?? this.nightSheet,
+        dayCapsule: dayCapsule ?? this.dayCapsule,
+        daySheet: daySheet ?? this.daySheet,
+        only: only,
+        dayInk: dayInk ?? this.dayInk,
+        dayInkSoft: dayInkSoft ?? this.dayInkSoft,
+        dayInkFaint: dayInkFaint ?? this.dayInkFaint,
+        nightInk: nightInk ?? this.nightInk,
+        nightInkSoft: nightInkSoft ?? this.nightInkSoft,
+        nightInkFaint: nightInkFaint ?? this.nightInkFaint,
+        dayDanger: dayDanger ?? this.dayDanger,
+        nightDanger: nightDanger ?? this.nightDanger,
+      );
 
   /// The brightness this palette is shown in, given the reader's choice.
   ThemeMode modeFor(ThemeMode chosen) => switch (only) {

@@ -227,7 +227,7 @@ Future<bool> showQuoteActions(BuildContext context, Mark mark, {String? cover, S
                       children: [
                         Padding(
                           padding: const EdgeInsets.only(top: 2, right: Gap.s),
-                          child: Icon(Icons.sticky_note_2_outlined, size: 18, color: Skin.accentOf(ctx)),
+                          child: Icon(Icons.sticky_note_2_outlined, size: 18, color: Skin.accentInkOf(ctx)),
                         ),
                         Expanded(
                           child: Text(shown.note!,

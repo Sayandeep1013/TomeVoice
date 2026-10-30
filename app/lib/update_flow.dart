@@ -98,7 +98,7 @@ Future<void> offerUpdate(BuildContext context, AppUpdate update, {Directory? roo
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              LinearProgressIndicator(value: v, color: Skin.accentOf(context)),
+              LinearProgressIndicator(value: v, color: Skin.accentMarkOf(context)),
               const SizedBox(height: Gap.m),
               Text(v == null ? 'Starting…' : '${(v * 100).round()}%'),
             ],

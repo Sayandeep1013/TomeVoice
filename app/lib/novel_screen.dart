@@ -1124,7 +1124,7 @@ class _NovelScreenState extends State<NovelScreen> {
         else
           OutlinedButton.icon(
             onPressed: () => moveBook(context, _store, e),
-            icon: Icon(Icons.library_add_check_rounded, size: 20, color: Skin.accentOf(context)),
+            icon: Icon(Icons.library_add_check_rounded, size: 20, color: Skin.accentInkOf(context)),
             label: const Text('In your library'),
           ),
       ],
@@ -1147,7 +1147,7 @@ class _NovelScreenState extends State<NovelScreen> {
               ),
               const SizedBox(height: Gap.xs),
               Text(_blurbOpen ? 'Less' : 'More',
-                  style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentSoftOf(context))),
+                  style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentInkOf(context))),
             ],
           ),
         ),
@@ -1191,13 +1191,13 @@ class _NovelScreenState extends State<NovelScreen> {
                       ? Align(
                           key: const ValueKey('picked'),
                           alignment: Alignment.centerLeft,
-                          child: Icon(Icons.check_circle_rounded, size: 22, color: Skin.accentOf(context)),
+                          child: Icon(Icons.check_circle_rounded, size: 22, color: Skin.accentInkOf(context)),
                         )
                       : Align(
                           key: const ValueKey('number'),
                           alignment: Alignment.centerLeft,
                           child: Text('${i + 1}',
-                              style: Skin.meta(context, size: 11.5, color: isCurrent ? Skin.accentOf(context) : null)),
+                              style: Skin.meta(context, size: 11.5, color: isCurrent ? Skin.accentInkOf(context) : null)),
                         ),
                 ),
               ),
@@ -1210,21 +1210,27 @@ class _NovelScreenState extends State<NovelScreen> {
                       c.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
+                      // A picked row's wash is the accent's strongest: on
+                      // it the row reads in the ink.
                       style: Skin.ui(
                         size: 15,
                         weight: isCurrent ? FontWeight.w700 : FontWeight.w500,
-                        color: isCurrent
-                            ? Skin.accentOf(context)
-                            : read
-                                ? Skin.inkFaintOn(context)
-                                : Skin.inkOn(context),
+                        color: picked
+                            ? Skin.inkOn(context)
+                            : isCurrent
+                                ? Skin.accentInkOf(context)
+                                : read
+                                    ? Skin.inkFaintOn(context)
+                                    : Skin.inkOn(context),
                       ),
                     ),
-                    if (release != null) Text(release.toUpperCase(), style: Skin.meta(context, size: 9.5)),
+                    if (release != null)
+                      Text(release.toUpperCase(),
+                          style: Skin.meta(context, size: 9.5, color: picked ? Skin.inkOn(context) : null)),
                   ],
                 ),
               ),
-              if (isCurrent) Icon(Icons.graphic_eq_rounded, size: 18, color: Skin.accentOf(context)),
+              if (isCurrent) Icon(Icons.graphic_eq_rounded, size: 18, color: Skin.accentInkOf(context)),
               SizedBox(
                 width: 44,
                 // Download, then the spinner, then the tick, each turning into the next.

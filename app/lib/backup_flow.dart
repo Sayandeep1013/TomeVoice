@@ -237,7 +237,7 @@ Future<void> _progressDialog(BuildContext context, String title, ValueNotifier<d
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                LinearProgressIndicator(value: v, color: Skin.amber),
+                LinearProgressIndicator(value: v, color: Skin.accentMarkOf(ctx)),
                 const SizedBox(height: Gap.m),
                 Text(v == null ? 'Working…' : '${(v * 100).round()}%'),
               ],

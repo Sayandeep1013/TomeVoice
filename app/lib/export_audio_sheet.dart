@@ -365,22 +365,22 @@ class _SaveSheetState extends State<_SaveSheet> {
               note(
                 Icons.pause_circle_outline_rounded,
                 'A book is being read aloud. The voice cannot read and save at once, so the reading stops.',
-                color: Skin.accentOf(context),
+                color: Skin.accentInkOf(context),
               ),
             if (short)
               note(
                 Icons.sd_card_alert_outlined,
                 'Not enough space: this needs about ${sizeLabel(spaceWanted(bytes))} free while it is made '
                 '(the file, and its copy where it goes), and the phone has ${sizeLabel(_free)}.',
-                color: const Color(0xFFE5674D),
+                color: Skin.dangerOn(context),
               ),
             if (tooLong)
               note(
                 Icons.timer_off_outlined,
                 'Too long for one file. Save it a chapter at a time.',
-                color: const Color(0xFFE5674D),
+                color: Skin.dangerOn(context),
               ),
-            if (_problem != null) note(Icons.error_outline_rounded, _problem!, color: const Color(0xFFE5674D)),
+            if (_problem != null) note(Icons.error_outline_rounded, _problem!, color: Skin.dangerOn(context)),
             Padding(
               padding: const EdgeInsets.fromLTRB(Gap.page, Gap.l, Gap.page, 0),
               child: FilledButton.icon(
@@ -492,7 +492,7 @@ class _ProgressSheetState extends State<_ProgressSheet> {
                       if (s.running && s.phase != ExportPhase.finishing)
                         TextButton(
                           onPressed: job.cancel,
-                          style: TextButton.styleFrom(foregroundColor: const Color(0xFFE5674D)),
+                          style: TextButton.styleFrom(foregroundColor: Skin.dangerOn(context)),
                           child: const Text('Stop saving'),
                         ),
                       if (s.phase == ExportPhase.saved && s.uri != null)
