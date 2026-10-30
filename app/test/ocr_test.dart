@@ -296,6 +296,20 @@ void main() {
       expect(f.parent.existsSync(), isFalse);
     });
 
+    test("a refused scan's language is told by a name in its own script", () async {
+      Future<OcrOffer> refused(String name) async {
+        final f = picked(name, utf8.encode('%PDF-1.4 $name'));
+        pdfs[f.path] = scanText(3);
+        final scan = await store
+            .importFile(PickedFile(path: f.path, name: name))
+            .then<ScannedPdf?>((_) => null, onError: (Object e) => e as ScannedPdf);
+        return scan!.offer;
+      }
+
+      expect((await refused('সোনার তরী.pdf')).language, 'bn');
+      expect((await refused('The Lantern Keeper.pdf')).language, isNull, reason: 'Latin letters do not say which');
+    });
+
     test('a PDF with a few typed pages is imported, and OCR is offered for the rest', () async {
       final f = picked('mostly.pdf', utf8.encode('%PDF-1.4 mostly pictures'));
       final typed = '$_mark${'The keeper climbed the stairs of the lighthouse every evening at six. ' * 6}';

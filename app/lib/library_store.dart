@@ -510,7 +510,10 @@ class LibraryStore {
       } on UnsupportedDocumentException catch (e) {
         if (pdf == null) rethrow;
         keep = true;
-        throw ScannedPdf(e.message, OcrOffer(path: file.path, name: file.name, pdf: pdf));
+        // Its language, when its title or name is in a script that says
+        // (a Bengali file name): the sheet offers it first.
+        final language = detectScriptLanguage('${pdf['title'] ?? ''} ${file.name}');
+        throw ScannedPdf(e.message, OcrOffer(path: file.path, name: file.name, pdf: pdf, language: language));
       }
       final entry = made.entry;
       if (made.note != null) {
