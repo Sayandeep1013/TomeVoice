@@ -292,6 +292,32 @@ void main() {
     expect(detectFormat(bytes), SourceKind.rtf);
     final book = ingestBytes(bytes, filename: 'a.rtf');
     expect(_texts(book), ['Café is open.', 'Second — line.']);
+    expect(book.metadata.title, 'a');
+  });
+
+  test("an RTF file's notes are shown after their paragraphs and not read, their marks not said; \\info names it", () {
+    // As Word writes them: a note's group right after its mark, \chftn (its
+    // number) or the writer's own, set raised; an endnote says \ftnalt.
+    const rtf = r'''{\rtf1\ansi{\fonttbl{\f0 Times;}}{\info{\title The Harbour Book}{\author Ann Keeper}{\operator Ed}}\f0 '''
+        r'''The lamp was lit at dusk.{\cs10\super \chftn {\footnote \pard\plain {\cs10\super \chftn } It was oil, not gas.}} '''
+        r'''It burned all night.\par '''
+        r'''The boats came home{\super *}{\footnote \pard\plain {\super *} Six of them.} at dawn.\par '''
+        r'''The end{\cs10\super \chftn {\footnote\ftnalt \pard\plain {\cs10\super \chftn } An endnote.}}.\par '''
+        r'''A last line.\par}''';
+    final book = ingestBytes(Uint8List.fromList(rtf.codeUnits), filename: 'harbour.rtf');
+    expect(book.metadata.title, 'The Harbour Book');
+    expect(book.metadata.authors, ['Ann Keeper']);
+    expect([for (final s in book.sections) for (final b in s.blocks) '${b.role.name}: ${b.text}'], [
+      'paragraph: The lamp was lit at dusk.¹ It burned all night.',
+      'footnote: ¹ It was oil, not gas.',
+      'paragraph: The boats came home* at dawn.',
+      'footnote: * Six of them.',
+      'paragraph: The end³.',
+      'paragraph: A last line.',
+      'footnote: ³ An endnote.',
+    ]);
+    expect([for (final u in flattenSpeakable(book)) spokenText(u.text, u.silent).text],
+        ['The lamp was lit at dusk.', 'It burned all night.', 'The boats came home at dawn.', 'The end.', 'A last line.']);
   });
 
   group('mobi', () {

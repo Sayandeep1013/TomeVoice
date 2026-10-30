@@ -30,7 +30,8 @@ import 'speech_service.dart';
 /// found by the test corpus; v8: Russian and Ukrainian dialogue not cut
 /// after "!" or "?" before who spoke, an AZW3 book's notes shown and not
 /// read, transcribers' notes not read, a Gutenberg text named by its
-/// header). PDFs keep their own version, on the entry (pdfParser).
+/// header, an RTF file's notes shown and its \info title). PDFs keep their
+/// own version, on the entry (pdfParser).
 const _parsedVersion = 8;
 
 /// On-device library: copied files, parsed books, reading positions.

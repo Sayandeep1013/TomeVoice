@@ -380,6 +380,13 @@ final _corpus = <String, List<_Check>>{
       expect(r.text, isNot(contains('HYPERLINK')));
       expect(r.spoken.first, 'FABLES OF AESOP');
     }),
+    _check('the footnote is shown after its paragraph, not read; the info group names the book', (r) {
+      expect(r.displayOnlyOf(BlockRole.footnote), ['¹ Townsend has the Wolf hire the Crane “for a large sum”.']);
+      final at = r.blocks.indexWhere((b) => b.role == BlockRole.footnote);
+      expect(r.blocks[at - 1].text, startsWith('A WOLF who had a bone stuck in his throat'));
+      expect(r.book.metadata.title, 'Fables of Aesop');
+      expect(r.book.metadata.authors, ['Aesop']);
+    }),
     _check('text in a Cyrillic font and in \\u escapes is read as written', (r) {
       expect(r.spoken, contains('The same lesson is a Russian proverb: Тише едешь — дальше будешь.'));
       expect(r.spoken.last, 'The Greek for a fable is μῦθος, and the fables are online at Project Gutenberg.');

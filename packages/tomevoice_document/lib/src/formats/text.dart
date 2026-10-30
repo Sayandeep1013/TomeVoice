@@ -23,19 +23,27 @@ Book parseText(
 /// Noncharacters TomeVoice uses inside its own pipeline; never book text.
 final _ownMarks = RegExp('[${String.fromCharCode(0xFDD0)}-${String.fromCharCode(0xFDD2)}]');
 
+/// [title] and [author], when given, name the book (an RTF file's \info
+/// does). With [marked], [raw] is a parser's text, its silent stretches
+/// marked (see [silentMark]); any other text is the book's own, and the
+/// marks are taken out of it.
 Book parseTextString(
   String raw, {
   required String id,
   String? filename,
   SourceKind kind = SourceKind.text,
+  String? title,
+  String? author,
+  bool marked = false,
 }) {
-  raw = raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n').replaceAll(_ownMarks, '');
+  raw = raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+  if (!marked) raw = raw.replaceAll(_ownMarks, '');
   // A Gutenberg file names its book in its header: its name is a number.
   final header = kind == SourceKind.text ? _gutenbergHeader(raw) : null;
   if (kind == SourceKind.text) raw = _withoutGutenbergLicence(raw);
   resetBlockIds();
-  final title = header?.title ?? titleFromFilename(filename) ?? _firstLineTitle(raw) ?? 'Untitled';
-  final author = header?.author;
+  title ??= header?.title ?? titleFromFilename(filename) ?? _firstLineTitle(raw.replaceAll(_ownMarks, '')) ?? 'Untitled';
+  author ??= header?.author;
   final metadata = BookMetadata(title: title, authors: author == null ? const [] : [author]);
 
   if (kind == SourceKind.markdown) {
