@@ -646,6 +646,48 @@ void main() {
       ]);
     });
 
+    test("two speakers' lines set in, one after the other, are two paragraphs however the extractor marked them", () {
+      // Pride and Prejudice as PDFBox marks paragraphs when it sees indents:
+      // at a line set in after one that did not start a paragraph, and at a
+      // line back at the edge after one set in that did not. A one-line
+      // speech and the next speaker's first line, both set in, share one
+      // extractor paragraph with no line at the edge, and were read as one
+      // ("How so? ... them?' 'My dear Mr. Bennet,' replied his wife").
+      // Measured on the page: the text at x 31.5, a speaker's first line set
+      // in to 41.9, an em at 10 points.
+      final book = _laidBook([
+        [
+          _at('‘What is his name?’', 41.9, 80, w: 94, para: true),
+          _at('‘Bingley.’', 41.9, 93, w: 49),
+          _at('‘Is he married or single?’', 41.9, 106, w: 128),
+          _at('‘Oh! single, my dear, to be sure! A single man of large', 41.9, 119, w: 309.6),
+          _at('fortune; four or five thousand a year. What a fine thing for our', 31.5, 132, w: 320, para: true),
+          _at('girls!’', 31.5, 145, w: 35),
+          _at('‘How so? how can it affect them?’', 41.9, 158, w: 163, para: true),
+          _at('‘My dear Mr. Bennet,’ replied his wife, ‘how can you be so', 41.9, 171, w: 309.6),
+          _at('tiresome! You must know that I am thinking of his marrying one', 31.5, 184, w: 320, para: true),
+          _at('of them.’', 31.5, 197, w: 44),
+          _at('‘Is that his design in settling here?’', 41.9, 210, w: 188, para: true),
+          _at('‘Design! nonsense, how can you talk so! But it is very likely', 41.9, 223, w: 309.6),
+          _at('that he may fall in love with one of them, and therefore you', 31.5, 236, w: 320, para: true),
+          _at('must visit him as soon as he comes.’', 31.5, 249, w: 178),
+        ],
+      ]);
+      expect(_texts(book), [
+        '‘What is his name?’',
+        '‘Bingley.’',
+        '‘Is he married or single?’',
+        '‘Oh! single, my dear, to be sure! A single man of large fortune; four or five thousand a year. '
+            'What a fine thing for our girls!’',
+        '‘How so? how can it affect them?’',
+        '‘My dear Mr. Bennet,’ replied his wife, ‘how can you be so tiresome! You must know that I am '
+            'thinking of his marrying one of them.’',
+        '‘Is that his design in settling here?’',
+        '‘Design! nonsense, how can you talk so! But it is very likely that he may fall in love with one '
+            'of them, and therefore you must visit him as soon as he comes.’',
+      ]);
+    });
+
     test('a title set larger than the text under it is a paragraph of its own', () {
       // Two fables on a page, each title a little above its text: the
       // extractor ran each title into its text, so the title was read as the

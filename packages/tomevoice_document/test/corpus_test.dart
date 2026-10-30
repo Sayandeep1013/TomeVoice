@@ -120,11 +120,13 @@ String _short(String s) => s.length <= 100 ? s : '${s.substring(0, 99)}…';
 String _lf(String s) => s.replaceAll('\r\n', '\n');
 
 /// [file] read as the app reads it. A .pdftext.json file is a recorded PDF
-/// extraction (see SOURCES.md), handed over as the app hands the platform's.
-_Reading _read(String file) {
+/// extraction (see SOURCES.md), handed over as the app hands the platform's,
+/// changed first by [extracted] when given.
+_Reading _read(String file, {Map<String, Object?> Function(Map<String, Object?> pdf)? extracted}) {
   final bytes = File('$_dir/$file').readAsBytesSync();
   if (!file.endsWith('.pdftext.json')) return _Reading(file, ingestBytes(bytes, filename: file));
-  final pdf = Map<String, Object?>.from(jsonDecode(utf8.decode(bytes)) as Map);
+  var pdf = Map<String, Object?>.from(jsonDecode(utf8.decode(bytes)) as Map);
+  if (extracted != null) pdf = extracted(pdf);
   final book = ingestPdfText(
     id: bookIdOf(bytes),
     pages: (pdf['text'] as String? ?? '').split(String.fromCharCode(0x0C)),
@@ -135,6 +137,46 @@ _Reading _read(String file) {
     filename: file.replaceAll('.pdftext.json', '.pdf'),
   );
   return _Reading(file, resectionPdf(book));
+}
+
+/// [pdf] with paragraph marks where PDFBox also puts them when it sees
+/// indents (PDFTextStripper.isParagraphSeparation, by its defaults: set in
+/// by more than two spaces, a space taken as a quarter of an em): at a line
+/// set in after a line that did not start a paragraph, and at a line back
+/// at the edge after one that did not. The recorded marks (the top of a
+/// page, a drop) stay. A font with a narrow space makes the extractor mark
+/// a book so; with a wide one it marks only the drops, as recorded.
+Map<String, Object?> _withIndentMarks(Map<String, Object?> pdf) {
+  final mark = String.fromCharCode(0x2029);
+  final layout = pdfLayoutFromPlatform(pdf['layout'])!;
+  final pages = (pdf['text'] as String).split(String.fromCharCode(0x0C));
+  final out = <String>[];
+  for (var p = 0; p < pages.length; p++) {
+    final lines = <({String text, bool start})>[];
+    final chunks = pages[p].split(mark);
+    for (var c = 0; c < chunks.length; c++) {
+      // Each mark starts a paragraph at the line after it.
+      var first = c > 0;
+      for (final l in chunks[c].split('\n')) {
+        if (l.isEmpty) continue;
+        lines.add((text: l, start: first));
+        first = false;
+      }
+    }
+    final at = p < layout.length ? layout[p] : const <int>[];
+    final starts = <bool>[];
+    for (var i = 0; i < lines.length; i++) {
+      var start = lines[i].start;
+      if (!start && i > 0 && at.length == lines.length * 5) {
+        final space = at[i * 5 + 3] / 10 / 4;
+        final gap = at[i * 5] - at[(i - 1) * 5];
+        if (gap > 2 * space || gap < -space) start = !starts[i - 1];
+      }
+      starts.add(start);
+    }
+    out.add([for (var i = 0; i < lines.length; i++) '${starts[i] ? mark : ''}${lines[i].text}'].join('\n'));
+  }
+  return {...pdf, 'text': out.join(String.fromCharCode(0x0C))};
 }
 
 /// Check [r] against its goldens, or write them when updating.
@@ -443,6 +485,19 @@ final _corpus = <String, List<_Check>>{
         '“But it is,” returned she; “for Mrs. Long has just been here, and she told me all about it.”',
         'Mr. Bennet made no answer.',
       ]));
+    }),
+    _check('the same paragraphs when the extractor marks a paragraph at each indent', (r) {
+      // Marked so, two speakers' lines set in one after the other ("How so?
+      // how can it affect them?" and "My dear Mr. Bennet," replied his wife)
+      // were a paragraph of their own, with no line at the edge, and read
+      // as one. (The title page's centred lines are marked apart too.)
+      final indents = _read('pride-and-prejudice.pdftext.json', extracted: _withIndentMarks);
+      List<String> read(_Reading x) => [
+            for (final c in x.layout.chapters)
+              for (final b in x.book.sections[c].blocks) b.text,
+          ];
+      expect(read(indents), read(r));
+      expect(indents.spoken, r.spoken);
     }),
     _check('the footnote is shown, not read', (r) {
       expect(r.displayOnlyOf(BlockRole.footnote), [startsWith('1 Michaelmas: the feast of St Michael')]);

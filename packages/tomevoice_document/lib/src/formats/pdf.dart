@@ -19,7 +19,9 @@ const pdfParagraphMark = '\u2029';
 /// which the extractor ran together, dialogue above all; 4: a title run
 /// into its text, a short chapter's running head, title and contents pages
 /// not read on opening; 5: a scan's bookmarks named after its pictures, or
-/// one on every page, are not chapters).
+/// one on every page, are not chapters; two speakers' lines set in one
+/// after the other, and a line ending in a colon over one set in, are two
+/// paragraphs).
 const pdfParserVersion = 5;
 
 /// One outline (bookmark) entry: a title and the 0-based page it points at.
@@ -669,26 +671,34 @@ bool _indentedStart(List<_Line> lines, int i) {
   }
   final indent = line.x - margin;
   if (indent < 0.8 * em || indent > 6 * em) return false;
-  // Lines at the edge carry the extractor's paragraph on, and one set in
-  // starts the next. A paragraph set in as a whole (a quotation, verse) has
-  // none at the edge, and stays as it is.
-  final para = lines[i].para;
-  var right = 0.0, atEdge = false;
+  if (line.x - prev.x >= 0.8 * em) {
+    // Set in further than the line before: lines at the edge carry the
+    // extractor's paragraph on, and one set in starts the next. A
+    // paragraph set in as a whole (a quotation, verse) has none at the
+    // edge, and stays as it is.
+    final para = lines[i].para;
+    return lines.any((l) => l.para == para && l.box != null && (l.box!.x - margin).abs() < 0.5 * em);
+  }
+  // Set in as far as the line before, a paragraph of one line: it stops well
+  // short of the full lines that start where it does, as a full line of a
+  // justified paragraph does not ("'How so? how can it affect them?'" over
+  // "'My dear Mr. Bennet,' replied his wife..."). Those are looked for on the
+  // whole page: the extractor starts a paragraph at a line back at the edge
+  // after one set in, so two speakers' lines set in one after the other
+  // were a paragraph of their own, with no line at the edge.
+  var full = prev.x + prev.w;
   for (final l in lines) {
     final b = l.box;
-    if (l.para != para || b == null) continue;
-    if ((b.x - margin).abs() < 0.5 * em) atEdge = true;
-    right = math.max(right, b.x + b.w);
+    if (b != null && (b.x - prev.x).abs() < 0.5 * em) full = math.max(full, b.x + b.w);
   }
-  if (!atEdge) return false;
-  if (line.x - prev.x >= 0.8 * em) return true;
-  // After a paragraph of one line, set in itself: it stops well short of the
-  // full lines, as a full line of a justified paragraph does not.
-  return prev.x + prev.w < right - 2 * em;
+  return prev.x + prev.w < full - 2 * em;
 }
 
-/// A line that ends a sentence, closing quotes and brackets included.
-final _endsSentence = RegExp('[.!?…।"”’\')\\]]\$');
+/// A line that ends a sentence, closing quotes and brackets included, or a
+/// clause that what is set in under it follows from ("addressed her with:"
+/// over "'I hope Mr. Bingley will like it, Lizzy.'"), as a paragraph that
+/// runs on to the next page is ended (see [_continues]).
+final _endsSentence = RegExp('[.!?…।:;"”’\')\\]]\$');
 
 /// The paragraph being reflowed: the page it starts on, and its lines so far.
 class _Open {
