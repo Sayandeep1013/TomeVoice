@@ -411,7 +411,8 @@ class AudioRenderer {
     while (true) {
       _check();
       final narrator = voice.voiceNameOf();
-      var dialogue = voice.dialogueVoiceOf?.call();
+      // The dialogue voice, or the one the book's cast gives this line's speaker.
+      var dialogue = await voice.quoteVoiceAt(i);
       if (dialogue == narrator) dialogue = null;
       try {
         final r = await makeSentence(

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
+import 'cast.dart';
 import 'library_store.dart';
 import 'listen_sheet.dart';
 import 'marks.dart';
@@ -70,6 +71,16 @@ PlaybackScheduler readingScheduler({
     pitchOf: (voice) => prefs().pitchOf(voice),
     quoteOpenAt: quoteOpenAt,
     fallbackVoiceOf: () => VoiceCatalog.instance.bestFor(language)?.name,
+    // Its characters' lines in their own voices, when the book's page gave
+    // them any (cast.dart); nothing is read for a book whose characters
+    // have none.
+    speakers: CastReading(
+      bookId: bookId,
+      layout: () => read.layout,
+      prefs: prefs,
+      narrator: () => listen().voiceName,
+      dialogue: () => listen().dialogueVoice,
+    ),
   );
   _bookOf[scheduler] = bookId;
   _readOf[scheduler] = read;
