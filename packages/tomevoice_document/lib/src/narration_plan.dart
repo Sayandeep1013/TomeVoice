@@ -82,6 +82,12 @@ class NarrationPlan {
         final c = clips[k];
         if (compareTextPlaces(c.start, end) >= 0) break;
         if (compareTextPlaces(c.end, start) <= 0) continue;
+        // Within the unit (a clip a sentence, or a phrase): all of it, with
+        // no letters to count.
+        if (compareTextPlaces(c.start, start) >= 0 && compareTextPlaces(c.end, end) <= 0) {
+          (found ??= []).add((clip: k, from: 0.0, to: 1.0, start: c.start.offset - at, end: c.end.offset - at));
+          continue;
+        }
         final from = compareTextPlaces(c.start, start) > 0 ? c.start : start;
         final to = compareTextPlaces(c.end, end) < 0 ? c.end : end;
         final total = letters.between(c.start, c.end);
