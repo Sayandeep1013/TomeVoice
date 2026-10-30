@@ -1,0 +1,4278 @@
+{
+ "about": "Natural voices TomeVoice offers. Made by tools/voice_catalog.py; do not edit by hand.",
+ "version": 1,
+ "sources": {
+  "models": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/ (GitHub release tts-models, full precision only)",
+  "cards": "https://huggingface.co/rhasspy/piper-voices (revision b4e358ffcb232591bf73a540e70f7de528e4174a)",
+  "sherpaGenerator": "https://github.com/k2-fsa/sherpa-onnx/blob/6be6ddab3ae6c6bd64ef20d8a5154eaa9f65cd71/scripts/piper/generate.py"
+ },
+ "packs": [
+  {
+   "id": "kokoro-multi-lang-v1_0",
+   "engine": "kokoro",
+   "name": "Kokoro",
+   "blurb": "Bigger, slower and often more natural. Needs a fast phone.",
+   "file": "model.onnx",
+   "sampleRate": 24000,
+   "minMemoryMb": 5200,
+   "mustKeepUp": true,
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   },
+   "bytes": 349886476
+  },
+  {
+   "id": "kitten-nano-en-v0_8-fp32",
+   "engine": "kitten",
+   "name": "Kitten",
+   "blurb": "Small and quick: eight American English voices in one download.",
+   "file": "model.fp32.onnx",
+   "sampleRate": 24000,
+   "minMemoryMb": 0,
+   "mustKeepUp": false,
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kitten TTS nano 0.8 by KittenML.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32",
+    "card": "https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32"
+   },
+   "bytes": 63815222
+  }
+ ],
+ "voices": [
+  {
+   "id": "ar_JO-SA_dii-high",
+   "engine": "piper",
+   "name": "Dii (Saudi)",
+   "locale": "ar-JO",
+   "quality": "high",
+   "bytes": 66982233,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/ar_JO/vits-piper-ar_JO-SA_dii-high/0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "OpenVoiceOS voice: non-commercial use only, share alike.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/OpenVoiceOS/phoonnx_ar-SA_dii_espeak"
+   }
+  },
+  {
+   "id": "ar_JO-kareem-medium",
+   "engine": "piper",
+   "name": "Kareem",
+   "locale": "ar-JO",
+   "quality": "medium",
+   "bytes": 67177830,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ar/ar_JO/kareem/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Not stated",
+    "use": "unclear",
+    "note": "The model card does not state a licence; see the dataset's site.",
+    "stated": "See URL",
+    "dataset": "https://github.com/AliMokhammad/arabicttstrain/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/ar/ar_JO/kareem/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "ar_JO-kareem-low",
+   "engine": "piper",
+   "name": "Kareem",
+   "locale": "ar-JO",
+   "quality": "low",
+   "bytes": 67117397,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ar/ar_JO/kareem/low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Not stated",
+    "use": "unclear",
+    "note": "The model card does not state a licence; see the dataset's site.",
+    "stated": "See URL",
+    "dataset": "https://github.com/AliMokhammad/arabicttstrain/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/ar/ar_JO/kareem/low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "ar_JO-SA_miro-high",
+   "engine": "piper",
+   "name": "Miro (Saudi)",
+   "locale": "ar-JO",
+   "quality": "high",
+   "bytes": 66907333,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/ar_JO/vits-piper-ar_JO-SA_miro-high/0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "OpenVoiceOS voice: non-commercial use only, share alike.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/OpenVoiceOS/phoonnx_ar-SA_miro_espeak"
+   }
+  },
+  {
+   "id": "ar_JO-SA_miro_V2-high",
+   "engine": "piper",
+   "name": "Miro 2 (Saudi)",
+   "locale": "ar-JO",
+   "quality": "high",
+   "bytes": 66977293,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/ar_JO/vits-piper-ar_JO-SA_miro_V2-high/0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "OpenVoiceOS voice: non-commercial use only, share alike.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/OpenVoiceOS/phoonnx_ar-SA_miro_espeak_V2"
+   }
+  },
+  {
+   "id": "ca_ES-upc_ona-medium",
+   "engine": "piper",
+   "name": "Ona",
+   "locale": "ca-ES",
+   "quality": "medium",
+   "bytes": 67223188,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ca/ca_ES/upc_ona/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-SA 3.0",
+    "use": "credit",
+    "note": "Free to use with credit; changes share alike. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC BY-SA 3.0 ES",
+    "dataset": "https://collectivat.cat/asr#upc-festcat-tts-corpora",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/ca/ca_ES/upc_ona/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "ca_ES-upc_ona-x_low",
+   "engine": "piper",
+   "name": "Ona",
+   "locale": "ca-ES",
+   "quality": "x_low",
+   "bytes": 26522253,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ca/ca_ES/upc_ona/x_low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-SA 3.0",
+    "use": "credit",
+    "note": "Free to use with credit; changes share alike.",
+    "stated": "CC BY-SA 3.0 ES",
+    "dataset": "https://collectivat.cat/asr#upc-festcat-tts-corpora",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/ca/ca_ES/upc_ona/x_low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "ca_ES-upc_pau-x_low",
+   "engine": "piper",
+   "name": "Pau",
+   "locale": "ca-ES",
+   "quality": "x_low",
+   "bytes": 26520095,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ca/ca_ES/upc_pau/x_low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-SA 3.0",
+    "use": "credit",
+    "note": "Free to use with credit; changes share alike.",
+    "stated": "CC BY-SA 3.0 ES",
+    "dataset": "https://collectivat.cat/asr#upc-festcat-tts-corpora",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/ca/ca_ES/upc_pau/x_low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "cs_CZ-jirka-medium",
+   "engine": "piper",
+   "name": "Jirka",
+   "locale": "cs-CZ",
+   "quality": "medium",
+   "bytes": 67212775,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/cs/cs_CZ/jirka/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/OHF-Voice/voice-datasets",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/cs/cs_CZ/jirka/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "cs_CZ-jirka-low",
+   "engine": "piper",
+   "name": "Jirka",
+   "locale": "cs-CZ",
+   "quality": "low",
+   "bytes": 67185771,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/cs/cs_CZ/jirka/low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/OHF-Voice/voice-datasets",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/cs/cs_CZ/jirka/low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "cy_GB-bu_tts-medium",
+   "engine": "piper",
+   "name": "BU-TTS",
+   "locale": "cy-GB",
+   "quality": "medium",
+   "bytes": 80313215,
+   "sampleRate": 22050,
+   "speakers": 7,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/cy/cy_GB/bu_tts/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY 4.0",
+    "use": "credit",
+    "note": "Free to use with credit. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC-BY",
+    "dataset": "https://huggingface.co/datasets/techiaith/bu-tts-cy-en",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/cy/cy_GB/bu_tts/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "cy_GB-gwryw_gogleddol-medium",
+   "engine": "piper",
+   "name": "Gwryw gogleddol",
+   "locale": "cy-GB",
+   "quality": "medium",
+   "bytes": 67230234,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/cy/cy_GB/gwryw_gogleddol/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Not stated",
+    "use": "unclear",
+    "note": "The model card does not state a licence; see the dataset's site.",
+    "stated": "See URL",
+    "dataset": "https://git.techiaith.bangor.ac.uk/data-porth-technolegau-iaith/corpws-talentau-llais",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/cy/cy_GB/gwryw_gogleddol/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "da_DK-talesyntese-medium",
+   "engine": "piper",
+   "name": "Talesyntese",
+   "locale": "da-DK",
+   "quality": "medium",
+   "bytes": 67185257,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/da/da_DK/talesyntese/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://www.nb.no/sprakbanken/en/resource-catalogue/oai-nb-no-sbr-21/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/da/da_DK/talesyntese/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "de_DE-dii-high",
+   "engine": "piper",
+   "name": "Dii",
+   "locale": "de-DE",
+   "quality": "high",
+   "bytes": 67200058,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/de_DE/vits-piper-de_DE-dii-high/0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "OpenVoiceOS voice: non-commercial use only, share alike.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/OpenVoiceOS/pipertts_de-DE_dii"
+   }
+  },
+  {
+   "id": "de_DE-eva_k-x_low",
+   "engine": "piper",
+   "name": "Eva K",
+   "locale": "de-DE",
+   "quality": "x_low",
+   "bytes": 26521242,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/eva_k/x_low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "M-AILABS licence",
+    "use": "credit",
+    "note": "Free to use, also commercially; keep M-AILABS's copyright notice.",
+    "stated": "See URL",
+    "dataset": "https://www.caito.de/2019/01/03/the-m-ailabs-speech-dataset/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/de/de_DE/eva_k/x_low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "de_DE-glados-high",
+   "engine": "piper",
+   "name": "GLaDOS",
+   "locale": "de-DE",
+   "quality": "high",
+   "bytes": 115594308,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/de_DE/vits-piper-de_DE-glados-high/0.mp3",
+   "licence": {
+    "name": "Not settled",
+    "use": "unclear",
+    "note": "Learned from a game character's lines (Portal, by Valve); their rights are not settled.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/systemofapwne/piper-de-glados"
+   }
+  },
+  {
+   "id": "de_DE-glados-medium",
+   "engine": "piper",
+   "name": "GLaDOS",
+   "locale": "de-DE",
+   "quality": "medium",
+   "bytes": 67214838,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/de_DE/vits-piper-de_DE-glados-medium/0.mp3",
+   "licence": {
+    "name": "Not settled",
+    "use": "unclear",
+    "note": "Learned from a game character's lines (Portal, by Valve); their rights are not settled.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/systemofapwne/piper-de-glados"
+   }
+  },
+  {
+   "id": "de_DE-glados-low",
+   "engine": "piper",
+   "name": "GLaDOS",
+   "locale": "de-DE",
+   "quality": "low",
+   "bytes": 67222575,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/de_DE/vits-piper-de_DE-glados-low/0.mp3",
+   "licence": {
+    "name": "Not settled",
+    "use": "unclear",
+    "note": "Learned from a game character's lines (Portal, by Valve); their rights are not settled.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/systemofapwne/piper-de-glados"
+   }
+  },
+  {
+   "id": "de_DE-glados_turret-high",
+   "engine": "piper",
+   "name": "GLaDOS turret",
+   "locale": "de-DE",
+   "quality": "high",
+   "bytes": 115573536,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/de_DE/vits-piper-de_DE-glados_turret-high/0.mp3",
+   "licence": {
+    "name": "Not settled",
+    "use": "unclear",
+    "note": "Learned from a game character's lines (Portal, by Valve); their rights are not settled.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/systemofapwne/piper-de-glados"
+   }
+  },
+  {
+   "id": "de_DE-glados_turret-medium",
+   "engine": "piper",
+   "name": "GLaDOS turret",
+   "locale": "de-DE",
+   "quality": "medium",
+   "bytes": 67197213,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/de_DE/vits-piper-de_DE-glados_turret-medium/0.mp3",
+   "licence": {
+    "name": "Not settled",
+    "use": "unclear",
+    "note": "Learned from a game character's lines (Portal, by Valve); their rights are not settled.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/systemofapwne/piper-de-glados"
+   }
+  },
+  {
+   "id": "de_DE-glados_turret-low",
+   "engine": "piper",
+   "name": "GLaDOS turret",
+   "locale": "de-DE",
+   "quality": "low",
+   "bytes": 67206901,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/de_DE/vits-piper-de_DE-glados_turret-low/0.mp3",
+   "licence": {
+    "name": "Not settled",
+    "use": "unclear",
+    "note": "Learned from a game character's lines (Portal, by Valve); their rights are not settled.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/systemofapwne/piper-de-glados"
+   }
+  },
+  {
+   "id": "de_DE-karlsson-low",
+   "engine": "piper",
+   "name": "Karlsson",
+   "locale": "de-DE",
+   "quality": "low",
+   "bytes": 67100500,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/karlsson/low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "M-AILABS licence",
+    "use": "credit",
+    "note": "Free to use, also commercially; keep M-AILABS's copyright notice. It started from the Ryan voice, whose recordings are non-commercial.",
+    "stated": "See URL",
+    "dataset": "https://www.caito.de/2019/01/03/the-m-ailabs-speech-dataset/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/de/de_DE/karlsson/low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "de_DE-kerstin-low",
+   "engine": "piper",
+   "name": "Kerstin",
+   "locale": "de-DE",
+   "quality": "low",
+   "bytes": 67107768,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/kerstin/low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Ryan voice, whose recordings are non-commercial.",
+    "stated": "CC0",
+    "dataset": "https://github.com/rhasspy/dataset-voice-kerstin",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/de/de_DE/kerstin/low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "de_DE-miro-high",
+   "engine": "piper",
+   "name": "Miro",
+   "locale": "de-DE",
+   "quality": "high",
+   "bytes": 67160790,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/de_DE/vits-piper-de_DE-miro-high/0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "OpenVoiceOS voice: non-commercial use only, share alike.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/OpenVoiceOS/pipertts_de-DE_miro"
+   }
+  },
+  {
+   "id": "de_DE-pavoque-low",
+   "engine": "piper",
+   "name": "Pavoque",
+   "locale": "de-DE",
+   "quality": "low",
+   "bytes": 67113377,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/pavoque/low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "Non-commercial use only, with credit, share alike.",
+    "stated": "http://creativecommons.org/licenses/by-nc-sa/4.0/",
+    "dataset": "https://github.com/marytts/pavoque-data",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/de/de_DE/pavoque/low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "de_DE-ramona-low",
+   "engine": "piper",
+   "name": "Ramona",
+   "locale": "de-DE",
+   "quality": "low",
+   "bytes": 67084795,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/ramona/low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "M-AILABS licence",
+    "use": "credit",
+    "note": "Free to use, also commercially; keep M-AILABS's copyright notice.",
+    "stated": "See URL",
+    "dataset": "https://www.caito.de/2019/01/03/the-m-ailabs-speech-dataset/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/de/de_DE/ramona/low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "de_DE-thorsten-high",
+   "engine": "piper",
+   "name": "Thorsten",
+   "locale": "de-DE",
+   "quality": "high",
+   "bytes": 115591546,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/high/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/thorstenMueller/Thorsten-Voice",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/de/de_DE/thorsten/high/MODEL_CARD"
+   }
+  },
+  {
+   "id": "de_DE-thorsten-medium",
+   "engine": "piper",
+   "name": "Thorsten",
+   "locale": "de-DE",
+   "quality": "medium",
+   "bytes": 67214254,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/thorstenMueller/Thorsten-Voice",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/de/de_DE/thorsten/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "de_DE-thorsten-low",
+   "engine": "piper",
+   "name": "Thorsten",
+   "locale": "de-DE",
+   "quality": "low",
+   "bytes": 67101576,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Ryan voice, whose recordings are non-commercial.",
+    "stated": "CC0",
+    "dataset": "https://github.com/thorstenMueller/Thorsten-Voice",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/de/de_DE/thorsten/low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "de_DE-thorsten_emotional-medium",
+   "engine": "piper",
+   "name": "Thorsten (emotional)",
+   "locale": "de-DE",
+   "quality": "medium",
+   "bytes": 80215792,
+   "sampleRate": 22050,
+   "speakers": 8,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten_emotional/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use.",
+    "stated": "CC0",
+    "dataset": "https://github.com/thorstenMueller/Thorsten-Voice",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/de/de_DE/thorsten_emotional/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "el_GR-rapunzelina-low",
+   "engine": "piper",
+   "name": "Rapunzelina",
+   "locale": "el-GR",
+   "quality": "low",
+   "bytes": 67105521,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/el/el_GR/rapunzelina/low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Ryan voice, whose recordings are non-commercial.",
+    "stated": "CC0",
+    "dataset": "https://www.kaggle.com/datasets/bryanpark/greek-single-speaker-speech-dataset",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/el/el_GR/rapunzelina/low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_GB-alan-medium",
+   "engine": "piper",
+   "name": "Alan",
+   "locale": "en-GB",
+   "quality": "medium",
+   "bytes": 67220121,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "All rights reserved",
+    "use": "restricted",
+    "note": "Mycroft AI's recordings, \"All Rights Reserved\": no licence is granted.",
+    "stated": "See URL",
+    "dataset": "https://github.com/MycroftAI/mimic3-voices/blob/master/voices/en_UK/apope_low",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_GB/alan/medium/MODEL_CARD"
+   },
+   "blurb": "Steady British reader"
+  },
+  {
+   "id": "en_GB-alan-low",
+   "engine": "piper",
+   "name": "Alan",
+   "locale": "en-GB",
+   "quality": "low",
+   "bytes": 67086942,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "All rights reserved",
+    "use": "restricted",
+    "note": "Mycroft AI's recordings, \"All Rights Reserved\": no licence is granted.",
+    "stated": "See URL",
+    "dataset": "https://github.com/MycroftAI/mimic3-voices/blob/master/voices/en_UK/apope_low",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_GB/alan/low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_GB-alba-medium",
+   "engine": "piper",
+   "name": "Alba",
+   "locale": "en-GB",
+   "quality": "medium",
+   "bytes": 67212349,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alba/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY 4.0",
+    "use": "credit",
+    "note": "Free to use with credit. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "https://creativecommons.org/licenses/by/4.0/",
+    "dataset": "https://datashare.ed.ac.uk/handle/10283/3270",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_GB/alba/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_GB-aru-medium",
+   "engine": "piper",
+   "name": "ARU",
+   "locale": "en-GB",
+   "quality": "medium",
+   "bytes": 80309222,
+   "sampleRate": 22050,
+   "speakers": 12,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/aru/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY 4.0",
+    "use": "credit",
+    "note": "Free to use with credit. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "https://creativecommons.org/licenses/by/4.0/",
+    "dataset": "https://www.liverpool.ac.uk/architecture/research/acoustics-research-unit/speech-corpus/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_GB/aru/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_GB-cori-high",
+   "engine": "piper",
+   "name": "Cori",
+   "locale": "en-GB",
+   "quality": "high",
+   "bytes": 115574061,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/cori/high/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Public domain",
+    "use": "free",
+    "note": "The recordings are public domain: free for any use.",
+    "stated": "public domain",
+    "dataset": "https://librivox.org",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_GB/cori/high/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_GB-cori-medium",
+   "engine": "piper",
+   "name": "Cori",
+   "locale": "en-GB",
+   "quality": "medium",
+   "bytes": 67257412,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/cori/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Public domain",
+    "use": "free",
+    "note": "The recordings are public domain: free for any use.",
+    "stated": "public domain",
+    "dataset": "https://librivox.org",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_GB/cori/medium/MODEL_CARD"
+   },
+   "blurb": "Soft and expressive"
+  },
+  {
+   "id": "en_GB-dii-high",
+   "engine": "piper",
+   "name": "Dii",
+   "locale": "en-GB",
+   "quality": "high",
+   "bytes": 67229442,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/en_GB/vits-piper-en_GB-dii-high/0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "OpenVoiceOS voice: non-commercial use only, share alike.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/OpenVoiceOS/pipertts_en-GB_dii"
+   }
+  },
+  {
+   "id": "en_GB-jenny_dioco-medium",
+   "engine": "piper",
+   "name": "Jenny (Dioco)",
+   "locale": "en-GB",
+   "quality": "medium",
+   "bytes": 67225842,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/jenny_dioco/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Jenny licence",
+    "use": "credit",
+    "note": "Commercial use allowed; credit the voice as Jenny (Dioco). It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "See URL",
+    "dataset": "https://github.com/dioco-group/jenny-tts-dataset",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_GB/jenny_dioco/medium/MODEL_CARD"
+   },
+   "blurb": "Bright British voice"
+  },
+  {
+   "id": "en_GB-miro-high",
+   "engine": "piper",
+   "name": "Miro",
+   "locale": "en-GB",
+   "quality": "high",
+   "bytes": 67194499,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/en_GB/vits-piper-en_GB-miro-high/0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "OpenVoiceOS voice: non-commercial use only, share alike.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/OpenVoiceOS/pipertts_en-GB_miro"
+   }
+  },
+  {
+   "id": "en_GB-northern_english_male-medium",
+   "engine": "piper",
+   "name": "Northern English male",
+   "locale": "en-GB",
+   "quality": "medium",
+   "bytes": 67210490,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/northern_english_male/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-SA 4.0",
+    "use": "credit",
+    "note": "Free to use with credit; changes share alike. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC-BY-SA 4.0 International",
+    "dataset": "http://www.openslr.org/83/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_GB/northern_english_male/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_GB-semaine-medium",
+   "engine": "piper",
+   "name": "SEMAINE",
+   "locale": "en-GB",
+   "quality": "medium",
+   "bytes": 80241918,
+   "sampleRate": 22050,
+   "speakers": 4,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/semaine/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "Non-commercial use only, with credit, share alike.",
+    "stated": "http://creativecommons.org/licenses/by-nc-sa/4.0/",
+    "dataset": "https://github.com/marytts/dfki-semaine-data",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_GB/semaine/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_GB-southern_english_female-medium",
+   "engine": "piper",
+   "name": "Southern English female",
+   "locale": "en-GB",
+   "quality": "medium",
+   "bytes": 80275090,
+   "sampleRate": 22050,
+   "speakers": 6,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/en_GB/vits-piper-en_GB-southern_english_female-medium/0.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "The model page says Apache 2.0 and names no recordings.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/csukuangfj/vits-piper-en_GB-southern_english_female-medium"
+   }
+  },
+  {
+   "id": "en_GB-southern_english_female-low",
+   "engine": "piper",
+   "name": "Southern English female",
+   "locale": "en-GB",
+   "quality": "low",
+   "bytes": 67073626,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/southern_english_female/low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-SA 4.0",
+    "use": "credit",
+    "note": "Free to use with credit; changes share alike. It started from the Ryan voice, whose recordings are non-commercial.",
+    "stated": "CC-BY-SA 4.0 International",
+    "dataset": "http://www.openslr.org/83/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_GB/southern_english_female/low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_GB-southern_english_male-medium",
+   "engine": "piper",
+   "name": "Southern English male",
+   "locale": "en-GB",
+   "quality": "medium",
+   "bytes": 80299212,
+   "sampleRate": 22050,
+   "speakers": 8,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/en_GB/vits-piper-en_GB-southern_english_male-medium/0.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "The model page says Apache 2.0 and names no recordings.",
+    "stated": "apache-2.0",
+    "dataset": "",
+    "card": "https://huggingface.co/csukuangfj/vits-piper-en_GB-southern_english_male-medium"
+   }
+  },
+  {
+   "id": "en_GB-vctk-medium",
+   "engine": "piper",
+   "name": "VCTK",
+   "locale": "en-GB",
+   "quality": "medium",
+   "bytes": 80488085,
+   "sampleRate": 22050,
+   "speakers": 109,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/vctk/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY 4.0",
+    "use": "credit",
+    "note": "Free to use with credit. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "https://creativecommons.org/licenses/by/4.0/",
+    "dataset": "https://datashare.ed.ac.uk/handle/10283/3443",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_GB/vctk/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_US-amy-medium",
+   "engine": "piper",
+   "name": "Amy",
+   "locale": "en-US",
+   "quality": "medium",
+   "bytes": 67223746,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Not stated",
+    "use": "unclear",
+    "note": "The model card points to Mycroft's voices, which do not list her.",
+    "stated": "See URL",
+    "dataset": "https://github.com/MycroftAI/mimic3-voices",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/amy/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_US-amy-low",
+   "engine": "piper",
+   "name": "Amy",
+   "locale": "en-US",
+   "quality": "low",
+   "bytes": 67095344,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Not stated",
+    "use": "unclear",
+    "note": "The model card points to Mycroft's voices, which do not list her.",
+    "stated": "See URL",
+    "dataset": "https://github.com/MycroftAI/mimic3-voices",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/amy/low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_US-bryce-medium",
+   "engine": "piper",
+   "name": "Bryce",
+   "locale": "en-US",
+   "quality": "medium",
+   "bytes": 67278133,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/bryce/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Public domain",
+    "use": "free",
+    "note": "The recordings are public domain: free for any use.",
+    "stated": "public domain",
+    "dataset": "",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/bryce/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_US-arctic-medium",
+   "engine": "piper",
+   "name": "CMU Arctic",
+   "locale": "en-US",
+   "quality": "medium",
+   "bytes": 80255511,
+   "sampleRate": 22050,
+   "speakers": 18,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/arctic/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CMU Arctic licence",
+    "use": "credit",
+    "note": "Free to use; keep Carnegie Mellon's notice. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "See LICENSE file",
+    "dataset": "http://www.festvox.org/cmu_arctic/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/arctic/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_US-danny-low",
+   "engine": "piper",
+   "name": "Danny",
+   "locale": "en-US",
+   "quality": "low",
+   "bytes": 67107780,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/danny/low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Not stated",
+    "use": "unclear",
+    "note": "The model card points to Mycroft's voices, which do not list him.",
+    "stated": "See URL",
+    "dataset": "https://github.com/MycroftAI/mimic3-voices",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/danny/low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_US-glados-high",
+   "engine": "piper",
+   "name": "GLaDOS",
+   "locale": "en-US",
+   "quality": "high",
+   "bytes": 115586982,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/en_US/vits-piper-en_US-glados-high/0.mp3",
+   "licence": {
+    "name": "Not settled",
+    "use": "unclear",
+    "note": "Learned from a game character's lines (Portal, by Valve); their rights are not settled.",
+    "stated": "http://unlicense.org",
+    "dataset": "https://github.com/robit-man/Ellen-McLain-Dataset",
+    "card": "https://github.com/rhasspy/piper/issues/187#issuecomment-1805709037"
+   }
+  },
+  {
+   "id": "en_US-hfc_female-medium",
+   "engine": "piper",
+   "name": "HFC female",
+   "locale": "en-US",
+   "quality": "medium",
+   "bytes": 67228166,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/hfc_female/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "Non-commercial use only, with credit, share alike.",
+    "stated": "https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en",
+    "dataset": "https://ast-astrec.nict.go.jp/en/release/hi-fi-captain/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/hfc_female/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_US-hfc_male-medium",
+   "engine": "piper",
+   "name": "HFC male",
+   "locale": "en-US",
+   "quality": "medium",
+   "bytes": 67214049,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/hfc_male/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "Non-commercial use only, with credit, share alike.",
+    "stated": "https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en",
+    "dataset": "https://ast-astrec.nict.go.jp/en/release/hi-fi-captain/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/hfc_male/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_US-joe-medium",
+   "engine": "piper",
+   "name": "Joe",
+   "locale": "en-US",
+   "quality": "medium",
+   "bytes": 67169394,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/joe/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/OHF-Voice/voice-datasets",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/joe/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_US-john-medium",
+   "engine": "piper",
+   "name": "John",
+   "locale": "en-US",
+   "quality": "medium",
+   "bytes": 67249181,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/john/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Public domain",
+    "use": "free",
+    "note": "The recordings are public domain: free for any use.",
+    "stated": "public domain",
+    "dataset": "https://librivox.org",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/john/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_US-kathleen-low",
+   "engine": "piper",
+   "name": "Kathleen",
+   "locale": "en-US",
+   "quality": "low",
+   "bytes": 67118360,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/kathleen/low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Ryan voice, whose recordings are non-commercial.",
+    "stated": "CC0",
+    "dataset": "https://github.com/rhasspy/dataset-voice-kathleen",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/kathleen/low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_US-kristin-medium",
+   "engine": "piper",
+   "name": "Kristin",
+   "locale": "en-US",
+   "quality": "medium",
+   "bytes": 67259230,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/kristin/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Public domain",
+    "use": "free",
+    "note": "The recordings are public domain: free for any use.",
+    "stated": "public domain",
+    "dataset": "https://librivox.org",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/kristin/medium/MODEL_CARD"
+   },
+   "blurb": "Warm and clear"
+  },
+  {
+   "id": "en_US-kusal-medium",
+   "engine": "piper",
+   "name": "Kusal",
+   "locale": "en-US",
+   "quality": "medium",
+   "bytes": 67219292,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/kusal/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Not stated",
+    "use": "unclear",
+    "note": "The model card does not state a licence; see the dataset's site.",
+    "stated": "See URL",
+    "dataset": "https://github.com/MycroftAI/mimic2",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/kusal/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_US-l2arctic-medium",
+   "engine": "piper",
+   "name": "L2-Arctic",
+   "locale": "en-US",
+   "quality": "medium",
+   "bytes": 80314104,
+   "sampleRate": 22050,
+   "speakers": 24,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/l2arctic/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-NC 4.0",
+    "use": "noncommercial",
+    "note": "Non-commercial use only.",
+    "stated": "https://creativecommons.org/licenses/by-nc/4.0/",
+    "dataset": "https://www.isca-speech.org/archive/interspeech_2018/zhao18b_interspeech.html",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/l2arctic/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_US-lessac-high",
+   "engine": "piper",
+   "name": "Lessac",
+   "locale": "en-US",
+   "quality": "high",
+   "bytes": 115545841,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/high/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Research licence",
+    "use": "noncommercial",
+    "note": "Blizzard Challenge 2013 recordings: research and non-commercial use only.",
+    "stated": "https://www.cstr.ed.ac.uk/projects/blizzard/2013/lessac_blizzard2013/license.html",
+    "dataset": "https://www.cstr.ed.ac.uk/projects/blizzard/2013/lessac_blizzard2013/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/lessac/high/MODEL_CARD"
+   },
+   "blurb": "The richest, needs a faster phone"
+  },
+  {
+   "id": "en_US-lessac-medium",
+   "engine": "piper",
+   "name": "Lessac",
+   "locale": "en-US",
+   "quality": "medium",
+   "bytes": 67230653,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Research licence",
+    "use": "noncommercial",
+    "note": "Blizzard Challenge 2013 recordings: research and non-commercial use only.",
+    "stated": "https://www.cstr.ed.ac.uk/projects/blizzard/2013/lessac_blizzard2013/license.html",
+    "dataset": "https://www.cstr.ed.ac.uk/projects/blizzard/2013/lessac_blizzard2013/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/lessac/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_US-lessac-low",
+   "engine": "piper",
+   "name": "Lessac",
+   "locale": "en-US",
+   "quality": "low",
+   "bytes": 67097098,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Research licence",
+    "use": "noncommercial",
+    "note": "Blizzard Challenge 2013 recordings: research and non-commercial use only.",
+    "stated": "https://www.cstr.ed.ac.uk/projects/blizzard/2013/lessac_blizzard2013/license.html",
+    "dataset": "https://www.cstr.ed.ac.uk/projects/blizzard/2013/lessac_blizzard2013/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/lessac/low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_US-libritts-high",
+   "engine": "piper",
+   "name": "LibriTTS",
+   "locale": "en-US",
+   "quality": "high",
+   "bytes": 131033598,
+   "sampleRate": 22050,
+   "speakers": 904,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/libritts/high/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY 4.0",
+    "use": "credit",
+    "note": "Free to use with credit.",
+    "stated": "CC BY 4.0",
+    "dataset": "http://www.openslr.org/60/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/libritts/high/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_US-libritts_r-medium",
+   "engine": "piper",
+   "name": "LibriTTS-R",
+   "locale": "en-US",
+   "quality": "medium",
+   "bytes": 82038311,
+   "sampleRate": 22050,
+   "speakers": 904,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/libritts_r/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY 4.0",
+    "use": "credit",
+    "note": "Free to use with credit. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC BY 4.0",
+    "dataset": "http://www.openslr.org/141/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/libritts_r/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_US-ljspeech-high",
+   "engine": "piper",
+   "name": "LJ Speech",
+   "locale": "en-US",
+   "quality": "high",
+   "bytes": 115817679,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ljspeech/high/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Public domain",
+    "use": "free",
+    "note": "The recordings are public domain: free for any use.",
+    "stated": "public domain",
+    "dataset": "https://keithito.com/LJ-Speech-Dataset/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/ljspeech/high/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_US-ljspeech-medium",
+   "engine": "piper",
+   "name": "LJ Speech",
+   "locale": "en-US",
+   "quality": "medium",
+   "bytes": 67169893,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ljspeech/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Public domain",
+    "use": "free",
+    "note": "The recordings are public domain: free for any use.",
+    "stated": "public domain",
+    "dataset": "https://keithito.com/LJ-Speech-Dataset/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/ljspeech/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_US-miro-high",
+   "engine": "piper",
+   "name": "Miro",
+   "locale": "en-US",
+   "quality": "high",
+   "bytes": 67198472,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/en_US/vits-piper-en_US-miro-high/0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "OpenVoiceOS voice: non-commercial use only, share alike.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/OpenVoiceOS/pipertts_en-US_miro"
+   }
+  },
+  {
+   "id": "en_US-norman-medium",
+   "engine": "piper",
+   "name": "Norman",
+   "locale": "en-US",
+   "quality": "medium",
+   "bytes": 67203672,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/norman/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Public domain",
+    "use": "free",
+    "note": "The recordings are public domain: free for any use.",
+    "stated": "public domain",
+    "dataset": "https://librivox.org",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/norman/medium/MODEL_CARD"
+   },
+   "blurb": "Calm, a little deep"
+  },
+  {
+   "id": "en_US-reza_ibrahim-medium",
+   "engine": "piper",
+   "name": "Reza Ibrahim",
+   "locale": "en-US",
+   "quality": "medium",
+   "bytes": 67214755,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/reza_ibrahim/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://huggingface.co/datasets/mah92/Hedayatfar-Persian-Quran-Audio-Dataset",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/reza_ibrahim/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_US-ryan-high",
+   "engine": "piper",
+   "name": "Ryan",
+   "locale": "en-US",
+   "quality": "high",
+   "bytes": 115630708,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "Non-commercial use only, with credit, share alike.",
+    "stated": "CC BY-NC-SA 4.0",
+    "dataset": "https://www.kaggle.com/datasets/roholazandie/ryanspeech",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/ryan/high/MODEL_CARD"
+   },
+   "blurb": "Deep and full, needs a faster phone"
+  },
+  {
+   "id": "en_US-ryan-medium",
+   "engine": "piper",
+   "name": "Ryan",
+   "locale": "en-US",
+   "quality": "medium",
+   "bytes": 67213100,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "Non-commercial use only, with credit, share alike.",
+    "stated": "CC BY-NC-SA 4.0",
+    "dataset": "https://www.kaggle.com/datasets/roholazandie/ryanspeech",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/ryan/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_US-ryan-low",
+   "engine": "piper",
+   "name": "Ryan",
+   "locale": "en-US",
+   "quality": "low",
+   "bytes": 67100179,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "Non-commercial use only, with credit, share alike.",
+    "stated": "CC BY-NC-SA 4.0",
+    "dataset": "https://www.kaggle.com/datasets/roholazandie/ryanspeech",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/ryan/low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "en_US-sam-medium",
+   "engine": "piper",
+   "name": "Sam",
+   "locale": "en-US",
+   "quality": "medium",
+   "bytes": 67249919,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/sam/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Free to use; keep the licence notice. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+    "dataset": "https://github.com/Sam-Accenture-Non-Binary-Voice/non-binary-voice-files",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/sam/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "es_AR-daniela-high",
+   "engine": "piper",
+   "name": "Daniela",
+   "locale": "es-AR",
+   "quality": "high",
+   "bytes": 115562134,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_AR/daniela/high/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-SA 4.0",
+    "use": "credit",
+    "note": "Free to use with credit; changes share alike. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "Attribution-ShareAlike 4.0 International",
+    "dataset": "https://www.openslr.org/61/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/es/es_AR/daniela/high/MODEL_CARD"
+   }
+  },
+  {
+   "id": "es_ES-carlfm-x_low",
+   "engine": "piper",
+   "name": "Carlfm",
+   "locale": "es-ES",
+   "quality": "x_low",
+   "bytes": 26520563,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/carlfm/x_low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Public domain",
+    "use": "free",
+    "note": "The recordings are public domain: free for any use.",
+    "stated": "Public domain",
+    "dataset": "https://github.com/carlfm01/my-speech-datasets",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/es/es_ES/carlfm/x_low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "es_ES-davefx-medium",
+   "engine": "piper",
+   "name": "Davefx",
+   "locale": "es-ES",
+   "quality": "medium",
+   "bytes": 67184952,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/davefx/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/OHF-Voice/voice-datasets",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/es/es_ES/davefx/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "es_ES-glados-medium",
+   "engine": "piper",
+   "name": "GLaDOS",
+   "locale": "es-ES",
+   "quality": "medium",
+   "bytes": 67214285,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/es_ES/vits-piper-es_ES-glados-medium/0.mp3",
+   "licence": {
+    "name": "Not settled",
+    "use": "unclear",
+    "note": "Learned from a game character's lines (Portal, by Valve); their rights are not settled.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://github.com/rhasspy/piper/issues/187#issuecomment-1802216304"
+   }
+  },
+  {
+   "id": "es_ES-miro-high",
+   "engine": "piper",
+   "name": "Miro",
+   "locale": "es-ES",
+   "quality": "high",
+   "bytes": 67162898,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/es_ES/vits-piper-es_ES-miro-high/0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "OpenVoiceOS voice: non-commercial use only, share alike.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/OpenVoiceOS/pipertts_es-ES_miro"
+   }
+  },
+  {
+   "id": "es_ES-sharvard-medium",
+   "engine": "piper",
+   "name": "Sharvard",
+   "locale": "es-ES",
+   "quality": "medium",
+   "bytes": 80318184,
+   "sampleRate": 22050,
+   "speakers": 2,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/sharvard/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY 3.0",
+    "use": "credit",
+    "note": "Free to use with credit. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "http://creativecommons.org/licenses/by/3.0/",
+    "dataset": "https://datashare.ed.ac.uk/handle/10283/574",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/es/es_ES/sharvard/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "es_MX-ald-medium",
+   "engine": "piper",
+   "name": "Ald",
+   "locale": "es-MX",
+   "quality": "medium",
+   "bytes": 67196497,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_MX/ald/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Public domain",
+    "use": "free",
+    "note": "The recordings are public domain: free for any use.",
+    "stated": "http://unlicense.org",
+    "dataset": "https://huggingface.co/datasets/rmcpantoja/Ald_Mexican_Spanish_speech_dataset",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/es/es_MX/ald/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "es_MX-claude-high",
+   "engine": "piper",
+   "name": "Claude",
+   "locale": "es-MX",
+   "quality": "high",
+   "bytes": 67207890,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_MX/claude/high/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Free to use; keep the licence notice.",
+    "stated": "apache-2.0",
+    "dataset": "https://huggingface.co/spaces/HirCoir/Piper-TTS-Spanish",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/es/es_MX/claude/high/MODEL_CARD"
+   }
+  },
+  {
+   "id": "eu_ES-antton-medium",
+   "engine": "piper",
+   "name": "Antton",
+   "locale": "eu-ES",
+   "quality": "medium",
+   "bytes": 67216651,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/eu/eu_ES/antton/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY 4.0",
+    "use": "credit",
+    "note": "Free to use with credit.",
+    "stated": "Creative Commons Attribution 4.0",
+    "dataset": "https://huggingface.co/datasets/itzune/antton-dataset",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/eu/eu_ES/antton/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "eu_ES-maider-medium",
+   "engine": "piper",
+   "name": "Maider",
+   "locale": "eu-ES",
+   "quality": "medium",
+   "bytes": 67247291,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/eu/eu_ES/maider/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY 4.0",
+    "use": "credit",
+    "note": "Free to use with credit.",
+    "stated": "Creative Commons Attribution 4.0",
+    "dataset": "https://huggingface.co/datasets/itzune/maider-dataset",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/eu/eu_ES/maider/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "fa_IR-amir-medium",
+   "engine": "piper",
+   "name": "Amir",
+   "locale": "fa-IR",
+   "quality": "medium",
+   "bytes": 67180373,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/fa/fa_IR/amir/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://datacula.com/tts-databases",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/fa/fa_IR/amir/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "fa_IR-ganji-medium",
+   "engine": "piper",
+   "name": "Ganji",
+   "locale": "fa-IR",
+   "quality": "medium",
+   "bytes": 67186157,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/fa/fa_IR/ganji/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use.",
+    "stated": "CC0",
+    "dataset": "https://tts.datacula.com/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/fa/fa_IR/ganji/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "fa_IR-ganji_adabi-medium",
+   "engine": "piper",
+   "name": "Ganji (literary)",
+   "locale": "fa-IR",
+   "quality": "medium",
+   "bytes": 67221431,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/fa/fa_IR/ganji_adabi/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use.",
+    "stated": "CC0",
+    "dataset": "https://tts.datacula.com/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/fa/fa_IR/ganji_adabi/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "fa_IR-gyro-medium",
+   "engine": "piper",
+   "name": "Gyro",
+   "locale": "fa-IR",
+   "quality": "medium",
+   "bytes": 67183308,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/fa/fa_IR/gyro/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Not stated",
+    "use": "unclear",
+    "note": "The model card does not state a licence; see the dataset's site.",
+    "stated": "See URL",
+    "dataset": "https://github.com/gyroing",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/fa/fa_IR/gyro/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "fa_en-rezahedayatfar-ibrahimwalk-medium",
+   "engine": "piper",
+   "name": "Reza and Ibrahim",
+   "locale": "fa-IR",
+   "quality": "medium",
+   "bytes": 67246929,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://huggingface.co/datasets/mah92/Hedayatfar-Persian-Quran-Audio-Dataset",
+    "card": "https://huggingface.co/csukuangfj/vits-piper-fa_en-rezahedayatfar-ibrahimwalk-medium"
+   }
+  },
+  {
+   "id": "fa_IR-reza_ibrahim-medium",
+   "engine": "piper",
+   "name": "Reza Ibrahim",
+   "locale": "fa-IR",
+   "quality": "medium",
+   "bytes": 67187249,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/fa/fa_IR/reza_ibrahim/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://huggingface.co/datasets/mah92/Hedayatfar-Persian-Quran-Audio-Dataset",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/fa/fa_IR/reza_ibrahim/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "fi_FI-harri-medium",
+   "engine": "piper",
+   "name": "Harri",
+   "locale": "fi-FI",
+   "quality": "medium",
+   "bytes": 67205198,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/fi/fi_FI/harri/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://www.kaggle.com/bryanpark/finnish-single-speaker-speech-dataset",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/fi/fi_FI/harri/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "fi_FI-harri-low",
+   "engine": "piper",
+   "name": "Harri",
+   "locale": "fi-FI",
+   "quality": "low",
+   "bytes": 67101909,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/fi/fi_FI/harri/low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Ryan voice, whose recordings are non-commercial.",
+    "stated": "CC0",
+    "dataset": "https://www.kaggle.com/bryanpark/finnish-single-speaker-speech-dataset",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/fi/fi_FI/harri/low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "fr_FR-gilles-low",
+   "engine": "piper",
+   "name": "Gilles",
+   "locale": "fr-FR",
+   "quality": "low",
+   "bytes": 67094350,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/gilles/low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Ryan voice, whose recordings are non-commercial.",
+    "stated": "CC0",
+    "dataset": "https://www.kaggle.com/datasets/bryanpark/french-single-speaker-speech-dataset",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/fr/fr_FR/gilles/low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "fr_FR-miro-high",
+   "engine": "piper",
+   "name": "Miro",
+   "locale": "fr-FR",
+   "quality": "high",
+   "bytes": 67162880,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/fr_FR/vits-piper-fr_FR-miro-high/0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "OpenVoiceOS voice: non-commercial use only, share alike.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/OpenVoiceOS/pipertts_fr-FR_miro"
+   }
+  },
+  {
+   "id": "fr_FR-siwis-medium",
+   "engine": "piper",
+   "name": "SIWIS",
+   "locale": "fr-FR",
+   "quality": "medium",
+   "bytes": 67207459,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/siwis/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY 4.0",
+    "use": "credit",
+    "note": "Free to use with credit. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC-BY 4.0",
+    "dataset": "https://datashare.is.ed.ac.uk/handle/10283/2353",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/fr/fr_FR/siwis/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "fr_FR-siwis-low",
+   "engine": "piper",
+   "name": "SIWIS",
+   "locale": "fr-FR",
+   "quality": "low",
+   "bytes": 26522254,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/siwis/low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY 4.0",
+    "use": "credit",
+    "note": "Free to use with credit. It started from the Ryan voice, whose recordings are non-commercial.",
+    "stated": "CC-BY 4.0",
+    "dataset": "https://datashare.is.ed.ac.uk/handle/10283/2353",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/fr/fr_FR/siwis/low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "fr_FR-tjiho-model1",
+   "engine": "piper",
+   "name": "Tjiho 1",
+   "locale": "fr-FR",
+   "quality": "medium",
+   "bytes": 67204019,
+   "sampleRate": 44100,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/fr_FR/vits-piper-fr_FR-tjiho-model1/0.mp3",
+   "licence": {
+    "name": "AGPL 3.0",
+    "use": "credit",
+    "note": "Free to use; changes must be shared under the AGPL.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/csukuangfj/vits-piper-fr_FR-tjiho-model1"
+   }
+  },
+  {
+   "id": "fr_FR-tjiho-model2",
+   "engine": "piper",
+   "name": "Tjiho 2",
+   "locale": "fr-FR",
+   "quality": "medium",
+   "bytes": 67204483,
+   "sampleRate": 44100,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/fr_FR/vits-piper-fr_FR-tjiho-model2/0.mp3",
+   "licence": {
+    "name": "AGPL 3.0",
+    "use": "credit",
+    "note": "Free to use; changes must be shared under the AGPL.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/csukuangfj/vits-piper-fr_FR-tjiho-model2"
+   }
+  },
+  {
+   "id": "fr_FR-tjiho-model3",
+   "engine": "piper",
+   "name": "Tjiho 3",
+   "locale": "fr-FR",
+   "quality": "medium",
+   "bytes": 67251174,
+   "sampleRate": 44100,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/fr_FR/vits-piper-fr_FR-tjiho-model3/0.mp3",
+   "licence": {
+    "name": "AGPL 3.0",
+    "use": "credit",
+    "note": "Free to use; changes must be shared under the AGPL.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/csukuangfj/vits-piper-fr_FR-tjiho-model3"
+   }
+  },
+  {
+   "id": "fr_FR-tom-medium",
+   "engine": "piper",
+   "name": "Tom",
+   "locale": "fr-FR",
+   "quality": "medium",
+   "bytes": 67202955,
+   "sampleRate": 44100,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/tom/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "AGPL 3.0",
+    "use": "credit",
+    "note": "Free to use; changes must be shared under the AGPL.",
+    "stated": "AGPLv3",
+    "dataset": "https://git.bksp.space/Tjiho/French-tts-model-piper",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/fr/fr_FR/tom/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "fr_FR-upmc-medium",
+   "engine": "piper",
+   "name": "UPMC",
+   "locale": "fr-FR",
+   "quality": "medium",
+   "bytes": 80422639,
+   "sampleRate": 22050,
+   "speakers": 2,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/upmc/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-SA 4.0",
+    "use": "credit",
+    "note": "Free to use with credit; changes share alike. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "http://creativecommons.org/licenses/by-sa/4.0/",
+    "dataset": "https://github.com/marytts/upmc-pierre-data",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/fr/fr_FR/upmc/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "hi_IN-pratham-medium",
+   "engine": "piper",
+   "name": "Pratham",
+   "locale": "hi-IN",
+   "quality": "medium",
+   "bytes": 67238438,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/pratham/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "Non-commercial use only, with credit, share alike.",
+    "stated": "http://creativecommons.org/licenses/by-nc-sa/4.0/",
+    "dataset": "",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/hi/hi_IN/pratham/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "hi_IN-priyamvada-medium",
+   "engine": "piper",
+   "name": "Priyamvada",
+   "locale": "hi-IN",
+   "quality": "medium",
+   "bytes": 67240610,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/priyamvada/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "Non-commercial use only, with credit, share alike.",
+    "stated": "http://creativecommons.org/licenses/by-nc-sa/4.0/",
+    "dataset": "",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/hi/hi_IN/priyamvada/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "hi_IN-rohan-medium",
+   "engine": "piper",
+   "name": "Rohan",
+   "locale": "hi-IN",
+   "quality": "medium",
+   "bytes": 67221139,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/rohan/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "IIT Madras licence",
+    "use": "credit",
+    "note": "IndicTTS recordings: free to use and share; keep IIT Madras's copyright notice. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "https://www.iitm.ac.in/donlab/indictts/downloads/license.pdf",
+    "dataset": "https://www.iitm.ac.in/donlab/indictts",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/hi/hi_IN/rohan/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "hu_HU-anna-medium",
+   "engine": "piper",
+   "name": "Anna",
+   "locale": "hu-HU",
+   "quality": "medium",
+   "bytes": 67167701,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/hu/hu_HU/anna/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/OHF-Voice/voice-datasets",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/hu/hu_HU/anna/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "hu_HU-berta-medium",
+   "engine": "piper",
+   "name": "Berta",
+   "locale": "hu-HU",
+   "quality": "medium",
+   "bytes": 67178197,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/hu/hu_HU/berta/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/OHF-Voice/voice-datasets",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/hu/hu_HU/berta/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "hu_HU-imre-medium",
+   "engine": "piper",
+   "name": "Imre",
+   "locale": "hu-HU",
+   "quality": "medium",
+   "bytes": 67218203,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/hu/hu_HU/imre/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/OHF-Voice/voice-datasets",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/hu/hu_HU/imre/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "id_ID-news_tts-medium",
+   "engine": "piper",
+   "name": "News",
+   "locale": "id-ID",
+   "quality": "medium",
+   "bytes": 67243848,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/id/id_ID/news_tts/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Not stated",
+    "use": "unclear",
+    "note": "The model card names a Malayalam corpus, not an Indonesian one.",
+    "stated": "See URL",
+    "dataset": "https://www.kaggle.com/code/mpwolke/indic-tts-malayalam-speech-corpus",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/id/id_ID/news_tts/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "is_IS-bui-medium",
+   "engine": "piper",
+   "name": "Bui",
+   "locale": "is-IS",
+   "quality": "medium",
+   "bytes": 67271654,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/is/is_IS/bui/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY 4.0",
+    "use": "credit",
+    "note": "Talrómur corpus: free to use with credit.",
+    "stated": "See URL",
+    "dataset": "http://hdl.handle.net/20.500.12537/104",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/is/is_IS/bui/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "is_IS-salka-medium",
+   "engine": "piper",
+   "name": "Salka",
+   "locale": "is-IS",
+   "quality": "medium",
+   "bytes": 67359734,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/is/is_IS/salka/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY 4.0",
+    "use": "credit",
+    "note": "Talrómur corpus: free to use with credit.",
+    "stated": "See URL",
+    "dataset": "http://hdl.handle.net/20.500.12537/104",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/is/is_IS/salka/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "is_IS-steinn-medium",
+   "engine": "piper",
+   "name": "Steinn",
+   "locale": "is-IS",
+   "quality": "medium",
+   "bytes": 67377681,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/is/is_IS/steinn/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY 4.0",
+    "use": "credit",
+    "note": "Talrómur corpus: free to use with credit.",
+    "stated": "See URL",
+    "dataset": "http://hdl.handle.net/20.500.12537/104",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/is/is_IS/steinn/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "is_IS-ugla-medium",
+   "engine": "piper",
+   "name": "Ugla",
+   "locale": "is-IS",
+   "quality": "medium",
+   "bytes": 67376655,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/is/is_IS/ugla/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY 4.0",
+    "use": "credit",
+    "note": "Talrómur corpus: free to use with credit.",
+    "stated": "See URL",
+    "dataset": "http://hdl.handle.net/20.500.12537/104",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/is/is_IS/ugla/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "it_IT-dii-high",
+   "engine": "piper",
+   "name": "Dii",
+   "locale": "it-IT",
+   "quality": "high",
+   "bytes": 67196676,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/it_IT/vits-piper-it_IT-dii-high/0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "OpenVoiceOS voice: non-commercial use only, share alike.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/OpenVoiceOS/pipertts_it-IT_dii"
+   }
+  },
+  {
+   "id": "it_IT-miro-high",
+   "engine": "piper",
+   "name": "Miro",
+   "locale": "it-IT",
+   "quality": "high",
+   "bytes": 67162890,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/it_IT/vits-piper-it_IT-miro-high/0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "OpenVoiceOS voice: non-commercial use only, share alike.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/OpenVoiceOS/pipertts_it-IT_miro"
+   }
+  },
+  {
+   "id": "it_IT-paola-medium",
+   "engine": "piper",
+   "name": "Paola",
+   "locale": "it-IT",
+   "quality": "medium",
+   "bytes": 67221173,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/it/it_IT/paola/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Not stated",
+    "use": "unclear",
+    "note": "The model card does not state a licence; see the dataset's site.",
+    "stated": "See URL",
+    "dataset": "https://huggingface.co/datasets/paolapersico1/Voice-Dataset-Italian",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/it/it_IT/paola/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "it_IT-riccardo-x_low",
+   "engine": "piper",
+   "name": "Riccardo",
+   "locale": "it-IT",
+   "quality": "x_low",
+   "bytes": 26496614,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/it/it_IT/riccardo/x_low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "M-AILABS licence",
+    "use": "credit",
+    "note": "Free to use, also commercially; keep M-AILABS's copyright notice.",
+    "stated": "See URL",
+    "dataset": "https://www.caito.de/2019/01/03/the-m-ailabs-speech-dataset/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/it/it_IT/riccardo/x_low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "ka_GE-natia-medium",
+   "engine": "piper",
+   "name": "Natia",
+   "locale": "ka-GE",
+   "quality": "medium",
+   "bytes": 67209457,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ka/ka_GE/natia/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Not stated",
+    "use": "unclear",
+    "note": "The model card does not state a licence; see the dataset's site.",
+    "stated": "See LICENSE file",
+    "dataset": "http://github.com/Olga-Yakovleva/RHVoice",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/ka/ka_GE/natia/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "kk_KZ-iseke-x_low",
+   "engine": "piper",
+   "name": "Iseke",
+   "locale": "kk-KZ",
+   "quality": "x_low",
+   "bytes": 26517675,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/kk/kk_KZ/iseke/x_low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY 4.0",
+    "use": "credit",
+    "note": "Free to use with credit.",
+    "stated": "CC-BY-4.0",
+    "dataset": "https://github.com/IS2AI/Kazakh_TTS",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/kk/kk_KZ/iseke/x_low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "kk_KZ-issai-high",
+   "engine": "piper",
+   "name": "ISSAI",
+   "locale": "kk-KZ",
+   "quality": "high",
+   "bytes": 129278805,
+   "sampleRate": 22050,
+   "speakers": 6,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/kk/kk_KZ/issai/high/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY 4.0",
+    "use": "credit",
+    "note": "Free to use with credit.",
+    "stated": "CC-BY-4.0",
+    "dataset": "https://github.com/IS2AI/Kazakh_TTS",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/kk/kk_KZ/issai/high/MODEL_CARD"
+   }
+  },
+  {
+   "id": "kk_KZ-raya-x_low",
+   "engine": "piper",
+   "name": "Raya",
+   "locale": "kk-KZ",
+   "quality": "x_low",
+   "bytes": 26497880,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/kk/kk_KZ/raya/x_low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY 4.0",
+    "use": "credit",
+    "note": "Free to use with credit.",
+    "stated": "CC-BY-4.0",
+    "dataset": "https://github.com/IS2AI/Kazakh_TTS",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/kk/kk_KZ/raya/x_low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "ku_TR-berfin_renas-medium",
+   "engine": "piper",
+   "name": "Berfin Renas",
+   "locale": "ku-TR",
+   "quality": "medium",
+   "bytes": 80263336,
+   "sampleRate": 22050,
+   "speakers": 2,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ku/ku_TR/berfin_renas/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-NC 4.0",
+    "use": "noncommercial",
+    "note": "Non-commercial use only.",
+    "stated": "cc-by-nc-4.0",
+    "dataset": "",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/ku/ku_TR/berfin_renas/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "lb_LU-marylux-medium",
+   "engine": "piper",
+   "name": "Marylux",
+   "locale": "lb-LU",
+   "quality": "medium",
+   "bytes": 67184319,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/lb/lb_LU/marylux/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "Non-commercial use only, with credit, share alike.",
+    "stated": "http://creativecommons.org/licenses/by-nc-sa/4.0/",
+    "dataset": "https://github.com/marytts/marylux-data",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/lb/lb_LU/marylux/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "lv_LV-aivars-medium",
+   "engine": "piper",
+   "name": "Aivars",
+   "locale": "lv-LV",
+   "quality": "medium",
+   "bytes": 67196173,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/lv/lv_LV/aivars/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use.",
+    "stated": "CC0 1.0 Universal",
+    "dataset": "https://huggingface.co/RaivisDejus/Piper-lv_LV-Aivars-medium",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/lv/lv_LV/aivars/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "ml_IN-arjun-medium",
+   "engine": "piper",
+   "name": "Arjun",
+   "locale": "ml-IN",
+   "quality": "medium",
+   "bytes": 67222458,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ml/ml_IN/arjun/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "IIT Madras licence",
+    "use": "credit",
+    "note": "IndicTTS recordings: free to use and share; keep IIT Madras's copyright notice. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "See URL",
+    "dataset": "https://www.kaggle.com/code/mpwolke/indic-tts-malayalam-speech-corpus",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/ml/ml_IN/arjun/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "ml_IN-meera-medium",
+   "engine": "piper",
+   "name": "Meera",
+   "locale": "ml-IN",
+   "quality": "medium",
+   "bytes": 67195010,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ml/ml_IN/meera/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "IIT Madras licence",
+    "use": "credit",
+    "note": "IndicTTS recordings: free to use and share; keep IIT Madras's copyright notice. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "See URL",
+    "dataset": "https://www.kaggle.com/code/mpwolke/indic-tts-malayalam-speech-corpus",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/ml/ml_IN/meera/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "ne_NP-chitwan-medium",
+   "engine": "piper",
+   "name": "Chitwan",
+   "locale": "ne-NP",
+   "quality": "medium",
+   "bytes": 67213467,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ne/ne_NP/chitwan/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/OHF-Voice/voice-datasets",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/ne/ne_NP/chitwan/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "ne_NP-google-medium",
+   "engine": "piper",
+   "name": "Google",
+   "locale": "ne-NP",
+   "quality": "medium",
+   "bytes": 80242801,
+   "sampleRate": 22050,
+   "speakers": 18,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ne/ne_NP/google/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-SA 4.0",
+    "use": "credit",
+    "note": "Free to use with credit; changes share alike. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC-BY-SA-4.0 International",
+    "dataset": "http://www.openslr.org/43/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/ne/ne_NP/google/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "ne_NP-google-x_low",
+   "engine": "piper",
+   "name": "Google",
+   "locale": "ne-NP",
+   "quality": "x_low",
+   "bytes": 33214875,
+   "sampleRate": 16000,
+   "speakers": 18,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ne/ne_NP/google/x_low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-SA 4.0",
+    "use": "credit",
+    "note": "Free to use with credit; changes share alike.",
+    "stated": "CC-BY-SA-4.0 International",
+    "dataset": "http://www.openslr.org/43/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/ne/ne_NP/google/x_low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "nl_BE-nathalie-medium",
+   "engine": "piper",
+   "name": "Nathalie",
+   "locale": "nl-BE",
+   "quality": "medium",
+   "bytes": 67226472,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/nl/nl_BE/nathalie/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/rhasspy/dataset-voice-nathalie",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/nl/nl_BE/nathalie/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "nl_BE-nathalie-x_low",
+   "engine": "piper",
+   "name": "Nathalie",
+   "locale": "nl-BE",
+   "quality": "x_low",
+   "bytes": 26502603,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/nl/nl_BE/nathalie/x_low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use.",
+    "stated": "CC0",
+    "dataset": "https://github.com/rhasspy/dataset-voice-nathalie",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/nl/nl_BE/nathalie/x_low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "nl_BE-rdh-medium",
+   "engine": "piper",
+   "name": "Rdh",
+   "locale": "nl-BE",
+   "quality": "medium",
+   "bytes": 67047636,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/nl/nl_BE/rdh/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use.",
+    "stated": "CC0 1.0 Universal",
+    "dataset": "https://github.com/r-dh/dutch-vl-tts",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/nl/nl_BE/rdh/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "nl_BE-rdh-x_low",
+   "engine": "piper",
+   "name": "Rdh",
+   "locale": "nl-BE",
+   "quality": "x_low",
+   "bytes": 26454425,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/nl/nl_BE/rdh/x_low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use.",
+    "stated": "CC0 1.0 Universal",
+    "dataset": "https://github.com/r-dh/dutch-vl-tts",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/nl/nl_BE/rdh/x_low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "nl_NL-alex-medium",
+   "engine": "piper",
+   "name": "Alex",
+   "locale": "nl-NL",
+   "quality": "medium",
+   "bytes": 67172584,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/nl/nl_NL/alex/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use.",
+    "stated": "CC0",
+    "dataset": "https://github.com/OHF-Voice/voice-datasets",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/nl/nl_NL/alex/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "nl_NL-dii-high",
+   "engine": "piper",
+   "name": "Dii",
+   "locale": "nl-NL",
+   "quality": "high",
+   "bytes": 67203791,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/nl_NL/vits-piper-nl_NL-dii-high/0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "OpenVoiceOS voice: non-commercial use only, share alike.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/OpenVoiceOS/pipertts_nl-NL_dii"
+   }
+  },
+  {
+   "id": "nl_NL-miro-high",
+   "engine": "piper",
+   "name": "Miro",
+   "locale": "nl-NL",
+   "quality": "high",
+   "bytes": 67169101,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/nl_NL/vits-piper-nl_NL-miro-high/0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "OpenVoiceOS voice: non-commercial use only, share alike.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/OpenVoiceOS/pipertts_nl-NL_miro"
+   }
+  },
+  {
+   "id": "nl_NL-pim-medium",
+   "engine": "piper",
+   "name": "Pim",
+   "locale": "nl-NL",
+   "quality": "medium",
+   "bytes": 67240538,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/nl/nl_NL/pim/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/OHF-Voice/voice-datasets",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/nl/nl_NL/pim/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "nl_NL-ronnie-medium",
+   "engine": "piper",
+   "name": "Ronnie",
+   "locale": "nl-NL",
+   "quality": "medium",
+   "bytes": 67194164,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/nl/nl_NL/ronnie/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/OHF-Voice/voice-datasets",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/nl/nl_NL/ronnie/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "no_NO-talesyntese-medium",
+   "engine": "piper",
+   "name": "Talesyntese",
+   "locale": "no-NO",
+   "quality": "medium",
+   "bytes": 67194829,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/no/no_NO/talesyntese/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://www.nb.no/sprakbanken/en/resource-catalogue/oai-nb-no-sbr-15/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/no/no_NO/talesyntese/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "pl_PL-bass-high",
+   "engine": "piper",
+   "name": "Bass",
+   "locale": "pl-PL",
+   "quality": "high",
+   "bytes": 115576949,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/pl/pl_PL/bass/high/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Free to use; keep the licence notice. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "[Apache 2.0](https://www.apache.org/licenses/LICENSE-2.0)",
+    "dataset": "",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/pl/pl_PL/bass/high/MODEL_CARD"
+   }
+  },
+  {
+   "id": "pl_PL-darkman-medium",
+   "engine": "piper",
+   "name": "Darkman",
+   "locale": "pl-PL",
+   "quality": "medium",
+   "bytes": 67215635,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/pl/pl_PL/darkman/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/OHF-Voice/voice-datasets",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/pl/pl_PL/darkman/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "pl_PL-gosia-medium",
+   "engine": "piper",
+   "name": "Gosia",
+   "locale": "pl-PL",
+   "quality": "medium",
+   "bytes": 67211182,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/pl/pl_PL/gosia/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/OHF-Voice/voice-datasets",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/pl/pl_PL/gosia/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "pl_PL-jarvis_wg_glos-medium",
+   "engine": "piper",
+   "name": "Jarvis",
+   "locale": "pl-PL",
+   "quality": "medium",
+   "bytes": 67244103,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/pl_PL/vits-piper-pl_PL-jarvis_wg_glos-medium/0.mp3",
+   "licence": {
+    "name": "MIT",
+    "use": "credit",
+    "note": "The model is MIT and names no recordings. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "mit",
+    "dataset": "",
+    "card": "https://github.com/k2-fsa/sherpa-onnx/issues/2402"
+   }
+  },
+  {
+   "id": "pl_PL-justyna_wg_glos-medium",
+   "engine": "piper",
+   "name": "Justyna",
+   "locale": "pl-PL",
+   "quality": "medium",
+   "bytes": 67242145,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/pl_PL/vits-piper-pl_PL-justyna_wg_glos-medium/0.mp3",
+   "licence": {
+    "name": "MIT",
+    "use": "credit",
+    "note": "The model is MIT and names no recordings. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "mit",
+    "dataset": "",
+    "card": "https://github.com/k2-fsa/sherpa-onnx/issues/2402"
+   }
+  },
+  {
+   "id": "pl_PL-mc_speech-medium",
+   "engine": "piper",
+   "name": "MC Speech",
+   "locale": "pl-PL",
+   "quality": "medium",
+   "bytes": 67234285,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/pl/pl_PL/mc_speech/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://www.kaggle.com/datasets/czyzi0/the-mc-speech-dataset",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/pl/pl_PL/mc_speech/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "pl_PL-meski_wg_glos-medium",
+   "engine": "piper",
+   "name": "Męski",
+   "locale": "pl-PL",
+   "quality": "medium",
+   "bytes": 67246175,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/pl_PL/vits-piper-pl_PL-meski_wg_glos-medium/0.mp3",
+   "licence": {
+    "name": "MIT",
+    "use": "credit",
+    "note": "The model is MIT and names no recordings. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "mit",
+    "dataset": "",
+    "card": "https://github.com/k2-fsa/sherpa-onnx/issues/2402"
+   }
+  },
+  {
+   "id": "pl_PL-zenski_wg_glos-medium",
+   "engine": "piper",
+   "name": "Żeński",
+   "locale": "pl-PL",
+   "quality": "medium",
+   "bytes": 67251520,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/pl_PL/vits-piper-pl_PL-zenski_wg_glos-medium/0.mp3",
+   "licence": {
+    "name": "MIT",
+    "use": "credit",
+    "note": "The model is MIT and names no recordings. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "mit",
+    "dataset": "",
+    "card": "https://github.com/k2-fsa/sherpa-onnx/issues/2402"
+   }
+  },
+  {
+   "id": "pt_BR-cadu-medium",
+   "engine": "piper",
+   "name": "Cadu",
+   "locale": "pt-BR",
+   "quality": "medium",
+   "bytes": 67207562,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_BR/cadu/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/OHF-Voice/voice-datasets",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/pt/pt_BR/cadu/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "pt_BR-dii-high",
+   "engine": "piper",
+   "name": "Dii",
+   "locale": "pt-BR",
+   "quality": "high",
+   "bytes": 67238016,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/pt_BR/vits-piper-pt_BR-dii-high/0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "OpenVoiceOS voice: non-commercial use only, share alike.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/OpenVoiceOS/pipertts_pt-BR_dii"
+   }
+  },
+  {
+   "id": "pt_BR-edresson-low",
+   "engine": "piper",
+   "name": "Edresson",
+   "locale": "pt-BR",
+   "quality": "low",
+   "bytes": 67081775,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_BR/edresson/low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY 4.0",
+    "use": "credit",
+    "note": "Free to use with credit. It started from the Ryan voice, whose recordings are non-commercial.",
+    "stated": "CC BY 4.0",
+    "dataset": "https://github.com/Edresson/TTS-Portuguese-Corpus",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/pt/pt_BR/edresson/low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "pt_BR-faber-medium",
+   "engine": "piper",
+   "name": "Faber",
+   "locale": "pt-BR",
+   "quality": "medium",
+   "bytes": 67183065,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_BR/faber/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/OHF-Voice/voice-datasets",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/pt/pt_BR/faber/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "pt_BR-jeff-medium",
+   "engine": "piper",
+   "name": "Jeff",
+   "locale": "pt-BR",
+   "quality": "medium",
+   "bytes": 67207052,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_BR/jeff/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/OHF-Voice/voice-datasets",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/pt/pt_BR/jeff/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "pt_BR-miro-high",
+   "engine": "piper",
+   "name": "Miro",
+   "locale": "pt-BR",
+   "quality": "high",
+   "bytes": 67207707,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/pt_BR/vits-piper-pt_BR-miro-high/0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "OpenVoiceOS voice: non-commercial use only, share alike.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/OpenVoiceOS/pipertts_pt-BR_miro"
+   }
+  },
+  {
+   "id": "pt_PT-dii-high",
+   "engine": "piper",
+   "name": "Dii",
+   "locale": "pt-PT",
+   "quality": "high",
+   "bytes": 67243408,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/pt_PT/vits-piper-pt_PT-dii-high/0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "OpenVoiceOS voice: non-commercial use only, share alike.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/OpenVoiceOS/pipertts_pt-PT_dii"
+   }
+  },
+  {
+   "id": "pt_PT-miro-high",
+   "engine": "piper",
+   "name": "Miro",
+   "locale": "pt-PT",
+   "quality": "high",
+   "bytes": 67208098,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/pt_PT/vits-piper-pt_PT-miro-high/0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "OpenVoiceOS voice: non-commercial use only, share alike.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/OpenVoiceOS/pipertts_pt-PT_miro"
+   }
+  },
+  {
+   "id": "pt_PT-tugao-medium",
+   "engine": "piper",
+   "name": "Tugão",
+   "locale": "pt-PT",
+   "quality": "medium",
+   "bytes": 67195014,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_PT/tug%C3%A3o/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/OHF-Voice/voice-datasets",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/pt/pt_PT/tug%C3%A3o/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "ro_RO-mihai-medium",
+   "engine": "piper",
+   "name": "Mihai",
+   "locale": "ro-RO",
+   "quality": "medium",
+   "bytes": 67182137,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ro/ro_RO/mihai/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/OHF-Voice/voice-datasets",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/ro/ro_RO/mihai/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "ru_RU-denis-medium",
+   "engine": "piper",
+   "name": "Denis",
+   "locale": "ru-RU",
+   "quality": "medium",
+   "bytes": 67190991,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/denis/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/OHF-Voice/voice-datasets",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/ru/ru_RU/denis/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "ru_RU-dmitri-medium",
+   "engine": "piper",
+   "name": "Dmitri",
+   "locale": "ru-RU",
+   "quality": "medium",
+   "bytes": 67188551,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/dmitri/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/OHF-Voice/voice-datasets",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/ru/ru_RU/dmitri/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "ru_RU-irina-medium",
+   "engine": "piper",
+   "name": "Irina",
+   "locale": "ru-RU",
+   "quality": "medium",
+   "bytes": 67153308,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Unknown",
+    "use": "unclear",
+    "note": "The model card says the licence is unknown.",
+    "stated": "Unknown",
+    "dataset": "https://github.com/RHVoice/RHVoice",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/ru/ru_RU/irina/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "ru_RU-ruslan-medium",
+   "engine": "piper",
+   "name": "Ruslan",
+   "locale": "ru-RU",
+   "quality": "medium",
+   "bytes": 67210684,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/ruslan/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "Non-commercial use only, with credit, share alike.",
+    "stated": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+    "dataset": "https://ruslan-corpus.github.io/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/ru/ru_RU/ruslan/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "sk_SK-lili-medium",
+   "engine": "piper",
+   "name": "Lili",
+   "locale": "sk-SK",
+   "quality": "medium",
+   "bytes": 67183092,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/sk/sk_SK/lili/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/OHF-Voice/voice-datasets",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/sk/sk_SK/lili/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "sl_SI-artur-medium",
+   "engine": "piper",
+   "name": "Artur",
+   "locale": "sl-SI",
+   "quality": "medium",
+   "bytes": 67025668,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/sl/sl_SI/artur/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY 4.0",
+    "use": "credit",
+    "note": "Free to use with credit.",
+    "stated": "https://creativecommons.org/licenses/by/4.0/",
+    "dataset": "https://huggingface.co/datasets/ppisljar/artur_studio_tts/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/sl/sl_SI/artur/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "sq_AL-edon-medium",
+   "engine": "piper",
+   "name": "Edon",
+   "locale": "sq-AL",
+   "quality": "medium",
+   "bytes": 67191820,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/sq/sq_AL/edon/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://huggingface.co/edonseki/folsh.ai",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/sq/sq_AL/edon/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "sr_RS-serbski_institut-medium",
+   "engine": "piper",
+   "name": "Serbski Institut",
+   "locale": "sr-RS",
+   "quality": "medium",
+   "bytes": 80298557,
+   "sampleRate": 22050,
+   "speakers": 2,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/sr/sr_RS/serbski_institut/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "Non-commercial use only, with credit, share alike.",
+    "stated": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+    "dataset": "https://github.com/marytts/serbski-institut-dsb-data",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/sr/sr_RS/serbski_institut/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "sv_SE-alma-medium",
+   "engine": "piper",
+   "name": "Alma",
+   "locale": "sv-SE",
+   "quality": "medium",
+   "bytes": 67154700,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/sv/sv_SE/alma/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY 4.0",
+    "use": "credit",
+    "note": "Free to use with credit.",
+    "stated": "The model weights are released under CC BY 4.0, following the license of the NST training data.",
+    "dataset": "https://huggingface.co/yeagersthlm/piper-voice-sv-alma",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/sv/sv_SE/alma/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "sv_SE-lisa-medium",
+   "engine": "piper",
+   "name": "Lisa",
+   "locale": "sv-SE",
+   "quality": "medium",
+   "bytes": 67223955,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/sv/sv_SE/lisa/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Not stated",
+    "use": "unclear",
+    "note": "The model card names no dataset and no licence.",
+    "stated": "",
+    "dataset": "",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/sv/sv_SE/lisa/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "sv_SE-nst-medium",
+   "engine": "piper",
+   "name": "NST",
+   "locale": "sv-SE",
+   "quality": "medium",
+   "bytes": 67144884,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/sv/sv_SE/nst/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use.",
+    "stated": "CC0",
+    "dataset": "https://www.nb.no/sprakbanken/en/resource-catalogue/oai-nb-no-sbr-17/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/sv/sv_SE/nst/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "sw_CD-lanfrica-medium",
+   "engine": "piper",
+   "name": "Lanfrica",
+   "locale": "sw-CD",
+   "quality": "medium",
+   "bytes": 67217230,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/sw/sw_CD/lanfrica/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Not stated",
+    "use": "unclear",
+    "note": "The model card does not state a licence; see the dataset's site.",
+    "stated": "See URL",
+    "dataset": "https://lanfrica.com/record/kiswahili-tts-dataset",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/sw/sw_CD/lanfrica/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "tr_TR-dfki-medium",
+   "engine": "piper",
+   "name": "DFKI",
+   "locale": "tr-TR",
+   "quality": "medium",
+   "bytes": 67201221,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/tr/tr_TR/dfki/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "Non-commercial use only, with credit, share alike.",
+    "stated": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+    "dataset": "https://github.com/marytts/dfki-ot-data/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/tr/tr_TR/dfki/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "tr_TR-fahrettin-medium",
+   "engine": "piper",
+   "name": "Fahrettin",
+   "locale": "tr-TR",
+   "quality": "medium",
+   "bytes": 67212827,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/tr_TR/vits-piper-tr_TR-fahrettin-medium/0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/NabuCasa/voice-datasets",
+    "card": "https://huggingface.co/csukuangfj/vits-piper-tr_TR-fahrettin-medium"
+   }
+  },
+  {
+   "id": "tr_TR-fettah-medium",
+   "engine": "piper",
+   "name": "Fettah",
+   "locale": "tr-TR",
+   "quality": "medium",
+   "bytes": 67174342,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/piper/mp3/tr_TR/vits-piper-tr_TR-fettah-medium/0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "CC0",
+    "dataset": "https://github.com/NabuCasa/voice-datasets",
+    "card": "https://huggingface.co/csukuangfj/vits-piper-tr_TR-fettah-medium"
+   }
+  },
+  {
+   "id": "uk_UA-lada-x_low",
+   "engine": "piper",
+   "name": "Lada",
+   "locale": "uk-UA",
+   "quality": "x_low",
+   "bytes": 26520908,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/uk/uk_UA/lada/x_low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Free to use; keep the licence notice.",
+    "stated": "Apache 2.0",
+    "dataset": "https://github.com/egorsmkv/ukrainian-tts-datasets/tree/main/lada",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/uk/uk_UA/lada/x_low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "uk_UA-ukrainian_tts-medium",
+   "engine": "piper",
+   "name": "Ukrainian TTS",
+   "locale": "uk-UA",
+   "quality": "medium",
+   "bytes": 80355083,
+   "sampleRate": 22050,
+   "speakers": 3,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/uk/uk_UA/ukrainian_tts/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use.",
+    "stated": "CC0",
+    "dataset": "https://github.com/OHF-Voice/voice-datasets",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/uk/uk_UA/ukrainian_tts/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "ur_PK-fasih-medium",
+   "engine": "piper",
+   "name": "Fasih",
+   "locale": "ur-PK",
+   "quality": "medium",
+   "bytes": 67227718,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/ur/ur_PK/fasih/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "MIT",
+    "use": "credit",
+    "note": "Free to use; keep the licence notice.",
+    "stated": "mit",
+    "dataset": "",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/ur/ur_PK/fasih/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "vi_VN-25hours_single-low",
+   "engine": "piper",
+   "name": "25hours",
+   "locale": "vi-VN",
+   "quality": "low",
+   "bytes": 67059380,
+   "sampleRate": 16000,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/25hours_single/low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Unknown",
+    "use": "unclear",
+    "note": "The model card says the licence is unknown.",
+    "stated": "Unknown",
+    "dataset": "https://github.com/TensorSpeech/TensorFlowASR/blob/main/README.md#vietnamese",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/vi/vi_VN/25hours_single/low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "vi_VN-vais1000-medium",
+   "engine": "piper",
+   "name": "VAIS-1000",
+   "locale": "vi-VN",
+   "quality": "medium",
+   "bytes": 67154040,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vais1000/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY 4.0",
+    "use": "credit",
+    "note": "Free to use with credit. It started from the Lessac voice, whose recordings are for research only.",
+    "stated": "https://creativecommons.org/licenses/by/4.0/",
+    "dataset": "https://ieee-dataport.org/documents/vais-1000-vietnamese-speech-synthesis-corpus",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/vi/vi_VN/vais1000/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "vi_VN-vivos-x_low",
+   "engine": "piper",
+   "name": "Vivos",
+   "locale": "vi-VN",
+   "quality": "x_low",
+   "bytes": 33409065,
+   "sampleRate": 16000,
+   "speakers": 65,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/vi/vi_VN/vivos/x_low/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC BY-NC-SA 4.0",
+    "use": "noncommercial",
+    "note": "Non-commercial use only, with credit, share alike.",
+    "stated": "CC BY-NC-SA 4.0",
+    "dataset": "https://ailab.hcmus.edu.vn/vivos/",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/vi/vi_VN/vivos/x_low/MODEL_CARD"
+   }
+  },
+  {
+   "id": "zh_CN-chaowen-medium",
+   "engine": "piper",
+   "name": "Chaowen",
+   "locale": "zh-CN",
+   "quality": "medium",
+   "bytes": 60443846,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/zh/zh_CN/chaowen/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "CC0",
+    "use": "free",
+    "note": "The recordings are given to the public domain (CC0): free for any use.",
+    "stated": "CC0",
+    "dataset": "https://github.com/OHF-Voice/voice-datasets",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/zh/zh_CN/chaowen/medium/MODEL_CARD"
+   },
+   "frontend": "lexicon"
+  },
+  {
+   "id": "zh_CN-huayan-medium",
+   "engine": "piper",
+   "name": "Huayan",
+   "locale": "zh-CN",
+   "quality": "medium",
+   "bytes": 67255926,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/zh/zh_CN/huayan/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Unknown",
+    "use": "unclear",
+    "note": "The model card says the licence is unknown.",
+    "stated": "Unknown",
+    "dataset": "https://github.com/PlayVoice/HuaYan_TTS",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/zh/zh_CN/huayan/medium/MODEL_CARD"
+   }
+  },
+  {
+   "id": "zh_CN-xiao_ya-medium",
+   "engine": "piper",
+   "name": "Xiao Ya",
+   "locale": "zh-CN",
+   "quality": "medium",
+   "bytes": 60462944,
+   "sampleRate": 22050,
+   "speakers": 1,
+   "sample": "https://huggingface.co/rhasspy/piper-voices/resolve/main/zh/zh_CN/xiao_ya/medium/samples/speaker_0.mp3",
+   "licence": {
+    "name": "Non-commercial",
+    "use": "noncommercial",
+    "note": "Non-commercial use only.",
+    "stated": "Non-commercial use (see https://www.data-baker.com/data/index/TNtts/)",
+    "dataset": "https://huggingface.co/openspeech/BZNSYP",
+    "card": "https://huggingface.co/rhasspy/piper-voices/blob/main/zh/zh_CN/xiao_ya/medium/MODEL_CARD"
+   },
+   "frontend": "lexicon"
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:af_heart",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 3,
+   "lang": "en-us",
+   "name": "Heart",
+   "gender": "female",
+   "grade": "A",
+   "locale": "en-US",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/3-af_heart.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:af_bella",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 2,
+   "lang": "en-us",
+   "name": "Bella",
+   "gender": "female",
+   "grade": "A-",
+   "locale": "en-US",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/2-af_bella.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:af_nicole",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 6,
+   "lang": "en-us",
+   "name": "Nicole",
+   "gender": "female",
+   "grade": "B-",
+   "locale": "en-US",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/6-af_nicole.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:af_aoede",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 1,
+   "lang": "en-us",
+   "name": "Aoede",
+   "gender": "female",
+   "grade": "C+",
+   "locale": "en-US",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/1-af_aoede.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:af_kore",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 5,
+   "lang": "en-us",
+   "name": "Kore",
+   "gender": "female",
+   "grade": "C+",
+   "locale": "en-US",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/5-af_kore.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:af_sarah",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 9,
+   "lang": "en-us",
+   "name": "Sarah",
+   "gender": "female",
+   "grade": "C+",
+   "locale": "en-US",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/9-af_sarah.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:am_fenrir",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 14,
+   "lang": "en-us",
+   "name": "Fenrir",
+   "gender": "male",
+   "grade": "C+",
+   "locale": "en-US",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/14-am_fenrir.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:am_michael",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 16,
+   "lang": "en-us",
+   "name": "Michael",
+   "gender": "male",
+   "grade": "C+",
+   "locale": "en-US",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/16-am_michael.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:am_puck",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 18,
+   "lang": "en-us",
+   "name": "Puck",
+   "gender": "male",
+   "grade": "C+",
+   "locale": "en-US",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/18-am_puck.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:af_alloy",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 0,
+   "lang": "en-us",
+   "name": "Alloy",
+   "gender": "female",
+   "grade": "C",
+   "locale": "en-US",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/0-af_alloy.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:af_nova",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 7,
+   "lang": "en-us",
+   "name": "Nova",
+   "gender": "female",
+   "grade": "C",
+   "locale": "en-US",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/7-af_nova.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:af_sky",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 10,
+   "lang": "en-us",
+   "name": "Sky",
+   "gender": "female",
+   "grade": "C-",
+   "locale": "en-US",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/10-af_sky.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:bf_emma",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 21,
+   "lang": "en-gb",
+   "name": "Emma",
+   "gender": "female",
+   "grade": "B-",
+   "locale": "en-GB",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/21-bf_emma.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:bf_isabella",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 22,
+   "lang": "en-gb",
+   "name": "Isabella",
+   "gender": "female",
+   "grade": "C",
+   "locale": "en-GB",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/22-bf_isabella.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:bm_fable",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 25,
+   "lang": "en-gb",
+   "name": "Fable",
+   "gender": "male",
+   "grade": "C",
+   "locale": "en-GB",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/25-bm_fable.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:bm_george",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 26,
+   "lang": "en-gb",
+   "name": "George",
+   "gender": "male",
+   "grade": "C",
+   "locale": "en-GB",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/26-bm_george.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:ef_dora",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 28,
+   "lang": "es",
+   "name": "Dora",
+   "gender": "female",
+   "grade": "",
+   "locale": "es-ES",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/28-ef_dora.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:em_alex",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 29,
+   "lang": "es",
+   "name": "Alex",
+   "gender": "male",
+   "grade": "",
+   "locale": "es-ES",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/29-em_alex.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:em_santa",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 53,
+   "lang": "es",
+   "name": "Santa",
+   "gender": "male",
+   "grade": "",
+   "locale": "es-ES",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/53-em_santa.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:ff_siwis",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 30,
+   "lang": "fr-fr",
+   "name": "Siwis",
+   "gender": "female",
+   "grade": "B-",
+   "locale": "fr-FR",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/30-ff_siwis.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro is Apache 2.0; this voice learned from the SIWIS recordings (CC BY 4.0).",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:hf_alpha",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 31,
+   "lang": "hi",
+   "name": "Alpha",
+   "gender": "female",
+   "grade": "C",
+   "locale": "hi-IN",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/31-hf_alpha.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:hf_beta",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 32,
+   "lang": "hi",
+   "name": "Beta",
+   "gender": "female",
+   "grade": "C",
+   "locale": "hi-IN",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/32-hf_beta.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:hm_omega",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 33,
+   "lang": "hi",
+   "name": "Omega",
+   "gender": "male",
+   "grade": "C",
+   "locale": "hi-IN",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/33-hm_omega.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:hm_psi",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 34,
+   "lang": "hi",
+   "name": "Psi",
+   "gender": "male",
+   "grade": "C",
+   "locale": "hi-IN",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/34-hm_psi.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:if_sara",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 35,
+   "lang": "it",
+   "name": "Sara",
+   "gender": "female",
+   "grade": "C",
+   "locale": "it-IT",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/35-if_sara.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:im_nicola",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 36,
+   "lang": "it",
+   "name": "Nicola",
+   "gender": "male",
+   "grade": "C",
+   "locale": "it-IT",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/36-im_nicola.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:pf_dora",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 42,
+   "lang": "pt-br",
+   "name": "Dora",
+   "gender": "female",
+   "grade": "",
+   "locale": "pt-BR",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/42-pf_dora.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:pm_alex",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 43,
+   "lang": "pt-br",
+   "name": "Alex",
+   "gender": "male",
+   "grade": "",
+   "locale": "pt-BR",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/43-pm_alex.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kokoro-multi-lang-v1_0:pm_santa",
+   "engine": "kokoro",
+   "pack": "kokoro-multi-lang-v1_0",
+   "sid": 44,
+   "lang": "pt-br",
+   "name": "Santa",
+   "gender": "male",
+   "grade": "",
+   "locale": "pt-BR",
+   "quality": "high",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj/sherpa-onnx-tts-samples/resolve/main/kokoro/v1.0/mp3/44-pm_santa.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kokoro-82M by hexgrad. Its makers say it learned from public-domain, openly licensed and synthetic audio.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/hexgrad/Kokoro-82M",
+    "card": "https://huggingface.co/hexgrad/Kokoro-82M"
+   }
+  },
+  {
+   "id": "kitten-nano-en-v0_8-fp32:expr-voice-2-m",
+   "engine": "kitten",
+   "pack": "kitten-nano-en-v0_8-fp32",
+   "sid": 0,
+   "name": "Jasper",
+   "gender": "male",
+   "locale": "en-US",
+   "quality": "medium",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj2/sherpa-onnx-tts-samples/resolve/main/kitten/nano-v0_8-fp32/mp3/0-expr-voice-2-m.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kitten TTS nano 0.8 by KittenML.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32",
+    "card": "https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32"
+   }
+  },
+  {
+   "id": "kitten-nano-en-v0_8-fp32:expr-voice-2-f",
+   "engine": "kitten",
+   "pack": "kitten-nano-en-v0_8-fp32",
+   "sid": 1,
+   "name": "Bella",
+   "gender": "female",
+   "locale": "en-US",
+   "quality": "medium",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj2/sherpa-onnx-tts-samples/resolve/main/kitten/nano-v0_8-fp32/mp3/1-expr-voice-2-f.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kitten TTS nano 0.8 by KittenML.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32",
+    "card": "https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32"
+   }
+  },
+  {
+   "id": "kitten-nano-en-v0_8-fp32:expr-voice-3-m",
+   "engine": "kitten",
+   "pack": "kitten-nano-en-v0_8-fp32",
+   "sid": 2,
+   "name": "Bruno",
+   "gender": "male",
+   "locale": "en-US",
+   "quality": "medium",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj2/sherpa-onnx-tts-samples/resolve/main/kitten/nano-v0_8-fp32/mp3/2-expr-voice-3-m.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kitten TTS nano 0.8 by KittenML.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32",
+    "card": "https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32"
+   }
+  },
+  {
+   "id": "kitten-nano-en-v0_8-fp32:expr-voice-3-f",
+   "engine": "kitten",
+   "pack": "kitten-nano-en-v0_8-fp32",
+   "sid": 3,
+   "name": "Luna",
+   "gender": "female",
+   "locale": "en-US",
+   "quality": "medium",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj2/sherpa-onnx-tts-samples/resolve/main/kitten/nano-v0_8-fp32/mp3/3-expr-voice-3-f.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kitten TTS nano 0.8 by KittenML.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32",
+    "card": "https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32"
+   }
+  },
+  {
+   "id": "kitten-nano-en-v0_8-fp32:expr-voice-4-m",
+   "engine": "kitten",
+   "pack": "kitten-nano-en-v0_8-fp32",
+   "sid": 4,
+   "name": "Hugo",
+   "gender": "male",
+   "locale": "en-US",
+   "quality": "medium",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj2/sherpa-onnx-tts-samples/resolve/main/kitten/nano-v0_8-fp32/mp3/4-expr-voice-4-m.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kitten TTS nano 0.8 by KittenML.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32",
+    "card": "https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32"
+   }
+  },
+  {
+   "id": "kitten-nano-en-v0_8-fp32:expr-voice-4-f",
+   "engine": "kitten",
+   "pack": "kitten-nano-en-v0_8-fp32",
+   "sid": 5,
+   "name": "Rosie",
+   "gender": "female",
+   "locale": "en-US",
+   "quality": "medium",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj2/sherpa-onnx-tts-samples/resolve/main/kitten/nano-v0_8-fp32/mp3/5-expr-voice-4-f.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kitten TTS nano 0.8 by KittenML.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32",
+    "card": "https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32"
+   }
+  },
+  {
+   "id": "kitten-nano-en-v0_8-fp32:expr-voice-5-m",
+   "engine": "kitten",
+   "pack": "kitten-nano-en-v0_8-fp32",
+   "sid": 6,
+   "name": "Leo",
+   "gender": "male",
+   "locale": "en-US",
+   "quality": "medium",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj2/sherpa-onnx-tts-samples/resolve/main/kitten/nano-v0_8-fp32/mp3/6-expr-voice-5-m.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kitten TTS nano 0.8 by KittenML.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32",
+    "card": "https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32"
+   }
+  },
+  {
+   "id": "kitten-nano-en-v0_8-fp32:expr-voice-5-f",
+   "engine": "kitten",
+   "pack": "kitten-nano-en-v0_8-fp32",
+   "sid": 7,
+   "name": "Kiki",
+   "gender": "female",
+   "locale": "en-US",
+   "quality": "medium",
+   "sampleRate": 24000,
+   "sample": "https://huggingface.co/csukuangfj2/sherpa-onnx-tts-samples/resolve/main/kitten/nano-v0_8-fp32/mp3/7-expr-voice-5-f.mp3",
+   "licence": {
+    "name": "Apache 2.0",
+    "use": "credit",
+    "note": "Kitten TTS nano 0.8 by KittenML.",
+    "stated": "Apache-2.0",
+    "dataset": "https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32",
+    "card": "https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32"
+   }
+  }
+ ]
+}
