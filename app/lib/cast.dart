@@ -104,6 +104,23 @@ Future<List<Character>> findBookCharacters(ReadingLayout layout) async {
   return Isolate.run(() => findCharacters(text));
 }
 
+/// Book id -> its characters as last found this run, and the layout's size
+/// they were found in: a book's page opened again does not read it again.
+final _found = <String, ({int units, Future<List<Character>> people})>{};
+
+/// Book [bookId]'s characters (see [findBookCharacters]), found once a run.
+Future<List<Character>> bookCharacters(String bookId, ReadingLayout layout) {
+  final had = _found[bookId];
+  if (had != null && had.units == layout.units.length) return had.people;
+  final people = findBookCharacters(layout).catchError((Object e) {
+    debugPrint('TomeVoice: the characters could not be found ($e)');
+    _found.remove(bookId);
+    return const <Character>[];
+  });
+  _found[bookId] = (units: layout.units.length, people: people);
+  return people;
+}
+
 /// Attribution of one stretch on another isolate: its units' speakers.
 Future<Int32List> _onAnotherIsolate(BookText part, List<Character> people) =>
     Isolate.run(() => speakersOf(part, CastIndex(people)));

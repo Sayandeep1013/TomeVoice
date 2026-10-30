@@ -45,18 +45,25 @@ BookCast castFor(ListeningPrefs prefs, String bookId, List<Character> people) {
   return kept == null ? BookCast(people) : kept.refound(people);
 }
 
-/// "Elizabeth and Mr. Darcy have their own voices", for the book's page;
+/// What [c] is called in lists: "the storyteller" for a book told as "I".
+String characterName(Character c) => c.isI ? 'I, the storyteller' : c.name;
+
+/// "Elizabeth and Mr. Darcy have voices of their own", for the book's page;
 /// null when nobody has.
 String? castSummary(BookCast? cast) {
   if (cast == null) return null;
-  final named = [for (final c in cast.people) if (cast.voices.containsKey(c.name)) c.name];
+  final named = [
+    for (final c in cast.people)
+      if (cast.voices.containsKey(c.name)) c.isI ? 'the storyteller' : c.name,
+  ];
   if (named.isEmpty) return null;
   final who = switch (named.length) {
     1 => named.single,
     2 => '${named[0]} and ${named[1]}',
     _ => '${named[0]}, ${named[1]} and ${named.length - 2} more',
   };
-  return named.length == 1 ? '$who has a voice of their own' : '$who have voices of their own';
+  final line = named.length == 1 ? '$who has a voice of their own' : '$who have voices of their own';
+  return '${line[0].toUpperCase()}${line.substring(1)}';
 }
 
 class _CastSheet extends StatefulWidget {
@@ -193,7 +200,7 @@ class _CastSheetState extends State<_CastSheet> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    c.isI ? 'I, the storyteller' : '${c.name}$also',
+                    '${characterName(c)}$also',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Skin.ui(size: 16, weight: FontWeight.w600, color: Skin.inkOn(context)),
@@ -282,7 +289,7 @@ class _VoiceFor extends StatelessWidget {
         if (v.name != narrator && v.name != dialogue) v,
     ];
     final dialogueName = catalog.byName(dialogue);
-    final name = character.isI ? 'I, the storyteller' : character.name;
+    final name = characterName(character);
     return SafeArea(
       child: ConstrainedBox(
         constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.75),
