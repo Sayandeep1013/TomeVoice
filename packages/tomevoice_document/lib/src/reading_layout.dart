@@ -133,15 +133,25 @@ class ReadingLayout {
     return (first, end - first);
   }
 
-  /// Index of the unit a saved cursor points at, skipping front matter.
-  int unitForCursor(ReadingCursor cursor) {
+  /// Index of the unit a cursor points at, skipping front matter.
+  ///
+  /// A new book whose first "chapter" is only its title page (short, and
+  /// named like the book) starts at the next one. Not a collection whose
+  /// first story gives the book its name ("The Lottery" in "The Lottery and
+  /// Other Stories"), and never a place the reader [saved], even one on
+  /// the very first sentence.
+  int unitForCursor(ReadingCursor cursor, {bool saved = false}) {
     if (units.isEmpty) return 0;
-    // A new book whose first "chapter" is its title page starts at the next.
     final fresh = cursor.sectionIndex == 0 && cursor.blockIndex == 0 && cursor.sentenceIndex == 0;
-    if (fresh && chapters.length > 1 && _same(chapterTitle(0), book.metadata.title)) {
-      return chapterFirstUnit[1];
-    }
+    if (fresh && !saved && chapters.length > 1 && _isTitlePage(0)) return chapterFirstUnit[1];
     return readingIndexOfCursor(units, book, cursor);
+  }
+
+  /// Chapter [c] is a title page: a few short lines named like the book.
+  bool _isTitlePage(int c) {
+    final (first, count) = chapterRange(c);
+    final words = wordsBefore[first + count] - wordsBefore[first];
+    return count <= 12 && words < 60 && _same(chapterTitle(c), book.metadata.title);
   }
 
   static bool _same(String a, String b) {

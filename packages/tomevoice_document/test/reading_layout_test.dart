@@ -50,6 +50,50 @@ void main() {
     expect(l.items.first.isTitle || l.items.first.block!.role == BlockRole.heading, isTrue);
   });
 
+  group('where a book opens', () {
+    Book collection({required String firstTitle, required String firstBody}) => Book(
+          id: 'c',
+          metadata: const BookMetadata(title: 'The Lottery and Other Stories'),
+          source: SourceKind.epub,
+          toc: const [],
+          sections: [
+            Section(id: 'a', index: 0, title: firstTitle, blocks: [
+              makeBlock(role: BlockRole.heading, text: firstTitle),
+              makeBlock(role: BlockRole.paragraph, text: firstBody),
+            ]),
+            Section(id: 'b', index: 1, title: 'The Daemon Lover', blocks: [
+              makeBlock(role: BlockRole.heading, text: 'The Daemon Lover'),
+              makeBlock(role: BlockRole.paragraph, text: 'She had not slept well. ${'It went on. ' * 20}'),
+            ]),
+          ],
+        );
+
+    test("a collection's title story is where it opens", () {
+      final layout = ReadingLayout.build(collection(
+        firstTitle: 'The Lottery',
+        firstBody: 'The morning of June 27th was clear and sunny. ${'The flowers were blossoming. ' * 30}',
+      ));
+      expect(layout.units[layout.unitForCursor(ReadingCursor.zero)].text, 'The Lottery');
+    });
+
+    test('a short title page named like the book is passed over on a first open', () {
+      final layout = ReadingLayout.build(collection(
+        firstTitle: 'The Lottery and Other Stories',
+        firstBody: 'Shirley Jackson. A collection.',
+      ));
+      expect(layout.units[layout.unitForCursor(ReadingCursor.zero)].text, 'The Daemon Lover');
+    });
+
+    test('but a place saved there is where it reopens', () {
+      final layout = ReadingLayout.build(collection(
+        firstTitle: 'The Lottery and Other Stories',
+        firstBody: 'Shirley Jackson. A collection.',
+      ));
+      final saved = cursorOf(layout.units.first);
+      expect(layout.unitForCursor(saved, saved: true), 0);
+    });
+  });
+
   test('an untitled copyright page is not where the book opens', () {
     final legal = Section(id: 'a', index: 0, blocks: [
       makeBlock(
