@@ -108,6 +108,41 @@ class AudioAnalysis {
     return worst;
   }
 
+  /// The quietest moment of [samples] at [sampleRate] between frames [from]
+  /// and [to], near [near]: the middle of the 50 ms with the least sound in
+  /// it, looked for every 10 ms from [from], one further from [near]
+  /// counting as up to 6 dB louder. Where a recording that says two
+  /// sentences in one stretch can be cut between them (a book's narration
+  /// that gives a paragraph its clip, read a sentence at a time).
+  static int quietestNear(Float32List samples, int sampleRate, {required int near, required int from, required int to}) {
+    final lo = from.clamp(0, samples.length);
+    final hi = to.clamp(lo, samples.length);
+    final aim = near.clamp(lo, hi);
+    if (hi - lo < 2) return aim;
+    final step = math.max(1, sampleRate ~/ 100);
+    final half = math.max(1, sampleRate * 25 ~/ 1000);
+    final reach = math.max(aim - lo, hi - aim);
+    var best = aim;
+    var lowest = double.infinity;
+    for (var c = lo; c <= hi; c += step) {
+      final a = math.max(0, c - half);
+      final b = math.min(samples.length, c + half);
+      if (b <= a) continue;
+      var sum = 0.0;
+      for (var i = a; i < b; i++) {
+        sum += samples[i] * samples[i];
+      }
+      final db = 10 * math.log(sum / (b - a) + 1e-10) / math.ln10;
+      final away = reach <= 0 ? 0.0 : (c - aim).abs() / reach;
+      final score = db + 6 * away * away;
+      if (score < lowest) {
+        lowest = score;
+        best = c;
+      }
+    }
+    return best;
+  }
+
   static double rms(Float32List samples, int start, int length) {
     if (length <= 0) return 0;
     final end = math.min(start + length, samples.length);
