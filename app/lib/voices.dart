@@ -150,15 +150,47 @@ class VoiceCatalog extends ChangeNotifier {
   }
 
   /// The voice to use for [language] when the user has not chosen one: a
-  /// speaker of its own, so it is one the list can show as chosen.
+  /// speaker of its own, so it is one the list can show as chosen. With no
+  /// voice for [language] on the phone, one for [voiceLanguageFor].
   VoiceInfo? bestFor(String language) {
     final pick = SpeechService.pickVoice(
       [for (final v in _withoutAliases(voices)) v.toMap()],
-      language,
+      voiceLanguageFor(language),
       preferRegion: PlatformDispatcher.instance.locale.countryCode,
     );
     return pick == null ? null : byName(pick['name'] as String?);
   }
+
+  /// Languages read in a related language's voice when the phone has none
+  /// of their own: Ukrainian, Belarusian, Bulgarian, Serbian and Macedonian
+  /// in a Russian one (Slavic, and Cyrillic), Urdu in a Hindi one (one spoken
+  /// language in two scripts), Persian in an Arabic one (the same script).
+  static const relatedLanguage = {
+    'uk': 'ru',
+    'be': 'ru',
+    'bg': 'ru',
+    'sr': 'ru',
+    'mk': 'ru',
+    'ur': 'hi',
+    'fa': 'ar',
+  };
+
+  /// The language whose voices read a [language] book on this phone: its
+  /// own; else a related one ([relatedLanguage]); else the phone's own
+  /// language, rather than whichever voice ranks best, English as often as
+  /// not; else [language] (any voice will have to do).
+  String voiceLanguageFor(String language) {
+    bool has(String l) => voices.any((v) => v.language == l);
+    if (has(language)) return language;
+    final near = relatedLanguage[language];
+    if (near != null && has(near)) return near;
+    final own = (phoneLanguage ?? PlatformDispatcher.instance.locale.languageCode).toLowerCase();
+    return has(own) ? own : language;
+  }
+
+  /// The phone's own language, in tests.
+  @visibleForTesting
+  String? phoneLanguage;
 
   /// [list] without the aliases of a region that has its speakers listed;
   /// [keep] stays even so (the voice in use).
@@ -238,6 +270,7 @@ String regionLabel(String code) => _regions[code] ?? code;
 
 const _languages = {
   'af': 'Afrikaans', 'am': 'Amharic', 'ar': 'Arabic', 'as': 'Assamese',
+  'be': 'Belarusian',
   'bg': 'Bulgarian', 'bn': 'Bengali', 'bs': 'Bosnian', 'ca': 'Catalan',
   'cs': 'Czech', 'cy': 'Welsh', 'da': 'Danish', 'de': 'German',
   'el': 'Greek', 'en': 'English', 'es': 'Spanish', 'et': 'Estonian',

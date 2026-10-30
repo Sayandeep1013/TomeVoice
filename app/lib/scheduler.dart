@@ -7,6 +7,7 @@ import 'package:tomevoice_audio/tomevoice_audio.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'dialogue.dart';
+import 'neural_voices.dart';
 import 'reading_rules.dart';
 import 'speech_service.dart';
 
@@ -32,13 +33,20 @@ class WordMark {
 }
 
 class _Chunk {
-  _Chunk(this.unit, this.start, this.speechFrames, this.totalFrames, this.timings, this.levels);
+  _Chunk(this.unit, this.start, this.speechFrames, this.totalFrames, this.timings, this.levels, this.pcm);
   final int unit;
-  final int start;
+
+  /// Where it starts in the stream; it moves when the sentence is queued
+  /// again from its start (see [PlaybackScheduler._rewind]).
+  int start;
   final int speechFrames;
   final int totalFrames;
   final List<WordTiming> timings;
   final Uint8List levels;
+
+  /// The speech itself, kept while it is queued or heard, so going back to
+  /// the start of a sentence needs nothing made again.
+  final Uint8List pcm;
   int get end => start + totalFrames;
 }
 
@@ -63,6 +71,7 @@ class PlaybackScheduler {
     this.dialogueVoiceOf,
     this.pitchOf,
     this.quoteOpenAt,
+    this.fallbackVoiceOf,
   });
 
   final SpeechService service;
@@ -90,6 +99,11 @@ class PlaybackScheduler {
   /// earlier sentence of its paragraph), when that can be told.
   final bool Function(int index)? quoteOpenAt;
 
+  /// The phone's own voice for the book's language: what reads on when a
+  /// natural voice fails (docs/04 section 4.9), rather than sentences being
+  /// skipped and the book stopping.
+  final String? Function()? fallbackVoiceOf;
+
   final state = ValueNotifier<PlayState>(PlayState.idle);
   final unit = ValueNotifier<int>(0);
   final word = ValueNotifier<WordMark>(WordMark.none);
@@ -101,8 +115,18 @@ class PlaybackScheduler {
   /// Last error worth showing, cleared on the next play.
   final error = ValueNotifier<String?>(null);
 
+  /// Something worth a line on screen while reading goes on: a natural
+  /// voice that failed, and the phone's voice reading instead.
+  final notice = ValueNotifier<String?>(null);
+
   /// Called when the end of the book has been spoken.
   VoidCallback? onFinished;
+
+  /// Whether reading stopped because it reached the end (not a stop): until
+  /// the next play, so whoever reads on into more (a web novel's next
+  /// chapters) can keep the card up meanwhile.
+  bool get reachedEnd => _reachedEnd;
+  bool _reachedEnd = false;
 
   /// Told before any scheduler starts reading (and before a voice sample,
   /// with null): a book read on in the background stops for it, as two
@@ -110,6 +134,24 @@ class PlaybackScheduler {
   static void Function(PlaybackScheduler? next)? beforePlay;
 
   static const _ahead = Duration(seconds: 10);
+
+  /// A pause longer than this goes back to the start of the sentence on
+  /// resume (docs/05 section 5.8): after a few seconds away, the listener
+  /// has lost the thread of a sentence picked up in its middle.
+  static const rewindAfter = Duration(seconds: 3);
+
+  /// Pause waits for the word being said to finish, if it ends within this.
+  static const _finishWord = Duration(milliseconds: 600);
+
+  /// The playback head standing still this long while it plays means the
+  /// player died under us (an audio server restart, a failed write).
+  static const _stallAfter = Duration(seconds: 5);
+
+  /// The sleep timer's fade (docs/05 section 5.8).
+  static const fadeLength = Duration(seconds: 30);
+
+  static const busyHint = "The phone's audio is taken by something else (a call?). Try again when it ends.";
+  static const stalledHint = 'The audio stopped and could not be started again. Press Play to try once more.';
 
   /// Time to make a character of speech, learnt from the sentences made so
   /// far (null until one is). A heavy voice on a slow phone needs far more
@@ -135,9 +177,53 @@ class PlaybackScheduler {
   bool _ticking = false;
   Timer? _ticker;
 
+  /// The fill loop waits here for room in the queue (woken by the head
+  /// moving on, or by any restart): no polling while paused.
+  Completer<void>? _room;
+
+  /// The levelling gain the last sentence was given: the next moves on from
+  /// it (see renderInBackground). Null starts afresh, as each play does.
+  double? _levelDb;
+
+  /// Set [rewindAfter] into a pause: the resume goes back to the sentence's
+  /// start. (Timers, not the clock, so tests' fake time runs it too.)
+  Timer? _rewindTimer;
+  bool _rewindDue = false;
+
+  /// Bumped by every pause and resume: a pause still waiting for its word
+  /// to finish is called off by the resume after it.
+  int _pauseToken = 0;
+
+  /// The head as last seen moving, and for how many ticks it has not.
+  int _lastHead = -1;
+  int _stillTicks = 0;
+
+  /// The player was restarted once in this play after it stopped moving.
+  bool _restarted = false;
+
+  /// Natural voices that failed in this scheduler: the phone's voice reads
+  /// in their place (a natural dialogue voice: the narrator's).
+  final _failed = <String>{};
+
+  /// Waiting for audio focus the phone promised later (a call): play goes
+  /// on when it comes.
+  StreamSubscription<Map<String, Object?>>? _focusWait;
+  Timer? _fade;
+
   bool get active => state.value != PlayState.idle;
   bool get isPlaying =>
       state.value == PlayState.playing || state.value == PlayState.loading;
+
+  /// How much of the sentence being heard has been heard: previous goes
+  /// back to its start once it is under way, or to the one before.
+  Duration get heard {
+    for (final c in _chunks) {
+      if (_position >= c.start && _position < c.end) {
+        return Duration(milliseconds: (_position - c.start) * 1000 ~/ _rate);
+      }
+    }
+    return Duration.zero;
+  }
 
   /// Start speaking at [from], discarding anything queued.
   Future<void> play(int from) async {
@@ -149,21 +235,107 @@ class PlaybackScheduler {
     unit.value = _next;
     word.value = WordMark.none;
     error.value = null;
+    _levelDb = null;
+    _restarted = false;
     state.value = PlayState.loading;
-    _ticker?.cancel();
-    _ticker = Timer.periodic(const Duration(milliseconds: 40), (_) => _tick(gen));
+    // The phone's audio first: during a call the answer is "later", and the
+    // sentence is made meanwhile and waits, paused, for the call to end
+    // (it was once read straight over the call).
+    final focus = await service.requestFocus();
+    if (gen != _gen) return;
+    if (focus == SpeechService.focusFailed) {
+      error.value = busyHint;
+      state.value = PlayState.idle;
+      return;
+    }
+    if (focus == SpeechService.focusDelayed) {
+      await service.pausePlayback();
+      if (gen != _gen) return;
+      state.value = PlayState.paused;
+      _awaitFocus(gen);
+    } else if (state.value == PlayState.loading) {
+      // (Not if paused while the phone was asked.)
+      _startTicker(gen);
+    }
     unawaited(_fill(gen));
   }
 
-  Future<void> pause() async {
+  /// Pause. The word being said is let finish first when it ends soon
+  /// (docs/05 section 5.8: a cut in the middle of a word feels broken);
+  /// [now] stops at once (the sleep timer, whose fade has already ended it).
+  Future<void> pause({bool now = false}) async {
     if (!active || state.value == PlayState.paused) return;
+    final gen = _gen;
+    final token = ++_pauseToken;
     state.value = PlayState.paused;
+    _rewindDue = false;
+    _rewindTimer?.cancel();
+    _rewindTimer = Timer(rewindAfter, () => _rewindDue = true);
+    _stopTicker();
+    if (!now) {
+      final end = _wordEnd();
+      if (end != null) {
+        for (var waited = 0; waited < _finishWord.inMilliseconds; waited += 20) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          if (token != _pauseToken || gen != _gen) return;
+          if (await service.position(raw: true) >= end) break;
+        }
+        if (token != _pauseToken || gen != _gen) return;
+      }
+    }
     await service.pausePlayback();
   }
 
-  Future<void> resume() async {
+  /// Where the word being heard ends, in the stream (its next word's start,
+  /// which an engine puts after the gap between them), if that is soon and
+  /// its place is known; null to pause at once.
+  int? _wordEnd() {
+    if (_chunks.isEmpty) return null;
+    final pos = _position;
+    for (final c in _chunks) {
+      if (pos < c.start || pos >= c.start + c.speechFrames) continue;
+      final rel = pos - c.start;
+      for (var t = 0; t < c.timings.length; t++) {
+        final w = c.timings[t];
+        if (w.frameStart > rel) {
+          if (!w.source.showsWord) return null;
+          final end = c.start + w.frameStart;
+          return end - pos <= _rate * _finishWord.inMilliseconds ~/ 1000 ? end : null;
+        }
+      }
+      return null;
+    }
+    return null;
+  }
+
+  /// Carry on. After a pause longer than [rewindAfter], or with [rewind],
+  /// it goes back to the start of the sentence being heard.
+  Future<void> resume({bool rewind = false}) async {
     if (state.value != PlayState.paused) return;
+    final gen = _gen;
+    final long = _rewindDue;
+    final focus = await service.requestFocus();
+    if (gen != _gen || state.value != PlayState.paused) return;
+    if (focus == SpeechService.focusDelayed) {
+      _awaitFocus(gen);
+      return;
+    }
+    if (focus == SpeechService.focusFailed) {
+      error.value = busyHint;
+      return;
+    }
+    unawaited(_focusWait?.cancel());
+    _focusWait = null;
+    ++_pauseToken;
+    _rewindTimer?.cancel();
+    _rewindDue = false;
+    error.value = null;
+    if ((rewind || long) && _chunks.isNotEmpty) {
+      await _rewind();
+      return;
+    }
     state.value = PlayState.playing;
+    _startTicker(gen);
     await service.resumePlayback();
   }
 
@@ -174,31 +346,137 @@ class PlaybackScheduler {
     level.value = 0;
   }
 
+  /// Fade the voice out over the [fadeLength] before [at] (the sleep timer):
+  /// a voice that stops dead wakes the listener it was meant to let sleep.
+  void fadeOutBy(DateTime at) {
+    _fade?.cancel();
+    void step() {
+      final left = at.difference(DateTime.now());
+      if (left > fadeLength) {
+        _fade = Timer(left - fadeLength, step);
+        return;
+      }
+      final v = (left.inMilliseconds / fadeLength.inMilliseconds).clamp(0.0, 1.0);
+      // Level is heard in ratios: a square curve sounds like an even fade.
+      unawaited(service.setVolume(v * v));
+      _fade = left > Duration.zero ? Timer(const Duration(milliseconds: 500), step) : null;
+    }
+
+    step();
+  }
+
+  /// The voice back at full volume: the sleep timer fired or was changed.
+  void endFade() {
+    _fade?.cancel();
+    _fade = null;
+    unawaited(service.setVolume(1));
+  }
+
   void dispose() {
     // An idle scheduler (another book's page, never played) leaves the
     // stream alone: a book may be reading in the background.
     final owned = active;
     _gen++;
+    _wake();
     _ticker?.cancel();
+    _rewindTimer?.cancel();
+    unawaited(_focusWait?.cancel());
+    if (_fade != null) {
+      _fade?.cancel();
+      unawaited(service.setVolume(1));
+    }
     if (owned) unawaited(service.stopPlayback());
     state.dispose();
     unit.dispose();
     word.dispose();
     level.dispose();
     error.dispose();
+    notice.dispose();
   }
 
   Future<int> _reset() async {
     final gen = ++_gen;
-    _ticker?.cancel();
-    _ticker = null;
+    _stopTicker();
+    _wake();
+    unawaited(_focusWait?.cancel());
+    _focusWait = null;
     _chunks.clear();
     _position = 0;
     _streamRate = null;
     _fillDone = false;
+    _reachedEnd = false;
+    _rewindTimer?.cancel();
+    _rewindDue = false;
+    _lastHead = -1;
+    _stillTicks = 0;
     await service.cancelSynthesis();
     await service.stopPlayback();
     return gen;
+  }
+
+  void _startTicker(int gen) {
+    _ticker?.cancel();
+    _lastHead = -1;
+    _stillTicks = 0;
+    _ticker = Timer.periodic(_tickEvery, (_) => _tick(gen));
+  }
+
+  static const _tickEvery = Duration(milliseconds: 40);
+
+  /// No polling while nothing moves (paused, finished): the head is still.
+  void _stopTicker() {
+    _ticker?.cancel();
+    _ticker = null;
+  }
+
+  void _wake() {
+    final r = _room;
+    _room = null;
+    r?.complete();
+  }
+
+  /// The phone said the audio comes later (a call): play when it does.
+  void _awaitFocus(int gen) {
+    unawaited(_focusWait?.cancel());
+    _focusWait = SpeechService.events.listen((e) {
+      if (e['type'] != 'focusGain') return;
+      unawaited(_focusWait?.cancel());
+      _focusWait = null;
+      if (gen == _gen && state.value == PlayState.paused) unawaited(resume());
+    });
+  }
+
+  /// Back to the start of the sentence being heard, with what is queued
+  /// after it. The speech already made is queued again: nothing is made
+  /// afresh, so it starts at once.
+  Future<void> _rewind() async {
+    final gen = ++_gen;
+    _stopTicker();
+    _wake();
+    final pos = _position;
+    final keep = [for (final c in _chunks) if (c.end > pos) c];
+    _chunks.clear();
+    _fillDone = false;
+    // The sentence being made is dropped; the fill makes it again after
+    // what is kept.
+    await service.cancelSynthesis();
+    await service.stopPlayback();
+    if (gen != _gen) return;
+    _position = 0;
+    for (final c in keep) {
+      final start = await service.enqueue(c.pcm, _rate);
+      if (gen != _gen) return;
+      c.start = start;
+      _chunks.add(c);
+    }
+    if (keep.isNotEmpty) {
+      _next = keep.last.unit + 1;
+      unit.value = keep.first.unit;
+    }
+    word.value = WordMark.none;
+    state.value = keep.isEmpty ? PlayState.loading : PlayState.playing;
+    _startTicker(gen);
+    unawaited(_fill(gen));
   }
 
   /// Word positions from the voice, moved onto the page's text.
@@ -227,6 +505,25 @@ class PlaybackScheduler {
   static const offlineHint = 'The voice needs the internet and could not reach it. Try again, or pick a voice '
       "that works offline (or download this language's voice in the phone's speech settings).";
 
+  /// A natural voice in this sentence failed: the phone's voice reads from
+  /// here (a natural dialogue voice gives way to the narrator's), with a
+  /// line on screen saying why. False when there is nothing to fall back to.
+  bool _fallBack(String? narrator, String? dialogue, Object e) {
+    final natural = [
+      if (isNeural(narrator) && !_failed.contains(narrator)) narrator!,
+      if (isNeural(dialogue) && !_failed.contains(dialogue)) dialogue!,
+    ];
+    if (natural.isEmpty) return false;
+    if (natural.contains(narrator) && fallbackVoiceOf?.call() == null) return false;
+    _failed.addAll(natural);
+    final name = neuralVoiceFor(natural.first)?.name ?? 'The natural voice';
+    debugPrint('TomeVoice: $name failed ($e); reading on in the phone\'s voice');
+    notice.value = natural.contains(narrator)
+        ? "$name could not speak on this phone, so the phone's own voice reads on."
+        : '$name could not speak on this phone, so the narrator reads the dialogue too.';
+    return true;
+  }
+
   Future<void> _fill(int gen) async {
     var failures = 0;
     var retries = 0;
@@ -234,7 +531,8 @@ class PlaybackScheduler {
       if (_next >= units.length) break;
       final ahead = _queuedEnd - _position;
       if (_chunks.isNotEmpty && ahead > _rate * _ahead.inSeconds) {
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        // Full: wait for the head to make room, without polling.
+        await (_room ??= Completer<void>()).future;
         continue;
       }
       final i = _next;
@@ -255,16 +553,21 @@ class PlaybackScheduler {
       final aheadMs = ahead * 1000 ~/ _rate;
       final urgent = _chunks.isEmpty || perChar == null || aheadMs < text.length * perChar * 2 + 1500;
       final watch = Stopwatch()..start();
+      // A natural voice that failed is not asked again: the phone's voice
+      // (the narrator's, for dialogue) reads in its place.
+      var narrator = voiceNameOf();
+      if (_failed.contains(narrator)) narrator = fallbackVoiceOf?.call() ?? narrator;
+      var dialogue = dialogueVoiceOf?.call();
+      if (_failed.contains(dialogue) || dialogue == narrator) dialogue = null;
       try {
         final s = settingsFor(text);
-        final dialogue = dialogueVoiceOf?.call();
         final open = dialogue == null ? null : quoteOpenAt?.call(i);
         // A sentence in the middle of a long quote has no marks of its own.
         final native = dialogue == null || !(open == true || text.contains(RegExp('[“”"«»「」„]')))
             ? await service.synthesise(
                 text: text,
                 engineId: engineIdOf(),
-                voiceName: voiceNameOf(),
+                voiceName: narrator,
                 rate: s.speedScale,
                 pitch: SpeechService.semitonesToPitch(s.pitchSemitones),
                 urgent: urgent,
@@ -274,13 +577,14 @@ class PlaybackScheduler {
                 text: text,
                 stale: () => gen != _gen,
                 startsInside: open,
-                narrator: voiceNameOf(),
+                narrator: narrator,
                 dialogueVoice: dialogue,
                 engineId: engineIdOf(),
                 rate: s.speedScale,
                 pitch: SpeechService.semitonesToPitch(s.pitchSemitones),
                 dialoguePitch: SpeechService.semitonesToPitch(pitchOf?.call(dialogue) ?? s.pitchSemitones),
                 urgent: urgent,
+                level: s.normaliseLoudness,
               );
         if (gen != _gen) {
           // Made for a start that was overtaken: nobody will hear it.
@@ -294,6 +598,7 @@ class PlaybackScheduler {
           // would pitch-shift. Sentence pause is ours, appended below.
           settings: s.copyWith(speedScale: 1.0, sentencePauseMs: 0, text: text),
           pauseAfterMs: pauseAfter(i),
+          levelDb: _levelDb,
         );
         if (gen != _gen) return;
         final to = _streamRate ??= r.sampleRate;
@@ -303,6 +608,7 @@ class PlaybackScheduler {
         final start = await service.enqueue(pcm, to);
         if (gen != _gen) return;
         _rate = to;
+        _levelDb = r.gainDb;
         final timings = [
           for (final t in said.changed ? _onPage(r.timings, said) : r.timings)
             to == r.sampleRate
@@ -316,7 +622,7 @@ class PlaybackScheduler {
                   ),
         ];
         _chunks.add(_Chunk(i, start, at(r.speechFrames), to == r.sampleRate ? r.totalFrames : pcm.length ~/ 2, timings,
-            r.levels));
+            r.levels, pcm));
         final took = watch.elapsedMilliseconds;
         _lastMade = (ms: took, speechMs: r.speechFrames * 1000 ~/ r.sampleRate, urgent: urgent);
         if (text.length >= 20) {
@@ -354,6 +660,10 @@ class PlaybackScheduler {
         }
       } on Object catch (e) {
         if (gen != _gen) return;
+        // A natural voice that cannot speak (a broken download, too little
+        // memory, its worker gone): the same sentence again in the phone's
+        // voice, not skipped.
+        if (_fallBack(narrator, dialogue, e)) continue;
         failures++;
         _next = i + 1;
         if (failures >= 3) {
@@ -371,7 +681,13 @@ class PlaybackScheduler {
     try {
       final pos = await service.position();
       if (gen != _gen) return;
+      if (pos < 0) {
+        // The player reported its writer failed.
+        await _stalled(gen);
+        return;
+      }
       _position = pos;
+      if (_room != null && _queuedEnd - pos <= _rate * _ahead.inSeconds) _wake();
       if (_chunks.isEmpty) {
         if (_fillDone) await _finish(gen);
         return;
@@ -389,6 +705,10 @@ class PlaybackScheduler {
                 '${m.speechMs} ms of speech${m.urgent ? '' : ' (low priority)'}');
           }
         }
+        return;
+      }
+      if (state.value == PlayState.playing && _stuck(pos)) {
+        await _stalled(gen);
         return;
       }
 
@@ -412,7 +732,9 @@ class PlaybackScheduler {
           break;
         }
       }
-      final mark = w < 0 || rel >= c.speechFrames
+      // A word whose place was only guessed is not highlighted: the
+      // sentence is, which is honest (docs/05 section 5.9).
+      final mark = w < 0 || rel >= c.speechFrames || !c.timings[w].source.showsWord
           ? WordMark.none
           : WordMark(c.unit, c.timings[w].charStart, c.timings[w].charEnd);
       if (word.value != mark) word.value = mark;
@@ -425,10 +747,35 @@ class PlaybackScheduler {
     }
   }
 
+  /// Whether the head has stood still at [pos] for [_stallAfter] while
+  /// there is audio queued past it.
+  bool _stuck(int pos) {
+    if (pos != _lastHead) {
+      _lastHead = pos;
+      _stillTicks = 0;
+      return false;
+    }
+    return ++_stillTicks * _tickEvery.inMilliseconds > _stallAfter.inMilliseconds;
+  }
+
+  /// The player stopped while it should be playing: the sentence is queued
+  /// again from its start, once; if it stops again, reading ends and says so.
+  Future<void> _stalled(int gen) async {
+    if (gen != _gen) return;
+    if (!_restarted) {
+      _restarted = true;
+      debugPrint('TomeVoice: the player stopped moving; starting the sentence again');
+      await _rewind();
+      return;
+    }
+    error.value = stalledHint;
+    await stop();
+  }
+
   Future<void> _finish(int gen) async {
     if (gen != _gen) return;
-    _ticker?.cancel();
-    _ticker = null;
+    _stopTicker();
+    _reachedEnd = true;
     state.value = PlayState.idle;
     word.value = WordMark.none;
     level.value = 0;

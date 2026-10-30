@@ -167,23 +167,47 @@ class MainActivity : FlutterActivity() {
                         result.error("NO_PCM", "No audio", null)
                     } else {
                         if (!player.isActive) requestFocus()
-                        result.success(player.enqueue(pcm, rate))
+                        try {
+                            result.success(player.enqueue(pcm, rate))
+                        } catch (e: Exception) {
+                            result.error("PLAYER", e.message ?: "The audio could not be played", null)
+                        }
                     }
                 }
-                "playerPosition" -> result.success(player.position())
+                "playerPosition" -> result.success(player.position(call.argument<Boolean>("raw") == true))
                 "playerPause" -> {
                     player.pause()
                     result.success(null)
                 }
                 "playerResume" -> {
-                    requestFocus()
-                    player.resume()
+                    // Dart asked for focus first; during a call it waits for
+                    // the gain instead of reading over the call.
+                    if (requestFocus() == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) player.resume()
                     result.success(null)
                 }
                 "playerStop" -> {
                     player.stop()
                     result.success(null)
                 }
+                "requestFocus" -> result.success(
+                    when (requestFocus()) {
+                        AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> "granted"
+                        AudioManager.AUDIOFOCUS_REQUEST_DELAYED -> "delayed"
+                        else -> "failed"
+                    }
+                )
+                "playerVolume" -> {
+                    player.setVolume((call.argument<Double>("volume") ?: 1.0).toFloat())
+                    result.success(null)
+                }
+                "playerLatency" -> {
+                    player.setOffsets(
+                        (call.argument<Int>("bluetoothMs") ?: 0).toLong(),
+                        (call.argument<Int>("otherMs") ?: 0).toLong(),
+                    )
+                    result.success(null)
+                }
+                "playerRoute" -> result.success(if (player.onBluetoothNow() ?: bluetoothOut()) "bluetooth" else "other")
                 "session" -> session(call.arguments as Map<*, *>, result)
                 "pickDocuments" -> pickDocuments(result)
                 "pickImage" -> {
@@ -833,7 +857,23 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun synthesise(args: Map<*, *>, result: MethodChannel.Result) {
+    /**
+     * [engine] is dead: its service went away (an update of Speech Services
+     * kills it) and the binding still looks alive, so every sentence after
+     * failed or timed out. It is shut down and forgotten, and the next use
+     * makes a new one: still one warm engine, not one per sentence.
+     */
+    private fun ttsDied(engine: TextToSpeech?) {
+        if (engine == null || tts !== engine) return
+        try {
+            engine.shutdown()
+        } catch (_: Exception) {
+        }
+        tts = null
+        ttsReady = false
+    }
+
+    private fun synthesise(args: Map<*, *>, result: MethodChannel.Result, retried: Boolean = false) {
         val text = (args["text"] as? String).orEmpty()
         val engineId = args["engineId"] as? String
         val rate = (args["rate"] as? Number)?.toFloat() ?: 1.0f
@@ -849,7 +889,25 @@ class MainActivity : FlutterActivity() {
         fun reply(block: () -> Unit) {
             if (replied.compareAndSet(false, true)) main.post(block)
         }
+
+        /** The engine died under this sentence: a new one, and the sentence again, once. */
+        fun again(engine: TextToSpeech, fallback: () -> Unit) {
+            if (!retried && replied.compareAndSet(false, true)) {
+                main.post {
+                    ttsDied(engine)
+                    synthesise(args, result, retried = true)
+                }
+            } else {
+                main.post { ttsDied(engine) }
+                reply(fallback)
+            }
+        }
+
+        var used: TextToSpeech? = null
         main.postDelayed({
+            // No word from the engine in 30 s: it may be dead. The next
+            // sentence gets a new one.
+            if (!replied.get()) ttsDied(used)
             reply { result.error("TTS_TIMEOUT", "No callback within 30s", null) }
         }, 30_000)
 
@@ -858,6 +916,7 @@ class MainActivity : FlutterActivity() {
                 reply { result.error("TTS_INIT", "The voice engine did not start", null) }
                 return@withTts
             }
+            used = engine
             val events = CopyOnWriteArrayList<Map<String, Int>>()
             val utteranceId = "tv-" + System.nanoTime()
             val outFile = File(synthDir(), "$utteranceId.wav")
@@ -897,14 +956,17 @@ class MainActivity : FlutterActivity() {
 
                     override fun onError(id: String?, errorCode: Int) {
                         if (id != utteranceId) return
-                        reply {
+                        val failed = {
                             result.error("TTS_ERROR", "Synthesis failed (code $errorCode)", null)
                         }
+                        // The engine's service failed: a new engine, and again.
+                        if (errorCode == TextToSpeech.ERROR_SERVICE) again(engine, failed) else reply(failed)
                     }
                 })
                 val code = engine.synthesizeToFile(text, Bundle(), outFile, utteranceId)
                 if (code != TextToSpeech.SUCCESS) {
-                    reply { result.error("TTS_QUEUE", "synthesizeToFile returned $code", null) }
+                    // Not even queued: the binding is gone.
+                    again(engine) { result.error("TTS_QUEUE", "synthesizeToFile returned $code", null) }
                 }
             } catch (e: Exception) {
                 reply { result.error("TTS_EXCEPTION", e.message, null) }
@@ -914,7 +976,12 @@ class MainActivity : FlutterActivity() {
 
     // ---------------------------------------------------------- audio focus
 
-    private fun requestFocus() {
+    /**
+     * Ask for the audio; the answer is AudioManager's: granted, delayed (a
+     * call is on: AUDIOFOCUS_GAIN arrives as "focusGain" when it ends) or
+     * failed. It used to be ignored, and Play during a call read over it.
+     */
+    private fun requestFocus(): Int {
         val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         if (focusRequest == null) {
             val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
@@ -925,6 +992,7 @@ class MainActivity : FlutterActivity() {
                         .build()
                 )
                 .setWillPauseWhenDucked(true)
+                .setAcceptsDelayedFocusGain(true)
                 .setOnAudioFocusChangeListener { change ->
                     val type = when (change) {
                         AudioManager.AUDIOFOCUS_LOSS -> "focusLoss"
@@ -938,13 +1006,22 @@ class MainActivity : FlutterActivity() {
                 .build()
             focusRequest = req
         }
-        am.requestAudioFocus(focusRequest!!)
+        val answer = am.requestAudioFocus(focusRequest!!)
         if (!noisyRegistered) {
             val filter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
             val flags = if (Build.VERSION.SDK_INT >= 33) Context.RECEIVER_NOT_EXPORTED else 0
             registerReceiver(noisyReceiver, filter, flags)
             noisyRegistered = true
         }
+        return answer
+    }
+
+    /** Whether a Bluetooth output is connected, for when nothing is playing to ask. */
+    private fun bluetoothOut(): Boolean = try {
+        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { PcmPlayer.isBluetooth(it.type) }
+    } catch (e: Exception) {
+        false
     }
 
     private fun abandonFocus() {

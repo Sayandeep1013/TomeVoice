@@ -1,15 +1,19 @@
 // Voices: dialogue split from narration, audio joined across sample rates,
 // and natural-voice audio in the form the pipeline reads.
 
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
+import 'package:tomevoice_document/tomevoice_document.dart';
 import 'package:tomevoice_spike/dialogue.dart';
 import 'package:tomevoice_spike/listen_sheet.dart';
+import 'package:tomevoice_spike/listening_session.dart';
 import 'package:tomevoice_spike/neural_voices.dart';
 import 'package:tomevoice_spike/prefs.dart';
+import 'package:tomevoice_spike/speech_service.dart';
 import 'package:tomevoice_spike/voices.dart';
 
 VoiceInfo phone(String name, String locale) =>
@@ -120,6 +124,155 @@ void main() {
         reason: 'an alias with no named speakers is the only voice there is');
     expect(catalog.bestFor('bn')!.isAlias, isFalse);
     expect(catalog.friendlyName(catalog.byName('bn-in-x-bnd-local')!), 'Voice 2');
+  });
+
+  test('a long sentence is made in pieces cut where the voice pauses anyway', () {
+    expect(clausePieces('Short and sweet, as it is.'), [(start: 0, text: 'Short and sweet, as it is.')]);
+    const text = 'The old man, who had walked for hours along the river, sat down at last; '
+        'he was tired, and the evening was coming on fast over the hills.';
+    final pieces = clausePieces(text);
+    expect(pieces.length, greaterThan(1));
+    for (final p in pieces) {
+      expect(text.substring(p.start).startsWith(p.text), isTrue, reason: 'pieces start where they say');
+      expect(p.text.length, greaterThanOrEqualTo(40), reason: '"${p.text}" is too short to sound like a clause');
+    }
+    expect(pieces.map((p) => p.text).join(' '), text);
+    // Each piece keeps its mark, so the voice still says it as a clause.
+    expect(pieces.first.text, endsWith(','));
+  });
+
+  test('two natural voices stay loaded only on a phone with the memory for them', () {
+    expect(NeuralEngine.slotsFor(null), 1);
+    expect(NeuralEngine.slotsFor(3700 * 1024), 1, reason: 'a 4 GB phone');
+    expect(NeuralEngine.slotsFor(5600 * 1024), 2, reason: 'a 6 GB phone reports about 5.6');
+    expect(NeuralEngine.slotsFor(11200 * 1024), 2);
+  });
+
+  test('a dialogue line keeps each voice\'s own word timings, moved to where it sits', () async {
+    // A phone voice's narration at 24 kHz, then a natural voice's quote at
+    // 22050 Hz, joined at the narrator's rate.
+    final narration = AudioBuffer(Float32List.fromList(List.filled(2400, 0.2)), 24000);
+    final quote = AudioBuffer(Float32List.fromList(List.filled(2205, 0.2)), 22050);
+    const text = 'She said “run” now';
+    final pieces = [
+      (
+        audio: narration,
+        offset: 0,
+        timings: const [
+          WordTiming(charStart: 0, charEnd: 3, frameStart: 0, frameEnd: 1200, source: WordTimingSource.engineReported),
+          WordTiming(charStart: 4, charEnd: 8, frameStart: 1200, frameEnd: 2400, source: WordTimingSource.engineReported),
+        ],
+      ),
+      (
+        audio: quote,
+        offset: text.indexOf('“'),
+        timings: const [
+          WordTiming(charStart: 1, charEnd: 4, frameStart: 0, frameEnd: 2205, source: WordTimingSource.anchored),
+        ],
+      ),
+    ];
+    final native = await joinParts(pieces, narratorRate: 24000);
+    await File(native['wavPath']! as String).delete();
+    final joined = SpeechService.timingsFromMaps(native['wordTimings']! as List, 4800);
+    expect(joined, hasLength(3));
+    expect(joined[1].source, WordTimingSource.engineReported, reason: 'the phone\'s timings were thrown away');
+    expect(text.substring(joined[2].charStart, joined[2].charEnd), 'run');
+    expect(joined[2].frameStart, 2400, reason: 'after the narration, at its rate');
+    expect(joined[2].frameEnd, 4800);
+    expect(joined[2].source, WordTimingSource.anchored);
+  });
+
+  test('timings already worked out are used as they are; with none, the pauses are found', () {
+    final audio = AudioBuffer(Float32List.fromList([...List.filled(2400, 0.5), ...List.filled(2400, 0.0)]), 24000);
+    final given = SpeechService.wordTimingsFor({
+      'wordTimings': SpeechService.timingsToMaps(const [
+        WordTiming(charStart: 0, charEnd: 2, frameStart: 10, frameEnd: 20, source: WordTimingSource.engineReported),
+      ]),
+    }, audio, 'Hi');
+    expect(given.single.frameStart, 10);
+    final found = SpeechService.wordTimingsFor({'rangeEvents': const []}, audio, 'Hello there');
+    expect(found, hasLength(2));
+    expect(found.every((t) => t.source == WordTimingSource.anchored), isTrue);
+    expect(found.last.frameStart, lessThan(2400), reason: 'shared over the voice, not its silence');
+  });
+
+  test('settings saved before per-book speed and the skip choice load as they were', () {
+    final old = ListeningPrefs.fromJson({
+      'settings': {'speedScale': 1.25},
+      'voiceByBook': {'b1': 'en-us-x-iob-local'},
+    });
+    expect(old.speedFor('b1'), 1.25);
+    expect(old.speedByBook, isEmpty);
+    expect(old.skipBy, SkipBy.sentence);
+    expect(old.highlightOffset(SpeechService.routeBluetooth), 0);
+
+    old.setOwnSpeed('b1', true);
+    old.setSpeed(2.0, book: 'b1');
+    old.setSpeed(0.9, book: 'b2');
+    old.skipBy = SkipBy.chapter;
+    old.highlightOffsetMs[SpeechService.routeBluetooth] = 120;
+    final again = ListeningPrefs.fromJson(old.toJson());
+    expect(again.speedFor('b1'), 2.0);
+    expect(again.speedFor('b2'), 0.9, reason: 'a book without its own speed sets everyone\'s');
+    expect(again.settings.speedScale, 0.9);
+    expect(again.skipBy, SkipBy.chapter);
+    expect(again.highlightOffset(SpeechService.routeBluetooth), 120);
+    again.setOwnSpeed('b1', false);
+    expect(again.speedFor('b1'), 0.9);
+  });
+
+  test('skip buttons: a sentence, 30 seconds, or left to the chapter', () {
+    final layout = ReadingLayout.build(ingestString(
+      '# One\n\n${'Sentence of six words said here. ' * 40}\n\n# Two\n\nAnother chapter starts here.',
+      filename: 'b.md',
+    ));
+    expect(skipTarget(layout, 5, 1, SkipBy.sentence, 1, Duration.zero), 6);
+    expect(skipTarget(layout, 5, -1, SkipBy.sentence, 1, Duration.zero), 4);
+    expect(skipTarget(layout, 5, -1, SkipBy.sentence, 1, const Duration(seconds: 3)), 5,
+        reason: 'under way, previous starts it again');
+    // 30 s at 165 words a minute is about 82 words: about 14 sentences of 6.
+    final on = skipTarget(layout, 5, 1, SkipBy.seconds, 1, Duration.zero)!;
+    expect(on - 5, inInclusiveRange(12, 15));
+    final faster = skipTarget(layout, 5, 1, SkipBy.seconds, 2, Duration.zero)!;
+    expect(faster - 5, greaterThan(on - 5), reason: '30 seconds at 2x is more words');
+    expect(skipTarget(layout, 5, 1, SkipBy.chapter, 1, Duration.zero), isNull);
+  });
+
+  test("a language the phone has no voice for is read in a related one, else in the phone's own", () {
+    final catalog = VoiceCatalog.instance;
+    addTearDown(() {
+      catalog.voices = const [];
+      catalog.phoneLanguage = null;
+    });
+    catalog.phoneLanguage = 'hi';
+    catalog.voices = [
+      phone('ru-ru-x-ruc-local', 'ru-RU'),
+      phone('hi-in-x-hia-local', 'hi-IN'),
+      phone('ar-xa-x-arc-local', 'ar-XA'),
+      phone('en-us-x-iob-local', 'en-US'),
+    ];
+    for (final l in ['uk', 'be', 'bg', 'sr', 'mk']) {
+      expect(catalog.bestFor(l)!.language, 'ru', reason: '$l went to ${catalog.bestFor(l)!.language}');
+    }
+    expect(catalog.bestFor('ur')!.language, 'hi');
+    expect(catalog.bestFor('fa')!.language, 'ar');
+    // No relative on the phone: its own language, not English.
+    expect(catalog.bestFor('sv')!.language, 'hi');
+    expect(catalog.bestFor('pl')!.language, 'hi');
+    expect(languageName('be'), 'Belarusian');
+
+    // A voice of its own wins.
+    catalog.voices = [...catalog.voices, phone('uk-ua-x-hfd-local', 'uk-UA')];
+    expect(catalog.bestFor('uk')!.language, 'uk');
+
+    // The reader's usual Russian voice reads a Ukrainian book, not just any.
+    catalog.voices = [
+      phone('ru-ru-x-ruc-local', 'ru-RU'),
+      const VoiceInfo(name: 'ru-ru-x-rud-local', locale: 'ru-RU', quality: 100, networkRequired: false, installed: true),
+    ];
+    final prefs = ListeningPrefs(voiceByLanguage: {'ru': 'ru-ru-x-rud-local'});
+    final ukrainian = ListenController(prefs: prefs, language: 'uk', bookId: 'u1', onChanged: ({required bool restart}) {});
+    expect(ukrainian.voiceName, 'ru-ru-x-rud-local');
   });
 
   test("a language's usual voice speaks that language", () {

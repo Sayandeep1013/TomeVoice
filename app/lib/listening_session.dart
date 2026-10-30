@@ -5,6 +5,7 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'library_store.dart';
 import 'listen_sheet.dart';
+import 'marks.dart';
 import 'prefs.dart';
 import 'reading_rules.dart';
 import 'scheduler.dart';
@@ -50,10 +51,11 @@ PlaybackScheduler readingScheduler({
     return straight.isOdd || opens > closes;
   }
 
+  sendHighlightOffsets(prefs(), service);
   return PlaybackScheduler(
     service: service,
     units: layout.units,
-    settingsFor: (text) => prefs().settingsFor(listen().voiceName).copyWith(text: text),
+    settingsFor: (text) => prefs().settingsFor(listen().voiceName, book: bookId).copyWith(text: text),
     engineIdOf: () => prefs().engineId ?? VoiceCatalog.instance.engineId,
     voiceNameOf: () => listen().voiceName,
     pauseAfter: pauseAfter,
@@ -61,14 +63,57 @@ PlaybackScheduler readingScheduler({
     dialogueVoiceOf: () => listen().dialogueVoice,
     pitchOf: (voice) => prefs().pitchOf(voice),
     quoteOpenAt: quoteOpenAt,
+    fallbackVoiceOf: () => VoiceCatalog.instance.bestFor(language)?.name,
   );
 }
+
+/// The reader's Highlight timing, per route, to the player.
+void sendHighlightOffsets(ListeningPrefs p, [SpeechService service = const SpeechService()]) => unawaited(
+      service.setHighlightOffsets(
+        bluetoothMs: p.highlightOffset(SpeechService.routeBluetooth),
+        otherMs: p.highlightOffset(SpeechService.routeOther),
+      ),
+    );
 
 /// A book's language as its voices are chosen by: "bn" from "bn-BD".
 String primaryLanguage(String? tag) {
   final t = (tag ?? 'en').toLowerCase();
   final p = t.split(RegExp('[-_]')).first;
   return p.length >= 2 ? p : 'en';
+}
+
+/// A transient loss of the audio longer than this (a long call, not a
+/// notification's ping) does not resume on its own when it ends: the
+/// listener may have walked away.
+const resumeAfterLossWithin = Duration(minutes: 1);
+
+/// Where next (+1) or previous (-1) on headphones, the lock screen or the
+/// notification take a reading at sentence [u] when they skip [by] a
+/// sentence or 30 seconds, at [speed]. Previous goes back to the start of
+/// the sentence being heard when [heard] of it is already past, as a music
+/// player's does with a song. Null when they skip by chapter, which the
+/// reader and the background reading each do in their own way (a web
+/// novel's next chapter may still be on the site).
+int? skipTarget(ReadingLayout l, int u, int dir, SkipBy by, double speed, Duration heard) {
+  if (l.isEmpty) return null;
+  final last = l.units.length - 1;
+  switch (by) {
+    case SkipBy.chapter:
+      return null;
+    case SkipBy.sentence:
+      if (dir < 0 && heard > const Duration(seconds: 2)) return u.clamp(0, last);
+      return (u + dir).clamp(0, last);
+    case SkipBy.seconds:
+      final words = l.wordsBefore[u.clamp(0, last)] + dir * 30 * 165 * speed / 60;
+      var v = u.clamp(0, last);
+      while (dir > 0 && v < last && l.wordsBefore[v + 1] <= words) {
+        v++;
+      }
+      while (dir < 0 && v > 0 && l.wordsBefore[v] > words) {
+        v--;
+      }
+      return v;
+  }
 }
 
 /// What a reader takes back from a book read on in the background.
@@ -88,10 +133,15 @@ typedef TakenBack = ({
 /// library's player, the card or a headset) keeps it, paused; stopping it
 /// from the card, or playing another book, ends it. Opening the book again
 /// takes it back without a break.
+///
+/// It also carries a reading over the end of a web novel's chapters while
+/// its page is still open (see [readOn]): that needs no frame drawn, so it
+/// goes on with the screen off, where the page's own next chapter waits for
+/// the screen to come on.
 class BackgroundReading {
   BackgroundReading._({
     required this.player,
-    required this.layout,
+    required ReadingLayout layout,
     required this.store,
     required this.bookId,
     required this.title,
@@ -101,7 +151,8 @@ class BackgroundReading {
     required DateTime? sleepAt,
     required int sleepChapter,
     required SleepChoice sleep,
-  })  : _sleepAt = sleepAt,
+  })  : _layout = ValueNotifier(layout),
+        _sleepAt = sleepAt,
         _sleepChapter = sleepChapter,
         _sleep = sleep;
 
@@ -110,12 +161,19 @@ class BackgroundReading {
   static final current = ValueNotifier<BackgroundReading?>(null);
 
   PlaybackScheduler player;
-  ReadingLayout layout;
+  final ValueNotifier<ReadingLayout> _layout;
   final LibraryStore store;
   final String bookId;
   final String title;
   final String? cover;
   final String language;
+
+  /// The chapters being read; it changes as a web novel reads on.
+  ReadingLayout get layout => _layout.value;
+
+  /// Told when the reading moves into another layout (a web novel's next
+  /// chapters), so the web reader's page can follow it.
+  ValueListenable<ReadingLayout> get layouts => _layout;
 
   /// A web novel: its next chapters are fetched as it goes.
   final bool web;
@@ -123,7 +181,7 @@ class BackgroundReading {
   static const _svc = SpeechService();
   static ListeningPrefs get _prefs => ListeningPrefs.loaded ?? ListeningPrefs.memory;
 
-  final DateTime? _sleepAt;
+  DateTime? _sleepAt;
   int _sleepChapter;
   SleepChoice _sleep;
   Timer? _sleepTimer;
@@ -131,7 +189,14 @@ class BackgroundReading {
   Timer? _statsTimer;
   DateTime _lastTick = DateTime.now();
   StreamSubscription<Map<String, Object?>>? _events;
+
+  /// Paused for the phone's audio taken a moment: resumed when it comes
+  /// back, unless that took longer than [resumeAfterLossWithin].
   bool _resumeOnFocus = false;
+  Timer? _lossTimer;
+
+  /// The move into the next chapters under way, if one is.
+  Future<bool?>? _rolling;
 
   /// Moved by the card while paused: where Play carries on from.
   int? _parkedAt;
@@ -147,9 +212,14 @@ class BackgroundReading {
   /// Whether it is reading aloud right now, for the library's player.
   final playingNow = ValueNotifier<bool>(true);
 
+  /// The move into the next chapters under way, if one is: true once it
+  /// reads on there, false when there was nothing more (it has stopped),
+  /// null when something else stopped it first.
+  Future<bool?>? get rolling => _rolling;
+
   /// Take over [player], reading [layout] of [bookId], from a reader whose
-  /// page is closing.
-  static void adopt({
+  /// page is closing (or handing its reading on, see [readOn]).
+  static BackgroundReading adopt({
     required PlaybackScheduler player,
     required ReadingLayout layout,
     required LibraryStore store,
@@ -173,22 +243,21 @@ class BackgroundReading {
       cover: cover,
       language: language,
       web: web,
-      sleepAt: sleepAt,
+      // A time already past fired in the reader; it is not armed again.
+      sleepAt: sleepAt != null && sleepAt.isAfter(DateTime.now()) ? sleepAt : null,
       sleepChapter: sleepChapter,
       sleep: sleep,
     );
     b._attach();
     b._events = SpeechService.events.listen(b._onEvent);
     b._statsTimer = Timer.periodic(const Duration(seconds: 15), (_) => b._countTime());
-    final at = sleepAt;
-    if (at != null) {
-      b._sleepTimer = Timer(at.difference(DateTime.now()), b.pause);
-    }
+    b._armSleep();
     if (web) {
       unawaited(store.webNovel(bookId).then((info) => b._webTotal = info?.chapters.length ?? 0));
     }
     current.value = b;
     b._updateCard();
+    return b;
   }
 
   /// Read [e] aloud from where it was left, without opening it: the
@@ -235,7 +304,7 @@ class BackgroundReading {
     _lastUnit = player.unit.value;
     player.unit.addListener(_onUnit);
     player.state.addListener(_onState);
-    player.onFinished = () => unawaited(_onFinished());
+    player.onFinished = () => unawaited(readOn());
     playingNow.value = playing;
   }
 
@@ -248,6 +317,7 @@ class BackgroundReading {
   void _release() {
     _detach();
     _sleepTimer?.cancel();
+    _lossTimer?.cancel();
     _statsTimer?.cancel();
     _persistTimer?.cancel();
     unawaited(_events?.cancel());
@@ -261,11 +331,12 @@ class BackgroundReading {
   /// the one being read (a web novel whose chapters changed meanwhile): the
   /// reading stops here and the reader starts it again at [unitIn].
   TakenBack? takeBack(ReadingLayout readerLayout) {
-    final same = readerLayout.units.length == layout.units.length &&
-        (layout.units.isEmpty ||
-            (readerLayout.units.first.text == layout.units.first.text &&
-                readerLayout.units.last.text == layout.units.last.text));
-    if (!same || _parkedAt != null) return null;
+    final same = identical(readerLayout, layout) ||
+        (readerLayout.units.length == layout.units.length &&
+            (layout.units.isEmpty ||
+                (readerLayout.units.first.text == layout.units.first.text &&
+                    readerLayout.units.last.text == layout.units.last.text)));
+    if (!same || _parkedAt != null || _rolling != null) return null;
     _persistNow();
     _release();
     return (player: player, sleepAt: _sleepAt, sleepChapter: _sleepChapter, sleep: _sleep);
@@ -278,18 +349,18 @@ class BackgroundReading {
     return other.unitForCursor(cursorOf(layout.units[unit.clamp(0, layout.units.length - 1)]), saved: true);
   }
 
-  Future<void> pause() async {
-    await player.pause();
+  Future<void> pause({bool now = false}) async {
+    await player.pause(now: now);
     _updateCard();
   }
 
-  Future<void> resume() async {
+  Future<void> resume({bool rewind = false}) async {
     final parked = _parkedAt;
     _parkedAt = null;
     if (parked != null) {
       await player.play(parked);
     } else if (player.state.value == PlayState.paused) {
-      await player.resume();
+      await player.resume(rewind: rewind);
     } else if (player.state.value == PlayState.idle) {
       await player.play(player.unit.value);
     }
@@ -303,9 +374,25 @@ class BackgroundReading {
     if (!identical(current.value, this)) return;
     _persistNow();
     _release();
+    player.endFade();
     await player.stop();
     player.dispose();
     await _svc.session(active: false);
+  }
+
+  // ---------------------------------------------------------------- sleep
+
+  void _armSleep() {
+    _sleepTimer?.cancel();
+    final at = _sleepAt;
+    if (at == null) return;
+    player.fadeOutBy(at);
+    _sleepTimer = Timer(at.difference(DateTime.now()), () {
+      // Fired: not to be armed again by the book opened after.
+      _sleepAt = null;
+      _sleep = SleepChoice.off;
+      unawaited(pause(now: true).whenComplete(player.endFade));
+    });
   }
 
   // ------------------------------------------------------------ following
@@ -331,35 +418,63 @@ class BackgroundReading {
 
   void _onState() {
     if (player.state.value != PlayState.idle) _parkedAt = null;
-    playingNow.value = playing;
+    playingNow.value = playing || _rolling != null;
     _updateCard();
   }
 
-  /// The end of what is here: a web novel's next chapters are fetched and
-  /// read on into; a book has ended.
-  Future<void> _onFinished() async {
-    if (!web || layout.isEmpty) {
-      await stop();
-      return;
-    }
+  /// The end of what is here: a web novel's next chapters are fetched (the
+  /// site asked for new ones when its list runs out) and read on into, in a
+  /// new player on the longer layout; a book has ended. Needs no frame, so
+  /// it carries on with the screen off. The card stays up, playing, while it
+  /// does. See [rolling] for the answer.
+  Future<bool?> readOn() => _rolling ??= _readOn().whenComplete(() => _rolling = null);
+
+  Future<bool?> _readOn() async {
+    playingNow.value = true;
+    _updateCard();
+    final carried = await _intoNext();
+    if (carried == false) await stop();
+    return carried;
+  }
+
+  Future<bool?> _intoNext() async {
+    if (!web || layout.isEmpty) return false;
     final last = layout.units.last.sectionIndex;
     try {
       await fetchChapters(store, bookId, last + 1);
-      final next = await store.loadLayout(bookId);
-      if (!identical(current.value, this)) return;
-      final start = next.units.indexWhere((u) => u.sectionIndex > last);
+      var next = await store.loadLayout(bookId);
+      var start = next.units.indexWhere((u) => u.sectionIndex > last);
       if (start < 0) {
-        await stop();
-        return;
+        // The last chapter the site listed: ask it for new ones.
+        final after = await refreshWebChapters(store, bookId, last);
+        if (after == null) return false;
+        await fetchChapters(store, bookId, after);
+        next = await store.loadLayout(bookId);
+        start = next.units.indexWhere((u) => u.sectionIndex >= after);
+        if (start < 0) return false;
       }
+      if (!identical(current.value, this)) return null;
       _detach();
-      player.dispose();
-      layout = next;
+      final old = player;
+      _layout.value = next;
       player = readingScheduler(layout: next, prefs: () => _prefs, language: language, bookId: bookId);
       _attach();
+      old.dispose();
+      _fetchedFor = -1;
+      if (_sleep == SleepChoice.chapterEnd) {
+        // Asked to stop at the chapter's end: waits at the next, paused.
+        _sleep = SleepChoice.off;
+        _sleepChapter = -1;
+        _parkedAt = start;
+        _persistNow();
+        _updateCard();
+        return true;
+      }
+      _armSleep();
       await player.play(start);
+      return true;
     } on Object {
-      await stop();
+      return identical(current.value, this) ? false : null;
     }
   }
 
@@ -399,8 +514,9 @@ class BackgroundReading {
 
   // ----------------------------------------------------------------- card
 
+  double get _speed => _prefs.speedFor(bookId);
   int _wordsAt(int u) => u < layout.units.length ? layout.wordsBefore[u] : layout.totalWords;
-  int _msFor(int words) => (words / (165 * _prefs.settings.speedScale) * 60000).round();
+  int _msFor(int words) => (words / (165 * _speed) * 60000).round();
 
   void _updateCard() {
     if (!identical(current.value, this) || layout.isEmpty) return;
@@ -414,11 +530,13 @@ class BackgroundReading {
       active: true,
       title: secret ? 'TomeVoice' : title,
       subtitle: secret ? '' : layout.chapterTitle(chapter),
-      playing: s == PlayState.playing || s == PlayState.loading,
+      // Moving into the next chapters counts as playing: the card (and the
+      // phone kept awake) stay with it.
+      playing: s == PlayState.playing || s == PlayState.loading || (_rolling != null && _parkedAt == null),
       cover: secret ? null : cover,
       positionMs: _msFor(_wordsAt(u) - _wordsAt(first)),
       durationMs: _msFor(_wordsAt(first + count) - _wordsAt(first)),
-      speed: _prefs.settings.speedScale,
+      speed: _speed,
     ));
   }
 
@@ -426,15 +544,24 @@ class BackgroundReading {
   void _onEvent(Map<String, Object?> e) {
     switch (e['type']) {
       case 'noisy':
+        // Unplugged: not another word out of the speaker.
+        _resumeOnFocus = false;
+        unawaited(pause(now: true));
       case 'focusLoss':
+        _resumeOnFocus = false;
         unawaited(pause());
       case 'focusLossTransient':
         if (playing) {
           _resumeOnFocus = true;
-          unawaited(pause());
+          _lossTimer?.cancel();
+          _lossTimer = Timer(resumeAfterLossWithin, () => _resumeOnFocus = false);
+          unawaited(pause(now: true));
         }
       case 'focusGain':
-        if (_resumeOnFocus && player.state.value == PlayState.paused) unawaited(resume());
+        // From the start of the sentence the interruption cut into; not at
+        // all after a long one (a call: the listener may have gone).
+        _lossTimer?.cancel();
+        if (_resumeOnFocus && player.state.value == PlayState.paused) unawaited(resume(rewind: true));
         _resumeOnFocus = false;
       case 'action':
         switch (e['action']) {
@@ -445,29 +572,62 @@ class BackgroundReading {
           case 'stop':
             unawaited(stop());
           case 'next':
-            _moveTo(_chapterStart(layout.chapterOfUnit(unit) + 1));
+            _skip(1);
           case 'prev':
-            final (first, _) = layout.chapterRange(layout.chapterOfUnit(unit));
-            _moveTo(_msFor(_wordsAt(unit) - _wordsAt(first)) > 3000
-                ? first
-                : _chapterStart(layout.chapterOfUnit(unit) - 1));
+            _skip(-1);
           case 'seek':
             final (first, count) = layout.chapterRange(layout.chapterOfUnit(unit));
             final ms = (e['value'] as num?)?.toInt() ?? 0;
-            final target = _wordsAt(first) + ms / 60000 * 165 * _prefs.settings.speedScale;
+            final target = _wordsAt(first) + ms / 60000 * 165 * _speed;
             var u = first;
             while (u + 1 < first + count && _wordsAt(u + 1) <= target) {
               u++;
             }
             _moveTo(u);
           case 'speed':
-            final now = _prefs.settings.speedScale;
+            final now = _speed;
             final next = speedPresets.firstWhere((p) => p > now + 0.001, orElse: () => speedPresets.first);
-            _prefs.settings = _prefs.settings.copyWith(speedScale: next);
+            _prefs.setSpeed(next, book: bookId);
             _prefs.save();
             if (playing) unawaited(player.play(unit));
             _updateCard();
+          case 'save':
+            unawaited(_saveLine());
         }
+    }
+  }
+
+  /// Next (+1) or previous (-1), by what the reader chose: a sentence, 30
+  /// seconds or a chapter.
+  void _skip(int dir) {
+    if (layout.isEmpty) return;
+    final to = skipTarget(layout, unit, dir, _prefs.skipBy, _speed, _parkedAt == null ? player.heard : Duration.zero);
+    if (to != null) {
+      _moveTo(to);
+    } else if (dir > 0) {
+      _moveTo(_chapterStart(layout.chapterOfUnit(unit) + 1));
+    } else {
+      final (first, _) = layout.chapterRange(layout.chapterOfUnit(unit));
+      _moveTo(_msFor(_wordsAt(unit) - _wordsAt(first)) > 3000 ? first : _chapterStart(layout.chapterOfUnit(unit) - 1));
+    }
+  }
+
+  /// The card's Save this line: the sentence being read, kept as a quote
+  /// (it did nothing while the book read on in the background).
+  Future<void> _saveLine() async {
+    if (layout.isEmpty) return;
+    final u = unit.clamp(0, layout.units.length - 1);
+    try {
+      await MarkStore.instance.add(
+        bookId: bookId,
+        bookTitle: title,
+        kind: MarkKind.quote,
+        at: cursorOf(layout.units[u]),
+        text: layout.units[u].text,
+        chapter: layout.chapterTitle(layout.chapterOfUnit(u)),
+      );
+    } on Object {
+      // Nothing to show it on; the reader can save it again.
     }
   }
 

@@ -4,21 +4,22 @@ import 'dart:typed_data';
 import '../pipeline.dart';
 import '../types.dart';
 
-/// Trims leading silence and applies short fades at both ends.
+/// Trims leading and trailing silence and applies short fades at both ends.
 ///
 /// TTS engines commonly emit a few tens of milliseconds of near-silence before
-/// speech begins. Left in, it inflates time-to-first-audio and makes sentence
-/// pauses inconsistent, because the "pause" a listener hears is our configured
-/// value plus whatever padding the engine happened to add.
-///
-/// Trailing silence is left alone: [SentencePauseStage] puts it there
-/// deliberately, and this stage runs after it.
+/// speech begins, and more after it ends. Left in, the first inflates
+/// time-to-first-audio, and both make sentence pauses inconsistent: the
+/// "pause" a listener hears was the configured value plus whatever padding
+/// the engine happened to add. The pause after a sentence is appended later
+/// ([SentencePauseStage], or the scheduler between buffers), after this
+/// stage, so trimming here never takes it away.
 class EdgeTrimStage implements PipelineStage {
   const EdgeTrimStage({
     this.enabled = true,
     this.thresholdDb = -60.0,
     this.fadeMs = 3,
     this.keepLeadMs = 5,
+    this.keepTailMs = 40,
   });
 
   final bool enabled;
@@ -31,6 +32,10 @@ class EdgeTrimStage implements PipelineStage {
   /// Silence deliberately kept before the first speech frame, so the attack of
   /// the first phoneme is not clipped.
   final int keepLeadMs;
+
+  /// Kept after the last sound above the threshold, so a soft ending (an
+  /// "s" dying away) is not cut off.
+  final int keepTailMs;
 
   @override
   String get name => 'edges';
@@ -53,20 +58,28 @@ class EdgeTrimStage implements PipelineStage {
       return StageResult.unchanged(input);
     }
 
+    var lastSound = src.length - 1;
+    while (lastSound > firstSound && src[lastSound].abs() < threshold) {
+      lastSound--;
+    }
+
     final keepLead = input.msToFrames(keepLeadMs);
     final trimFrom = math.max(0, firstSound - keepLead);
+    final trimTo = math.min(src.length, lastSound + 1 + input.msToFrames(keepTailMs));
 
-    if (trimFrom == 0) {
+    if (trimFrom == 0 && trimTo == src.length) {
       _fade(input.samples, input.msToFrames(fadeMs));
       return StageResult.unchanged(input);
     }
 
-    final out = Float32List(src.length - trimFrom)
-      ..setRange(0, src.length - trimFrom, src, trimFrom);
+    final length = trimTo - trimFrom;
+    final out = Float32List(length)..setRange(0, length, src, trimFrom);
 
     _fade(out, input.msToFrames(fadeMs));
 
-    int remap(int frame) => math.max(0, frame - trimFrom);
+    // A word reported to run on into the trimmed tail ends where the
+    // buffer now ends.
+    int remap(int frame) => (frame - trimFrom).clamp(0, length);
 
     return StageResult(input.withSamples(out), remap);
   }

@@ -6,6 +6,7 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 import 'browser_check.dart';
 import 'chapter_finder.dart';
 import 'library_store.dart';
+import 'listening_session.dart';
 import 'reader_screen.dart';
 import 'reading_rules.dart';
 import 'sources/plugin_host.dart';
@@ -43,9 +44,33 @@ Future<void> fetchChapters(
   }
 }
 
+/// Ask the source for web novel [id]'s chapter list again. If it grew, the
+/// chapter after [current] (which may have moved in the new list); else null.
+Future<int?> refreshWebChapters(LibraryStore store, String id, int current) async {
+  try {
+    final info = await store.webNovel(id);
+    if (info == null) return null;
+    final plugin = await SourceEngine.instance.store.installedById(info.plugin.id);
+    if (plugin == null) return null;
+    final fresh = await SourceEngine.instance.novel(plugin, info.novel.path);
+    if (!replacesChapterList(info.chapters, fresh.chapters)) return null;
+    await store.saveWebChapters(id, fresh.chapters);
+    final path = info.chapters.elementAtOrNull(current)?.path;
+    final now = fresh.chapters.indexWhere((c) => c.path == path);
+    final after = (now < 0 ? current : now) + 1;
+    return after < fresh.chapters.length ? after : null;
+  } on Object {
+    return null;
+  }
+}
+
 /// Reads a web novel: fetches the chapters it needs before showing them,
 /// keeps a few ahead while you read or listen, and carries on into the next
 /// chapters when it reaches the end of what has been fetched.
+///
+/// Read aloud, that carrying on is the background reading's (see
+/// BackgroundReading.readOn): it needs no frame, so it goes on with the
+/// screen off, and this page follows it to the chapter it reads.
 class WebNovelReader extends StatefulWidget {
   const WebNovelReader({
     super.key,
@@ -99,7 +124,54 @@ class _WebNovelReaderState extends State<WebNovelReader> {
   @override
   void dispose() {
     ReadingRules.instance.changes.removeListener(_onRules);
+    _following?.layouts.removeListener(_onFollowed);
     super.dispose();
+  }
+
+  /// The reading this page's voice was handed to at the end of its
+  /// chapters, while it carries on into more of them.
+  BackgroundReading? _following;
+
+  /// Show the chapters [bg] reads aloud, and keep up as it reads on into
+  /// more: the page built for them takes its voice back (with the screen off
+  /// that page waits for the screen; the voice does not).
+  void _follow(BackgroundReading bg) {
+    _following?.layouts.removeListener(_onFollowed);
+    _following = bg;
+    bg.layouts.addListener(_onFollowed);
+    _onFollowed();
+  }
+
+  void _onFollowed() {
+    final bg = _following;
+    if (bg == null || !mounted) return;
+    if (!identical(BackgroundReading.current.value, bg)) {
+      // Taken back by the page, or stopped: nothing more to follow.
+      bg.layouts.removeListener(_onFollowed);
+      _following = null;
+      return;
+    }
+    // Still moving into those chapters: the page for them is built once it
+    // reads there, so the page can take the voice back.
+    final rolling = bg.rolling;
+    if (rolling != null) {
+      unawaited(rolling.whenComplete(_onFollowed));
+      return;
+    }
+    final layout = bg.layout;
+    if (identical(layout, _layout) || layout.isEmpty) return;
+    setState(() {
+      _layout = layout;
+      _cursor = cursorOf(layout.units[bg.unit.clamp(0, layout.units.length - 1)]);
+      _autoplay = false;
+      _view = null;
+      _generation++;
+      _status = null;
+      _error = null;
+    });
+    unawaited(_store.webNovel(_id).then((info) {
+      if (info != null && mounted) setState(() => _total = info.chapters.length);
+    }));
   }
 
   /// A line rule was added or removed: rebuild the chapters at the saved
@@ -179,6 +251,20 @@ class _WebNovelReaderState extends State<WebNovelReader> {
   Future<void> _onEnd({required bool playing, bool browse = false}) async {
     final layout = _layout;
     if (layout == null || layout.isEmpty) return;
+    // Read aloud past them: the page handed its voice on (ReaderScreen's
+    // _readOn), which fetches and reads on without waiting for a frame.
+    // This page shows where it reads once it does.
+    final bg = BackgroundReading.current.value;
+    if (playing && bg != null && bg.bookId == _id) {
+      final carried = await (bg.rolling ?? Future<bool?>.value(true));
+      if (!mounted) return;
+      if (carried == true) {
+        _follow(bg);
+      } else if (carried == false) {
+        showSnack(context, 'That is the latest chapter so far. New ones appear when the site adds them.');
+      }
+      return;
+    }
     final current = layout.units.last.sectionIndex;
     var next = current + 1;
     if (next >= _total) {
@@ -195,23 +281,10 @@ class _WebNovelReaderState extends State<WebNovelReader> {
   /// Ask the source for the chapter list again. If it grew, the chapter
   /// after [current] (which may have moved in the new list); else null.
   Future<int?> _refreshChapters(int current) async {
-    try {
-      final info = await _store.webNovel(_id);
-      if (info == null) return null;
-      final plugin = await SourceEngine.instance.store.installedById(info.plugin.id);
-      if (plugin == null) return null;
-      if (mounted) showSnack(context, 'Checking for new chapters…');
-      final fresh = await SourceEngine.instance.novel(plugin, info.novel.path);
-      if (!replacesChapterList(info.chapters, fresh.chapters)) return null;
-      await _store.saveWebChapters(_id, fresh.chapters);
-      _total = fresh.chapters.length;
-      final path = info.chapters.elementAtOrNull(current)?.path;
-      final now = fresh.chapters.indexWhere((c) => c.path == path);
-      final after = (now < 0 ? current : now) + 1;
-      return after < _total ? after : null;
-    } on Object {
-      return null;
-    }
+    if (mounted) showSnack(context, 'Checking for new chapters…');
+    final after = await refreshWebChapters(_store, _id, current);
+    _total = (await _store.webNovel(_id))?.chapters.length ?? _total;
+    return after;
   }
 
   /// Every chapter the site lists, not only those on the phone: the one

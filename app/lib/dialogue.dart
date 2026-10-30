@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/services.dart' show PlatformException;
@@ -99,9 +100,13 @@ Uint8List resamplePcm16(Uint8List pcm, int from, int to) {
 
 /// Say [text] with its dialogue in [dialogueVoice] and the rest in
 /// [narrator]: each stretch made on its own and joined, with no gap, into
-/// one WAV like a single voice returns. Word positions are estimated over
-/// the whole sentence, as for voices that report none. Each voice speaks at
-/// its own pitch: [pitch] the narrator's, [dialoguePitch] the dialogue's.
+/// one WAV like a single voice returns. Each stretch keeps its own word
+/// timings, moved to where it sits in the sentence: a phone voice's as it
+/// reported them (they were once thrown away for an estimate over the whole
+/// line), a natural voice's matched to its pauses. Each voice speaks at its
+/// own pitch: [pitch] the narrator's, [dialoguePitch] the dialogue's. With
+/// [level], each stretch is first brought to the same loudness, so two
+/// voices that differ by 10 dB do not take turns being loud.
 Future<Map<String, Object?>> speakWithDialogue({
   required SpeechService svc,
   required String text,
@@ -114,6 +119,7 @@ Future<Map<String, Object?>> speakWithDialogue({
   bool Function()? stale,
   bool? startsInside,
   bool urgent = true,
+  bool level = true,
 }) async {
   final parts = splitDialogue(text, startsInside: startsInside);
   if (parts.length == 1) {
@@ -126,7 +132,8 @@ Future<Map<String, Object?>> speakWithDialogue({
       pitch: parts.single.spoken ? dialoguePitch ?? pitch : pitch,
     );
   }
-  final pieces = <AudioBuffer>[];
+  final pieces = <({AudioBuffer audio, List<WordTiming> timings, int offset})>[];
+  var cursor = 0;
   for (final p in parts) {
     // A jump since: stop here, so the new sentence is not kept waiting.
     if (stale?.call() ?? false) throw PlatformException(code: 'TTS_STOPPED');
@@ -139,18 +146,57 @@ Future<Map<String, Object?>> speakWithDialogue({
       pitch: p.spoken ? dialoguePitch ?? pitch : pitch,
     );
     final file = File(native['wavPath']! as String);
-    pieces.add(WavCodec.decode(await file.readAsBytes()));
+    final audio = WavCodec.decode(await file.readAsBytes());
     await file.delete();
+    // Where this stretch starts in the sentence (a stretch of only spaces
+    // between two quotes is not said, so offsets are found, not summed).
+    final at = text.indexOf(p.text, cursor);
+    final offset = at < 0 ? cursor : at;
+    cursor = offset + p.text.length;
+    pieces.add((audio: audio, timings: SpeechService.wordTimingsFor(native, audio, p.text), offset: offset));
   }
-  // At the narrator's rate, so this sentence matches the ones around it
-  // (not at whichever voice happened to speak first).
-  final narration = [for (var k = 0; k < parts.length; k++) if (!parts[k].spoken) pieces[k]];
-  final rate0 = (narration.isEmpty ? pieces.first : narration.first).sampleRate;
-  final joined = <double>[
-    for (final p in pieces) ...resample(p.samples, p.sampleRate, rate0),
-  ];
-  // In the folder swept on every start, so none are left behind.
+  return joinParts(pieces, narratorRate: [
+    for (var k = 0; k < parts.length; k++)
+      if (!parts[k].spoken) pieces[k].audio.sampleRate,
+  ].firstOrNull, level: level);
+}
+
+/// [pieces] of a sentence joined into one WAV (in the folder swept on every
+/// start), with their word timings moved into the sentence: characters by
+/// each piece's offset in the text, frames by where its audio now begins.
+/// At [narratorRate], so the sentence matches the ones around it (not
+/// whichever voice happened to speak first).
+Future<Map<String, Object?>> joinParts(
+  List<({AudioBuffer audio, List<WordTiming> timings, int offset})> pieces, {
+  int? narratorRate,
+  bool level = true,
+}) async {
+  final rate0 = narratorRate ?? pieces.first.audio.sampleRate;
+  final joined = <double>[];
+  final timings = <WordTiming>[];
+  for (final p in pieces) {
+    final k = rate0 / p.audio.sampleRate;
+    final start = joined.length;
+    final samples = resample(p.audio.samples, p.audio.sampleRate, rate0);
+    final gain = level ? math.pow(10, GainStage.levelGainDb(samples, rate0) / 20).toDouble() : 1.0;
+    for (final s in samples) {
+      joined.add(s * gain);
+    }
+    for (final t in p.timings) {
+      timings.add(WordTiming(
+        charStart: t.charStart + p.offset,
+        charEnd: t.charEnd + p.offset,
+        frameStart: start + (t.frameStart * k).round(),
+        frameEnd: start + (t.frameEnd * k).round(),
+        source: t.source,
+      ));
+    }
+  }
   final out = File('${synthTempDir().path}/dialogue-${DateTime.now().microsecondsSinceEpoch}.wav');
   await out.writeAsBytes(wavBytes(Float32List.fromList(joined), rate0));
-  return {'wavPath': out.path, 'engineId': 'tomevoice.dialogue', 'rangeEvents': const []};
+  return {
+    'wavPath': out.path,
+    'engineId': 'tomevoice.dialogue',
+    'wordTimings': SpeechService.timingsToMaps(timings),
+  };
 }

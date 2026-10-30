@@ -392,7 +392,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   StreamSubscription<Map<String, Object?>>? _events;
   Timer? _persistTimer;
   Timer? _restartTimer;
+
+  /// Paused for the phone's audio taken a moment (a ping, a call): resumed
+  /// when it comes back, unless that took longer than resumeAfterLossWithin.
   bool _resumeOnFocus = false;
+  Timer? _lossTimer;
   int _sessionChapter = -1;
   int _sessionUnit = -1;
   double _sessionSpeed = 0;
@@ -455,6 +459,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _player.unit.addListener(_onPlayerUnit);
     _player.state.addListener(_onPlayState);
     _player.word.addListener(_onWord);
+    _player.notice.addListener(_onNotice);
     _cursor.addListener(_syncMarked);
     _cursor.addListener(_onCursor);
     _syncMarked();
@@ -492,12 +497,23 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   void _onPlayerUnit() => _cursor.value = _player.unit.value;
 
-  /// The sleep timer as the background reading left it.
+  /// A line from the player while it reads on (a natural voice that failed,
+  /// and the phone's reading instead).
+  void _onNotice() {
+    final note = _player.notice.value;
+    if (note != null) _snack(note);
+  }
+
+  /// The sleep timer as the background reading left it. A time already
+  /// past fired there, and is not armed again (it paused the book a second
+  /// time when it was opened).
   void _restoreSleep(SleepChoice choice, DateTime? at, int chapter) {
-    _sleep = choice;
-    _sleepAt = at;
+    final live = at != null && at.isAfter(DateTime.now());
+    _sleep = at != null && !live ? SleepChoice.off : choice;
+    _sleepAt = live ? at : null;
     _sleepChapter = chapter;
-    if (at != null) {
+    if (live) {
+      _player.fadeOutBy(at);
       _sleepTimer = Timer(at.difference(DateTime.now()), () => _sleepNow('Sleep timer: paused.'));
       _sleepTick = Timer.periodic(const Duration(seconds: 30), (_) {
         if (mounted && _sleepAt != null) setState(() {});
@@ -507,6 +523,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   /// The page is being left by Back (not replaced by another chapter's).
   bool _leaving = false;
+
+  /// The voice went on past this page's chapters without it (see
+  /// [_readOn]): the reading, the card and the place are the background
+  /// reading's until the page for those chapters takes them back.
+  bool _handedOn = false;
 
   /// Reading aloud goes on without this page: back goes to the library and
   /// the voice reads on there (Settings > Listening).
@@ -531,12 +552,23 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   /// A natural voice is loaded while the page settles, so Play does not
-  /// wait for it (a second or two, longer for HD, the first time).
+  /// wait for it (a second or two, longer for HD, the first time); a natural
+  /// dialogue voice too, where the phone keeps two loaded (with room for
+  /// one, loading it would only push the narrator out).
   void _warmVoice() {
-    final natural = neuralVoiceFor(_listen.voiceName);
-    if (natural == null) return;
-    Timer(const Duration(milliseconds: 1200), () {
-      if (mounted && _player.state.value == PlayState.idle) unawaited(NeuralEngine.instance.warm(natural));
+    final listen = _listen;
+    final narrator = neuralVoiceFor(listen.voiceName);
+    final dialogue = neuralVoiceFor(listen.dialogueVoice);
+    final voices = [
+      if (narrator != null) narrator,
+      if (dialogue != null && (narrator == null || NeuralEngine.instance.holdsTwo)) dialogue,
+    ];
+    if (voices.isEmpty) return;
+    Timer(const Duration(milliseconds: 1200), () async {
+      for (final v in voices) {
+        if (!mounted || _player.state.value != PlayState.idle) return;
+        await NeuralEngine.instance.warm(v);
+      }
     });
   }
 
@@ -676,6 +708,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _persistTimer?.cancel();
     _restartTimer?.cancel();
     _sleepTimer?.cancel();
+    _lossTimer?.cancel();
     _statsTimer?.cancel();
     _countTime();
     unawaited(StatsStore.instance.flush());
@@ -683,7 +716,15 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     unawaited(_events?.cancel());
     _catalog.removeListener(_onCatalog);
     _player.word.removeListener(_onWord);
-    if (_readsOn) {
+    _player.notice.removeListener(_onNotice);
+    if (_handedOn) {
+      // The voice went on without this page (into the next chapters): the
+      // card and the stream are the background reading's now, unless Back
+      // left the book with reading on after leaving turned off.
+      final bg = BackgroundReading.current.value;
+      if (_leaving && !_prefs.keepReading && bg != null && bg.bookId == _book.id) unawaited(bg.stop());
+      _player.dispose();
+    } else if (_readsOn) {
       _player.unit.removeListener(_onPlayerUnit);
       _player.state.removeListener(_onPlayState);
       _player.onFinished = null;
@@ -742,6 +783,41 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _laidWidth = width;
   }
 
+  /// Read on past the chapters here (a web novel's, the rest still on the
+  /// site), handing the voice to the reading that goes on without a page.
+  /// Building the next chapters' page waits for a frame, and with the screen
+  /// off none comes: the voice stopped at the end of what was fetched. The
+  /// background reading needs none, keeps the card up meanwhile (Android 12
+  /// may refuse to start it again from the background), and the next page
+  /// takes the voice back when it is built. False with nowhere to hand it.
+  Future<bool> _readOn() async {
+    final store = widget.store;
+    if (_handedOn || store == null || _l.isEmpty) return false;
+    _handedOn = true;
+    _sleepTimer?.cancel();
+    _sleepTick?.cancel();
+    // Its own voice stops (it may be mid-chapter: Next chapter at the
+    // last one), leaving the card up for the reading that carries on.
+    await _player.stop();
+    _player.endFade();
+    if (!mounted) return false;
+    final bg = BackgroundReading.adopt(
+      player: readingScheduler(layout: _l, prefs: () => _prefs, language: _language, bookId: _book.id, service: _svc),
+      layout: _l,
+      store: store,
+      bookId: _book.id,
+      title: _book.metadata.title,
+      cover: _cover,
+      language: _language,
+      web: true,
+      sleepAt: _sleepAt,
+      sleepChapter: _sleepChapter,
+      sleep: _sleep,
+    );
+    unawaited(bg.readOn());
+    return true;
+  }
+
   void _onCatalog() {
     if (mounted) setState(() {});
   }
@@ -774,7 +850,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       await speakSample(
         voiceName: voiceName,
         text: text,
-        settings: _prefs.settingsFor(voiceName),
+        settings: _prefs.settingsFor(voiceName, book: _book.id),
         engineId: _prefs.engineId ?? _catalog.engineId,
       );
     } on Object catch (e) {
@@ -800,14 +876,18 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     };
     if (minutes > 0) {
       final d = Duration(minutes: minutes);
-      _sleepAt = DateTime.now().add(d);
+      final at = DateTime.now().add(d);
+      _sleepAt = at;
       _sleepTimer = Timer(d, () => _sleepNow('Sleep timer: paused.'));
+      // The voice fades over the last half minute rather than stopping dead.
+      _player.fadeOutBy(at);
       // The countdown in the player bar is redrawn as it runs.
       _sleepTick = Timer.periodic(const Duration(seconds: 30), (_) {
         if (mounted && _sleepAt != null) setState(() {});
       });
-    } else if (choice == SleepChoice.chapterEnd) {
-      _sleepChapter = _l.chapterOfUnit(_cursor.value);
+    } else {
+      _player.endFade();
+      if (choice == SleepChoice.chapterEnd) _sleepChapter = _l.chapterOfUnit(_cursor.value);
     }
     setState(() => _sleep = choice);
   }
@@ -819,7 +899,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _sleepTick = null;
     _sleepAt = null;
     _sleepChapter = -1;
-    unawaited(_player.pause());
+    // Faded out already: paused at once, then back to full volume for Play.
+    unawaited(_player.pause(now: true).whenComplete(_player.endFade));
     if (mounted) {
       setState(() => _sleep = SleepChoice.off);
       _snack(message);
@@ -841,6 +922,13 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   Future<void> _togglePlay() async {
     if (_l.isEmpty) return;
+    if (_handedOn) {
+      // Shown a moment longer while the next chapters load: the voice is
+      // the background reading's.
+      final bg = BackgroundReading.current.value;
+      if (bg != null && bg.bookId == _book.id) await bg.toggle();
+      return;
+    }
     switch (_player.state.value) {
       case PlayState.idle:
         _follow();
@@ -858,7 +946,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// Move to [unit]. Tapping text always means "read from here"; the
   /// buttons keep playing if we were playing and just move if not.
   Future<void> _goTo(int unit, {bool play = false}) async {
-    if (_l.isEmpty) return;
+    // Handed on: this page goes as soon as the next is built; the voice is
+    // not to be pulled back to it.
+    if (_l.isEmpty || _handedOn) return;
     final next = unit.clamp(0, _l.units.length - 1);
     _showPlace(true);
     _cursor.value = next;
@@ -876,8 +966,15 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (delta > 0 && more != null && _l.chapterOfUnit(_cursor.value) >= _l.chapters.length - 1) {
       // Past what is here: the next chapters are still on the site.
       final s = _player.state.value;
+      final playing = s == PlayState.playing || s == PlayState.loading;
       unawaited(_persist());
-      unawaited(more(playing: s == PlayState.playing || s == PlayState.loading));
+      if (playing) {
+        // Read on there without waiting for a frame (the card's Next can
+        // come with the screen off).
+        unawaited(_readOn().then((_) => more(playing: true)));
+      } else {
+        unawaited(more(playing: false));
+      }
       return;
     }
     final c = (_l.chapterOfUnit(_cursor.value) + delta).clamp(0, _l.chapters.length - 1);
@@ -903,7 +1000,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     unawaited(_persist());
     final more = widget.onReachedEnd;
     if (more != null) {
-      unawaited(more(playing: true));
+      // The end of the chapters here: the voice reads on into the next ones
+      // without this page (see _readOn), and the web reader shows them.
+      unawaited(_readOn().then((_) => more(playing: true)));
       return;
     }
     if (mounted) {
@@ -927,11 +1026,21 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   void _updateSession({bool force = false}) {
+    // Handed on: the card is the background reading's.
+    if (_handedOn) return;
     final actual = _player.state.value;
-    final s = actual == PlayState.idle && _parked ? PlayState.paused : actual;
+    // The end of a web novel's chapters here, read on into the next: the
+    // card stays up (playing) while they load. Ended, Android 12 might not
+    // let it start again with the app in the background.
+    final rolling = actual == PlayState.idle && _player.reachedEnd && widget.onReachedEnd != null;
+    final s = actual == PlayState.idle && _parked
+        ? PlayState.paused
+        : rolling
+            ? PlayState.loading
+            : actual;
     final u = _cursor.value;
     final chapter = _l.chapterOfUnit(u);
-    final speed = _prefs.settings.speedScale;
+    final speed = _speed;
     if (!force &&
         s == _sessionState &&
         chapter == _sessionChapter &&
@@ -964,25 +1073,32 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   void _onPlatformEvent(Map<String, Object?> e) {
-    // Another book reads on in the background: the card, the headset and the
-    // phone's audio are its, not this idle page's.
+    // Another book reads on in the background (or this one, handed on): the
+    // card, the headset and the phone's audio are its, not this idle page's.
     final bg = BackgroundReading.current.value;
-    if (bg != null && e['type'] != 'pageKey' && _player.state.value == PlayState.idle) return;
+    if ((bg != null || _handedOn) && e['type'] != 'pageKey' && _player.state.value == PlayState.idle) return;
     switch (e['type']) {
       case 'pageKey':
         if (_inPages) _paged.turn((e['delta'] as num?)?.toInt() ?? 1);
       case 'noisy':
+        // Unplugged: not another word out of the speaker.
+        _resumeOnFocus = false;
+        unawaited(_player.pause(now: true));
       case 'focusLoss':
+        _resumeOnFocus = false;
         unawaited(_player.pause());
       case 'focusLossTransient':
         if (_player.isPlaying) {
           _resumeOnFocus = true;
-          unawaited(_player.pause());
+          _lossTimer?.cancel();
+          _lossTimer = Timer(resumeAfterLossWithin, () => _resumeOnFocus = false);
+          unawaited(_player.pause(now: true));
         }
       case 'focusGain':
-        if (_resumeOnFocus && _player.state.value == PlayState.paused) {
-          unawaited(_player.resume());
-        }
+        // From the start of the sentence the interruption cut into, and
+        // not at all after a long one (a call): the listener may be gone.
+        _lossTimer?.cancel();
+        if (_resumeOnFocus && _player.state.value == PlayState.paused) unawaited(_player.resume(rewind: true));
         _resumeOnFocus = false;
       case 'action':
         switch (e['action']) {
@@ -995,10 +1111,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             unawaited(_player.stop());
           case 'next':
             _park();
-            _goChapter(1);
+            _cardSkip(1);
           case 'prev':
             _park();
-            _cardPrevious();
+            _cardSkip(-1);
           case 'seek':
             _park();
             _seekInChapter((e['value'] as num?)?.toInt() ?? 0);
@@ -1019,9 +1135,28 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// Words before unit [u]; [u] may be one past the end.
   int _wordsAt(int u) => u < _l.units.length ? _l.wordsBefore[u] : _l.totalWords;
 
+  /// The speed this book reads at: its own, or everyone's.
+  double get _speed => _prefs.speedFor(_book.id);
+
   /// How long [words] take at the reading speed: the same 165 words a minute
   /// as the time left under the player.
-  int _msFor(int words) => (words / (165 * _prefs.settings.speedScale) * 60000).round();
+  int _msFor(int words) => (words / (165 * _speed) * 60000).round();
+
+  /// Next (+1) or previous (-1) on headphones, the lock screen or the
+  /// notification: a sentence (the default: a double press once lost a
+  /// whole chapter), 30 seconds, or a chapter, as chosen in the sheet.
+  void _cardSkip(int dir) {
+    if (_l.isEmpty) return;
+    final heard = _player.state.value == PlayState.idle ? Duration.zero : _player.heard;
+    final to = skipTarget(_l, _cursor.value, dir, _prefs.skipBy, _speed, heard);
+    if (to != null) {
+      unawaited(_goTo(to));
+    } else if (dir > 0) {
+      _goChapter(1);
+    } else {
+      _cardPrevious();
+    }
+  }
 
   /// The card's previous button: back to the start of this chapter, or to the
   /// previous chapter when within its first seconds, as a music player does.
@@ -1040,7 +1175,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   void _seekInChapter(int ms) {
     if (_l.isEmpty) return;
     final (first, count) = _l.chapterRange(_l.chapterOfUnit(_cursor.value));
-    final target = _wordsAt(first) + ms / 60000 * 165 * _prefs.settings.speedScale;
+    final target = _wordsAt(first) + ms / 60000 * 165 * _speed;
     var u = first;
     while (u + 1 < first + count && _wordsAt(u + 1) <= target) {
       u++;
@@ -1049,11 +1184,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   /// The card's speed button: the next of the common speeds, round to the
-  /// slowest after the fastest.
+  /// slowest after the fastest (this book's own speed, if it has one).
   void _nextSpeed() {
-    final now = _prefs.settings.speedScale;
+    final now = _speed;
     final next = speedPresets.firstWhere((p) => p > now + 0.001, orElse: () => speedPresets.first);
-    _prefs.settings = _prefs.settings.copyWith(speedScale: next);
+    _prefs.setSpeed(next, book: _book.id);
     _prefs.save();
     _onSettingsChanged(restart: true);
   }
@@ -1343,7 +1478,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   Future<void> _persist() async {
     final store = widget.store;
-    if (store == null || _l.isEmpty) return;
+    // Handed on: the place is the background reading's, further on.
+    if (store == null || _l.isEmpty || _handedOn) return;
     final u = _cursor.value.clamp(0, _l.units.length - 1);
     try {
       await store.saveCursor(
@@ -1607,7 +1743,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       layout: _l,
       cursor: _cursor,
       player: _player,
-      speed: _prefs.settings.speedScale,
+      speed: _speed,
       voiceLabel: _voiceLabel(),
       sleepNote: _sleepNote,
       onPlay: _togglePlay,
@@ -2274,7 +2410,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           layout: _l,
           cursor: _cursor,
           player: _player,
-          speed: () => _prefs.settings.speedScale,
+          speed: () => _speed,
           voiceLabel: _voiceLabel,
           sleepNote: () => _sleepNote,
           onPlay: _togglePlay,

@@ -6,6 +6,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter/services.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
+import 'package:tomevoice_document/tomevoice_document.dart' show wordSpans;
 
 import 'neural_voices.dart';
 import 'scheduler.dart';
@@ -132,12 +133,33 @@ class SpeechService {
     }
   }
 
-  /// Abandon the sentence being synthesised (after a seek).
-  Future<void> cancelSynthesis() => _quiet('cancelSynthesis');
+  /// Abandon the sentence being synthesised (after a seek): the phone's
+  /// engine stops at once; a natural voice stops after the piece it is on.
+  Future<void> cancelSynthesis() {
+    NeuralEngine.instance.cancel();
+    return _quiet('cancelSynthesis');
+  }
 
   Future<String?> outputDir() => _channel.invokeMethod<String>('outputDir');
 
   // ---------------------------------------------------------------- player
+
+  /// Answers of [requestFocus].
+  static const focusGranted = 'granted';
+
+  /// Not now (a call is on): a `focusGain` event comes when it ends.
+  static const focusDelayed = 'delayed';
+  static const focusFailed = 'failed';
+
+  /// Ask for the phone's audio before playing. A platform that cannot
+  /// answer (widget tests) grants it.
+  Future<String> requestFocus() async {
+    try {
+      return await _channel.invokeMethod<String>('requestFocus') ?? focusGranted;
+    } on Object {
+      return focusGranted;
+    }
+  }
 
   /// Queue PCM16 mono audio; returns the stream frame it will start at.
   Future<int> enqueue(Uint8List pcm, int sampleRate) async {
@@ -148,13 +170,36 @@ class SpeechService {
     return start ?? 0;
   }
 
-  /// Frames the hardware has actually played in the current stream.
-  Future<int> position() async =>
-      await _channel.invokeMethod<int>('playerPosition') ?? 0;
+  /// Frames of the current stream the listener has heard: the hardware head
+  /// less what is still on its way out (the output's own delay, Bluetooth's
+  /// above all, and the reader's Highlight timing). [raw] is the head
+  /// itself. Negative when the player failed and needs starting again.
+  Future<int> position({bool raw = false}) async =>
+      await _channel.invokeMethod<int>('playerPosition', {'raw': raw}) ?? 0;
 
   Future<void> pausePlayback() => _quiet('playerPause');
   Future<void> resumePlayback() => _quiet('playerResume');
   Future<void> stopPlayback() => _quiet('playerStop');
+
+  /// The player's volume, 0 to 1, on top of the phone's (the sleep fade).
+  Future<void> setVolume(double volume) => _quiet('playerVolume', {'volume': volume});
+
+  /// How much later than the platform says the highlight should move, in ms:
+  /// on Bluetooth, and on everything else (see [highlightRoute]).
+  Future<void> setHighlightOffsets({required int bluetoothMs, required int otherMs}) =>
+      _quiet('playerLatency', {'bluetoothMs': bluetoothMs, 'otherMs': otherMs});
+
+  /// Where the voice is heard now: [routeBluetooth] or [routeOther].
+  Future<String> highlightRoute() async {
+    try {
+      return await _channel.invokeMethod<String>('playerRoute') ?? routeOther;
+    } on Object {
+      return routeOther;
+    }
+  }
+
+  static const routeBluetooth = 'bluetooth';
+  static const routeOther = 'other';
 
   /// The "reading aloud" foreground service that keeps speech going with the
   /// screen off. Inactive ends it.
@@ -453,9 +498,7 @@ class SpeechService {
     final traced = buildStandardPipeline(settings).runTraced(
       SynthesisResult(
         audio: raw,
-        wordTimings: decoded.timings.isNotEmpty
-            ? decoded.timings
-            : estimateTimings(settings.text, raw.frameCount),
+        wordTimings: wordTimingsFor(native, raw, settings.text),
         engineId: native['engineId'] as String? ?? 'unknown',
       ),
     );
@@ -541,32 +584,47 @@ class SpeechService {
     );
   }
 
-  /// Fallback when an engine supplies no timings: spread the duration across
-  /// words by character count. Good enough to place gaps, visibly wrong for
-  /// highlighting — which is why the source is recorded rather than hidden.
-  static List<WordTiming> estimateTimings(String text, int totalFrames) {
-    final words = RegExp(r'\S+').allMatches(text).toList();
-    if (words.isEmpty) return const [];
-    final totalChars =
-        words.fold<int>(0, (s, m) => s + (m.end - m.start));
-
-    var cursor = 0;
-    return [
-      for (final w in words)
-        () {
-          final frames = (totalFrames * (w.end - w.start) / totalChars).round();
-          final t = WordTiming(
-            charStart: w.start,
-            charEnd: w.end,
-            frameStart: cursor,
-            frameEnd: (cursor + frames).clamp(0, totalFrames),
-            source: WordTimingSource.estimated,
-          );
-          cursor = t.frameEnd;
-          return t;
-        }(),
-    ];
+  /// The word timings of [raw], the audio [native] describes, for [text]:
+  /// already worked out (a dialogue line, joined from its parts), reported
+  /// by the engine, or, from a voice that reports none, matched to the
+  /// pauses in the audio (see [PauseAligner]; its `anchors` are where pieces
+  /// made apart were joined).
+  static List<WordTiming> wordTimingsFor(Map<String, Object?> native, AudioBuffer raw, String text) {
+    final given = native['wordTimings'];
+    if (given is List) return timingsFromMaps(given, raw.frameCount);
+    final decoded = decodeTimings(native, raw.frameCount, text.length);
+    if (decoded.timings.isNotEmpty) return decoded.timings;
+    return PauseAligner.align(
+      raw,
+      text,
+      known: [
+        for (final a in (native['anchors'] as List? ?? const []))
+          if (a is Map) (char: (a['char'] as num).toInt(), frame: (a['frame'] as num).toInt()),
+      ],
+      // The document's own word units: Chinese and Japanese, which have no
+      // spaces, are a unit a character there, not a sentence a word.
+      spans: [for (final w in wordSpans(text, 0, text.length)) (start: w.start, end: w.end)],
+    );
   }
+
+  /// Word timings as plain maps, to cross to another isolate or platform.
+  static List<Map<String, Object?>> timingsToMaps(List<WordTiming> timings) => [
+        for (final t in timings)
+          {'cs': t.charStart, 'ce': t.charEnd, 'fs': t.frameStart, 'fe': t.frameEnd, 'src': t.source.name},
+      ];
+
+  static List<WordTiming> timingsFromMaps(List<Object?> maps, int totalFrames) => [
+        for (final m in maps)
+          if (m is Map)
+            WordTiming(
+              charStart: (m['cs'] as num).toInt(),
+              charEnd: (m['ce'] as num).toInt(),
+              frameStart: (m['fs'] as num).toInt().clamp(0, totalFrames),
+              frameEnd: (m['fe'] as num).toInt().clamp(0, totalFrames),
+              source: WordTimingSource.values.firstWhere((s) => s.name == m['src'],
+                  orElse: () => WordTimingSource.estimated),
+            ),
+      ];
 
   /// Language first, then installed and offline, then quality.
   ///
@@ -635,6 +693,7 @@ class RenderedSpeech {
     required this.totalFrames,
     required this.timings,
     required this.levels,
+    this.gainDb,
   });
 
   final Uint8List pcm;
@@ -647,6 +706,10 @@ class RenderedSpeech {
 
   /// How loud the voice is, every [speechLevelMs]: see [speechLevels].
   final Uint8List levels;
+
+  /// The levelling gain this sentence was given (null with levelling off),
+  /// for the next to move on from.
+  final double? gainDb;
 }
 
 /// The step of [RenderedSpeech.levels].
@@ -705,12 +768,17 @@ Future<void> speakSample({
 
 /// Decode, run the pipeline and encode for the player on a background
 /// isolate. On the UI isolate this work was a dropped frame per sentence.
+///
+/// [levelDb] is the levelling gain the sentence before was given: this one
+/// moves half way from it to its own, so the level drifts with the voice
+/// rather than jumping with each sentence's measure (null: start afresh).
 Future<RenderedSpeech> renderInBackground({
   required Map<String, Object?> native,
   required PipelineSettings settings,
   required int pauseAfterMs,
+  double? levelDb,
 }) {
-  final job = (native: native, settings: settings, pauseAfterMs: pauseAfterMs);
+  final job = (native: native, settings: settings, pauseAfterMs: pauseAfterMs, levelDb: levelDb);
   return Isolate.run(() => _render(job));
 }
 
@@ -719,6 +787,7 @@ RenderedSpeech _render(
     Map<String, Object?> native,
     PipelineSettings settings,
     int pauseAfterMs,
+    double? levelDb,
   }) job,
 ) {
   final file = File(job.native['wavPath'] as String);
@@ -730,14 +799,13 @@ RenderedSpeech _render(
   }
   final raw = WavCodec.decode(bytes);
   final text = job.settings.text;
-  final decoded =
-      SpeechService.decodeTimings(job.native, raw.frameCount, text.length);
-  final result = buildStandardPipeline(job.settings).run(
+  final gainDb = job.settings.normaliseLoudness
+      ? GainStage.smoothedGainDb(job.levelDb, GainStage.levelGainDb(raw.samples, raw.sampleRate))
+      : null;
+  final result = buildStandardPipeline(job.settings.copyWith(levelGainDb: gainDb)).run(
     SynthesisResult(
       audio: raw,
-      wordTimings: decoded.timings.isNotEmpty
-          ? decoded.timings
-          : SpeechService.estimateTimings(text, raw.frameCount),
+      wordTimings: SpeechService.wordTimingsFor(job.native, raw, text),
       engineId: job.native['engineId'] as String? ?? 'unknown',
     ),
   );
@@ -750,6 +818,7 @@ RenderedSpeech _render(
     totalFrames: audio.frameCount + pause,
     timings: result.wordTimings,
     levels: speechLevels(audio.samples, audio.sampleRate),
+    gainDb: gainDb,
   );
 }
 
