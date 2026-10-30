@@ -353,6 +353,10 @@ final _corpus = <String, List<_Check>>{
     _check('a text box is read once', (r) {
       expect(_with(r, 'In some tellings the race is run between a fox and a snail.'), hasLength(1));
     }),
+    _check('the table is read a row at a time, not a cell at a time', (r) {
+      expect(r.spoken, containsAllInOrder(['Fable Words', 'The Lion And The Mouse 133', 'The Dog and the Shadow 87']));
+      expect(r.spoken, isNot(contains('133')));
+    }),
   ],
 
   // LibreOffice: a generated table of contents, a picture with a title and
@@ -367,6 +371,10 @@ final _corpus = <String, List<_Check>>{
     _check('the footnote and the endnote are shown, not read', (r) {
       expect(r.displayOnlyOf(BlockRole.footnote), ['¹ Gibran wrote these parables in English, in New York.', 'i Ninavah is Nineveh, on the Tigris.']);
       expect(_with(r, 'lived a woman and her daughter, who walked in their sleep.'), hasLength(1));
+    }),
+    _check('the table is read a row at a time, not a cell at a time', (r) {
+      expect(r.spoken, containsAllInOrder(['Parable Paragraphs', 'The Scarecrow 7', 'The Three Ants 6']));
+      expect(r.spoken, isNot(contains('7')));
     }),
   ],
 
