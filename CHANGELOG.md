@@ -7,7 +7,7 @@ Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoi
 
 On the `next` branch, waiting for a phone check:
 
-- **Save as audio:** a chapter, or a whole book as an M4B audiobook with its chapters marked.
+- **Save as audio:** a chapter, or a whole book as an M4B audiobook with its chapters marked, or as an MP3 with its chapters too. Swiped away from Recents, it goes on saving.
 - **Reading from outside the app:** swiped away from Recents, the book reads on; the media card and a headset's Play pick it up with the app closed; Android Auto lists your books. Battery help in Settings → Listening.
 - **Web novels that look after themselves:** new chapters checked with the app closed, a download queue that keeps going, each site in its own sandbox off your home network with its code checked, and a changed chapter list never deletes downloads.
 - **Reads anything you share:** links read as articles, shared words as books, Paste a link or text.
