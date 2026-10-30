@@ -204,14 +204,41 @@ Book _markdown(String id, BookMetadata metadata, String raw, String? filename) {
     ));
   }
 
+  final lines = _withoutFrontMatter(raw).split('\n');
   var inCode = false;
-  for (final line in raw.split('\n')) {
+  var inComment = false;
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    // HTML comments, which may run over several lines, are not read.
+    if (inComment) {
+      final close = line.indexOf('-->');
+      if (close < 0) continue;
+      line = line.substring(close + 3);
+      inComment = false;
+    }
+    line = line.replaceAll(_htmlComment, '');
+    final open = line.indexOf('<!--');
+    if (open >= 0) {
+      inComment = true;
+      line = line.substring(0, open);
+    }
     if (line.trimLeft().startsWith('```')) {
       flushPara();
       inCode = !inCode;
       continue;
     }
     if (inCode) continue;
+    // A table: a row of cells over a |---|---| line, and the rows below.
+    if (line.contains('|') && i + 1 < lines.length && _isTableRule(lines[i + 1])) {
+      flushPara();
+      current.add(_tableRow(line));
+      i++;
+      while (i + 1 < lines.length && lines[i + 1].contains('|') && lines[i + 1].trim().isNotEmpty) {
+        i++;
+        current.add(_tableRow(lines[i]));
+      }
+      continue;
+    }
     final heading = RegExp(r'^(#{1,6})\s+(.*?)\s*#*\s*$').firstMatch(line);
     if (heading != null) {
       flushPara();
@@ -245,13 +272,49 @@ Book _markdown(String id, BookMetadata metadata, String raw, String? filename) {
   );
 }
 
-String _stripInlineMarkdown(String s) => s
+String _stripInlineMarkdown(String s) => collapseWhitespace(decodeEntities(s
     .replaceAllMapped(RegExp(r'!\[([^\]]*)\]\([^)]*\)'), (m) => m.group(1)!)
     .replaceAllMapped(RegExp(r'\[([^\]]+)\]\([^)]*\)'), (m) => m.group(1)!)
     .replaceAllMapped(RegExp(r'(\*\*|__)(.+?)\1'), (m) => m.group(2)!)
     .replaceAllMapped(RegExp(r'(?<![\w*])[*_](\S.*?)[*_](?![\w*])'),
         (m) => m.group(1)!)
-    .replaceAll('`', '');
+    .replaceAll('`', '')
+    // Raw HTML: a line break is a space, any other tag is not read.
+    .replaceAll(_htmlBreak, ' ')
+    .replaceAll(_htmlTag, '')));
+
+final _htmlComment = RegExp(r'<!--.*?-->');
+final _htmlBreak = RegExp(r'<br\s*/?>', caseSensitive: false);
+final _htmlTag = RegExp(r'</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>');
+final _tableRule = RegExp(r'^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$');
+
+/// The |---|:---:| line under a table's header row.
+bool _isTableRule(String line) => line.contains('|') && _tableRule.hasMatch(line);
+
+/// "| Alice | 30 |" as "Alice 30", like a table row in HTML.
+Block _tableRow(String line) {
+  var t = line.trim();
+  if (t.startsWith('|')) t = t.substring(1);
+  if (t.endsWith('|') && !t.endsWith(r'\|')) t = t.substring(0, t.length - 1);
+  final cells = [
+    for (final c in t.split(RegExp(r'(?<!\\)\|'))) _stripInlineMarkdown(c.replaceAll(r'\|', '|')),
+  ];
+  return makeBlock(role: BlockRole.table, text: cells.where((c) => c.isNotEmpty).join(' '));
+}
+
+/// Markdown without the YAML (---) or TOML (+++) front matter a static
+/// site generator puts at the top: settings, not text.
+String _withoutFrontMatter(String raw) {
+  final lines = raw.split('\n');
+  if (lines.isEmpty) return raw;
+  final fence = lines.first.trim();
+  if (fence != '---' && fence != '+++') return raw;
+  for (var i = 1; i < lines.length && i < 200; i++) {
+    final t = lines[i].trim();
+    if (t == fence || (fence == '---' && t == '...')) return lines.sublist(i + 1).join('\n');
+  }
+  return raw;
+}
 
 /// Bytes to text: a byte order mark, then (for HTML) the charset it
 /// declares, then UTF-8 when the bytes are mostly UTF-8, then UTF-16
