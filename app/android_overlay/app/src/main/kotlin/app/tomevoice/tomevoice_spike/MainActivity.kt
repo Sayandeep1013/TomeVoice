@@ -81,6 +81,10 @@ class MainActivity : FlutterActivity() {
         private const val REQ_RESTORE = 75
         private const val REQ_CONFIRM = 76
         private const val REQ_FOLDER = 77
+
+        /** The launch argument that has a PDF's extraction written out (dumpPdfIfAsked). */
+        private const val EXTRA_DUMP_PDF = "dumpPdf"
+        private const val LOG_TAG = "TomeVoice"
     }
 
     /**
@@ -541,6 +545,7 @@ class MainActivity : FlutterActivity() {
         OcrService.onEvent = { e -> event(e) }
         cleanSynthDir()
         handleViewIntent(intent)
+        dumpPdfIfAsked(intent)
         // A widget's book for an app already running is told, as onNewIntent
         // tells it: the shelf asked once, when it first opened.
         if (takeWidgetIntent(intent) && rejoined) event(mapOf("type" to "widgetLaunch"))
@@ -641,6 +646,7 @@ class MainActivity : FlutterActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleViewIntent(intent)
+        dumpPdfIfAsked(intent)
         if (takeWidgetIntent(intent)) event(mapOf("type" to "widgetLaunch"))
     }
 
@@ -907,6 +913,41 @@ class MainActivity : FlutterActivity() {
         return extras.keySet().associateWith { key ->
             @Suppress("DEPRECATION")
             extras.get(key)?.toString() ?: ""
+        }
+    }
+
+    /**
+     * A development tool, driven from adb like the measurement runs:
+     * `--es dumpPdf <book id>` writes what the extractor reads of that PDF in
+     * the library (its text, bookmarks and line layout, PdfText.dump) to
+     * pdf-dump-<book id>.json beside the books, to pull off the phone and
+     * study. It changes nothing, and says how it went in the log
+     * (`adb logcat -s TomeVoice`).
+     */
+    private fun dumpPdfIfAsked(intent: Intent?) {
+        val i = intent ?: return
+        val id = i.getStringExtra(EXTRA_DUMP_PDF) ?: return
+        // Once: not again when the activity is made anew.
+        i.removeExtra(EXTRA_DUMP_PDF)
+        // A book's folder, as LibraryStore.isBookId has them: never a path.
+        if (!Regex("[A-Za-z0-9_-]{1,64}").matches(id)) {
+            android.util.Log.w(LOG_TAG, "dumpPdf: not a book id")
+            return
+        }
+        val dir = outputDir()
+        val source = File(dir, "books/$id/source.pdf")
+        if (!source.isFile) {
+            android.util.Log.w(LOG_TAG, "dumpPdf: no PDF at ${source.absolutePath}")
+            return
+        }
+        io.execute {
+            val out = File(dir, "pdf-dump-$id.json")
+            try {
+                PdfText.dump(this, source.absolutePath, out)
+                android.util.Log.i(LOG_TAG, "dumpPdf: wrote ${out.absolutePath}")
+            } catch (e: Throwable) {
+                android.util.Log.w(LOG_TAG, "dumpPdf: ${e.javaClass.simpleName}: ${e.message}")
+            }
         }
     }
 

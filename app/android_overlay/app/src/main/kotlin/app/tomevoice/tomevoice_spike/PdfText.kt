@@ -7,6 +7,8 @@ import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import com.tom_roush.pdfbox.text.TextPosition
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 
 /**
@@ -61,6 +63,36 @@ object PdfText {
                 "layout" to stripper.layout
             )
         }
+    }
+
+    /**
+     * What [extract] gives for the PDF at [path], written to [out] as JSON:
+     * the map formats/pdf.dart reads, as the corpus's recorded extractions
+     * keep it (packages/tomevoice_document/test/corpus/SOURCES.md), so that
+     * a book that reads wrong on a phone can be looked at, and tested, off
+     * it. Written whole or not at all. A development tool (MainActivity's
+     * dumpPdf launch argument); nothing in the app uses it.
+     */
+    fun dump(ctx: Context, path: String, out: File) {
+        val pdf = extract(ctx, path) { _, _ -> }
+        val json = JSONObject()
+        json.put("_note", "Extracted on a phone by PdfText.extract (PDFBox), for looking at off it.")
+        for ((key, value) in pdf) json.put(key, jsonOf(value))
+        val part = File(out.parentFile, out.name + ".part")
+        part.writeText(json.toString(), Charsets.UTF_8)
+        if (!part.renameTo(out)) {
+            out.delete()
+            if (!part.renameTo(out)) throw IllegalStateException("Could not write ${out.name}")
+        }
+    }
+
+    /** [value] as org.json holds it: maps, lists and int arrays all the way down. */
+    private fun jsonOf(value: Any?): Any = when (value) {
+        null -> JSONObject.NULL
+        is IntArray -> JSONArray().also { a -> for (v in value) a.put(v) }
+        is Map<*, *> -> JSONObject().also { o -> for ((k, v) in value) o.put(k.toString(), jsonOf(v)) }
+        is List<*> -> JSONArray().also { a -> for (v in value) a.put(jsonOf(v)) }
+        else -> value
     }
 
     /**
