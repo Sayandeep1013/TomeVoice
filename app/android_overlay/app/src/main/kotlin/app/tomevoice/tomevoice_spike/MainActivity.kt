@@ -95,6 +95,39 @@ class MainActivity : FlutterActivity() {
         private const val REQ_CONFIRM = 76
     }
 
+    /**
+     * [text] to an app that looks words up or translates them: Android's own
+     * Translate when asked to translate (Android 10 and later), else every app
+     * that offers to act on chosen text (dictionaries, Translate, Wikipedia).
+     * False when the phone has none.
+     */
+    private fun processText(text: String, translate: Boolean): Boolean {
+        if (text.isBlank()) return false
+        if (translate && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val t = Intent(Intent.ACTION_TRANSLATE).putExtra(Intent.EXTRA_TEXT, text)
+            if (t.resolveActivity(packageManager) != null) {
+                try {
+                    startActivity(t)
+                    return true
+                } catch (e: Exception) {
+                    // Then the apps that act on chosen text.
+                }
+            }
+        }
+        val pick = Intent(Intent.ACTION_PROCESS_TEXT)
+            .setType("text/plain")
+            .putExtra(Intent.EXTRA_PROCESS_TEXT, text)
+            .putExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, true)
+        @Suppress("DEPRECATION")
+        if (packageManager.queryIntentActivities(pick, 0).isEmpty()) return false
+        return try {
+            startActivity(Intent.createChooser(pick, if (translate) "Translate with" else "Look up with"))
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     /** The answer to "is it you?" on phones too old for BiometricPrompt's PIN. */
     private var confirmResult: MethodChannel.Result? = null
 
@@ -197,6 +230,10 @@ class MainActivity : FlutterActivity() {
                 }
                 "outputDir" -> result.success(outputDir().absolutePath)
                 "launchArgs" -> result.success(launchArgs())
+                // A word or a sentence held in the reader, to the phone's own
+                // dictionary and translate apps: TomeVoice itself goes nowhere.
+                "lookUp" -> result.success(processText(call.argument<String>("text").orEmpty(), translate = false))
+                "translate" -> result.success(processText(call.argument<String>("text").orEmpty(), translate = true))
                 "openUrl" -> {
                     val scheme = Uri.parse(call.argument<String>("url").orEmpty()).scheme?.lowercase()
                     if (scheme != "https" && scheme != "http") {

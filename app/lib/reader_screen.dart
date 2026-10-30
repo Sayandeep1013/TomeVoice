@@ -1446,6 +1446,18 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                 SheetAction(icon: Icons.copy_rounded, label: 'Copy', onTap: () => Navigator.pop(ctx, 'copy')),
                 if (word.isNotEmpty)
                   SheetAction(
+                    icon: Icons.menu_book_outlined,
+                    label: 'Look up "$word"',
+                    onTap: () => Navigator.pop(ctx, 'lookup'),
+                  ),
+                SheetAction(
+                  icon: Icons.translate_rounded,
+                  label: 'Translate',
+                  detail: 'This sentence, in your translate app',
+                  onTap: () => Navigator.pop(ctx, 'translate'),
+                ),
+                if (word.isNotEmpty)
+                  SheetAction(
                     icon: Icons.record_voice_over_outlined,
                     label: 'Fix how "$word" is said',
                     onTap: () => Navigator.pop(ctx, 'say'),
@@ -1482,6 +1494,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       case 'copy':
         await Clipboard.setData(ClipboardData(text: sentence));
         _snack('Copied.');
+      case 'lookup':
+        if (!await _svc.lookUp(word) && mounted) _snack('No app on this phone looks words up. A dictionary app can.');
+      case 'translate':
+        if (!await _svc.translate(sentence) && mounted) _snack('No app on this phone translates. Google Translate can.');
       case 'say':
         await showSayDialog(
           context,

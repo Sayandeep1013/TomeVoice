@@ -173,8 +173,8 @@ jobs:
           grep -q 'android:label="TomeVoice"' "$M"
           # The secret shelf's fingerprint, face or PIN prompt.
           grep -q "USE_BIOMETRIC" "$M"
-          # About > Support: UPI apps are invisible without it (and its host).
-          grep -q 'android:scheme="upi" android:host="pay"' "$M"
+          # Look up and Translate: those apps are invisible without it.
+          grep -q "android.intent.action.PROCESS_TEXT" "$M"
           grep -q "pdfbox-android" android/app/build.gradle.kts
           test -f android/app/proguard-rules.pro
           test -f android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml

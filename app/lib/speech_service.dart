@@ -233,6 +233,20 @@ class SpeechService {
     }
   }
 
+  /// [word] to the phone's dictionary apps; false when it has none.
+  Future<bool> lookUp(String word) => _textTo('lookUp', word);
+
+  /// [text] to the phone's translate app; false when it has none.
+  Future<bool> translate(String text) => _textTo('translate', text);
+
+  Future<bool> _textTo(String method, String text) async {
+    try {
+      return await _channel.invokeMethod<bool>(method, {'text': text}) ?? false;
+    } on Object {
+      return false;
+    }
+  }
+
   /// Read a NovelDokusha backup zip; the path of the JSON it was turned into.
   Future<String> readNovelDokushaBackup(String path) async {
     final out = await _channel.invokeMethod<String>('readNovelDokushaBackup', {'path': path});

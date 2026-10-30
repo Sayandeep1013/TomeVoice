@@ -379,6 +379,25 @@ void main() {
       await finish(tester);
     });
 
+    testWidgets('a held word can be looked up, and its sentence translated', (tester) async {
+      await pumpReader(tester, specimenBook());
+      await tester.longPress(find.textContaining('Pack my box').first);
+      await tester.pumpAndSettle();
+      final lookUp = find.textContaining(RegExp(r'^Look up "'));
+      expect(lookUp, findsOneWidget);
+      await tester.tap(lookUp);
+      await tester.pumpAndSettle();
+      expect(_calls, contains('lookUp'));
+      // No dictionary app answered (the test's phone has none): it says so.
+      expect(find.textContaining('No app on this phone looks words up'), findsOneWidget);
+      await tester.longPress(find.textContaining('Pack my box').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Translate'));
+      await tester.pumpAndSettle();
+      expect(_calls, contains('translate'));
+      await finish(tester);
+    });
+
     testWidgets('book text is set in the reading face', (tester) async {
       await pumpReader(tester, specimenBook());
       final text = tester.widget<Text>(find.textContaining('quick brown fox').first);
