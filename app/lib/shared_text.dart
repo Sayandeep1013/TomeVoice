@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart' show MethodChannel;
 import 'package:tomevoice_document/tomevoice_document.dart'
     show BookMetadata, LegacyEncodingException, bookIdOf, countWords;
@@ -65,6 +66,10 @@ PendingShare? shareOf(Map<Object?, Object?> raw) {
 
 /// One share at a time: two at once could each make an Articles shelf.
 Future<void> _queue = Future<void>.value();
+
+/// Forget a share still holding the queue (between widget tests).
+@visibleForTesting
+void resetShareQueue() => _queue = Future<void>.value();
 
 /// Read [text], shared or pasted: a link as an article (or the book file it
 /// leads to), anything else as a book. [subject] is what the sharing app
