@@ -17,9 +17,10 @@ import 'ui.dart';
 import 'voices.dart';
 
 /// "Save as audio…", from a book's page or the reader's menu: [chapter] (the
-/// one being read) or the whole book, in the voice and with the settings the
-/// book is read with, with how long and how large it will be, and how long
-/// it takes to make on this phone (timed on one of its sentences).
+/// one being read) or the whole book, as an M4B (M4A for a chapter) or an
+/// MP3, in the voice and with the settings the book is read with, with how
+/// long and how large it will be, and how long it takes to make on this
+/// phone (timed on one of its sentences).
 ///
 /// [reading] is the reader's own player, when asked from the reader: it and
 /// a book read in the background stop for the save, once the reader agrees.
@@ -130,6 +131,9 @@ class _SaveSheetState extends State<_SaveSheet> {
   late final _chapterPlan = ExportPlan.chapter(widget.layout, widget.chapter);
   late final _bookPlan = ExportPlan.book(widget.layout);
 
+  /// M4B (or M4A for a chapter) unless MP3 is asked for.
+  ExportFormat _format = ExportFormat.aac;
+
   /// The book's voice and settings as they are now, frozen for the save.
   late final PlaybackScheduler _voice = exportVoice(
     layout: widget.layout,
@@ -218,7 +222,7 @@ class _SaveSheetState extends State<_SaveSheet> {
       }
       String? where;
       if (_choose || _folder == false) {
-        where = await AudioExport.chooseWhere(AudioExport.nameFor(plan, widget.title));
+        where = await AudioExport.chooseWhere(AudioExport.nameFor(plan, widget.title, format: _format));
         if (where == null) {
           _set(() => _busy = false);
           return;
@@ -231,6 +235,7 @@ class _SaveSheetState extends State<_SaveSheet> {
         author: widget.author,
         cover: await _coverBytes(widget.cover),
         destination: where,
+        format: _format,
       );
       _handedOver = true;
       if (mounted) Navigator.pop(context, job);
@@ -300,7 +305,8 @@ class _SaveSheetState extends State<_SaveSheet> {
                   ),
                   const SizedBox(height: Gap.xs),
                   Text(
-                    'About ${durationLabel(length)} of audio · ${sizeLabel(bytes)} · ${plan.extension.toUpperCase()}',
+                    'About ${durationLabel(length)} of audio · ${sizeLabel(bytes)} · '
+                    '${_format.extensionOf(plan).toUpperCase()}',
                     style: soft,
                   ),
                   Text(
@@ -328,9 +334,23 @@ class _SaveSheetState extends State<_SaveSheet> {
                 'Natural voices keep the processor busy: a whole book can take hours, use a lot of battery '
                 'and warm the phone. Best plugged in.',
               ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(Gap.page, Gap.l, Gap.page, 0),
+              child: ChoiceRow<ExportFormat>(
+                options: [(ExportFormat.aac, plan.extension.toUpperCase()), (ExportFormat.mp3, 'MP3')],
+                value: _format,
+                onChanged: (v) => setState(() => _format = v),
+              ),
+            ),
+            if (_format == ExportFormat.mp3)
+              note(
+                Icons.audio_file_outlined,
+                'MP3 plays on nearly anything, car stereos too${plan.wholeBook ? ', with the chapters marked' : ''}. '
+                '${plan.extension.toUpperCase()} sounds a little better at the same size.',
+              ),
             if (_folder == true)
               Padding(
-                padding: const EdgeInsets.fromLTRB(Gap.page, Gap.l, Gap.page, 0),
+                padding: const EdgeInsets.fromLTRB(Gap.page, Gap.m, Gap.page, 0),
                 child: ChoiceRow<bool>(
                   options: const [(false, 'Audiobooks folder'), (true, 'Choose where…')],
                   value: _choose,
@@ -474,7 +494,7 @@ class _ProgressSheetState extends State<_ProgressSheet> {
                         ),
                       if (s.phase == ExportPhase.saved && s.uri != null)
                         TextButton.icon(
-                          onPressed: () => unawaited(AudioExport.share(s.uri!)),
+                          onPressed: () => unawaited(AudioExport.share(s.uri!, mime: job.format.mime)),
                           icon: const Icon(Icons.ios_share_rounded, size: 20),
                           label: const Text('Share'),
                         ),

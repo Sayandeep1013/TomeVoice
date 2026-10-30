@@ -27,6 +27,14 @@
 -keep class com.googlecode.tesseract.android.** { *; }
 -keep class com.googlecode.leptonica.android.** { *; }
 
+# jump3r (saving as MP3, Mp3Writer in AudioExport.kt) needs no keep rules:
+# plain Java with no reflection and no native code, which R8 shrinks to the
+# encoder like our own code. Its wrapper and its command line (LameEncoder,
+# Main), which nothing here uses, name javax.sound and java.beans, which
+# Android has not.
+-dontwarn javax.sound.sampled.**
+-dontwarn java.beans.**
+
 # A missing optional class must not fail the release build; the code paths
 # that need them (JPEG2000 images, encrypted PDFs) are not used for text.
 -ignorewarnings

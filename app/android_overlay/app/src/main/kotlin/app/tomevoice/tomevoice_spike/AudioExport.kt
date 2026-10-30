@@ -30,20 +30,38 @@ import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
+import de.sciss.jump3r.mp3.BitStream
+import de.sciss.jump3r.mp3.GainAnalysis
+import de.sciss.jump3r.mp3.ID3Tag
+import de.sciss.jump3r.mp3.Lame
+import de.sciss.jump3r.mp3.LameGlobalFlags
+import de.sciss.jump3r.mp3.MPEGMode
+import de.sciss.jump3r.mp3.Presets
+import de.sciss.jump3r.mp3.Quantize
+import de.sciss.jump3r.mp3.QuantizePVT
+import de.sciss.jump3r.mp3.Reservoir
+import de.sciss.jump3r.mp3.Takehiro
+import de.sciss.jump3r.mp3.VBRTag
+import de.sciss.jump3r.mp3.Version
+import de.sciss.jump3r.mpg.Common
+import de.sciss.jump3r.mpg.Interface
+import de.sciss.jump3r.mpg.MPGLib
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.io.RandomAccessFile
 import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 /**
  * Saving a book as audio, the platform's half (export_audio.dart is the
- * other): PCM16 from Dart, a sentence at a time, encoded to AAC-LC and
- * written into an MP4 in the app's own storage; then the file, with its
- * chapter marks written in by Dart, copied to Audiobooks (MediaStore) or
- * to where the reader chose (Android's save dialog).
+ * other): PCM16 from Dart, a sentence at a time, encoded to AAC-LC in an MP4
+ * ([AacWriter]) or to MP3 ([Mp3Writer]) in the app's own storage; then the
+ * file, with its chapter marks and tags written in by Dart, copied to
+ * Audiobooks (MediaStore) or to where the reader chose (Android's save
+ * dialog).
  *
  * The engine's, not an activity's: ReadingCore makes one with the engine,
  * on its messenger and the application, and closes it with the engine. A
@@ -94,7 +112,7 @@ class AudioExport(private val app: Context, messenger: BinaryMessenger) {
         private set
 
     @Volatile
-    private var writer: AacWriter? = null
+    private var writer: AudioWriter? = null
 
     /** The file being made, or made and not yet copied where it goes. */
     @Volatile
@@ -168,21 +186,24 @@ class AudioExport(private val app: Context, messenger: BinaryMessenger) {
             "begin" -> {
                 val rate = call.argument<Int>("sampleRate") ?: 24000
                 val bitRate = call.argument<Int>("bitRate") ?: 64000
+                val mp3 = call.argument<String>("format") == "mp3"
+                val room = call.argument<Int>("room") ?: 0
                 busy = true
                 work.execute {
                     try {
                         writer?.release()
                         temp?.delete()
-                        val file = File(dir(), "save-${System.currentTimeMillis()}.m4a")
+                        val file = File(dir(), "save-${System.currentTimeMillis()}.${if (mp3) "mp3" else "m4a"}")
                         temp = file
-                        writer = AacWriter(file, rate, bitRate)
+                        writer = if (mp3) Mp3Writer(file, rate, bitRate, room) else AacWriter(file, rate, bitRate)
                         sinceCheck = 0
                         main.post { result.success(file.absolutePath) }
                     } catch (e: Throwable) {
                         // Throwable: an encoder's Error (out of memory, a class
                         // missing) fails the save, not the app with it.
                         writer = null
-                        main.post { result.error("ENCODER", e.message ?: "This phone could not make AAC audio", null) }
+                        val what = if (mp3) "MP3" else "AAC"
+                        main.post { result.error("ENCODER", e.message ?: "This phone could not make $what audio", null) }
                     }
                 }
             }
@@ -235,7 +256,7 @@ class AudioExport(private val app: Context, messenger: BinaryMessenger) {
                     temp = null
                     main.post {
                         AudioExportService.end(app)
-                        if (notice != null) AudioExportService.notice(app, title, notice, null)
+                        if (notice != null) AudioExportService.notice(app, title, notice, null, null)
                         ended()
                         result.success(null)
                     }
@@ -276,6 +297,7 @@ class AudioExport(private val app: Context, messenger: BinaryMessenger) {
                     call.argument<String>("title") ?: "Saved as audio",
                     call.argument<String>("text").orEmpty(),
                     uri?.let { Uri.parse(it) },
+                    call.argument<String>("mime"),
                 )
                 ended()
                 result.success(null)
@@ -283,8 +305,10 @@ class AudioExport(private val app: Context, messenger: BinaryMessenger) {
             "share" -> {
                 try {
                     val uri = Uri.parse(call.argument<String>("uri").orEmpty())
-                    val chooser = Intent.createChooser(AudioExportService.sendIntent(uri), null)
-                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    val chooser = Intent.createChooser(
+                        AudioExportService.sendIntent(uri, call.argument<String>("mime")),
+                        null,
+                    ).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     val a = activity
                     if (a != null) {
                         a.startActivity(chooser)
@@ -517,11 +541,23 @@ class AudioExport(private val app: Context, messenger: BinaryMessenger) {
     }
 }
 
+/** An encoder writing a save's file, used from one thread. */
+interface AudioWriter {
+    /** [pcm] (16-bit little-endian samples, mono) into the encoder, and what it has made into the file. */
+    fun write(pcm: ByteArray)
+
+    /** The end: everything encoded and the file closed. Its length in ms. */
+    fun finish(): Long
+
+    /** Everything let go; the file is left as it is (the caller deletes it). */
+    fun release()
+}
+
 /**
  * PCM16 mono in, AAC-LC in an MP4 out: MediaCodec encodes, MediaMuxer
  * writes the file. Used from one thread.
  */
-class AacWriter(file: File, private val sampleRate: Int, bitRate: Int) {
+class AacWriter(file: File, private val sampleRate: Int, bitRate: Int) : AudioWriter {
 
     private val codec: MediaCodec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
     private val muxer: MediaMuxer
@@ -554,8 +590,7 @@ class AacWriter(file: File, private val sampleRate: Int, bitRate: Int) {
 
     private fun ptsOf(frames: Long): Long = frames * 1_000_000L / sampleRate
 
-    /** [pcm] (16-bit little-endian samples) into the encoder, and what it has made out. */
-    fun write(pcm: ByteArray) {
+    override fun write(pcm: ByteArray) {
         val size = pcm.size and 1.inv()
         var off = 0
         while (off < size) {
@@ -576,8 +611,8 @@ class AacWriter(file: File, private val sampleRate: Int, bitRate: Int) {
         }
     }
 
-    /** The end: everything encoded and the file closed (moov written). Its length in ms. */
-    fun finish(): Long {
+    /** Everything encoded and the file closed (moov written). Its length in ms. */
+    override fun finish(): Long {
         val deadline = System.nanoTime() + 10_000_000_000L
         while (true) {
             val index = codec.dequeueInputBuffer(10_000)
@@ -626,8 +661,7 @@ class AacWriter(file: File, private val sampleRate: Int, bitRate: Int) {
         }
     }
 
-    /** Everything let go; the file is left as it is (the caller deletes it). */
-    fun release() {
+    override fun release() {
         try {
             codec.stop()
         } catch (_: Exception) {
@@ -640,6 +674,158 @@ class AacWriter(file: File, private val sampleRate: Int, bitRate: Int) {
             muxer.release()
         } catch (_: Exception) {
         }
+    }
+}
+
+/**
+ * PCM16 mono in, MP3 out: LAME 3.98.4 as jump3r ports it to Java (LGPL 2.1
+ * or later; no native code), at a constant [bitRate] and the voice's own
+ * rate, nothing resampled. Used from one thread.
+ *
+ * The file starts with [room] bytes left for the ID3v2.3 tag Dart writes once
+ * the chapters' times are known (mp3_chapters.dart): until then an empty
+ * tag, all padding, that players skip. The first frame after it is LAME's
+ * Info frame, filled in at the end with the frame count, the length and the
+ * encoder's delay and padding, for the players that read it.
+ *
+ * jump3r's own wrapper (LameEncoder) takes javax.sound's AudioFormat, which
+ * Android has not, so the encoder's parts are put together here as that
+ * wrapper puts them together; and its putVbrTag looks for an ID3 tag the
+ * wrong way round, so the Info frame is written here (getLameTagFrame).
+ */
+class Mp3Writer(file: File, private val sampleRate: Int, bitRate: Int, room: Int) : AudioWriter {
+
+    private val lame = Lame()
+    private val vbr = VBRTag()
+
+    init {
+        val ga = GainAnalysis()
+        val bs = BitStream()
+        val presets = Presets()
+        val qupvt = QuantizePVT()
+        val qu = Quantize()
+        val version = Version()
+        val id3 = ID3Tag()
+        val rv = Reservoir()
+        val tak = Takehiro()
+        val mpg = MPGLib()
+        val intf = Interface()
+        val common = Common()
+        lame.setModules(ga, bs, presets, qupvt, qu, vbr, version, id3, mpg)
+        bs.setModules(ga, mpg, version, vbr)
+        id3.setModules(bs, version)
+        presets.setModules(lame)
+        qu.setModules(bs, rv, qupvt, tak)
+        qupvt.setModules(tak, rv, lame.enc.psy)
+        rv.setModules(bs)
+        tak.setModules(qupvt)
+        vbr.setModules(lame, bs, version)
+        mpg.setModules(intf, common)
+        intf.setModules(vbr, common)
+    }
+
+    private val flags: LameGlobalFlags = lame.lame_init() ?: throw IllegalStateException("The MP3 encoder would not start")
+
+    /** Where the audio starts: after the room for the tag. */
+    private val start: Long = if (room >= 10) room.toLong() else 0L
+
+    private val out: RandomAccessFile
+    private var samples = IntArray(0)
+    private var mp3 = ByteArray(0)
+    private var framesIn = 0L
+
+    init {
+        flags.num_channels = 1
+        flags.in_samplerate = sampleRate
+        flags.out_samplerate = sampleRate
+        flags.mode = MPEGMode.MONO
+        flags.brate = bitRate / 1000
+        // LAME's -q 5: its usual speed and quality (2 is slower, 7 rougher).
+        flags.quality = 5
+        // The Info frame, which LAME writes for a constant bit rate too.
+        flags.bWriteVbrTag = true
+        // No ID3 tag from LAME, v1 or v2: the tag is Dart's. (Left on, it
+        // would be written from a tag spec never set up: id3tag_init.)
+        flags.write_id3tag_automatic = false
+        flags.findReplayGain = false
+        val ok = lame.lame_init_params(flags)
+        if (ok < 0) {
+            throw IllegalArgumentException("MP3 cannot be made at $sampleRate Hz and ${bitRate / 1000} kbps ($ok)")
+        }
+        out = RandomAccessFile(file, "rw")
+        try {
+            out.setLength(0)
+            if (start > 0) out.write(emptyTag(start.toInt()))
+        } catch (e: Exception) {
+            try {
+                out.close()
+            } catch (_: Exception) {
+            }
+            throw e
+        }
+    }
+
+    override fun write(pcm: ByteArray) {
+        val n = pcm.size / 2
+        if (n == 0) return
+        if (samples.size < n) samples = IntArray(n)
+        // LAME's whole-number input is 32-bit: each 16-bit sample in its top half.
+        for (i in 0 until n) {
+            val lo = pcm[2 * i].toInt() and 0xFF
+            val hi = pcm[2 * i + 1].toInt()
+            samples[i] = ((hi shl 8) or lo) shl 16
+        }
+        // LAME's own worst case: 1.25 bytes a sample and 7200 more.
+        val need = n + n / 4 + 7200
+        if (mp3.size < need) mp3 = ByteArray(need)
+        // Mono: the right channel is not read.
+        val made = lame.lame_encode_buffer_int(flags, samples, samples, n, mp3, 0, mp3.size)
+        if (made < 0) throw IllegalStateException("The MP3 encoder failed ($made)")
+        out.write(mp3, 0, made)
+        framesIn += n
+    }
+
+    override fun finish(): Long {
+        val tail = ByteArray(maxOf(mp3.size, 16 * 1024))
+        val made = lame.lame_encode_flush(flags, tail, 0, tail.size)
+        if (made < 0) throw IllegalStateException("The MP3 encoder could not finish ($made)")
+        out.write(tail, 0, made)
+        // The Info frame LAME put first, filled in now the length is known.
+        val info = ByteArray(VBRTag.MAXFRAMESIZE)
+        val size = vbr.getLameTagFrame(flags, info)
+        if (size in 1..info.size) {
+            out.seek(start)
+            out.write(info, 0, size)
+        }
+        out.close()
+        lame.lame_close(flags)
+        return framesIn * 1000L / sampleRate
+    }
+
+    override fun release() {
+        try {
+            out.close()
+        } catch (_: Exception) {
+        }
+        try {
+            lame.lame_close(flags)
+        } catch (_: Exception) {
+        }
+    }
+
+    /** An ID3v2.3 tag of [size] bytes holding nothing yet: its header, then padding. */
+    private fun emptyTag(size: Int): ByteArray {
+        val tag = ByteArray(size)
+        tag[0] = 0x49
+        tag[1] = 0x44
+        tag[2] = 0x33
+        tag[3] = 3
+        val n = size - 10
+        tag[6] = ((n shr 21) and 0x7F).toByte()
+        tag[7] = ((n shr 14) and 0x7F).toByte()
+        tag[8] = ((n shr 7) and 0x7F).toByte()
+        tag[9] = (n and 0x7F).toByte()
+        return tag
     }
 }
 
@@ -731,9 +917,9 @@ class AudioExportService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        /** ACTION_SEND for the saved file at [uri], readable by the app it goes to. */
-        fun sendIntent(uri: Uri): Intent = Intent(Intent.ACTION_SEND).apply {
-            type = "audio/mp4"
+        /** ACTION_SEND for the saved file at [uri], of type [mime], readable by the app it goes to. */
+        fun sendIntent(uri: Uri, mime: String?): Intent = Intent(Intent.ACTION_SEND).apply {
+            type = mime ?: "audio/*"
             putExtra(Intent.EXTRA_STREAM, uri)
             clipData = ClipData.newRawUri("", uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -743,7 +929,7 @@ class AudioExportService : Service() {
          * The end of a save, once its service has gone: saved (tap to play it,
          * Share), or not, and why. Stays until dismissed.
          */
-        fun notice(ctx: Context, title: String, text: String, uri: Uri?) {
+        fun notice(ctx: Context, title: String, text: String, uri: Uri?, mime: String?) {
             val b = builder(ctx)
                 .setSmallIcon(R.drawable.ic_stat_tomevoice)
                 .setContentTitle(title)
@@ -753,14 +939,14 @@ class AudioExportService : Service() {
                 .setContentIntent(openApp(ctx))
             if (uri != null) {
                 val play = Intent(Intent.ACTION_VIEW)
-                    .setDataAndType(uri, "audio/mp4")
+                    .setDataAndType(uri, mime ?: "audio/*")
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
                 b.setContentIntent(
                     PendingIntent.getActivity(
                         ctx, 22, play, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                     )
                 )
-                val share = Intent.createChooser(sendIntent(uri), null)
+                val share = Intent.createChooser(sendIntent(uri, mime), null)
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
                 b.addAction(
                     Notification.Action.Builder(
@@ -815,6 +1001,7 @@ class AudioExportService : Service() {
             this,
             "Saving paused",
             "Android lets it work six hours a day in the background. Open TomeVoice to go on.",
+            null,
             null,
         )
         onTimeout?.invoke()

@@ -1,9 +1,10 @@
 // Saving a chapter or a book as audio: what a save covers, the renderer
 // that makes each sentence as reading aloud makes it (the same sound, with
 // chapters where they start), stopping part way, the encoder's
-// back-pressure, the save from the first sentence to the file, and a save
-// with no activity: swiped away from Recents it goes on, its notification's
-// Cancel stops it, and opened again TomeVoice shows it.
+// back-pressure, the save from the first sentence to the file (an M4B, or
+// an MP3 with its tag), and a save with no activity: swiped away from
+// Recents it goes on, its notification's Cancel stops it, and opened again
+// TomeVoice shows it.
 
 import 'dart:async';
 import 'dart:io';
@@ -19,6 +20,7 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 import 'package:tomevoice_spike/export_audio.dart';
 import 'package:tomevoice_spike/main.dart' show SpikeApp;
 import 'package:tomevoice_spike/marks.dart';
+import 'package:tomevoice_spike/mp3_chapters.dart';
 import 'package:tomevoice_spike/mp4_chapters.dart';
 import 'package:tomevoice_spike/neural_voices.dart' show isNeural, wavBytes;
 import 'package:tomevoice_spike/prefs.dart';
@@ -26,6 +28,7 @@ import 'package:tomevoice_spike/reading_rules.dart';
 import 'package:tomevoice_spike/scheduler.dart';
 import 'package:tomevoice_spike/speech_service.dart';
 
+import 'mp3_fixtures.dart';
 import 'mp4_fixtures.dart';
 
 late Directory _dir;
@@ -351,8 +354,11 @@ void main() {
       expect(calls, isNot(contains('abort')));
       expect(args['begin']?['sampleRate'], 24000);
       expect(args['begin']?['bitRate'], 64000);
+      expect(args['begin']?['format'], 'aac');
+      expect(args['begin']?['room'], 0, reason: 'room for an ID3 tag in an MP4');
       expect(args['publish']?['name'], 'Save.m4b');
       expect(args['publish']?['folder'], 'Save');
+      expect(args['done']?['mime'], 'audio/mp4');
       final b = File(made).readAsBytesSync();
       final moov = mp4Children(b, 0, b.length).singleWhere((x) => x.type == 'moov');
       final chapters = chaptersIn(b, boxAt(b, moov, ['udta', 'chpl']));
@@ -417,6 +423,65 @@ void main() {
       expect(calls, contains('abort'));
       expect(args['abort']?['notice'], contains('ran out of space'));
       expect(calls, isNot(contains('publish')));
+      PlaybackScheduler.beforePlay = null;
+    });
+
+    test('as MP3: room for the tag at the start, and the tags and chapters written into it', () async {
+      // The encoder leaves the room asked for, as AudioExport.kt does.
+      platform(answer: (call) {
+        if (call.method != 'finish') return null;
+        File(made).writeAsBytesSync(fakeMp3(room: args['begin']!['room']! as int).bytes);
+        return {'path': made, 'bytes': File(made).lengthSync(), 'durationMs': 1000};
+      });
+      final job = AudioExport.start(
+        plan: ExportPlan.book(layout),
+        voice: _recipe(_Voices('p'), layout, dialogue: null),
+        bookTitle: 'Save',
+        author: 'A. Writer',
+        format: ExportFormat.mp3,
+      );
+      expect(job.fileName, 'Save.mp3');
+      await ended(job);
+      expect(job.status.value.phase, ExportPhase.saved);
+      expect(calls, containsAllInOrder(['start', 'begin', 'write', 'finish', 'publish', 'done']));
+      expect(args['begin']?['format'], 'mp3');
+      final room = args['begin']?['room'] as int;
+      expect(room, id3Room(job.tags, ['Chapter 1', 'Chapter 2']));
+      expect(args['publish']?['name'], 'Save.mp3');
+      expect(args['done']?['mime'], 'audio/mpeg');
+      final b = File(made).readAsBytesSync();
+      expect(id3Size(b), room, reason: 'the tag did not go into the room');
+      expect(b.sublist(room), fakeFrames, reason: 'the audio moved');
+      final frames = id3FramesIn(b);
+      expect(textOf(frames.singleWhere((f) => f.id == 'TIT2').data), 'Save');
+      expect(textOf(frames.singleWhere((f) => f.id == 'TPE1').data), 'A. Writer');
+      expect(textOf(frames.singleWhere((f) => f.id == 'TCON').data), 'Audiobook');
+      final chapters = id3ChaptersIn(b);
+      expect(chapters.map((c) => c.$3), ['Chapter 1', 'Chapter 2']);
+      expect(chapters.first.$1, 0);
+      expect(chapters.first.$2, chapters.last.$1, reason: 'a chapter does not end where the next starts');
+      expect(chapters.last.$2, greaterThan(chapters.last.$1));
+      PlaybackScheduler.beforePlay = null;
+    });
+
+    test('a chapter as MP3: no chapters in its tag, and no room kept for them', () async {
+      platform(answer: (call) {
+        if (call.method != 'finish') return null;
+        File(made).writeAsBytesSync(fakeMp3(room: args['begin']!['room']! as int).bytes);
+        return {'path': made, 'bytes': File(made).lengthSync(), 'durationMs': 1000};
+      });
+      final job = AudioExport.start(
+        plan: ExportPlan.chapter(layout, 1),
+        voice: _recipe(_Voices('q'), layout, dialogue: null),
+        bookTitle: 'Save',
+        format: ExportFormat.mp3,
+      );
+      expect(job.fileName, 'Save - Chapter 2.mp3');
+      await ended(job);
+      expect(job.status.value.phase, ExportPhase.saved);
+      expect(args['begin']?['room'], id3Room(job.tags, const []));
+      final b = File(made).readAsBytesSync();
+      expect(id3FramesIn(b).map((f) => f.id), ['TIT2', 'TALB', 'TCON']);
       PlaybackScheduler.beforePlay = null;
     });
 

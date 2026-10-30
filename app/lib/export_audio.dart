@@ -9,6 +9,7 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'dialogue.dart' show resamplePcm16;
 import 'listening_session.dart';
+import 'mp3_chapters.dart';
 import 'mp4_chapters.dart';
 import 'neural_voices.dart';
 import 'prefs.dart';
@@ -19,15 +20,17 @@ import 'speech_service.dart';
 /// Saving a chapter, or a whole book, as audio: every sentence made as
 /// reading aloud makes it (makeSentence in scheduler.dart: the book's voice
 /// and dialogue voice, the reader's speed, word gap, pauses, loudness and
-/// pronunciations), handed to an AAC encoder instead of the player, and
-/// written as an .m4a (a chapter) or an .m4b with chapter marks (a book).
+/// pronunciations), handed to an encoder instead of the player, and written
+/// as an .m4a (a chapter) or an .m4b with chapter marks (a book), or as an
+/// .mp3 with its chapters in its ID3 tag ([ExportFormat]).
 ///
-/// The platform side (AudioExport.kt) encodes with MediaCodec into an MP4
-/// that MediaMuxer writes, in the app's own storage, from a foreground
-/// service that keeps working with the screen off; the chapter marks and
-/// tags are written into that file here (mp4_chapters.dart), and it is then
-/// copied to Audiobooks or to where the reader chose. A save that stops
-/// part way leaves no file behind.
+/// The platform side (AudioExport.kt) encodes, AAC with MediaCodec into an
+/// MP4 that MediaMuxer writes, MP3 with LAME (jump3r), in the app's own
+/// storage, from a foreground service that keeps working with the screen
+/// off; the chapter marks and tags are written into that file here
+/// (mp4_chapters.dart, mp3_chapters.dart), and it is then copied to
+/// Audiobooks or to where the reader chose. A save that stops part way
+/// leaves no file behind.
 ///
 /// A save is the engine's, as reading aloud is (ReadingCore.kt), not the
 /// activity's: swiped away from Recents, TomeVoice goes on saving, its
@@ -38,14 +41,33 @@ import 'speech_service.dart';
 /// cannot run while a book is read aloud. Reading aloud stops for a save,
 /// when the reader agrees, and a book started meanwhile stops the save.
 
-/// The AAC the file holds: mono, at the voice's own rate, 64 kbps.
+/// The audio the file holds: mono, at the voice's own rate, 64 kbps.
 const exportBitRate = 64000;
 
-/// The rates AAC-LC can be encoded at.
+/// The rates AAC-LC can be encoded at (and MP3, the same nine).
 const _aacRates = [8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000];
 
 /// [rate] if AAC can be encoded at it, else the next one up it can.
 int aacRate(int rate) => _aacRates.contains(rate) ? rate : _aacRates.firstWhere((r) => r >= rate, orElse: () => 48000);
+
+/// What a save is written as.
+enum ExportFormat {
+  /// AAC-LC in an MP4: an .m4b audiobook, its chapters in a chpl box, or
+  /// an .m4a for a chapter. The better sound for its size, and what Apple's
+  /// and most audiobook players expect.
+  aac,
+
+  /// MP3 at the same bit rate (constant), with ID3v2.3 tags and a book's
+  /// chapters as CHAP frames: plays on nearly anything, car stereos and old
+  /// players too.
+  mp3;
+
+  /// The file's extension for [plan]: m4b, m4a or mp3.
+  String extensionOf(ExportPlan plan) => this == mp3 ? 'mp3' : plan.extension;
+
+  /// The file's media type, for the app it is shared with or played in.
+  String get mime => this == mp3 ? 'audio/mpeg' : 'audio/mp4';
+}
 
 /// The longest single file: past about 145 hours an MP4 written with 32-bit
 /// offsets runs out of them at 64 kbps.
@@ -122,6 +144,8 @@ class ExportPlan {
 
   int get chars => _charsBefore.last;
 
+  /// The extension of the plan saved as AAC ([ExportFormat.extensionOf]
+  /// gives the format's).
   String get extension => wholeBook ? 'm4b' : 'm4a';
 }
 
@@ -235,11 +259,20 @@ abstract class PcmSink {
 /// PCM to the platform's encoder over [channel], in pieces of at most
 /// [chunkBytes], with no more than [inFlight] pieces unanswered: the next
 /// waits for the encoder to take one, so a book of twelve hours never sits
-/// in memory, only a sentence and a few pieces.
+/// in memory, only a sentence and a few pieces. The encoder writes
+/// [format]; an MP3 starts with [room] bytes left for its tag.
 class ChannelPcmSink implements PcmSink {
-  ChannelPcmSink(this.channel, {this.chunkBytes = 64 * 1024, this.inFlight = 2});
+  ChannelPcmSink(
+    this.channel, {
+    this.format = ExportFormat.aac,
+    this.room = 0,
+    this.chunkBytes = 64 * 1024,
+    this.inFlight = 2,
+  });
 
   final MethodChannel channel;
+  final ExportFormat format;
+  final int room;
   final int chunkBytes;
   final int inFlight;
 
@@ -251,7 +284,12 @@ class ChannelPcmSink implements PcmSink {
 
   @override
   Future<void> open(int sampleRate) async {
-    path = await channel.invokeMethod<String>('begin', {'sampleRate': sampleRate, 'bitRate': exportBitRate});
+    path = await channel.invokeMethod<String>('begin', {
+      'sampleRate': sampleRate,
+      'bitRate': exportBitRate,
+      'format': format.name,
+      'room': room,
+    });
   }
 
   @override
@@ -536,6 +574,7 @@ class AudioExport {
     required this.plan,
     required this.voice,
     required this.bookTitle,
+    required this.format,
     required this.fileName,
     required this.folder,
     required this.tags,
@@ -550,6 +589,7 @@ class AudioExport {
   final ExportPlan plan;
   final PlaybackScheduler voice;
   final String bookTitle;
+  final ExportFormat format;
 
   /// The file's name ("Emma.m4b") and its folder under Audiobooks.
   final String fileName;
@@ -570,8 +610,8 @@ class AudioExport {
   DateTime _lastNotice = DateTime.fromMillisecondsSinceEpoch(0);
   int _lastChapter = 0;
 
-  /// Start saving [plan], read by [voice], as [bookTitle] by [author]. Its
-  /// result is in [status]; it ends by itself.
+  /// Start saving [plan], read by [voice], as [bookTitle] by [author], in
+  /// [format]. Its result is in [status]; it ends by itself.
   static AudioExport start({
     required ExportPlan plan,
     required PlaybackScheduler voice,
@@ -579,6 +619,7 @@ class AudioExport {
     String? author,
     Uint8List? cover,
     String? destination,
+    ExportFormat format = ExportFormat.aac,
   }) {
     final running = current.value;
     if (running != null) return running;
@@ -587,7 +628,8 @@ class AudioExport {
       plan: plan,
       voice: voice,
       bookTitle: bookTitle,
-      fileName: '${safeFileName(chapter == null ? bookTitle : '$bookTitle - $chapter')}.${plan.extension}',
+      format: format,
+      fileName: nameFor(plan, bookTitle, format: format),
       folder: safeFileName(bookTitle),
       tags: AudioTags(
         title: chapter ?? bookTitle,
@@ -636,12 +678,13 @@ class AudioExport {
   /// if it was closed.
   static Future<String?> chooseWhere(String name) => channel.invokeMethod<String>('pick', {'name': name});
 
-  /// Android's share sheet for the saved file at [uri].
-  static Future<void> share(String uri) => channel.invokeMethod<void>('share', {'uri': uri});
+  /// Android's share sheet for the saved file at [uri], of type [mime].
+  static Future<void> share(String uri, {String mime = 'audio/mp4'}) =>
+      channel.invokeMethod<void>('share', {'uri': uri, 'mime': mime});
 
-  /// The name a save of [plan] from [bookTitle] is given.
-  static String nameFor(ExportPlan plan, String bookTitle) =>
-      '${safeFileName(plan.wholeBook ? bookTitle : '$bookTitle - ${plan.firstTitle}')}.${plan.extension}';
+  /// The name a save of [plan] from [bookTitle] in [format] is given.
+  static String nameFor(ExportPlan plan, String bookTitle, {ExportFormat format = ExportFormat.aac}) =>
+      '${safeFileName(plan.wholeBook ? bookTitle : '$bookTitle - ${plan.firstTitle}')}.${format.extensionOf(plan)}';
 
   static bool _listening = false;
 
@@ -661,7 +704,13 @@ class AudioExport {
   }
 
   Future<void> _run() async {
-    _sink = ChannelPcmSink(channel);
+    // An MP3's tag goes before its audio: room for it is left at the start,
+    // as large as the chapters planned can need (a few are dropped if
+    // nothing in them is said, never added).
+    final room = format == ExportFormat.mp3
+        ? id3Room(tags, [if (plan.wholeBook) for (final m in plan.marks) m.title])
+        : 0;
+    _sink = ChannelPcmSink(channel, format: format, room: room);
     _renderer = AudioRenderer(plan: plan, voice: voice, sink: _sink, onProgress: _onProgress);
     _hook();
     final lifecycle = AppLifecycleListener(onResume: _onResume);
@@ -675,7 +724,12 @@ class AudioExport {
       final out = await channel.invokeMapMethod<String, Object?>('finish');
       final path = out?['path'] as String?;
       if (path == null) throw const ExportFailed('The audio could not be finished.');
-      await writeChaptersAndTags(path, marks: plan.wholeBook ? made.marks : const [], tags: tags);
+      final marks = plan.wholeBook ? made.marks : const <ChapterMark>[];
+      if (format == ExportFormat.mp3) {
+        await writeId3(path, tags: tags, marks: marks, length: made.length);
+      } else {
+        await writeChaptersAndTags(path, marks: marks, tags: tags);
+      }
       final saved = await channel.invokeMapMethod<String, Object?>('publish', {
         'path': path,
         'name': fileName,
@@ -690,6 +744,7 @@ class AudioExport {
         'title': 'Saved as audio: $bookTitle',
         'text': '$where · ${durationLabel(made.length)}.$note',
         'uri': uri,
+        'mime': format.mime,
       });
       status.value = ExportStatus(ExportPhase.saved, uri: uri, where: where, unsaid: made.unsaid, message: note.trim());
     } on ExportCancelled {
