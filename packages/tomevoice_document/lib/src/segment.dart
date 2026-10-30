@@ -31,8 +31,14 @@ final _roman = RegExp(r'^[IVXLCDM]+$');
 /// that never moves. Split at a clause boundary instead.
 const maxSentenceChars = 280;
 
+/// A zero-width no-break space: nothing on the page, though `\s` takes it
+/// for a space. Standard Ebooks put one before every em dash, which came
+/// out as "stolen —the" for "stolen—the".
+final _zeroWidthNoBreak = String.fromCharCode(0xFEFF);
+
 /// Collapse runs of whitespace to a single space and trim.
-String collapseWhitespace(String raw) => raw.replaceAll(_spaceRe, ' ').trim();
+String collapseWhitespace(String raw) =>
+    (raw.contains(_zeroWidthNoBreak) ? raw.replaceAll(_zeroWidthNoBreak, '') : raw).replaceAll(_spaceRe, ' ').trim();
 
 /// Terminators that end a sentence regardless of what follows: Devanagari and
 /// Bengali danda, CJK full stops, Arabic question mark.

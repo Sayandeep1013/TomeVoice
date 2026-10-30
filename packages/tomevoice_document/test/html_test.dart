@@ -121,6 +121,14 @@ void main() {
           ['First part.', 'Second part.']);
     });
 
+    test('a zero-width no-break space before a dash is not a space', () {
+      // Standard Ebooks join every em dash to the word before it so.
+      final joiner = String.fromCharCode(0xFEFF);
+      final dash = String.fromCharCode(0x2014);
+      expect(_texts(blocksFromHtml('<p>my masks were stolen$joiner${dash}the seven masks</p>')),
+          ['my masks were stolen${dash}the seven masks']);
+    });
+
     test('a heading with a line break stays one heading', () {
       final blocks = blocksFromHtml('<h1>Chapter 1<br/><br/>The Arrival</h1>');
       expect(_texts(blocks), ['Chapter 1 The Arrival']);
