@@ -11,6 +11,7 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'book_tint.dart';
+import 'chapter_finder.dart';
 import 'export_audio_sheet.dart';
 import 'fast_scroller.dart';
 import 'highlights.dart';
@@ -3133,21 +3134,21 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       return;
     }
     if (_l.chapters.isEmpty) return;
-    showModalBottomSheet<void>(
-      context: context,
-      sheetAnimationStyle: sheetMotion(context),
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (ctx) => carryTint(context, _ContentsSheet(
-        layout: _l,
-        numberOf: _chapterNumber,
-        current: _l.chapterOfUnit(_cursor.value),
-        onPick: (chapter) {
-          Navigator.pop(ctx);
-          _jump(_l.chapterFirstUnit[chapter]);
-        },
-      )),
-    );
+    // The finder a web novel's whole Contents use, set as a book's own:
+    // its parts as dividers, its numbers short, the keyboard left up by a
+    // drag.
+    unawaited(showChapterFinder(
+      context,
+      titles: [for (var c = 0; c < _l.chapters.length; c++) _l.chapterTitle(c)],
+      current: _l.chapterOfUnit(_cursor.value),
+      numberOf: _chapterNumber,
+      hint: 'Find a chapter',
+      parts: true,
+      numberWidth: 40,
+      dismissOnDrag: false,
+    ).then((chapter) {
+      if (chapter != null && mounted) _jump(_l.chapterFirstUnit[chapter]);
+    }));
   }
 }
 
@@ -3217,178 +3218,6 @@ class _TextScrollTarget extends FastScrollTarget {
   void removeListener(VoidCallback listener) => _s._positions.itemPositions.removeListener(listener);
 }
 
-class _ContentsSheet extends StatefulWidget {
-  const _ContentsSheet({
-    required this.layout,
-    required this.numberOf,
-    required this.current,
-    required this.onPick,
-  });
-
-  final ReadingLayout layout;
-  final int Function(int chapter) numberOf;
-  final int current;
-  final ValueChanged<int> onPick;
-
-  @override
-  State<_ContentsSheet> createState() => _ContentsSheetState();
-}
-
-class _ContentsSheetState extends State<_ContentsSheet> {
-  static const _rowHeight = 58.0;
-  String _query = '';
-  late final _controller = ScrollController(
-    initialScrollOffset: ((widget.current - 2) * _rowHeight).clamp(0, double.infinity).toDouble(),
-  );
-
-  /// The matches of a search, from their top.
-  final _found = ScrollController();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    _found.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l = widget.layout;
-    final q = _query.trim().toLowerCase();
-    final rows = [
-      for (var c = 0; c < l.chapters.length; c++)
-        if (q.isEmpty || l.chapterTitle(c).toLowerCase().contains(q) || '${widget.numberOf(c)}' == q) c,
-    ];
-    return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-      child: SizedBox(
-        height: MediaQuery.sizeOf(context).height * 0.75,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SheetHeader(
-              'Contents',
-              trailing: Text(
-                '${l.chapters.length} ${l.chapters.length == 1 ? 'CHAPTER' : 'CHAPTERS'}',
-                style: Skin.meta(context),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(Gap.l, 0, Gap.l, Gap.s),
-              child: SearchField(
-                hint: 'Find a chapter',
-                onChanged: (v) => setState(() => _query = v),
-              ),
-            ),
-            Expanded(
-              child: rows.isEmpty
-                  ? Padding(
-                      padding: const EdgeInsets.all(Gap.xl),
-                      child: Text('No chapters match.', style: Skin.label(context, size: 15)),
-                    )
-                  : FastScroller(
-                      controller: q.isEmpty ? _controller : _found,
-                      bottom: Gap.xl,
-                      labelAt: (f) => 'Chapter ${widget.numberOf(rows[(f * (rows.length - 1)).round()])}',
-                      child: ChapterList(
-                        layout: l,
-                        numberOf: widget.numberOf,
-                        chapters: rows,
-                        current: widget.current,
-                        controller: q.isEmpty ? _controller : _found,
-                        rowHeight: _rowHeight,
-                        onPick: widget.onPick,
-                      ),
-                    ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// A book's chapters: number, title, the one being read marked. Parts
-/// ("Part II: Reborn") read as dividers above the chapters they hold.
-class ChapterList extends StatelessWidget {
-  const ChapterList({
-    super.key,
-    required this.layout,
-    required this.chapters,
-    required this.current,
-    required this.onPick,
-    this.numberOf,
-    this.controller,
-    this.rowHeight = 56,
-    this.shrinkWrap = false,
-  });
-
-  final ReadingLayout layout;
-
-  /// The number shown for a chapter; its place in [layout] by default.
-  final int Function(int chapter)? numberOf;
-  final List<int> chapters;
-  final int current;
-  final ValueChanged<int> onPick;
-  final ScrollController? controller;
-  final double rowHeight;
-  final bool shrinkWrap;
-
-  static final _part = RegExp(r'^(part|book|volume|act)\b', caseSensitive: false);
-
-  @override
-  Widget build(BuildContext context) => ListView.builder(
-        controller: controller,
-        shrinkWrap: shrinkWrap,
-        physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,
-        padding: const EdgeInsets.fromLTRB(Gap.m, 0, Gap.m, Gap.xl),
-        itemExtent: rowHeight,
-        itemCount: chapters.length,
-        itemBuilder: (context, i) => chapterRow(context, chapters[i]),
-      );
-
-  Widget chapterRow(BuildContext context, int c) {
-    final isCurrent = c == current;
-    final title = layout.chapterTitle(c);
-    final part = _part.hasMatch(title);
-    return Material(
-      color: isCurrent ? Skin.accentOf(context).withValues(alpha: 0.14) : Colors.transparent,
-      borderRadius: BorderRadius.circular(Radii.row),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(Radii.row),
-        onTap: () => onPick(c),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: Gap.m),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 40,
-                child: Text('${numberOf?.call(c) ?? c + 1}',
-                    style: Skin.meta(context, size: 11.5, color: isCurrent ? Skin.accentOf(context) : null)),
-              ),
-              Expanded(
-                child: part
-                    ? Text(
-                        title.toUpperCase(),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Skin.meta(context, size: 12, color: isCurrent ? Skin.accentOf(context) : Skin.inkSoftOn(context)),
-                      )
-                    : Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Skin.title(context, size: 17, color: isCurrent ? Skin.accentOf(context) : null),
-                      ),
-              ),
-              if (isCurrent) Icon(Icons.graphic_eq_rounded, size: 18, color: Skin.accentOf(context)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
 /// Kept so the batch measurement path still has a JSON shape to write.
 String encodeReport(Map<String, Object?> m) =>
     const JsonEncoder.withIndent('  ').convert(m);
