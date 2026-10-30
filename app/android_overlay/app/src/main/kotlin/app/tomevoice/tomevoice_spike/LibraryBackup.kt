@@ -45,7 +45,7 @@ object LibraryBackup {
         return false
     }
 
-    private fun files(root: File, includeChapters: Boolean): List<Pair<File, String>> {
+    private fun files(root: File, includeChapters: Boolean, sources: File?): List<Pair<File, String>> {
         val out = mutableListOf<Pair<File, String>>()
         val base = root.absolutePath.trimEnd('/') + "/"
         root.walkTopDown().forEach { f ->
@@ -53,25 +53,40 @@ object LibraryBackup {
             val rel = f.absolutePath.removePrefix(base)
             if (!skip(rel, includeChapters)) out.add(f to rel)
         }
+        // Web novels' sources moved to internal storage (SourceStore.open), out
+        // of the library's folder: their lists, what is installed and each
+        // source's own settings still travel, as sources/ (a restore adopts
+        // them and installs the sources again from their lists). Never the
+        // plugins' code, the site cookies or a cached list.
+        val taken = out.map { it.second }.toSet()
+        sources?.listFiles()?.forEach { f ->
+            val name = f.name
+            val carried = name == "repos.json" || name == "installed.json" ||
+                (name.startsWith("storage-") && name.endsWith(".json"))
+            val rel = "sources/$name"
+            if (f.isFile && carried && rel !in taken) out.add(f to rel)
+        }
         return out
     }
 
-    /** Bytes a backup of [root] would hold before compression. */
-    fun size(root: File, includeChapters: Boolean): Long =
-        files(root, includeChapters).sumOf { it.first.length() }
+    /** Bytes a backup of [root] (and [sources]) would hold before compression. */
+    fun size(root: File, includeChapters: Boolean, sources: File? = null): Long =
+        files(root, includeChapters, sources).sumOf { it.first.length() }
 
     /**
-     * Zip [root] into [out], [manifest] first. [progress] gets bytes done and
-     * the total. Returns the number of files written.
+     * Zip [root] into [out], [manifest] first, with what of [sources] (the
+     * web novels' sources, in internal storage) is carried. [progress] gets
+     * bytes done and the total. Returns the number of files written.
      */
     fun write(
         root: File,
         out: OutputStream,
         manifest: String,
         includeChapters: Boolean,
+        sources: File? = null,
         progress: (Long, Long) -> Unit,
     ): Int {
-        val list = files(root, includeChapters)
+        val list = files(root, includeChapters, sources)
         val total = list.sumOf { it.first.length() }
         var done = 0L
         var lastReport = 0L

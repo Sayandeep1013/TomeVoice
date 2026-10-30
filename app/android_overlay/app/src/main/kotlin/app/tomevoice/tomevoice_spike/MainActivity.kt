@@ -270,7 +270,7 @@ class MainActivity : FlutterActivity() {
                     val chapters = call.argument<Boolean>("includeChapters") != false
                     Thread {
                         val bytes = try {
-                            LibraryBackup.size(outputDir(), chapters)
+                            LibraryBackup.size(outputDir(), chapters, File(filesDir, "sources"))
                         } catch (e: Throwable) {
                             -1L
                         }
@@ -731,7 +731,7 @@ class MainActivity : FlutterActivity() {
                     ?: throw IllegalStateException("Android would not open that file for writing")
                 var total = 0L
                 val files = out.use {
-                    LibraryBackup.write(outputDir(), it, manifest, chapters) { done, all ->
+                    LibraryBackup.write(outputDir(), it, manifest, chapters, File(filesDir, "sources")) { done, all ->
                         total = all
                         event(mapOf("type" to "backupProgress", "done" to done, "total" to all))
                     }
@@ -812,7 +812,8 @@ class MainActivity : FlutterActivity() {
                                     outputDir(),
                                     it,
                                     call.argument<String>("manifest").orEmpty(),
-                                    call.argument<Boolean>("includeChapters") == true
+                                    call.argument<Boolean>("includeChapters") == true,
+                                    File(filesDir, "sources")
                                 ) { _, all -> total = all }
                             }
                             mapOf("files" to files, "bytes" to total, "name" to queryDisplayName(doc))
