@@ -178,8 +178,9 @@ class ReaderController {
   DateTime? lastScroll;
   int _statsUnit = -1;
 
-  /// The card moved the place while paused. Moving stops the player, but
-  /// the card stays up, paused at the new place, until reading resumes.
+  /// The place moved while paused (by the card, a headset, or the page's
+  /// own buttons). Moving stops the player, but the card stays up, paused
+  /// at the new place, until reading resumes.
   bool _parked = false;
 
   SleepChoice _sleep = SleepChoice.off;
@@ -438,6 +439,10 @@ class ReaderController {
     if (play || state == PlayState.playing || state == PlayState.loading) {
       await player.play(next);
     } else if (state == PlayState.paused) {
+      // Its voice stops, so Play reads from here; the card stays up, paused
+      // at the new place, whichever buttons moved it (the page's own once
+      // took the card away).
+      _parked = true;
       await player.stop();
     }
   }
@@ -592,13 +597,10 @@ class ReaderController {
             _parked = false;
             unawaited(player.stop());
           case 'next':
-            _park();
             _cardSkip(1);
           case 'prev':
-            _park();
             _cardSkip(-1);
           case 'seek':
-            _park();
             _seekInChapter((e['value'] as num?)?.toInt() ?? 0);
           case 'speed':
             _nextSpeed();
@@ -608,10 +610,6 @@ class ReaderController {
       default:
         _focus.follow(e['type'], player);
     }
-  }
-
-  void _park() {
-    if (player.state.value == PlayState.paused) _parked = true;
   }
 
   /// The speed this book reads at: its own, or everyone's.

@@ -914,16 +914,28 @@ void main() {
       expect(s['active'], isTrue);
       expect(s['playing'], isFalse);
 
-      // The player's own buttons, paused, move the place and end the
-      // reading: the card goes (the card's own buttons keep it, below).
+      // The player's own buttons, paused, move the place and leave the card
+      // up, paused there, as the card's own do (below). Changed on purpose:
+      // they ended the reading, and the card went.
       final before = sessions().length;
       await tester.tap(find.byTooltip('Previous chapter'));
       await tester.pump(const Duration(milliseconds: 100));
       final after = sessions().sublist(before);
       expect(after.first['subtitle'], 'Alpha');
       expect(after.first['playing'], isFalse);
-      expect(after.last['active'], isFalse);
+      expect(after.where((s) => s['active'] == false), isEmpty, reason: 'the card stays');
+      await tester.tap(find.byTooltip('Next sentence'));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(sessions().last['active'], isTrue);
+      expect(sessions().last['playing'], isFalse);
+      expect(sessions().last['positionMs'], msFor(layout.wordsBefore[1]));
       expect(find.byTooltip('Play'), findsOneWidget);
+      // Play reads from where it was moved to.
+      await tester.tap(find.byTooltip('Play'));
+      await io(tester, () => sessions().last['playing'] == true);
+      expect(sessions().last['playing'], isTrue);
+      expect(sessions().last['positionMs'], msFor(layout.wordsBefore[1]));
+      expect(washed(tester), startsWith(layout.units[1].text));
       await finish(tester);
     });
 
