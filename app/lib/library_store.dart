@@ -145,17 +145,39 @@ class LibraryStore {
       try {
         final raw = jsonDecode(await _indexFile.readAsString());
         if (raw is Map) {
+          // An entry of the wrong shape (a newer or older app's, a damaged
+          // restore) is passed over, not the whole shelf: one threw before,
+          // and nothing in the library opened. A copy of the file is kept.
+          var skipped = 0;
+          T? one<T>(T Function() read) {
+            try {
+              return read();
+            } on Object {
+              skipped++;
+              return null;
+            }
+          }
+
+          final books = raw['books'];
           entries = [
-            for (final b in raw['books'] as List? ?? const [])
-              LibraryEntry.fromJson(Map<String, Object?>.from(b as Map)),
+            for (final b in books is List ? books : const [])
+              if (one(() => LibraryEntry.fromJson(Map<String, Object?>.from(b as Map))) case final e?) e,
           ];
+          final listed = raw['categories'];
           final cats = [
-            for (final c in raw['categories'] as List? ?? const [])
-              if (c is Map) Category.fromJson(Map<String, Object?>.from(c)),
+            for (final c in listed is List ? listed : const [])
+              if (one(() => Category.fromJson(Map<String, Object?>.from(c as Map))) case final c?) c,
           ];
           _categories = cats.isEmpty ? Category.defaults : cats;
-          final d = raw['defaultCategory'] as String?;
-          _defaultCategory = _categories.any((c) => c.id == d) ? d! : _categories.first.id;
+          final d = raw['defaultCategory'];
+          _defaultCategory = d is String && _categories.any((c) => c.id == d) ? d : _categories.first.id;
+          if (skipped > 0) {
+            try {
+              await _indexFile.copy('${_indexFile.path}.broken');
+            } on Object {
+              // Nothing more to keep.
+            }
+          }
         }
       } on FormatException {
         // Unreadable: keep it as library.json.broken rather than let the next

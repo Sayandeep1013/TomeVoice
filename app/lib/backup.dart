@@ -101,15 +101,74 @@ class StagedBackup {
 /// files into place is a rename, never a copy. Never backed up itself.
 Directory stagingDir(Directory root) => Directory('${root.path}/.restore');
 
-/// Remove a backup left unpacked by a restore that never finished.
+/// Remove a backup left unpacked by a restore that never finished, and
+/// finish or undo a swap the app was stopped in the middle of.
 Future<void> clearStaleRestore(Directory root) async {
   try {
+    await settleSwap(root);
     final dir = stagingDir(root);
     if (await dir.exists()) await dir.delete(recursive: true);
   } on Object {
     // Tried again next launch.
   }
 }
+
+/// What a replace has moved so far, written as it goes: an app stopped part
+/// way through (or a failure that could not be undone) left the library
+/// split, the old one in a hidden folder that the next replace deleted.
+File _journal(Directory root) => File('${root.path}/.restore-journal.json');
+Directory _aside(Directory root) => Directory('${root.path}/.before-restore');
+
+/// A replace that failed and could not be undone at once: the journal stays,
+/// and the next start puts the library back.
+class RestoreUnsettled implements Exception {
+  const RestoreUnsettled();
+
+  @override
+  String toString() => 'The restore stopped part way. TomeVoice puts your library back when it next starts.';
+}
+
+/// Finish a swap that got all the way through, or put the library back
+/// as it was before one that did not.
+Future<void> settleSwap(Directory root) async {
+  final journal = _journal(root);
+  final aside = _aside(root);
+  if (!await journal.exists()) {
+    // Before journals, a replace left this only when it could not undo
+    // itself: what is in it is the library as it was. Put it back where
+    // nothing has taken its place.
+    if (await aside.exists()) {
+      await for (final e in aside.list()) {
+        final name = _name(e);
+        if (!await _exists('${root.path}/$name')) await e.rename('${root.path}/$name');
+      }
+      if (await aside.list().isEmpty) await aside.delete(recursive: true);
+    }
+    return;
+  }
+  Map<String, Object?> j;
+  try {
+    j = Map<String, Object?>.from(jsonDecode(await journal.readAsString()) as Map);
+  } on Object {
+    j = const {};
+  }
+  if (j['done'] == true) {
+    if (await aside.exists()) await aside.delete(recursive: true);
+  } else {
+    for (final name in (j['in'] as List? ?? const []).cast<String>()) {
+      final path = '${root.path}/$name';
+      if (await _exists(path)) await _entity(path).delete(recursive: true);
+    }
+    for (final name in (j['aside'] as List? ?? const []).cast<String>()) {
+      final from = '${aside.path}/$name';
+      if (await _exists(from)) await _entity(from).rename('${root.path}/$name');
+    }
+    if (await aside.exists()) await aside.delete(recursive: true);
+  }
+  await journal.delete();
+}
+
+Future<bool> _exists(String path) async => await FileSystemEntity.type(path) != FileSystemEntityType.notFound;
 
 /// Ask for a backup and unpack it. Null when the reader closed the picker.
 Future<StagedBackup?> pickBackup(LibraryStore store) async {
@@ -136,11 +195,13 @@ Future<void> checkStaged(StagedBackup staged, Directory root) async {
     throw const FormatException('That backup has no library in it.');
   }
   // Every book's id becomes a folder name: one that is not a book id (a
-  // "..") could delete or replace folders outside the books.
+  // "..") could delete or replace folders outside the books. And every
+  // entry must read as the library reads it, before anything is swapped.
   try {
     final books = (jsonDecode(await index.readAsString()) as Map)['books'] as List? ?? const [];
     for (final b in books) {
       if (b is! Map || !LibraryStore.isBookId('${b['id']}')) throw const FormatException('');
+      LibraryEntry.fromJson(Map<String, Object?>.from(b));
     }
   } on Object {
     throw const FormatException('That backup is damaged or was not made by TomeVoice.');
@@ -169,35 +230,52 @@ const keptOnPhone = {'voices', 'app_update.json'};
 /// Swap the library for [staged]. The current one is moved aside first and
 /// put back if anything fails.
 Future<void> replaceLibrary(Directory root, StagedBackup staged) async {
-  final aside = Directory('${root.path}/.before-restore');
-  if (await aside.exists()) await aside.delete(recursive: true);
+  // A swap left unsettled is settled first: its hidden folder may hold the
+  // library as it was, which deleting it here lost for good.
+  await settleSwap(root);
+  final aside = _aside(root);
+  if (await aside.exists()) {
+    // What an older app's interrupted replace left, that nothing could be
+    // put back from: kept under another name, never deleted.
+    await aside.rename('${aside.path}-${DateTime.now().millisecondsSinceEpoch}');
+  }
   await aside.create();
+  final journal = _journal(root);
   final movedAside = <String>[];
   final movedIn = <String>[];
+  Future<void> note({bool done = false}) =>
+      writeSafely(journal, jsonEncode({'aside': movedAside, 'in': movedIn, 'done': done}));
   try {
+    await note();
     await for (final e in root.list()) {
       final name = _name(e);
       if (name.startsWith('.') || keptOnPhone.contains(name)) continue;
-      await e.rename('${aside.path}/$name');
+      // Noted before the move: stopped between the two, the name is put back
+      // from wherever it is.
       movedAside.add(name);
+      await note();
+      await e.rename('${aside.path}/$name');
     }
     await for (final e in staged.dir.list()) {
       final name = _name(e);
       if (keptOnPhone.contains(name)) continue;
-      await e.rename('${root.path}/$name');
       movedIn.add(name);
+      await note();
+      await e.rename('${root.path}/$name');
     }
+    await note(done: true);
   } on Object {
-    for (final name in movedIn) {
-      await _entity('${root.path}/$name').delete(recursive: true);
-    }
-    for (final name in movedAside) {
-      await _entity('${aside.path}/$name').rename('${root.path}/$name');
+    // Undone now if it can be; if not, the journal stays and the next start
+    // puts the library back.
+    try {
+      await settleSwap(root);
+    } on Object {
+      throw const RestoreUnsettled();
     }
     rethrow;
   }
   await staged.discard();
-  await aside.delete(recursive: true);
+  await settleSwap(root);
 }
 
 /// What [addToLibrary] did: books added and brought up to date, sources,

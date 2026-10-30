@@ -46,6 +46,19 @@ void main() {
     expect(File('${tmp.path}/library.json.broken').readAsStringSync(), contains('cut sho'));
   });
 
+  test('an entry of the wrong shape is passed over, not the whole shelf', () async {
+    final index = File('${tmp.path}/library.json');
+    final raw = Map<String, Object?>.from(jsonDecode(index.readAsStringSync()) as Map);
+    final books = [...raw['books'] as List];
+    // As a newer app, or a damaged restore, might have written it.
+    books.add({'id': 'b${'0' * 15}', 'title': 'Odd', 'progress': 'half'});
+    index.writeAsStringSync(jsonEncode({...raw, 'books': books}));
+    final fresh = LibraryStore(tmp);
+    expect([for (final e in await fresh.list(all: true)) e.id], [id]);
+    // The odd one is still on the phone, in a copy the next save cannot touch.
+    expect(File('${tmp.path}/library.json.broken').readAsStringSync(), contains('"Odd"'));
+  });
+
   test('a book whose parsed copy was cut short opens from its own file', () async {
     File('${tmp.path}/books/$id/parsed.json').writeAsStringSync('{"v": 5, "book": {"id"');
     final layout = await store.loadLayout(id);

@@ -84,6 +84,84 @@ void main() {
     expect(Directory('${root.path}/.before-restore').existsSync(), isFalse);
   });
 
+  group('a replace stopped part way', () {
+    void journal(Map<String, Object?> j) => put(root, '.restore-journal.json', j);
+
+    test('is undone at the next start', () async {
+      // Stopped after "books" went aside and the backup's list came in.
+      put(root, '.before-restore/library.json', {
+        'books': [book('mine')],
+      });
+      put(root, '.before-restore/books/mine/cursor.json', {'x': 1});
+      put(root, 'prefs.json', {'palette': 'forest'});
+      put(root, 'library.json', {
+        'books': [book('theirs')],
+      });
+      journal({
+        'aside': ['library.json', 'books', 'prefs.json'],
+        'in': ['library.json'],
+        'done': false,
+      });
+
+      await clearStaleRestore(root);
+
+      expect([for (final b in read(root, 'library.json')['books'] as List) (b as Map)['id']], ['mine']);
+      expect(read(root, 'books/mine/cursor.json')['x'], 1);
+      expect(read(root, 'prefs.json')['palette'], 'forest', reason: 'never moved, so left alone');
+      expect(Directory('${root.path}/.before-restore').existsSync(), isFalse);
+      expect(File('${root.path}/.restore-journal.json').existsSync(), isFalse);
+    });
+
+    test('that got all the way through is finished', () async {
+      put(root, '.before-restore/library.json', {
+        'books': [book('mine')],
+      });
+      put(root, 'library.json', {
+        'books': [book('theirs')],
+      });
+      journal({
+        'aside': ['library.json'],
+        'in': ['library.json'],
+        'done': true,
+      });
+
+      await clearStaleRestore(root);
+
+      expect([for (final b in read(root, 'library.json')['books'] as List) (b as Map)['id']], ['theirs']);
+      expect(Directory('${root.path}/.before-restore').existsSync(), isFalse);
+      expect(File('${root.path}/.restore-journal.json').existsSync(), isFalse);
+    });
+
+    test('by an older app is put back where nothing took its place, and never deleted', () async {
+      // No journal: the hidden folder is the library as it was.
+      put(root, '.before-restore/books/mine/cursor.json', {'x': 1});
+      put(root, '.before-restore/library.json', {
+        'books': [book('mine')],
+      });
+      put(root, 'library.json', {
+        'books': [book('theirs')],
+      });
+      await clearStaleRestore(root);
+      expect(read(root, 'books/mine/cursor.json')['x'], 1);
+      // A replace now keeps what could not be put back, under another name.
+      put(staging, 'library.json', {
+        'books': [book('new')],
+      });
+      await replaceLibrary(root, staged());
+      final kept = root.listSync().map((e) => e.uri.pathSegments.lastWhere((s) => s.isNotEmpty));
+      expect(kept.where((n) => n.startsWith('.before-restore-')), hasLength(1));
+    });
+  });
+
+  test('a backup whose books do not read as the library reads them is refused', () async {
+    put(staging, 'library.json', {
+      'books': [
+        {'id': 'b${'0' * 15}', 'title': 'Odd', 'progress': 'half'},
+      ],
+    });
+    await expectLater(checkStaged(staged(), root), throwsA(isA<FormatException>()));
+  });
+
   test("replace keeps this phone's natural voices and its update choice", () async {
     put(root, 'library.json', {
       'books': [book('mine')],

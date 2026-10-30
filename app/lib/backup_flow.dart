@@ -207,7 +207,11 @@ Future<void> runRestore(BuildContext context, LibraryStore store) async {
     await staged.discard();
     if (!context.mounted) return;
     Navigator.of(context, rootNavigator: true).pop();
-    showSnack(context, 'The restore failed and your library was left as it was: ${_reason(e)}', long: true);
+    showSnack(
+      context,
+      e is RestoreUnsettled ? '$e' : 'The restore failed and your library was left as it was: ${_reason(e)}',
+      long: true,
+    );
     return;
   }
   // Every store reads its files once; start the app again so all of them
