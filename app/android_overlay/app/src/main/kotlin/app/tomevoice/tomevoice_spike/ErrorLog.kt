@@ -109,7 +109,7 @@ object ErrorLog {
         return if (first == null) error.javaClass.name else "${error.javaClass.name}: $first"
     }
 
-    /** Where it happened, and where the first cause did. */
+    /** Where it happened, and where what set it off at the root did. */
     private fun stack(error: Throwable): String {
         val lines = error.stackTrace.take(FRAMES).map { "at $it" }.toMutableList()
         val cause = generateSequence(error.cause) { it.cause }.take(8).lastOrNull()

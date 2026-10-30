@@ -42,9 +42,13 @@ class ShareProvider : ContentProvider() {
 
     // Android creates this before anything else in the app's process (an
     // activity, a widget, a service, a background check), so the error log
-    // is set up here: it then hears of a crash wherever one happens.
+    // is set up here: it then hears of a crash wherever one happens. A log
+    // that could not be set up must not stop the app from starting.
     override fun onCreate(): Boolean {
-        context?.let { ErrorLog.install(it) }
+        try {
+            context?.let { ErrorLog.install(it) }
+        } catch (_: Throwable) {
+        }
         return true
     }
 
