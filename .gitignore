@@ -27,6 +27,8 @@ dist/
 # Spike artefacts pulled from a device
 spike-runs/
 mobile-qa/scratch/
+# rotate-reader.yaml's screenshot, when Maestro has no output folder to put it in
+reader-landscape.png
 *.wav
 !packages/tomevoice_audio/test/golden/*.wav
 

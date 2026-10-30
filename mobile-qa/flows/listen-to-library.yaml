@@ -1,0 +1,36 @@
+# Listen to the starter book, then go back to the library with the app's
+# own Back buttons: where a reader is when they leave with Back. Reading
+# aloud needs a text-to-speech engine; without one the player never shows
+# Pause, and the flow goes on regardless.
+#
+# Then press Back to leave the app. On Android 15 and older that has been
+# finishing MainActivity, whose onDestroy stops the reading (docs/13 §13.11).
+# CI presses that Back itself and checks what became of the activity
+# (mobile-qa/ci/emulator-tests.sh). On a phone, after this flow:
+#   adb shell input keyevent KEYCODE_BACK
+#   adb shell dumpsys activity activities | grep -A12 "tomevoice_spike.MainActivity"
+appId: ${APP_ID || 'app.tomevoice'}
+name: Listen, then go back to the library
+---
+- runFlow: common/book-page.yaml
+- tapOn:
+    text: "Listen|Continue|Listen again"
+    enabled: true
+- extendedWaitUntil:
+    visible: "Reading settings"
+    timeout: 60000
+- extendedWaitUntil:
+    visible: "Pause"
+    timeout: 20000
+    optional: true
+- tapOn: "Back to library"
+- extendedWaitUntil:
+    visible:
+      text: "Read"
+      enabled: true
+    timeout: 30000
+- tapOn: "Back"
+- extendedWaitUntil:
+    visible: ".*Pride and Prejudice.*Jane Austen.*"
+    timeout: 30000
+- assertVisible: "Library"
