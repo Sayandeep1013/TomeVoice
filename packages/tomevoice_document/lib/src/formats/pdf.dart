@@ -21,8 +21,10 @@ const pdfParagraphMark = '\u2029';
 /// not read on opening; 5: a scan's bookmarks named after its pictures, or
 /// one on every page, are not chapters; two speakers' lines set in one
 /// after the other, and a line ending in a colon over one set in, are two
-/// paragraphs; a note's mark set raised after a word is not said).
-const pdfParserVersion = 5;
+/// paragraphs; a note's mark set raised after a word is not said; 6: a
+/// speech that fills its line still ends where the next one is set in, on
+/// a page that sets first lines in and runs them on at the edge).
+const pdfParserVersion = 6;
 
 /// One outline (bookmark) entry: a title and the 0-based page it points at.
 typedef PdfOutlineEntry = ({String title, int page});
@@ -745,7 +747,24 @@ bool _indentedStart(List<_Line> lines, int i) {
     final b = l.box;
     if (b != null && (b.x - prev.x).abs() < 0.5 * em) full = math.max(full, b.x + b.w);
   }
-  return prev.x + prev.w < full - 2 * em;
+  if (prev.x + prev.w < full - 2 * em) return true;
+  // Or the page sets each paragraph's first line in and runs it on at the
+  // edge: a line set in where this one is, not ending a sentence, has the
+  // next line at the edge. Then a line set in after one that ends a sentence
+  // starts a paragraph, however full the line before it ("'Yes—but as it
+  // happens, they are all of them very clever.'" over "'This is the only
+  // point, I flatter myself..."). A quotation set in as a whole runs on set
+  // in, and stays as it is.
+  for (var k = 0; k + 1 < lines.length; k++) {
+    final a = lines[k].box, b = lines[k + 1].box;
+    if (a == null || b == null || b.y <= a.y) continue;
+    if ((a.x - line.x).abs() < 0.5 * em &&
+        (b.x - margin).abs() < 0.5 * em &&
+        !_endsSentence.hasMatch(lines[k].text)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /// A line that ends a sentence, closing quotes and brackets included, or a
