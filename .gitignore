@@ -30,6 +30,9 @@ mobile-qa/scratch/
 *.wav
 !packages/tomevoice_audio/test/golden/*.wav
 
+# Python bytecode (tools/prepare_android.py)
+__pycache__/
+
 # Editors
 .idea/
 .vscode/
