@@ -10,6 +10,7 @@ import 'brand.dart';
 import 'error_log.dart';
 import 'home_shell.dart';
 import 'listening_session.dart';
+import 'own_colours.dart';
 import 'prefs.dart';
 import 'reader_screen.dart';
 import 'secret_shelf.dart';
@@ -122,7 +123,7 @@ class SpikeApp extends StatelessWidget {
         builder: (context, _, __) {
           final prefs = ListeningPrefs.loaded;
           final follow = (prefs?.bookColours ?? true) ? Skin.followTint : null;
-          final base = Palette.byId(prefs?.paletteId);
+          final base = chosenPalette(prefs);
           // With book colours on, the accent is the cover colour of the book
           // being read; the grounds stay the palette's.
           final palette = follow == null ? base : base.withTint(follow);

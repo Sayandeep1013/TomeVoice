@@ -1,15 +1,29 @@
-// Colours that read: WCAG's contrast for every palette (the five, and a
-// book's colour) and every colour each sets text, icons and a control's
-// marks in, on every surface each is drawn on; and the reader's page in the
-// app's own colours.
+// Colours that read: WCAG's contrast for every palette (the five, a book's
+// colour, a reader's own) and every colour each sets text, icons and a
+// control's marks in, on every surface each is drawn on; a reader's own
+// colours kept, carried in a backup and guarded; and on the reader's page.
+
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_color_utilities/material_color_utilities.dart' show Hct;
+import 'package:tomevoice_spike/backup.dart';
 import 'package:tomevoice_spike/contrast.dart';
+import 'package:tomevoice_spike/library_store.dart';
+import 'package:tomevoice_spike/own_colours.dart';
+import 'package:tomevoice_spike/own_colours_sheet.dart';
 import 'package:tomevoice_spike/page_tone.dart';
+import 'package:tomevoice_spike/prefs.dart';
+import 'package:tomevoice_spike/settings_screen.dart';
 import 'package:tomevoice_spike/theme.dart';
 import 'package:tomevoice_spike/ui.dart';
+
+const _channel = MethodChannel('tomevoice/tts');
+
+double _tone(Color c) => Hct.fromInt(c.toARGB32()).tone;
 
 void _ignore(int _) {}
 
@@ -20,8 +34,27 @@ final _seeds = [
 ];
 
 void main() {
-  setUp(() => Skin.palette = Palette.forest);
-  tearDown(() => Skin.palette = Palette.forest);
+  late Directory tmp;
+
+  setUp(() {
+    tmp = Directory.systemTemp.createTempSync('tv_colours');
+    ListeningPrefs.reset();
+    Skin.palette = Palette.forest;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+      _channel,
+      (call) async => call.method == 'appVersion' ? '1.3.0' : null,
+    );
+  });
+
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(_channel, null);
+    Skin.palette = Palette.forest;
+    try {
+      tmp.deleteSync(recursive: true);
+    } on FileSystemException {
+      // Best effort.
+    }
+  });
 
   group("WCAG's contrast", () {
     test('is 21:1 for black on white, 1:1 for a colour on itself, either way round', () {
@@ -161,12 +194,117 @@ void main() {
     });
   });
 
+  group("a reader's own colours", () {
+    test('make a theme that reads whatever is picked', () {
+      final pages = [
+        for (final hue in const [30.0, 140.0, 250.0])
+          for (var tone = 0.0; tone <= 100; tone += 10) Color(Hct.from(hue, 12, tone).toInt()),
+      ];
+      const accents = [Color(0xFFE07B39), Color(0xFFF2D541), Color(0xFF1D2A6B), Color(0xFF808080)];
+      const inks = [null, Color(0xFF14170F), Color(0xFFF2EADA), Color(0xFF808080)];
+      for (final page in pages) {
+        for (final accent in accents) {
+          for (final ink in inks) {
+            final made = OwnColours(page: page, accent: accent, ink: ink).made;
+            expect(unmetNeeds(made.palette), isEmpty,
+                reason: '${colourToHex(page.toARGB32())} ${colourToHex(accent.toARGB32())} $ink');
+          }
+        }
+      }
+    });
+
+    test('a light page makes a light theme and a dark page a dark one', () {
+      expect(const OwnColours(page: Color(0xFFF3EBDD), accent: Color(0xFFE07B39)).made.palette.only, Brightness.light);
+      expect(const OwnColours(page: Color(0xFF141B2B), accent: Color(0xFFE07B39)).made.palette.only, Brightness.dark);
+    });
+
+    test('colours that read are used as picked', () {
+      const c = OwnColours(page: Color(0xFFF3EBDD), accent: Color(0xFF1FA39A), ink: Color(0xFF1D2840));
+      final made = c.made;
+      expect(made.adjusted, isFalse);
+      expect(made.palette.day[1], c.page);
+      expect(made.palette.accent, c.accent);
+      expect(made.palette.dayInk, c.ink);
+    });
+
+    test('text too close to the page moves to the nearest shade that reads, and says so', () {
+      const c = OwnColours(page: Color(0xFFF3EBDD), accent: Color(0xFFE07B39), ink: Color(0xFFC8C0B0));
+      final made = c.made;
+      expect(made.ink, isNotNull);
+      expect(_tone(made.ink!), lessThan(_tone(c.ink!)), reason: 'darker, on a light page');
+      expect(unmetNeeds(made.palette), isEmpty);
+      // Taken as picked, it reads as it is.
+      expect(c.withInk(made.ink).made.adjusted, isFalse);
+    });
+
+    test('an accent too dark to show on a dark page is lightened, and says so', () {
+      const c = OwnColours(page: Color(0xFF000000), accent: Color(0xFF14204A));
+      final made = c.made;
+      expect(made.accent, isNotNull);
+      expect(_tone(made.accent!), greaterThan(_tone(c.accent)));
+      expect(unmetNeeds(made.palette), isEmpty);
+    });
+
+    test('a page too mid-toned for any text gives way to the nearest shade that reads', () {
+      final grey = Color(Hct.from(250, 8, 50).toInt());
+      final made = OwnColours(page: grey, accent: const Color(0xFFE07B39)).made;
+      expect(made.page, isNotNull);
+      expect(unmetNeeds(made.palette), isEmpty);
+      // A step nearer the picked shade does not read: it is the nearest.
+      final t = _tone(made.page!);
+      final nearer = Color(Hct.from(250, 8, t + (t > 50 ? -1.5 : 1.5)).toInt());
+      expect(OwnColours(page: nearer, accent: const Color(0xFFE07B39)).made.page, isNotNull);
+    });
+
+    test('are kept with the appearance settings, and an older file without them still loads', () {
+      final prefs = ListeningPrefs(paletteId: 'own', ownPage: 0xFF141B2B, ownAccent: 0xFF1FA39A, ownInk: 0xFFF2EADA);
+      final json = jsonDecode(jsonEncode(prefs.toJson())) as Map<String, Object?>;
+      expect(json['ownPage'], '#141B2B');
+      final back = ListeningPrefs.fromJson(json);
+      expect([back.paletteId, back.ownPage, back.ownAccent, back.ownInk], ['own', 0xFF141B2B, 0xFF1FA39A, 0xFFF2EADA]);
+      expect(OwnColours.of(back), const OwnColours(page: Color(0xFF141B2B), accent: Color(0xFF1FA39A), ink: Color(0xFFF2EADA)));
+
+      final older = ListeningPrefs.fromJson({'palette': 'ocean', 'themeMode': 'dark'});
+      expect([older.paletteId, older.ownPage, older.ownAccent, older.ownInk], ['ocean', null, null, null]);
+      expect(OwnColours.of(older), OwnColours.start);
+      // Text made to suit the page is kept as no text at all.
+      expect(ListeningPrefs(ownPage: 0xFFF3EBDD).toJson().containsKey('ownInk'), isFalse);
+      // A damaged value is as if never set.
+      final damaged = ListeningPrefs.fromJson({'ownPage': 'teal', 'ownAccent': 12, 'ownInk': '#12345'});
+      expect([damaged.ownPage, damaged.ownAccent, damaged.ownInk], [null, null, null]);
+    });
+
+    test('a backup carries them, and one made before them restores as it was', () async {
+      final root = Directory('${tmp.path}/files')..createSync();
+      Future<ListeningPrefs> restore(Map<String, Object?> prefs) async {
+        final staging = stagingDir(root)..createSync(recursive: true);
+        File('${staging.path}/library.json').writeAsStringSync(jsonEncode({'books': []}));
+        File('${staging.path}/prefs.json').writeAsStringSync(jsonEncode(prefs));
+        await replaceLibrary(
+          root,
+          StagedBackup(staging, BackupInfo(format: backupFormat, created: DateTime(2026, 10, 31), root: root.path, books: 0, chapters: true)),
+        );
+        return ListeningPrefs.fromJson(
+            Map<String, Object?>.from(jsonDecode(File('${root.path}/prefs.json').readAsStringSync()) as Map));
+      }
+
+      final mine = ListeningPrefs(paletteId: 'own', ownPage: 0xFFE9DAC1, ownAccent: 0xFF9B6CEB);
+      final back = await restore(mine.toJson());
+      expect([back.paletteId, back.ownPage, back.ownAccent, back.ownInk], ['own', 0xFFE9DAC1, 0xFF9B6CEB, null]);
+
+      final before = await restore({'palette': 'lavender', 'textSize': 21});
+      expect([before.paletteId, before.ownPage, before.textSize], ['lavender', null, 21]);
+      expect(chosenPalette(before), Palette.lavender);
+    });
+  });
+
   group("on the reader's page", () {
     testWidgets("the page in the app's own colours is the palette's: ground, ink and the accent as text", (tester) async {
-      const p = Palette.forest;
+      final own = const OwnColours(page: Color(0xFFE6DFF2), accent: Color(0xFF1FA39A)).made.palette;
+      Skin.palette = own;
       late BuildContext page, inside;
       await tester.pumpWidget(MaterialApp(
-        theme: Skin.themeFor(p, Brightness.light),
+        theme: Skin.themeFor(own, Brightness.light),
         home: PageGround(
           tone: PageTone.app,
           child: Builder(builder: (c) {
@@ -180,11 +318,119 @@ void main() {
       ));
       final ground = tester.widget<DecoratedBox>(
           find.descendant(of: find.byType(PageGround), matching: find.byType(DecoratedBox)).first);
-      expect(((ground.decoration as BoxDecoration).gradient! as LinearGradient).colors, p.day);
-      expect(PageTone.app.inkOf(page), p.dayInk);
-      expect(PageTone.app.accentOf(page), p.accentDeep, reason: 'headings and labels in the accent that reads');
-      expect(Skin.accentOf(inside), p.accent, reason: 'the washes in the fill');
-      expect(Skin.inkFaintOn(inside), p.dayInkFaint);
+      expect(((ground.decoration as BoxDecoration).gradient! as LinearGradient).colors, own.day);
+      expect(PageTone.app.inkOf(page), own.dayInk);
+      expect(PageTone.app.accentOf(page), own.accentDeep, reason: 'headings and labels in the accent that reads');
+      expect(Skin.accentOf(inside), own.accent, reason: 'the washes in the fill');
+      expect(Skin.inkFaintOn(inside), own.dayInkFaint);
+    });
+
+    testWidgets("a page tone keeps its own paper and ink, and the app's type round it", (tester) async {
+      final own = const OwnColours(page: Color(0xFF141B2B), accent: Color(0xFFE07B39)).made.palette;
+      Skin.palette = own;
+      late BuildContext inside;
+      await tester.pumpWidget(MaterialApp(
+        theme: Skin.themeFor(own, Brightness.dark),
+        home: Builder(builder: (c) => toned(c, PageTone.papyrus, Builder(builder: (c) {
+              inside = c;
+              return const SizedBox.expand();
+            }))),
+      ));
+      expect(Skin.accentOf(inside), PageTone.papyrus.accent);
+      expect(Skin.accentInkOf(inside), PageTone.papyrus.accent);
+      expect(Skin.inkOn(inside), own.nightInk);
+    });
+  });
+
+  group('settings', () {
+    void phone(WidgetTester tester) {
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 2.75;
+      addTearDown(tester.view.reset);
+    }
+
+    Future<void> settle(WidgetTester tester) async {
+      for (var i = 0; i < 20; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> finish(WidgetTester tester) async {
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 10));
+    }
+
+    testWidgets('Your own opens its colours; a page and an accent picked show, and Use keeps them', (tester) async {
+      phone(tester);
+      await tester.pumpWidget(MaterialApp(home: SettingsScreen(store: LibraryStore(tmp))));
+      await settle(tester);
+      expect(find.text('Your own'), findsOneWidget);
+
+      await tester.tap(find.text('Your own'));
+      await tester.pumpAndSettle();
+      expect(find.text('Your own colours'), findsOneWidget);
+      await tester.tap(find.bySemanticsLabel('Night page'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Accent'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.bySemanticsLabel('Teal accent'));
+      await tester.pumpAndSettle();
+      final preview = tester.widget<Container>(
+          find.descendant(of: find.byType(OwnPreview), matching: find.byType(Container)).first);
+      final colours = ((preview.decoration! as BoxDecoration).gradient! as LinearGradient).colors;
+      expect(colours, contains(const Color(0xFF141B2B)), reason: 'the preview is on the night page');
+
+      await tester.ensureVisible(find.text('Use these colours'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Use these colours'));
+      await tester.pumpAndSettle();
+      final prefs = ListeningPrefs.memory;
+      expect([prefs.paletteId, prefs.ownPage, prefs.ownAccent, prefs.ownInk], ['own', 0xFF141B2B, 0xFF1FA39A, null]);
+      expect(find.text('Your own colours are dark, as their page is.'), findsOneWidget);
+      expect(find.text('Change your colours'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('text that cannot be read is moved and said, and Use this shade takes it', (tester) async {
+      phone(tester);
+      await tester.pumpWidget(MaterialApp(home: SettingsScreen(store: LibraryStore(tmp))));
+      await settle(tester);
+      await tester.tap(find.text('Your own'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Text'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.bySemanticsLabel('White text'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('The text is darker than you chose'), findsOneWidget);
+      await tester.tap(find.text('Use this shade'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('than you chose'), findsNothing);
+      await tester.ensureVisible(find.text('Use these colours'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Use these colours'));
+      await tester.pumpAndSettle();
+      final ink = Color(ListeningPrefs.memory.ownInk!);
+      expect(contrast(ink, const Color(0xFFF3EBDD)), greaterThanOrEqualTo(smallText));
+      await finish(tester);
+    });
+
+    testWidgets('the hue and shade bars keep the rest of the colour', (tester) async {
+      Color? picked;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: HueShadePicker(colour: const Color(0xFFE07B39), onChanged: (c) => picked = c),
+        ),
+      ));
+      final bars = tester.widgetList<Slider>(find.byType(Slider)).toList();
+      final start = Hct.fromInt(0xFFE07B39);
+      bars[1].onChanged!(30);
+      expect(_tone(picked!), closeTo(30, 1));
+      expect((Hct.fromInt(picked!.toARGB32()).hue - start.hue).abs(), lessThan(4));
+      bars[0].onChanged!(250);
+      expect(Hct.fromInt(picked!.toARGB32()).hue, closeTo(250, 4));
+      expect(_tone(picked!), closeTo(start.tone, 1));
     });
   });
 }

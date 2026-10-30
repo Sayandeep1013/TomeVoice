@@ -18,6 +18,8 @@ import 'library_store.dart';
 import 'listen_sheet.dart';
 import 'neural_screen.dart';
 import 'noveldokusha_import.dart';
+import 'own_colours.dart';
+import 'own_colours_sheet.dart';
 import 'prefs.dart';
 import 'problem_report.dart';
 import 'relayout.dart';
@@ -122,6 +124,23 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
       _before?.dispose();
       _before = null;
     });
+  }
+
+  /// Your own colours: the editor opens on the ones kept (or where a reader
+  /// starts), and what it gives back is kept and shown.
+  Future<void> _pickOwn() async {
+    final picked = await showOwnColours(context, OwnColours.of(_prefs));
+    if (picked == null || !mounted) return;
+    _changeTheme(() {
+      picked.saveTo(_prefs);
+      _prefs.paletteId = 'own';
+    });
+  }
+
+  /// What "Light or dark" says of a theme shown only one way.
+  String _alwaysSaid(Palette p) {
+    final way = p.only == Brightness.dark ? 'dark' : 'light';
+    return _prefs.paletteId == 'own' ? 'Your own colours are $way, as their page is.' : '${p.label} is always $way.';
   }
 
   /// Automatic backups on or off. On needs a folder: picked first, and
@@ -268,8 +287,15 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                         const SizedBox(height: Gap.m),
                         _PaletteSwatches(
                           selected: _prefs.paletteId,
+                          own: OwnColours.of(_prefs).made.palette,
                           onPick: (id) => _changeTheme(() => _prefs.paletteId = id),
+                          onOwn: _pickOwn,
                         ),
+                        if (_prefs.paletteId == 'own')
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton(onPressed: _pickOwn, child: const Text('Change your colours')),
+                          ),
                         const SizedBox(height: Gap.l),
                         SwitchRow(
                           title: 'Colours from book covers',
@@ -282,7 +308,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                         const SizedBox(height: Gap.xl),
                         const SectionTitle('Light or dark'),
                         const SizedBox(height: Gap.m),
-                        if (Palette.byId(_prefs.paletteId).only == null)
+                        if (chosenPalette(_prefs).only == null)
                           ChoiceRow<ThemeMode>(
                             options: const [
                               (ThemeMode.system, 'Phone'),
@@ -294,8 +320,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           )
                         else
                           Text(
-                            '${Palette.byId(_prefs.paletteId).label} is always '
-                            '${Palette.byId(_prefs.paletteId).only == Brightness.dark ? 'dark' : 'light'}.',
+                            _alwaysSaid(chosenPalette(_prefs)),
                             style: Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
                           ),
                       ],
@@ -570,36 +595,69 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
 }
 
 /// The colour themes, each drawn as a little card of its own ground and
-/// accent, in the brightness it would show in now.
+/// accent, in the brightness it would show in now: the five, and the
+/// reader's own, which opens its colours.
 class _PaletteSwatches extends StatelessWidget {
-  const _PaletteSwatches({required this.selected, required this.onPick});
+  const _PaletteSwatches({
+    required this.selected,
+    required this.own,
+    required this.onPick,
+    required this.onOwn,
+  });
 
   final String selected;
+  final Palette own;
   final ValueChanged<String> onPick;
+  final VoidCallback onOwn;
 
   @override
   Widget build(BuildContext context) {
     final dark = Skin.isDark(context);
-    // All five in one row, so none hides off the side.
-    return Row(
-      children: [
-        for (final (i, p) in Palette.all.indexed) ...[
-          if (i > 0) const SizedBox(width: Gap.s),
-          Expanded(child: _swatch(context, p, p.only ?? (dark ? Brightness.dark : Brightness.light))),
-        ],
-      ],
+    final themes = [
+      for (final p in Palette.all) (p, p.id, p.label),
+      (own, 'own', 'Your own'),
+    ];
+    // Rows of as many as fit with their names whole (four on a phone held
+    // upright), so none hides off the side.
+    return LayoutBuilder(
+      builder: (context, box) {
+        final across = (box.maxWidth / 72).floor().clamp(4, themes.length);
+        return Column(
+          children: [
+            for (var row = 0; row * across < themes.length; row++) ...[
+              if (row > 0) const SizedBox(height: Gap.m),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (var i = 0; i < across; i++) ...[
+                    if (i > 0) const SizedBox(width: Gap.s),
+                    Expanded(
+                      child: row * across + i < themes.length
+                          ? _swatch(context, themes[row * across + i], dark)
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ],
+        );
+      },
     );
   }
 
-  Widget _swatch(BuildContext context, Palette p, Brightness b) {
-    final on = p.id == selected;
-    final ink = b == Brightness.dark ? Skin.nightInk : Skin.ink;
+  Widget _swatch(BuildContext context, (Palette, String, String) theme, bool dark) {
+    final (p, id, label) = theme;
+    final b = p.only ?? (dark ? Brightness.dark : Brightness.light);
+    final on = id == selected;
+    final mine = id == 'own';
+    final ink = p.inkFor(b);
     return Semantics(
       button: true,
       selected: on,
-      label: '${p.label} theme',
+      label: mine ? 'Your own colours' : '$label theme',
       child: GestureDetector(
-        onTap: () => onPick(p.id),
+        onTap: mine ? onOwn : () => onPick(id),
         child: Column(
           children: [
             AnimatedContainer(
@@ -633,7 +691,12 @@ class _PaletteSwatches extends StatelessWidget {
                       width: 18,
                       height: 18,
                       decoration: BoxDecoration(color: p.accent, shape: BoxShape.circle),
-                      child: on ? Icon(Icons.check_rounded, size: 13, color: p.onAccent) : null,
+                      // Your own opens its colours: a brush until it is chosen.
+                      child: on
+                          ? Icon(Icons.check_rounded, size: 13, color: p.onAccent)
+                          : mine
+                              ? Icon(Icons.brush_rounded, size: 11, color: p.onAccent)
+                              : null,
                     ),
                   ),
                 ],
@@ -641,7 +704,7 @@ class _PaletteSwatches extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              p.label,
+              label,
               maxLines: 1,
               overflow: TextOverflow.fade,
               softWrap: false,

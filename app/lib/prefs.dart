@@ -44,6 +44,9 @@ class ListeningPrefs {
     this.keepScreenOn = false,
     this.themeMode = ThemeMode.system,
     this.paletteId = 'forest',
+    this.ownPage,
+    this.ownAccent,
+    this.ownInk,
     this.updateEvery = 'daily',
     this.gridView = true,
     this.sort = LibrarySort.recent,
@@ -225,8 +228,17 @@ class ListeningPrefs {
   /// Light, dark, or the phone's choice.
   ThemeMode themeMode;
 
-  /// The colour theme: forest, lavender, ocean, black or paper.
+  /// The colour theme: forest, lavender, ocean, black or paper; own, the
+  /// reader's own colours; or wallpaper, the phone's (Android 12 and later).
   String paletteId;
+
+  /// The reader's own colours (Settings > Appearance > Your own), as ARGB:
+  /// the page and the accent, and the text when they chose one (null for
+  /// text made to suit the page). Kept while another theme is chosen, so
+  /// they come back as they were.
+  int? ownPage;
+  int? ownAccent;
+  int? ownInk;
 
   /// How often web novels are checked for new chapters (see UpdateEvery).
   String updateEvery;
@@ -362,6 +374,9 @@ class ListeningPrefs {
         'keepScreenOn': keepScreenOn,
         'themeMode': themeMode.name,
         'palette': paletteId,
+        if (ownPage != null) 'ownPage': colourToHex(ownPage!),
+        if (ownAccent != null) 'ownAccent': colourToHex(ownAccent!),
+        if (ownInk != null) 'ownInk': colourToHex(ownInk!),
         'updateEvery': updateEvery,
         'gridView': gridView,
         'sort': sort.name,
@@ -438,6 +453,9 @@ class ListeningPrefs {
             ThemeMode.system,
         gridView: json['gridView'] as bool? ?? true,
         paletteId: json['palette'] as String? ?? 'forest',
+        ownPage: colourFromHex(json['ownPage']),
+        ownAccent: colourFromHex(json['ownAccent']),
+        ownInk: colourFromHex(json['ownInk']),
         updateEvery: json['updateEvery'] as String? ?? 'daily',
         sort: LibrarySort.values.where((m) => m.name == json['sort']).firstOrNull ??
             LibrarySort.recent,
@@ -463,6 +481,17 @@ class ListeningPrefs {
             if (e.value is String) '${e.key}': e.value as String,
         },
       );
+}
+
+/// An opaque colour as a backup writes it, "#E07B39".
+String colourToHex(int argb) => '#${(argb & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}';
+
+/// A colour written as "#E07B39" (or "E07B39"), opaque; null for anything
+/// else, so a hand-edited or damaged value is as if never set.
+int? colourFromHex(Object? v) {
+  if (v is! String) return null;
+  final m = RegExp(r'^#?([0-9a-fA-F]{6})$').firstMatch(v.trim());
+  return m == null ? null : 0xFF000000 | int.parse(m.group(1)!, radix: 16);
 }
 
 /// What next and previous do on headphones, the lock screen and the
