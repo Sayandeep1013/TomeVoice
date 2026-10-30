@@ -524,6 +524,8 @@ enum LibrarySort {
   recent('Last read'),
   added('Date added'),
   title('Title'),
+  author('Author'),
+  series('Series'),
   progress('Progress');
 
   const LibrarySort(this.label);

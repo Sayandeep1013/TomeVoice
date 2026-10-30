@@ -32,8 +32,16 @@ class _SavedScreenState extends State<SavedScreen> {
   MarkKind _kind = MarkKind.quote;
   Map<String, LibraryEntry> _books = const {};
 
-  /// Books on a locked secret shelf: their marks are left out.
-  Set<String> _hidden = const {};
+  /// What may show (LibraryStore.marksShown): nothing of a book on a shut
+  /// secret shelf, nor of a removed book that may have been on one. Nothing
+  /// until it is known.
+  bool Function(Mark) _shown = _none;
+  static bool _none(Mark _) => false;
+
+  /// Every book in the library, shown or not: a mark of none of them is of
+  /// a book that is gone. Known once [_loaded].
+  Set<String> _present = const {};
+  bool _loaded = false;
   String _query = '';
 
   /// The mark last brought back with Undo: it opens into its place again
@@ -65,13 +73,38 @@ class _SavedScreenState extends State<SavedScreen> {
 
   Future<void> _loadBooks() async {
     final list = await widget.store.list();
-    final hidden = await widget.store.hiddenIds();
+    final all = await widget.store.list(all: true);
+    final shown = await widget.store.marksShown();
     if (mounted) {
       setState(() {
         _books = {for (final e in list) e.id: e};
-        _hidden = hidden;
+        _present = {for (final e in all) e.id};
+        _shown = shown;
+        _loaded = true;
       });
     }
+  }
+
+  /// Clear [gone], marks of books no longer in the library, together; Undo
+  /// puts them back.
+  Future<void> _clearGone(List<Mark> gone) async {
+    final quotes = _kind == MarkKind.quote;
+    final what = quotes ? (gone.length == 1 ? 'quote' : 'quotes') : (gone.length == 1 ? 'bookmark' : 'bookmarks');
+    final ok = await confirm(
+      context,
+      title: 'Clear ${gone.length} $what?',
+      body: 'They are from books no longer in your library. Their words go with them.',
+      action: 'Clear',
+    );
+    if (!ok || !mounted) return;
+    await _marks.removeAll({for (final m in gone) m.id});
+    if (!mounted) return;
+    showSnack(
+      context,
+      'Cleared ${gone.length} $what.',
+      actionLabel: 'Undo',
+      onAction: () => unawaited(_marks.restoreAll(gone)),
+    );
   }
 
   Future<void> _open(Mark m) async {
@@ -121,7 +154,7 @@ class _SavedScreenState extends State<SavedScreen> {
     final q = _query.trim().toLowerCase();
     final mine = [
       for (final m in _marks.all)
-        if ((widget.bookId == null || m.bookId == widget.bookId) && !_hidden.contains(m.bookId)) m,
+        if ((widget.bookId == null || m.bookId == widget.bookId) && _shown(m)) m,
     ];
     bool matches(Mark m) =>
         q.isEmpty ||
@@ -135,6 +168,10 @@ class _SavedScreenState extends State<SavedScreen> {
     }
     final quotes = mine.where((m) => m.kind == MarkKind.quote).length;
     final bookmarks = mine.length - quotes;
+    // Of books no longer in the library: offered to clear together.
+    final gone = widget.bookId != null || !_loaded
+        ? const <Mark>[]
+        : [for (final m in mine) if (m.kind == _kind && !_present.contains(m.bookId)) m];
     return Scaffold(
       body: DecoratedBox(
         decoration: BoxDecoration(gradient: Skin.ground(context)),
@@ -173,7 +210,9 @@ class _SavedScreenState extends State<SavedScreen> {
                 // Quotes and bookmarks fade into each other's place.
                 child: FadeIn(
                   trigger: _kind,
-                  child: marks.isEmpty
+                  child: !_loaded
+                      ? const SizedBox.shrink()
+                      : marks.isEmpty
                       ? EmptyState(
                           icon: _kind == MarkKind.quote ? Icons.format_quote_rounded : Icons.bookmark_border_rounded,
                           title: q.isNotEmpty
@@ -188,6 +227,7 @@ class _SavedScreenState extends State<SavedScreen> {
                           padding: EdgeInsets.fromLTRB(
                               Gap.page, 0, Gap.page, Gap.xxl + MediaQuery.viewPaddingOf(context).bottom),
                           children: [
+                            if (gone.isNotEmpty && q.isEmpty) _goneRow(context, gone),
                             for (final entry in byBook.entries) ..._group(context, entry.key, entry.value),
                           ],
                         ),
@@ -220,8 +260,15 @@ class _SavedScreenState extends State<SavedScreen> {
                 const SizedBox(width: Gap.m),
               ],
               Expanded(
-                child: Text(marks.first.bookTitle,
-                    maxLines: 1, overflow: TextOverflow.ellipsis, style: Skin.title(context, size: 17)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(marks.first.bookTitle,
+                        maxLines: 1, overflow: TextOverflow.ellipsis, style: Skin.title(context, size: 17)),
+                    if (_loaded && !_present.contains(bookId))
+                      Text('No longer in your library'.toUpperCase(), style: Skin.meta(context, size: 9.5)),
+                  ],
+                ),
               ),
             ],
           ),
@@ -243,6 +290,36 @@ class _SavedScreenState extends State<SavedScreen> {
           ),
         ),
     ];
+  }
+
+  /// How many of what is listed are from books no longer in the library,
+  /// with Clear for all of them.
+  Widget _goneRow(BuildContext context, List<Mark> gone) {
+    final quotes = _kind == MarkKind.quote;
+    final what = quotes ? (gone.length == 1 ? 'quote is' : 'quotes are') : (gone.length == 1 ? 'bookmark is' : 'bookmarks are');
+    return Padding(
+      padding: const EdgeInsets.only(top: Gap.xs),
+      child: Material(
+        color: Skin.capsuleOn(context),
+        borderRadius: BorderRadius.circular(Radii.card / 1.5),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(Gap.l, Gap.xs, Gap.xs, Gap.xs),
+          child: Row(
+            children: [
+              Icon(Icons.inventory_2_outlined, size: 19, color: Skin.inkSoftOn(context)),
+              const SizedBox(width: Gap.m),
+              Expanded(
+                child: Text(
+                  '${gone.length} $what from books no longer in your library',
+                  style: Skin.ui(size: 14, weight: FontWeight.w500, color: Skin.inkSoftOn(context)),
+                ),
+              ),
+              TextButton(onPressed: () => unawaited(_clearGone(gone)), child: const Text('Clear')),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _tile(BuildContext context, Mark m, LibraryEntry? book) => Dismissible(

@@ -4,6 +4,7 @@ import 'dart:math' as math;
 
 import 'error_log.dart' show ErrorLog;
 import 'library_store.dart';
+import 'organise.dart' show distinctTags;
 import 'safe_file.dart';
 import 'speech_service.dart';
 import 'stats.dart';
@@ -66,6 +67,8 @@ String backupFileName(DateTime now) {
 /// Write the library to a zip where the reader chooses. Null when they
 /// closed the save dialog; otherwise how many files and bytes went in.
 Future<({int files, int bytes})?> backUpLibrary(LibraryStore store, {required bool includeChapters}) async {
+  // The places kept in memory go into library.json first (see saveCursor).
+  await store.settlePlaces();
   final books = (await store.list()).length;
   final now = DateTime.now();
   final info = BackupInfo(
@@ -358,6 +361,12 @@ Future<AddReport> addToLibrary(Directory root, StagedBackup staged, {bool settin
       };
       changed = true;
     }
+    // How the reader organised it: see _organised.
+    final organised = _organised(books[here], m);
+    if (organised != null) {
+      books[here] = organised;
+      changed = true;
+    }
     final ch = Directory('${dir.path}/ch');
     if (await ch.exists()) {
       final into = Directory('${root.path}/books/$id/ch');
@@ -381,6 +390,28 @@ Future<AddReport> addToLibrary(Directory root, StagedBackup staged, {bool settin
   final took = settings && await _takeSettings(root, from);
   await staged.discard();
   return (added: added, updated: updated, sources: sources, marks: marks, days: days, rules: rules, settings: took);
+}
+
+/// A book in both libraries, [mine] as it is here and [theirs] in the
+/// backup, with what the reader gave it on either phone; null when that
+/// changes nothing. Tags: both phones' (one tag once, as spelled here). A
+/// series: this phone's when it has one or was told it has none, else the
+/// backup's. A print of its text (made here or there, the same): whichever
+/// has one.
+Map<String, Object?>? _organised(Map<String, Object?> mine, Map<String, Object?> theirs) {
+  final out = {...mine};
+  final mineTags = [for (final t in mine['tags'] is List ? mine['tags'] as List : const []) if (t is String) t];
+  final tags = distinctTags([
+    ...mineTags,
+    for (final t in theirs['tags'] is List ? theirs['tags'] as List : const []) if (t is String) t,
+  ]);
+  if (tags.length != mineTags.length) out['tags'] = tags;
+  if (!mine.containsKey('series') && theirs['series'] is String) {
+    out['series'] = theirs['series'];
+    if (theirs['seriesIndex'] is num) out['seriesIndex'] = theirs['seriesIndex'];
+  }
+  if (mine['print'] == null && theirs['print'] is String) out['print'] = theirs['print'];
+  return out.length == mine.length && tags.length == mineTags.length ? null : out;
 }
 
 /// Quotes and bookmarks from [from] that are not here (by id), the whole

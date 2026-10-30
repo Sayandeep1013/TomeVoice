@@ -15,17 +15,29 @@ final _salt = Random().nextInt(1 << 32).toRadixString(36);
 /// moment, never leaves it half written: the text goes into a file beside it,
 /// which is then renamed over it (a rename is atomic on the same disk). Does
 /// nothing when [file] is null.
-Future<void> writeSafely(File? file, String text) {
+Future<void> writeSafely(File? file, String text) => _writeVia(file, (tmp) => tmp.writeAsString(text, flush: true));
+
+/// [writeSafely] for bytes already encoded (library.json, see index_file.dart).
+Future<void> writeBytesSafely(File? file, List<int> bytes) =>
+    _writeVia(file, (tmp) => tmp.writeAsBytes(bytes, flush: true));
+
+Future<void> _writeVia(File? file, Future<Object?> Function(File tmp) put) {
   if (file == null) return Future<void>.value();
   final path = file.path;
   final before = _pending[path] ?? Future<void>.value();
   final write = before.catchError((Object _) {}).then((_) async {
     final tmp = File('$path.$_salt${_serial++}.tmp');
     try {
-      await tmp.writeAsString(text, flush: true);
+      await put(tmp);
       await tmp.rename(path);
-    } finally {
-      if (await tmp.exists()) await tmp.delete();
+    } on Object {
+      // Renamed, it is gone; only a write that failed leaves one to clear.
+      try {
+        if (await tmp.exists()) await tmp.delete();
+      } on FileSystemException {
+        // Swept with the folder, or overwritten by the next.
+      }
+      rethrow;
     }
   });
   _pending[path] = write;

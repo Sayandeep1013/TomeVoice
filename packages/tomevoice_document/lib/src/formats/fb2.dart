@@ -54,6 +54,11 @@ Book parseFb2(Uint8List bytes, {required String id, String? filename, LegacyDeco
           ].join(' ')),
   ]..removeWhere((a) => a.isEmpty);
   final lang = info == null ? null : find(info, 'lang')?.innerText.trim();
+  // <sequence name="..." number="3"/>: the series, and the book's place in it.
+  final sequence = info?.children
+      .whereType<XmlElement>()
+      .where((e) => e.name.local == 'sequence' && collapseWhitespace(e.getAttribute('name') ?? '').isNotEmpty)
+      .firstOrNull;
 
   resetBlockIds();
   final sections = <DraftSection>[];
@@ -140,6 +145,8 @@ Book parseFb2(Uint8List bytes, {required String id, String? filename, LegacyDeco
           : (titleFromFilename(filename) ?? 'Untitled'),
       authors: authors,
       language: lang,
+      series: sequence == null ? null : collapseWhitespace(sequence.getAttribute('name')!),
+      seriesIndex: double.tryParse(sequence?.getAttribute('number')?.trim() ?? ''),
     ),
     sections: sections,
     source: SourceKind.fb2,

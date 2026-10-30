@@ -10,12 +10,15 @@ import 'book_card.dart';
 import 'book_screen.dart';
 import 'book_tint.dart';
 import 'categories_screen.dart';
+import 'duplicates.dart';
 import 'library_store.dart';
 import 'listening_session.dart';
 import 'novel_screen.dart';
 import 'ocr.dart';
 import 'ocr_jobs.dart';
 import 'ocr_sheet.dart';
+import 'organise.dart';
+import 'organise_sheets.dart';
 import 'prefs.dart';
 import 'reader_screen.dart';
 import 'secret_shelf.dart';
@@ -27,6 +30,10 @@ import 'ui.dart';
 import 'voices.dart';
 
 const _svc = SpeechService();
+
+/// The View menu's items past its views and orders.
+const _filterItem = 'filter';
+const _duplicatesItem = 'duplicates';
 
 /// The shelf.
 ///
@@ -79,6 +86,11 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
   String _query = '';
   bool _searching = false;
   final _selected = <String>{};
+
+  /// What the shelves are narrowed to (the View menu's Filter). Not kept
+  /// past the app's closing; what no book shown has any more (a secret
+  /// shelf shut) is dropped where it is used (ShelfFilter.within).
+  ShelfFilter _filter = const ShelfFilter();
   final _searchController = TextEditingController();
 
   /// When each shelf (category, in list or covers) first showed: its books
@@ -369,6 +381,8 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
   }
 
   Future<void> _importAll(List<PickedFile> files, {required bool openAfter}) async {
+    // The books here before, to tell a new one from a file opened again.
+    final before = {for (final e in (await _store.index(all: true)).entries) e.id};
     final imported = <LibraryEntry>[];
     final failures = <String>[];
     // Said once the books are in: a PDF that is mostly pictures, say.
@@ -420,8 +434,23 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
       final page = idx.categories.indexWhere((c) => c.id == cat);
       if (page >= 0) _goToPage(page);
     }
+    // A new book that looks like one already here (another file or format
+    // of it) is offered, never merged: see duplicates.dart.
+    final copies = _copiesAmong([for (final e in imported) if (!before.contains(e.id)) e], idx.entries);
     if (failures.isNotEmpty || notes.isNotEmpty) {
       _snack([...failures, ...notes].join('\n'), long: true);
+    } else if (copies.isNotEmpty) {
+      final first = copies.first.$1;
+      showSnack(
+        context,
+        copies.length == 1
+            ? '"${first.first.title}" may already be in your library, as ${first.last.formatLabel}.'
+            : '${copies.length} of these may already be in your library.',
+        long: true,
+        lift: 84,
+        actionLabel: 'Look',
+        onAction: () => unawaited(_lookAtCopies(copies)),
+      );
     } else if (imported.length > 1) {
       _snack('Added ${imported.length} books.');
     }
@@ -535,6 +564,11 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     _snack('Moved to $name.');
   }
 
+  Future<void> _tagSelected() async {
+    await tagSelected(context, _store, {..._selected});
+    if (mounted) _clearSelection();
+  }
+
   Future<void> _removeSelected() async {
     final n = _selected.length;
     final ok = await confirm(
@@ -599,6 +633,14 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
                 onTap: () => Navigator.pop(ctx, 'move'),
               ),
               SheetAction(
+                icon: Icons.sell_outlined,
+                label: 'Tags and series…',
+                detail: e.seriesName == null && e.tags.isEmpty
+                    ? null
+                    : [if (e.seriesName != null) seriesLine(e), ...e.tags].join('  ·  '),
+                onTap: () => Navigator.pop(ctx, 'organise'),
+              ),
+              SheetAction(
                 icon: Icons.checklist_rounded,
                 label: 'Select',
                 detail: 'Pick several books to move or remove',
@@ -631,6 +673,8 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
         await changeCover(context, _store, e);
       case 'move':
         await moveBook(context, _store, e);
+      case 'organise':
+        await editTagsAndSeries(context, _store, e);
       case 'select':
         _toggle(e);
       case 'remove':
@@ -646,19 +690,64 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
 
   // ---------------------------------------------------------------- build
 
-  List<LibraryEntry> _sorted(List<LibraryEntry> books) {
-    final out = [...books];
-    switch (_prefs.sort) {
-      case LibrarySort.recent:
-        break; // The index is already newest first.
-      case LibrarySort.added:
-        out.sort((a, b) => b.addedAt.compareTo(a.addedAt));
-      case LibrarySort.title:
-        out.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
-      case LibrarySort.progress:
-        out.sort((a, b) => b.progress.compareTo(a.progress));
+  List<LibraryEntry> _sorted(Iterable<LibraryEntry> books) => sortBooks(books, _prefs.sort);
+
+  /// For each of [fresh] (books just imported) that looks like a copy of
+  /// one among [shown], the new one with the copies (it first) and why.
+  /// Only [shown] are asked: a copy on a shut secret shelf is never named.
+  static List<(List<LibraryEntry>, String)> _copiesAmong(List<LibraryEntry> fresh, List<LibraryEntry> shown) {
+    final freshIds = {for (final e in fresh) e.id};
+    final others = [for (final e in shown) if (!freshIds.contains(e.id)) e];
+    return [
+      for (final e in fresh)
+        if (shown.any((s) => s.id == e.id))
+          if (copiesOf(e, others) case final found when found.isNotEmpty) ([e, for (final (o, _) in found) o], found.first.$2),
+    ];
+  }
+
+  /// The copies an import found, as they stand when they are looked at: a
+  /// secret shelf shut since (the app left and come back to) takes its
+  /// books out of them, as does a book removed meanwhile.
+  Future<void> _lookAtCopies(List<(List<LibraryEntry>, String)> copies) async {
+    final shown = {for (final e in (await _store.index()).entries) e.id};
+    final still = [
+      for (final (books, why) in copies)
+        if ([for (final b in books) if (shown.contains(b.id)) b] case final left when left.length > 1) (left, why),
+    ];
+    if (still.isEmpty || !mounted) return;
+    await showDuplicates(context, _store, still);
+  }
+
+  Future<void> _openFilter() async {
+    final idx = _index;
+    if (idx == null) return;
+    await showShelfFilter(
+      context,
+      books: idx.entries,
+      filter: _filter.within(idx.entries),
+      onChanged: (f) {
+        if (mounted) setState(() => _filter = f);
+      },
+      onEditTags: () => unawaited(_editTags()),
+    );
+  }
+
+  Future<void> _editTags() async {
+    await editTags(context, _store);
+    await _refresh();
+  }
+
+  /// The View menu's Find duplicates: every group of books on the shelves
+  /// shown that look like one book.
+  Future<void> _findDuplicates() async {
+    final idx = await _store.index();
+    if (!mounted) return;
+    final groups = duplicateGroups(idx.entries);
+    if (groups.isEmpty) {
+      _snack('No two books look alike.');
+      return;
     }
-    return out;
+    await showDuplicates(context, _store, [for (final g in groups) (g, whyAlike(g))]);
   }
 
   @override
@@ -679,10 +768,13 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
         if (e.openedAt != null && !e.finished && e.id != live) e,
     ].take(6).toList();
     final showDock = reading.isNotEmpty && !_selecting && !searching;
+    // Only what the books shown still have: a tag or series of a shut
+    // secret shelf's books is neither applied nor named.
+    final filter = _filter.within(entries);
 
-    // A new sort or view fades the books round, rather than swapping them
-    // under the finger.
-    final arrangement = (_prefs.sort, _prefs.gridView);
+    // A new sort, view or filter fades the books round, rather than
+    // swapping them under the finger.
+    final arrangement = (_prefs.sort, _prefs.gridView, filter);
     final String mode;
     Widget body;
     if (idx == null) {
@@ -693,9 +785,15 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
       body = Center(child: SingleChildScrollView(child: _emptyLibrary(context)));
     } else if (searching) {
       mode = 'search';
+      // By title and author, and by a tag or series too.
       final found = _sorted([
         for (final e in entries)
-          if (e.title.toLowerCase().contains(q) || e.authorLine.toLowerCase().contains(q)) e,
+          if (filter.matches(e) &&
+              (e.title.toLowerCase().contains(q) ||
+                  e.authorLine.toLowerCase().contains(q) ||
+                  (e.seriesName?.toLowerCase().contains(q) ?? false) ||
+                  e.tags.any((t) => t.toLowerCase().contains(q))))
+            e,
       ]);
       body = FadeIn(
         trigger: arrangement,
@@ -719,11 +817,26 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
             padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xs, Gap.s, Gap.s),
             child: _CategoryTabs(
               index: idx,
+              filter: filter,
               current: _page,
               pages: _pages,
               onPick: _goToPage,
               onManage: _manageCategories,
             ),
+          ),
+          _unfold(
+            context,
+            filter.isEmpty
+                ? null
+                : Padding(
+                    key: const ValueKey('filter'),
+                    padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.s, Gap.s),
+                    child: ActiveFilter(
+                      filter: filter,
+                      books: entries,
+                      onChanged: (f) => setState(() => _filter = f),
+                    ),
+                  ),
           ),
           Expanded(
             child: FadeIn(
@@ -738,10 +851,10 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
                 onPageChanged: (p) => setState(() => _page = p),
                 itemBuilder: (context, p) {
                   final c = categories[p];
-                  final books = _sorted(idx.inCategory(c.id));
+                  final books = _sorted(idx.inCategory(c.id).where(filter.matches));
                   final since = _introduced.putIfAbsent('${c.id}/${_prefs.gridView}', DateTime.now);
                   return books.isEmpty
-                      ? _emptyCategory(context, c.name)
+                      ? _emptyCategory(context, c.name, filtered: !filter.isEmpty)
                       : _books(context, books, shelf: c.id, bottomPad: showDock ? 120 : Gap.xl, since: since);
                 },
               ),
@@ -1081,6 +1194,14 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     position: PopupMenuPosition.under,
     padding: EdgeInsets.zero,
     onSelected: (v) {
+      if (v == _filterItem) {
+        unawaited(_openFilter());
+        return;
+      }
+      if (v == _duplicatesItem) {
+        unawaited(_findDuplicates());
+        return;
+      }
       if (v is bool) _prefs.gridView = v;
       if (v is LibrarySort) _prefs.sort = v;
       _prefs.save();
@@ -1104,6 +1225,40 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
       const PopupMenuDivider(),
       for (final s in LibrarySort.values)
         CheckedPopupMenuItem<Object>(value: s, checked: _prefs.sort == s, child: Text('Sort: ${s.label}')),
+      const PopupMenuDivider(),
+      // Ticked while the shelves are narrowed, lined up with the views'.
+      CheckedPopupMenuItem<Object>(
+        value: _filterItem,
+        checked: !_filter.within(_index?.entries ?? const []).isEmpty,
+        child: Row(
+          children: [
+            const Icon(Icons.filter_list_rounded, size: 20),
+            const SizedBox(width: Gap.m),
+            Flexible(
+              child: Text(
+                switch (_filter.within(_index?.entries ?? const []).count) {
+                  0 => 'Filter…',
+                  final n => 'Filter… ($n)',
+                },
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+      const PopupMenuItem<Object>(
+        value: _duplicatesItem,
+        child: Row(
+          children: [
+            // Where a ticked item has its tick (24, and the gap after it),
+            // so its icon stands under theirs.
+            SizedBox(width: 40),
+            Icon(Icons.content_copy_rounded, size: 20),
+            SizedBox(width: Gap.m),
+            Flexible(child: Text('Find duplicates', overflow: TextOverflow.ellipsis)),
+          ],
+        ),
+      ),
     ],
     child: IgnorePointer(
       child: RoundButton(
@@ -1119,6 +1274,8 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
       RoundButton(icon: Icons.close_rounded, tooltip: 'Cancel', onTap: _clearSelection),
       const SizedBox(width: Gap.m),
       Expanded(child: Text('${_selected.length} selected', style: Skin.title(context, size: 22))),
+      RoundButton(icon: Icons.sell_outlined, tooltip: 'Tag', onTap: _tagSelected),
+      const SizedBox(width: Gap.s),
       RoundButton(icon: Icons.drive_file_move_outline, tooltip: 'Move to…', onTap: _moveSelected),
       const SizedBox(width: Gap.s),
       RoundButton(icon: Icons.delete_outline_rounded, tooltip: 'Remove', onTap: _removeSelected),
@@ -1174,16 +1331,22 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     ],
   );
 
-  Widget _emptyCategory(BuildContext context, String name) => ListView(
+  Widget _emptyCategory(BuildContext context, String name, {bool filtered = false}) => ListView(
     padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xxl, Gap.page, 0),
     children: [
-      Text('Nothing in $name yet', textAlign: TextAlign.center, style: Skin.title(context, size: 20)),
+      Text(filtered ? 'Nothing on $name to show' : 'Nothing in $name yet',
+          textAlign: TextAlign.center, style: Skin.title(context, size: 20)),
       const SizedBox(height: Gap.s),
-      Text(
-        'Long-press a book on another shelf, then tap Move.',
-        textAlign: TextAlign.center,
-        style: Skin.label(context, size: 14, color: Skin.inkFaintOn(context)),
-      ),
+      if (filtered)
+        Center(
+          child: TextButton(onPressed: () => setState(() => _filter = const ShelfFilter()), child: const Text('Show all')),
+        )
+      else
+        Text(
+          'Long-press a book on another shelf, then tap Move.',
+          textAlign: TextAlign.center,
+          style: Skin.label(context, size: 14, color: Skin.inkFaintOn(context)),
+        ),
     ],
   );
 
@@ -1221,6 +1384,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
 class _CategoryTabs extends StatefulWidget {
   const _CategoryTabs({
     required this.index,
+    required this.filter,
     required this.current,
     required this.pages,
     required this.onPick,
@@ -1228,6 +1392,9 @@ class _CategoryTabs extends StatefulWidget {
   });
 
   final LibraryIndex index;
+
+  /// What the shelves are narrowed to: each pill counts what it shows.
+  final ShelfFilter filter;
   final int current;
 
   /// The shelves' pager: where it stands between two pages is how far the
@@ -1315,7 +1482,7 @@ class _CategoryTabsState extends State<_CategoryTabs> {
                           context,
                           i,
                           index.categories[i],
-                          index.inCategory(index.categories[i].id).length,
+                          index.inCategory(index.categories[i].id).where(widget.filter.matches).length,
                           (1 - (at - i).abs()).clamp(0.0, 1.0),
                         ),
                         const SizedBox(width: Gap.s),

@@ -557,7 +557,7 @@ class BackgroundReading {
                 (readerLayout.units.first.text == layout.units.first.text &&
                     readerLayout.units.last.text == layout.units.last.text)));
     if (!same || _parkedAt != null || _rolling != null) return null;
-    _persistNow();
+    unawaited(_persistNow());
     _release();
     return (player: player, sleepAt: _sleepAt, sleepChapter: _sleepChapter, sleep: _sleep);
   }
@@ -589,16 +589,23 @@ class BackgroundReading {
 
   Future<void> toggle() => playing ? pause() : resume();
 
-  /// The end: the place saved, the card gone.
+  /// The end: the place saved, the card gone. The place goes into
+  /// library.json at once, not with the next few (LibraryStore.settlePlaces);
+  /// [saved] is done when it is there.
   Future<void> stop() async {
     if (!identical(current.value, this)) return;
-    _persistNow();
+    unawaited(store.settlePlaces().catchError((Object _) {}));
+    unawaited(_persistNow());
     _release();
     player.endFade();
     await player.stop();
     player.dispose();
     await _svc.session(active: false);
   }
+
+  /// The last place saved, done once it is written.
+  Future<void> get saved => _saved;
+  Future<void> _saved = Future<void>.value();
 
   // ---------------------------------------------------------------- sleep
 
@@ -633,7 +640,7 @@ class BackgroundReading {
       if (_extending == null) _fetchAhead(u);
     }
     _persistTimer?.cancel();
-    _persistTimer = Timer(const Duration(milliseconds: 1500), _persistNow);
+    _persistTimer = Timer(const Duration(milliseconds: 1500), () => unawaited(_persistNow()));
     _updateCard();
   }
 
@@ -695,7 +702,7 @@ class BackgroundReading {
         _sleep = SleepChoice.off;
         _sleepChapter = -1;
         _parkedAt = start;
-        _persistNow();
+        unawaited(_persistNow());
         _updateCard();
         return true;
       }
@@ -764,13 +771,13 @@ class BackgroundReading {
     unawaited(fetchChapters(store, bookId, section + 1).catchError((Object _) {}));
   }
 
-  void _persistNow() {
+  Future<void> _persistNow() {
     _persistTimer?.cancel();
-    if (layout.isEmpty) return;
+    if (layout.isEmpty) return _saved;
     final u = unit.clamp(0, layout.units.length - 1);
-    unawaited(store
+    return _saved = store
         .saveCursor(bookId, cursorOf(layout.units[u]), _progress(u), where: layout.chapterTitle(layout.unitChapter[u]))
-        .catchError((Object _) {}));
+        .catchError((Object _) {});
   }
 
   double _progress(int u) {
@@ -890,7 +897,7 @@ class BackgroundReading {
       unawaited(player.play(to));
     } else {
       _parkedAt = to;
-      _persistNow();
+      unawaited(_persistNow());
       _updateCard();
     }
   }

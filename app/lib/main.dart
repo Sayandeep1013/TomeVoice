@@ -64,6 +64,9 @@ void _listen() {
 
 var _built = false;
 
+/// One list for every build of the app, so the navigator keeps its observer.
+final _observers = <NavigatorObserver>[placeSettler];
+
 /// The app on screen: built once for the engine, and drawn edge to edge in
 /// each new activity's window (Android gives each its own, and the mode was
 /// sent to the first).
@@ -139,6 +142,8 @@ class SpikeApp extends StatelessWidget {
   Widget _app(Palette palette, ThemeMode mode) => MaterialApp(
           title: 'TomeVoice',
           navigatorKey: SecretShelf.navigator,
+          // Leaving a book writes its place at once (see PlaceSettler).
+          navigatorObservers: _observers,
           debugShowCheckedModeBanner: false,
           theme: Skin.themeFor(palette, Brightness.light),
           darkTheme: Skin.themeFor(palette, Brightness.dark),

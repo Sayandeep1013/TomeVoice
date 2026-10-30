@@ -106,6 +106,8 @@ class AutoBackup {
     final at = now ?? DateTime.now();
     running.value = true;
     try {
+      // The places kept in memory go into library.json first (see saveCursor).
+      await store.settlePlaces();
       final info = BackupInfo(
         format: backupFormat,
         created: at,

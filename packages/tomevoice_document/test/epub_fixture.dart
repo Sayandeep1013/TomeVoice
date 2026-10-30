@@ -125,17 +125,20 @@ Uint8List epubOf(Map<String, Object> files, {String opfPath = 'OEBPS/content.opf
 }
 
 /// A package document: [items] are (id, href, media type, properties),
-/// [spine] the ids in order ("id|no" for linear="no").
+/// [spine] the ids in order ("id|no" for linear="no"); [meta] goes into its
+/// metadata as it is.
 String opfOf(
   List<(String, String, String, String?)> items,
   List<String> spine, {
   String title = 'Test Book',
   String? toc,
+  String meta = '',
 }) =>
     '''<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
     <dc:title>$title</dc:title><dc:language>en</dc:language><dc:identifier id="id">x</dc:identifier>
+    $meta
   </metadata>
   <manifest>
 ${[for (final (id, href, type, props) in items) '    <item id="$id" href="$href" media-type="$type"${props == null ? '' : ' properties="$props"'}/>'].join('\n')}

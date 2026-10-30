@@ -42,6 +42,7 @@ class Mark {
     this.note,
     this.colour = MarkColour.accent,
     this.edited,
+    this.left,
   });
 
   final String id;
@@ -65,10 +66,25 @@ class Mark {
   /// When its note or colour last changed (null: never since it was saved).
   final DateTime? edited;
 
+  /// When its book was taken out of the library from an open shelf. Kept
+  /// so that it is known not to have been a secret book's: those left their
+  /// marks behind before 1.4, and a mark of a book no longer here that does
+  /// not say this is not shown with a secret shelf shut
+  /// (LibraryStore.marksShown).
+  final DateTime? left;
+
   /// When it last changed: what wins when two copies of it meet (sync).
   DateTime get changed => edited ?? created;
 
-  Mark _with({ReadingCursor? at, String? note, bool clearNote = false, MarkColour? colour, DateTime? edited}) => Mark(
+  Mark _with({
+    ReadingCursor? at,
+    String? note,
+    bool clearNote = false,
+    MarkColour? colour,
+    DateTime? edited,
+    DateTime? left,
+  }) =>
+      Mark(
         id: id,
         bookId: bookId,
         bookTitle: bookTitle,
@@ -81,6 +97,7 @@ class Mark {
         note: clearNote ? null : (note ?? this.note),
         colour: colour ?? this.colour,
         edited: edited ?? this.edited,
+        left: left ?? this.left,
       );
 
   /// The same mark with [note] (null or empty: none).
@@ -93,6 +110,9 @@ class Mark {
 
   /// The same mark at [place].
   Mark movedTo(ReadingCursor place) => _with(at: place);
+
+  /// The same mark, its book taken out of the library from an open shelf.
+  Mark leftAt(DateTime when) => _with(left: when);
 
   Map<String, Object?> toJson() => {
         'id': id,
@@ -108,6 +128,7 @@ class Mark {
         if (colour != MarkColour.accent) 'colour': colour.name,
         'created': created.toIso8601String(),
         if (edited != null) 'edited': edited!.toIso8601String(),
+        if (left != null) 'left': left!.toIso8601String(),
       };
 
   static Mark? fromJson(Object? json) {
@@ -127,6 +148,7 @@ class Mark {
       colour: MarkColour.byName(json['colour']),
       created: DateTime.tryParse(json['created'] as String? ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
       edited: DateTime.tryParse(json['edited'] as String? ?? ''),
+      left: DateTime.tryParse(json['left'] as String? ?? ''),
     );
   }
 }
@@ -225,6 +247,30 @@ class MarkStore {
   Future<void> removeBook(String bookId) async {
     if (!_all.any((m) => m.bookId == bookId)) return;
     _all = [for (final m in _all) if (m.bookId != bookId) m];
+    await _save();
+  }
+
+  /// Book [bookId] was taken out of the library from an open shelf: its
+  /// marks stay, and say so (see [Mark.left]).
+  Future<void> leaveBook(String bookId) async {
+    if (!_all.any((m) => m.bookId == bookId && m.left == null)) return;
+    final now = DateTime.now();
+    _all = [for (final m in _all) m.bookId == bookId && m.left == null ? m.leftAt(now) : m];
+    await _save();
+  }
+
+  /// The marks with [ids] gone, in one write (Saved's clearing of those
+  /// whose books are gone).
+  Future<void> removeAll(Set<String> ids) async {
+    if (ids.isEmpty) return;
+    _all = [for (final m in _all) if (!ids.contains(m.id)) m];
+    await _save();
+  }
+
+  /// Put back [marks] just removed together (Undo).
+  Future<void> restoreAll(List<Mark> marks) async {
+    final have = {for (final m in _all) m.id};
+    _all = [..._all, for (final m in marks) if (!have.contains(m.id)) m]..sort((a, b) => b.created.compareTo(a.created));
     await _save();
   }
 

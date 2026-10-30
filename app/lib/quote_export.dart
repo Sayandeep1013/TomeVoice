@@ -14,14 +14,15 @@ import 'ui.dart';
 typedef BookQuotes = ({String title, String author, List<Mark> quotes});
 
 /// The quotes to export: every book's ([bookId] null) or one book's, by
-/// book, leaving out books on a secret shelf while it is shut. Books in the
-/// order of their newest quote, as Saved shows them.
+/// book, leaving out what Saved does not show (a shut secret shelf's, see
+/// LibraryStore.marksShown). Books in the order of their newest quote, as
+/// Saved shows them.
 Future<List<BookQuotes>> quotesToExport(LibraryStore store, {String? bookId}) async {
-  final hidden = await store.hiddenIds();
+  final shown = await store.marksShown();
   final entries = {for (final e in await store.list(all: true)) e.id: e};
   final byBook = <String, List<Mark>>{};
   for (final m in MarkStore.instance.all) {
-    if (m.kind != MarkKind.quote || hidden.contains(m.bookId)) continue;
+    if (m.kind != MarkKind.quote || !shown(m)) continue;
     if (bookId != null && m.bookId != bookId) continue;
     byBook.putIfAbsent(m.bookId, () => []).add(m);
   }
