@@ -566,6 +566,12 @@ class PlaybackScheduler {
       if (_failed.contains(narrator)) narrator = fallbackVoiceOf?.call() ?? narrator;
       var dialogue = dialogueVoiceOf?.call();
       if (_failed.contains(dialogue) || dialogue == narrator) dialogue = null;
+      // A natural voice switched away from (or one that failed) is let go
+      // now, before another loads, not minutes later.
+      NeuralEngine.instance.keepOnly([
+        for (final v in [narrator, dialogue])
+          if (neuralVoiceFor(v) case final natural?) natural,
+      ]);
       try {
         final r = await makeSentence(
           service: service,

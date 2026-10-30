@@ -821,9 +821,22 @@ class NeuralEngine {
   int _cancels = 0;
 
   /// Loaded voices are let go after this long unused: a model holds a
-  /// hundred MB or more, kept after the reader switched voice or stopped.
+  /// hundred MB or more, kept after the reader stopped or paused.
   static const idleUnload = Duration(minutes: 3);
   Timer? _idle;
+
+  /// [idleUnload], or less in a test.
+  @visibleForTesting
+  Duration idleAfter = idleUnload;
+
+  /// The models the worker may be holding: asked for since it last let go
+  /// of them all.
+  final _asked = <String>{};
+
+  /// Run in place of the worker isolate, on this one (tests): handed the
+  /// port the engine hears on, it answers as the worker does.
+  @visibleForTesting
+  static void Function(SendPort out)? workerForTests;
 
   /// How many voices stay loaded at once: two on a phone with the memory
   /// for it (about 6 GB), so a natural narrator and a natural dialogue voice
@@ -896,17 +909,29 @@ class NeuralEngine {
       }
     });
     try {
-      _isolate = await Isolate.spawn(
-        _workerMain,
-        inbox.sendPort,
-        debugName: 'neural-voice',
-        onError: inbox.sendPort,
-        onExit: inbox.sendPort,
-      );
+      final stand = workerForTests;
+      if (stand != null) {
+        stand(inbox.sendPort);
+      } else {
+        _isolate = await Isolate.spawn(
+          _workerMain,
+          inbox.sendPort,
+          debugName: 'neural-voice',
+          onError: inbox.sendPort,
+          onExit: inbox.sendPort,
+        );
+      }
     } on Object catch (e) {
       _died('it could not start: $e', ready);
     }
     return _worker = await ready.future;
+  }
+
+  /// Let the worker go (tests): the next sentence starts another.
+  @visibleForTesting
+  void forgetWorkerForTests() {
+    _idle?.cancel();
+    _died('let go by a test');
   }
 
   /// The worker is gone: every sentence waiting on it fails (and is read in
@@ -920,6 +945,7 @@ class NeuralEngine {
     _worker = null;
     _starting = null;
     _busyThreads = const [];
+    _asked.clear();
     final waiting = Map.of(_waiting);
     _waiting.clear();
     for (final done in waiting.values) {
@@ -963,9 +989,23 @@ class NeuralEngine {
 
   void _armIdle() {
     _idle?.cancel();
-    _idle = Timer(idleUnload, () {
+    _idle = Timer(idleAfter, () {
+      _asked.clear();
       _worker?.send({'id': -1, 'op': 'unload', 'model': null});
     });
+  }
+
+  /// The natural voices reading uses now, [voices] (its narrator, and a
+  /// dialogue voice): any other the worker holds is let go at once, before
+  /// the next one loads. A voice switched away from stayed until it had gone
+  /// unused for [idleUnload], which on a phone that holds two voices was
+  /// never, as long as reading went on.
+  void keepOnly(Iterable<NeuralVoice> voices) {
+    final keep = {for (final v in voices) v.modelId};
+    final worker = _worker;
+    if (worker == null || _asked.every(keep.contains)) return;
+    _asked.retainAll(keep);
+    worker.send({'id': -1, 'op': 'unload', 'keep': [...keep]});
   }
 
   /// Say [text] in [voice] at [speed]; a WAV in [outDir], as the phone's
@@ -990,6 +1030,7 @@ class NeuralEngine {
     final parts = pieces ? clausePieces(text) : [(start: 0, text: text)];
     final job = _next++;
     final dir = NeuralVoices.instance.folder(voice).path;
+    _asked.add(voice.modelId);
     try {
       for (var k = 0; k < parts.length; k++) {
         if (_cancels != cancels) throw PlatformException(code: 'TTS_STOPPED', message: 'Synthesis cancelled');
@@ -1090,6 +1131,7 @@ class NeuralEngine {
 
   Future<void> unload(NeuralVoice voice) async {
     if (_worker == null) return;
+    _asked.remove(voice.modelId);
     try {
       await _ask({'op': 'unload', 'model': voice.modelId}, const Duration(seconds: 20));
     } on Object {
@@ -1282,9 +1324,12 @@ Future<void> _workerMain(SendPort out) async {
     try {
       switch (m['op']) {
         case 'unload':
+          // One voice, every voice, or every voice but those still read with.
           final model = m['model'] as String?;
+          final keep = m['keep'];
           for (final key in [...loaded.keys]) {
-            if (model == null || key == model) loaded.remove(key)!.tts.free();
+            final go = keep is List ? !keep.contains(key) : model == null || key == model;
+            if (go) loaded.remove(key)!.tts.free();
           }
           out.send({'id': id});
         case 'drop':
