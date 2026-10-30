@@ -496,11 +496,18 @@ class PlaybackScheduler {
   /// A line with something in it to say: a letter or a digit, in any script.
   static final _sayable = RegExp(r'[\p{L}\p{N}]', unicode: true);
 
+  /// Whether [text] has something in it to say: a line without ("* * *")
+  /// is passed over, read aloud or saved as audio.
+  static bool sayable(String text) => _sayable.hasMatch(text);
+
   /// The voice failed for want of the internet (an online voice): worth
   /// asking again before calling it a failure.
   static bool _offline(PlatformException e) =>
       e.code == 'TTS_TIMEOUT' ||
       (e.code == 'TTS_ERROR' && (e.message?.contains('code -6)') == true || e.message?.contains('code -7)') == true));
+
+  /// [e] is an online voice out of reach (see [_offline]).
+  static bool offline(PlatformException e) => _offline(e);
 
   static const offlineHint = 'The voice needs the internet and could not reach it. Try again, or pick a voice '
       "that works offline (or download this language's voice in the phone's speech settings).";
@@ -560,47 +567,21 @@ class PlaybackScheduler {
       var dialogue = dialogueVoiceOf?.call();
       if (_failed.contains(dialogue) || dialogue == narrator) dialogue = null;
       try {
-        final s = settingsFor(text);
-        final open = dialogue == null ? null : quoteOpenAt?.call(i);
-        // A sentence in the middle of a long quote has no marks of its own.
-        final native = dialogue == null || !(open == true || text.contains(RegExp('[“”"«»「」„]')))
-            ? await service.synthesise(
-                text: text,
-                engineId: engineIdOf(),
-                voiceName: narrator,
-                rate: s.speedScale,
-                pitch: SpeechService.semitonesToPitch(s.pitchSemitones),
-                urgent: urgent,
-              )
-            : await speakWithDialogue(
-                svc: service,
-                text: text,
-                stale: () => gen != _gen,
-                startsInside: open,
-                narrator: narrator,
-                dialogueVoice: dialogue,
-                engineId: engineIdOf(),
-                rate: s.speedScale,
-                pitch: SpeechService.semitonesToPitch(s.pitchSemitones),
-                dialoguePitch: SpeechService.semitonesToPitch(pitchOf?.call(dialogue) ?? s.pitchSemitones),
-                urgent: urgent,
-                level: s.normaliseLoudness,
-              );
-        if (gen != _gen) {
-          // Made for a start that was overtaken: nobody will hear it.
-          final wav = native['wavPath'];
-          if (wav is String) unawaited(File(wav).delete().catchError((Object _) => File(wav)));
-          return;
-        }
-        final r = await renderInBackground(
-          native: native,
-          // Speed is the engine's job (real duration change); the DSP stub
-          // would pitch-shift. Sentence pause is ours, appended below.
-          settings: s.copyWith(speedScale: 1.0, sentencePauseMs: 0, text: text),
-          pauseAfterMs: pauseAfter(i),
+        final r = await makeSentence(
+          service: service,
+          text: text,
+          settings: settingsFor(text),
+          open: dialogue == null ? null : quoteOpenAt?.call(i),
+          engineId: engineIdOf(),
+          narrator: narrator,
+          dialogue: dialogue,
+          pitchOf: pitchOf,
+          pauseAfterMs: () => pauseAfter(i),
           levelDb: _levelDb,
+          urgent: urgent,
+          stale: () => gen != _gen,
         );
-        if (gen != _gen) return;
+        if (r == null || gen != _gen) return;
         final to = _streamRate ??= r.sampleRate;
         final k = to / r.sampleRate;
         int at(int frame) => (frame * k).round();
@@ -782,4 +763,74 @@ class PlaybackScheduler {
     await service.stopPlayback();
     if (error.value == null) onFinished?.call();
   }
+}
+
+/// One sentence as reading aloud makes it: said by [narrator] (words in
+/// quotation marks by [dialogue], when the book has a dialogue voice), at
+/// the speed and pitch in [settings], then through the pipeline with the
+/// reader's word gap, punctuation pauses and loudness, with [pauseAfterMs]
+/// of silence after it. The scheduler makes every sentence it reads this
+/// way, and saving a book as audio (export_audio.dart) every sentence it
+/// writes, so what is saved is what is heard.
+///
+/// [settings] are the listening settings for [text]; [open] whether a
+/// quotation is already open where the sentence begins, when that is
+/// known. [pauseAfterMs] is asked once the speech is made, as it always
+/// was. [levelDb] is the levelling gain of the sentence before (see
+/// [renderInBackground]). Null when [stale] says the sentence was
+/// overtaken while it was made (its file is deleted); the engine's errors
+/// are thrown as they come.
+Future<RenderedSpeech?> makeSentence({
+  required SpeechService service,
+  required String text,
+  required PipelineSettings settings,
+  required String? engineId,
+  required String? narrator,
+  required String? dialogue,
+  required int Function() pauseAfterMs,
+  bool? open,
+  double Function(String? voiceName)? pitchOf,
+  double? levelDb,
+  bool urgent = true,
+  bool Function()? stale,
+}) async {
+  final s = settings;
+  // A sentence in the middle of a long quote has no marks of its own.
+  final native = dialogue == null || !(open == true || text.contains(RegExp('[“”"«»「」„]')))
+      ? await service.synthesise(
+          text: text,
+          engineId: engineId,
+          voiceName: narrator,
+          rate: s.speedScale,
+          pitch: SpeechService.semitonesToPitch(s.pitchSemitones),
+          urgent: urgent,
+        )
+      : await speakWithDialogue(
+          svc: service,
+          text: text,
+          stale: stale,
+          startsInside: open,
+          narrator: narrator,
+          dialogueVoice: dialogue,
+          engineId: engineId,
+          rate: s.speedScale,
+          pitch: SpeechService.semitonesToPitch(s.pitchSemitones),
+          dialoguePitch: SpeechService.semitonesToPitch(pitchOf?.call(dialogue) ?? s.pitchSemitones),
+          urgent: urgent,
+          level: s.normaliseLoudness,
+        );
+  if (stale?.call() ?? false) {
+    // Made for a start that was overtaken: nobody will hear it.
+    final wav = native['wavPath'];
+    if (wav is String) unawaited(File(wav).delete().catchError((Object _) => File(wav)));
+    return null;
+  }
+  return renderInBackground(
+    native: native,
+    // Speed is the engine's job (real duration change); the DSP stub
+    // would pitch-shift. Sentence pause is ours, appended after it.
+    settings: s.copyWith(speedScale: 1.0, sentencePauseMs: 0, text: text),
+    pauseAfterMs: pauseAfterMs(),
+    levelDb: levelDb,
+  );
 }
