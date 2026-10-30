@@ -1258,8 +1258,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                     if (!rail && !paged) glow else const SizedBox.shrink(),
                     KeyedSubtree(key: ValueKey(paged), child: reading),
                     // The text fades out before the dock, instead of showing
-                    // in the gap beneath it. Out to the screen's edges like
-                    // the glow: stopping at the safe area, its edge showed.
+                    // in the gap beneath it, into the page's own paper (the
+                    // app's ground was a band on Papyrus, Ink and Dusk). Out
+                    // to the screen's edges like the glow: stopping at the
+                    // safe area, its edge showed.
                     if (rail && !paged)
                     Positioned(
                       left: -insets.left,
@@ -1272,7 +1274,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                             gradient: LinearGradient(
                               begin: Alignment.topCenter,
                               end: Alignment.bottomCenter,
-                              colors: [Skin.groundFoot(context).withValues(alpha: 0), Skin.groundFoot(context)],
+                              colors: [_style.paperFoot.withValues(alpha: 0), _style.paperFoot],
                               stops: const [0, 0.55],
                             ),
                           ),

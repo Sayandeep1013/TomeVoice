@@ -582,13 +582,16 @@ void main() {
       await finish(tester);
     });
 
-    testWidgets("on its side, the scroll fades into the app's ground before the dock", (tester) async {
-      // Its own colour, whatever the tone (the foot of the app's ground).
-      ListeningPrefs.memory.pageTone = 'papyrus';
-      await open(tester, numbered(), onItsSide: true);
-      final foot = Skin.groundFoot(tester.element(find.byType(ReaderScreen)));
-      expect(hasFade(tester, [foot.withValues(alpha: 0), foot]), isTrue);
-      await finish(tester);
+    testWidgets("on its side, the scroll fades into the page's paper before the dock", (tester) async {
+      // Changed on purpose: it faded into the app's ground whatever the
+      // tone, a band across the foot of Papyrus, Ink and Dusk.
+      for (final tone in [PageTone.app, PageTone.papyrus, PageTone.eink, PageTone.dusk]) {
+        ListeningPrefs.memory.pageTone = tone.id;
+        await open(tester, numbered(), onItsSide: true);
+        final foot = tone.paper?.last ?? Skin.groundFoot(tester.element(find.byType(ReaderScreen)));
+        expect(hasFade(tester, [foot.withValues(alpha: 0), foot]), isTrue, reason: tone.id);
+        await finish(tester);
+      }
     });
 
     testWidgets("Now Playing sets the book in the reader's text size, in its own face, white", (tester) async {
