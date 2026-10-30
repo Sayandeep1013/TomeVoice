@@ -4,7 +4,10 @@ import '../build.dart';
 import 'epub.dart' show zipJoin;
 import '../model.dart';
 import '../segment.dart';
+import 'text.dart' show sectionsFromPlainText;
 
+/// Elements that are a block of text of their own (unless all they hold is
+/// other blocks).
 const _blockTags = {
   'p',
   'div',
@@ -29,28 +32,58 @@ const _blockTags = {
   'dd',
   'th',
   'td',
+  'tr',
   'caption',
   'hgroup',
 };
 
+/// Elements that only arrange other blocks: lists, tables, the page itself.
+/// A run of text never continues across one.
+const _structuralTags = {
+  'html',
+  'body',
+  'main',
+  'ul',
+  'ol',
+  'dl',
+  'menu',
+  'dir',
+  'thead',
+  'tbody',
+  'tfoot',
+  'colgroup',
+  'figure',
+  'center',
+  'address',
+  'details',
+  'summary',
+  'fieldset',
+  'form',
+  'legend',
+  'hr',
+};
+
 const _skipTags = {'script', 'style', 'head', 'noscript'};
+
+/// Roles whose blocks may be cut in two at a double line break: a `<p>` or
+/// a `<div>` full of `<br/><br/>`-separated paragraphs, as Kindle HTML and
+/// web novels write them. A heading or a list item stays whole.
+const _splittable = {BlockRole.paragraph, BlockRole.quote, BlockRole.footnote};
+
+/// Stand-in for `<br/>` while a run's text is gathered: a noncharacter, so
+/// it can never be confused with text from the book.
+final _lineBreak = String.fromCharCode(0xFDD2);
+final _paragraphBreak = RegExp('$_lineBreak[\\s$_lineBreak]*$_lineBreak');
+final _ownMarks = RegExp('[${String.fromCharCode(0xFDD0)}-${String.fromCharCode(0xFDD2)}]');
+final _blankLine = RegExp(r'\n[ \t\r]*\n');
 
 /// Walk XHTML/HTML into [Block]s. Joins inline runs inside a block so a drop
 /// cap (`<span>O</span>nce`) does not become its own sentence.
 List<Block> blocksFromHtml(String html, {String? language, String? href}) {
-  final wrapped = _ensureRoot(html);
-  late XmlDocument doc;
-  try {
-    doc = XmlDocument.parse(wrapped);
-  } on XmlException {
-    try {
-      doc = XmlDocument.parse(_ensureRoot(_stripDoctype(html)));
-    } on XmlException {
-      return lenientHtmlBlocks(html, language: language);
-    }
-  }
+  final doc = _parse(html);
+  if (doc == null) return lenientHtmlBlocks(html, language: language);
 
-  XmlNode body = doc.rootElement;
+  XmlElement body = doc.rootElement;
   if (doc.rootElement.localName.toLowerCase() == 'html') {
     final bodies = [
       for (final e in doc.rootElement.childElements)
@@ -59,66 +92,197 @@ List<Block> blocksFromHtml(String html, {String? language, String? href}) {
     if (bodies.isNotEmpty) body = bodies.first;
   }
 
-  final out = <Block>[];
-  _walk(body, out, language, href, inherited: null);
-  // Transcribers' notes about Gutenberg editions sit in the book's own text.
-  out.removeWhere((b) =>
-      b.text.length < 600 && b.text.toLowerCase().contains('project gutenberg'));
-  return joinDropCaps(out);
+  final walker = _Walker(href);
+  if (_isPlainText(body)) {
+    walker.plainText(body, language);
+  } else {
+    walker.walk(body, language, inherited: null);
+  }
+  return joinDropCaps(walker.out);
 }
 
-void _walk(
-  XmlNode node,
-  List<Block> out,
-  String? language,
-  String? href, {
-  required BlockRole? inherited,
-}) {
-  if (node is! XmlElement) return;
-  final name = node.localName.toLowerCase();
-  if (_skipTags.contains(name) || _isApparatus(node)) return;
-
-  if (name == 'img' || name == 'svg') {
-    _images(node, out, language, href);
-    return;
+XmlDocument? _parse(String html) {
+  try {
+    return XmlDocument.parse(_ensureRoot(html), entityMapping: _entities);
+  } on XmlException {
+    try {
+      return XmlDocument.parse(_ensureRoot(_stripDoctype(html)), entityMapping: _entities);
+    } on XmlException {
+      return null;
+    }
   }
+}
 
-  final role = _roleFor(node, name, inherited);
+/// Every HTML5 named character reference, not just XML's five: XHTML in the
+/// wild writes `&nbsp;` and `&mdash;` without declaring them.
+const _entities = XmlDefaultEntityMapping.html5();
 
-  if (_blockTags.contains(name)) {
-    if (_hasBlockChild(node)) {
-      for (final child in node.children) {
-        _walk(child, out, language, href, inherited: role);
-      }
+/// A body with text but no blocks at all is plain text dressed as HTML (a
+/// PalmDOC book): its blank lines are its paragraphs.
+bool _isPlainText(XmlElement body) =>
+    !_hasBlockDescendant(body) && _blankLine.hasMatch(body.innerText);
+
+class _Walker {
+  _Walker(this.href);
+
+  final String? href;
+  final out = <Block>[];
+
+  void walk(XmlNode node, String? language, {required BlockRole? inherited}) {
+    if (node is! XmlElement) return;
+    final name = node.localName.toLowerCase();
+    if (_skipTags.contains(name) || _isApparatus(node)) return;
+
+    if (name == 'img' || name == 'svg') {
+      _images(node, out, language, href);
       return;
     }
-    final text = collapseWhitespace(_textWithoutSvg(node));
-    if (text.isNotEmpty) {
-      out.add(makeBlock(
-        role: role ?? BlockRole.paragraph,
-        text: text,
-        language: language,
-        anchor: href != null
-            ? EpubAnchor(_cfi(href, name, out.length))
-            : OffsetAnchor(0, text.length),
-      ));
+
+    final role = _roleFor(node, name, inherited);
+    if (_isLeaf(node, name)) {
+      _emitText(_inlineText([node]), role, language, name);
+      // <p><img/></p> is the usual way a picture sits in a chapter.
+      _images(node, out, language, href);
+      return;
     }
-    // <p><img/></p> is the usual way a picture sits in a chapter.
-    _images(node, out, language, href);
-    return;
+    _container(node, role ?? inherited, language);
   }
 
-  for (final child in node.children) {
-    _walk(child, out, language, href, inherited: inherited);
+  /// The children of a block that holds other blocks. Text and inline
+  /// elements between those blocks (`<h2>…</h2>text<br/>text`, or text
+  /// straight in `<body>`) are paragraphs of their own, not dropped.
+  void _container(XmlElement node, BlockRole? role, String? language) {
+    final run = <XmlNode>[];
+    void flush() {
+      if (run.isEmpty) return;
+      _emitText(_inlineText(run), role ?? BlockRole.paragraph, language, 'p');
+      for (final n in run) {
+        if (n is XmlElement) _images(n, out, language, href);
+      }
+      run.clear();
+    }
+
+    for (final child in node.children) {
+      if (child is XmlElement && _breaksRun(child)) {
+        flush();
+        walk(child, language, inherited: role);
+      } else {
+        run.add(child);
+      }
+    }
+    flush();
+  }
+
+  void _emitText(String raw, BlockRole? role, String? language, String tag) {
+    final r = role ?? BlockRole.paragraph;
+    final pieces = _splittable.contains(r)
+        ? raw.split(_paragraphBreak)
+        : [raw];
+    for (final piece in pieces) {
+      final text = collapseWhitespace(piece.replaceAll(_lineBreak, ' '));
+      if (text.isEmpty) continue;
+      // Transcribers' notes about Gutenberg editions sit in the book's own
+      // text.
+      if (text.length < 600 && text.toLowerCase().contains('project gutenberg')) continue;
+      out.add(makeBlock(
+        role: r,
+        text: text,
+        language: language,
+        anchor: href != null ? EpubAnchor(_cfi(href, tag, out.length)) : OffsetAnchor(0, text.length),
+      ));
+    }
+  }
+
+  /// A body that is really plain text, read the way a .txt file is.
+  void plainText(XmlElement body, String? language) {
+    final text = _inlineText([body]).replaceAll(_lineBreak, '\n');
+    for (final s in sectionsFromPlainText(text, fallbackTitle: '')) {
+      for (final b in s.blocks) {
+        out.add(language == null
+            ? b
+            : makeBlock(role: b.role, text: b.text, language: language, anchor: b.anchor, id: b.id));
+      }
+    }
   }
 }
+
+/// A block element that holds no other blocks: its text is one block.
+bool _isLeaf(XmlElement node, String name) {
+  if (!_blockTags.contains(name)) return false;
+  if (name == 'tr') {
+    // A table row is read cell by cell, unless a cell holds paragraphs.
+    return !node.childElements.any((c) => _hasBlockChild(c));
+  }
+  return !_hasBlockChild(node);
+}
+
+bool _isBlockLevel(String name) => _blockTags.contains(name) || _structuralTags.contains(name);
 
 bool _hasBlockChild(XmlElement node) {
   for (final child in node.childElements) {
-    final n = child.localName.toLowerCase();
-    if (_blockTags.contains(n) && n != 'br') return true;
+    if (_isBlockLevel(child.localName.toLowerCase())) return true;
   }
   return false;
+}
+
+bool _hasBlockDescendant(XmlElement node) {
+  for (final child in node.childElements) {
+    if (_isBlockLevel(child.localName.toLowerCase()) || _hasBlockDescendant(child)) return true;
+  }
+  return false;
+}
+
+/// Whether [e] ends a run of inline text: a block, or an inline element
+/// that (in bad markup) wraps blocks.
+bool _breaksRun(XmlElement e) {
+  final name = e.localName.toLowerCase();
+  if (_isBlockLevel(name)) return true;
+  if (name == 'img' || name == 'svg' || _skipTags.contains(name)) return false;
+  return _hasBlockDescendant(e);
+}
+
+/// The text of [nodes] as one run: inline markup joined, a space at cells
+/// and block edges, [_lineBreak] for `<br/>`, ruby readings and pictures
+/// left out.
+String _inlineText(List<XmlNode> nodes) {
+  final buf = StringBuffer();
+  void walk(XmlNode n) {
+    if (n is XmlText || n is XmlCDATA) {
+      buf.write(n.value!.replaceAll(_ownMarks, ''));
+      return;
+    }
+    if (n is! XmlElement) return;
+    final name = n.localName.toLowerCase();
+    if (name == 'br') {
+      buf.write(_lineBreak);
+      return;
+    }
+    if (name == 'svg' ||
+        name == 'rt' ||
+        name == 'rp' ||
+        _skipTags.contains(name) ||
+        _isApparatus(n)) {
+      return;
+    }
+    final edge = _isBlockLevel(name);
+    if (edge) buf.write(' ');
+    for (final c in n.children) {
+      walk(c);
+    }
+    if (edge) buf.write(' ');
+  }
+
+  for (final n in nodes) {
+    if (n is XmlElement && _blockTags.contains(n.localName.toLowerCase())) {
+      // The run is this one element: its own edges are not text.
+      for (final c in n.children) {
+        walk(c);
+      }
+    } else {
+      walk(n);
+    }
+  }
+  return buf.toString();
 }
 
 BlockRole? _roleFor(XmlElement node, String name, BlockRole? inherited) {
@@ -156,6 +320,7 @@ BlockRole? _roleFor(XmlElement node, String name, BlockRole? inherited) {
     case 'code':
       return BlockRole.code;
     case 'table':
+    case 'tr':
     case 'th':
     case 'td':
       return BlockRole.table;
@@ -191,10 +356,12 @@ String _stripDoctype(String html) =>
 String _stripTags(String html) => html
     .replaceAll(RegExp(r'<script[^>]*>[\s\S]*?</script>', caseSensitive: false), ' ')
     .replaceAll(RegExp(r'<style[^>]*>[\s\S]*?</style>', caseSensitive: false), ' ')
-    .replaceAll(RegExp(r'<[^>]+>'), ' ');
+    // Table cells and other block edges inside a run are word breaks.
+    .replaceAll(RegExp(r'</?(td|th|li|dt|dd)\b[^>]*>', caseSensitive: false), ' ')
+    .replaceAll(RegExp(r'<[^>]+>'), '');
 
 final _boundary = RegExp(
-  r'<(/?)(h[1-6]|p|div|li|blockquote|br|tr|dt|dd|section|article|title|hr)\b[^>]*>',
+  r'<(/?)(h[1-6]|p|div|li|blockquote|tr|dt|dd|section|article|title|hr)\b[^>]*>',
   caseSensitive: false,
 );
 
@@ -203,7 +370,11 @@ final _boundary = RegExp(
 List<Block> lenientHtmlBlocks(String html, {String? language}) {
   final cleaned = html
       .replaceAll(RegExp(r'<head[^>]*>[\s\S]*?</head>', caseSensitive: false), ' ')
-      .replaceAll(RegExp(r'<(script|style)[^>]*>[\s\S]*?</\1>', caseSensitive: false), ' ');
+      .replaceAll(RegExp(r'<(script|style)[^>]*>[\s\S]*?</\1>', caseSensitive: false), ' ')
+      .replaceAll(RegExp(r'<(rt|rp)\b[^>]*>[\s\S]*?</\1>', caseSensitive: false), '')
+      // Two line breaks in a row end a paragraph; one is a space.
+      .replaceAll(RegExp(r'(<br\b[^>]*>\s*){2,}', caseSensitive: false), '<p>')
+      .replaceAll(RegExp(r'<br\b[^>]*>', caseSensitive: false), ' ');
   final out = <Block>[];
   var role = BlockRole.paragraph;
   var last = 0;
@@ -227,7 +398,7 @@ List<Block> lenientHtmlBlocks(String html, {String? language}) {
       role = BlockRole.listItem;
     } else if (tag == 'blockquote') {
       role = BlockRole.quote;
-    } else if (tag != 'br') {
+    } else {
       role = BlockRole.paragraph;
     }
   }
@@ -235,28 +406,9 @@ List<Block> lenientHtmlBlocks(String html, {String? language}) {
   return out;
 }
 
-const _named = {
-  'amp': '&', 'lt': '<', 'gt': '>', 'quot': '"', 'apos': "'", 'nbsp': ' ',
-  'mdash': '—', 'ndash': '–', 'hellip': '…',
-  'lsquo': '‘', 'rsquo': '’', 'ldquo': '“', 'rdquo': '”',
-  'copy': '©', 'shy': '',
-};
-
-String decodeEntities(String s) => s.replaceAllMapped(
-      RegExp(r'&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);'),
-      (m) {
-        final e = m.group(1)!;
-        if (e.startsWith('#x') || e.startsWith('#X')) {
-          final v = int.tryParse(e.substring(2), radix: 16);
-          return v == null ? m.group(0)! : String.fromCharCode(v);
-        }
-        if (e.startsWith('#')) {
-          final v = int.tryParse(e.substring(1));
-          return v == null ? m.group(0)! : String.fromCharCode(v);
-        }
-        return _named[e.toLowerCase()] ?? m.group(0)!;
-      },
-    );
+/// `&eacute;`, `&#233;` and `&#xE9;` as the characters they stand for: every
+/// HTML5 name, not only the handful a hand-written table remembered.
+String decodeEntities(String s) => _entities.decode(s);
 
 /// Figure blocks for every picture in [node] (itself included): `<img src>`
 /// and `<svg><image href>`, which is how most EPUB covers are drawn. The path
@@ -287,26 +439,6 @@ void _images(XmlElement node, List<Block> out, String? language, String? href) {
 bool _isPicture(XmlElement e) {
   final n = e.localName.toLowerCase();
   return n == 'img' || (n == 'image' && e.parentElement != null);
-}
-
-String _textWithoutSvg(XmlElement node) {
-  final buf = StringBuffer();
-  void walk(XmlNode n) {
-    for (final c in n.children) {
-      if (c is XmlText) {
-        buf.write(c.value);
-      } else if (c is XmlElement) {
-        final name = c.localName.toLowerCase();
-        if (name == 'svg' || _skipTags.contains(name) || _isApparatus(c)) continue;
-        walk(c);
-      } else if (c is XmlCDATA) {
-        buf.write(c.value);
-      }
-    }
-  }
-
-  walk(node);
-  return buf.toString();
 }
 
 String _dirOfPath(String path) {
