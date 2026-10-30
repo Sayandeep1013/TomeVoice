@@ -533,6 +533,17 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Back at the root, where Flutter has nothing to go back to, also
+        // puts TomeVoice behind when Android handles it itself (predictive
+        // back, Android 16): it finished an app another app had opened (a
+        // file manager's Open with), and the book being read stopped with
+        // it. Flutter registers its own callback whenever it has somewhere to
+        // go back to; being registered later, that one is asked first.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT
+            ) { moveTaskToBack(true) }
+        }
         // Draw into the camera cutout too. Without this, landscape leaves a
         // dark strip down the cutout side and under the gesture bar, where
         // the window background shows instead of the app's gradient.
