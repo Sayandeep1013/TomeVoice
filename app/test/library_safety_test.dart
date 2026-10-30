@@ -320,7 +320,9 @@ void main() {
       // ignore: avoid_print
       print('A novel of 3,000 chapters opened in ${windowTime}ms as a window, ${wholeTime}ms whole.');
       expect(windowTime * 4, lessThan(wholeTime));
-    });
+      // Writing 3,000 chapter files takes a while on a busy machine (the
+      // whole suite at once): more than the default half minute.
+    }, timeout: const Timeout(Duration(minutes: 3)));
 
     test('two downloads wanting one place: the other is set aside, not deleted', () async {
       // An older build left chapter 3's text under both 2 and 3.
