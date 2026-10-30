@@ -432,6 +432,11 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
               ],
               const SizedBox(height: Gap.m),
               Wrap(spacing: 5, runSpacing: 5, children: [for (final f in facts) TagChip(f)]),
+              // A scan whose words OCR read (ocr.dart).
+              if (e.ocr != null) ...[
+                const SizedBox(height: Gap.s),
+                Text('Read by OCR: may contain errors', style: Skin.label(context, size: 13)),
+              ],
               if (category != null) ...[
                 const SizedBox(height: Gap.m),
                 InkWell(

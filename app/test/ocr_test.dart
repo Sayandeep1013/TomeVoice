@@ -9,12 +9,15 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
+import 'package:tomevoice_spike/book_screen.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/ocr.dart';
 import 'package:tomevoice_spike/ocr_jobs.dart';
+import 'package:tomevoice_spike/ocr_sheet.dart';
 import 'package:tomevoice_spike/speech_service.dart';
 
 const _channel = MethodChannel('tomevoice/tts');
@@ -259,6 +262,14 @@ void main() {
         ..writeAsStringSync(ocrPage(p));
     }
     return store.addOcrBook(dir.path);
+  }
+
+  /// Let real file work and isolates finish, then settle the frame.
+  Future<void> settle(WidgetTester tester) async {
+    for (var i = 0; i < 20; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+      await tester.pump();
+    }
   }
 
   group('a scan in the library', () {
@@ -524,5 +535,101 @@ void main() {
     );
     await heard;
     expect(job.done, 2);
+  });
+
+  group('on screen', () {
+    testWidgets("a refused scan is offered OCR in the book's and the app's languages, Hindi to hand",
+        (tester) async {
+      final store = LibraryStore(tmp);
+      late File f;
+      await tester.runAsync(() async {
+        f = picked('scan.pdf', utf8.encode('%PDF-1.4 sonar tori'));
+        await OcrJobs.instance.attach(store);
+      });
+      final offer = OcrOffer(path: f.path, name: 'Sonar Tori.pdf', pdf: scanText(40), language: 'bn');
+      bool? started;
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () async {
+                started = await offerOcr(context, store, offer);
+              },
+              child: const Text('Import'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('Import'));
+      // The library was taken up in real time above: what waits on it does too.
+      await settle(tester);
+      await tester.pumpAndSettle();
+      expect(find.text('Read it with OCR?'), findsOneWidget);
+      expect(find.textContaining('its 40 pages are pictures'), findsOneWidget);
+      FilterChip chip(String label) => tester.widget<FilterChip>(find.widgetWithText(FilterChip, label));
+      expect(chip('Bengali · বাংলা').selected, isTrue, reason: "the book's language");
+      expect(chip('English').selected, isTrue, reason: "the app's");
+      expect(chip('Hindi · हिन्दी').selected, isFalse, reason: 'one tap away');
+      expect(find.textContaining('First downloads the Bengali and English language data'), findsOneWidget);
+      expect(find.textContaining('pick two only when the pages mix them'), findsOneWidget);
+
+      // English off: Bengali alone, a smaller download.
+      await tester.tap(find.widgetWithText(FilterChip, 'English'));
+      await tester.pump();
+      expect(chip('English').selected, isFalse);
+      expect(find.textContaining('First downloads the Bengali language data (0.8 MB)'), findsOneWidget);
+
+      await tester.tap(find.text('Not now'));
+      await tester.pumpAndSettle();
+      await settle(tester);
+      expect(started, isFalse);
+      expect(f.existsSync(), isFalse, reason: 'declined, the kept copy goes');
+    });
+
+    testWidgets('the shelf shows how far a scan is, with Stop; a stopped one goes on or goes', (tester) async {
+      final store = LibraryStore(tmp);
+      late OcrJob job;
+      await tester.runAsync(() async {
+        await OcrJobs.instance.attach(store);
+        final f = picked('scan.pdf', utf8.encode('%PDF-1.4 the card'));
+        job = await OcrJobs.instance.start(
+          OcrOffer(path: f.path, name: 'Sonar Tori.pdf', pdf: scanText(12)),
+          [ocrLanguageByCode('ben')!],
+        );
+      });
+      await tester.pumpWidget(const MaterialApp(home: Scaffold(body: Column(children: [OcrProgressCard()]))));
+      OcrJobs.instance.handle({'type': 'ocrProgress', 'job': job.dir.path, 'done': 2, 'total': 12});
+      await tester.pumpAndSettle();
+      expect(find.text('OCR: Sonar Tori'), findsOneWidget);
+      expect(find.text('READING PAGE 3 OF 12'), findsOneWidget);
+
+      await tester.tap(find.text('Stop'));
+      await tester.pump();
+      expect(find.text('STOPPING AFTER THIS PAGE…'), findsOneWidget);
+      OcrJobs.instance.handle({'type': 'ocrStopped', 'job': job.dir.path, 'done': 3, 'total': 12});
+      OcrJobs.instance.handle({'type': 'ocrIdle'});
+      await tester.pumpAndSettle();
+      expect(find.text('STOPPED AT PAGE 4 OF 12'), findsOneWidget);
+      expect(find.text('Go on'), findsOneWidget);
+
+      await tester.tap(find.text('Discard'));
+      await tester.pumpAndSettle();
+      await settle(tester);
+      expect(find.text('OCR: Sonar Tori'), findsNothing);
+      expect(job.dir.existsSync(), isFalse);
+    });
+
+    testWidgets("a book OCR read says so on its page", (tester) async {
+      final store = LibraryStore(tmp);
+      late LibraryEntry entry;
+      await tester.runAsync(() async {
+        entry = await ocrBook(store, picked('lantern.pdf', utf8.encode('%PDF-1.4 the lantern keeper')));
+      });
+      await tester.pumpWidget(MaterialApp(home: BookScreen(store: store, entry: entry)));
+      await settle(tester);
+      expect(find.text('Read by OCR: may contain errors'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 10));
+    });
   });
 }
