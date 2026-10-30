@@ -9,6 +9,7 @@ import 'backup_flow.dart';
 import 'book_tint.dart';
 import 'brand.dart';
 import 'browse_screen.dart';
+import 'catalogues_screen.dart';
 import 'categories_screen.dart';
 import 'history_screen.dart';
 import 'library_screen.dart';
@@ -324,6 +325,9 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
                   selected: _place == _Place.library, onTap: () => _go(_Place.library)),
               _item(context, Icons.travel_explore_rounded, Icons.travel_explore_rounded, 'Browse',
                   selected: _place == _Place.browse, onTap: () => _go(_Place.browse)),
+              // Ebook libraries (OPDS): Project Gutenberg, Standard Ebooks, Calibre.
+              _item(context, Icons.local_library_outlined, Icons.local_library_rounded, 'Catalogues',
+                  onTap: () => _push((s) => CataloguesScreen(store: s))),
               _item(context, Icons.new_releases_outlined, Icons.new_releases_rounded, 'Updates',
                   selected: _place == _Place.updates, onTap: () => _go(_Place.updates)),
               _item(context, Icons.history_rounded, Icons.history_rounded, 'History',
