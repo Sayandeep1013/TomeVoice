@@ -123,7 +123,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
   int get _currentChapter {
     final l = _layout;
     if (l == null || l.isEmpty) return 0;
-    return l.chapterOfUnit(l.unitForCursor(_cursor));
+    return l.chapterOfUnit(l.unitForCursor(_cursor, saved: true));
   }
 
   /// Set while a book is being opened: a second tap does nothing.
@@ -178,7 +178,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
     final l = _layout;
     var text = 'This is how I will sound reading ${_entry.title}.';
     if (l != null && !l.isEmpty) {
-      final u = l.unitForCursor(_cursor);
+      final u = l.unitForCursor(_cursor, saved: true);
       final first = l.units[u].text;
       if (first.length >= 30) text = first.length > 200 ? '${first.substring(0, 200)}…' : first;
     }

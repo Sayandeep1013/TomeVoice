@@ -74,9 +74,10 @@ class PlaybackScheduler {
   /// Silence after unit i (sentence or paragraph pause).
   final int Function(int index) pauseAfter;
 
-  /// The sentence as the voice should say it (the reader's pronunciation
-  /// fixes), with the way back to the page's text for the highlight.
-  final Respelled Function(String text)? respell;
+  /// The sentence as the voice should say it (its silent marks left out, a
+  /// link said as its site, the reader's pronunciation fixes), with the way
+  /// back to the page's text for the highlight.
+  final Respelled Function(Speakable unit)? respell;
 
   /// The voice for words in quotation marks, when not the narrator's.
   final String? Function()? dialogueVoiceOf;
@@ -237,7 +238,7 @@ class PlaybackScheduler {
         continue;
       }
       final i = _next;
-      final said = respell?.call(units[i].text) ?? Respelled.same(units[i].text);
+      final said = respell?.call(units[i]) ?? Respelled.same(units[i].text);
       final text = said.text;
       // A line with nothing to say ("।।।", "* * *", a lone full stop) is
       // passed over: an online voice could time out on it, and three such

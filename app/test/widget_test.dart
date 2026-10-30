@@ -682,6 +682,26 @@ void main() {
       await finish(tester);
     });
 
+    testWidgets('a footnote is on the page, in both modes, but not among what is read', (tester) async {
+      const html = '<html><body><h1>One</h1>'
+          '<p>It was a dark night.<a role="doc-noteref" href="#n1">1</a> Then it rained for a long while.</p>'
+          '<aside role="doc-footnote" id="n1"><p>A note on the night.</p></aside>'
+          '<p>The morning came at last and the road was dry again.</p></body></html>';
+      final layout = ReadingLayout.build(ingestString(html, filename: 'note.html'), displayOnly: true);
+      expect(layout.units.map((u) => u.text).join(' '), isNot(contains('A note on the night')));
+      expect(layout.items.where((i) => i.displayOnly), hasLength(1));
+      final semantics = tester.ensureSemantics();
+      await pumpLong(tester, layout);
+      expect(find.textContaining('A note on the night'), findsOneWidget);
+      ListeningPrefs.memory
+        ..pages = true
+        ..save();
+      await tester.pumpAndSettle();
+      expect(find.bySemanticsLabel(RegExp('A note on the night')), findsWidgets);
+      semantics.dispose();
+      await finish(tester);
+    });
+
     testWidgets('an Arabic book is set right to left', (tester) async {
       final para = List.filled(10, 'هذه جملة من القصة تستمر قليلا.').join(' ');
       await pumpLong(tester, ReadingLayout.build(ingestString('# الفصل\n\n$para\n\n$para', filename: 'book.md')));

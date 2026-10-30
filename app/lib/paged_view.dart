@@ -53,6 +53,14 @@ class PageLook {
   Object get key => Object.hash(text, heading, chapterHeading, title, label, textScaler, justify, indent, margin);
 }
 
+/// A note's type (a footnote, a caption): smaller than the text, in the
+/// page's soft ink; shown on the page, never read aloud.
+TextStyle noteStyle(PageLook look) => look.text.copyWith(
+      fontSize: (look.text.fontSize ?? 19) * 0.82,
+      height: 1.4,
+      color: look.status.color ?? look.text.color?.withValues(alpha: 0.7),
+    );
+
 /// Whether paragraph [item] of [l] opens with an indent when paragraphs are
 /// indented: not the first of a chapter, nor one after a heading or a
 /// picture, as in a printed book.
@@ -330,6 +338,10 @@ class _PagedBookState extends State<PagedBook> {
         if (item.isTitle) {
           style = look.title;
           text = item.title ?? '';
+        } else if (item.displayOnly) {
+          // A note (or a caption): shown in smaller type, never read aloud.
+          style = noteStyle(look);
+          text = item.block!.text;
         } else {
           final heading = item.block!.role == BlockRole.heading;
           style = heading ? (chapterStart ? look.chapterHeading : look.heading) : look.text;
@@ -475,12 +487,16 @@ class _PagedBookState extends State<PagedBook> {
         final lineStart = _rtl ? _columnWidth - 1 : 1.0;
         final lineEnd = _rtl ? 1.0 : _columnWidth - 1;
         final at = a == 0 ? 0 : math.max(0, laid.painter.getPositionForOffset(Offset(lineStart, tops[a] + 1)).offset - laid.shift);
-        final unit = a == 0 ? item.firstUnit : _unitAt(i, at);
         final whole = b == lines;
+        // A note holds no sentence: a page of notes claims none.
+        final note = item.displayOnly;
+        final unit = note ? -1 : (a == 0 ? item.firstUnit : _unitAt(i, at));
         // The sentence the last line here ends in.
-        final ends = whole
-            ? item.firstUnit + item.unitCount - 1
-            : _unitAt(i, laid.painter.getPositionForOffset(Offset(lineEnd, tops[b] - 1)).offset - laid.shift);
+        final ends = note
+            ? -1
+            : whole
+                ? item.firstUnit + item.unitCount - 1
+                : _unitAt(i, laid.painter.getPositionForOffset(Offset(lineEnd, tops[b] - 1)).offset - laid.shift);
         place(_Piece(_Kind.text, i, tops[a], tops[b] - tops[a], gapAfter: whole ? gap : 0),
             unit: unit, lastUnit: ends, at: at);
         a = b;
@@ -959,7 +975,7 @@ class _PagedBookState extends State<PagedBook> {
           child: Semantics(
             label: _sliceText(p, laid),
             child: GestureDetector(
-            onLongPressStart: p.kind == _Kind.title
+            onLongPressStart: p.kind == _Kind.title || _l.items[p.item].displayOnly
                 ? null
                 : (d) {
                     final at = laid.painter.getPositionForOffset(d.localPosition + Offset(0, p.top)).offset;

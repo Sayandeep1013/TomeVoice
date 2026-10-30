@@ -57,7 +57,7 @@ PlaybackScheduler readingScheduler({
     engineIdOf: () => prefs().engineId ?? VoiceCatalog.instance.engineId,
     voiceNameOf: () => listen().voiceName,
     pauseAfter: pauseAfter,
-    respell: (text) => respell(text, ReadingRules.instance.sayFor(bookId)),
+    respell: (unit) => respellUnit(unit, ReadingRules.instance.sayFor(bookId)),
     dialogueVoiceOf: () => listen().dialogueVoice,
     pitchOf: (voice) => prefs().pitchOf(voice),
     quoteOpenAt: quoteOpenAt,
@@ -221,7 +221,7 @@ class BackgroundReading {
       language: language,
       web: web,
     );
-    await player.play(layout.unitForCursor(cursor));
+    await player.play(layout.unitForCursor(cursor, saved: true));
   }
 
   /// The player is about to read something else: whatever plays in the
@@ -275,7 +275,7 @@ class BackgroundReading {
   /// same book).
   int unitIn(ReadingLayout other) {
     if (layout.isEmpty || other.isEmpty) return 0;
-    return other.unitForCursor(cursorOf(layout.units[unit.clamp(0, layout.units.length - 1)]));
+    return other.unitForCursor(cursorOf(layout.units[unit.clamp(0, layout.units.length - 1)]), saved: true);
   }
 
   Future<void> pause() async {

@@ -230,6 +230,28 @@ class MainActivity : FlutterActivity() {
                 }
                 "outputDir" -> result.success(outputDir().absolutePath)
                 "launchArgs" -> result.success(launchArgs())
+                // Text in an East Asian legacy encoding (GBK, Big5, Shift_JIS,
+                // EUC-KR...), decoded by Android's own charsets for an import.
+                "decodeCharset" -> {
+                    val bytes = call.argument<ByteArray>("bytes") ?: ByteArray(0)
+                    val name = call.argument<String>("charset").orEmpty()
+                    io.execute {
+                        try {
+                            // The Windows supersets: what files called these really are.
+                            val charset = java.nio.charset.Charset.forName(
+                                when (name.uppercase()) {
+                                    "SHIFT_JIS", "SJIS" -> "windows-31j"
+                                    "EUC-KR" -> "x-windows-949"
+                                    else -> name
+                                }
+                            )
+                            val text = String(bytes, charset)
+                            main.post { result.success(text) }
+                        } catch (e: Exception) {
+                            main.post { result.error("CHARSET", e.message, null) }
+                        }
+                    }
+                }
                 // A word or a sentence held in the reader, to the phone's own
                 // dictionary and translate apps: TomeVoice itself goes nowhere.
                 "lookUp" -> result.success(processText(call.argument<String>("text").orEmpty(), translate = false))

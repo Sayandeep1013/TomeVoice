@@ -297,7 +297,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   Book get _book => _l.book;
 
   late final ValueNotifier<int> _cursor =
-      ValueNotifier(_l.isEmpty ? 0 : _l.unitForCursor(widget.initialCursor));
+      ValueNotifier(_l.isEmpty
+          ? 0
+          // A place saved before is restored as it was; a book opened
+          // for the first time skips a title page named like it.
+          : _l.unitForCursor(widget.initialCursor, saved: widget.initialCursor != ReadingCursor.zero));
   final _detached = ValueNotifier<bool>(false);
 
   /// The text faded out for a moment, while it travels a long way to the voice.
@@ -2568,6 +2572,21 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           Padding(
             padding: const EdgeInsets.only(bottom: 18),
             child: Text(item.title ?? '', style: look.title),
+          ),
+        ],
+      );
+    }
+
+    if (item.displayOnly) {
+      // A note (or a caption): on the page in smaller type, never read
+      // aloud. Its marker in the text is silent too.
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (label != null) label,
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(item.block!.text, style: noteStyle(look)),
           ),
         ],
       );

@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show ValueNotifier;
+import 'package:flutter/services.dart' show BackgroundIsolateBinaryMessenger, MethodChannel, RootIsolateToken;
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'marks.dart';
@@ -18,8 +19,11 @@ import 'speech_service.dart';
 /// again from their source file (v2: multilingual sentences, compact JSON;
 /// v3: pictures and covers from EPUBs, page numbers in PDFs; v4: toc nav
 /// only, chapters named from first lines, drop caps, Gutenberg apparatus;
-/// v5: the book's description, shown on its page).
-const _parsedVersion = 5;
+/// v5: the book's description, shown on its page; v6: footnote markers
+/// silent and notes out of the flow, chapters by the contents, text in its
+/// own encoding, AZW3 by its chapters, chapters and languages beyond
+/// English). PDFs keep their own version, on the entry (pdfParser).
+const _parsedVersion = 6;
 
 /// On-device library: copied files, parsed books, reading positions.
 ///
@@ -460,6 +464,7 @@ class LibraryStore {
   Future<LibraryEntry> importFile(
     PickedFile file, {
     void Function(int done, int total)? onProgress,
+    void Function(String note)? onNote,
   }) async {
     await ensure();
     final source = File(file.path);
@@ -488,8 +493,11 @@ class LibraryStore {
         name: file.name,
         mime: file.mime,
         pdf: pdf,
+        token: RootIsolateToken.instance,
       );
-      final entry = await _runImport(job);
+      final made = await _runImport(job);
+      final entry = made.entry;
+      if (made.note != null) onNote?.call(made.note!);
 
       late LibraryEntry merged;
       await _change((existing) {
@@ -568,12 +576,35 @@ class LibraryStore {
       }
       return layout;
     }
+    // A PDF read by an older PDF reader is read again from its file, once:
+    // its text from the platform, the book built anew, the place carried.
+    Map<String, Object?>? pdf;
+    final source = entry?.sourcePath;
+    if (entry != null &&
+        entry.source == SourceKind.pdf &&
+        entry.pdfParser < pdfParserVersion &&
+        source != null &&
+        File(source).existsSync()) {
+      try {
+        pdf = await _svc.extractPdf(source);
+      } on Object {
+        // Kept as it was; tried again next time.
+      }
+    }
     final job = (
       booksDir: _booksDir.path,
       id: id,
       sourcePath: entry?.sourcePath,
+      pdf: pdf,
+      token: RootIsolateToken.instance,
     );
     final layout = await _runLoad(job);
+    if (pdf != null) {
+      await _change((now) => [
+            for (final e in now)
+              if (e.id == id) e.copyWith(pdfParser: pdfParserVersion) else e,
+          ]);
+    }
     // Books imported before covers were stored get theirs on first open.
     final cover = coverFileOf(bookDir(id), layout.book);
     if (entry != null && entry.cover != cover && cover != null) {
@@ -707,9 +738,9 @@ class LibraryStore {
 // Top-level so the closure handed to Isolate.run captures only the job record.
 // A closure created inside a method can share a context with other captured
 // variables (callbacks holding widget state), which cannot be sent.
-Future<LibraryEntry> _runImport(_ImportJob job) => Isolate.run(() => _importSync(job));
+Future<_Imported> _runImport(_ImportJob job) => Isolate.run(() => _import(job));
 
-Future<ReadingLayout> _runLoad(_LoadJob job) => Isolate.run(() => _loadLayoutSync(job));
+Future<ReadingLayout> _runLoad(_LoadJob job) => Isolate.run(() => _loadLayout(job));
 
 Future<ReadingLayout> _runLoadWeb(String dir, String id) => Isolate.run(() => _loadWebSync(dir, id));
 
@@ -897,31 +928,67 @@ typedef _ImportJob = ({
   String name,
   String? mime,
   Map<String, Object?>? pdf,
+  RootIsolateToken? token,
 });
 
-typedef _LoadJob = ({String booksDir, String id, String? sourcePath});
+/// [pdf]: a PDF's text as the platform has just read it again, when the
+/// book was read by an older PDF reader (see [LibraryStore.loadLayout]).
+typedef _LoadJob = ({String booksDir, String id, String? sourcePath, Map<String, Object?>? pdf, RootIsolateToken? token});
 
-LibraryEntry _importSync(_ImportJob job) {
+/// [bytes] as a book, on a background isolate. Text in an East Asian legacy
+/// encoding (GBK, Big5, Shift_JIS, EUC-KR...) is decoded by Android's own
+/// charsets through [token]; without one (tests) such a book is refused, as
+/// it was misread before.
+Future<Book> _ingest(Uint8List bytes,
+    {String? filename, String? mime, String? id, RootIsolateToken? token}) async {
+  if (token == null) return ingestBytes(bytes, filename: filename, mime: mime, id: id);
+  BackgroundIsolateBinaryMessenger.ensureInitialized(token);
+  return ingestBytesAsync(bytes, filename: filename, mime: mime, id: id, decodeLegacy: (b, charset) async {
+    final text = await const MethodChannel('tomevoice/tts').invokeMethod<String>(
+      'decodeCharset',
+      {'bytes': b, 'charset': charset},
+    );
+    if (text == null) throw LegacyEncodingException(charset);
+    return text;
+  });
+}
+
+/// A book made from a file, and anything the reader should hear about it.
+typedef _Imported = ({LibraryEntry entry, String? note});
+
+/// A PDF from the text, bookmarks and line layout the platform read from it.
+Book _pdfBook(String id, Map<String, Object?> pdf, String? filename) {
+  final text = pdf['text'] as String? ?? '';
+  return ingestPdfText(
+    id: id,
+    pages: text.split(String.fromCharCode(0x0C)),
+    // Every bookmark level, and where lines sit (for footnotes and columns).
+    outline: pdfOutlineFromPlatform(pdf['outline']),
+    layout: pdfLayoutFromPlatform(pdf['layout']),
+    title: pdf['title'] as String?,
+    author: pdf['author'] as String?,
+    filename: filename,
+  );
+}
+
+/// What to say about a PDF whose pages are mostly pictures (a scan with a
+/// few typed pages): it imports, but only those pages read aloud.
+String? _scanNote(Map<String, Object?> pdf) {
+  final text = pdf['text'] as String? ?? '';
+  final c = pdfTextCoverage(text.split(String.fromCharCode(0x0C)), layout: pdfLayoutFromPlatform(pdf['layout']));
+  if (!c.mostlyPictures) return null;
+  return 'Most pages of this PDF are pictures: only ${c.pagesWithText} of ${c.pages} have text to read aloud.';
+}
+
+Future<_Imported> _import(_ImportJob job) async {
   final bytes = File(job.sourcePath).readAsBytesSync();
   final id = bookIdOf(bytes);
   final Book book;
   final pdf = job.pdf;
   if (pdf != null) {
-    final text = pdf['text'] as String? ?? '';
-    book = ingestPdfText(
-      id: id,
-      pages: text.split(String.fromCharCode(0x0C)),
-      outline: [
-        for (final o in (pdf['outline'] as List? ?? const []))
-          if (o is Map)
-            (title: o['title']?.toString() ?? '', page: o['page'] as int? ?? 0),
-      ],
-      title: pdf['title'] as String?,
-      author: pdf['author'] as String?,
-      filename: job.name,
-    );
+    book = _pdfBook(id, pdf, job.name);
   } else {
-    book = ingestBytes(bytes, filename: job.name, mime: job.mime, id: id);
+    book = await _ingest(bytes, filename: job.name, mime: job.mime, id: id, token: job.token);
   }
 
   final dir = Directory('${job.booksDir}/$id')..createSync(recursive: true);
@@ -930,7 +997,7 @@ LibraryEntry _importSync(_ImportJob job) {
   _writeParsed(dir.path, book);
   _writeImages(dir.path, bytes, book);
 
-  return LibraryEntry(
+  final entry = LibraryEntry(
     id: id,
     title: book.metadata.title,
     authors: book.metadata.authors,
@@ -940,7 +1007,9 @@ LibraryEntry _importSync(_ImportJob job) {
     addedAt: DateTime.now(),
     language: book.metadata.language,
     cover: coverFileOf(dir.path, book),
+    pdfParser: pdf != null ? pdfParserVersion : 0,
   );
+  return (entry: entry, note: pdf != null ? _scanNote(pdf) : null);
 }
 
 void _writeParsed(String dir, Book book) {
@@ -1007,7 +1076,8 @@ ReadingLayout _loadWebSync(String dir, String id) {
   final cover = File('$dir/img').existsSync()
       ? Directory('$dir/img').listSync().whereType<File>().where((f) => f.path.contains('cover')).firstOrNull?.path
       : null;
-  return ReadingLayout.build(webNovelBook(
+  // Notes shown on the page, not read aloud (see ReadingLayout.build).
+  return ReadingLayout.build(displayOnly: true, webNovelBook(
     id: id,
     title: info.novel.name,
     authors: [if (info.novel.author != null) info.novel.author!],
@@ -1018,7 +1088,7 @@ ReadingLayout _loadWebSync(String dir, String id) {
   ));
 }
 
-ReadingLayout _loadLayoutSync(_LoadJob job) {
+Future<ReadingLayout> _loadLayout(_LoadJob job) async {
   final dir = '${job.booksDir}/${job.id}';
   final parsed = File('$dir/parsed.json');
   Book? book;
@@ -1050,10 +1120,11 @@ ReadingLayout _loadLayoutSync(_LoadJob job) {
       if (legacy.source != SourceKind.pdf && source != null && source.existsSync()) {
         try {
           final bytes = source.readAsBytesSync();
-          book = ingestBytes(
+          book = await _ingest(
             bytes,
             filename: legacy.sourceName ?? source.path,
             id: job.id,
+            token: job.token,
           );
           _writeParsed(dir, book);
           _writeImages(dir, bytes, book);
@@ -1065,13 +1136,26 @@ ReadingLayout _loadLayoutSync(_LoadJob job) {
       }
     }
   }
+  // A PDF read again by today's PDF reader (nested bookmarks, running
+  // heads, footnotes and columns): the place is carried across.
+  final pdf = job.pdf;
+  if (pdf != null) {
+    try {
+      final again = _pdfBook(job.id, pdf, book?.sourceName ?? job.sourcePath);
+      before ??= book;
+      book = again;
+      _writeParsed(dir, again);
+    } on Object {
+      // Kept as it was stored.
+    }
+  }
   if (book == null) {
     final source = job.sourcePath == null ? null : File(job.sourcePath!);
     if (source == null || !source.existsSync()) {
       throw const ParseException('This book\'s files are missing. Import it again.');
     }
     final bytes = source.readAsBytesSync();
-    book = ingestBytes(bytes, filename: source.path, id: job.id);
+    book = await _ingest(bytes, filename: source.path, id: job.id, token: job.token);
     _writeParsed(dir, book);
     _writeImages(dir, bytes, book);
   }
@@ -1082,7 +1166,8 @@ ReadingLayout _loadLayoutSync(_LoadJob job) {
     book = resectioned;
     _writeParsed(dir, book);
   }
-  final layout = ReadingLayout.build(book);
+  // Footnotes and captions shown on the page, not read aloud.
+  final layout = ReadingLayout.build(book, displayOnly: true);
   if (before != null && !identical(before, book)) _carryCursor(dir, before, layout);
   return layout;
 }
@@ -1099,21 +1184,9 @@ void _carryCursor(String dir, Book before, ReadingLayout after) {
     final cursor = ReadingCursor.fromJson(Map<String, Object?>.from(raw['cursor'] as Map? ?? const {}));
     final old = flattenSpeakable(before);
     if (old.isEmpty) return;
-    final at = indexOfCursor(old, cursor);
-    final text = old[at].text;
-    // Nearest unit with the same text to where it sat proportionally.
-    final guess = (at * after.units.length / old.length).round().clamp(0, after.units.length - 1);
-    var best = -1;
-    for (var d = 0; d < after.units.length; d++) {
-      for (final i in [guess - d, guess + d]) {
-        if (i >= 0 && i < after.units.length && after.units[i].text == text) {
-          best = i;
-          break;
-        }
-      }
-      if (best >= 0 || d > 3000) break;
-    }
-    final target = best >= 0 ? best : guess;
+    // Found again by its words, a sentence split or joined in the new parse
+    // as well (see relocateCursor).
+    final target = relocateCursor(old, cursor, after).clamp(0, after.units.length - 1);
     file.writeAsStringSync(jsonEncode({
       'cursor': cursorOf(after.units[target]).toJson(),
       'progress': raw['progress'],
@@ -1146,6 +1219,7 @@ class LibraryEntry {
     this.plugin,
     this.novelPath,
     this.chapterCount = 0,
+    this.pdfParser = 0,
   });
 
   final String id;
@@ -1181,6 +1255,10 @@ class LibraryEntry {
 
   /// For a web novel: how many chapters the source lists.
   final int chapterCount;
+
+  /// For a PDF: the PDF reader it was last read with (pdfParserVersion); 0
+  /// from before that was kept. An older one is read again from the file.
+  final int pdfParser;
 
   bool get isWeb => source == SourceKind.web;
 
@@ -1226,6 +1304,7 @@ class LibraryEntry {
     String? category,
     int? chapterCount,
     String? language,
+    int? pdfParser,
   }) =>
       LibraryEntry(
         id: id,
@@ -1247,6 +1326,7 @@ class LibraryEntry {
         plugin: plugin,
         novelPath: novelPath,
         chapterCount: chapterCount ?? this.chapterCount,
+        pdfParser: pdfParser ?? this.pdfParser,
       );
 
   Map<String, Object?> toJson() => {
@@ -1269,6 +1349,7 @@ class LibraryEntry {
         if (plugin != null) 'plugin': plugin,
         if (novelPath != null) 'novelPath': novelPath,
         if (chapterCount > 0) 'chapterCount': chapterCount,
+        if (pdfParser > 0) 'pdfParser': pdfParser,
       };
 
   static LibraryEntry fromJson(Map<String, Object?> json) => LibraryEntry(
@@ -1302,6 +1383,7 @@ class LibraryEntry {
         plugin: json['plugin'] as String?,
         novelPath: json['novelPath'] as String?,
         chapterCount: json['chapterCount'] as int? ?? 0,
+        pdfParser: json['pdfParser'] as int? ?? 0,
       );
 }
 
