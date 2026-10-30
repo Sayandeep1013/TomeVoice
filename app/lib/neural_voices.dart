@@ -234,11 +234,13 @@ class NeuralVoice {
   /// Its model in its folder.
   String get modelFile => pack?.file ?? '$id.onnx';
 
-  /// A recording of it (about 100 KB) to hear before downloading; for a
-  /// voice the catalog has none for, Piper's own: en_US-kristin-medium is
+  /// A recording of it (about 100 KB) to hear before downloading; empty for
+  /// the one voice nobody has recorded a sample of.
+  String get sampleUrl => sample;
+
+  /// Piper's own recording of one of its voices: en_US-kristin-medium is
   /// en/en_US/kristin/medium.
-  String get sampleUrl {
-    if (sample.isNotEmpty) return sample;
+  static String piperSample(String id) {
     final parts = id.split('-');
     final lang = parts.first.split('_').first;
     return 'https://huggingface.co/rhasspy/piper-voices/resolve/main/$lang/${parts.join('/')}/samples/speaker_0.mp3';
@@ -334,16 +336,18 @@ class NeuralCatalog {
 /// The first natural voices, known before the catalog is read (a moment
 /// after start): a book set to one finds it from the first moment, and so
 /// would an app whose catalog could not be read.
-const firstNeuralVoices = [
-  NeuralVoice('en_US-kristin-medium', 'Kristin', 'en-US', 67259230, blurb: 'Warm and clear'),
-  NeuralVoice('en_US-norman-medium', 'Norman', 'en-US', 67203672, blurb: 'Calm, a little deep'),
-  NeuralVoice('en_GB-alan-medium', 'Alan', 'en-GB', 67220121, blurb: 'Steady British reader'),
-  NeuralVoice('en_GB-jenny_dioco-medium', 'Jenny (Dioco)', 'en-GB', 67225842, blurb: 'Bright British voice'),
-  NeuralVoice('en_GB-cori-medium', 'Cori', 'en-GB', 67257412, blurb: 'Soft and expressive'),
-  NeuralVoice('en_US-lessac-high', 'Lessac', 'en-US', 115545841,
-      quality: 'high', blurb: 'The richest, needs a faster phone'),
-  NeuralVoice('en_US-ryan-high', 'Ryan', 'en-US', 115630708,
-      quality: 'high', blurb: 'Deep and full, needs a faster phone'),
+final firstNeuralVoices = [
+  for (final (id, name, locale, bytes, blurb) in const [
+    ('en_US-kristin-medium', 'Kristin', 'en-US', 67259230, 'Warm and clear'),
+    ('en_US-norman-medium', 'Norman', 'en-US', 67203672, 'Calm, a little deep'),
+    ('en_GB-alan-medium', 'Alan', 'en-GB', 67220121, 'Steady British reader'),
+    ('en_GB-jenny_dioco-medium', 'Jenny (Dioco)', 'en-GB', 67225842, 'Bright British voice'),
+    ('en_GB-cori-medium', 'Cori', 'en-GB', 67257412, 'Soft and expressive'),
+    ('en_US-lessac-high', 'Lessac', 'en-US', 115545841, 'The richest, needs a faster phone'),
+    ('en_US-ryan-high', 'Ryan', 'en-US', 115630708, 'Deep and full, needs a faster phone'),
+  ])
+    NeuralVoice(id, name, locale, bytes,
+        quality: id.endsWith('-high') ? 'high' : 'medium', blurb: blurb, sample: NeuralVoice.piperSample(id)),
 ];
 
 /// Voice names that start with this are TomeVoice's own, not the phone's.
@@ -424,7 +428,7 @@ class NeuralVoices extends ChangeNotifier {
     if (m == null) return NeuralVoice(id, id, 'und', 0);
     final name = m.group(3)!.replaceAll('_', ' ');
     return NeuralVoice(id, name[0].toUpperCase() + name.substring(1), '${m.group(1)}-${m.group(2)}', 0,
-        quality: m.group(4)!);
+        quality: m.group(4)!, sample: NeuralVoice.piperSample(id));
   }
 
   void attach(Directory root) {

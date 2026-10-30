@@ -478,7 +478,11 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
   }
 
   Widget _hearButton(BuildContext context, NeuralVoice v) => IconButton(
-        tooltip: _hearing == v.id ? 'Stop' : 'Hear ${v.name}',
+        tooltip: _hearing == v.id
+            ? 'Stop'
+            : v.sampleUrl.isEmpty
+                ? 'No sample of ${v.name}'
+                : 'Hear ${v.name}',
         icon: Icon(
           _hearing == v.id ? Icons.stop_rounded : Icons.play_arrow_rounded,
           color: Skin.inkSoftOn(context),

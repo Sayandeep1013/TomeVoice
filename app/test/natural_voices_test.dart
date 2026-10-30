@@ -41,13 +41,17 @@ void main() {
         expect(['x_low', 'low', 'medium', 'high'], contains(v.quality), reason: v.id);
         expect(v.bytes, greaterThan(10 * 1024 * 1024), reason: '${v.id} has its download size');
         expect([16000, 22050, 24000, 44100], contains(v.sampleRate), reason: v.id);
-        expect(v.sampleUrl, startsWith('https://huggingface.co/'), reason: v.id);
+        // Nobody has recorded a sample of one voice: none is made up for it.
+        if (v.id != 'fa_en-rezahedayatfar-ibrahimwalk-medium') {
+          expect(v.sampleUrl, startsWith('https://huggingface.co/'), reason: v.id);
+        }
         expect(v.licence.name, isNotEmpty, reason: v.id);
         expect(v.licence.note, isNotEmpty, reason: '${v.id} says what its licence allows');
         // Full precision only: the fp16 models crash ONNX Runtime on the phone.
         expect(v.url, isNot(contains('fp16')), reason: v.id);
         expect(v.url, isNot(contains('int8')), reason: v.id);
       }
+      expect(voice('fa_en-rezahedayatfar-ibrahimwalk-medium').sampleUrl, isEmpty);
       // Not every voice speaks at 22,050 a second.
       expect(voice('fr_FR-tom-medium').sampleRate, 44100);
       expect(voice('ca_ES-upc_ona-x_low').sampleRate, 16000);
