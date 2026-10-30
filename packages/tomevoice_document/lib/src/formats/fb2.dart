@@ -120,6 +120,21 @@ Book parseFb2(Uint8List bytes, {required String id, String? filename}) {
     }
   }
 
+  // The notes the text's markers point at: kept, as footnotes (shown on
+  // request, never read in the flow), in one section at the end.
+  for (final body in doc.descendants.whereType<XmlElement>().where((e) =>
+      e.name.local == 'body' && const {'notes', 'comments'}.contains(e.getAttribute('name')))) {
+    final from = sections.length;
+    addSection(body); // its title, then each note's section
+    if (sections.length == from) continue;
+    final notes = [
+      for (final s in sections.sublist(from))
+        for (final b in s.blocks) b.withRole(BlockRole.footnote),
+    ];
+    sections.removeRange(from, sections.length);
+    sections.add((title: _bodyTitle(body), blocks: notes));
+  }
+
   return assembleBook(
     id: id,
     metadata: BookMetadata(
@@ -152,11 +167,34 @@ String _joinTitle(List<String> lines) {
   return out.toString();
 }
 
+String? _bodyTitle(XmlElement body) {
+  for (final t in body.children.whereType<XmlElement>()) {
+    if (t.name.local == 'title') {
+      final text = collapseWhitespace(_text(t));
+      return text.isEmpty ? null : text;
+    }
+  }
+  return null;
+}
+
 /// Elements whose edges are word breaks: paragraphs, verse lines, cells.
 const _breaking = {'p', 'v', 'subtitle', 'text-author', 'td', 'th', 'tr', 'empty-line', 'stanza'};
 
+/// "[1]", "1", "*": what a note link says.
+final _markerText = RegExp(r'^[\[({]?(\p{Nd}{1,4}|[*†‡§¶#]{1,3})[\])}]?$', unicode: true);
+
+/// A link to a note: `<a l:href="#n1" type="note">`, or a short numbered
+/// link to a place in the book.
+bool _isNoteLink(XmlElement a) {
+  if (a.name.local != 'a') return false;
+  if (a.getAttribute('type') == 'note') return true;
+  final href = [for (final at in a.attributes) if (at.name.local == 'href') at.value].firstOrNull ?? '';
+  return href.startsWith('#') && _markerText.hasMatch(collapseWhitespace(a.innerText));
+}
+
 /// The text of [e] with a space wherever one paragraph, line or cell ends
-/// and the next begins (`innerText` glued "Chapter 1" to "The Arrival").
+/// and the next begins (`innerText` glued "Chapter 1" to "The Arrival"),
+/// and note markers shown but not spoken.
 String _text(XmlElement e) {
   final buf = StringBuffer();
   void walk(XmlNode n) {
@@ -165,6 +203,10 @@ String _text(XmlElement e) {
         buf.write(c.value);
       } else if (c is XmlElement) {
         if (c.name.local == 'image') continue;
+        if (_isNoteLink(c)) {
+          buf.write(silentMark(collapseWhitespace(c.innerText)));
+          continue;
+        }
         final edge = _breaking.contains(c.name.local);
         if (edge) buf.write(' ');
         walk(c);

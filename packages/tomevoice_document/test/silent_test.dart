@@ -26,6 +26,24 @@ void main() {
       expect(b.sentences.first.silent, [(start: 10, end: 13), (start: 20, end: 21)]);
     });
 
+    test('the space before a marker is not left before a stop', () {
+      String said(String text) {
+        final b = makeBlock(role: BlockRole.paragraph, text: text);
+        return [
+          for (final s in b.sentences)
+            spokenText(s.of(b.text), [
+              for (final r in s.silent) (start: r.start - s.startOffset, end: r.end - s.startOffset),
+            ]).text,
+        ].join(' | ');
+      }
+
+      expect(said('Love a fantasy ${silentMark('[1]')}?'), 'Love a fantasy?');
+      expect(said('Into Jotun ${silentMark('[1]')}, Elvish.'), 'Into Jotun, Elvish.');
+      expect(said('His area ${silentMark('[1]')} hurt.'), 'His area hurt.');
+      expect(said('Glued${silentMark('2')} on.'), 'Glued on.');
+      expect(makeBlock(role: BlockRole.paragraph, text: 'Love ${silentMark('[1]')}.').text, 'Love [1].');
+    });
+
     test('a decimal is still not a boundary', () {
       final b = makeBlock(role: BlockRole.paragraph, text: 'It cost 3.50 then. Fine.');
       expect(b.sentences, hasLength(2));

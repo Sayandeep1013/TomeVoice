@@ -85,14 +85,39 @@ Block makeBlock({
   }
   var clean = out.toString();
   if (clean.endsWith(' ')) clean = clean.substring(0, clean.length - 1);
-  return (
-    clean: clean,
-    silent: [
-      for (final r in silent)
-        if (r.start < clean.length) (start: r.start, end: r.end > clean.length ? clean.length : r.end),
-    ],
-  );
+  final kept = <TextStretch>[];
+  for (final r in silent) {
+    if (r.start >= clean.length) continue;
+    final end = r.end > clean.length ? clean.length : r.end;
+    var start = r.start;
+    // "fantasy [1]?" says "fantasy?": the space before a marker goes with
+    // it when a stop, a space or nothing comes after.
+    if (start > 0 &&
+        clean.codeUnitAt(start - 1) == 0x20 &&
+        (kept.isEmpty || kept.last.end < start - 1) &&
+        (end == clean.length || _closesUp(clean.codeUnitAt(end)))) {
+      start--;
+    }
+    kept.add((start: start, end: end));
+  }
+  return (clean: clean, silent: kept);
 }
+
+bool _closesUp(int c) =>
+    c == 0x20 || // space
+    c == 0x2E || // .
+    c == 0x2C || // ,
+    c == 0x3B || // ;
+    c == 0x3A || // :
+    c == 0x21 || // !
+    c == 0x3F || // ?
+    c == 0x29 || // )
+    c == 0x5D || // ]
+    c == 0x22 || // "
+    c == 0x201D || // ”
+    c == 0x2019 || // ’
+    c == 0xBB || // »
+    c == 0x2026; // …
 
 List<Speakable> flattenSpeakable(
   Book book, {

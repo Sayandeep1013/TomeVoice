@@ -79,7 +79,18 @@ final _blankLine = RegExp(r'\n[ \t\r]*\n');
 
 /// Walk XHTML/HTML into [Block]s. Joins inline runs inside a block so a drop
 /// cap (`<span>O</span>nce`) does not become its own sentence.
-List<Block> blocksFromHtml(String html, {String? language, String? href}) {
+///
+/// Footnote markers are kept on the page but marked silent, and notes are
+/// [BlockRole.footnote]. [notes] are the ids in this document that links in
+/// earlier documents point at; [hasFile] says whether a path is a document
+/// of the same book (so a link to `notes.xhtml#n1` is a link into it).
+List<Block> blocksFromHtml(
+  String html, {
+  String? language,
+  String? href,
+  Set<String> notes = const {},
+  bool Function(String path)? hasFile,
+}) {
   final doc = _parse(html);
   if (doc == null) return lenientHtmlBlocks(html, language: language);
 
@@ -92,13 +103,101 @@ List<Block> blocksFromHtml(String html, {String? language, String? href}) {
     if (bodies.isNotEmpty) body = bodies.first;
   }
 
-  final walker = _Walker(href);
+  final walker = _Walker(href, hasFile);
   if (_isPlainText(body)) {
     walker.plainText(body, language);
   } else {
+    walker.notes = {...notes, ..._forwardNotes(body, walker)};
     walker.walk(body, language, inherited: null);
   }
-  return joinDropCaps(walker.out);
+  return joinDropCaps(_notesHeading(walker.out));
+}
+
+/// Ids of notes in this document: what its marker links point forward to.
+/// A note's link back to the text points backward, so the text it returns
+/// to is never taken for a note.
+Set<String> _forwardNotes(XmlElement body, _Walker walker) {
+  final seen = <String>{};
+  final out = <String>{};
+  // The text just before each link, as the walker will see it.
+  var tail = '';
+  for (final n in body.descendants) {
+    if (n is XmlText) {
+      final t = tail + n.value;
+      tail = t.length > 24 ? t.substring(t.length - 24) : t;
+      continue;
+    }
+    if (n is! XmlElement) continue;
+    if (n.localName.toLowerCase() == 'a') {
+      final target = walker.sameDocument(_href(n));
+      if (target != null && !seen.contains(target) && _isMarkerLink(n, walker, tail: tail)) {
+        out.add(target);
+      }
+    }
+    final id = _idOf(n);
+    if (id != null) seen.add(id);
+  }
+  return out;
+}
+
+final _linkTag = RegExp(r'<a\b([^>]*)>([\s\S]{0,300}?)</a\s*>', caseSensitive: false);
+final _anyTag = RegExp(r'<[^>]*>');
+final _noterefAttr = RegExp(r'''(?:type|role)\s*=\s*["'][^"']*(?:noteref|doc-noteref)''', caseSensitive: false);
+final _hrefAttr = RegExp(r'''\bhref\s*=\s*(?:"([^"]*)"|'([^']*)')''', caseSensitive: false);
+
+/// The links in [html] that look like footnote markers, as written. A
+/// quick look at the raw text, so an EPUB knows which ids in its later
+/// files are notes before it parses them. A contents page (mostly links)
+/// has none.
+List<String> markerLinks(String html) {
+  final out = <String>[];
+  var linkText = 0;
+  for (final m in _linkTag.allMatches(html)) {
+    final attrs = m.group(1)!;
+    final inner = collapseWhitespace(decodeEntities(m.group(2)!.replaceAll(_anyTag, '')));
+    linkText += inner.length;
+    final h = _hrefAttr.firstMatch(attrs);
+    final href = (h?.group(1) ?? h?.group(2) ?? '').trim();
+    if (!href.contains('#')) continue;
+    if (_noterefAttr.hasMatch(attrs)) {
+      out.add(href);
+      continue;
+    }
+    if (inner.isEmpty || !_markerLinkText.hasMatch(inner)) continue;
+    if (_bareNumber.hasMatch(inner)) {
+      // "chapter 2", "page 9": a reference to read, not a marker.
+      final before = html.substring(m.start < 60 ? 0 : m.start - 60, m.start).replaceAll(_anyTag, '');
+      if (_readNumberAfter.hasMatch(decodeEntities(before))) continue;
+    }
+    out.add(href);
+  }
+  if (out.isEmpty) return out;
+  final all = collapseWhitespace(decodeEntities(html.replaceAll(_anyTag, ' '))).length;
+  return all > 0 && linkText * 10 >= all * 6 ? const [] : out;
+}
+
+/// A heading that only introduces notes ("Notes", "Endnotes") is part of
+/// them: nobody wants it read with nothing after it.
+List<Block> _notesHeading(List<Block> blocks) {
+  var changed = false;
+  final out = [...blocks];
+  for (var i = 0; i < out.length; i++) {
+    if (out[i].role != BlockRole.heading) continue;
+    var notes = 0;
+    var other = 0;
+    for (var j = i + 1; j < out.length && out[j].role != BlockRole.heading; j++) {
+      if (out[j].role == BlockRole.footnote) {
+        notes++;
+      } else if (out[j].role != BlockRole.figure) {
+        other++;
+      }
+    }
+    if (notes > 0 && other == 0) {
+      out[i] = out[i].withRole(BlockRole.footnote);
+      changed = true;
+    }
+  }
+  return changed ? out : blocks;
 }
 
 XmlDocument? _parse(String html) {
@@ -123,10 +222,77 @@ bool _isPlainText(XmlElement body) =>
     !_hasBlockDescendant(body) && _blankLine.hasMatch(body.innerText);
 
 class _Walker {
-  _Walker(this.href);
+  _Walker(this.href, this.hasFile);
 
   final String? href;
+  final bool Function(String path)? hasFile;
+
+  /// Ids of the notes in this document.
+  Set<String> notes = const {};
   final out = <Block>[];
+
+  /// The id a link points at in this same document, or null.
+  String? sameDocument(String link) {
+    final hash = link.indexOf('#');
+    if (hash < 0 || hash == link.length - 1) return null;
+    final path = link.substring(0, hash);
+    if (path.isNotEmpty && (href == null || _resolve(path) != href)) return null;
+    return _decode(link.substring(hash + 1));
+  }
+
+  /// Whether a link points at a place inside this book.
+  bool internal(String link) {
+    final hash = link.indexOf('#');
+    if (hash < 0 || hash == link.length - 1) return false;
+    final path = link.substring(0, hash);
+    if (path.isEmpty) return true;
+    if (path.contains(':') || href == null) return false;
+    final resolved = _resolve(path);
+    return resolved == href || (hasFile?.call(resolved) ?? false);
+  }
+
+  String _resolve(String path) => zipJoin(_dirOfPath(href!), _decode(path));
+
+  /// Whether [e] (with an id) is the start of a note: small, no headings
+  /// in it, and pointed at by a marker. A chapter a contents link points at
+  /// is none of those.
+  bool _isNote(XmlElement e) {
+    final id = _idOf(e);
+    if (id == null || !notes.contains(id)) return false;
+    final name = e.localName.toLowerCase();
+    if (const {'body', 'html', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}.contains(name)) return false;
+    if (e.descendants.whereType<XmlElement>().any((d) => _headingTags.contains(d.localName.toLowerCase()))) {
+      return false;
+    }
+    return e.innerText.length <= 3000;
+  }
+
+  /// Whether the text of [nodes] opens with a note's own anchor
+  /// (`<p><a id="fn1" href="#ref1">1</a> The note.</p>`).
+  bool _opensNote(List<XmlNode> nodes) {
+    var found = false;
+    var text = false;
+    void walk(XmlNode n) {
+      if (found || text) return;
+      if (n is XmlText || n is XmlCDATA) {
+        if (n.value!.trim().isNotEmpty) text = true;
+        return;
+      }
+      if (n is! XmlElement) return;
+      if (_isNote(n)) {
+        found = true;
+        return;
+      }
+      for (final c in n.children) {
+        walk(c);
+      }
+    }
+
+    for (final n in nodes) {
+      walk(n);
+    }
+    return found;
+  }
 
   void walk(XmlNode node, String? language, {required BlockRole? inherited}) {
     if (node is! XmlElement) return;
@@ -138,9 +304,15 @@ class _Walker {
       return;
     }
 
-    final role = _roleFor(node, name, inherited);
+    final role = _isNote(node) ? BlockRole.footnote : _roleFor(node, name, inherited);
     if (_isLeaf(node, name)) {
-      _emitText(_inlineText([node]), role, language, name);
+      final text = _inlineText([node], this);
+      _emitText(
+        text,
+        text.length <= 3000 && _opensNote(node.children) ? BlockRole.footnote : role,
+        language,
+        name,
+      );
       // <p><img/></p> is the usual way a picture sits in a chapter.
       _images(node, out, language, href);
       return;
@@ -155,7 +327,13 @@ class _Walker {
     final run = <XmlNode>[];
     void flush() {
       if (run.isEmpty) return;
-      _emitText(_inlineText(run), role ?? BlockRole.paragraph, language, 'p');
+      final text = _inlineText(run, this);
+      _emitText(
+        text,
+        text.length <= 3000 && _opensNote(run) ? BlockRole.footnote : role ?? BlockRole.paragraph,
+        language,
+        'p',
+      );
       for (final n in run) {
         if (n is XmlElement) _images(n, out, language, href);
       }
@@ -195,7 +373,7 @@ class _Walker {
 
   /// A body that is really plain text, read the way a .txt file is.
   void plainText(XmlElement body, String? language) {
-    final text = _inlineText([body]).replaceAll(_lineBreak, '\n');
+    final text = _inlineText([body], this).replaceAll(_lineBreak, '\n');
     for (final s in sectionsFromPlainText(text, fallbackTitle: '')) {
       for (final b in s.blocks) {
         out.add(language == null
@@ -243,33 +421,47 @@ bool _breaksRun(XmlElement e) {
 
 /// The text of [nodes] as one run: inline markup joined, a space at cells
 /// and block edges, [_lineBreak] for `<br/>`, ruby readings and pictures
-/// left out.
-String _inlineText(List<XmlNode> nodes) {
+/// left out, and footnote markers marked silent.
+String _inlineText(List<XmlNode> nodes, _Walker walker) {
   final buf = StringBuffer();
+  // The last few characters written, for what a marker follows.
+  var tail = '';
+  void write(String s) {
+    if (s.isEmpty) return;
+    buf.write(s);
+    final t = tail + s;
+    tail = t.length > 24 ? t.substring(t.length - 24) : t;
+  }
+
   void walk(XmlNode n) {
     if (n is XmlText || n is XmlCDATA) {
-      buf.write(n.value!.replaceAll(_ownMarks, ''));
+      write(n.value!.replaceAll(_ownMarks, ''));
       return;
     }
     if (n is! XmlElement) return;
     final name = n.localName.toLowerCase();
     if (name == 'br') {
-      buf.write(_lineBreak);
+      write(_lineBreak);
       return;
     }
     if (name == 'svg' ||
         name == 'rt' ||
         name == 'rp' ||
         _skipTags.contains(name) ||
-        _isApparatus(n)) {
+        _isApparatus(n) ||
+        _isPageBreak(n)) {
+      return;
+    }
+    if ((name == 'a' || name == 'sup' || name == 'span') && _isMarker(n, walker, tail)) {
+      write(silentMark(collapseWhitespace(n.innerText.replaceAll(_ownMarks, ''))));
       return;
     }
     final edge = _isBlockLevel(name);
-    if (edge) buf.write(' ');
+    if (edge) write(' ');
     for (final c in n.children) {
       walk(c);
     }
-    if (edge) buf.write(' ');
+    if (edge) write(' ');
   }
 
   for (final n in nodes) {
@@ -285,20 +477,116 @@ String _inlineText(List<XmlNode> nodes) {
   return buf.toString();
 }
 
-BlockRole? _roleFor(XmlElement node, String name, BlockRole? inherited) {
-  final epubType = _attr(node, 'type').toLowerCase();
-  final aria = (node.getAttribute('role') ?? '').toLowerCase();
+const _headingTags = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'};
 
-  if (epubType.contains('footnote') ||
-      epubType.contains('rearnote') ||
-      epubType.contains('note') ||
-      aria.contains('doc-footnote')) {
+/// epub:type values (any vocabulary prefix dropped) and ARIA roles of notes.
+const _noteTypes = {'footnote', 'footnotes', 'endnote', 'endnotes', 'rearnote', 'rearnotes', 'note', 'notes'};
+const _noteRoles = {'doc-footnote', 'doc-endnote', 'doc-endnotes'};
+
+Set<String> _types(XmlElement e) => {
+      for (final t in _attr(e, 'type').toLowerCase().split(RegExp(r'\s+')))
+        if (t.isNotEmpty) t.split(':').last,
+    };
+
+String _role(XmlElement e) => (e.getAttribute('role') ?? '').toLowerCase().trim();
+
+/// A printed page number inside the text (`<span epub:type="pagebreak">7`).
+bool _isPageBreak(XmlElement e) => _types(e).contains('pagebreak') || _role(e) == 'doc-pagebreak';
+
+String _href(XmlElement e) => _attr(e, 'href').trim();
+
+String? _idOf(XmlElement e) {
+  final id = e.getAttribute('id') ?? _attr(e, 'id');
+  if (id.isNotEmpty) return id;
+  if (e.localName.toLowerCase() == 'a') {
+    final name = e.getAttribute('name') ?? '';
+    if (name.isNotEmpty) return name;
+  }
+  return null;
+}
+
+/// "1", "[12]", "(3)", "*", "†", "a", "iv": what a footnote marker says.
+final _markerLinkText = RegExp(
+  r'^[\[({]?(\p{Nd}{1,4}[a-z]?|[*†‡§¶‖#]{1,3}|\p{L}|[ivxlcdm]{1,6}|[IVXLCDM]{1,6})[\])}]?[.,:;]?$',
+  unicode: true,
+);
+
+/// In a `<sup>` only numbers and symbols, or a bracketed letter: "nd" in
+/// 2<sup>nd</sup> and "r" in M<sup>r</sup> are part of the word.
+final _markerSupText = RegExp(r'^[\[(]?(\p{Nd}{1,4}|[*†‡§¶‖#]{1,3})[\])]?$|^\[\p{L}\]$', unicode: true);
+
+/// Words after which a number is a reference to read, not a marker:
+/// "see chapter 2", "page 9", "note 3" (a marker is not set off by a space).
+final _readNumberAfter = RegExp(
+  r'(?:^|[^\p{L}])(?:chapters?|chap|ch|pages?|pp?|sections?|sect|sec|figures?|fig|tables?|tab|parts?|books?|'
+  r'volumes?|vol|notes?|no|verses?|lines?|items?|steps?|appendix|psalms?|vs?)\.?\s+$',
+  caseSensitive: false,
+  unicode: true,
+);
+final _bareNumber = RegExp(r'^\p{Nd}+[a-z]?$', unicode: true);
+
+/// Whether [e] is a footnote marker, given the text just before it.
+bool _isMarker(XmlElement e, _Walker walker, String tail) {
+  final name = e.localName.toLowerCase();
+  final types = _types(e);
+  final text = collapseWhitespace(e.innerText.replaceAll(_ownMarks, ''));
+  if (text.isEmpty) return false;
+  if (types.contains('noteref') || _role(e) == 'doc-noteref') return true;
+  if (name == 'sup') {
+    if (!_markerSupText.hasMatch(text)) return false;
+    // 10<sup>6</sup> is a power, not a note.
+    final before = tail.isEmpty ? 0 : tail.codeUnitAt(tail.length - 1);
+    if (before >= 0x30 && before <= 0x39) return false;
+    return !_inContents(e);
+  }
+  if (name == 'a') return _isMarkerLink(e, walker, tail: tail);
+  return false;
+}
+
+/// A short link into the book that says "1", "[2]" or "*": a note marker.
+bool _isMarkerLink(XmlElement a, _Walker walker, {required String tail}) {
+  final types = _types(a);
+  if (types.contains('noteref') || _role(a) == 'doc-noteref') return true;
+  if (!walker.internal(_href(a))) return false;
+  final text = collapseWhitespace(a.innerText.replaceAll(_ownMarks, ''));
+  if (!_markerLinkText.hasMatch(text)) return false;
+  if (_bareNumber.hasMatch(text) && _readNumberAfter.hasMatch(tail)) return false;
+  return !_inContents(a);
+}
+
+/// Inside a table of contents: a nav, or a block that is mostly links
+/// ("1 2 3 4" linking to the chapters).
+bool _inContents(XmlElement e) {
+  XmlElement? block;
+  for (var p = e.parentElement; p != null; p = p.parentElement) {
+    final name = p.localName.toLowerCase();
+    if (name == 'nav' || _types(p).any((t) => t == 'toc' || t == 'landmarks' || t == 'page-list')) {
+      return true;
+    }
+    if (block == null && _blockTags.contains(name)) block = p;
+  }
+  if (block == null) return false;
+  final all = collapseWhitespace(block.innerText).length;
+  final links = block.descendants
+      .whereType<XmlElement>()
+      .where((d) => d.localName.toLowerCase() == 'a')
+      .fold<int>(0, (n, d) => n + collapseWhitespace(d.innerText).length);
+  return all > 0 && links * 10 >= all * 6;
+}
+
+BlockRole? _roleFor(XmlElement node, String name, BlockRole? inherited) {
+  // A note's paragraphs, lists and headings are all the note.
+  if (inherited == BlockRole.footnote) return BlockRole.footnote;
+  final types = _types(node);
+  final aria = _role(node);
+
+  if (types.any(_noteTypes.contains) || _noteRoles.contains(aria) || name == 'aside') {
     return BlockRole.footnote;
   }
-  if (epubType.contains('pagebreak') || aria.contains('doc-pagebreak')) {
+  if (types.contains('pagebreak') || aria == 'doc-pagebreak') {
     return BlockRole.pageNumber;
   }
-  if (epubType.contains('caption') || name == 'figcaption' || name == 'caption') {
+  if (types.contains('caption') || name == 'figcaption' || name == 'caption') {
     return BlockRole.caption;
   }
 

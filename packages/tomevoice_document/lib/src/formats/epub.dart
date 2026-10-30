@@ -49,16 +49,25 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename}) {
   final manifest = _manifest(opf, opfDir);
   final spineHrefs = _spine(opf, manifest);
 
+  // Each spine document's text, read once. Before any is parsed, their
+  // marker links say which ids in later documents are notes (an endnotes
+  // file at the back): a link that points back is a note's way home.
+  final texts = <String?>[for (final h in spineHrefs) _read(archive, h)];
+  final notes = _noteTargets(spineHrefs, texts);
+
   resetBlockIds();
   final sections = <Section>[];
   for (var i = 0; i < spineHrefs.length; i++) {
     final href = spineHrefs[i];
-    final html = _read(archive, href);
+    final html = texts[i];
+    texts[i] = null;
     if (html == null) continue;
     final blocks = blocksFromHtml(
       html,
       language: metadata.language,
       href: href,
+      notes: notes[href] ?? const {},
+      hasFile: names.contains,
     );
     if (blocks.isEmpty) continue;
     sections.add(Section(
@@ -127,6 +136,33 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename}) {
     sourceName: book.sourceName,
     wordCount: wordCountOf(book),
   );
+}
+
+/// Spine path -> ids in it that marker links in earlier documents point at.
+Map<String, Set<String>> _noteTargets(List<String> spine, List<String?> texts) {
+  final position = {for (var i = 0; i < spine.length; i++) spine[i]: i};
+  final out = <String, Set<String>>{};
+  for (var i = 0; i < spine.length; i++) {
+    final html = texts[i];
+    if (html == null) continue;
+    for (final link in markerLinks(html)) {
+      final hash = link.indexOf('#');
+      final path = link.substring(0, hash);
+      if (path.isEmpty || path.contains(':')) continue;
+      final target = zipJoin(_dirOf(spine[i]), _decodeHref(path));
+      final at = position[target];
+      if (at != null && at > i) (out[target] ??= {}).add(_decodeHref(link.substring(hash + 1)));
+    }
+  }
+  return out;
+}
+
+String _decodeHref(String s) {
+  try {
+    return Uri.decodeComponent(s);
+  } on Object {
+    return s;
+  }
 }
 
 String? _read(Archive archive, String path) {
