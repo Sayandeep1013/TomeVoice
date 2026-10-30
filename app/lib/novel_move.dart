@@ -305,7 +305,8 @@ Future<MovePlan> planMove(LibraryStore store, LibraryEntry entry, PluginInfo to,
   if (novel.chapters.isEmpty) throw MoveRefused('${to.name} lists no chapters for it.');
   final info = await store.settleWebChapters(entry.id);
   if (info == null) throw MoveRefused('This novel is not in the library.');
-  final match = matchChapters(info.chapters, novel.chapters);
+  // Off the UI thread: two lists of thousands of chapters.
+  final match = await _runMatch(info.chapters, novel.chapters);
   final downloads = store.downloadedChapters(entry.id);
   final cursor = await store.cursorFor(entry.id);
   final begun = entry.openedAt != null;
@@ -454,9 +455,12 @@ bool movePrefs(ListeningPrefs prefs, String from, String to) {
   return any;
 }
 
-// Top-level, so the closure handed to Isolate.run captures only these.
+// Top-level, so the closures handed to Isolate.run capture only these.
 Future<void> _runMoveFiles(String from, String to, Map<int, int> places) =>
     Isolate.run(() => _moveFilesSync(from, to, places));
+
+Future<ChapterMatch> _runMatch(List<ChapterItem> from, List<ChapterItem> to) =>
+    Isolate.run(() => matchChapters(from, to));
 
 /// Move what [from] (an old book folder) keeps to [to]: its pictures, its
 /// downloads to their chapters' places by [places] (one with no place, or
