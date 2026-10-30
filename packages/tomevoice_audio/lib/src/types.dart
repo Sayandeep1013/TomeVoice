@@ -45,9 +45,29 @@ enum WordTimingSource {
   /// Recovered by running a forced aligner over the synthesised audio.
   aligned,
 
+  /// Shared out by character count between the pauses found in the audio
+  /// (see [PauseAligner]): right at every pause, roughly right between them.
+  /// Good enough to highlight a word in a short stretch; a splice still goes
+  /// only where the audio is quiet.
+  anchored,
+
   /// Guessed by distributing sentence duration across words. Good enough to
   /// place gaps; visibly wrong for highlighting.
   estimated,
+}
+
+extension WordTimingTrust on WordTimingSource {
+  /// Whether a word boundary from this source is where the word really ends,
+  /// so a splice can go there even in the middle of sound.
+  bool get reliable =>
+      this == WordTimingSource.engineReported ||
+      this == WordTimingSource.modelDurations ||
+      this == WordTimingSource.aligned;
+
+  /// Whether the word under the voice can be highlighted from this source,
+  /// rather than only the sentence: better an honest coarse highlight than a
+  /// confident wrong one (docs/05 section 5.9).
+  bool get showsWord => this != WordTimingSource.estimated;
 }
 
 /// One word, located in both the request text and the audio.
@@ -138,6 +158,7 @@ class PipelineSettings {
     this.compression = Compression.light,
     this.pitchSemitones = 0.0,
     this.text = '',
+    this.levelGainDb,
   });
 
   /// Silence inserted at every word boundary. The headline feature.
@@ -178,6 +199,12 @@ class PipelineSettings {
   /// each word.
   final String text;
 
+  /// The loudness gain for this buffer, in dB, when the caller has worked it
+  /// out already: a reader smooths it from sentence to sentence (see
+  /// [GainStage.levelGainDb]) so the level does not jump with each one.
+  /// Null measures this buffer alone.
+  final double? levelGainDb;
+
   PipelineSettings copyWith({
     int? wordGapMs,
     double? speedScale,
@@ -191,6 +218,7 @@ class PipelineSettings {
     double? pitchSemitones,
     String? text,
     bool? trimEdges,
+    double? levelGainDb,
   }) =>
       PipelineSettings(
         wordGapMs: wordGapMs ?? this.wordGapMs,
@@ -207,5 +235,6 @@ class PipelineSettings {
         compression: compression ?? this.compression,
         pitchSemitones: pitchSemitones ?? this.pitchSemitones,
         text: text ?? this.text,
+        levelGainDb: levelGainDb ?? this.levelGainDb,
       );
 }
