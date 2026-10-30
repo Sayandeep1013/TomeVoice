@@ -635,6 +635,61 @@ void main() {
       await finish(tester);
     });
 
+    testWidgets('turning the phone keeps the scroll where it was read to', (tester) async {
+      // On its side the reader's parts sat in another order, so the text
+      // was built afresh at the place the book was opened.
+      await pumpLong(tester, longBook());
+      final list = find.byType(ScrollablePositionedList);
+      final beta = find.text('Beta', findRichText: true);
+      await tester.dragUntilVisible(beta, list, const Offset(0, -600), maxIteration: 100);
+      final top = tester.getTopLeft(list).dy;
+      await tester.drag(list, Offset(0, top + 40 - tester.getTopLeft(beta).dy));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('2/2'), findsOneWidget);
+      // The place stayed in the second chapter all along; what is on the
+      // screen went back to the first.
+      final opening = find.textContaining('Beta opens here', findRichText: true);
+      expect(opening, findsOneWidget);
+      for (final size in const [Size(2340, 1080), Size(1080, 2340)]) {
+        tester.view.physicalSize = size;
+        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.pumpAndSettle();
+        expect(opening, findsOneWidget, reason: 'the second chapter still on screen at $size');
+        expect(find.textContaining('2/2'), findsOneWidget, reason: 'at $size');
+      }
+      await finish(tester);
+    });
+
+    testWidgets("the scroll is in the page tone's ink, whatever the phone's theme", (tester) async {
+      // A paper tone on a phone that has gone dark (and the dim one on a light
+      // phone): the text took the app's ink, near-white on cream paper.
+      Color inkOfText() {
+        final para = find.byWidgetPredicate((w) =>
+            w is RichText && w.text.toPlainText().startsWith('A long paragraph of the story'));
+        return (tester.widget<RichText>(para.first).text as TextSpan).style!.color!;
+      }
+
+      for (final (tone, brightness) in [
+        (PageTone.papyrus, Brightness.dark),
+        (PageTone.eink, Brightness.dark),
+        (PageTone.dusk, Brightness.light),
+      ]) {
+        ListeningPrefs.memory.pageTone = tone.id;
+        phone(tester);
+        await tester.pumpWidget(MaterialApp(
+          key: ValueKey(tone.id),
+          theme: ThemeData(useMaterial3: true, brightness: brightness),
+          home: ReaderScreen(layout: longBook()),
+        ));
+        await tester.pumpAndSettle();
+        expect(inkOfText(), tone.ink, reason: '${tone.id} on a ${brightness.name} phone');
+      }
+      await finish(tester);
+    });
+
     testWidgets('a new page tone keeps the page turned to', (tester) async {
       // Pages turned on while reading, so they first opened at that place.
       ListeningPrefs.memory.pageTurn = 'none';

@@ -721,6 +721,19 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     }
   }
 
+  /// The width the scroll was last laid out at.
+  double? _laidWidth;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Turned on its side (or into a split screen), the text reflows: the
+    // paragraph at the top stays there, as for a new text size.
+    final width = MediaQuery.sizeOf(context).width;
+    if (_laidWidth != null && width != _laidWidth && !_inPages) _keepAnchor();
+    _laidWidth = width;
+  }
+
   void _onCatalog() {
     if (mounted) setState(() {});
   }
@@ -1627,13 +1640,17 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           child: Stack(
                   // The glow reaches past the safe area.
                   clipBehavior: Clip.none,
+                  // One shape upright and on its side, the parts not wanted
+                  // left empty: with the text second here and first there,
+                  // turning the phone built the text afresh, and the book
+                  // went back to where it was opened.
                   children: [
                     // The voice, glowing out from behind the player as it
                     // reads; the text and the player sit over it. (Pages
                     // have it over their paper, which hid all but the strip
                     // under the screen's edge: see _pagedReading.)
-                    if (!rail && !paged) glow,
-                    reading,
+                    if (!rail && !paged) glow else const SizedBox.shrink(),
+                    KeyedSubtree(key: ValueKey(paged), child: reading),
                     // The text fades out before the dock, instead of showing
                     // in the gap beneath it. Out to the screen's edges like
                     // the glow: stopping at the safe area, its edge showed.
@@ -1655,15 +1672,19 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                           ),
                         ),
                       ),
-                    ),
-                    if (rail && !paged) glow,
+                    )
+                    else
+                      const SizedBox.shrink(),
+                    if (rail && !paged) glow else const SizedBox.shrink(),
                     if (rail && !paged)
                       Positioned(
                         left: 0,
                         right: 0,
                         bottom: 0,
                         child: _overBar(context, top: false, shownBy: _scrollBars, child: Center(child: bar)),
-                      ),
+                      )
+                    else
+                      const SizedBox.shrink(),
                   ],
                 ),
         ),
@@ -2396,12 +2417,20 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           child: Text(
             'This file has no text that can be read aloud.',
             textAlign: TextAlign.center,
-            style: Skin.page(context, size: 20),
+            style: Skin.page(context, size: 20).copyWith(color: _tone.inkOf(context)),
           ),
         ),
       );
     }
-    final initial = _scrollFrom ?? _startItem;
+    // Built afresh after the first time (back from a PDF's real pages), the
+    // list opens at the place, not where the book was opened.
+    final initial = _scrollFrom ??
+        (_textShown ? _l.unitItem[_cursor.value.clamp(0, _l.units.length - 1)] : _startItem);
+    _textShown = true;
+    // The same look as pages, so the scroll is in the page tone's ink too:
+    // its text kept the app's, which turned near-white on Papyrus when the
+    // phone went dark.
+    _look = _pageLook(context);
     // A wide screen keeps a comfortable line (about 70 characters), centred.
     final side = math.max(_prefs.margin, (MediaQuery.sizeOf(context).width - 720) / 2);
     // Text fades out under the top bar and the player instead of being cut
@@ -2447,6 +2476,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   late final _fastText = _TextScrollTarget(this);
 
+  /// The page's type and colours for the scroll, set as it is built.
+  late PageLook _look;
+
+  /// The scroll has been shown once (see [_text]).
+  bool _textShown = false;
+
   /// The fast scroller's thumb taken or let go: as a scroll by hand, a look
   /// around while listening, and the place moved there while reading.
   void _onFastScroll(bool dragging) {
@@ -2471,7 +2506,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final chapterStart = i == _l.chapterFirstItem[item.chapter];
     // Every chapter opens the same way, in the book's colour, so a chapter
     // start is never scrolled past unnoticed.
-    final accent = Skin.accentOf(context);
+    final look = _look;
+    final accent = look.accent;
     final label = chapterStart && _l.chapters.length > 1
         ? Padding(
             padding: EdgeInsets.only(top: i == 0 ? 8 : 56, bottom: 12),
@@ -2481,8 +2517,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                 // Liberation") is not given a second one: a site's list
                 // can be one off from its titles.
                 if (!_digit.hasMatch(_l.chapterTitle(item.chapter))) ...[
-                  Text('CHAPTER ${_chapterNumber(item.chapter)}',
-                      style: Skin.meta(context, size: 11, color: accent).copyWith(fontWeight: FontWeight.w600)),
+                  Text('CHAPTER ${_chapterNumber(item.chapter)}', style: look.label),
                   const SizedBox(width: Gap.m),
                 ],
                 Expanded(child: Container(height: 1, color: accent.withValues(alpha: 0.35))),
@@ -2508,20 +2543,14 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           if (label != null) label,
           Padding(
             padding: const EdgeInsets.only(bottom: 18),
-            child: Text(item.title ?? '',
-                style: Skin.title(context, size: 30 * _prefs.textSize / 19, weight: FontWeight.w500)
-                    .copyWith(color: accent)),
+            child: Text(item.title ?? '', style: look.title),
           ),
         ],
       );
     }
 
     final heading = item.block!.role == BlockRole.heading;
-    final scale = _prefs.textSize / 19;
-    final style = heading
-        ? Skin.title(context, size: (chapterStart ? 30 : 22) * scale, weight: FontWeight.w500)
-            .copyWith(height: 1.2, color: chapterStart ? accent : null)
-        : Skin.page(context, size: _prefs.textSize, font: _prefs.bookFont, height: _prefs.lineHeight);
+    final style = heading ? (chapterStart ? look.chapterHeading : look.heading) : look.text;
     final indent = _prefs.indent && indentedAt(_l, i)
         ? MediaQuery.textScalerOf(context).scale(_prefs.textSize) * indentEm
         : 0.0;
@@ -2544,6 +2573,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             indent: indent,
             word: _player.word,
             style: style,
+            wash: look.sentenceWash,
+            wordWash: look.wordWash,
             heading: heading && !chapterStart,
             justify: _prefs.justify && !heading,
             onTapUnit: (u) => _goTo(u, play: true),
@@ -2636,7 +2667,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       errorBuilder: (_, __, ___) => SizedBox(width: width, height: height),
     );
     if (ornament) {
-      final ink = Skin.inkSoftOn(context);
+      final ink = _tone.inkSoft ?? Skin.inkSoftOn(context);
       image = ColorFiltered(
         colorFilter: ColorFilter.matrix([
           0, 0, 0, 0, ink.r * 255, //
@@ -2735,6 +2766,8 @@ class _BlockText extends StatefulWidget {
     required this.cursor,
     required this.word,
     required this.style,
+    required this.wash,
+    required this.wordWash,
     required this.onTapUnit,
     required this.onLongPressUnit,
     this.heading = false,
@@ -2747,6 +2780,10 @@ class _BlockText extends StatefulWidget {
   final ValueListenable<int> cursor;
   final ValueListenable<WordMark> word;
   final TextStyle style;
+
+  /// Behind the sentence being read, and behind its word: the page tone's.
+  final Color wash;
+  final Color wordWash;
   final ValueChanged<int> onTapUnit;
 
   /// Press and hold: the sentence, and the word under the finger.
@@ -2851,7 +2888,7 @@ class _BlockTextState extends State<_BlockText> {
     final l = widget.layout;
     final s = l.unitOffset[_current].clamp(0, text.length);
     final e = (s + l.units[_current].text.length).clamp(s, text.length);
-    final wash = widget.heading ? Skin.sentenceWash(context).withValues(alpha: 0.08) : Skin.sentenceWash(context);
+    final wash = widget.heading ? widget.wash.withValues(alpha: 0.08) : widget.wash;
     final spoken = widget.heading ? TextStyle(color: Skin.accentOf(context)) : null;
     final spans = <InlineSpan>[
       ...lead,
@@ -2867,7 +2904,7 @@ class _BlockTextState extends State<_BlockText> {
         ..add(TextSpan(text: text.substring(s, ws), style: sentence))
         ..add(TextSpan(
           text: text.substring(ws, we),
-          style: TextStyle(backgroundColor: Skin.wordWash(context), color: spoken?.color),
+          style: TextStyle(backgroundColor: widget.wordWash, color: spoken?.color),
         ))
         ..add(TextSpan(text: text.substring(we, e), style: sentence));
     }
