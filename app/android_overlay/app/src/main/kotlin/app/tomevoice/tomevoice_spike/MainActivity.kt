@@ -3,16 +3,11 @@ package app.tomevoice.tomevoice_spike
 import android.Manifest
 import android.app.Activity
 import android.app.KeyguardManager
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.hardware.biometrics.BiometricManager
 import android.hardware.biometrics.BiometricPrompt
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
-import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -21,8 +16,6 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
 import android.provider.Settings
-import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
@@ -31,22 +24,17 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
-import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Platform side of TomeVoice: the TTS engine, the PCM player, file import and
- * the foreground service hooks.
+ * Platform side of TomeVoice that needs the activity: file import, pickers,
+ * the window, prompts, intents.
  *
- * TTS: one engine instance, created at launch and kept warm. Listing voices
- * and synthesising both use it. Earlier builds created a throwaway engine for
- * the engine list, another for the voice list and a third for synthesis, each
- * paying a service bind and model load; that was the "voices lag".
- *
- * Synthesis still uses synthesizeToFile, never speak(): the architecture
- * requires PCM we can process (docs/10 ADR-003). onRangeStart is captured
- * verbatim; the Dart side detects its parameter layout.
+ * Reading aloud (the voice, the player, the phone's audio, the card) is the
+ * engine's, not the activity's: ReadingCore, for the life of the process. The
+ * activity shows that one engine (provideFlutterEngine) and lets go of it
+ * without ending the reading.
  */
 class MainActivity : FlutterActivity() {
 
@@ -56,12 +44,12 @@ class MainActivity : FlutterActivity() {
     private val pages = Executors.newSingleThreadExecutor()
     private var channel: MethodChannel? = null
 
-    private var tts: TextToSpeech? = null
-    private var ttsEngineId: String? = null
-    private var ttsReady = false
-    private val ttsWaiters = mutableListOf<(TextToSpeech?) -> Unit>()
+    /** This activity came to an engine already running Dart (see onCreate). */
+    private var rejoined = false
 
-    private val player = PcmPlayer()
+    /** Whether the engine goes with this activity, decided as it lets go. */
+    private var engineGoes = false
+
     private var pickResult: MethodChannel.Result? = null
     private var imageResult: MethodChannel.Result? = null
     private var pendingOpen: Map<String, String>? = null
@@ -75,16 +63,6 @@ class MainActivity : FlutterActivity() {
     private var backupChapters = true
     private var restoreResult: MethodChannel.Result? = null
     private var restoreStaging: File? = null
-
-    private var focusRequest: AudioFocusRequest? = null
-    private var noisyRegistered = false
-    private val noisyReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
-                event(mapOf("type" to "noisy"))
-            }
-        }
-    }
 
     companion object {
         private const val REQ_PICK = 71
@@ -136,23 +114,20 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        // An engine already running: the app is there, or a book was being
+        // read with no activity, and this activity only shows it.
+        rejoined = flutterEngine.dartExecutor.isExecutingDart
         exporter = AudioExport(this, flutterEngine.dartExecutor.binaryMessenger)
 
         val ch = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
         channel = ch
         ch.setMethodCallHandler { call, result ->
+            // Asking to show the notification is the activity's part of it.
+            if (call.method == "session" && call.argument<Boolean>("active") == true) askToNotify()
+            // Reading's calls are the engine's, answered with or without an
+            // activity; the rest are this activity's.
+            if (ReadingCore.handle(call, result)) return@setMethodCallHandler
             when (call.method) {
-                "listEngines" -> listEngines(result)
-                "listVoices" -> listVoices(call.argument<String>("engineId"), result)
-                "synthesise" -> synthesise(call.arguments as Map<*, *>, result)
-                "cancelSynthesis" -> {
-                    // Seeking should not wait for a sentence nobody will hear.
-                    try {
-                        if (ttsReady) tts?.stop()
-                    } catch (_: Exception) {
-                    }
-                    result.success(null)
-                }
                 "openTtsSettings" -> {
                     try {
                         startActivity(
@@ -164,55 +139,6 @@ class MainActivity : FlutterActivity() {
                         result.success(false)
                     }
                 }
-                "playerEnqueue" -> {
-                    val pcm = call.argument<ByteArray>("pcm")
-                    val rate = call.argument<Int>("sampleRate") ?: 24000
-                    if (pcm == null) {
-                        result.error("NO_PCM", "No audio", null)
-                    } else {
-                        if (!player.isActive) requestFocus()
-                        try {
-                            result.success(player.enqueue(pcm, rate))
-                        } catch (e: Exception) {
-                            result.error("PLAYER", e.message ?: "The audio could not be played", null)
-                        }
-                    }
-                }
-                "playerPosition" -> result.success(player.position(call.argument<Boolean>("raw") == true))
-                "playerPause" -> {
-                    player.pause()
-                    result.success(null)
-                }
-                "playerResume" -> {
-                    // Dart asked for focus first; during a call it waits for
-                    // the gain instead of reading over the call.
-                    if (requestFocus() == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) player.resume()
-                    result.success(null)
-                }
-                "playerStop" -> {
-                    player.stop()
-                    result.success(null)
-                }
-                "requestFocus" -> result.success(
-                    when (requestFocus()) {
-                        AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> "granted"
-                        AudioManager.AUDIOFOCUS_REQUEST_DELAYED -> "delayed"
-                        else -> "failed"
-                    }
-                )
-                "playerVolume" -> {
-                    player.setVolume((call.argument<Double>("volume") ?: 1.0).toFloat())
-                    result.success(null)
-                }
-                "playerLatency" -> {
-                    player.setOffsets(
-                        (call.argument<Int>("bluetoothMs") ?: 0).toLong(),
-                        (call.argument<Int>("otherMs") ?: 0).toLong(),
-                    )
-                    result.success(null)
-                }
-                "playerRoute" -> result.success(if (player.onBluetoothNow() ?: bluetoothOut()) "bluetooth" else "other")
-                "session" -> session(call.arguments as Map<*, *>, result)
                 "pickDocuments" -> pickDocuments(result)
                 "pickImage" -> {
                     if (imageResult != null) {
@@ -548,15 +474,44 @@ class MainActivity : FlutterActivity() {
             }
         }
 
-        ReadAloudService.onAction = { action, value ->
-            main.post { event(mapOf("type" to "action", "action" to action, "value" to value)) }
-        }
-
-        // Warm the engine now so the first Play does not pay for the bind.
-        withTts(null) { }
         cleanSynthDir()
         handleViewIntent(intent)
-        takeWidgetIntent(intent)
+        // A widget's book for an app already running is told, as onNewIntent
+        // tells it: the shelf asked once, when it first opened.
+        if (takeWidgetIntent(intent) && rejoined) event(mapOf("type" to "widgetLaunch"))
+        // The app in a new window: edge to edge again, and built if Dart was
+        // only reading (backgroundMain).
+        if (rejoined) event(mapOf("type" to "shown"))
+    }
+
+    // ---------------------------------------------------------------- engine
+
+    /**
+     * The one engine (ReadingCore), not one of this activity's own: the voice
+     * is Dart's, and must not end with the activity.
+     */
+    override fun provideFlutterEngine(context: Context): FlutterEngine = ReadingCore.engineFor(this)
+
+    /**
+     * Kept while a book is being read: a swipe from Recents, or Android
+     * closing the activity, leaves the voice reading. With nothing read, an
+     * activity that is finishing takes it along, so the next opening starts
+     * afresh, as it always did (decided in cleanUpFlutterEngine, which comes
+     * first). Never while a newer activity takes the engine over.
+     */
+    override fun shouldDestroyEngineWithHost(): Boolean = engineGoes
+
+    /** The engine's state is live: an activity's saved state must not overwrite it. */
+    override fun shouldRestoreAndSaveState(): Boolean = false
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        engineGoes = isFinishing && !isChangingConfigurations && ReadingCore.shows(this) &&
+            !ReadAloudService.isRunning() && !ReadAloudService.isStarting()
+        // Reading carries on; this activity's own calls (pickers, the window,
+        // prompts) go with it.
+        ReadingCore.detach(this)
+        channel = null
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -572,6 +527,12 @@ class MainActivity : FlutterActivity() {
                 android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT
             ) { moveTaskToBack(true) }
         }
+        // An engine already running (a book read on after the last activity
+        // closed): Flutter said whether it has a page to go back to when that
+        // changed, to the activity before, and says it again only when it next
+        // changes. Until then Back goes to Flutter, which closes a page, or at
+        // the root calls popSystemNavigator: TomeVoice goes behind, as ever.
+        if (rejoined) setFrameworkHandlesBack(true)
         // Draw into the camera cutout too. Without this, landscape leaves a
         // dark strip down the cutout side and under the gesture bar, where
         // the window background shows instead of the app's gradient.
@@ -596,7 +557,7 @@ class MainActivity : FlutterActivity() {
     }
 
     // Back out of the library puts TomeVoice behind, as Home does, instead of
-    // finishing it. Finishing ran onDestroy, which ends the reading service
+    // finishing it. Finishing ran onDestroy, which ended the reading service
     // and the player, so on Android 15 and older leaving with Back stopped the
     // book being read. Android 16 (predictive back, targetSdk 36) already
     // moved the app behind, which is why it never showed there.
@@ -758,11 +719,10 @@ class MainActivity : FlutterActivity() {
         }.start()
     }
 
-    private fun synthDir(): File = File(cacheDir, "tts").apply { mkdirs() }
-
     private fun cleanSynthDir() {
         io.execute {
-            synthDir().listFiles()?.forEach { it.delete() }
+            // (cache/tts, the voice's, is emptied when its engine is made, in
+            // ReadingCore: a book may be reading from it now.)
             // Builds before this one left a WAV per sentence in the library
             // folder. They are dead weight; nothing reads them.
             outputDir().listFiles()?.forEach {
@@ -781,305 +741,22 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    // ------------------------------------------------------------------ TTS
-
-    private fun engineMatches(requested: String?): Boolean {
-        val current = tts ?: return false
-        if (requested.isNullOrBlank()) return true
-        if (requested == ttsEngineId) return true
-        return ttsEngineId == null && requested == current.defaultEngine
-    }
-
-    /** Run [block] with a ready engine (or null if it failed to start). */
-    private fun withTts(engineId: String?, block: (TextToSpeech?) -> Unit) {
-        val current = tts
-        if (current != null && engineMatches(engineId)) {
-            if (ttsReady) block(current) else ttsWaiters.add(block)
-            return
-        }
-        current?.shutdown()
-        ttsReady = false
-        ttsEngineId = if (engineId.isNullOrBlank()) null else engineId
-        ttsWaiters.add(block)
-        val holder = arrayOfNulls<TextToSpeech>(1)
-        val created = TextToSpeech(applicationContext, { status ->
-            main.post {
-                val engine = holder[0]
-                if (engine == null || tts !== engine) return@post
-                ttsReady = status == TextToSpeech.SUCCESS
-                if (!ttsReady) {
-                    tts = null
-                    engine.shutdown()
-                }
-                val waiting = ttsWaiters.toList()
-                ttsWaiters.clear()
-                waiting.forEach { it(if (ttsReady) engine else null) }
-            }
-        }, ttsEngineId)
-        holder[0] = created
-        tts = created
-    }
-
-    private fun listEngines(result: MethodChannel.Result) {
-        withTts(null) { engine ->
-            if (engine == null) {
-                result.error("TTS_INIT", "No text-to-speech engine could start", null)
-                return@withTts
-            }
-            result.success(engine.engines.map { mapOf("name" to it.name, "label" to it.label) })
-        }
-    }
-
-    /** Voices of [engineId], best quality first. */
-    private fun listVoices(engineId: String?, result: MethodChannel.Result) {
-        withTts(engineId) { engine ->
-            if (engine == null) {
-                result.error("TTS_INIT", "The voice engine did not start", null)
-                return@withTts
-            }
-            val voices = try {
-                (engine.voices ?: emptySet())
-                    .sortedWith(
-                        compareByDescending<android.speech.tts.Voice> { it.quality }
-                            .thenBy { it.name }
-                    )
-                    .map {
-                        mapOf(
-                            "name" to it.name,
-                            "locale" to it.locale.toLanguageTag(),
-                            "quality" to it.quality,
-                            "networkRequired" to it.isNetworkConnectionRequired,
-                            "installed" to !it.features.contains(
-                                TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED
-                            )
-                        )
-                    }
-            } catch (e: Exception) {
-                emptyList()
-            }
-            result.success(voices)
-        }
-    }
-
-    /**
-     * [engine] is dead: its service went away (an update of Speech Services
-     * kills it) and the binding still looks alive, so every sentence after
-     * failed or timed out. It is shut down and forgotten, and the next use
-     * makes a new one: still one warm engine, not one per sentence.
-     */
-    private fun ttsDied(engine: TextToSpeech?) {
-        if (engine == null || tts !== engine) return
-        try {
-            engine.shutdown()
-        } catch (_: Exception) {
-        }
-        tts = null
-        ttsReady = false
-    }
-
-    private fun synthesise(args: Map<*, *>, result: MethodChannel.Result, retried: Boolean = false) {
-        val text = (args["text"] as? String).orEmpty()
-        val engineId = args["engineId"] as? String
-        val rate = (args["rate"] as? Number)?.toFloat() ?: 1.0f
-        val pitch = (args["pitch"] as? Number)?.toFloat() ?: 1.0f
-        val wanted = args["voiceName"] as? String
-
-        if (text.isBlank()) {
-            result.error("EMPTY_TEXT", "Nothing to synthesise", null)
-            return
-        }
-
-        val replied = AtomicBoolean(false)
-        fun reply(block: () -> Unit) {
-            if (replied.compareAndSet(false, true)) main.post(block)
-        }
-
-        /** The engine died under this sentence: a new one, and the sentence again, once. */
-        fun again(engine: TextToSpeech, fallback: () -> Unit) {
-            if (!retried && replied.compareAndSet(false, true)) {
-                main.post {
-                    ttsDied(engine)
-                    synthesise(args, result, retried = true)
-                }
-            } else {
-                main.post { ttsDied(engine) }
-                reply(fallback)
-            }
-        }
-
-        var used: TextToSpeech? = null
-        main.postDelayed({
-            // No word from the engine in 30 s: it may be dead. The next
-            // sentence gets a new one.
-            if (!replied.get()) ttsDied(used)
-            reply { result.error("TTS_TIMEOUT", "No callback within 30s", null) }
-        }, 30_000)
-
-        withTts(engineId) { engine ->
-            if (engine == null) {
-                reply { result.error("TTS_INIT", "The voice engine did not start", null) }
-                return@withTts
-            }
-            used = engine
-            val events = CopyOnWriteArrayList<Map<String, Int>>()
-            val utteranceId = "tv-" + System.nanoTime()
-            val outFile = File(synthDir(), "$utteranceId.wav")
-            try {
-                if (!wanted.isNullOrBlank() && engine.voice?.name != wanted) {
-                    engine.voices?.firstOrNull { it.name == wanted }?.let { engine.voice = it }
-                }
-                engine.setSpeechRate(rate)
-                engine.setPitch(pitch)
-                // The engine has one listener. A late callback for an utterance
-                // that was cancelled must not complete this one, so every
-                // callback checks the id.
-                engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(id: String?) = Unit
-
-                    override fun onRangeStart(id: String?, start: Int, end: Int, frame: Int) {
-                        if (id != utteranceId) return
-                        events.add(mapOf("start" to start, "end" to end, "frame" to frame))
-                    }
-
-                    override fun onDone(id: String?) {
-                        if (id != utteranceId) return
-                        reply { result.success(buildReport(text, outFile, events, engine)) }
-                    }
-
-                    override fun onStop(id: String?, interrupted: Boolean) {
-                        if (id != utteranceId) return
-                        outFile.delete()
-                        reply { result.error("TTS_STOPPED", "Synthesis cancelled", null) }
-                    }
-
-                    @Deprecated("Required by the base class")
-                    override fun onError(id: String?) {
-                        if (id != utteranceId) return
-                        reply { result.error("TTS_ERROR", "Synthesis failed", null) }
-                    }
-
-                    override fun onError(id: String?, errorCode: Int) {
-                        if (id != utteranceId) return
-                        val failed = {
-                            result.error("TTS_ERROR", "Synthesis failed (code $errorCode)", null)
-                        }
-                        // The engine's service failed: a new engine, and again.
-                        if (errorCode == TextToSpeech.ERROR_SERVICE) again(engine, failed) else reply(failed)
-                    }
-                })
-                val code = engine.synthesizeToFile(text, Bundle(), outFile, utteranceId)
-                if (code != TextToSpeech.SUCCESS) {
-                    // Not even queued: the binding is gone.
-                    again(engine) { result.error("TTS_QUEUE", "synthesizeToFile returned $code", null) }
-                }
-            } catch (e: Exception) {
-                reply { result.error("TTS_EXCEPTION", e.message, null) }
-            }
-        }
-    }
-
-    // ---------------------------------------------------------- audio focus
-
-    /**
-     * Ask for the audio; the answer is AudioManager's: granted, delayed (a
-     * call is on: AUDIOFOCUS_GAIN arrives as "focusGain" when it ends) or
-     * failed. It used to be ignored, and Play during a call read over it.
-     */
-    private fun requestFocus(): Int {
-        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        if (focusRequest == null) {
-            val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .build()
-                )
-                .setWillPauseWhenDucked(true)
-                .setAcceptsDelayedFocusGain(true)
-                .setOnAudioFocusChangeListener { change ->
-                    val type = when (change) {
-                        AudioManager.AUDIOFOCUS_LOSS -> "focusLoss"
-                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
-                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> "focusLossTransient"
-                        AudioManager.AUDIOFOCUS_GAIN -> "focusGain"
-                        else -> null
-                    }
-                    if (type != null) event(mapOf("type" to type))
-                }
-                .build()
-            focusRequest = req
-        }
-        val answer = am.requestAudioFocus(focusRequest!!)
-        if (!noisyRegistered) {
-            val filter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
-            val flags = if (Build.VERSION.SDK_INT >= 33) Context.RECEIVER_NOT_EXPORTED else 0
-            registerReceiver(noisyReceiver, filter, flags)
-            noisyRegistered = true
-        }
-        return answer
-    }
-
-    /** Whether a Bluetooth output is connected, for when nothing is playing to ask. */
-    private fun bluetoothOut(): Boolean = try {
-        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { PcmPlayer.isBluetooth(it.type) }
-    } catch (e: Exception) {
-        false
-    }
-
-    private fun abandonFocus() {
-        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        focusRequest?.let { am.abandonAudioFocusRequest(it) }
-        if (noisyRegistered) {
-            try {
-                unregisterReceiver(noisyReceiver)
-            } catch (_: Exception) {
-            }
-            noisyRegistered = false
-        }
-    }
-
     // -------------------------------------------------------------- session
 
     private var askedNotify = false
 
-    /** Start, update or end the "reading aloud" foreground service. */
-    private fun session(args: Map<*, *>, result: MethodChannel.Result) {
-        val active = args["active"] == true
-        if (!active) {
-            ReadAloudService.end(this)
-            abandonFocus()
-            result.success(null)
-            return
-        }
-        // Asked once per launch: the session is updated on every sentence, and
-        // a refusal must not bring the prompt back each time.
+    /**
+     * The notification permission, asked as reading starts (ReadingCore puts
+     * the card up). Once per launch: the session is updated on every
+     * sentence, and a refusal must not bring the prompt back each time.
+     */
+    private fun askToNotify() {
         if (Build.VERSION.SDK_INT >= 33 && !askedNotify &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) {
             askedNotify = true
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIFY)
-        }
-        try {
-            ReadAloudService.update(
-                this,
-                ReadAloudService.NowReading(
-                    title = (args["title"] as? String) ?: "TomeVoice",
-                    subtitle = (args["subtitle"] as? String) ?: "",
-                    playing = args["playing"] == true,
-                    cover = args["cover"] as? String,
-                    positionMs = (args["positionMs"] as? Number)?.toLong() ?: 0,
-                    durationMs = (args["durationMs"] as? Number)?.toLong() ?: 0,
-                    speed = (args["speed"] as? Number)?.toDouble() ?: 1.0,
-                )
-            )
-            result.success(null)
-        } catch (e: Exception) {
-            // Reading still works in the foreground; it just will not survive
-            // the screen turning off.
-            result.error("SESSION", e.message, null)
         }
     }
 
@@ -1324,44 +1001,13 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    // --------------------------------------------------------------- report
-
-    private fun buildReport(
-        text: String,
-        file: File,
-        events: List<Map<String, Int>>,
-        engine: TextToSpeech
-    ): Map<String, Any?> {
-        val words = text.trim().split(Regex("\\s+")).count { it.isNotBlank() }
-        val granularity = when {
-            events.isEmpty() -> "none"
-            words > 0 && events.size >= (words * 0.6) -> "word"
-            else -> "utterance"
-        }
-        return mapOf(
-            "wavPath" to file.absolutePath,
-            "engineId" to (ttsEngineId ?: engine.defaultEngine ?: "unknown"),
-            "voiceName" to (engine.voice?.name ?: "unknown"),
-            "voiceQuality" to (engine.voice?.quality ?: -1),
-            "rangeEvents" to events,
-            "rangeStartFired" to events.isNotEmpty(),
-            "granularity" to granularity,
-            "wordCount" to words,
-            "deviceModel" to "${Build.MANUFACTURER} ${Build.MODEL}",
-            "androidVersion" to Build.VERSION.SDK_INT
-        )
-    }
-
     override fun onDestroy() {
         exporter?.close()
         exporter = null
         stopSample()
-        ReadAloudService.onAction = null
-        ReadAloudService.end(this)
-        abandonFocus()
-        player.stop()
-        tts?.shutdown()
-        tts = null
+        // The reading, the voice and the player are the engine's and carry
+        // on (ReadingCore): leaving the app, by a swipe from Recents too,
+        // does not stop a book being read.
         io.shutdown()
         pages.execute { PdfPages.close() }
         pages.shutdown()

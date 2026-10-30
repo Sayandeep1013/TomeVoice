@@ -52,7 +52,7 @@ PlaybackScheduler readingScheduler({
   }
 
   sendHighlightOffsets(prefs(), service);
-  return PlaybackScheduler(
+  final scheduler = PlaybackScheduler(
     service: service,
     units: layout.units,
     settingsFor: (text) => prefs().settingsFor(listen().voiceName, book: bookId).copyWith(text: text),
@@ -65,7 +65,14 @@ PlaybackScheduler readingScheduler({
     quoteOpenAt: quoteOpenAt,
     fallbackVoiceOf: () => VoiceCatalog.instance.bestFor(language)?.name,
   );
+  _bookOf[scheduler] = bookId;
+  return scheduler;
 }
+
+/// The book each scheduler reads (a book's page's, or the background's):
+/// a Play from outside the app for the book a page is reading carries on
+/// there.
+final _bookOf = Expando<String>('book');
 
 /// The reader's Highlight timing, per route, to the player.
 void sendHighlightOffsets(ListeningPrefs p, [SpeechService service = const SpeechService()]) => unawaited(
@@ -296,8 +303,45 @@ class BackgroundReading {
   /// The player is about to read something else: whatever plays in the
   /// background stops first (two players cannot share the one stream).
   static void claim(PlaybackScheduler? next) {
+    if (next != null) _claimed = next;
     final b = current.value;
     if (b != null && !identical(b.player, next)) unawaited(b.stop());
+  }
+
+  /// The scheduler that began to read last (a voice's sample aside): a
+  /// book's page's, or the background's. With nothing in the background and
+  /// the card up, it is a page's, reading or paused.
+  static PlaybackScheduler? _claimed;
+
+  /// Read book [id], asked for from outside the app: the system's resume
+  /// card, a headset's Play, a book picked in Android Auto. The book already
+  /// reading carries on: in the background, or in its page (which may be
+  /// kept with the app closed); anything else reading stops, and the book
+  /// is read in the background from its place, as the library's player
+  /// reads one. [reading]: whether a reading had the card when it was asked.
+  /// False when it cannot be read: not in the library, or on a secret shelf
+  /// that is shut.
+  static Future<bool> playFromOutside(LibraryStore store, String id, {required bool reading}) async {
+    final playing = current.value;
+    if (playing != null && playing.bookId == id) {
+      await playing.resume();
+      return true;
+    }
+    final page = reading && playing == null ? _claimed : null;
+    if (page != null && page.active) {
+      if (_bookOf[page] == id) {
+        if (page.state.value == PlayState.paused) await page.resume();
+        return true;
+      }
+      await page.stop();
+    }
+    final entry = (await store.list(all: true)).where((e) => e.id == id).firstOrNull;
+    if (entry == null || (store.isSecret(id) && !LibraryStore.secretOpen.value)) return false;
+    // The book's own voice, which only the loaded catalogue knows (the
+    // shelf loads it; with no screen, nothing has).
+    await VoiceCatalog.instance.ensureLoaded();
+    await startFrom(store, entry);
+    return current.value?.bookId == id;
   }
 
   void _attach() {
@@ -537,6 +581,7 @@ class BackgroundReading {
       positionMs: _msFor(_wordsAt(u) - _wordsAt(first)),
       durationMs: _msFor(_wordsAt(first + count) - _wordsAt(first)),
       speed: _speed,
+      book: secret ? null : bookId,
     ));
   }
 
@@ -645,5 +690,44 @@ class BackgroundReading {
       _persistNow();
       _updateCard();
     }
+  }
+}
+
+/// Books asked for from outside the app: Play on the system's resume card
+/// (Android 11+) after the app was closed, a headset's Play, a book picked
+/// in Android Auto. ReadAloudService answers what it can itself (Play for
+/// the reading on the card); for a book to start, it keeps the request and
+/// wakes Dart with a `mediaPlay` event, starting the engine at
+/// backgroundMain first if the app is not running. Both ways in listen
+/// here, and take the request themselves on starting, in case it came
+/// before they listened.
+class MediaRequests {
+  const MediaRequests._();
+
+  static const _svc = SpeechService();
+  static StreamSubscription<Map<String, Object?>>? _events;
+
+  /// Listen for requests; [library] opens the library when one comes.
+  static void listen(Future<LibraryStore> Function() library) {
+    // Every player's start is seen (BackgroundReading.claim), so a book's
+    // page reading aloud can be found and carried on.
+    PlaybackScheduler.beforePlay ??= BackgroundReading.claim;
+    unawaited(_events?.cancel());
+    _events = SpeechService.events.where((e) => e['type'] == 'mediaPlay').listen((_) => unawaited(take(library)));
+    unawaited(take(library));
+  }
+
+  /// Take the waiting request, if any, and read its book; the card put up
+  /// for it goes if it cannot be read.
+  static Future<void> take(Future<LibraryStore> Function() library) async {
+    final asked = await _svc.takeMediaPlay();
+    if (asked == null) return;
+    var ok = false;
+    try {
+      ok = await BackgroundReading.playFromOutside(await library(), asked.book, reading: asked.reading);
+    } on Object catch (e) {
+      debugPrint('TomeVoice: could not read the book asked for: $e');
+    }
+    if (!ok) await _svc.mediaPlayFailed();
   }
 }

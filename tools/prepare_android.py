@@ -42,6 +42,16 @@ copied in. The generated project cannot know about any of this:
    service (AudioExportService) and its permission: the reading service is
    mediaPlayback and belongs to reading aloud.
 
+10. **Reading from outside the app.** The reading service is a media browser
+    (exported, with the MediaBrowserService filter), so the system's resume
+    card (Android 11+) and Android Auto can list the books and start one; the
+    meta-data names TomeVoice a media app to Android Auto
+    (res/xml/automotive_app_desc.xml in the overlay).
+
+11. **Battery optimisation.** REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, for the
+    one-tap question in Settings > Listening. Fine for the GitHub build; a
+    Play build must justify it or leave it out (docs/18).
+
 Idempotent: running it twice changes nothing the second time.
 """
 
@@ -92,10 +102,31 @@ PERMISSIONS = """    <uses-permission android:name="android.permission.INTERNET"
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 """
 
+# Exported for the media browser: System UI binds to it for the resume card,
+# Android Auto to list and play the books. ReadAloudService decides who sees
+# what (onGetRoot); its other starts are its own notification's, widgets' and
+# media buttons'.
 SERVICE = """        <service
             android:name=".ReadAloudService"
-            android:exported="false"
-            android:foregroundServiceType="mediaPlayback" />
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+        </service>
+"""
+
+# Android Auto: a media app, with the TomeVoice mark on its notifications.
+AUTO = """        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+        <meta-data
+            android:name="com.google.android.gms.car.notification.SmallIcon"
+            android:resource="@drawable/ic_stat_tomevoice" />
+"""
+
+# Settings > Listening asks Android to let TomeVoice run with the screen off.
+BATTERY = """    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 """
 
 # Saving a book as audio (AudioExport.kt): a job that goes on with the screen
@@ -246,6 +277,12 @@ def patch_manifest(path: Path, label: str = APP_LABEL) -> str:
             raise SystemExit("manifest: no <manifest> tag")
         notes.append("permissions")
 
+    if "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" not in text:
+        text, n = re.subn(r"(<manifest\b[^>]*>\n?)", r"\1" + BATTERY, text, count=1)
+        if n != 1:
+            raise SystemExit("manifest: no <manifest> tag")
+        notes.append("battery permission")
+
     if ".ReadAloudService" not in text:
         if "</application>" not in text:
             raise SystemExit("manifest: no </application>")
@@ -263,6 +300,10 @@ def patch_manifest(path: Path, label: str = APP_LABEL) -> str:
             raise SystemExit("manifest: no </application>")
         text = text.replace("</application>", EXPORT_SERVICE + "    </application>", 1)
         notes.append("export service")
+
+    if "com.google.android.gms.car.application" not in text:
+        text = text.replace("</application>", AUTO + "    </application>", 1)
+        notes.append("Android Auto")
 
     if ".PlayerWidget" not in text:
         text = text.replace("</application>", WIDGETS + "    </application>", 1)

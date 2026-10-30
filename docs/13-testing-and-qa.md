@@ -282,7 +282,7 @@ x86_64 emulator and runs it on Android 14 and Android 16:
   1. installs the APK and records which text-to-speech engines the image has;
   2. runs each flow above on a cleared app (`pm clear`, as if just installed); the
      landscape screenshot from `rotate-reader` must be wider than tall;
-  3. runs the Back test after each `listen-` flow;
+  3. runs the Back test after each `listen-` flow, and the Recents test after the first;
   4. fails if TomeVoice shows up in the crash log.
 
   A loaded CI emulator can put a system app's "isn't responding" dialog over everything
@@ -331,6 +331,22 @@ run 41073818634):
 On API 36 the window's top back callback at that moment was the activity's system one
 (`mPriority=-1` in `CoreBackPreview`), not Flutter's (`mPriority=0`, registered only
 while a route could pop): the system, not Flutter, made each call.
+
+### The Recents test
+
+Since branch `feat-auto` the voice is the cached Flutter engine's (`ReadingCore`), which
+outlives MainActivity while a book is read (docs/07 §7.2). Right after the Back test from
+the launcher, with the book still reading and TomeVoice behind, the script runs three
+checks, each with `dumpsys` snapshots (`swipe-*`, `swipe-paused-*`, `headset-*`):
+
+| Check | How | Expected | On failure |
+|---|---|---|---|
+| `SWIPE TEST` | TomeVoice's task removed with `am stack remove <task>` (the `removeTask` a swipe in Recents calls; the task from `am stack list`, else `dumpsys activity recents`) | The process alive and the media session still `PLAYING(3)` | Fail (a warning if it was not reading before) |
+| `SWIPE TEST, paused` | Opened again with `am start` (the activity rejoins the running engine), `KEYCODE_MEDIA_PAUSE`, the task removed | The paused book put away: `ReadAloudService` no longer in the foreground, the session neither playing nor paused | Warning |
+| `HEADSET PLAY, app closed` | `KEYCODE_MEDIA_PLAY` (dispatched by the system as a headset's is), 20 s | Reading again (`PLAYING(3)` or `BUFFERING(6)`): the session's media button receiver started the service, which started the engine at `backgroundMain` | Warning |
+
+A crash anywhere on these paths (a foreground service not started in time, say) fails
+the run's crash check.
 
 ## 13.12 Reproducible builds
 

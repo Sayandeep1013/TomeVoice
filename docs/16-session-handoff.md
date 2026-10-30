@@ -4,6 +4,54 @@
 
 ---
 
+## 0+++++++. Checkpoint (2026-10-30, evening): the voice outlives the app; resume card, Android Auto, battery help
+
+Branch `feat-auto` (from `fix-core`, with its a5181f4 merged in). Not merged or
+released. Dart analyze and tests pass locally; **the Kotlin has only been reviewed:
+CI is its first compiler.** Nothing was tried on a phone. Details and the table of
+every lifecycle path: docs/07 §7.2; the CI checks: docs/13 §13.11 (the Recents test).
+
+- **One engine** (`ReadingCore.kt`, `FlutterEngineCache` "tomevoice"), provided to
+  MainActivity (`provideFlutterEngine`) and kept while a book is read. The voice, the
+  `PcmPlayer`, audio focus, the noisy receiver and the session moved from MainActivity
+  to `ReadingCore` (verbatim: `withTts`, `listEngines`, `listVoices`, `synthesise`,
+  `ttsDied`, `buildReport`, `requestFocus`, `abandonFocus`, `bluetoothOut`,
+  `session`). **A branch that changed those in MainActivity.kt must make the change in
+  ReadingCore.kt instead.** MainActivity's handler asks `ReadingCore.handle` first.
+- **Swipe from Recents** keeps reading (`onDestroy` no longer ends anything); swiped
+  while paused, the book is put away (`ReadAloudService.onTaskRemoved`). With nothing
+  read, the activity takes the engine with it: a fresh start as before.
+- **Media browser:** `ReadAloudService` extends `MediaBrowserService` (exported, with the
+  filter). The resume card (`EXTRA_RECENT`: the book Play reads) and Android Auto
+  ("Continue", "Recent", covers, progress) list books from `library.json` in Kotlin
+  (`Shelf`), **never a secret shelf's**. A headset's Play reaches the service through
+  the session's media button receiver once the app is gone (and after a reboot).
+- **Play with nothing reading** goes foreground at once, then `ReadingCore.play`: the
+  engine runs `backgroundMain()` if none, and Dart (`MediaRequests`,
+  `BackgroundReading.playFromOutside`) reads the book from its place. The app is built
+  only when an activity attaches (`shown` event; also re-applies edge to edge).
+  `openLibrary()` (home_shell.dart) opens the library once per folder for both.
+- **Android Auto:** `automotive_app_desc.xml`. A sideloaded APK shows in Auto only with
+  Auto's developer setting **Unknown sources** on.
+- **Settings > Listening > Keep reading with the screen off:** battery optimisation
+  status, Android's one-tap question (`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, a Play
+  concern: docs/18 row 7), and a dontkillmyapp.com line on Xiaomi/Redmi/POCO, Samsung,
+  OPPO, realme, OnePlus, vivo/iQOO, Huawei and Honor. No one-time hint.
+- **Shared files edited:** MainActivity.kt, ReadAloudService.kt, prepare_android.py,
+  build.yml (overlay greps), emulator-tests.sh, main.dart, home_shell.dart,
+  listening_session.dart, speech_service.dart (`session(book:)` and new calls),
+  settings_screen.dart, docs 07/13/16/18.
+- **Check on the phone:** read, swipe TomeVoice from Recents (keeps reading; the card
+  stays); pause, swipe (the card becomes a resume card on 11+); Play on it, and after a
+  reboot (reads from the place); headset Play with the app closed; open the app while
+  it reads with no activity (the library, Back closes pages, then leaves); Android Auto
+  (Unknown sources); a secret book never listed; the widget's play; Open with while it
+  reads; Settings' row on the Nothing phone (no dontkillmyapp line there).
+- **Known gaps:** a reader page kept in the engine after its activity closed does not
+  re-send keep-screen-on or volume-keys-turn-pages to a new activity; widgets' progress
+  is not redrawn while reading with no screen; after the process dies with a secret book
+  on the card, the resume card's Play reads the last ordinary book.
+
 ## 0++++++. Checkpoint (2026-10-30): Support does nothing yet
 
 Branch `support-nothing-yet`, released as **1.2.2**. By the developer's wish the UPI QR

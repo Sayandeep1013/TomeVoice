@@ -34,6 +34,50 @@ import 'theme.dart';
 import 'ui.dart';
 import 'update_flow.dart';
 
+/// The library as the app keeps it open: its folder, the books, and the
+/// sources (web novels), with the settings, rules, marks, stats and natural
+/// voices attached beside them.
+typedef OpenLibrary = ({String dir, LibraryStore store, SourceStore sources});
+
+({String dir, Future<OpenLibrary> opened})? _library;
+
+/// Open the library, once for each folder: the shelves, and a book started
+/// from outside the app with no screen at all (backgroundMain, then the
+/// shelves when TomeVoice is opened onto the same engine), share it. Two
+/// stores would each write their own copy of library.json over the other's.
+Future<OpenLibrary> openLibrary() async {
+  final dir = await const SpeechService().outputDir();
+  if (dir == null) throw const FileSystemException('No storage');
+  final known = _library;
+  if (known != null && known.dir == dir) return known.opened;
+  final opened = _open(dir);
+  _library = (dir: dir, opened: opened);
+  try {
+    return await opened;
+  } on Object {
+    // Asked again, it is tried again.
+    if (_library?.dir == dir) _library = null;
+    rethrow;
+  }
+}
+
+Future<OpenLibrary> _open(String dir) async {
+  await ListeningPrefs.load(dir);
+  // Sources ask as the phone's own browser does (see Net.userAgent).
+  final agent = await const SpeechService().webUserAgent();
+  if (agent != null && agent.isNotEmpty) Net.userAgent = agent;
+  final sources = SourceStore(Directory(dir));
+  await sources.ensure();
+  SourceEngine.instance.attach(sources);
+  final store = LibraryStore(Directory(dir));
+  await TintCache.instance.attach(Directory(dir));
+  await ReadingRules.instance.attach(Directory(dir));
+  await MarkStore.instance.attach(Directory(dir));
+  await StatsStore.instance.attach(Directory(dir));
+  NeuralVoices.instance.attach(Directory(dir));
+  return (dir: dir, store: store, sources: sources);
+}
+
 /// The app around the screens: storage and settings are opened once here,
 /// and the menu (top left of the library) moves between them.
 class HomeShell extends StatefulWidget {
@@ -137,21 +181,8 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
 
   Future<void> _init() async {
     try {
-      final dir = await const SpeechService().outputDir();
-      if (dir == null) throw const FileSystemException('No storage');
-      await ListeningPrefs.load(dir);
-      // Sources ask as the phone's own browser does (see Net.userAgent).
-      final agent = await const SpeechService().webUserAgent();
-      if (agent != null && agent.isNotEmpty) Net.userAgent = agent;
-      final sources = SourceStore(Directory(dir));
-      await sources.ensure();
-      SourceEngine.instance.attach(sources);
-      final store = LibraryStore(Directory(dir));
-      await TintCache.instance.attach(Directory(dir));
-      await ReadingRules.instance.attach(Directory(dir));
-      await MarkStore.instance.attach(Directory(dir));
-      await StatsStore.instance.attach(Directory(dir));
-      NeuralVoices.instance.attach(Directory(dir));
+      // Already open if a book began reading with no screen (openLibrary).
+      final (:dir, :store, :sources) = await openLibrary();
       StatsStore.instance.onSaved = _scheduleWidgets;
       final updates = Updates(store);
       if (mounted) {
