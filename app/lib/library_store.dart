@@ -585,11 +585,17 @@ class LibraryStore {
   Set<int> _listDownloads(String id) {
     final dir = Directory('${bookDir(id)}/ch');
     if (!dir.existsSync()) return const {};
-    return Set.unmodifiable({
-      for (final f in dir.listSync().whereType<File>())
-        if (f.path.endsWith('.json'))
-          if (int.tryParse(f.uri.pathSegments.last.split('.').first) case final n?) n,
-    });
+    try {
+      return Set.unmodifiable({
+        for (final f in dir.listSync().whereType<File>())
+          if (f.path.endsWith('.json'))
+            if (int.tryParse(f.uri.pathSegments.last.split('.').first) case final n?) n,
+      });
+    } on FileSystemException {
+      // Gone between the look and the listing: a novel moved to another
+      // source, or taken off, as its page asked.
+      return const {};
+    }
   }
 
   /// Keep a fetched chapter, parsed, so it opens offline from now on.
