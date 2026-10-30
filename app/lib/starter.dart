@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart' show rootBundle;
 
 import 'library_store.dart';
@@ -69,12 +70,11 @@ class Starter {
     if (done['plugins'] == true && added.length == _novels.length) return;
     try {
       if (done['plugins'] != true) {
-        final available = await sources.available();
-        final installed = {for (final p in await sources.installed()) p.id};
-        for (final id in _plugins) {
-          final p = available.where((p) => p.id == id).firstOrNull;
-          if (p != null && !installed.contains(id)) await sources.install(p);
-        }
+        // Offline, the list cannot be read and nothing installs: the step
+        // is done only once both sources are in, and tried again next
+        // launch until then (it was marked done whatever happened, and the
+        // two novels never came).
+        await installStarterSources(sources);
         done['plugins'] = true;
         await save();
       }
@@ -91,5 +91,26 @@ class Starter {
     } on Object {
       // Offline, or the site is down: next launch tries again.
     }
+  }
+
+  /// Install the starter's sources that are not installed yet (without
+  /// asking: the first shelf's novels come from them). Throws unless both
+  /// are installed after, so a launch without the internet tries again.
+  @visibleForTesting
+  static Future<void> installStarterSources(SourceStore sources) async {
+    final installed = {for (final p in await sources.installed()) p.id};
+    if (_plugins.every(installed.contains)) return;
+    // Read afresh when the copy kept has not got them (never read, offline).
+    var available = await sources.available();
+    if (!_plugins.every((id) => installed.contains(id) || available.any((p) => p.id == id))) {
+      available = await sources.available(refresh: true);
+    }
+    for (final id in _plugins) {
+      final p = available.where((p) => p.id == id).firstOrNull;
+      if (p != null && !installed.contains(id)) await sources.install(p);
+    }
+    final now = {for (final p in await sources.installed()) p.id};
+    final missing = [for (final id in _plugins) if (!now.contains(id)) id];
+    if (missing.isNotEmpty) throw StateError('Not installed yet: ${missing.join(', ')}');
   }
 }
