@@ -224,8 +224,8 @@ class CropPlan {
     final even = _around(sides[0].isEmpty ? sides[1] : sides[0]);
     final odd = _around(sides[1].isEmpty ? sides[0] : sides[1]);
     final w = math.max(even.width, odd.width), h = math.max(even.height, odd.height);
-    // Little to gain; or a sliver, or a strip of a page (never drawn more
-    // than four times as tall as wide: see PdfPages.render).
+    // Little to gain; or a sliver, or a strip of a page, which would be
+    // drawn tall and narrow (see PdfPages.render).
     final shape = aspect * w / h;
     if ((w >= 0.95 && h >= 0.95) || w < 0.25 || h < 0.25 || shape < 0.3 || shape > 3.3) return null;
     return CropPlan(even: _sized(even, w, h), odd: _sized(odd, w, h), aspect: aspect);

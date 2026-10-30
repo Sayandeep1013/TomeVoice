@@ -33,8 +33,11 @@ object PdfPages {
     private val prints = HashMap<Int, FloatArray?>()
     private var printsOf: String? = null
 
-    /** About how many pixels a page is drawn in to find its print: A4 at 531 by 752. */
+    /** About how many pixels a page is drawn in to find its print: A4 at 532 by 752. */
     private const val LOOK = 400_000.0
+
+    /** The tallest a cut page is drawn, in pixels; a taller one is drawn narrower. */
+    private const val TALLEST = 4096
 
     /** The edge of a page the paper is found on, of its shorter side. */
     private const val BAND = 0.04
@@ -100,18 +103,18 @@ object PdfPages {
     /**
      * Render [index] at [width] pixels wide, the whole page or only [crop]
      * of it (left, top, right and bottom, in fractions of the page) drawn at
-     * that width, so its print is as sharp as a whole page's; returns a
-     * cached JPEG's path.
+     * that width, so its print is as sharp as a whole page's (narrower only
+     * if it would be taller than [TALLEST]); returns a cached JPEG's path.
      */
     @Synchronized
     fun render(path: String, index: Int, width: Int, cacheDir: File, crop: FloatArray? = null): String {
         val dir = File(cacheDir, "pages").apply { mkdirs() }
         val w = width.coerceIn(200, 2400)
-        // A part that is not one (past the page, or a sliver) is not cut.
-        val part = crop?.takeIf {
-            it.size == 4 && it[0] >= 0f && it[1] >= 0f && it[2] <= 1f && it[3] <= 1f &&
-                it[2] - it[0] >= 0.05f && it[3] - it[1] >= 0.05f
-        }
+        // The part within the page, as asked; one that is not a part (not
+        // a number, or a sliver) is not cut.
+        val part = crop?.takeIf { c -> c.size == 4 && c.none { it.isNaN() } }
+            ?.let { c -> FloatArray(4) { k -> c[k].coerceIn(0f, 1f) } }
+            ?.takeIf { it[2] - it[0] >= 0.05f && it[3] - it[1] >= 0.05f }
         val cut = part?.joinToString("_", prefix = "-c") { v -> (v * 10000).roundToInt().toString() } ?: ""
         val key = Integer.toHexString(path.hashCode()) + "-" + index + "-" + w + cut + ".jpg"
         val out = File(dir, key)
@@ -121,20 +124,26 @@ object PdfPages {
         val page = r.openPage(index)
         try {
             val pw = page.width.coerceAtLeast(1)
+            var bw = w
             val h: Int
             var transform: Matrix? = null
             if (part == null) {
                 h = (page.height.toLong() * w / pw).toInt().coerceAtLeast(1)
             } else {
-                // The part's corner at the bitmap's, its width across it.
-                val scale = w / ((part[2] - part[0]) * pw)
-                h = ((part[3] - part[1]) * page.height * scale).roundToInt().coerceIn(1, w * 4)
+                // The part's corner at the bitmap's, its width across it. A
+                // tall part is drawn narrower, so it is never more than
+                // TALLEST high; it shows in its own shape all the same.
+                val cw = (part[2] - part[0]) * pw
+                val ch = (part[3] - part[1]) * page.height.coerceAtLeast(1)
+                bw = min(w, (TALLEST * cw / ch).toInt()).coerceAtLeast(1)
+                val scale = bw / cw
+                h = (ch * scale).roundToInt().coerceIn(1, TALLEST)
                 transform = Matrix().apply {
                     setTranslate(-part[0] * pw, -part[1] * page.height)
                     postScale(scale, scale)
                 }
             }
-            val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            val bitmap = Bitmap.createBitmap(bw, h, Bitmap.Config.ARGB_8888)
             try {
                 bitmap.eraseColor(Color.WHITE)
                 page.render(bitmap, null, transform, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
@@ -169,24 +178,28 @@ object PdfPages {
         }
         val found = StringBuilder()
         val out = ArrayList<List<Double>?>(indices.size)
-        for (index in indices) {
-            if (!prints.containsKey(index)) {
-                val box = try {
-                    look(r, index).also { b ->
-                        found.append(index).append(' ').append(b?.joinToString(" ") ?: "-").append('\n')
+        try {
+            for (index in indices) {
+                if (!prints.containsKey(index)) {
+                    val box = try {
+                        look(r, index).also { b ->
+                            found.append(index).append(' ').append(b?.joinToString(" ") ?: "-").append('\n')
+                        }
+                    } catch (_: Exception) {
+                        floatArrayOf(0f, 0f, 1f, 1f)
                     }
-                } catch (_: Exception) {
-                    floatArrayOf(0f, 0f, 1f, 1f)
+                    prints[index] = box
                 }
-                prints[index] = box
+                out.add(prints[index]?.map { it.toDouble() })
             }
-            out.add(prints[index]?.map { it.toDouble() })
-        }
-        if (found.isNotEmpty()) {
-            try {
-                file.appendText(found.toString())
-            } catch (_: Exception) {
-                // Looked at again next time.
+        } finally {
+            // What was found is kept, even when a page after it could not be.
+            if (found.isNotEmpty()) {
+                try {
+                    file.appendText(found.toString())
+                } catch (_: Exception) {
+                    // Looked at again next time.
+                }
             }
         }
         return out
@@ -256,9 +269,10 @@ object PdfPages {
      * differs from it by more than the paper's own grain. A speck (a mark no
      * bigger than a cell either way) is not print. Nor is a shadow: a thin
      * band in the paper's own colours, only darker, lying along an edge for a
-     * quarter of it or more; a line of print that only grazes an edge is
-     * still print. A page whose edge is mostly not paper (a picture to its
-     * edges) is print all over.
+     * quarter of it or more (a scanner's shadow, the dark past a scanned
+     * page's edge); a line of print that only grazes an edge is still print.
+     * A page whose edge is mostly not paper (a picture to its edges) is print
+     * all over.
      *
      * Pure, and the same step for step as findPrint in page_crop.dart, whose
      * tests cover it: change both.
