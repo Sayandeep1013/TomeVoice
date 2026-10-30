@@ -173,7 +173,7 @@ class ReaderTopBar extends StatelessWidget {
             valueListenable: bookmarked,
             builder: (context, marked, _) => RoundButton(
               icon: marked ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
-              iconColor: marked ? Skin.accentOf(context) : null,
+              iconColor: marked ? Skin.accentInkOf(context) : null,
               tooltip: marked ? 'Remove bookmark' : 'Bookmark this page',
               onTap: onBookmark,
               onLongPress: onBookmarks,
@@ -346,7 +346,9 @@ class ReturnPill extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.undo_rounded, size: 16, color: Skin.accentOf(context)),
+                      // On the dark pill, the soft accent (the deep one by
+                      // day would not show on it).
+                      Icon(Icons.undo_rounded, size: 16, color: Skin.accentSoftOf(context)),
                       const SizedBox(width: Gap.s),
                       Flexible(
                         child: Text('Back to where you were',
@@ -398,7 +400,9 @@ class BackToReadingPill extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.my_location_rounded, size: 16, color: Skin.accentOf(context)),
+                    // On the dark pill, the soft accent (the deep one by day
+                    // would not show on it).
+                    Icon(Icons.my_location_rounded, size: 16, color: Skin.accentSoftOf(context)),
                     const SizedBox(width: Gap.s),
                     Text('Back to reading',
                         style: Skin.ui(size: 14, weight: FontWeight.w600, color: Skin.onDark(context))),

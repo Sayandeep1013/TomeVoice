@@ -2006,7 +2006,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             child: ValueListenableBuilder<Set<int>>(
               valueListenable: _markedUnits,
               builder: (context, marks, _) => marks.any(item.containsUnit)
-                  ? Icon(Icons.bookmark_rounded, size: 16, semanticLabel: 'Bookmarked', color: Skin.accentOf(context))
+                  ? Icon(Icons.bookmark_rounded, size: 16, semanticLabel: 'Bookmarked', color: Skin.accentInkOf(context))
                   : const SizedBox.shrink(),
             ),
           ),

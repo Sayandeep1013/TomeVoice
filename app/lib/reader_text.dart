@@ -200,7 +200,7 @@ class _BlockTextState extends State<BlockText> {
     // them.
     final accent = widget.wash.withValues(alpha: 1);
     final dark = darkPage(widget.style.color);
-    final spoken = widget.heading ? Skin.accentOf(context) : null;
+    final spoken = widget.heading ? Skin.accentInkOf(context) : null;
     final runs = washRuns(
       layout: widget.layout,
       item: widget.item,

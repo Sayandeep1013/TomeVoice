@@ -398,10 +398,14 @@ void main() {
       // A part reads as a divider, in capitals and the soft ink.
       final part = tester.widget<Text>(inSheet(find.text('PART ONE: ARRIVAL')));
       expect(part.style!.color, Skin.inkSoftOn(tester.element(find.byType(ReaderScreen))));
-      // The chapter being read, in the accent, with the voice's sign.
+      // The chapter being read, in the accent as type (its ink, which reads
+      // on the sheet: the full accent was too pale there by day), with the
+      // voice's sign.
+      final ink = Skin.accentInkOf(tester.element(find.byType(ReaderScreen)));
       final road = tester.widget<Text>(inSheet(find.text('The Road')));
-      expect(road.style!.color, Skin.accentOf(tester.element(find.byType(ReaderScreen))));
-      expect(inSheet(find.byIcon(Icons.graphic_eq_rounded)), findsOneWidget);
+      expect(road.style!.color, ink);
+      expect(tester.widget<Text>(inSheet(find.text('2'))).style!.color, ink);
+      expect(tester.widget<Icon>(inSheet(find.byIcon(Icons.graphic_eq_rounded))).color, ink);
       // The numbers in a column for short ones.
       expect(tester.getSize(find.ancestor(of: inSheet(find.text('2')), matching: find.byType(SizedBox)).first).width, 40);
       // A drag down the list leaves the keyboard as it is.
