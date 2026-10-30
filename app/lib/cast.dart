@@ -248,7 +248,9 @@ class CastReading implements SpeakerVoices {
       _readAhead(s + 1, cast);
       return _pick(found, s, unit, cast);
     }
-    return _find(s, cast).then((f) => _pick(f, s, unit, cast));
+    // Found in this layout's sentences: if the reading moved on to a longer
+    // layout meanwhile, this one line keeps the dialogue voice.
+    return _find(s, cast).then((f) => identical(_text, text) ? _pick(f, s, unit, cast) : null);
   }
 
   String? _pick(Int32List found, int s, int unit, BookCast cast) {

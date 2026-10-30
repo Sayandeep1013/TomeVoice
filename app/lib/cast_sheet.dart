@@ -163,8 +163,8 @@ class _CastSheetState extends State<_CastSheet> {
             child: Text(
               people.isEmpty
                   ? 'No one is named in this book\'s speech tags, so its dialogue stays in one voice.'
-                  : 'Who speaks, found from the book\'s speech tags ("said Elizabeth"). Give anyone a voice of '
-                      'their own; a line that cannot be placed is read in the dialogue voice.',
+                  : 'Experimental: who speaks is found from the book\'s speech tags ("said Elizabeth"). Give '
+                      'anyone a voice of their own; a line it cannot place is read in the dialogue voice.',
               style: faint,
             ),
           ),
