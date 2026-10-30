@@ -53,9 +53,11 @@ void main() {
     try {
       dir.deleteSync(recursive: true);
       // What the reader unpacked for this book (Chapter Three's file).
-      for (final f in Directory('${Directory.systemTemp.path}/narration').listSync()) {
+      final cache = Directory('${Directory.systemTemp.path}/narration');
+      for (final f in cache.listSync()) {
         if (f.uri.pathSegments.last.startsWith('tin-')) f.deleteSync();
       }
+      if (cache.listSync().isEmpty) cache.deleteSync();
     } on FileSystemException {
       // Best effort.
     }
