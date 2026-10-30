@@ -99,3 +99,19 @@ This software is based in part on the work of the Independent JPEG Group.
 Tesseract language data (downloaded on request, not part of the app)
 https://github.com/tesseract-ocr/tessdata_fast, Apache License 2.0
 Kept in ocr/tessdata on the phone.
+
+------------------------------------------------------------------------
+jump3r 1.0.5 (saving as MP3), GNU Lesser General Public License 2.1 or later
+https://codeberg.org/sciss/jump3r (Maven Central: de.sciss:jump3r)
+A Java port of the LAME MP3 encoder 3.98.4 (https://lame.sourceforge.io).
+LAME: Copyright (c) 1999-2011 Mark Taylor, Takehiro Tominaga, Robert
+Hegemann, Gabriel Bouvigne, Alexander Leidinger and the LAME developers.
+The Java port: Ken Händel, Vadym Vikulin and Hanns Holger Rutz.
+This library is free software; you can redistribute it and/or modify it
+under the terms of the GNU Lesser General Public License as published by
+the Free Software Foundation; either version 2.1 of the License, or (at
+your option) any later version. It is distributed in the hope that it will
+be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. TomeVoice, under the
+GNU GPL 3.0, uses it as the LGPL allows; its source, and TomeVoice's, are
+public. The licence: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt

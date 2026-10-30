@@ -15,6 +15,7 @@ import 'catalogues_screen.dart';
 import 'categories_screen.dart';
 import 'download_queue.dart';
 import 'error_log.dart';
+import 'export_audio_sheet.dart';
 import 'history_screen.dart';
 import 'library_screen.dart';
 import 'library_store.dart';
@@ -118,6 +119,7 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
   Timer? _followTimer;
   Timer? _widgetTimer;
   StreamSubscription<Map<String, Object?>>? _widgetEvents;
+  StreamSubscription<Map<String, Object?>>? _shownEvents;
   AppLifecycleListener? _lifecycle;
   bool _offering = false;
 
@@ -138,6 +140,11 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
     if (store == null) return;
     final launch = await const SpeechService().widgetLaunch();
     if (launch == null || !mounted) return;
+    // A save as audio's notification: how far it is, over whatever shows.
+    if (launch['page'] == 'export') {
+      await showRunningExport(context);
+      return;
+    }
     if (launch['page'] == 'stats') {
       unawaited(Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => StatsScreen(store: store))));
       return;
@@ -164,6 +171,7 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
     _followTimer?.cancel();
     _widgetTimer?.cancel();
     unawaited(_widgetEvents?.cancel());
+    unawaited(_shownEvents?.cancel());
     _lifecycle?.dispose();
     ListeningPrefs.revision.removeListener(_scheduleChecks);
     _store?.changes.removeListener(_scheduleFollow);
@@ -250,6 +258,11 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
       // A widget may have opened the app.
       unawaited(_fromWidget());
       _widgetEvents = SpeechService.events.where((e) => e['type'] == 'widgetLaunch').listen((_) => _fromWidget());
+      // TomeVoice opened again onto a save as audio that went on with no
+      // window (swiped away from Recents): how far it is shows again.
+      _shownEvents = SpeechService.events.where((e) => e['type'] == 'shown').listen((_) {
+        if (mounted) unawaited(showRunningExport(context));
+      });
       unawaited(_follow());
       // A fresh install may be someone moving over: from the older
       // TomeVoice (another app id), or from another phone.

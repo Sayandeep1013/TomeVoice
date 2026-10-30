@@ -119,15 +119,13 @@ class MainActivity : FlutterActivity() {
     /** The answer to "is it you?" on phones too old for BiometricPrompt's PIN. */
     private var confirmResult: MethodChannel.Result? = null
 
-    /** Saving a book as audio: its own channel, "tomevoice/export". */
-    private var exporter: AudioExport? = null
-
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         // An engine already running: the app is there, or a book was being
-        // read with no activity, and this activity only shows it.
+        // read or saved as audio with no activity, and this activity only
+        // shows it. (Saving as audio, "tomevoice/export", is the engine's:
+        // ReadingCore.exporter, attached to this activity in engineFor.)
         rejoined = flutterEngine.dartExecutor.isExecutingDart
-        exporter = AudioExport(this, flutterEngine.dartExecutor.binaryMessenger)
 
         val ch = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
         channel = ch
@@ -558,11 +556,12 @@ class MainActivity : FlutterActivity() {
     override fun provideFlutterEngine(context: Context): FlutterEngine = ReadingCore.engineFor(this)
 
     /**
-     * Kept while a book is being read: a swipe from Recents, or Android
-     * closing the activity, leaves the voice reading. With nothing read, an
-     * activity that is finishing takes it along, so the next opening starts
-     * afresh, as it always did (decided in cleanUpFlutterEngine, which comes
-     * first). Never while a newer activity takes the engine over.
+     * Kept while a book is being read or saved as audio: a swipe from
+     * Recents, or Android closing the activity, leaves the voice reading and
+     * the save going. With neither, an activity that is finishing takes it
+     * along, so the next opening starts afresh, as it always did (decided in
+     * cleanUpFlutterEngine, which comes first). Never while a newer activity
+     * takes the engine over.
      */
     override fun shouldDestroyEngineWithHost(): Boolean = engineGoes
 
@@ -571,9 +570,9 @@ class MainActivity : FlutterActivity() {
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
         engineGoes = isFinishing && !isChangingConfigurations && ReadingCore.shows(this) &&
-            !ReadAloudService.isRunning() && !ReadAloudService.isStarting()
-        // Reading carries on; this activity's own calls (pickers, the window,
-        // prompts) go with it.
+            !ReadAloudService.isRunning() && !ReadAloudService.isStarting() && !ReadingCore.saving()
+        // Reading and a save carry on; this activity's own calls (pickers,
+        // the window, prompts) go with it.
         ReadingCore.detach(this)
         channel = null
         super.cleanUpFlutterEngine(flutterEngine)
@@ -1017,7 +1016,7 @@ class MainActivity : FlutterActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
-        if (exporter?.onActivityResult(requestCode, resultCode, data) == true) return
+        if (ReadingCore.exporter?.onActivityResult(requestCode, resultCode, data) == true) return
         if (requestCode == REQ_CONFIRM) {
             confirmResult?.success(resultCode == Activity.RESULT_OK)
             confirmResult = null
@@ -1215,15 +1214,13 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
-        exporter?.close()
-        exporter = null
         stopSample()
         // A scan being read goes on without the app; its book is made when
         // the app is next opened (ocr_jobs.dart).
         OcrService.onEvent = null
-        // The reading, the voice and the player are the engine's and carry
-        // on (ReadingCore): leaving the app, by a swipe from Recents too,
-        // does not stop a book being read.
+        // The reading, the voice, the player and a save as audio are the
+        // engine's and carry on (ReadingCore): leaving the app, by a swipe
+        // from Recents too, does not stop a book being read or saved.
         io.shutdown()
         pages.execute { PdfPages.close() }
         pages.shutdown()
