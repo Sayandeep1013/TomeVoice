@@ -418,11 +418,18 @@ object PdfPages {
         return counts.size - 1
     }
 
-    /** Drop rendered pages nobody has looked at for a week. */
+    /**
+     * Drop rendered pages nobody has looked at for a week, and pages left
+     * half written. A .tmp a minute old was never finished; a newer one is a
+     * page being written now (the sweep runs as the app starts, maybe into a
+     * book's pages), and its page would be lost.
+     */
     fun sweep(cacheDir: File) {
-        val cutoff = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000
+        val now = System.currentTimeMillis()
+        val cutoff = now - 7L * 24 * 60 * 60 * 1000
         File(cacheDir, "pages").listFiles()?.forEach {
-            if (it.lastModified() < cutoff || it.name.endsWith(".tmp")) it.delete()
+            val left = it.name.endsWith(".tmp") && it.lastModified() < now - 60_000
+            if (it.lastModified() < cutoff || left) it.delete()
         }
     }
 }
