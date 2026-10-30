@@ -183,6 +183,9 @@ jobs:
           cp -r lib /tmp/tv_lib
           cp -r test /tmp/tv_test
           cp pubspec.yaml /tmp/tv_pubspec.yaml
+          # flutter create also writes a pubspec.lock of its own (the SDK's
+          # pins only), over ours: keep ours aside.
+          if [ -f pubspec.lock ]; then cp pubspec.lock /tmp/tv_pubspec.lock; fi
           # --no-pub: the only resolution is the locked one further down.
           flutter create --no-pub --platforms=android --project-name tomevoice_spike --org app.tomevoice .
           # flutter create writes lib/main.dart and pubspec.yaml, and also a
@@ -192,8 +195,9 @@ jobs:
           cp -r /tmp/tv_lib lib
           cp -r /tmp/tv_test test
           cp /tmp/tv_pubspec.yaml pubspec.yaml
+          if [ -f /tmp/tv_pubspec.lock ]; then cp /tmp/tv_pubspec.lock pubspec.lock; fi
           # Our sources and lockfile, exactly as committed.
-          changed=$(git status --porcelain -- lib test pubspec.yaml pubspec.lock)
+          changed=$(git status --porcelain --untracked-files=no -- lib test pubspec.yaml pubspec.lock)
           if [ -n "$changed" ]; then echo "$changed"; echo "::error::flutter create changed our files"; exit 1; fi
 
       # A stable key means each build installs over the last one. Without the
