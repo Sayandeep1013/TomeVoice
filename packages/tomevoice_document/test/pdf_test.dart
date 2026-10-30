@@ -30,6 +30,36 @@ List<String> _texts(Book b) => [
 
 List<String> _titles(Book b) => [for (final s in b.sections) s.displayTitle];
 
+/// A line and where it sits: x, the baseline's y from the top, width and
+/// font size, in points; [para] when a paragraph starts with it.
+typedef _At = ({String text, num x, num y, num w, num size, bool para});
+
+_At _at(String text, num x, num y, {num w = 400, num size = 10, bool para = false}) =>
+    (text: text, x: x, y: y, w: w, size: size, para: para);
+
+/// A page's text and line layout, as PdfText sends them.
+({String text, List<int> layout}) _laid(List<_At> lines) {
+  final text = StringBuffer();
+  final layout = <int>[];
+  for (var i = 0; i < lines.length; i++) {
+    final l = lines[i];
+    if (i > 0) text.write('\n');
+    if (l.para) text.write(_m);
+    text.write(l.text);
+    layout.addAll([l.x.round(), l.y.round(), l.w.round(), (l.size * 10).round(), l.text.length]);
+  }
+  return (text: text.toString(), layout: layout);
+}
+
+Book _laidBook(List<List<_At>> pages) {
+  final laid = [for (final p in pages) _laid(p)];
+  return ingestPdfText(
+    id: 'x',
+    pages: [for (final p in laid) p.text],
+    layout: [for (final p in laid) p.layout],
+  );
+}
+
 void main() {
   group('running heads and page numbers', () {
     test('a head naming the story is dropped, though it tops few pages', () {
@@ -306,6 +336,111 @@ void main() {
       expect(_texts(book), [
         'Он смотрел на море и думал, что завтра снова будет шторм, и лодки не выйдут.',
         'Это было примечательно, как всегда в это время года.',
+      ]);
+    });
+  });
+
+  group('line layout', () {
+    test('a note at the foot of a page leaves the sentence that runs over it', () {
+      final book = _laidBook([
+        [
+          _at('The meeting went on into the night, and by the time', 72, 100, para: true),
+          _at('the lamps were lit the business of it all had come to an', 72, 114),
+          _at('1 See the minutes of the meeting held in March.', 72, 700, size: 8, para: true),
+          _at('2 The vote was taken twice.', 72, 710, size: 8, para: true),
+          _at('1', 300, 740, w: 6, para: true),
+        ],
+        [
+          _at('end, and nobody spoke of it again for many years.', 72, 100, para: true),
+          _at('2', 300, 740, w: 6, para: true),
+        ],
+      ]);
+      final blocks = book.sections.expand((s) => s.blocks).toList();
+      expect(blocks.map((b) => b.text), [
+        'The meeting went on into the night, and by the time the lamps were lit the '
+            'business of it all had come to an end, and nobody spoke of it again for many years.',
+        '1 See the minutes of the meeting held in March.',
+        '2 The vote was taken twice.',
+      ]);
+      expect(blocks.skip(1).map((b) => b.role), everyElement(BlockRole.footnote));
+      expect(blocks.last.anchor, isA<PageAnchor>().having((a) => a.page, 'page', 0));
+    });
+
+    test('two columns are read left, then right', () {
+      // Drawn across the page: each left line, then the right one beside it.
+      final lines = [_at('A TITLE ACROSS THE PAGE', 72, 60, w: 468, size: 14, para: true)];
+      for (var i = 0; i < 6; i++) {
+        lines
+          ..add(_at('the left column goes on with ${_words[i]}', 72, 100 + i * 14, w: 220, para: i == 0))
+          ..add(_at('the right column goes on with ${_words[i]}', 320, 100 + i * 14, w: 220, para: i == 0));
+      }
+      final all = _texts(_laidBook([lines])).join(' ');
+      final order = [
+        for (var i = 0; i < 6; i++) all.indexOf('left column goes on with ${_words[i]}'),
+        for (var i = 0; i < 6; i++) all.indexOf('right column goes on with ${_words[i]}'),
+      ];
+      expect(order, everyElement(greaterThan(0)));
+      expect([...order]..sort(), order);
+    });
+
+    test('one column stays as drawn, quotes and small print included', () {
+      final book = _laidBook([
+        [
+          _at('He read the letter aloud to the room, slowly, as if every', 72, 100, para: true),
+          _at('word of it might change its meaning on the second reading:', 72, 114),
+          // An indented quotation, and small print at the foot with no
+          // note mark: neither is a column or a footnote.
+          _at('Come home before the tide turns, and bring the', 120, 140, w: 300, para: true),
+          _at('lantern with you, for the road is dark at night.', 120, 154, w: 300),
+          _at('Then he folded it, and put it in his coat, and said nothing.', 72, 180, para: true),
+          _at('Then he went out into the street and did not come back.', 72, 194),
+          _at('Printed by the harbour press, in a small edition.', 72, 700, size: 7, para: true),
+        ],
+      ]);
+      final texts = _texts(book);
+      expect(texts.first, startsWith('He read the letter'));
+      expect(texts.last, 'Printed by the harbour press, in a small edition.');
+      expect(book.sections.expand((s) => s.blocks).map((b) => b.role), isNot(contains(BlockRole.footnote)));
+    });
+
+    test('a heading set large is kept, though running heads repeat it', () {
+      // No page numbers on the heads, so only the size tells them apart.
+      final pages = <List<_At>>[];
+      for (var p = 0; p < 6; p++) {
+        pages.add([
+          if (p == 0)
+            _at('THE LANTERN KEEPER', 72, 80, w: 300, size: 18, para: true)
+          else
+            _at('THE LANTERN KEEPER', 72, 40, w: 200, size: 9, para: true),
+          for (final (i, l) in _prose(p).indexed) _at(l, 72, 100 + i * 14, para: i == 0),
+        ]);
+      }
+      final texts = _texts(_laidBook(pages));
+      expect(texts.where((t) => t == 'THE LANTERN KEEPER'), hasLength(1));
+      expect(texts.where((t) => t.contains('LANTERN KEEPER')), hasLength(1));
+    });
+
+    test('a layout that does not match the text is ignored', () {
+      final good = _laid([
+        _at('He read the letter aloud to the room, slowly, as if every', 72, 100, para: true),
+        _at('word of it might change its meaning on the second reading.', 72, 114),
+      ]);
+      final wrong = [...good.layout]..[4] += 1;
+      final book = ingestPdfText(id: 'x', pages: [good.text], layout: [wrong]);
+      expect(_texts(book), [
+        'He read the letter aloud to the room, slowly, as if every word of it might '
+            'change its meaning on the second reading.',
+      ]);
+    });
+
+    test('the layout from the platform is read as lists of numbers', () {
+      expect(pdfLayoutFromPlatform(null), isNull);
+      expect(pdfLayoutFromPlatform([
+        [1, 2, 3, 4, 5],
+        'junk',
+      ]), [
+        [1, 2, 3, 4, 5],
+        <int>[],
       ]);
     });
   });

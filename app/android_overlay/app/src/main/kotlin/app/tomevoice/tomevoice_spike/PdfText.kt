@@ -6,6 +6,7 @@ import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem
 import com.tom_roush.pdfbox.text.PDFTextStripper
+import com.tom_roush.pdfbox.text.TextPosition
 import java.io.File
 
 /**
@@ -13,11 +14,15 @@ import java.io.File
  *
  * PDFBox does the glyph work (fonts, ToUnicode maps, reading order within a
  * page). The Dart side (packages/tomevoice_document, formats/pdf.dart) does
- * the listening clean-up: running headers, page numbers, hyphenation and
- * paragraphs that cross a page break.
+ * the listening clean-up: running headers, page numbers, hyphenation,
+ * paragraphs that cross a page break, footnotes and columns.
  *
  * Output contract: pages separated by form feed (0x0C), paragraphs within a
- * page started by U+2029, lines separated by "\n".
+ * page started by U+2029, lines separated by "\n". "layout" is one IntArray
+ * per page, five numbers for each line in the order the lines are written:
+ * x, baseline y from the top, width (points), font size (tenths of a point)
+ * and the length of the line's text, by which the Dart side checks that the
+ * two agree.
  */
 object PdfText {
     @Volatile
@@ -39,12 +44,7 @@ object PdfText {
         }
         doc.use { d ->
             val total = d.numberOfPages
-            val stripper = object : PDFTextStripper() {
-                override fun startPage(page: PDPage?) {
-                    super.startPage(page)
-                    progress(currentPageNo, total)
-                }
-            }
+            val stripper = LineStripper { page -> progress(page, total) }
             stripper.paragraphStart = 0x2029.toChar().toString()
             stripper.lineSeparator = "\n"
             stripper.pageStart = ""
@@ -57,7 +57,8 @@ object PdfText {
                 "pages" to total,
                 "title" to info?.title,
                 "author" to info?.author,
-                "outline" to outline(d)
+                "outline" to outline(d),
+                "layout" to stripper.layout
             )
         }
     }
@@ -108,5 +109,128 @@ object PdfText {
         }
         walk(root.firstChild, 0)
         return out
+    }
+}
+
+/**
+ * PDFBox's stripper, noting where each line it writes sits. A line ends at
+ * whichever separator the stripper writes next (line, paragraph or page), so
+ * the notes follow the text line for line.
+ */
+private class LineStripper(private val onPage: (Int) -> Unit) : PDFTextStripper() {
+    /** Per page: x, y, width, size x10 and text length for each line. */
+    val layout = ArrayList<IntArray>()
+
+    private val pageLines = ArrayList<Int>()
+    private val sizes = HashMap<Int, Int>()
+    private var lineLength = 0
+    private var glyphs = 0
+    private var minX = 0f
+    private var maxX = 0f
+    private var maxY = 0f
+
+    override fun startPage(page: PDPage?) {
+        super.startPage(page)
+        pageLines.clear()
+        resetLine()
+        onPage(currentPageNo)
+    }
+
+    override fun endPage(page: PDPage?) {
+        endLine()
+        layout.add(pageLines.toIntArray())
+        super.endPage(page)
+    }
+
+    override fun writeString(text: String?, textPositions: MutableList<TextPosition>?) {
+        // A glyph that maps to a separator would add a line the notes do not
+        // have (and a form feed a page).
+        val raw = text ?: ""
+        val clean = if (raw.any { isSeparator(it) }) {
+            raw.map { if (isSeparator(it)) ' ' else it }.joinToString("")
+        } else {
+            raw
+        }
+        super.writeString(clean, textPositions)
+        lineLength += clean.length
+        textPositions?.forEach { p ->
+            val x = p.getXDirAdj()
+            val end = x + p.getWidthDirAdj()
+            val y = p.getYDirAdj()
+            if (glyphs == 0) {
+                minX = x
+                maxX = end
+                maxY = y
+            } else {
+                minX = minOf(minX, x)
+                maxX = maxOf(maxX, end)
+                maxY = maxOf(maxY, y)
+            }
+            glyphs++
+            // Math.round, unlike roundToInt, takes NaN (a broken matrix) as 0.
+            val size = Math.round(p.getYScale() * 10)
+            sizes[size] = (sizes[size] ?: 0) + 1
+        }
+    }
+
+    override fun writeWordSeparator() {
+        super.writeWordSeparator()
+        lineLength += wordSeparator.length
+    }
+
+    override fun writeLineSeparator() {
+        endLine()
+        super.writeLineSeparator()
+    }
+
+    override fun writeParagraphStart() {
+        endLine()
+        super.writeParagraphStart()
+    }
+
+    override fun writeParagraphEnd() {
+        endLine()
+        super.writeParagraphEnd()
+    }
+
+    override fun writePageEnd() {
+        endLine()
+        super.writePageEnd()
+    }
+
+    private fun isSeparator(c: Char) =
+        c.code == 0x0A || c.code == 0x0D || c.code == 0x0C || c.code == 0x2029
+
+    private fun endLine() {
+        if (lineLength > 0) {
+            // The size most of its glyphs are set in: a superscript note mark
+            // does not make a line of text small.
+            var size = 0
+            var most = 0
+            for ((s, n) in sizes) {
+                if (n > most) {
+                    most = n
+                    size = s
+                }
+            }
+            if (glyphs > 0) {
+                pageLines.add(Math.round(minX))
+                pageLines.add(Math.round(maxY))
+                pageLines.add(Math.round(maxX - minX))
+            } else {
+                pageLines.add(0)
+                pageLines.add(0)
+                pageLines.add(0)
+            }
+            pageLines.add(size)
+            pageLines.add(lineLength)
+        }
+        resetLine()
+    }
+
+    private fun resetLine() {
+        lineLength = 0
+        glyphs = 0
+        sizes.clear()
     }
 }

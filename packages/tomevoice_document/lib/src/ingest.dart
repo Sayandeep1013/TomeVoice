@@ -56,11 +56,13 @@ Book ingestBytes(
   return _finish(book);
 }
 
-/// A PDF, from the per-page text the platform extracted.
+/// A PDF, from the per-page text the platform extracted, and where its
+/// lines sit when the platform says (see [bookFromPdfText]).
 Book ingestPdfText({
   required String id,
   required List<String> pages,
   List<PdfOutlineEntry> outline = const [],
+  List<List<int>>? layout,
   String? title,
   String? author,
   String? filename,
@@ -69,6 +71,7 @@ Book ingestPdfText({
       id: id,
       pages: pages,
       outline: outline,
+      layout: layout,
       title: title,
       author: author,
       filename: filename,

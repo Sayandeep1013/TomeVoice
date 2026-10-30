@@ -30,6 +30,22 @@ List<PdfOutlineEntry> pdfOutlineFromPlatform(Object? raw) => flattenPdfOutline([
             ),
     ]);
 
+/// The platform's line layout ("layout": one list of numbers per page, see
+/// PdfText.kt) as [bookFromPdfText] takes it; null when there is none.
+List<List<int>>? pdfLayoutFromPlatform(Object? raw) {
+  if (raw is! List) return null;
+  return [
+    for (final page in raw)
+      page is List<int>
+          ? page
+          : [
+              if (page is List)
+                for (final v in page)
+                  if (v is int) v,
+            ],
+  ];
+}
+
 /// Nested bookmarks as one list of chapters.
 ///
 /// A lone bookmark at the top is the book's own title over everything, and
@@ -108,10 +124,16 @@ bool _isTitle(String text, String title) {
 /// that makes a PDF listenable: running headers/footers and page numbers are
 /// dropped, hyphenated line breaks are mended, a paragraph split across a
 /// page break is joined, and the PDF outline becomes the chapter list.
+///
+/// [layout], one list per page from the platform, says where each line sits
+/// (see [pdfLayoutFromPlatform]). With it, notes at a page's foot become
+/// footnote blocks and two columns are read one after the other. Without it,
+/// as from an older caller, the text is read as drawn.
 Book bookFromPdfText({
   required String id,
   required List<String> pages,
   List<PdfOutlineEntry> outline = const [],
+  List<List<int>>? layout,
   String? title,
   String? author,
   String? filename,
@@ -125,14 +147,20 @@ Book bookFromPdfText({
   }
   resetBlockIds();
 
-  final lines = [for (final page in pages) _linesOf(page)];
-  final furniture = _furniture(lines);
+  final lines = [
+    for (var p = 0; p < pages.length; p++)
+      _readingOrder(_linesOf(pages[p], layout != null && p < layout.length ? layout[p] : null)),
+  ];
+  final body = _bodySize(lines);
+  final furniture = _furniture(lines, body);
+  final notes = <List<String>>[];
   for (var p = 0; p < lines.length; p++) {
-    if (furniture[p].isEmpty) continue;
-    lines[p] = [
+    final foot = _footnotes([
       for (var i = 0; i < lines[p].length; i++)
         if (!furniture[p].contains(i)) lines[p][i],
-    ];
+    ], body);
+    lines[p] = foot.text;
+    notes.add(foot.notes);
   }
 
   final valid = [
@@ -158,6 +186,9 @@ Book bookFromPdfText({
   // it ends a sentence or is a heading. This also joins a paragraph that runs
   // over a page break; the joined text stays on the page where it started.
   final paras = <_Para>[];
+  // A page's footnotes follow the paragraph they hang from, which may run on
+  // to the next page.
+  var waiting = <_Para>[];
   for (var p = 0; p < lines.length; p++) {
     // A printed table of contents is read line by line, and none of its
     // lines is a heading: they name chapters that come later.
@@ -173,10 +204,15 @@ Book bookFromPdfText({
           _continues(last.text, text)) {
         paras[paras.length - 1] = _Para(last.page, joinWrappedLines([last.text, text]));
       } else {
-        paras.add(contents ? _Para(p, text, role: BlockRole.paragraph, fixed: true) : _Para(p, text));
+        paras
+          ..addAll(waiting)
+          ..add(contents ? _Para(p, text, role: BlockRole.paragraph, fixed: true) : _Para(p, text));
+        waiting = [];
       }
     }
+    waiting.addAll([for (final n in notes[p]) _Para(p, n, role: BlockRole.footnote, fixed: true)]);
   }
+  paras.addAll(waiting);
 
   return assembleBook(
     id: id,
@@ -194,11 +230,17 @@ Book bookFromPdfText({
   );
 }
 
-/// One line of a page, and which of the extractor's paragraphs it is in.
+/// Where a line sits on its page, in points: x, its baseline's y from the
+/// top, its width and its font size.
+typedef _Box = ({double x, double y, double w, double size});
+
+/// One line of a page, which of the extractor's paragraphs it is in, and
+/// where it sits when the platform said.
 class _Line {
-  const _Line(this.text, this.para);
+  const _Line(this.text, this.para, [this.box]);
   final String text;
   final int para;
+  final _Box? box;
 }
 
 /// A paragraph of the reflowed text and the page it starts on.
@@ -215,21 +257,196 @@ class _Para {
   final bool fixed;
 }
 
+/// Numbers per line in the platform's layout (see PdfText.kt): x, baseline y
+/// from the top, width, font size in tenths of a point, and the length of the
+/// line's text.
+const _perLine = 5;
+
 /// The page's lines as the extractor wrote them; a paragraph starts at each
-/// paragraph mark.
-List<_Line> _linesOf(String page) {
-  final out = <_Line>[];
+/// paragraph mark. [layout], when given, says where each line sits.
+List<_Line> _linesOf(String page, List<int>? layout) {
+  final raw = <({String text, int para})>[];
   final chunks = page.split(pdfParagraphMark);
   for (var c = 0; c < chunks.length; c++) {
-    for (final raw in chunks[c].split('\n')) {
-      // Fonts without a proper Unicode map hand back control characters and
-      // private-use glyphs (a page number came out as U+0018). They are never
-      // readable text.
-      final t = raw.replaceAll(_unreadable, '').trim();
-      if (t.isNotEmpty) out.add(_Line(t, c));
+    for (final l in chunks[c].split('\n')) {
+      if (l.isNotEmpty) raw.add((text: l, para: c));
     }
   }
+  // The layout lists the same lines in the same order, each with its
+  // length. Where the two disagree, the page is read without it.
+  final at = layout ?? const <int>[];
+  var placed = at.length == raw.length * _perLine && raw.isNotEmpty;
+  for (var i = 0; placed && i < raw.length; i++) {
+    placed = at[i * _perLine + 4] == raw[i].text.length;
+  }
+  final out = <_Line>[];
+  for (var i = 0; i < raw.length; i++) {
+    // Fonts without a proper Unicode map hand back control characters and
+    // private-use glyphs (a page number came out as U+0018). They are never
+    // readable text.
+    final t = raw[i].text.replaceAll(_unreadable, '').trim();
+    if (t.isEmpty) continue;
+    final k = i * _perLine;
+    out.add(_Line(
+      t,
+      raw[i].para,
+      placed
+          ? (
+              x: at[k].toDouble(),
+              y: at[k + 1].toDouble(),
+              w: at[k + 2].toDouble(),
+              size: at[k + 3] / 10,
+            )
+          : null,
+    ));
+  }
   return out;
+}
+
+/// The text's font size: the one most of the book's characters are set in.
+/// 0 when nothing says.
+double _bodySize(List<List<_Line>> pages) {
+  final chars = <int, int>{};
+  for (final page in pages) {
+    for (final l in page) {
+      final size = l.box?.size ?? 0;
+      if (size <= 0) continue;
+      final halves = (size * 2).round();
+      chars[halves] = (chars[halves] ?? 0) + l.text.length;
+    }
+  }
+  if (chars.isEmpty) return 0;
+  return chars.entries.reduce((a, b) => b.value > a.value ? b : a).key / 2;
+}
+
+/// Line indexes top to bottom; lines level with each other as drawn.
+List<int> _topToBottom(List<_Line> page) => [for (var i = 0; i < page.length; i++) i]
+  ..sort((a, b) {
+    final byY = page[a].box!.y.compareTo(page[b].box!.y);
+    return byY != 0 ? byY : a.compareTo(b);
+  });
+
+/// Two columns, read left then right.
+///
+/// Lines come in the order the PDF drew them, which is reading order for most
+/// books, but some PDFs draw across both columns, or the right one first. It
+/// takes a clear gutter with plenty of text on each side, so an indented
+/// quotation, a poem's line numbers or a note in the margin never reorders a
+/// page. Lines across the gutter (a title, a running head, a wide picture's
+/// caption) cut the page into bands, each read column by column.
+List<_Line> _readingOrder(List<_Line> lines) {
+  if (lines.length < 6 || lines.any((l) => l.box == null)) return lines;
+  var left = double.infinity, right = double.negativeInfinity;
+  for (final l in lines) {
+    left = math.min(left, l.box!.x);
+    right = math.max(right, l.box!.x + l.box!.w);
+  }
+  final width = right - left;
+  if (width < 100) return lines;
+
+  // The gutter: the middle of the stretch, in the middle of the page, that
+  // the fewest lines cross.
+  final start = left + width * 0.3;
+  final steps = (width * 0.4 / 2).floor();
+  var fewest = lines.length + 1, first = 0, last = 0;
+  for (var s = 0; s <= steps; s++) {
+    final x = start + s * 2;
+    final n = lines.where((l) => l.box!.x < x - 1 && l.box!.x + l.box!.w > x + 1).length;
+    if (n < fewest) {
+      fewest = n;
+      first = last = s;
+    } else if (n == fewest && s == last + 1) {
+      last = s;
+    }
+  }
+  final gutter = start + (first + last); // the middle step, at 2 points a step
+  bool onLeft(_Line l) => l.box!.x + l.box!.w <= gutter + 1;
+  bool onRight(_Line l) => !onLeft(l) && l.box!.x >= gutter - 1;
+
+  final lefts = lines.where(onLeft).toList();
+  final rights = lines.where(onRight).toList();
+  if (lefts.length < 3 || rights.length < 3) return lines;
+  int chars(Iterable<_Line> ls) => ls.fold(0, (n, l) => n + l.text.length);
+  final all = chars(lines);
+  if (chars(lefts) * 5 < all || chars(rights) * 5 < all) return lines;
+  double span(List<_Line> ls, double Function(_Line) from, double Function(_Line) to) =>
+      ls.map(to).reduce(math.max) - ls.map(from).reduce(math.min);
+  if (span(lefts, (l) => l.box!.x, (l) => l.box!.x + l.box!.w) < width * 0.25 ||
+      span(rights, (l) => l.box!.x, (l) => l.box!.x + l.box!.w) < width * 0.25) {
+    return lines;
+  }
+  // Side by side, not one under the other.
+  double top(List<_Line> ls) => ls.map((l) => l.box!.y).reduce(math.min);
+  double bottom(List<_Line> ls) => ls.map((l) => l.box!.y).reduce(math.max);
+  final shared = math.min(bottom(lefts), bottom(rights)) - math.max(top(lefts), top(rights));
+  final shorter = math.min(bottom(lefts) - top(lefts), bottom(rights) - top(rights));
+  if (shared < shorter * 0.5) return lines;
+
+  final out = <_Line>[];
+  final band = (left: <int>[], right: <int>[]);
+  void flush() {
+    for (final side in [band.left..sort(), band.right..sort()]) {
+      out.addAll(side.map((i) => lines[i]));
+      side.clear();
+    }
+  }
+
+  for (final i in _topToBottom(lines)) {
+    if (onLeft(lines[i])) {
+      band.left.add(i);
+    } else if (onRight(lines[i])) {
+      band.right.add(i);
+    } else {
+      flush();
+      out.add(lines[i]);
+    }
+  }
+  flush();
+  return out;
+}
+
+/// A footnote's mark: "1", "12.", "(3)", "[3]", "*", "†".
+final _noteMark = RegExp(
+  r'^(\d{1,3}|\(\d{1,3}\)|\[\d{1,3}\]|[*†‡§¶]{1,3})(?=[\s.)\]]|\p{L})',
+  unicode: true,
+);
+
+/// Notes at the foot of a page: its lowest lines, set smaller than the text,
+/// the first starting with its mark ("1 See the minutes…"). They leave the
+/// flow, so a sentence that runs on to the next page is not broken by them
+/// ("had come to an 1 See the minutes…"), and become footnote blocks. Small
+/// print with no mark stays where it is. Without the layout nothing moves.
+({List<_Line> text, List<String> notes}) _footnotes(List<_Line> page, double body) {
+  final none = (text: page, notes: const <String>[]);
+  if (body <= 0 || page.length < 2 || page.any((l) => l.box == null)) return none;
+  bool small(_Line l) => l.box!.size > 0 && l.box!.size < body * 0.92;
+  final down = _topToBottom(page);
+  final foot = <int>[];
+  for (final i in down.reversed) {
+    if (!small(page[i])) break;
+    foot.insert(0, i);
+  }
+  if (foot.isEmpty || foot.length == page.length || !_noteMark.hasMatch(page[foot.first].text)) {
+    return none;
+  }
+  final notes = <String>[];
+  var note = <String>[];
+  for (final i in foot) {
+    if (note.isNotEmpty && _noteMark.hasMatch(page[i].text)) {
+      notes.add(joinWrappedLines(note));
+      note = [];
+    }
+    note.add(page[i].text);
+  }
+  notes.add(joinWrappedLines(note));
+  final moved = foot.toSet();
+  return (
+    text: [
+      for (var i = 0; i < page.length; i++)
+        if (!moved.contains(i)) page[i],
+    ],
+    notes: notes,
+  );
 }
 
 /// The page's paragraphs: lines joined within each of the extractor's
@@ -257,8 +474,8 @@ const _near = 4;
 /// The furniture on each page, as line indexes: running heads and feet, and
 /// printed page numbers. None of it is read, and none of it may end up in
 /// the middle of a sentence that runs over the page ("over to the THE NOBLE
-/// BACHELOR 51").
-List<Set<int>> _furniture(List<List<_Line>> pages) {
+/// BACHELOR 51"). [body] is the text's font size, 0 when unknown.
+List<Set<int>> _furniture(List<List<_Line>> pages, double body) {
   final edges = [for (final page in pages) _edges(page)];
   final out = [for (var p = 0; p < pages.length; p++) <int>{}];
 
@@ -317,17 +534,23 @@ List<Set<int>> _furniture(List<List<_Line>> pages) {
       if (atEdge && !_numbered(page[i].text) && bare[key] == 1 && (numbered[key] ?? 0) > 0) {
         continue;
       }
+      // And so is a line set larger than the text.
+      if (body > 0 && (page[i].box?.size ?? 0) >= body * 1.2) continue;
       out[p].add(i);
     }
   }
   return out;
 }
 
-/// The lines at a page's top and bottom edges: the first and last two as
-/// drawn, or all of a short page's.
+/// The lines at a page's top and bottom edges: the two highest and two
+/// lowest when the layout says where lines sit, else the first and last two
+/// as drawn; all of a short page's.
 List<int> _edges(List<_Line> page) {
   final n = page.length;
-  return n <= 4 ? [for (var i = 0; i < n; i++) i] : [0, 1, n - 2, n - 1];
+  if (n <= 4) return [for (var i = 0; i < n; i++) i];
+  if (page.any((l) => l.box == null)) return [0, 1, n - 2, n - 1];
+  final down = _topToBottom(page);
+  return [down[0], down[1], down[n - 2], down[n - 1]];
 }
 
 final _digit = RegExp(r'\p{Nd}', unicode: true);
