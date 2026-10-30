@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:test/test.dart';
@@ -53,6 +52,13 @@ class _Reading {
   /// Chapter titles, as the app lists them.
   List<String> get chapters => [for (var c = 0; c < layout.chapters.length; c++) layout.chapterTitle(c)];
 
+  /// Titles of the sections the layout leaves out: front and back matter,
+  /// notes alone, pictures alone.
+  List<String> get notRead => [
+        for (final s in book.sections)
+          if (!layout.chapters.contains(s.index)) s.displayTitle,
+      ];
+
   List<Block> get blocks => [for (final s in book.sections) ...s.blocks];
 
   /// Blocks shown on the page and never spoken: notes, captions, the words
@@ -76,10 +82,7 @@ class _Reading {
         'language': book.metadata.language,
         'sections': [for (final s in book.sections) s.displayTitle],
         'chapters': chapters,
-        'notRead': [
-          for (final s in book.sections)
-            if (!layout.chapters.contains(s.index)) s.displayTitle,
-        ],
+        'notRead': notRead,
         'blocks': {
           for (final role in BlockRole.values)
             if (blocks.where((b) => b.role == role).length case final n when n > 0) role.name: n,
@@ -120,12 +123,10 @@ String _lf(String s) => s.replaceAll('\r\n', '\n');
 /// extraction (see SOURCES.md), handed over as the app hands the platform's.
 _Reading _read(String file) {
   final bytes = File('$_dir/$file').readAsBytesSync();
-  if (!file.endsWith('.pdftext.json')) {
-    return _Reading(file, ingestBytes(Uint8List.fromList(bytes), filename: file));
-  }
+  if (!file.endsWith('.pdftext.json')) return _Reading(file, ingestBytes(bytes, filename: file));
   final pdf = Map<String, Object?>.from(jsonDecode(utf8.decode(bytes)) as Map);
   final book = ingestPdfText(
-    id: bookIdOf(Uint8List.fromList(bytes)),
+    id: bookIdOf(bytes),
     pages: (pdf['text'] as String? ?? '').split(String.fromCharCode(0x0C)),
     outline: pdfOutlineFromPlatform(pdf['outline']),
     layout: pdfLayoutFromPlatform(pdf['layout']),
@@ -486,15 +487,6 @@ final _corpus = <String, List<_Check>>{
     }),
   ],
 };
-
-extension on _Reading {
-  /// Titles of the sections the layout leaves out: front and back matter,
-  /// notes alone, pictures alone.
-  List<String> get notRead => [
-        for (final s in book.sections)
-          if (!layout.chapters.contains(s.index)) s.displayTitle,
-      ];
-}
 
 void main() {
   test('every corpus file has its checks, and nothing else is in the corpus', () {
