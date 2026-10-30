@@ -16,6 +16,7 @@ import 'epub_export.dart';
 import 'fast_scroller.dart';
 import 'library_store.dart';
 import 'novel_move_screen.dart';
+import 'novel_updates.dart';
 import 'prefs.dart';
 import 'read_marks.dart';
 import 'saved_screen.dart';
@@ -972,6 +973,9 @@ class _NovelScreenState extends State<NovelScreen> {
                 switch (v) {
                   case 'browser':
                     await _openInBrowser();
+                  case 'novelupdates':
+                    final title = _novel?.name.isNotEmpty == true ? _novel!.name : (widget.name ?? _entry?.title ?? '');
+                    if (title.isNotEmpty) await const SpeechService().openUrl(NovelUpdates.searchFor(title));
                   case 'passage':
                     await _findPassage();
                   case 'download10':
@@ -1001,6 +1005,10 @@ class _NovelScreenState extends State<NovelScreen> {
                   const PopupMenuItem(value: 'epub', child: Text('Export as EPUB')),
                 ],
                 const PopupMenuItem(value: 'browser', child: Text('Open in browser')),
+                // Off unless turned on in Settings; never for a novel on a
+                // shut secret shelf (its title would go to the browser).
+                if (NovelUpdates.offered(on: _prefs.novelUpdates, hidden: _hidden))
+                  const PopupMenuItem(value: 'novelupdates', child: Text('Find on NovelUpdates')),
                 const PopupMenuItem(value: 'download10', child: Text('Download next 10 chapters')),
                 const PopupMenuItem(value: 'download50', child: Text('Download next 50 chapters')),
                 if (_chapters.length > _downloaded.length)
