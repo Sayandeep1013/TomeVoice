@@ -208,10 +208,11 @@ class PunctuationPauseStage implements PipelineStage {
     }
 
     final c = text[i];
+    // Chinese and Japanese marks count as theirs (，、 a comma, ；a clause, ：a colon).
     final base = switch (c) {
-      ',' => pauses.commaMs,
-      ';' => pauses.clauseMs,
-      ':' => pauses.colonMs,
+      ',' || '，' || '、' => pauses.commaMs,
+      ';' || '；' => pauses.clauseMs,
+      ':' || '：' => pauses.colonMs,
       '—' || '–' || '-' => pauses.dashMs,
       _ => 0,
     };
@@ -222,7 +223,8 @@ class PunctuationPauseStage implements PipelineStage {
 
   bool _isCloser(String c) =>
       c == '"' || c == '\'' || c == '”' || c == '’' ||
-      c == ')' || c == ']' || c == '}';
+      c == ')' || c == ']' || c == '}' ||
+      c == '」' || c == '』' || c == '）' || c == '》';
 
   void _fadeOut(Float32List b, int endExclusive, int frames) {
     if (frames <= 0) return;

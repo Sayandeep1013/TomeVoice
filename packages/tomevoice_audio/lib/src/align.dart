@@ -42,12 +42,19 @@ class PauseAligner {
   /// [known] are places already certain, a character of [text] and the frame
   /// its audio begins at: where pieces made apart were joined. They split the
   /// matching into independent parts.
+  ///
+  /// [spans] are the text's word units when the caller has them (the
+  /// document package's, which know where Chinese and Japanese words fall).
+  /// Punctuation at either end of one is left out of it, as an engine
+  /// reports a word, so a comma's pause still finds its comma. Without them
+  /// [wordsOf] splits the text.
   static List<WordTiming> align(
     AudioBuffer audio,
     String text, {
     List<({int char, int frame})> known = const [],
+    List<({int start, int end})>? spans,
   }) {
-    final words = wordsOf(text);
+    final words = spans == null ? wordsOf(text) : unitsOf(text, spans);
     if (words.isEmpty) return const [];
     final n = audio.frameCount;
 
@@ -82,13 +89,67 @@ class PauseAligner {
 
   /// The words of [text]: letters and digits, with an apostrophe or hyphen
   /// inside a word kept in it ("don't", "well-known"), punctuation left out,
-  /// as an engine reports them. [weight] is roughly how long each takes to
-  /// say: its letters, more for digits (a year is four words), and a little
-  /// for every word however short.
+  /// as an engine reports them. Chinese and Japanese, written without spaces
+  /// between words, give one unit a character. [weight] is roughly how long
+  /// each takes to say: its letters, more for digits (a year is four words),
+  /// and a little for every word however short.
   static List<({int start, int end, double weight})> wordsOf(String text) => [
         for (final m in _word.allMatches(text))
-          (start: m.start, end: m.end, weight: _weight(m.group(0)!)),
+          for (final w in _splitWide(text, m.start, m.end))
+            (start: w.$1, end: w.$2, weight: _weight(text.substring(w.$1, w.$2))),
       ];
+
+  /// Word units given by the caller, each without the punctuation at its
+  /// ends ("two," is "two"; a Chinese character and its comma, the
+  /// character); one with no letter or digit at all is not a word.
+  static List<({int start, int end, double weight})> unitsOf(String text, List<({int start, int end})> spans) {
+    final out = <({int start, int end, double weight})>[];
+    for (final s in spans) {
+      var a = s.start.clamp(0, text.length);
+      var b = s.end.clamp(a, text.length);
+      while (a < b && !_wordChar.hasMatch(text[a])) {
+        a++;
+      }
+      while (b > a && !_wordChar.hasMatch(text[b - 1])) {
+        b--;
+      }
+      if (b > a) out.add((start: a, end: b, weight: _weight(text.substring(a, b))));
+    }
+    return out;
+  }
+
+  /// [start, end) as words, with each Chinese or Japanese character on its own.
+  static List<(int, int)> _splitWide(String text, int start, int end) {
+    var wide = false;
+    for (var i = start; i < end && !wide; i++) {
+      wide = isHanOrKana(text.codeUnitAt(i));
+    }
+    if (!wide) return [(start, end)];
+    final out = <(int, int)>[];
+    var run = -1;
+    for (var i = start; i < end; i++) {
+      if (isHanOrKana(text.codeUnitAt(i))) {
+        if (run >= 0) out.add((run, i));
+        run = -1;
+        out.add((i, i + 1));
+      } else if (run < 0) {
+        run = i;
+      }
+    }
+    if (run >= 0) out.add((run, end));
+    return out;
+  }
+
+  /// Chinese characters and Japanese kana: a word unit each.
+  static bool isHanOrKana(int c) =>
+      (c >= 0x3040 && c <= 0x30FF) || // hiragana, katakana
+      (c >= 0x31F0 && c <= 0x31FF) || // katakana extensions
+      (c >= 0x3400 && c <= 0x4DBF) || // CJK extension A
+      (c >= 0x4E00 && c <= 0x9FFF) || // CJK unified ideographs
+      (c >= 0xF900 && c <= 0xFAFF) || // compatibility ideographs
+      (c >= 0xFF66 && c <= 0xFF9F); // half-width katakana
+
+  static final _wordChar = RegExp(r'[\p{L}\p{N}\p{M}]', unicode: true);
 
   static final _word = RegExp(r"[\p{L}\p{N}\p{M}]+(?:['’\-][\p{L}\p{N}\p{M}]+)*", unicode: true);
   static final _digit = RegExp(r'\p{N}', unicode: true);
@@ -98,11 +159,12 @@ class PauseAligner {
       _letter.allMatches(word).length + 4.0 * _digit.allMatches(word).length + 1.5;
 
   /// How strongly the text between two words asks for a pause: 3 a full
-  /// stop, 2 a clause mark or a dash, 1 a comma, 0 none.
+  /// stop, 2 a clause mark or a dash, 1 a comma, 0 none (Chinese and
+  /// Japanese marks too).
   static int strengthBetween(String between) {
-    if (between.contains(RegExp('[.!?…]'))) return 3;
-    if (between.contains(RegExp('[;:—–()\\[\\]]')) || between.contains(RegExp(r'\s-\s'))) return 2;
-    if (between.contains(',')) return 1;
+    if (between.contains(RegExp('[.!?…。！？]'))) return 3;
+    if (between.contains(RegExp('[;:—–()\\[\\]；：（）]')) || between.contains(RegExp(r'\s-\s'))) return 2;
+    if (between.contains(RegExp('[,，、]'))) return 1;
     return 0;
   }
 

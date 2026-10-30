@@ -193,7 +193,45 @@ void main() {
       expect(t.every((w) => w.source == WordTimingSource.estimated), isTrue);
     });
 
+    test('Chinese, with no spaces between words, has a unit for each character', () {
+      // 我们今天去公园，然后回家。 Each character a syllable, a pause at the comma.
+      const chars = '我们今天去公园然后回家';
+      final s = spoken([
+        for (var i = 0; i < chars.length; i++) (chars[i], 160 + 20 * (i % 3), i == 6 ? 260 : 0),
+      ]);
+      const text = '我们今天去公园，然后回家。';
+      final t = PauseAligner.align(s.audio, text);
+      expect([for (final w in t) text.substring(w.charStart, w.charEnd)], chars.split(''),
+          reason: 'a sentence counted as one word lit up whole');
+      expect((t[7].frameStart - s.truth[7].start).abs(), lessThan(s.audio.msToFrames(12)),
+          reason: '然 begins after the pause at the comma');
+      // The comma pause finds the Chinese comma, after 园.
+      final r = PunctuationPauseStage(
+        text: text,
+        pauses: const PunctuationPauses(commaMs: 200, clauseMs: 0, colonMs: 0, dashMs: 0, ellipsisMs: 0),
+      ).process(s.audio, t);
+      expect(r.audio.frameCount, s.audio.frameCount + s.audio.msToFrames(200));
+    });
+
+    test('word units given by the caller lose the punctuation at their ends', () {
+      // As the document package gives them: "man," with its comma.
+      final s = spoken(script);
+      final spans = [for (final m in RegExp(r'\S+').allMatches(s.text)) (start: m.start, end: m.end)];
+      final t = PauseAligner.align(s.audio, s.text, spans: spans);
+      expect(s.text.substring(t[2].charStart, t[2].charEnd), 'man');
+      expect(s.text.substring(t[11].charStart, t[11].charEnd), 'last');
+      final r = PunctuationPauseStage(
+        text: s.text,
+        pauses: const PunctuationPauses(commaMs: 200, clauseMs: 0, colonMs: 0, dashMs: 0, ellipsisMs: 0),
+      ).process(s.audio, t);
+      expect(r.audio.frameCount, s.audio.frameCount + 2 * s.audio.msToFrames(200),
+          reason: 'with the comma inside the word, its pause was never found');
+      expect(PauseAligner.unitsOf('a — b', const [(start: 2, end: 3)]), isEmpty, reason: 'a dash alone is no word');
+    });
+
     test('marks the text asks a pause at', () {
+      expect(PauseAligner.strengthBetween('，'), 1);
+      expect(PauseAligner.strengthBetween('。'), 3);
       expect(PauseAligner.strengthBetween(', '), 1);
       expect(PauseAligner.strengthBetween('; '), 2);
       expect(PauseAligner.strengthBetween(' - '), 2);
