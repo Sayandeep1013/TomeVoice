@@ -40,9 +40,10 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename, LegacyDec
   }
 
   final metadata = _metadata(opf, filename);
-  final manifest = _manifest(opf, opfDir);
+  final manifest = _manifest(opf, opfDir, names);
   _refuseDrm(archive, manifest);
-  final spineHrefs = _spine(opf, manifest);
+  final spine = _spine(opf, manifest);
+  final spineHrefs = [for (final s in spine) s.href];
 
   // Each spine document's text, read once. Before any is parsed, their
   // marker links say which ids in later documents are notes (an endnotes
@@ -52,6 +53,7 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename, LegacyDec
 
   resetBlockIds();
   final sections = <Section>[];
+  final aside = <Section>[];
   for (var i = 0; i < spineHrefs.length; i++) {
     final href = spineHrefs[i];
     final html = texts[i];
@@ -65,14 +67,23 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename, LegacyDec
       hasFile: names.contains,
     );
     if (blocks.isEmpty) continue;
-    sections.add(Section(
+    final section = Section(
       id: 's$i',
       index: sections.length,
       href: href,
       title: _firstHeading(blocks) ?? _chapterLineTitle(blocks),
       blocks: blocks,
-    ));
+    );
+    // linear="no" (answers, notes, pop-ups) is not part of the reading
+    // order: it goes to the end, where the contents can still reach it.
+    // One with nothing to say (a cover picture) keeps its place.
+    if (!spine[i].linear && blocks.any((b) => b.speakable)) {
+      aside.add(section);
+    } else {
+      sections.add(section);
+    }
   }
+  sections.addAll(aside);
 
   if (sections.isEmpty) {
     throw const ParseException('EPUB has no readable text in its spine.');
@@ -312,6 +323,7 @@ String _fallbackTitle(String? filename) {
 Map<String, ({String href, String media})> _manifest(
   XmlDocument opf,
   String opfDir,
+  Set<String> names,
 ) {
   final out = <String, ({String href, String media})>{};
   for (final el in opf.descendants.whereType<XmlElement>()) {
@@ -320,14 +332,25 @@ Map<String, ({String href, String media})> _manifest(
     final href = el.getAttribute('href');
     if (id == null || href == null) continue;
     out[id] = (
-      href: zipJoin(opfDir, href),
+      href: _resolvePath(opfDir, href, names),
       media: (el.getAttribute('media-type') ?? '').toLowerCase(),
     );
   }
   return out;
 }
 
-List<String> _spine(
+/// [href] (relative to [dir], %-escaped as a URL) as a path in the zip:
+/// "Chapter%201.xhtml" is the entry "Chapter 1.xhtml". A zip that really
+/// names its entry with the escape keeps it.
+String _resolvePath(String dir, String href, Set<String> names) {
+  final decoded = zipJoin(dir, _decodeHref(href.split('#').first));
+  if (names.contains(decoded)) return decoded;
+  final raw = zipJoin(dir, href);
+  return names.contains(raw) ? raw : decoded;
+}
+
+/// Spine items in order, with whether they are part of the reading order.
+List<({String href, bool linear})> _spine(
   XmlDocument opf,
   Map<String, ({String href, String media})> manifest,
 ) {
@@ -337,7 +360,7 @@ List<String> _spine(
     'application/xml',
     'text/xml',
   };
-  final hrefs = <String>[];
+  final out = <({String href, bool linear})>[];
   for (final el in opf.descendants.whereType<XmlElement>()) {
     if (el.localName.toLowerCase() != 'itemref') continue;
     final idref = el.getAttribute('idref');
@@ -345,9 +368,9 @@ List<String> _spine(
     final item = manifest[idref];
     if (item == null) continue;
     if (item.media.isNotEmpty && !readable.contains(item.media)) continue;
-    hrefs.add(item.href);
+    out.add((href: item.href, linear: (el.getAttribute('linear') ?? '').trim().toLowerCase() != 'no'));
   }
-  return hrefs;
+  return out;
 }
 
 List<TocEntry> _toc(
@@ -363,7 +386,7 @@ List<TocEntry> _toc(
   };
 
   int? sectionFor(String href) {
-    final resolved = zipJoin(opfDir, href.split('#').first);
+    final resolved = zipJoin(opfDir, _decodeHref(href.split('#').first));
     if (byHref.containsKey(resolved)) return byHref[resolved];
     for (final e in byHref.entries) {
       if (e.key.endsWith('/$resolved') || e.key.endsWith(resolved)) {

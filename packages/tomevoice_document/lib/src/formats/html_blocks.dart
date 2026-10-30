@@ -483,12 +483,30 @@ const _headingTags = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'};
 const _noteTypes = {'footnote', 'footnotes', 'endnote', 'endnotes', 'rearnote', 'rearnotes', 'note', 'notes'};
 const _noteRoles = {'doc-footnote', 'doc-endnote', 'doc-endnotes'};
 
-Set<String> _types(XmlElement e) => {
-      for (final t in _attr(e, 'type').toLowerCase().split(RegExp(r'\s+')))
-        if (t.isNotEmpty) t.split(':').last,
-    };
+final _spaces = RegExp(r'\s+');
 
-String _role(XmlElement e) => (e.getAttribute('role') ?? '').toLowerCase().trim();
+/// epub:type values; most elements have none, and are asked about often.
+Set<String> _types(XmlElement e) {
+  String? type;
+  for (final a in e.attributes) {
+    if (a.name.local == 'type') {
+      type = a.value;
+      break;
+    }
+  }
+  if (type == null || type.isEmpty) return const {};
+  return {
+    for (final t in type.toLowerCase().split(_spaces))
+      if (t.isNotEmpty) t.split(':').last,
+  };
+}
+
+String _role(XmlElement e) {
+  for (final a in e.attributes) {
+    if (a.name.local == 'role') return a.value.toLowerCase().trim();
+  }
+  return '';
+}
 
 /// A printed page number inside the text (`<span epub:type="pagebreak">7`).
 bool _isPageBreak(XmlElement e) => _types(e).contains('pagebreak') || _role(e) == 'doc-pagebreak';
