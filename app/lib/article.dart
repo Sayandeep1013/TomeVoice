@@ -466,7 +466,9 @@ bool _drop(HtmlNode e, _Stats stats, String? byline) {
   final len = stats.text[e] ?? 0;
   // Nothing to read or show (pictures are not kept).
   if (len == 0) return e.tag != 'br' && e.tag != 'hr';
-  if (_headingTags.contains(e.tag)) return false;
+  // Words inside a sentence stay ("On <span class="date">3 March</span>,
+  // the…"): only whole blocks go.
+  if (_headingTags.contains(e.tag) || !_blockTags.contains(e.tag)) return false;
   if (len < 200) {
     final raw = _clean(e.textContent);
     if (_boilerplate.hasMatch(raw)) return true;
@@ -604,14 +606,15 @@ class _Meta {
         final named = const {'div', 'p', 'span', 'section', 'address'}.contains(e.tag) &&
             _nameWords(e).any((w) => w == 'byline' || w == 'author' || w == 'authors');
         if (rel || prop || named) {
+          // The line it stands in, which goes with it: a byline is a short
+          // line of its own, not a name in a sentence.
+          var line = e;
+          while (!_blockTags.contains(line.tag) && line.parent != null && line.parent!.isElement) {
+            line = line.parent!;
+          }
           final t = _cleanByline(_clean(e.textContent));
-          if (t != null) {
+          if (t != null && countWords(line.textContent) <= 15) {
             domByline = t;
-            // The line it stands in goes with it.
-            var line = e;
-            while (!_blockTags.contains(line.tag) && line.parent != null && line.parent!.isElement) {
-              line = line.parent!;
-            }
             bylineNodes.add(line);
           }
         }

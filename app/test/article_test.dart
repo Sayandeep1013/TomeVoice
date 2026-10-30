@@ -214,6 +214,20 @@ void main() {
       expect(blocks.firstWhere((b) => b.text.startsWith('Un paragraphe')).language, 'fr');
     });
 
+    test('a date or a name inside a sentence stays; the same as a line of its own goes', () {
+      const page = '<html><body><article>'
+          '<div class="post-date">3 March 2026</div>'
+          '<p>On <span class="date">3 March</span>, the council met, and <span class="author">Jane Doe</span> '
+          'spoke first about the bridge and the flooding of last winter.</p>'
+          '<p>By the end of the evening the vote was taken, and the bridge will be rebuilt next spring.</p>'
+          '<p>Work starts in April, when the river is low enough to let the builders in safely.</p>'
+          '</article></body></html>';
+      final a = extractArticle(page, url: Uri.parse('https://town.example/news/bridge'));
+      expect(a.text, contains('On 3 March, the council met, and Jane Doe spoke first'));
+      expect(a.text, contains('By the end of the evening'), reason: 'a sentence, not a byline');
+      expect(a.text, isNot(startsWith('3 March 2026')));
+    });
+
     test('a table laid out to hold the text is read; a table of data is not', () {
       final page = '<html><body><table><tr><td class="nav"><a href="/">Home</a></td><td>'
           '${'<p>Text of an old page laid out in a table, long enough to be a paragraph.</p>' * 6}'
