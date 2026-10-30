@@ -14,6 +14,7 @@ import 'browse_screen.dart';
 import 'catalogues_screen.dart';
 import 'categories_screen.dart';
 import 'download_queue.dart';
+import 'error_log.dart';
 import 'history_screen.dart';
 import 'library_screen.dart';
 import 'library_store.dart';
@@ -81,6 +82,17 @@ Future<OpenLibrary> _open(String dir) async {
   // The check made with the app closed asks with the same agent.
   if (agent != null && agent.isNotEmpty) unawaited(sources.saveUserAgent(agent));
   final store = LibraryStore(Directory(dir));
+  // What the error log must never write, whatever an error says: every
+  // book's title and author, and the secret shelves' names.
+  void keepOutOfLog() => unawaited(store.index(all: true).then((idx) {
+        ErrorLog.instance.privateWords = [
+          for (final e in idx.entries) ...[e.title, ...e.authors],
+          for (final c in idx.categories)
+            if (c.secret) c.name,
+        ];
+      }, onError: (Object _) {}));
+  store.changes.addListener(keepOutOfLog);
+  keepOutOfLog();
   // Chapters left downloading when the app last closed carry on.
   unawaited(DownloadQueue.instance.attach(store));
   await TintCache.instance.attach(Directory(dir));

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
 import 'brand.dart';
+import 'error_log.dart';
 import 'home_shell.dart';
 import 'listening_session.dart';
 import 'prefs.dart';
@@ -15,11 +16,19 @@ import 'secret_shelf.dart';
 import 'speech_service.dart';
 import 'theme.dart';
 
+// Both ways in run in a guarded zone, with Flutter's errors and those
+// nothing caught going to the error log on the phone (error_log.dart) as
+// well as where they went before. Nothing is sent anywhere.
+
 void main() {
-  WidgetsFlutterBinding.ensureInitialized();
-  _registerFontLicences();
-  _listen();
-  _show();
+  runZonedGuarded(() {
+    WidgetsFlutterBinding.ensureInitialized();
+    catchErrors();
+    unawaited(openErrorLog());
+    _registerFontLicences();
+    _listen();
+    _show();
+  }, zoneError);
 }
 
 /// Where Android starts the app for a book read with no screen: Play on the
@@ -29,13 +38,17 @@ void main() {
 /// opened onto this engine, when the app is built here as main() builds it.
 @pragma('vm:entry-point')
 void backgroundMain() {
-  WidgetsFlutterBinding.ensureInitialized();
-  _registerFontLicences();
-  _listen();
-  // Opened before this was listening: shown now.
-  unawaited(const SpeechService().activityAttached().then((on) {
-    if (on) _show();
-  }));
+  runZonedGuarded(() {
+    WidgetsFlutterBinding.ensureInitialized();
+    catchErrors();
+    unawaited(openErrorLog());
+    _registerFontLicences();
+    _listen();
+    // Opened before this was listening: shown now.
+    unawaited(const SpeechService().activityAttached().then((on) {
+      if (on) _show();
+    }));
+  }, zoneError);
 }
 
 /// What both ways in listen for: books asked for from outside the app, and
