@@ -17,6 +17,7 @@ import 'listen_sheet.dart';
 import 'neural_screen.dart';
 import 'noveldokusha_import.dart';
 import 'prefs.dart';
+import 'relayout.dart';
 import 'rules_screen.dart';
 import 'sources/source_engine.dart';
 import 'secret_shelf.dart';
@@ -292,6 +293,19 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           value: _prefs.keepReading,
                           padding: EdgeInsets.zero,
                           onChanged: (v) => _change(() => _prefs.keepReading = v),
+                        ),
+                        const SizedBox(height: Gap.l),
+                        SwitchRow(
+                          title: 'Read notes aloud',
+                          subtitle: 'Footnotes and endnotes are read where they stand in the book. '
+                              'The little numbers pointing at them stay silent',
+                          value: _prefs.notesAloud,
+                          padding: EdgeInsets.zero,
+                          onChanged: (v) {
+                            _change(() => _prefs.notesAloud = v);
+                            // A book reading on goes on in the new layout.
+                            unawaited(relayReadingBook());
+                          },
                         ),
                         const SizedBox(height: Gap.xl),
                         const SectionTitle('Style'),

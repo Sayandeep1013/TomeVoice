@@ -40,6 +40,7 @@ class ListeningPrefs {
     this.volumeKeys = false,
     this.fullScreen = false,
     this.keepReading = true,
+    this.notesAloud = false,
     this.keepScreenOn = false,
     this.themeMode = ThemeMode.system,
     this.paletteId = 'forest',
@@ -200,6 +201,10 @@ class ListeningPrefs {
   /// on, paused from the library's player or the card in the shade.
   bool keepReading;
 
+  /// Footnotes and endnotes read aloud where they stand, instead of only
+  /// shown. Off by default; their markers in the text are never read.
+  bool notesAloud;
+
   /// Keep the display awake while a book is open.
   bool keepScreenOn;
 
@@ -311,6 +316,7 @@ class ListeningPrefs {
         'volumeKeys': volumeKeys,
         'fullScreen': fullScreen,
         'keepReading': keepReading,
+        if (notesAloud) 'notesAloud': true,
         'keepScreenOn': keepScreenOn,
         'themeMode': themeMode.name,
         'palette': paletteId,
@@ -372,6 +378,7 @@ class ListeningPrefs {
         volumeKeys: json['volumeKeys'] == true,
         fullScreen: json['fullScreen'] == true,
         keepReading: json['keepReading'] != false,
+        notesAloud: json['notesAloud'] == true,
         keepScreenOn: json['keepScreenOn'] == true,
         themeMode: ThemeMode.values.where((m) => m.name == json['themeMode']).firstOrNull ??
             ThemeMode.system,
