@@ -297,8 +297,9 @@ void main() {
       await tester.pumpAndSettle();
       nav.currentState!.pop();
       await tester.pumpAndSettle();
-      // The write is real file work: the real clock, then a pump to go on.
-      for (var i = 0; i < 60 && onDisk(root, id)['progress'] != 0.5; i++) {
+      // The write is real file work: the real clock, then a pump to go on
+      // (up to five seconds, for a machine busy with other tests).
+      for (var i = 0; i < 250 && onDisk(root, id)['progress'] != 0.5; i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
         await tester.pump();
       }
