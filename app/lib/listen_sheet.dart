@@ -34,6 +34,7 @@ class ListenController {
     this.onPreview,
     this.isPlaying,
     this.isPdf = false,
+    this.narration = false,
   });
 
   final ListeningPrefs prefs;
@@ -66,6 +67,23 @@ class ListenController {
   /// The book is a PDF, so the page view can be offered.
   final bool isPdf;
 
+  /// The book has its own recorded narration (an EPUB's media overlays),
+  /// so it can be read in that instead of a voice.
+  final bool narration;
+
+  /// Whether this book is read in its own narration.
+  bool get narrated => narration && bookId != null && prefs.narratedBooks.contains(bookId);
+
+  /// Read this book in its own narration; choosing a voice reads it in
+  /// that voice again.
+  void chooseNarration() {
+    final id = bookId;
+    if (id == null) return;
+    prefs.narratedBooks.add(id);
+    prefs.save();
+    onChanged(restart: true);
+  }
+
   Timer? _sampleTimer;
 
   /// The book's own voice, else the one for its language, else the best
@@ -91,7 +109,10 @@ class ListenController {
   /// Use [name] for this book, and as the default for its language when it
   /// speaks that language (another language's voice stays this book's own).
   void chooseVoice(String name) {
-    if (bookId != null) prefs.voiceByBook[bookId!] = name;
+    if (bookId != null) {
+      prefs.voiceByBook[bookId!] = name;
+      prefs.narratedBooks.remove(bookId);
+    }
     if (VoiceCatalog.instance.byName(name)?.language == language) prefs.voiceByLanguage[language] = name;
     prefs.save();
     onChanged(restart: true);
@@ -333,7 +354,10 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
     final v = _catalog.byName(widget.controller.voiceName);
     final String title;
     final String detail;
-    if (!_catalog.loaded) {
+    if (widget.controller.narrated) {
+      title = "Book's own narration";
+      detail = 'The recording that came with the book';
+    } else if (!_catalog.loaded) {
       title = 'Loading voices…';
       detail = '';
     } else if (v == null) {
@@ -1177,6 +1201,7 @@ class _VoicePickerState extends State<_VoicePicker> {
 
   @override
   Widget build(BuildContext context) {
+    final narrated = widget.controller.narrated;
     final selected = widget.controller.voiceName;
     final current = _catalog.byName(selected);
     final voices = _catalog.forLanguage(_language, keep: selected);
@@ -1257,12 +1282,13 @@ class _VoicePickerState extends State<_VoicePicker> {
                           shrinkWrap: true,
                           padding: const EdgeInsets.only(bottom: Gap.xl),
                           children: [
+                            if (widget.controller.narration) _narrationRow(context, selected: narrated),
                             // The voice in use, on its own; the list below keeps
                             // its order and marks it where it stands.
                             if (current != null) ...[
-                              const Padding(
-                                padding: EdgeInsets.fromLTRB(Gap.xl, Gap.s, Gap.xl, Gap.s),
-                                child: Eyebrow('In use'),
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.s, Gap.xl, Gap.s),
+                                child: Eyebrow(narrated ? 'Reads what the narration leaves out' : 'In use'),
                               ),
                               _selectedCard(context, current),
                               const SizedBox(height: Gap.s),
@@ -1274,7 +1300,7 @@ class _VoicePickerState extends State<_VoicePicker> {
                                   padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.l, Gap.xl, Gap.xs),
                                   child: Eyebrow(group.key.isEmpty ? languageName(_language) : group.key),
                                 ),
-                              for (final v in group.value) _voiceRow(context, v, selected: v.name == selected),
+                              for (final v in group.value) _voiceRow(context, v, selected: !narrated && v.name == selected),
                             ],
                             if (_catalog.engines.length > 1) ...[
                               const Padding(
@@ -1384,6 +1410,40 @@ class _VoicePickerState extends State<_VoicePicker> {
       ),
     );
   }
+
+  /// The book's own narration, above its voices: the recording it came
+  /// with, read instead of a voice.
+  Widget _narrationRow(BuildContext context, {required bool selected}) => InkWell(
+        onTap: () => setState(widget.controller.chooseNarration),
+        child: AnimatedContainer(
+          duration: Motion.of(context, Motion.standard),
+          curve: Motion.out,
+          color: Skin.accentOf(context).withValues(alpha: selected ? 0.12 : 0),
+          padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.m, Gap.m, Gap.m),
+          child: Row(
+            children: [
+              Icon(
+                selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+                size: 22,
+                color: selected ? Skin.accentOf(context) : Skin.inkFaintOn(context),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("Book's own narration",
+                        style: Skin.ui(size: 16, weight: FontWeight.w600, color: Skin.inkOn(context))),
+                    Text('The recording that came with the book, lit as it is read',
+                        style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkFaintOn(context))),
+                  ],
+                ),
+              ),
+              Icon(Icons.headphones_rounded, color: Skin.accentSoftOf(context), size: 24),
+            ],
+          ),
+        ),
+      );
 
   Widget _voiceRow(BuildContext context, VoiceInfo v, {required bool selected}) {
     final note = _availability(v);

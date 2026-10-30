@@ -21,6 +21,7 @@ class ListeningPrefs {
     Map<String, String>? voiceByBook,
     Map<String, String>? dialogueByBook,
     Map<String, BookCast>? castByBook,
+    Set<String>? narratedBooks,
     Map<String, double>? pitchByVoice,
     Map<String, double>? speedByBook,
     Map<String, int>? highlightOffsetMs,
@@ -72,6 +73,7 @@ class ListeningPrefs {
         voiceByBook = voiceByBook ?? {},
         dialogueByBook = dialogueByBook ?? {},
         castByBook = castByBook ?? {},
+        narratedBooks = narratedBooks ?? {},
         pitchByVoice = pitchByVoice ?? {},
         speedByBook = speedByBook ?? {},
         highlightOffsetMs = highlightOffsetMs ?? {},
@@ -108,6 +110,11 @@ class ListeningPrefs {
       castByBook[book] = cast;
     }
   }
+
+  /// Books read in their own recorded narration (an EPUB's media
+  /// overlays) instead of a voice; what the narration leaves out is still
+  /// read in the book's voice above.
+  final Set<String> narratedBooks;
 
   /// Voice name -> its pitch in semitones, for the voices given one. Each
   /// voice keeps its own: on Google's voices any pitch but 0 makes Google
@@ -367,6 +374,7 @@ class ListeningPrefs {
         'voiceByBook': voiceByBook,
         'dialogueByBook': dialogueByBook,
         if (castByBook.isNotEmpty) 'castByBook': {for (final e in castByBook.entries) e.key: e.value.toJson()},
+        if (narratedBooks.isNotEmpty) 'narratedBooks': [...narratedBooks],
         'pitchByVoice': pitchByVoice,
         'speedByBook': speedByBook,
         'highlightOffsetMs': highlightOffsetMs,
@@ -434,6 +442,10 @@ class ListeningPrefs {
         castByBook: {
           for (final e in (json['castByBook'] is Map ? json['castByBook'] as Map : const {}).entries)
             if (BookCast.fromJson(e.value) case final cast? when cast.anyVoice) '${e.key}': cast,
+        },
+        narratedBooks: {
+          for (final b in json['narratedBooks'] is List ? json['narratedBooks'] as List : const [])
+            if (b is String) b,
         },
         pitchByVoice: {
           for (final e in (json['pitchByVoice'] as Map? ?? const {}).entries)

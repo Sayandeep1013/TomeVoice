@@ -20,7 +20,8 @@ import 'speech_service.dart';
 /// Saving a chapter, or a whole book, as audio: every sentence made as
 /// reading aloud makes it (makeSentence in scheduler.dart: the book's voice
 /// and dialogue voice, the reader's speed, word gap, pauses, loudness and
-/// pronunciations), handed to an encoder instead of the player, and written
+/// pronunciations; or the book's own narration, for a book read in it),
+/// handed to an encoder instead of the player, and written
 /// as an .m4a (a chapter) or an .m4b with chapter marks (a book), or as an
 /// .mp3 with its chapters in its ID3 tag ([ExportFormat]).
 ///
@@ -182,6 +183,20 @@ Future<({double workMs, double audioMs})?> measureSpeech(PlaybackScheduler voice
   }
   final at = pick;
   if (at == null) return null;
+  // A line the book's own narration says: its recording, read as a save reads it.
+  if (voice.narration?.at(at) == NarrationRole.recorded) {
+    try {
+      final watch = Stopwatch()..start();
+      final r = await voice.narration!.make(at, settings: voice.settingsFor(units[at].text), pauseAfterMs: voice.pauseAfter(at));
+      watch.stop();
+      final n = units[at].text.length;
+      if (r == null || r.totalFrames == 0 || n == 0) return null;
+      return (workMs: watch.elapsedMilliseconds / n, audioMs: r.totalFrames * 1000 / r.sampleRate / n);
+    } on Object catch (e) {
+      debugPrint('TomeVoice: could not time the narration: $e');
+      return null;
+    }
+  }
   final text = (voice.respell?.call(units[at]) ?? Respelled.same(units[at].text)).text;
   if (!PlaybackScheduler.sayable(text) || text.length < 10) return null;
   final narrator = voice.voiceNameOf();
@@ -404,19 +419,29 @@ class AudioRenderer {
         marks.add((frame: frames, title: plan.marks[m].title));
         m++;
       }
-      final text = (voice.respell?.call(units[i]) ?? Respelled.same(units[i].text)).text;
-      if (!PlaybackScheduler.sayable(text)) continue;
-      RenderedSpeech? r;
-      try {
-        r = await _make(i, text, level);
+      // The book's own narration, for a book read in it: a line it says is
+      // its recording, one it leaves out among the lines it reads is left
+      // out, as reading aloud leaves it.
+      final told = voice.narration?.at(i);
+      if (told == NarrationRole.passed) continue;
+      var r = told == NarrationRole.recorded ? await _narrate(i, level) : null;
+      if (r != null) {
         failures = 0;
-      } on _Unsaid catch (e) {
-        unsaid++;
-        // One unspeakable line should not end the save; three in a row do.
-        if (++failures >= 3) throw ExportFailed(e.message);
-        continue;
+      } else {
+        final text = (voice.respell?.call(units[i]) ?? Respelled.same(units[i].text)).text;
+        if (!PlaybackScheduler.sayable(text)) continue;
+        try {
+          r = await _make(i, text, level);
+          failures = 0;
+        } on _Unsaid catch (e) {
+          unsaid++;
+          // One unspeakable line should not end the save; three in a row do.
+          if (++failures >= 3) throw ExportFailed(e.message);
+          continue;
+        }
+        if (r == null) continue;
       }
-      if (r == null) continue;
+      if (r.totalFrames == 0) continue;
       final to = rate ??= aacRate(r.sampleRate);
       final pcm = to == r.sampleRate ? r.pcm : resamplePcm16(r.pcm, r.sampleRate, to);
       if (!opened) {
@@ -443,6 +468,28 @@ class AudioRenderer {
       marks: [for (final k in marks) ChapterMark(Duration(microseconds: k.frame * 1000000 ~/ rate), k.title)],
       unsaid: unsaid,
     );
+  }
+
+  /// Sentence [i] from the book's own narration; null when its recording
+  /// could not be read here, and the voice says it, as reading aloud has it.
+  Future<RenderedSpeech?> _narrate(int i, double? level) async {
+    try {
+      final r = await voice.narration!.make(
+        i,
+        settings: voice.settingsFor(plan.layout.units[i].text),
+        pauseAfterMs: voice.pauseAfter(i),
+        levelDb: level,
+        stale: () => _cancelled,
+      );
+      _check();
+      return r;
+    } on ExportCancelled {
+      rethrow;
+    } on Object catch (e) {
+      _check();
+      debugPrint('TomeVoice: the narration of sentence $i could not be read for the save ($e); the voice says it');
+      return null;
+    }
   }
 
   /// Sentence [i], said as [text], made as reading makes it; null when the
