@@ -268,8 +268,9 @@ swipe_test() {
   local id=$1 name=$2 level=$3 before after pid service detail
   snapshot "$id-before"
   before=$(media_state "$out/$id-before-media_session.txt")
+  # media_state reads "state=PLAYING(3)": the number in brackets is Android's.
   case "$before" in
-    *"state=3"*) ;;
+    *"(3)"*) ;;
     *)
       result WARN "$name" "not reading aloud before the swipe on API $api (media session ${before:-none}): nothing to judge"
       return
@@ -283,7 +284,7 @@ swipe_test() {
   pid=$(dev pidof "$pkg")
   service=$(foreground_service "$out/$id-after-services.txt" && echo "in the foreground" || echo "not in the foreground")
   detail="process ${pid:-gone}; ReadAloudService $service; media session $before before, ${after:-none} after (API $api)"
-  if [ -n "$pid" ] && printf '%s' "$after" | grep -q "state=3"; then
+  if [ -n "$pid" ] && printf '%s' "$after" | grep -qF "(3)"; then
     result PASS "$name" "still reading after the swipe: $detail"
   else
     result "$level" "$name" "the reading stopped with the swipe: $detail"
@@ -308,7 +309,7 @@ paused_swipe_test() {
   fi
   after=$(media_state "$out/$id-after-media_session.txt")
   service=$(foreground_service "$out/$id-after-services.txt" && echo "in the foreground" || echo "not in the foreground")
-  if [ "$service" = "not in the foreground" ] && ! printf '%s' "$after" | grep -qE "state=(2|3)[^0-9]|state=(2|3)$"; then
+  if [ "$service" = "not in the foreground" ] && ! printf '%s' "$after" | grep -qE "\((2|3)\)"; then
     result PASS "$name" "put away: ReadAloudService $service, media session ${after:-gone} (API $api)"
   else
     result WARN "$name" "still up after a paused swipe: ReadAloudService $service, media session ${after:-none} (API $api)"
@@ -326,7 +327,8 @@ headset_play_test() {
   shot "$id-after"
   after=$(media_state "$out/$id-after-media_session.txt")
   pid=$(dev pidof "$pkg")
-  if printf '%s' "$after" | grep -qE "state=(3|6)[^0-9]|state=(3|6)$"; then
+  # PLAYING(3), or BUFFERING(6) while the first sentence is made.
+  if printf '%s' "$after" | grep -qE "\((3|6)\)"; then
     result PASS "$name" "reading again with the app closed: media session $after, process ${pid:-gone} (API $api)"
   else
     result WARN "$name" "not reading after Play: media session ${after:-none}, process ${pid:-gone} (API $api)"
