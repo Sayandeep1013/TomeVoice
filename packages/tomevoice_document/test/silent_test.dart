@@ -112,6 +112,42 @@ void main() {
     });
   });
 
+  group('speech hints', () {
+    List<(SpeechHintKind, String)> hints(String t) => [for (final h in speechHints(t)) (h.kind, t.substring(h.start, h.end))];
+
+    test('links and email addresses', () {
+      expect(hints('See https://example.com/a/b. Or www.test.org, or write to jo.ann@example.co.uk today.'), [
+        (SpeechHintKind.url, 'https://example.com/a/b'),
+        (SpeechHintKind.url, 'www.test.org'),
+        (SpeechHintKind.email, 'jo.ann@example.co.uk'),
+      ]);
+      expect(hints('Visit Amazon.com today (or wikipedia.org/wiki/Foo_(bar)).'), [
+        (SpeechHintKind.url, 'Amazon.com'),
+        (SpeechHintKind.url, 'wikipedia.org/wiki/Foo_(bar)'),
+      ]);
+    });
+
+    test('bracketed citations', () {
+      final dash = String.fromCharCode(0x2013);
+      expect(hints('As shown [12] and [12${dash}14], also [1, 3] and [4-6].'), [
+        (SpeechHintKind.citation, '[12]'),
+        (SpeechHintKind.citation, '[12${dash}14]'),
+        (SpeechHintKind.citation, '[1, 3]'),
+        (SpeechHintKind.citation, '[4-6]'),
+      ]);
+    });
+
+    test('lines of symbols only', () {
+      expect(hints('* * *'), [(SpeechHintKind.symbols, '* * *')]);
+      final rule = String.fromCharCodes(List.filled(5, 0x2014));
+      expect(hints('Before\n$rule\nafter'), [(SpeechHintKind.symbols, rule)]);
+    });
+
+    test('ordinary prose has none', () {
+      expect(speechHints('Dr. Smith paid 3.14 for it, e.g. one coin. [Laughs] Then left... Yes!'), isEmpty);
+    });
+  });
+
   group('spoken text', () {
     test('silent stretches are left out, positions map back to the page', () {
       final s = spokenText('It was a house.1 The end[2].', const [(start: 15, end: 16), (start: 24, end: 27)]);
