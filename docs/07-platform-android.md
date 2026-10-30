@@ -75,6 +75,68 @@ Metadata should read like an audiobook: book title as album, chapter as track, a
 artist, cover as artwork, and duration/position from the scheduler's estimate so the
 scrubber works.
 
+**As built (branch `feat-auto`): the voice outlives the activity.** Reading is Dart's
+(the scheduler, `BackgroundReading`), so the Flutter engine must outlive `MainActivity`:
+
+- **One engine.** `ReadingCore.kt` keeps a single `FlutterEngine` in
+  `FlutterEngineCache` (`"tomevoice"`). `MainActivity.provideFlutterEngine` returns it;
+  `ReadAloudService` makes it when there is no activity and runs `backgroundMain()`
+  (`lib/main.dart`) on it: the library is opened and the book read, nothing drawn. When
+  an activity attaches to an engine already running Dart, `MainActivity` sends a
+  `shown` event and Dart builds the app if it only read (`backgroundMain`) and applies
+  edge to edge to the new window (each activity has its own `PlatformPlugin`); a
+  widget's request is re-sent, and Back goes to Flutter until it next reports
+  whether it can pop (`setFrameworkHandlesBack(true)`: it reported to the old
+  activity).
+- **Reading's calls are the engine's.** The voice (one warm `TextToSpeech`), the
+  `PcmPlayer`, audio focus and the noisy receiver (on the application context), and the
+  card live in `ReadingCore`, which answers `listEngines`, `synthesise`, `player*`,
+  `requestFocus`, `session` and the new calls with or without an activity
+  (`ReadingCore.handle`). `MainActivity` puts its own handler on the channel while
+  attached (asking `ReadingCore` first) and answers pickers, the window and prompts;
+  with no activity `ReadingCore.alone` answers what needs no screen (`outputDir`,
+  `webUserAgent`, `refreshWidgets`...) and quietly turns down the rest.
+- **The engine goes** when an activity that is finishing lets go with nothing being
+  read (`shouldDestroyEngineWithHost`, decided in `cleanUpFlutterEngine`), or 3 s after
+  a reading ends with no activity (`ReadingCore.idle`). The next opening starts afresh,
+  as before.
+- **One library.** `openLibrary()` (`home_shell.dart`) opens the store, prefs, sources,
+  rules, marks, stats and natural voices once per folder: the shelves and a book read
+  with no screen share one `LibraryStore` (two would write over each other's
+  `library.json`).
+
+| Path | What happens |
+|---|---|
+| App opened | A new engine runs `main()`; or the cached one is shown (`shown`: built if needed, edge to edge again) |
+| Back at the root | `moveTaskToBack` (unchanged): the activity is kept, the voice reads on |
+| Home | The activity stops, stays attached; the voice reads on |
+| Swiped from Recents, playing | The process is kept (a foreground service); the activity finishes but keeps the engine; `onTaskRemoved` leaves the reading alone. A reader page left open keeps reading in the engine |
+| Swiped from Recents, paused | `onTaskRemoved` sends `stop`: the place is saved, the service leaves the foreground 2 s later and stops, the engine goes 3 s after; the card becomes the resume card |
+| Swiped, nothing read | The activity takes the engine with it (and Android kills a process with no foreground service on a swipe): a fresh start next time |
+| Android closes the activity | The engine stays; the next activity shows the app as it was |
+| Process killed | Everything goes; the place was saved every 1.5 s; Android 11+ keeps a resume card |
+| Resume card's Play | System UI binds with `EXTRA_RECENT` and calls `prepare`/`play`; nothing reading: the service goes foreground at once with the book (buffering), `ReadingCore.play` starts the engine at `backgroundMain` if none, Dart takes the request (`MediaRequests`) and reads it from its place (`BackgroundReading.playFromOutside`) |
+| Headset Play, app closed | The session's media button receiver (a `getForegroundService` PendingIntent to the service, kept by Android across reboots) starts the service with the key: Play, as above |
+| Android Auto | Binds to the browser: "Continue" (the book read last) and "Recent", playable, with covers and progress; a book picked carries on if it is the one on the card, else Dart switches (a page reading another book stops) |
+| Restore, in-app update | The process ends (unchanged) |
+
+**Media browser.** `ReadAloudService` is a framework `MediaBrowserService` (its session was
+already a framework `MediaSession`), exported with the `MediaBrowserService` filter.
+`onGetRoot`: System UI's `EXTRA_RECENT` request gets the `recent` root (one item, the
+book Play would read: the resume card shows the first); Android Auto, Wear, the
+Assistant and system apps get the full root; any other app an empty one. Items are
+read from `library.json` in Kotlin (`Shelf`), as the widgets read it. **Books on a
+secret shelf are never listed or played from outside the app**, open or not: only the
+app knows whether the shelf is open (Dart refuses one too, if asked). A secret book
+that was reading shows "TomeVoice" on the card; after the process dies its resume
+card's Play reads the last ordinary book instead.
+
+**Android Auto.** The manifest carries `com.google.android.gms.car.application`
+(`res/xml/automotive_app_desc.xml`: `<uses name="media"/>`). A sideloaded build (the
+GitHub APK) shows in Android Auto only with its developer settings' **Unknown sources**
+on (tap the version in Android Auto's settings ten times, then the menu > Developer
+settings).
+
 **Wake locks.** A partial wake lock while synthesising, released when the buffer is
 full. Neural synthesis is CPU-heavy and can be throttled or suspended by the system
 mid-sentence otherwise. Do not hold it continuously — that is a battery complaint
@@ -119,6 +181,17 @@ Mitigation, in order:
 
 Point 4 is the real defence: we cannot always prevent being killed, but we can make
 being killed nearly harmless.
+
+*As built (branch `feat-auto`):* Settings > Listening > **Keep reading with the screen
+off** says whether Android's battery optimisation leaves TomeVoice alone
+(`PowerManager.isIgnoringBatteryOptimizations`) and opens Android's own question
+(`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, which needs the
+`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` permission: a Play concern, docs/18), else the
+list of apps, else the app's settings page. On Xiaomi (Redmi, POCO), Samsung, OPPO,
+realme, OnePlus, vivo (iQOO), Huawei and Honor a line under it links to the maker's
+page on dontkillmyapp.com (Honor's is the Huawei page; there is none for Nothing,
+which behaves as Android does). It is a row, not the one-time card of point 2: no hint
+pops up after a first listen with the screen off.
 
 ## 7.5 File access
 

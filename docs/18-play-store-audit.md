@@ -19,6 +19,7 @@ leaves out everything in §1, changes About (§3), and gets its updates from Pla
 | 4 | **`REQUEST_INSTALL_PACKAGES` permission** | `tools/prepare_android.py` (`PERMISSIONS`) | [Use of the REQUEST_INSTALL_PACKAGES permission](https://support.google.com/googleplay/android-developer/answer/12085295) | Only allowed when installing packages is core to the app (browsers, file managers, backup...). It exists only for the self-updater. |
 | 5 | **Support by UPI (QR, Pay with UPI, UPI ID)** | `support.dart`, `payUpi`/`saveImage` in `MainActivity.kt`, the `upi` query in the manifest | [Payments](https://support.google.com/googleplay/android-developer/answer/9858738): "apps may not lead users to a payment method other than Google Play's billing system", including "buttons, links, messaging" | The exceptions are physical goods, peer-to-peer payments and *tax-exempt* donations. Money to the developer is none of them. If support is wanted on Play: a "tip" in-app product through Play Billing. |
 | 6 | **Three natural voices: Alan, Lessac, Ryan** | `neuralVoices` in `neural_voices.dart` | Licences, not a Play rule (see §2) | Alan's dataset is "All Rights Reserved" (Mycroft AI), Lessac's is a research-only licence, Ryan's is CC BY-NC-SA 4.0 (non-commercial). |
+| 7 | **`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`** (Settings > Listening > Keep reading with the screen off: Android's one-tap "let it run in the background?") | `tools/prepare_android.py` (`BATTERY`), `openBatterySettings` in `ReadingCore.kt` | [Use of the REQUEST_IGNORE_BATTERY_OPTIMIZATIONS permission](https://developer.android.com/training/monitoring-device-state/doze-standby#exemption-cases) and Play's review of it | Play allows it only when the app's core function cannot work otherwise; a reading app with a mediaPlayback foreground service is not an accepted case. The Play build leaves the permission out and opens the list of apps (`ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS`, no permission needed) instead: drop the request from `openBatterySettings` too, since without the permission Android's question opens and closes at once. The dontkillmyapp.com line can stay. |
 
 ## 2. The natural voices: where they come from
 
@@ -85,6 +86,13 @@ bookmarks, sleep timer, the media notification, fonts (OFL), and the GPL-3.0 lic
   aligned for 16 KB pages. Check sherpa-onnx's `.so` files in the release bundle
   (`zipalign -c -P 16 -v 4`).
 - **Upload an AAB**, not an APK, signed with an upload key and Play App Signing.
+- **Android Auto.** The app declares itself a media app for Auto
+  (`com.google.android.gms.car.application`, `res/xml/automotive_app_desc.xml`).
+  On Play it shows in Auto only after opting in under Release > Advanced settings >
+  Form factors and passing Google's review against the
+  [car app quality guidelines](https://developer.android.com/docs/quality-guidelines/car-app-quality)
+  (media apps: a browse tree, playback controls, no distraction). The GitHub APK needs
+  Android Auto's developer setting **Unknown sources** to show at all.
 
 ## 6. How the Play build is made (proposed)
 
