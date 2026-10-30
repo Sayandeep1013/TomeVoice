@@ -30,10 +30,13 @@ Book parseTextString(
   SourceKind kind = SourceKind.text,
 }) {
   raw = raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n').replaceAll(_ownMarks, '');
+  // A Gutenberg file names its book in its header: its name is a number.
+  final header = kind == SourceKind.text ? _gutenbergHeader(raw) : null;
   if (kind == SourceKind.text) raw = _withoutGutenbergLicence(raw);
   resetBlockIds();
-  final title = titleFromFilename(filename) ?? _firstLineTitle(raw) ?? 'Untitled';
-  final metadata = BookMetadata(title: title);
+  final title = header?.title ?? titleFromFilename(filename) ?? _firstLineTitle(raw) ?? 'Untitled';
+  final author = header?.author;
+  final metadata = BookMetadata(title: title, authors: author == null ? const [] : [author]);
 
   if (kind == SourceKind.markdown) {
     return _markdown(id, metadata, raw, filename);
@@ -69,6 +72,37 @@ final _gutenbergEnd = RegExp(
   multiLine: true,
   caseSensitive: false,
 );
+
+/// The title and author Project Gutenberg's header gives its book, before
+/// the "*** START" line: "Title: The Fall of the House of Usher", "Author:
+/// Edgar Allan Poe". A title can go on over indented lines (a subtitle),
+/// joined with a colon. Null without the header; either may be null.
+({String? title, String? author})? _gutenbergHeader(String raw) {
+  final start = _gutenbergStart.firstMatch(raw);
+  if (start == null) return null;
+  final lines = raw.substring(0, start.start).split('\n');
+  String? field(RegExp name) {
+    for (var i = 0; i < lines.length; i++) {
+      final m = name.firstMatch(lines[i]);
+      if (m == null) continue;
+      final parts = [m.group(1)!.trim()];
+      while (i + 1 < lines.length && _indented.hasMatch(lines[i + 1])) {
+        parts.add(lines[++i].trim());
+      }
+      final value = collapseWhitespace(parts.where((p) => p.isNotEmpty).join(': '));
+      return value.isEmpty ? null : value;
+    }
+    return null;
+  }
+
+  return (title: field(_titleField), author: field(_authorField));
+}
+
+final _titleField = RegExp(r'^Title:(.*)$', caseSensitive: false);
+final _authorField = RegExp(r'^Author:(.*)$', caseSensitive: false);
+
+/// A line that goes on the field above it: set in, and not blank.
+final _indented = RegExp(r'^[ \t]+\S');
 
 /// [raw] without Project Gutenberg's header before the book and its licence
 /// after it, some 3,000 words that were read aloud at the end of every book

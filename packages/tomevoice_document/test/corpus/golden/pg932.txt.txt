@@ -1,6 +1,6 @@
 # pg932.txt: what a voice reads, a sentence a line, from where a new book opens.
 # Written by test/corpus_test.dart; see test/corpus/README.md before changing it.
-## pg932
+## The Fall of the House of Usher
 The Fall of the House of Usher
 Son coeur est un luth suspendu; Sitot qu'on le touche il resonne.
 DE BERANGER.

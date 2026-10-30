@@ -319,6 +319,11 @@ final _corpus = <String, List<_Check>>{
       expect(r.text, isNot(contains('Gutenberg')));
       expect(r.spoken.first, 'The Fall of the House of Usher');
     }),
+    _check("named by its header's title and author, not by the file's number", (r) {
+      expect(r.book.metadata.title, 'The Fall of the House of Usher');
+      expect(r.book.metadata.authors, ['Edgar Allan Poe']);
+      expect(r.chapters, ['The Fall of the House of Usher']);
+    }),
     _check('paragraphs are joined from their lines, not read a line at a time', (r) {
       expect(r.blocks.length, lessThan(70));
       expect(r.spoken, contains(startsWith('During the whole of a dull, dark, and soundless day in the autumn of the year, '

@@ -138,6 +138,28 @@ void main() {
           ['The Raven', 'Once upon a midnight dreary, while I pondered, weak and weary.']);
     });
 
+    test("a Gutenberg text is named by its header's title and author, not its file's number", () {
+      const book = 'The Raven\n\nOnce upon a midnight dreary, while I pondered, weak and weary.\n';
+      String gutenberg(String header) =>
+          'The Project Gutenberg eBook of The Raven\n\n$header\n\n'
+          '*** START OF THE PROJECT GUTENBERG EBOOK THE RAVEN ***\n\n$book\n'
+          '*** END OF THE PROJECT GUTENBERG EBOOK THE RAVEN ***\n';
+      final raven = ingestString(gutenberg('Title: The Raven\n\nAuthor: Edgar Allan Poe\n\nRelease date: 1997'),
+          filename: 'pg1065.txt');
+      expect(raven.metadata.title, 'The Raven');
+      expect(raven.metadata.authors, ['Edgar Allan Poe']);
+      // A title over two lines, the second set in: a subtitle.
+      final douglass = ingestString(
+        gutenberg('Title: Narrative of the Life of Frederick Douglass, an American Slave\n'
+            '       Written by Himself\n\nAuthor: Frederick Douglass'),
+        filename: 'pg23.txt',
+      );
+      expect(douglass.metadata.title, 'Narrative of the Life of Frederick Douglass, an American Slave: Written by Himself');
+      // No header, or a "Title:" in the book itself: the file's name, as before.
+      expect(ingestString('Title: a list\n\nAuthor: me\n\n$book', filename: 'notes.txt').metadata.title, 'notes');
+      expect(ingestString(gutenberg('Release date: 1997'), filename: 'raven.txt').metadata.title, 'raven');
+    });
+
     test('chapter lines become sections', () {
       const raw = 'Preface text that comes first.\n\n'
           'Chapter 1\n\nIt began.\n\n'
