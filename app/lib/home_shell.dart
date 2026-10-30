@@ -506,7 +506,7 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
               child: Row(
                 children: [
                   Icon(selected ? selectedIcon : icon,
-                      color: selected ? Skin.amber : Skin.inkSoftOn(context)),
+                      color: selected ? Skin.accentInkOf(context) : Skin.inkSoftOn(context)),
                   const SizedBox(width: Gap.l),
                   Text(label,
                       style: Skin.ui(

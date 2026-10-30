@@ -184,7 +184,7 @@ class _OcrSheetState extends State<_OcrSheet> {
             SheetHeader(
               offer.imported ? 'Read the pictures too?' : 'Read it with OCR?',
               subtitle: 'Text recognition, on this phone',
-              trailing: Icon(Icons.document_scanner_outlined, color: Skin.accentOf(context)),
+              trailing: Icon(Icons.document_scanner_outlined, color: Skin.accentInkOf(context)),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(Gap.xl, 0, Gap.xl, Gap.l),
@@ -247,7 +247,7 @@ class _OcrSheetState extends State<_OcrSheet> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.m, Gap.xl, 0),
                 child: Text(_problem!,
-                    style: Skin.ui(size: 14, weight: FontWeight.w500, color: const Color(0xFFE5674D))),
+                    style: Skin.ui(size: 14, weight: FontWeight.w500, color: Skin.dangerOn(context))),
               ),
             Padding(
               padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.l, Gap.xl, Gap.m),
@@ -294,7 +294,7 @@ class _LanguageListState extends State<_LanguageList> {
       for (final l in ocrLanguages)
         if (q.isEmpty || l.label.toLowerCase().contains(q) || l.code.contains(q)) l,
     ];
-    final accent = Skin.accentOf(context);
+    final accent = Skin.accentMarkOf(context);
     return FractionallySizedBox(
       heightFactor: 0.85,
       child: Column(

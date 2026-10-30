@@ -304,7 +304,7 @@ class _SavedScreenState extends State<SavedScreen> {
                               children: [
                                 Padding(
                                   padding: const EdgeInsets.only(top: 2, right: 6),
-                                  child: Icon(Icons.sticky_note_2_outlined, size: 15, color: Skin.accentOf(context)),
+                                  child: Icon(Icons.sticky_note_2_outlined, size: 15, color: Skin.accentInkOf(context)),
                                 ),
                                 Expanded(
                                   child: Text(
@@ -344,7 +344,7 @@ class _SavedScreenState extends State<SavedScreen> {
                         if (m.kind == MarkKind.quote)
                           IconButton(
                             tooltip: 'Share',
-                            icon: Icon(Icons.ios_share_rounded, size: 20, color: Skin.accentOf(context)),
+                            icon: Icon(Icons.ios_share_rounded, size: 20, color: Skin.accentInkOf(context)),
                             onPressed: () => showQuoteShare(context, m, cover: book?.shownCover, author: book?.authorLine),
                           ),
                         // Swiping away works too, but nothing on screen says so.
@@ -453,7 +453,7 @@ class BookSavedSection extends StatelessWidget {
                             Icon(
                               m.kind == MarkKind.quote ? Icons.format_quote_rounded : Icons.bookmark_rounded,
                               size: 18,
-                              color: Skin.accentOf(context),
+                              color: Skin.accentInkOf(context),
                             ),
                             const SizedBox(width: Gap.m),
                             Expanded(

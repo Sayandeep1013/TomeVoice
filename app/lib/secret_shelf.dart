@@ -227,7 +227,7 @@ class _SecretSheetState extends State<_SecretSheet> {
             SheetHeader(
               'Secret shelf',
               subtitle: secret.isEmpty ? null : (open ? 'Open until you leave TomeVoice' : 'Locked'),
-              trailing: Icon(open ? Icons.lock_open_rounded : Icons.lock_rounded, color: Skin.accentOf(context)),
+              trailing: Icon(open ? Icons.lock_open_rounded : Icons.lock_rounded, color: Skin.accentInkOf(context)),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(Gap.xl, 0, Gap.xl, Gap.m),
@@ -291,7 +291,7 @@ class _SecretSheetState extends State<_SecretSheet> {
             if (_problem != null)
               Padding(
                 padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.s, Gap.xl, 0),
-                child: Text(_problem!, style: Skin.ui(size: 14, weight: FontWeight.w500, color: const Color(0xFFE5674D))),
+                child: Text(_problem!, style: Skin.ui(size: 14, weight: FontWeight.w500, color: Skin.dangerOn(context))),
               ),
             if (secure == true && secret.isNotEmpty)
               Padding(
@@ -328,7 +328,7 @@ class _ShelfPickerState extends State<_ShelfPicker> {
   Widget build(BuildContext context) {
     final all = widget.shelves;
     final tooMany = _picked.length >= all.length;
-    final accent = Skin.accentOf(context);
+    final accent = Skin.accentMarkOf(context);
     return SafeArea(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -356,7 +356,7 @@ class _ShelfPickerState extends State<_ShelfPicker> {
             Padding(
               padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.s, Gap.xl, 0),
               child: Text('One shelf has to stay ordinary, for new books.',
-                  style: Skin.ui(size: 14, weight: FontWeight.w500, color: const Color(0xFFE5674D))),
+                  style: Skin.ui(size: 14, weight: FontWeight.w500, color: Skin.dangerOn(context))),
             ),
           Padding(
             padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.m, Gap.xl, Gap.m),

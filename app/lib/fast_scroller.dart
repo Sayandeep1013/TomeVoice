@@ -185,7 +185,7 @@ class _FastScrollerState extends State<FastScroller> {
 
   @override
   Widget build(BuildContext context) {
-    final accent = Skin.accentOf(context);
+    final accent = Skin.accentMarkOf(context);
     return Stack(
       children: [
         widget.child,

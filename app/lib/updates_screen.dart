@@ -304,7 +304,7 @@ class _UpdatesScreenState extends State<UpdatesScreen> with WidgetsBindingObserv
                           children: [
                             for (final c in g.value)
                               ListTile(
-                                leading: Icon(Icons.fiber_new_rounded, color: Skin.amber),
+                                leading: Icon(Icons.fiber_new_rounded, color: Skin.accentInkOf(context)),
                                 title: Text(c.title, maxLines: 1, overflow: TextOverflow.ellipsis,
                                     style: Skin.title(context, size: 16.5)),
                                 subtitle: Text(c.name, maxLines: 1, overflow: TextOverflow.ellipsis),
