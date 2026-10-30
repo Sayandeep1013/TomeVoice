@@ -63,6 +63,22 @@ object SourcesBridge {
                     onDone?.invoke(args)
                 }
                 "backgroundBusy" -> result.success(NovelCheckWorker.running.get())
+                "downloadProgress" -> {
+                    if (call.argument<Boolean>("active") == true) {
+                        DownloadService.update(
+                            appContext,
+                            DownloadService.Progress(
+                                title = call.argument<String>("title") ?: "Downloading chapters",
+                                text = call.argument<String>("text") ?: "",
+                                done = (call.argument<Any>("done") as? Number)?.toInt() ?: 0,
+                                total = (call.argument<Any>("total") as? Number)?.toInt() ?: 0,
+                            ),
+                        )
+                    } else {
+                        DownloadService.stop(appContext)
+                    }
+                    result.success(null)
+                }
                 "notificationsAllowed" -> result.success(NovelCheckWorker.allowed(appContext))
                 "askNotifications" -> {
                     val a = activity

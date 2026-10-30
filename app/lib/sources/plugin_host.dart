@@ -75,6 +75,34 @@ class SourceTimeoutException extends SourceException {
   SourceTimeoutException() : super('The site took too long to answer.');
 }
 
+/// The site said to slow down (429, or 503 with Retry-After): ask again no
+/// sooner than [retryAfter].
+class RateLimitedException extends SourceException {
+  RateLimitedException(this.retryAfter) : super('The site asked to wait before the next request.');
+
+  final Duration retryAfter;
+}
+
+/// How long a Retry-After header says to wait: seconds, or an HTTP date.
+/// Null when there is none (or it cannot be read); at most an hour.
+Duration? retryAfterOf(Map<String, String> headers) {
+  final v = headers['retry-after']?.trim();
+  if (v == null || v.isEmpty) return null;
+  Duration? d;
+  final secs = int.tryParse(v);
+  if (secs != null) {
+    d = Duration(seconds: secs);
+  } else {
+    try {
+      d = HttpDate.parse(v).difference(DateTime.now());
+    } on Object {
+      return null;
+    }
+  }
+  if (d.isNegative) return Duration.zero;
+  return d > const Duration(hours: 1) ? const Duration(hours: 1) : d;
+}
+
 /// An installed source's code is not what was installed (changed on the
 /// phone, or brought back by a restore), so it is not run. Installing it
 /// again from its list puts it right.
@@ -113,6 +141,9 @@ class _Plugin {
 
 class _Call {
   final challenged = <String>[];
+
+  /// The site said to slow down while this call ran: how long to wait.
+  Duration? retryAfter;
 }
 
 /// Runs LNReader source plugins: each in a JavaScript context of its own
@@ -239,6 +270,9 @@ class PluginHost {
     p.calls.add(call);
     void challenged() {
       if (call.challenged.isNotEmpty) throw ChallengeException(call.challenged.last, pluginId: id);
+      // What a plugin made of a "too many requests" page is not the page.
+      final wait = call.retryAfter;
+      if (wait != null) throw RateLimitedException(wait);
     }
 
     try {
@@ -328,6 +362,13 @@ class PluginHost {
       if (r.isChallenge) {
         for (final c in p.calls) {
           c.challenged.add(url);
+        }
+      } else if (r.status == 429 || r.status == 503) {
+        final wait = retryAfterOf(r.headers) ?? (r.status == 429 ? const Duration(seconds: 30) : null);
+        if (wait != null) {
+          for (final c in p.calls) {
+            if (c.retryAfter == null || c.retryAfter! < wait) c.retryAfter = wait;
+          }
         }
       }
       return jsonEncode({

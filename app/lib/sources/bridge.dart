@@ -49,4 +49,10 @@ class SourcesBridge {
 
   /// Ask the reader (Android 13 and later) to let TomeVoice notify them.
   static Future<void> askNotifications() => _ask<void>('askNotifications');
+
+  /// Chapters downloading ({title, text, done, total}): shown in a
+  /// notification, with a foreground service keeping the app alive while it
+  /// is in the background. Null: done, or paused.
+  static Future<void> downloadProgress(Map<String, Object?>? progress) =>
+      _ask<void>('downloadProgress', progress == null ? const {'active': false} : {'active': true, ...progress});
 }

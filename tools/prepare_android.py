@@ -79,6 +79,17 @@ SERVICE = """        <service
             android:foregroundServiceType="mediaPlayback" />
 """
 
+# Web novels: chapters downloading in the background show their progress and
+# keep the app alive (DownloadService.kt, download_queue.dart).
+DOWNLOAD_PERMISSION = """    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+"""
+
+DOWNLOAD_SERVICE = """        <service
+            android:name=".DownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+"""
+
 # The home-screen widgets (Widgets.kt) and the screen that picks a widget's book.
 WIDGETS = """        <receiver
             android:name=".PlayerWidget"
@@ -213,6 +224,16 @@ def patch_manifest(path: Path) -> str:
     if ".PlayerWidget" not in text:
         text = text.replace("</application>", WIDGETS + "    </application>", 1)
         notes.append("widgets")
+
+    # Web novels' downloads (DownloadService.kt).
+    if "FOREGROUND_SERVICE_DATA_SYNC" not in text:
+        text, n = re.subn(r"(<manifest\b[^>]*>\n?)", r"\1" + DOWNLOAD_PERMISSION, text, count=1)
+        if n != 1:
+            raise SystemExit("manifest: no <manifest> tag")
+        notes.append("data sync permission")
+    if ".DownloadService" not in text:
+        text = text.replace("</application>", DOWNLOAD_SERVICE + "    </application>", 1)
+        notes.append("download service")
 
     if ".ShareProvider" not in text:
         text = text.replace("</application>", PROVIDER + "    </application>", 1)

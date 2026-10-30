@@ -11,6 +11,7 @@ import 'book_tint.dart';
 import 'brand.dart';
 import 'browse_screen.dart';
 import 'categories_screen.dart';
+import 'download_queue.dart';
 import 'history_screen.dart';
 import 'library_screen.dart';
 import 'library_store.dart';
@@ -164,6 +165,8 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
       // The check made with the app closed asks with the same agent.
       if (agent != null && agent.isNotEmpty) unawaited(sources.saveUserAgent(agent));
       final store = LibraryStore(Directory(dir));
+      // Chapters left downloading when the app last closed carry on.
+      unawaited(DownloadQueue.instance.attach(store));
       await TintCache.instance.attach(Directory(dir));
       await ReadingRules.instance.attach(Directory(dir));
       await MarkStore.instance.attach(Directory(dir));

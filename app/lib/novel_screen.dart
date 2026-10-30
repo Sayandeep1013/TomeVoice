@@ -10,6 +10,7 @@ import 'book_search.dart';
 import 'book_tint.dart';
 import 'browser_check.dart';
 import 'chapter_finder.dart';
+import 'download_queue.dart';
 import 'fast_scroller.dart';
 import 'library_store.dart';
 import 'prefs.dart';
@@ -86,11 +87,11 @@ class _NovelScreenState extends State<NovelScreen> {
   /// turned yet, the order chosen last).
   late bool _newestFirst = _prefs.newestFirstFor(_id);
   bool _blurbOpen = false;
-  String? _downloading;
-  bool _stopDownload = false;
 
-  /// Chapters being downloaded one by one from their rows.
-  final _fetching = <int>{};
+  /// This novel's downloads in the queue (see DownloadQueue), and the
+  /// chapters waiting there, for the spinners on their rows.
+  BookDownloads? _downloads;
+  Set<String> _queued = const {};
 
   /// Chapters picked by a long press, for downloading or removing together.
   final _picked = <int>{};
@@ -112,19 +113,35 @@ class _NovelScreenState extends State<NovelScreen> {
     _store.changes.addListener(_refreshLocal);
     _store.placeChanges.addListener(_placeSaved);
     LibraryStore.secretOpen.addListener(_secretChanged);
+    DownloadQueue.instance.changes.addListener(_queueChanged);
+    _queueChanged();
     unawaited(_load());
   }
 
   @override
   void dispose() {
-    // A download in progress stops with the page (coming back started a
-    // second one beside it).
-    _stopDownload = true;
+    // Downloads carry on without the page (see DownloadQueue).
     _store.changes.removeListener(_refreshLocal);
     _store.placeChanges.removeListener(_placeSaved);
     LibraryStore.secretOpen.removeListener(_secretChanged);
+    DownloadQueue.instance.changes.removeListener(_queueChanged);
     _scroll.dispose();
     super.dispose();
+  }
+
+  /// The queue moved on: this novel's progress, and the ticks of chapters
+  /// that came down.
+  void _queueChanged() {
+    if (!mounted) return;
+    final q = DownloadQueue.instance;
+    final now = _hidden ? null : q.of(_id);
+    final queued = _hidden ? const <String>{} : q.waitingPaths(_id);
+    final fewer = queued.length < _queued.length;
+    setState(() {
+      _downloads = now;
+      _queued = queued;
+    });
+    if (fewer) unawaited(_refreshLocal());
   }
 
   /// The secret shelves opened or shut: the stored novel shows, or hides
@@ -409,10 +426,10 @@ class _NovelScreenState extends State<NovelScreen> {
     await _downloadList([for (var i = start; i < start + count && i < _chapters.length; i++) i]);
   }
 
-  /// Download those of [chapters] not on the phone yet, in order, with
-  /// progress and a Stop.
-  Future<void> _downloadList(Iterable<int> chapters) async {
-    if (_downloading != null) return;
+  /// Download those of [chapters] not on the phone yet, in order: queued
+  /// (see DownloadQueue), so they keep coming when the page is left, with
+  /// progress here and in a notification.
+  Future<void> _downloadList(Iterable<int> chapters, {bool first = false}) async {
     var wanted = [for (final i in chapters) if (!_downloaded.contains(i)) i]..sort();
     if (wanted.isEmpty) {
       showSnack(context, 'Those chapters are already on the phone.');
@@ -422,27 +439,14 @@ class _NovelScreenState extends State<NovelScreen> {
     final e = await _ensureAdded(announce: false);
     if (e == null || !mounted) return;
     wanted = [for (final i in _placesOf(paths, wanted)) if (!_downloaded.contains(i)) i]..sort();
-    _stopDownload = false;
-    setState(() => _downloading = 'Getting ready…');
-    try {
-      for (var n = 0; n < wanted.length && !_stopDownload; n++) {
-        final c = wanted[n];
-        if (mounted) {
-          setState(() => _downloading = 'Downloading ${n + 1} of ${wanted.length} · chapter ${c + 1}');
-        }
-        await fetchChapters(_store, _id, c, count: 1);
-        unawaited(_refreshLocal());
-      }
-      if (mounted) {
-        showSnack(
-            context, _stopDownload ? 'Stopped. What came down reads offline.' : 'Downloaded. Those chapters read offline now.');
-      }
-    } on Object catch (err) {
-      if (mounted) _problem(err);
-    } finally {
-      if (mounted) setState(() => _downloading = null);
-      await _refreshLocal();
-    }
+    final added = await DownloadQueue.instance.add(_id, [for (final i in wanted) _chapters[i]], first: first);
+    if (!mounted || wanted.length == 1) return;
+    showSnack(
+      context,
+      added == 0
+          ? 'Those chapters are on their way already.'
+          : 'Downloading $added ${added == 1 ? 'chapter' : 'chapters'}. They keep coming if you leave this page.',
+    );
   }
 
   /// The picked chapters that are not on the phone, downloaded.
@@ -464,23 +468,8 @@ class _NovelScreenState extends State<NovelScreen> {
     }
   }
 
-  /// One chapter, from the download button on its row.
-  Future<void> _downloadOne(int chapter) async {
-    final paths = _pathsOf([chapter]);
-    final e = await _ensureAdded();
-    if (e == null || !mounted) return;
-    final i = _placesOf(paths, [chapter]).single;
-    if (_downloaded.contains(i)) return;
-    setState(() => _fetching.add(i));
-    try {
-      await fetchChapters(_store, _id, i, count: 1);
-    } on Object catch (err) {
-      if (mounted) _problem(err);
-    } finally {
-      if (mounted) setState(() => _fetching.remove(i));
-      await _refreshLocal();
-    }
-  }
+  /// One chapter, from the download button on its row: first in the queue.
+  Future<void> _downloadOne(int chapter) => _downloadList([chapter], first: true);
 
   Future<void> _openInBrowser() async {
     var url = widget.plugin.site;
@@ -602,25 +591,7 @@ class _NovelScreenState extends State<NovelScreen> {
       SliverPadding(
         padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, 0),
         sliver: SliverToBoxAdapter(
-          child: growIn(
-            context,
-            _downloading == null
-                ? null
-                : Padding(
-                    padding: const EdgeInsets.only(bottom: Gap.s),
-                    child: Row(
-                      children: [
-                        const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-                        const SizedBox(width: Gap.m),
-                        Expanded(child: Text(_downloading!, style: Skin.label(context))),
-                        TextButton(
-                          onPressed: _stopDownload ? null : () => setState(() => _stopDownload = true),
-                          child: const Text('Stop'),
-                        ),
-                      ],
-                    ),
-                  ),
-          ),
+          child: growIn(context, _downloads == null ? null : _downloadLine(context, _downloads!)),
         ),
       ),
       if (_error != null)
@@ -716,6 +687,50 @@ class _NovelScreenState extends State<NovelScreen> {
     );
   }
 
+  /// How this novel's downloads stand, with Pause or Resume, Cancel, and
+  /// Retry for those that failed.
+  Widget _downloadLine(BuildContext context, BookDownloads d) {
+    final q = DownloadQueue.instance;
+    final waiting = d.waiting > 0;
+    final text = [
+      if (waiting)
+        q.paused
+            ? 'Paused · ${d.waiting} to go'
+            : 'Downloading · ${d.waiting} to go${d.current == null ? '' : ' · ${d.current}'}',
+      if (d.failed > 0) '${d.failed} could not be downloaded${d.problem == null ? '' : ': ${d.problem}'}',
+    ].join('\n');
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Gap.s),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 16,
+            height: 16,
+            child: waiting && !q.paused
+                ? const CircularProgressIndicator(strokeWidth: 2)
+                : Icon(d.failed > 0 ? Icons.error_outline_rounded : Icons.pause_rounded,
+                    size: 16, color: Skin.inkFaintOn(context)),
+          ),
+          const SizedBox(width: Gap.m),
+          Expanded(child: Text(text, maxLines: 4, overflow: TextOverflow.ellipsis, style: Skin.label(context))),
+          if (d.failed > 0)
+            TextButton(onPressed: () => q.retry(_id), child: const Text('Retry'))
+          else if (waiting)
+            TextButton(
+              onPressed: () => q.paused ? q.resume() : q.pause(),
+              child: Text(q.paused ? 'Resume' : 'Pause'),
+            ),
+          IconButton(
+            tooltip: 'Cancel downloads',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.close_rounded, size: 20),
+            onPressed: () => q.cancel(_id),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _refusalNote(BuildContext context, ListRefusal r) => Padding(
         padding: const EdgeInsets.only(bottom: Gap.s),
         child: Row(
@@ -794,7 +809,7 @@ class _NovelScreenState extends State<NovelScreen> {
                 // it was squeezed to "Dow..."), with a cap so a large font
                 // shortens the label instead of overflowing the bar.
                 FilledButton.icon(
-                  onPressed: toGet == 0 || _downloading != null ? null : _downloadPicked,
+                  onPressed: toGet == 0 ? null : _downloadPicked,
                   icon: const Icon(Icons.download_rounded, size: 20),
                   label: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 112),
@@ -1075,7 +1090,7 @@ class _NovelScreenState extends State<NovelScreen> {
                 // Download, then the spinner, then the tick, each turning into the next.
                 child: _swap(
                   context,
-                  _fetching.contains(i)
+                  _queued.contains(c.path) && !have
                       ? const Center(
                           key: ValueKey('fetching'),
                           child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),

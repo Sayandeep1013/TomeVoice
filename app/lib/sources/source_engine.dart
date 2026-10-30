@@ -215,6 +215,8 @@ class _Worker {
       if (c == null) return;
       if (m['challenge'] is String) {
         c.completeError(ChallengeException(m['challenge'] as String, pluginId: m['plugin'] as String? ?? ''));
+      } else if (m['retryAfter'] is int) {
+        c.completeError(RateLimitedException(Duration(milliseconds: m['retryAfter'] as int)));
       } else if (m['tampered'] is String) {
         c.completeError(TamperedSourceException(m['tampered'] as String, m['name'] as String? ?? ''));
       } else if (m['timeout'] == true) {
@@ -342,6 +344,8 @@ class _Worker {
           reply.send({'id': id, 'err': e.message, 'challenge': e.url, 'plugin': plugin, 'stuck': host.stuck});
         } on SourceTimeoutException catch (e) {
           reply.send({'id': id, 'err': e.message, 'timeout': true, 'stuck': true});
+        } on RateLimitedException catch (e) {
+          reply.send({'id': id, 'err': e.message, 'retryAfter': e.retryAfter.inMilliseconds});
         } on SourceException catch (e) {
           reply.send({'id': id, 'err': e.message});
         } on JsException catch (e) {
