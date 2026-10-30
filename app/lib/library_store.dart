@@ -1254,8 +1254,11 @@ class LibraryStore {
     for (var i = 0; i < entries.length; i++) {
       final p = _unwritten[entries[i].id];
       if (p == null) continue;
+      // Saved at the same moment (a clock that counts in milliseconds or
+      // coarser), the one here is the later: it was saved after what this
+      // copy last wrote.
       final theirs = entries[i].openedAt;
-      if (theirs != null && !p.at.isAfter(theirs)) continue;
+      if (theirs != null && p.at.isBefore(theirs)) continue;
       entries[i] = p.onto(entries[i]);
       kept.add(entries[i].id);
     }
@@ -2184,8 +2187,9 @@ class _Place {
       if (_samePlace(cursor, e.cursor)) return null;
       return _Place(cursor, progress, where, e.openedAt ?? DateTime(0), opened: false);
     }
+    // At the same moment (a coarse clock) only another place is later.
     final opened = e.openedAt;
-    if (opened != null && !at.isAfter(opened)) return null;
+    if (opened != null && (at.isBefore(opened) || (at == opened && _samePlace(cursor, e.cursor)))) return null;
     return _Place(cursor, progress, where, at);
   }
 }

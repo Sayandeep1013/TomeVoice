@@ -412,6 +412,10 @@ Future<LibraryEntry> moveNovel(LibraryStore store, LibraryEntry entry, MovePlan 
     plugin: plan.to.id,
     novelPath: plan.novel.path,
     chapterCount: count,
+    // How the reader organised it goes with it.
+    tags: entry.tags,
+    series: entry.series,
+    seriesIndex: entry.seriesIndex,
   );
   await store.swapWebNovel(from, moved);
 

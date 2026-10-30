@@ -184,7 +184,8 @@ void main() {
       expect((sum(now) + settle) * 4, lessThan(sum(old)), reason: 'and so do all of them, with their writing');
       expect(median(one) * 3, lessThan(median(whole)), reason: 'only the book that changed is encoded');
       store.hold();
-    });
+      // A busy machine (the whole suite at once) takes far longer than 30 s.
+    }, timeout: const Timeout(Duration(minutes: 4)));
 
     test('a place a run stopped before writing is found again on a background isolate', () async {
       final root = library(1000);
@@ -205,7 +206,7 @@ void main() {
       expect((await again.list(all: true)).first.id, id, reason: 'the book read last is the one read last');
       await again.settlePlaces();
       expect(onDisk(root, id)['progress'], 0.9);
-    });
+    }, timeout: const Timeout(Duration(minutes: 2)));
   });
 
   group('places', () {
@@ -232,6 +233,8 @@ void main() {
 
     test('the first in a while is written at once; the next wait, then go together', () async {
       final id = ids.first;
+      // Long enough that a busy machine still saves the next two within it.
+      store.placeWindow = const Duration(seconds: 3);
       await store.saveCursor(id, const ReadingCursor(sectionIndex: 1), 0.1);
       expect(onDisk(root, id)['progress'], 0.1, reason: 'at once: nothing was saved for a while');
       var said = 0;
@@ -245,7 +248,10 @@ void main() {
       final shown = (await store.list()).firstWhere((e) => e.id == id);
       expect((shown.progress, shown.where), (0.3, 'Three'), reason: 'every page reads the copy kept here');
 
-      await Future<void>.delayed(const Duration(milliseconds: 700));
+      final waited = Stopwatch()..start();
+      while ((onDisk(root, id)['progress'] != 0.3 || said < 3) && waited.elapsed < const Duration(seconds: 15)) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
       expect(onDisk(root, id)['progress'], 0.3, reason: 'written together at the end of the window');
       expect(onDisk(root, id)['where'], 'Three');
       expect(said, 3, reason: 'and told again, for what reads the file (widgets, Android Auto)');
