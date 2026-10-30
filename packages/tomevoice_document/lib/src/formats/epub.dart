@@ -20,12 +20,6 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename, LegacyDec
 
   final names = {for (final f in archive.files) f.name.replaceAll('\\', '/')};
 
-  if (names.contains('META-INF/encryption.xml')) {
-    throw const EncryptedDocumentException(
-      'This book is DRM-protected. TomeVoice cannot open encrypted files.',
-    );
-  }
-
   final container = _read(archive, 'META-INF/container.xml');
   if (container == null) {
     throw const ParseException('EPUB is missing META-INF/container.xml');
@@ -47,6 +41,7 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename, LegacyDec
 
   final metadata = _metadata(opf, filename);
   final manifest = _manifest(opf, opfDir);
+  _refuseDrm(archive, manifest);
   final spineHrefs = _spine(opf, manifest);
 
   // Each spine document's text, read once. Before any is parsed, their
@@ -136,6 +131,55 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename, LegacyDec
     sourceName: book.sourceName,
     wordCount: wordCountOf(book),
   );
+}
+
+/// Font obfuscation (IDPF's, and Adobe's older one): a publisher's way of
+/// keeping an embedded font from being lifted, not DRM. The book itself
+/// is readable, and TomeVoice does not use embedded fonts anyway.
+const _fontObfuscation = {
+  'http://www.idpf.org/2008/embedding',
+  'http://ns.adobe.com/pdf/enc#RC',
+};
+
+final _algorithmAttr = RegExp(r'''Algorithm\s*=\s*["']([^"']*)["']''');
+final _uriAttr = RegExp(r'''URI\s*=\s*["']([^"']*)["']''');
+
+/// Throws [EncryptedDocumentException] when META-INF/encryption.xml says
+/// anything but fonts is encrypted, or uses anything but font
+/// obfuscation. A DRM-free book with obfuscated fonts used to be refused.
+void _refuseDrm(Archive archive, Map<String, ({String href, String media})> manifest) {
+  final xml = _read(archive, 'META-INF/encryption.xml');
+  if (xml == null) return;
+  final entries = <(String, String)>[];
+  try {
+    final doc = XmlDocument.parse(xml);
+    for (final data in doc.descendants.whereType<XmlElement>().where((e) => e.localName == 'EncryptedData')) {
+      String attr(String element, String name) =>
+          data.descendants.whereType<XmlElement>().where((e) => e.localName == element).firstOrNull?.getAttribute(name) ??
+          '';
+      entries.add((attr('EncryptionMethod', 'Algorithm'), attr('CipherReference', 'URI')));
+    }
+  } on XmlException {
+    // Read what can be read: each algorithm with the URI after it.
+    final algorithms = [for (final m in _algorithmAttr.allMatches(xml)) m.group(1)!];
+    final uris = [for (final m in _uriAttr.allMatches(xml)) m.group(1)!];
+    for (var i = 0; i < algorithms.length; i++) {
+      entries.add((algorithms[i], i < uris.length ? uris[i] : ''));
+    }
+  }
+  final fonts = {
+    for (final item in manifest.values)
+      if (item.media.contains('font') || item.media.contains('opentype')) item.href,
+  };
+  for (final (algorithm, uri) in entries) {
+    final path = zipJoin('', _decodeHref(uri.trim()));
+    final font = fonts.contains(path) || RegExp(r'\.(ttf|otf|woff2?|eot)$', caseSensitive: false).hasMatch(path);
+    if (!_fontObfuscation.contains(algorithm.trim()) || !font) {
+      throw const EncryptedDocumentException(
+        'This book is DRM-protected. TomeVoice cannot open encrypted files.',
+      );
+    }
+  }
 }
 
 /// Spine path -> ids in it that marker links in earlier documents point at.
