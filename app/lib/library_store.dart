@@ -27,9 +27,10 @@ import 'speech_service.dart';
 /// own encoding, AZW3 by its chapters, chapters and languages beyond
 /// English; v7: front and back matter, licences and a page's navigation
 /// left unread, Gutenberg text in paragraphs, Markdown, ODT and FB2 fixes,
-/// found by the test corpus). PDFs keep their own version, on the entry
-/// (pdfParser).
-const _parsedVersion = 7;
+/// found by the test corpus; v8: Russian and Ukrainian dialogue not cut
+/// after "!" or "?" before who spoke). PDFs keep their own version, on the
+/// entry (pdfParser).
+const _parsedVersion = 8;
 
 /// On-device library: copied files, parsed books, reading positions.
 ///

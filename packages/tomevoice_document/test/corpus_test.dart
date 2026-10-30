@@ -357,8 +357,6 @@ final _corpus = <String, List<_Check>>{
     _check(
       "a dash after an exclamation, then the speaker's words, is one sentence",
       (r) => expect(r.spoken, contains('— Огонь держать до утра! — крикнул Андреич коту, хотя кот, конечно, ничего не понял.')),
-      skip: 'Known: Russian dialogue ("— Огонь держать до утра! — крикнул Андреич") is cut after "!", '
-          'because a dash, not a lower-case letter, follows it. Not fixed here: sentence splitting.',
     ),
   ],
 
