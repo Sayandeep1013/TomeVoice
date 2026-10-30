@@ -37,6 +37,11 @@ copied in. The generated project cannot know about any of this:
    beside the real one with a library of its own, so a risky build never
    touches the reader's books.
 
+9. **OCR for scanned PDFs** (Ocr.kt): Tesseract4Android, Apache-2.0 like the
+   Tesseract, Leptonica, libjpeg and libpng it bundles, from JitPack (it is
+   not on Maven Central), which is asked for that one group and nothing else.
+   A dataSync foreground service reads the pages with the screen off.
+
 Idempotent: running it twice changes nothing the second time.
 """
 
@@ -58,6 +63,35 @@ APP_LABEL = "TomeVoice"
 MIN_SDK = 26
 TARGET_SDK = 36
 PDFBOX = 'implementation("com.tom-roush:pdfbox-android:2.0.27.0")'
+
+# The standard (single-threaded) build, not -openmp: OCR runs beside reading
+# aloud, and the OpenMP one would take every core from the voice. Its native
+# code per CPU, compressed as the APK stores it: 3.0 MB for arm64-v8a, 2.7 MB
+# for armeabi-v7a (7.2 and 5.3 MB installed). Its 64-bit libraries are
+# aligned for 16 KB pages (checked: tools/check_16kb.py); 32-bit phones have
+# 4 KB pages only.
+TESSERACT = 'implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")'
+TESSERACT_GROOVY = "implementation 'cz.adaptech.tesseract4android:tesseract4android:4.9.0'"
+
+JITPACK = """
+// Tesseract4Android is published on JitPack only. Nothing else is fetched
+// from there.
+repositories {
+    maven {
+        url = uri("https://jitpack.io")
+        content { includeGroup("cz.adaptech.tesseract4android") }
+    }
+}
+"""
+
+JITPACK_GROOVY = """
+repositories {
+    maven {
+        url 'https://jitpack.io'
+        content { includeGroup 'cz.adaptech.tesseract4android' }
+    }
+}
+"""
 
 QUERIES_BLOCK = """    <!-- Required since Android 11 for TextToSpeech.getEngines() to see
          installed engines. -->
@@ -91,6 +125,17 @@ SERVICE = """        <service
             android:name=".ReadAloudService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+"""
+
+# Scanned pages read as text (Ocr.kt): a file being read in, page by page,
+# with the screen off.
+OCR_PERMISSION = """    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+"""
+
+OCR_SERVICE = """        <service
+            android:name=".OcrService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 """
 
 # The home-screen widgets (Widgets.kt) and the screen that picks a widget's book.
@@ -224,6 +269,16 @@ def patch_manifest(path: Path, label: str = APP_LABEL) -> str:
         text = text.replace("</application>", SERVICE + "    </application>", 1)
         notes.append("service")
 
+    if "FOREGROUND_SERVICE_DATA_SYNC" not in text:
+        text, n = re.subn(r"(<manifest\b[^>]*>\n?)", r"\1" + OCR_PERMISSION, text, count=1)
+        if n != 1:
+            raise SystemExit("manifest: no <manifest> tag")
+        notes.append("OCR permission")
+
+    if ".OcrService" not in text:
+        text = text.replace("</application>", OCR_SERVICE + "    </application>", 1)
+        notes.append("OCR service")
+
     if ".PlayerWidget" not in text:
         text = text.replace("</application>", WIDGETS + "    </application>", 1)
         notes.append("widgets")
@@ -333,6 +388,13 @@ def patch_gradle(path: Path, signing: bool, app_id: str = APPLICATION_ID) -> str
         else:
             text = text.rstrip() + "\n\ndependencies {\n    implementation 'com.tom-roush:pdfbox-android:2.0.27.0'\n}\n"
         notes.append("pdfbox")
+
+    if TESSERACT not in text and TESSERACT_GROOVY not in text:
+        if path.suffix == ".kts":
+            text = text.rstrip() + "\n" + JITPACK + f"\ndependencies {{\n    {TESSERACT}\n}}\n"
+        else:
+            text = text.rstrip() + "\n" + JITPACK_GROOVY + f"\ndependencies {{\n    {TESSERACT_GROOVY}\n}}\n"
+        notes.append("tesseract (OCR)")
 
     if 'proguardFiles("proguard-rules.pro")' not in text and path.suffix == ".kts":
         text, n = re.subn(

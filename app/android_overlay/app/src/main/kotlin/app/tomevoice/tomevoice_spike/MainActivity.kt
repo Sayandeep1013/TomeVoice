@@ -252,6 +252,19 @@ class MainActivity : FlutterActivity() {
                         }
                     }
                 }
+                // A scanned PDF read with OCR, in a foreground service (Ocr.kt).
+                "ocrStart" -> {
+                    try {
+                        result.success(OcrService.start(this, call.arguments as Map<*, *>))
+                    } catch (e: Exception) {
+                        result.error("OCR", e.message ?: "The scan could not be read", null)
+                    }
+                }
+                "ocrStop" -> {
+                    OcrService.stop()
+                    result.success(null)
+                }
+                "ocrStatus" -> result.success(OcrService.status())
                 "outputDir" -> result.success(outputDir().absolutePath)
                 "launchArgs" -> result.success(launchArgs())
                 // Text in an East Asian legacy encoding (GBK, Big5, Shift_JIS,
@@ -547,6 +560,7 @@ class MainActivity : FlutterActivity() {
         ReadAloudService.onAction = { action, value ->
             main.post { event(mapOf("type" to "action", "action" to action, "value" to value)) }
         }
+        OcrService.onEvent = { e -> event(e) }
 
         // Warm the engine now so the first Play does not pay for the bind.
         withTts(null) { }
@@ -1350,6 +1364,9 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         stopSample()
         ReadAloudService.onAction = null
+        // A scan being read goes on without the app; its book is made when
+        // the app is next opened (ocr_jobs.dart).
+        OcrService.onEvent = null
         ReadAloudService.end(this)
         abandonFocus()
         player.stop()
