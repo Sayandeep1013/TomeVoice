@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show LicenseEntryWithLineBreaks, LicenseRegistry, kReleaseMode;
@@ -7,6 +8,7 @@ import 'package:tomevoice_audio/tomevoice_audio.dart';
 
 import 'brand.dart';
 import 'home_shell.dart';
+import 'listening_session.dart';
 import 'prefs.dart';
 import 'reader_screen.dart';
 import 'secret_shelf.dart';
@@ -16,6 +18,40 @@ import 'theme.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   _registerFontLicences();
+  _listen();
+  _show();
+}
+
+/// Where Android starts the app for a book read with no screen: Play on the
+/// system's resume card after TomeVoice was closed, a headset's Play, a
+/// book picked in Android Auto (ReadAloudService, through ReadingCore). The
+/// library is opened and the book read; nothing is built until TomeVoice is
+/// opened onto this engine, when the app is built here as main() builds it.
+@pragma('vm:entry-point')
+void backgroundMain() {
+  WidgetsFlutterBinding.ensureInitialized();
+  _registerFontLicences();
+  _listen();
+  // Opened before this was listening: shown now.
+  unawaited(const SpeechService().activityAttached().then((on) {
+    if (on) _show();
+  }));
+}
+
+/// What both ways in listen for: books asked for from outside the app, and
+/// a new activity showing this engine (it outlives the activity while a
+/// book is read).
+void _listen() {
+  MediaRequests.listen(() async => (await openLibrary()).store);
+  SpeechService.events.where((e) => e['type'] == 'shown').listen((_) => _show());
+}
+
+var _built = false;
+
+/// The app on screen: built once for the engine, and drawn edge to edge in
+/// each new activity's window (Android gives each its own, and the mode was
+/// sent to the first).
+void _show() {
   // Draw under the status bar and the gesture bar, and ask Android not to
   // lay its contrast scrim over the gesture area: that scrim was a darker
   // band with a hard edge just above the home bar, cutting the gradient.
@@ -27,6 +63,8 @@ void main() {
     systemNavigationBarContrastEnforced: false,
     systemStatusBarContrastEnforced: false,
   ));
+  if (_built) return;
+  _built = true;
   runApp(const SpikeApp());
 }
 

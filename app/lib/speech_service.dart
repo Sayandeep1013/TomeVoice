@@ -206,7 +206,8 @@ class SpeechService {
   ///
   /// It also feeds the shade's media card: [cover] (an image file) is its
   /// picture, [positionMs] of [durationMs] its seek bar through the chapter,
-  /// and [speed] its speed button.
+  /// and [speed] its speed button. [book], when given, is the book's id: a
+  /// Play from outside the app for that book then carries on with this one.
   Future<void> session({
     required bool active,
     String title = '',
@@ -216,6 +217,7 @@ class SpeechService {
     int positionMs = 0,
     int durationMs = 0,
     double speed = 1.0,
+    String? book,
   }) =>
       _quiet('session', {
         'active': active,
@@ -226,7 +228,37 @@ class SpeechService {
         'positionMs': positionMs,
         'durationMs': durationMs,
         'speed': speed,
+        'book': book,
       });
+
+  // ------------------------------------------------------ outside the app
+
+  /// A book asked for from outside the app (the system's resume card, a
+  /// headset's Play, Android Auto), taken once: its id, and whether a
+  /// reading had the card when it was asked. Null when none is waiting.
+  Future<({String book, bool reading})?> takeMediaPlay() async {
+    try {
+      final raw = await _channel.invokeMapMethod<String, Object?>('takeMediaPlay');
+      final book = raw?['book'];
+      return book is String ? (book: book, reading: raw?['reading'] == true) : null;
+    } on Object {
+      return null;
+    }
+  }
+
+  /// The book asked for from outside the app cannot be read: the card put
+  /// up for it goes.
+  Future<void> mediaPlayFailed() => _quiet('mediaPlayFailed');
+
+  /// Whether an activity shows this engine: the app runs with no screen when
+  /// a book was started from outside it.
+  Future<bool> activityAttached() async {
+    try {
+      return await _channel.invokeMethod<bool>('activityAttached') ?? false;
+    } on Object {
+      return false;
+    }
+  }
 
   /// Whether the phone has a lock (a PIN, pattern or password) to ask for.
   Future<bool> deviceSecure() async {
