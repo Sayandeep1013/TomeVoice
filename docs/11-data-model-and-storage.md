@@ -125,8 +125,9 @@ turns it into a unit with `unitForCursor`.
   in the tests' debug mode (`app/test/place_writes_test.dart`): a saved place kept the UI
   thread busy for a median 22.9 ms before and 2.1 ms after; forty of them, 918 ms
   before, 90 ms after plus 8.6 ms to write them together. Encoding the index: 14.6 ms
-  for every entry, 3.1 ms with one changed. On a phone (AOT, slower storage) the
-  proportions should hold; the absolute numbers are still to be taken there.
+  for every entry, 3.1 ms with one changed. Other runs, on a busier machine, moved every
+  number but kept about a tenth. On a phone (AOT, slower storage) the proportions
+  should hold; the absolute numbers are still to be taken there.
 - **Books read again.** When reading improves, stored books are parsed again from their
   own file the next time they are opened: `_parsedVersion` in `library_store.dart` (in
   `parsed.json`'s `"v"`), and for PDFs `pdfParserVersion` (stored on the entry), since a

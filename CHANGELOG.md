@@ -21,7 +21,7 @@ On the `next` branch, waiting for a phone check:
 - **Tags and series:** give a book as many tags as you like, and a series with its number (found in an EPUB's or FB2's own details, or a title like "A Song of Ice and Fire 3"). Sort by author or by series, each series in order, and filter the shelves by progress, format, language, tag or series. Nothing of a locked secret shelf shows in any of them.
 - **Find duplicates:** a book you add that looks like one you have, in another file or format, is offered to you, never merged.
 - **Saved** clears the quotes of books no longer in your library together. With a secret shelf locked, those that might have been a secret book's wait until it is open.
-- Listening no longer rewrites the whole library list every sentence: the place is kept at once in the book's own file and written into the list every few seconds, a tenth of the work on the phone's main thread.
+- Listening no longer rewrites the whole library list every sentence: the place is kept at once in the book's own file and written into the list every few seconds. With 1,000 books in the tests, each saved place costs the main thread about a tenth of what it did.
 
 ## 1.3.0 (2026-10-30)
 
