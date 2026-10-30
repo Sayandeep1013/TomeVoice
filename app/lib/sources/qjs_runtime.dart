@@ -15,10 +15,14 @@ class _QuickJs implements JsRuntime {
 
   final _rt = QuickJsRuntime2(
     stackSize: 4 << 20,
-    memoryLimit: 256 << 20,
+    // One context per source now (see PluginHost), so each gets less room;
+    // the libraries and a long chapter list fit easily.
+    memoryLimit: 128 << 20,
     // CPU milliseconds per evaluation: a plugin stuck in a loop is stopped.
     timeout: 30000,
   );
+
+  bool _disposed = false;
 
   @override
   String eval(String code, {String name = '<eval>'}) {
@@ -50,6 +54,24 @@ class _QuickJs implements JsRuntime {
     _rt.onMessage(channel, (dynamic args) => handler(args is List ? args.cast<Object?>() : [args]));
   }
 
+  /// flutter_qjs's setTimeout keeps each callback until it has run; one
+  /// still waiting would recreate the engine if it fired after dispose.
   @override
-  void dispose() => _rt.dispose();
+  bool get hasPendingTimers {
+    if (_disposed) return false;
+    final r = _rt.evaluate(
+        "typeof __NATIVE_FLUTTER_JS__setTimeoutCallbacks === 'object' ? Object.keys(__NATIVE_FLUTTER_JS__setTimeoutCallbacks).length : 0");
+    return !r.isError && r.stringResult != '0';
+  }
+
+  @override
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    final id = _rt.getEngineInstanceId();
+    // The engine reports the references the plugin bridge kept as a leak
+    // on every dispose, which says nothing useful here.
+    runZoned(_rt.dispose, zoneSpecification: ZoneSpecification(print: (_, __, ___, ____) {}));
+    JavascriptRuntime.channelFunctionsRegistered.remove(id);
+  }
 }

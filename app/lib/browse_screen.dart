@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'browser_check.dart';
 import 'library_store.dart';
 import 'novel_screen.dart';
+import 'plugin_options.dart';
 import 'sources/models.dart';
+import 'sources/net_image.dart';
 import 'sources/source_engine.dart';
 import 'sources/source_store.dart';
 import 'sources_screen.dart';
@@ -41,16 +43,30 @@ class _BrowseScreenState extends State<BrowseScreen> {
   bool _onlyFound = false;
   int _searchRun = 0;
 
+  /// The languages global search asks the sources of (as the lists name
+  /// them); null until chosen: the phone's languages and the library's.
+  Set<String>? _langs;
+
+  /// Web novels in the library (on open shelves), for "In library".
+  Set<String> _inLibrary = const {};
+
+  /// How long one source has to answer a search before it is said to be
+  /// slow; what it is doing carries on, and a later search may find it.
+  static const _patience = Duration(seconds: 20);
+
   @override
   void initState() {
     super.initState();
     widget.sources.changes.addListener(_load);
+    widget.store.changes.addListener(_loadLibrary);
     unawaited(_load());
+    unawaited(_loadLibrary());
   }
 
   @override
   void dispose() {
     widget.sources.changes.removeListener(_load);
+    widget.store.changes.removeListener(_loadLibrary);
     _search.dispose();
     super.dispose();
   }
@@ -60,8 +76,32 @@ class _BrowseScreenState extends State<BrowseScreen> {
     if (mounted) setState(() => _installed = list);
   }
 
-  /// Ask every installed source, a few at a time; each row fills in as its
-  /// site answers, so one slow site never holds up the rest.
+  Future<void> _loadLibrary() async {
+    // Shelves shut away (secret) are left out: their novels are not shown
+    // as in the library here either.
+    final ids = {for (final e in await widget.store.list()) if (e.isWeb) e.id};
+    if (mounted) setState(() => _inLibrary = ids);
+  }
+
+  /// The installed sources' languages, as their lists name them.
+  List<String> get _allLangs => ({for (final p in _installed) p.lang}.toList()..sort());
+
+  /// What global search asks at first: the sources in the phone's
+  /// languages and the languages of the novels in the library (every
+  /// source when none of them match).
+  Future<Set<String>> _defaultLangs() async {
+    final codes = {
+      for (final l in WidgetsBinding.instance.platformDispatcher.locales) l.languageCode,
+      for (final e in await widget.store.list())
+        if (e.isWeb && e.language != null) e.language!.split(RegExp('[-_]')).first,
+    };
+    final mine = {for (final l in _allLangs) if (codes.contains(languageCodeOf(l))) l};
+    return mine.isEmpty ? _allLangs.toSet() : mine;
+  }
+
+  /// Ask every installed source in the chosen languages, a few at a time;
+  /// each row fills in as its site answers, so one slow site never holds up
+  /// the rest. Stop ends it.
   Future<void> _globalSearch(String q) async {
     final query = q.trim();
     FocusManager.instance.primaryFocus?.unfocus();
@@ -72,8 +112,9 @@ class _BrowseScreenState extends State<BrowseScreen> {
       });
       return;
     }
+    final langs = _langs ??= await _defaultLangs();
     final run = ++_searchRun;
-    final results = [for (final p in _installed) _Results(p)];
+    final results = [for (final p in _installed) if (langs.contains(p.lang)) _Results(p)];
     setState(() {
       _query = query;
       _results = results;
@@ -90,11 +131,25 @@ class _BrowseScreenState extends State<BrowseScreen> {
     await Future.wait([for (var i = 0; i < 4; i++) worker()]);
   }
 
+  /// Stop asking: the sources not asked yet are left, the answers in stay.
+  void _stop() {
+    setState(() {
+      _searchRun++;
+      for (final r in _results) {
+        if (!r.done) r.error = 'Stopped.';
+      }
+    });
+  }
+
+  /// Ask [r]'s source; an answer after Stop is not taken.
   Future<void> _ask(_Results r) async {
     try {
-      r.items = await SourceEngine.instance.search(r.plugin, _query, 1);
+      final items = await SourceEngine.instance.search(r.plugin, _query, 1).timeout(_patience);
+      if (!r.done) r.items = items;
+    } on TimeoutException {
+      r.error ??= 'Took too long to answer.';
     } on Object catch (e) {
-      r.error = e;
+      r.error ??= e;
     }
   }
 
@@ -139,7 +194,23 @@ class _BrowseScreenState extends State<BrowseScreen> {
                   ),
                   const SizedBox(width: Gap.m),
                   Expanded(child: Text('Browse', style: Skin.title(context, size: 28, weight: FontWeight.w500))),
-                  RoundButton(icon: Icons.extension_outlined, tooltip: 'Sources', size: 42, onTap: _openSources),
+                  // How many installed sources have an update waiting.
+                  ValueListenableBuilder<Map<String, PluginInfo>>(
+                    valueListenable: widget.sources.pending,
+                    builder: (context, pending, _) => Badge(
+                      isLabelVisible: pending.isNotEmpty,
+                      label: Text('${pending.length}'),
+                      offset: const Offset(-2, 2),
+                      child: RoundButton(
+                        icon: Icons.extension_outlined,
+                        tooltip: pending.isEmpty
+                            ? 'Sources'
+                            : 'Sources: ${pending.length} ${pending.length == 1 ? 'update' : 'updates'}',
+                        size: 42,
+                        onTap: _openSources,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -234,6 +305,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
         if (!_onlyFound || (r.items?.isNotEmpty ?? false)) r,
     ];
     final waiting = _results.where((r) => !r.done).length;
+    final langs = _allLangs;
     return ListView(
       padding: EdgeInsets.only(bottom: Gap.xxl + MediaQuery.viewPaddingOf(context).bottom),
       children: [
@@ -244,14 +316,43 @@ class _BrowseScreenState extends State<BrowseScreen> {
               Expanded(
                 child: Eyebrow(waiting > 0 ? 'Asking ${_results.length} sources… $waiting to go' : 'Searched ${_results.length} sources'),
               ),
-              FilterChip(
-                label: const Text('Has results'),
-                selected: _onlyFound,
-                onSelected: (v) => setState(() => _onlyFound = v),
-              ),
+              if (waiting > 0)
+                TextButton(onPressed: _stop, child: const Text('Stop'))
+              else
+                FilterChip(
+                  label: const Text('Has results'),
+                  selected: _onlyFound,
+                  onSelected: (v) => setState(() => _onlyFound = v),
+                ),
             ],
           ),
         ),
+        // Which languages' sources are asked; a change asks again.
+        if (langs.length > 1)
+          SizedBox(
+            height: 40,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: Gap.page),
+              children: [
+                for (final l in langs)
+                  Padding(
+                    padding: const EdgeInsets.only(right: Gap.s),
+                    child: FilterChip(
+                      label: Text(l.replaceAll(String.fromCharCode(0x200E), '')),
+                      selected: _langs?.contains(l) ?? false,
+                      onSelected: (on) {
+                        final next = {...?_langs};
+                        on ? next.add(l) : next.remove(l);
+                        if (next.isEmpty) return;
+                        setState(() => _langs = next);
+                        unawaited(_globalSearch(_query));
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
         for (final r in shown) _resultRow(context, r),
       ],
     );
@@ -303,7 +404,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
           r.error != null
               ? Padding(
                   padding: const EdgeInsets.symmetric(horizontal: Gap.page),
-                  child: SourceProblemLine(error: r.error!, onRetry: () => _retry(r)),
+                  child: SourceProblemLine(error: r.error!, onRetry: () => _retry(r), pluginId: r.plugin.id),
                 )
               : items == null
                   ? null
@@ -327,6 +428,8 @@ class _BrowseScreenState extends State<BrowseScreen> {
                               child: RemoteNovelTile(
                                 item: items[i],
                                 referer: r.plugin.site,
+                                partition: r.plugin.id,
+                                inLibrary: _inLibrary.contains(LibraryStore.webId(r.plugin.id, items[i].path)),
                                 onTap: () => _openNovel(r.plugin, items[i]),
                               ),
                             ),
@@ -369,14 +472,100 @@ class _SourceScreenState extends State<SourceScreen> {
   /// Bumped as each feed's first page comes in, which fades in from the top.
   int _shown = 0;
 
+  /// What the plugin says of itself: its filters and settings.
+  Map<String, Object?> _meta = const {};
+
+  /// The filters the reader chose (key to {type, value}); null: the
+  /// plugin's own defaults.
+  Map<String, Object?>? _filters;
+
+  Map<String, Object?> get _filterDefs => _defs(_meta['filters']);
+  Map<String, Object?> get _settingDefs => _defs(_meta['pluginSettings']);
+
+  static Map<String, Object?> _defs(Object? o) => o is Map ? Map<String, Object?>.from(o) : const {};
+
+  /// Web novels in the library (on open shelves), for "In library".
+  Set<String> _inLibrary = const {};
+
   @override
   void initState() {
     super.initState();
     unawaited(_reset());
+    unawaited(_loadMeta());
+    unawaited(_loadLibrary());
+    widget.store.changes.addListener(_loadLibrary);
+  }
+
+  Future<void> _loadLibrary() async {
+    final ids = {for (final e in await widget.store.list()) if (e.isWeb) e.id};
+    if (mounted) setState(() => _inLibrary = ids);
+  }
+
+  Future<void> _loadMeta() async {
+    try {
+      final meta = await SourceEngine.instance.meta(widget.plugin);
+      if (mounted) setState(() => _meta = meta);
+    } on Object {
+      // No filters or settings to offer, then.
+    }
+  }
+
+  /// The plugin's filters (genre, status, sort…), as it defines them.
+  Future<void> _openFilters() async {
+    final chosen = await showModalBottomSheet<Map<String, Object?>>(
+      context: context,
+      isScrollControlled: true,
+      sheetAnimationStyle: sheetMotion(context),
+      builder: (_) => PluginOptionsSheet(
+        title: 'Filters',
+        definitions: _filterDefs,
+        values: {
+          for (final e in _filterDefs.entries) e.key: ((_filters?[e.key] as Map?) ?? (e.value as Map?))?['value'],
+        },
+        action: 'Show',
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    setState(() {
+      _filters = {
+        for (final e in _filterDefs.entries) e.key: {'type': (e.value as Map?)?['type'], 'value': chosen[e.key]},
+      };
+      if (_feed == _Feed.search) _feed = _Feed.popular;
+    });
+    await _reset();
+  }
+
+  /// The plugin's own settings (a site's mirror, a language…), kept in its
+  /// storage as LNReader keeps them.
+  Future<void> _openSettings() async {
+    Map<String, Object?> now;
+    try {
+      now = await SourceEngine.instance.settings(widget.plugin);
+    } on Object {
+      now = const {};
+    }
+    if (!mounted) return;
+    final chosen = await showModalBottomSheet<Map<String, Object?>>(
+      context: context,
+      isScrollControlled: true,
+      sheetAnimationStyle: sheetMotion(context),
+      builder: (_) => PluginOptionsSheet(
+        title: 'Settings',
+        definitions: _settingDefs,
+        values: {for (final e in _settingDefs.entries) e.key: now[e.key] ?? (e.value as Map?)?['value']},
+        action: 'Save',
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    for (final e in chosen.entries) {
+      if (e.value != now[e.key]) await SourceEngine.instance.setSetting(widget.plugin, e.key, e.value);
+    }
+    if (mounted) await _reset();
   }
 
   @override
   void dispose() {
+    widget.store.changes.removeListener(_loadLibrary);
     _search.dispose();
     super.dispose();
   }
@@ -412,8 +601,8 @@ class _SourceScreenState extends State<SourceScreen> {
       final page = _page + 1;
       final engine = SourceEngine.instance;
       final got = switch (_feed) {
-        _Feed.popular => await engine.popular(widget.plugin, page),
-        _Feed.latest => await engine.popular(widget.plugin, page, latest: true),
+        _Feed.popular => await engine.popular(widget.plugin, page, filters: _filters),
+        _Feed.latest => await engine.popular(widget.plugin, page, latest: true, filters: _filters),
         _Feed.search => await engine.search(widget.plugin, _search.text.trim(), page),
       };
       if (!mounted || run != _run) return;
@@ -448,7 +637,25 @@ class _SourceScreenState extends State<SourceScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              ScreenTopBar(title: widget.plugin.name, onBack: () => Navigator.of(context).maybePop()),
+              Row(
+                children: [
+                  Expanded(child: ScreenTopBar(title: widget.plugin.name, onBack: () => Navigator.of(context).maybePop())),
+                  if (_filterDefs.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(right: Gap.s),
+                      child: RoundButton(
+                        icon: _filters == null ? Icons.tune_rounded : Icons.filter_alt_rounded,
+                        tooltip: 'Filters',
+                        onTap: _openFilters,
+                      ),
+                    ),
+                  if (_settingDefs.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(right: Gap.m),
+                      child: RoundButton(icon: Icons.settings_outlined, tooltip: '${widget.plugin.name} settings', onTap: _openSettings),
+                    ),
+                ],
+              ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
                 child: TextField(
@@ -514,6 +721,8 @@ class _SourceScreenState extends State<SourceScreen> {
                                 (context, i) => RemoteNovelTile(
                                   item: _items[i],
                                   referer: widget.plugin.site,
+                                  partition: widget.plugin.id,
+                                  inLibrary: _inLibrary.contains(LibraryStore.webId(widget.plugin.id, _items[i].path)),
                                   onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
                                     builder: (_) => NovelScreen(
                                       store: widget.store,
@@ -535,7 +744,7 @@ class _SourceScreenState extends State<SourceScreen> {
                             child: _loading
                                 ? const Center(child: CircularProgressIndicator())
                                 : _error != null
-                                    ? SourceProblem(error: _error!, onRetry: _reset)
+                                    ? SourceProblem(error: _error!, onRetry: _reset, pluginId: widget.plugin.id)
                                     : _items.isEmpty
                                         ? Text('Nothing here.', textAlign: TextAlign.center, style: Skin.label(context))
                                         : const SizedBox.shrink(),
@@ -558,11 +767,24 @@ class _SourceScreenState extends State<SourceScreen> {
 /// A novel from a site: its cover with the title on a translucent band, the
 /// way the library shows books.
 class RemoteNovelTile extends StatelessWidget {
-  const RemoteNovelTile({super.key, required this.item, required this.onTap, this.referer});
+  const RemoteNovelTile({
+    super.key,
+    required this.item,
+    required this.onTap,
+    this.referer,
+    this.partition = '',
+    this.inLibrary = false,
+  });
 
   final NovelItem item;
   final VoidCallback onTap;
   final String? referer;
+
+  /// Whose cookies the cover goes with: its source's plugin id.
+  final String partition;
+
+  /// The novel is in the library already (on a shelf that is open).
+  final bool inLibrary;
 
   @override
   Widget build(BuildContext context) => Semantics(
@@ -578,7 +800,14 @@ class RemoteNovelTile extends StatelessWidget {
                 children: [
                   FittedBox(
                     fit: BoxFit.cover,
-                    child: NetworkCover(url: item.cover, title: item.name, width: c.maxWidth, referer: referer, titled: false),
+                    child: NetworkCover(
+                      url: item.cover,
+                      title: item.name,
+                      width: c.maxWidth,
+                      referer: referer,
+                      partition: partition,
+                      titled: false,
+                    ),
                   ),
                   Positioned(
                     left: 0,
@@ -603,6 +832,21 @@ class RemoteNovelTile extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (inLibrary)
+                    Positioned(
+                      top: Gap.xs,
+                      left: Gap.xs,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.7),
+                          borderRadius: BorderRadius.circular(Radii.chip),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          child: Text('In library', style: Skin.ui(size: 11, weight: FontWeight.w700, color: Colors.white)),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -631,7 +875,12 @@ class SourceIcon extends StatelessWidget {
         height: size,
         child: plugin.iconUrl == null
             ? fallback
-            : Image.network(plugin.iconUrl!, fit: BoxFit.cover, errorBuilder: (_, __, ___) => fallback),
+            : Image(
+                image: ResizeImage.resizeIfNeeded(
+                    (size * MediaQuery.devicePixelRatioOf(context)).round(), null, NetImage(plugin.iconUrl!)),
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => fallback,
+              ),
       ),
     );
   }

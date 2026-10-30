@@ -46,15 +46,25 @@ Future<void> fetchChapters(
 
 /// Ask the source for web novel [id]'s chapter list again. If it grew, the
 /// chapter after [current] (which may have moved in the new list); else null.
-Future<int?> refreshWebChapters(LibraryStore store, String id, int current) async {
+/// A list that looks wrong is not stored (see LibraryStore.offerWebChapters):
+/// [onRefused] hears why.
+Future<int?> refreshWebChapters(
+  LibraryStore store,
+  String id,
+  int current, {
+  void Function(String why)? onRefused,
+}) async {
   try {
     final info = await store.webNovel(id);
     if (info == null) return null;
     final plugin = await SourceEngine.instance.store.installedById(info.plugin.id);
     if (plugin == null) return null;
     final fresh = await SourceEngine.instance.novel(plugin, info.novel.path);
-    if (!replacesChapterList(info.chapters, fresh.chapters)) return null;
-    await store.saveWebChapters(id, fresh.chapters);
+    final verdict = await store.offerWebChapters(id, fresh.chapters, complete: fresh.complete);
+    if (!verdict.taken) {
+      if (verdict.refused && verdict.why != null) onRefused?.call(verdict.why!);
+      return null;
+    }
     final path = info.chapters.elementAtOrNull(current)?.path;
     final now = fresh.chapters.indexWhere((c) => c.path == path);
     final after = (now < 0 ? current : now) + 1;
@@ -205,7 +215,9 @@ class _WebNovelReaderState extends State<WebNovelReader> {
       await fetchChapters(_store, _id, from, onProgress: (c) {
         if (mounted) setState(() => _status = 'Fetching chapter ${c + 1}…');
       });
-      final layout = await _store.loadLayout(_id);
+      // A window of chapters round the place, not every one on the phone
+      // (see LibraryStore.webWindow): its end opens the next.
+      final layout = await _store.loadLayout(_id, around: at?.sectionIndex ?? from);
       if (at != null) {
         cursor = at;
       } else if (start != null && !keepPlace && !layout.isEmpty) {
@@ -268,23 +280,47 @@ class _WebNovelReaderState extends State<WebNovelReader> {
     final current = layout.units.last.sectionIndex;
     var next = current + 1;
     if (next >= _total) {
-      final after = await _refreshChapters(current);
+      final (after, refused) = await _refreshChapters(current);
       if (after == null) {
-        if (mounted) showSnack(context, 'That is the latest chapter so far. New ones appear when the site adds them.');
+        if (mounted) {
+          showSnack(context, refused ?? 'That is the latest chapter so far. New ones appear when the site adds them.',
+              long: refused != null);
+        }
         return;
       }
       next = after;
+    }
+    // Not on the phone, and the site cannot give it now (offline): on to
+    // the next chapter that is on the phone, as reading did before it was
+    // opened a window at a time, rather than stopping there.
+    if (!_store.hasChapter(_id, next)) {
+      try {
+        await fetchChapters(_store, _id, next, count: 1);
+      } on Object catch (e) {
+        final later = [for (final c in _store.downloadedChapters(_id)) if (c > next) c];
+        if (later.isEmpty) {
+          if (mounted) setState(() => _error = e);
+          return;
+        }
+        final to = later.reduce((a, b) => a < b ? a : b);
+        if (mounted) {
+          showSnack(context, 'Chapter ${next + 1} could not be fetched, so on to chapter ${to + 1}, which is on the phone.');
+        }
+        next = to;
+      }
     }
     await _open(next, autoplay: playing, keepPlace: browse);
   }
 
   /// Ask the source for the chapter list again. If it grew, the chapter
-  /// after [current] (which may have moved in the new list); else null.
-  Future<int?> _refreshChapters(int current) async {
+  /// after [current] (which may have moved in the new list); else null, and
+  /// why the site's list was not taken, if it was not.
+  Future<(int?, String?)> _refreshChapters(int current) async {
     if (mounted) showSnack(context, 'Checking for new chapters…');
-    final after = await refreshWebChapters(_store, _id, current);
+    String? refused;
+    final after = await refreshWebChapters(_store, _id, current, onRefused: (why) => refused = why);
     _total = (await _store.webNovel(_id))?.chapters.length ?? _total;
-    return after;
+    return (after, refused);
   }
 
   /// Every chapter the site lists, not only those on the phone: the one
@@ -355,6 +391,7 @@ class _WebNovelReaderState extends State<WebNovelReader> {
                         ? SourceProblem(
                             error: _error!,
                             title: 'Could not open this chapter',
+                            pluginId: widget.entry.plugin,
                             onRetry: () => _open(widget.at?.sectionIndex ?? widget.startChapter, autoplay: widget.autoplay, at: widget.at),
                           )
                         : Column(

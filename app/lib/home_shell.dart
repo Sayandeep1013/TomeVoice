@@ -4,12 +4,14 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import 'app_update.dart';
+import 'background_check.dart';
 import 'backup.dart';
 import 'backup_flow.dart';
 import 'book_tint.dart';
 import 'brand.dart';
 import 'browse_screen.dart';
 import 'categories_screen.dart';
+import 'download_queue.dart';
 import 'history_screen.dart';
 import 'library_screen.dart';
 import 'library_store.dart';
@@ -22,6 +24,7 @@ import 'saved_screen.dart';
 import 'stats.dart';
 import 'stats_screen.dart';
 import 'settings_screen.dart';
+import 'sources/bridge.dart';
 import 'sources/net.dart';
 import 'sources/source_engine.dart';
 import 'sources/source_store.dart';
@@ -66,10 +69,17 @@ Future<OpenLibrary> _open(String dir) async {
   // Sources ask as the phone's own browser does (see Net.userAgent).
   final agent = await const SpeechService().webUserAgent();
   if (agent != null && agent.isNotEmpty) Net.userAgent = agent;
-  final sources = SourceStore(Directory(dir));
-  await sources.ensure();
+  // Sources live in internal storage, moved there once from the library's
+  // folder (which other apps can read on Android 8 to 10).
+  final internal = await SourcesBridge.sourcesRoot();
+  final sources = await SourceStore.open(Directory(internal ?? dir), legacyRoot: Directory(dir));
+  await Net.instance.attach(sources.dir);
   SourceEngine.instance.attach(sources);
+  // The check made with the app closed asks with the same agent.
+  if (agent != null && agent.isNotEmpty) unawaited(sources.saveUserAgent(agent));
   final store = LibraryStore(Directory(dir));
+  // Chapters left downloading when the app last closed carry on.
+  unawaited(DownloadQueue.instance.attach(store));
   await TintCache.instance.attach(Directory(dir));
   await ReadingRules.instance.attach(Directory(dir));
   await MarkStore.instance.attach(Directory(dir));
@@ -117,6 +127,15 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
       unawaited(Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => StatsScreen(store: store))));
       return;
     }
+    // The new-chapters notification: the Updates page.
+    if (launch['page'] == 'updates') {
+      Navigator.of(context).popUntil((r) => r.isFirst);
+      setState(() {
+        _place = _Place.updates;
+        _visited.add(_Place.updates);
+      });
+      return;
+    }
     final id = launch['book'] as String?;
     final entry = (await store.list()).where((e) => e.id == id).firstOrNull;
     if (entry == null || !mounted) return;
@@ -131,6 +150,7 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
     _widgetTimer?.cancel();
     unawaited(_widgetEvents?.cancel());
     _lifecycle?.dispose();
+    ListeningPrefs.revision.removeListener(_scheduleChecks);
     _store?.changes.removeListener(_scheduleFollow);
     _store?.placeChanges.removeListener(_scheduleFollow);
     _store?.changes.removeListener(_scheduleWidgets);
@@ -219,19 +239,65 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
       unawaited(Starter.seed(Directory(dir), store, sources));
       // A newer TomeVoice: on opening, and on coming back to the app.
       Future<void>.delayed(const Duration(seconds: 8), () => _offerUpdate(Directory(dir)));
-      _lifecycle = AppLifecycleListener(onResume: () => unawaited(_offerUpdate(Directory(dir))));
-      // New chapters, at most as often as the reader asked, a moment after
-      // the shelf is up so opening the app stays quick.
-      Future<void>.delayed(const Duration(seconds: 4), () async {
-        final every = UpdateEvery.byName(ListeningPrefs.loaded?.updateEvery);
-        try {
-          await updates.checkIfDue(every);
-        } on Object {
-          // A failed check simply runs again next time.
-        }
+      // Fixed sources: the lists are read again at most daily while the app
+      // is used, so Browse and Sources can say an update is waiting.
+      Future<void>.delayed(const Duration(seconds: 6), () => _refreshSources(sources));
+      _lifecycle = AppLifecycleListener(onResume: () {
+        unawaited(_offerUpdate(Directory(dir)));
+        unawaited(_refreshSources(sources));
+        unawaited(_checkChapters(updates));
       });
+      // New chapters, at most as often as the reader asked, a moment after
+      // the shelf is up so opening the app stays quick; on coming back to
+      // the app too; and with the app closed (background_check.dart).
+      Future<void>.delayed(const Duration(seconds: 4), () => _checkChapters(updates));
+      unawaited(_scheduleChecks());
+      ListeningPrefs.revision.addListener(_scheduleChecks);
     } on Object catch (e) {
       if (mounted) setState(() => _error = '$e');
+    }
+  }
+
+  /// The interval the background check was last given, so it is only asked
+  /// for again when the reader changes it.
+  UpdateEvery? _scheduled;
+
+  Future<void> _scheduleChecks() async {
+    final every = UpdateEvery.byName(ListeningPrefs.loaded?.updateEvery);
+    if (every == _scheduled) return;
+    _scheduled = every;
+    try {
+      await BackgroundChecks.schedule(every);
+    } on Object {
+      _scheduled = null;
+    }
+  }
+
+  /// Check for new chapters if one is due. A check made with the app closed
+  /// that is still running stops before its next write once the app is open
+  /// (background_check.dart): it is waited for, as two engines must not
+  /// write the library at once, and what it left is asked then. Chapter
+  /// counts such a check found reach the shelf first.
+  Future<void> _checkChapters(Updates updates) async {
+    try {
+      for (var waited = 0; await SourcesBridge.backgroundBusy(); waited++) {
+        // A site that does not answer: given up on for now (two minutes),
+        // and asked again on coming back to the app.
+        if (waited >= 60 || !mounted) return;
+        await Future<void>.delayed(const Duration(seconds: 2));
+      }
+      await updates.takeCounts();
+      await updates.checkIfDue(UpdateEvery.byName(ListeningPrefs.loaded?.updateEvery));
+    } on Object {
+      // A failed check simply runs again next time.
+    }
+  }
+
+  Future<void> _refreshSources(SourceStore sources) async {
+    try {
+      await sources.refreshIfDue();
+    } on Object {
+      // Offline: the next opening tries again.
     }
   }
 

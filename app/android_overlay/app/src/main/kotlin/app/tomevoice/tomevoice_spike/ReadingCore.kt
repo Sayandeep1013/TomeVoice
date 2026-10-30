@@ -102,6 +102,9 @@ object ReadingCore {
         val engine = FlutterEngine(app)
         FlutterEngineCache.getInstance().put(ENGINE_ID, engine)
         bind(engine)
+        // Web novels' channel from the start: a book read with no activity
+        // opens the library, its sources included (openLibrary).
+        SourcesBridge.attach(app, engine.dartExecutor.binaryMessenger, null)
         return engine
     }
 

@@ -1,16 +1,33 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
+
+import 'bridge.dart';
+import 'cookies.dart';
 
 /// [e] in words a reader understands: no "SocketException" on screen.
 String friendlyError(Object e) {
+  if (e is BlockedAddressException) return e.message;
   if (e is SocketException) return 'Could not reach the site. Check the internet connection.';
   if (e is HandshakeException || e is TlsException) return "The site's secure connection failed.";
   if (e is TimeoutException) return 'The site took too long to answer.';
   if (e is HttpException) return 'The site answered with an error (${e.message}).';
   final s = '$e';
   return s.startsWith('FormatException: ') ? s.substring(17) : s;
+}
+
+/// An address the app will not ask: not a web page (http or https), or one
+/// on the phone itself or the network it is on (a source plugin reaching
+/// for the router, or another app's local server).
+class BlockedAddressException implements Exception {
+  BlockedAddressException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
 }
 
 /// What a source plugin gets back from a request.
@@ -31,7 +48,8 @@ class NetResponse {
 
   bool get ok => status >= 200 && status < 300;
 
-  /// The body as text, in the charset the server named (UTF-8 otherwise).
+  /// The body as text, in the charset the server named (UTF-8 otherwise),
+  /// read here: UTF-8 and Latin-1 only (see [decode] for the rest).
   String text([String? charset]) {
     final named = (charset ?? _charsetOf(headers['content-type']))?.toLowerCase();
     if (named == 'iso-8859-1' || named == 'latin1' || named == 'windows-1252') {
@@ -40,10 +58,56 @@ class NetResponse {
     return utf8.decode(bytes, allowMalformed: true);
   }
 
-  /// A Cloudflare "checking your browser" page instead of the site.
-  bool get isChallenge =>
-      (status == 403 || status == 503) &&
-      (headers['cf-mitigated'] == 'challenge' || headers['server']?.toLowerCase() == 'cloudflare');
+  /// The body as text, in its charset: as [charset] says (a plugin's
+  /// fetchText), else the server, else the page itself (a byte order mark,
+  /// `<meta charset>`, an XML declaration), else UTF-8. UTF-8 and Latin-1
+  /// are read here; every other (GBK, Big5, Shift_JIS, windows-1251, EUC-KR
+  /// and the rest) by the phone, which knows them all (SourcesBridge.decode).
+  /// Without it (tests), UTF-8.
+  Future<String> decode([String? charset]) async {
+    final name = (charset ?? _charsetOf(headers['content-type']) ?? _sniffed())?.toLowerCase().trim();
+    if (name == null || name == 'utf-8' || name == 'utf8') {
+      final skip = bytes.length >= 3 && bytes[0] == 0xef && bytes[1] == 0xbb && bytes[2] == 0xbf ? 3 : 0;
+      return utf8.decode(skip == 0 ? bytes : bytes.sublist(skip), allowMalformed: true);
+    }
+    if (name == 'iso-8859-1' || name == 'latin1' || name == 'us-ascii' || name == 'ascii') {
+      return latin1.decode(bytes, allowInvalid: true);
+    }
+    return await SourcesBridge.decode(bytes, name) ??
+        (name == 'windows-1252' ? latin1.decode(bytes, allowInvalid: true) : utf8.decode(bytes, allowMalformed: true));
+  }
+
+  /// The charset a page names for itself near its start.
+  String? _sniffed() {
+    if (bytes.length >= 2 && bytes[0] == 0xff && bytes[1] == 0xfe) return 'utf-16le';
+    if (bytes.length >= 2 && bytes[0] == 0xfe && bytes[1] == 0xff) return 'utf-16be';
+    final head = latin1.decode(bytes.length > 4096 ? bytes.sublist(0, 4096) : bytes, allowInvalid: true);
+    final m = RegExp(r'''<meta[^>]+charset\s*=\s*["']?\s*([\w.:-]+)''', caseSensitive: false).firstMatch(head) ??
+        RegExp(r'''<\?xml[^>]+encoding\s*=\s*["']([\w.:-]+)''', caseSensitive: false).firstMatch(head);
+    return m?.group(1);
+  }
+
+  /// A Cloudflare "checking your browser" page instead of the site: said by
+  /// its cf-mitigated header, or a 403 or 503 from Cloudflare carrying a
+  /// challenge's own markup (its title is in the reader's language, so it
+  /// is not looked at). A plain 403 from Cloudflare (a page that is gone,
+  /// a blocked country) is the site's answer, not a check.
+  bool get isChallenge {
+    if (headers['cf-mitigated']?.toLowerCase() == 'challenge') return true;
+    if (status != 403 && status != 503) return false;
+    final server = headers['server']?.toLowerCase() ?? '';
+    if (!server.contains('cloudflare') && !headers.containsKey('cf-ray')) return false;
+    final head = latin1.decode(bytes.length > 65536 ? bytes.sublist(0, 65536) : bytes, allowInvalid: true);
+    return challengeMarkup.hasMatch(head);
+  }
+
+  /// What every Cloudflare challenge page carries, whatever its language:
+  /// the challenge platform's script and options, or the old check's form.
+  static final challengeMarkup = RegExp(
+    r'/cdn-cgi/challenge-platform/|_cf_chl_opt|id="challenge-(form|running|stage|error-text)"|'
+    r'cf-browser-verification|id="cf-please-wait"|challenges\.cloudflare\.com',
+    caseSensitive: false,
+  );
 
   static String? _charsetOf(String? contentType) {
     if (contentType == null) return null;
@@ -52,11 +116,81 @@ class NetResponse {
   }
 }
 
+/// Whether [a] is an address on the open internet: not this phone
+/// (loopback), not its own network (private, link-local, carrier-grade
+/// NAT), not multicast, broadcast, reserved or documentation ranges, in
+/// IPv4 or IPv6 (and IPv4 inside IPv6, mapped, translated or 6to4).
+bool isPublicAddress(InternetAddress a) {
+  final b = a.rawAddress;
+  if (b.length == 4) return _publicV4(b);
+  if (b.length != 16) return false;
+  bool zeros(int from, int to) {
+    for (var i = from; i < to; i++) {
+      if (b[i] != 0) return false;
+    }
+    return true;
+  }
+
+  // ::ffff:a.b.c.d (mapped) and ::a.b.c.d (compatible), the latter also
+  // covering :: and ::1.
+  if (zeros(0, 10) && b[10] == 0xff && b[11] == 0xff) return _publicV4(b.sublist(12));
+  if (zeros(0, 12)) return false;
+  // 64:ff9b::/96, NAT64: the IPv4 address it translates to.
+  if (b[0] == 0 && b[1] == 0x64 && b[2] == 0xff && b[3] == 0x9b && zeros(4, 12)) return _publicV4(b.sublist(12));
+  // 2002::/16, 6to4: the IPv4 address it tunnels to.
+  if (b[0] == 0x20 && b[1] == 0x02) return _publicV4(b.sublist(2, 6));
+  if (b[0] == 0xff) return false; // multicast
+  if (b[0] == 0xfe && (b[1] & 0xc0) == 0x80) return false; // link-local fe80::/10
+  if (b[0] == 0xfe && (b[1] & 0xc0) == 0xc0) return false; // site-local fec0::/10
+  if ((b[0] & 0xfe) == 0xfc) return false; // unique local fc00::/7
+  if (b[0] == 0x20 && b[1] == 0x01 && b[2] == 0x0d && b[3] == 0xb8) return false; // documentation
+  if (b[0] == 0x01 && b[1] == 0x00 && zeros(2, 8)) return false; // discard 100::/64
+  return true;
+}
+
+bool _publicV4(List<int> b) {
+  final x = b[0], y = b[1];
+  if (x == 0 || x == 10 || x == 127) return false;
+  if (x == 100 && (y & 0xc0) == 64) return false; // 100.64/10, carrier-grade NAT
+  if (x == 169 && y == 254) return false; // link-local
+  if (x == 172 && (y & 0xf0) == 16) return false; // 172.16/12
+  if (x == 192 && y == 168) return false;
+  if (x == 192 && y == 0 && (b[2] == 0 || b[2] == 2)) return false; // 192.0.0/24, 192.0.2/24
+  if (x == 198 && (y == 18 || y == 19)) return false; // benchmarking
+  if (x == 198 && y == 51 && b[2] == 100) return false; // documentation
+  if (x == 203 && y == 0 && b[2] == 113) return false; // documentation
+  if (x >= 224) return false; // multicast, reserved, broadcast
+  return true;
+}
+
 /// HTTP for sources: one client, a phone browser's User-Agent, and cookies
-/// kept per site (and on disk), so a site that set a cookie once, such as
+/// kept per source (and on disk), so a site that set a cookie once, such as
 /// Cloudflare's clearance, keeps working.
+///
+/// Only web pages are asked for: http and https, on the open internet. The
+/// address a name resolves to is checked when the connection is made, on
+/// every redirect, and connected to as checked (a name that answers with a
+/// public address and then a private one gets nowhere).
+///
+/// Limits: a response is at most [maxBody] unpacked, a request (redirects
+/// and all) at most [maxTime], and at most [perHost] requests go to one
+/// site at a time (more wait their turn).
 class Net {
-  Net._();
+  Net._() {
+    _client
+      ..connectionTimeout = const Duration(seconds: 20)
+      ..autoUncompress = true
+      ..maxConnectionsPerHost = perHost
+      ..findProxy = ((_) => 'DIRECT')
+      ..connectionFactory = _connect;
+  }
+
+  /// Requests to one site at a time, from one isolate (each source's
+  /// requests all come from the one isolate it runs in).
+  static const perHost = 2;
+
+  /// The longest a request may take, from asking to the last byte.
+  static const maxTime = Duration(seconds: 60);
 
   static final instance = Net._();
 
@@ -69,14 +203,61 @@ class Net {
   /// view's, so a browser check passed there holds here too.
   static String userAgent = fallbackUserAgent;
 
-  final _client = HttpClient()
-    ..connectionTimeout = const Duration(seconds: 20)
-    ..autoUncompress = true;
+  /// Tests run their sites on this machine; the app never sets this (the
+  /// source workers are handed it, so tests reach them too).
+  static bool allowPrivateAddresses = false;
 
-  /// host -> cookie name -> value.
-  final _cookies = <String, Map<String, String>>{};
+  final _client = HttpClient();
+
+  /// Cookies by source (see [CookieJar]).
+  final jar = CookieJar();
   File? _cookieFile;
   DateTime? _cookieStamp;
+
+  /// Whether [url] is one the app will ask for: http or https.
+  static bool isWebAddress(String url) {
+    final u = Uri.tryParse(url);
+    return u != null && (u.scheme == 'http' || u.scheme == 'https') && u.host.isNotEmpty;
+  }
+
+  /// The addresses [host] stands for, if every one is on the open internet.
+  static Future<List<InternetAddress>> vet(String host) async {
+    final literal = InternetAddress.tryParse(host);
+    final addresses = literal != null
+        ? [literal]
+        : await InternetAddress.lookup(host).timeout(const Duration(seconds: 20));
+    if (addresses.isEmpty) throw SocketException('No address for $host');
+    if (!allowPrivateAddresses && !addresses.every(isPublicAddress)) {
+      throw BlockedAddressException('$host is not on the open internet, so it is not asked.');
+    }
+    return addresses;
+  }
+
+  /// Every connection the client makes: to the addresses [vet] passed, in
+  /// turn, with TLS for https (the host named for its certificate).
+  static Future<ConnectionTask<Socket>> _connect(Uri uri, String? proxyHost, int? proxyPort) async {
+    if (uri.scheme != 'http' && uri.scheme != 'https') {
+      throw BlockedAddressException('Only web pages can be asked for.');
+    }
+    final addresses = await vet(uri.host);
+    var cancelled = false;
+    Future<Socket> open() async {
+      Object? last;
+      for (final a in addresses) {
+        if (cancelled) break;
+        try {
+          final socket = await Socket.connect(a, uri.port, timeout: const Duration(seconds: 20));
+          if (uri.scheme != 'https') return socket;
+          return await SecureSocket.secure(socket, host: uri.host);
+        } on Object catch (e) {
+          last = e;
+        }
+      }
+      throw last ?? SocketException('Could not reach ${uri.host}');
+    }
+
+    return ConnectionTask.fromSocket(open(), () => cancelled = true);
+  }
 
   /// Keep cookies in [dir] across launches.
   Future<void> attach(Directory dir) async {
@@ -90,10 +271,7 @@ class Net {
     try {
       if (await f.exists()) {
         _cookieStamp = await f.lastModified();
-        final raw = jsonDecode(await f.readAsString()) as Map;
-        for (final e in raw.entries) {
-          (_cookies[e.key as String] ??= {}).addAll(Map<String, String>.from(e.value as Map));
-        }
+        jar.mergeJson(jsonDecode(await f.readAsString()));
       }
     } on Object {
       // A broken cookie file only costs a fresh login.
@@ -116,60 +294,148 @@ class Net {
   /// [attach] by path, for background isolates.
   Future<void> attachPath(String dir) => attach(Directory(dir));
 
+  /// Where a source worker sends the cookies sites set, instead of writing
+  /// the file itself: the main isolate is its one writer (four isolates
+  /// each rewriting it lost cookies, a fresh clearance among them).
+  SendPort? _owner;
+
+  /// Hand cookies to [owner] rather than keep the file (worker isolates).
+  void forwardCookiesTo(SendPort owner) => _owner = owner;
+
+  /// Cookies a worker sent ([forwardCookiesTo]): kept, and saved soon.
+  void takeForwarded(Object? message) {
+    if (message is! Map) return;
+    final part = message['part'];
+    final list = message['cookies'];
+    if (part is! String || list is! List) return;
+    jar.merge([
+      for (final o in list)
+        if (StoredCookie.fromJson(o) case final c?) c,
+    ], partition: part);
+    _saveSoon();
+  }
+
+  Timer? _saveTimer;
+
+  /// Save in a moment: a page that sets ten cookies is one write.
+  void _saveSoon() {
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 300), () => unawaited(_saveCookies()));
+  }
+
+  /// Write the jar, merged with what the file holds now (the background
+  /// check's engine may have written since), beside it and renamed over it.
   Future<void> _saveCookies() async {
+    _saveTimer?.cancel();
     final f = _cookieFile;
-    if (f == null) return;
+    if (f == null || _owner != null) return;
     try {
-      await f.writeAsString(jsonEncode(_cookies));
+      if (await f.exists()) jar.mergeJson(jsonDecode(await f.readAsString()));
+    } on Object {
+      // Unreadable: ours replaces it.
+    }
+    try {
+      final tmp = File('${f.path}.${identityHashCode(this)}.tmp');
+      await tmp.writeAsString(jsonEncode(jar.toJson()), flush: true);
+      await tmp.rename(f.path);
       _cookieStamp = await f.lastModified();
     } on Object {
-      // Next request saves again.
+      // Next change saves again.
     }
   }
 
-  /// Cookies for [host] and its parent domains, as a Cookie header.
-  String? cookieHeader(String host) {
-    final parts = <String>[];
-    for (final e in _cookies.entries) {
-      if (host == e.key || host.endsWith('.${e.key}')) {
-        for (final c in e.value.entries) {
-          parts.add('${c.key}=${c.value}');
-        }
-      }
+  /// Cookies a response to [uri] set, for [partition]: to the owner, or
+  /// saved soon.
+  void _took(Uri uri, List<Cookie> cookies, String partition) {
+    final changed = jar.take(uri, cookies, partition: partition);
+    if (changed.isEmpty) return;
+    final owner = _owner;
+    if (owner != null) {
+      owner.send({
+        'part': partition,
+        'cookies': [for (final c in changed) c.toJson()],
+      });
+    } else {
+      _saveSoon();
     }
-    return parts.isEmpty ? null : parts.join('; ');
   }
 
-  /// Remember cookies a browser view collected for [host].
-  Future<void> setCookies(String host, Map<String, String> cookies) async {
-    (_cookies[_bareHost(host)] ??= {}).addAll(cookies);
+  /// The Cookie header for a request to [url] from [partition] (a source's
+  /// plugin id; '' for the app's own requests).
+  String? cookieHeader(String url, {String partition = ''}) {
+    final u = Uri.tryParse(url);
+    return u == null ? null : jar.headerFor(u, partition: partition);
+  }
+
+  /// Remember cookies a browser view collected for [host], for [partition].
+  Future<void> setCookies(String host, Map<String, String> cookies, {String partition = ''}) async {
+    jar.takeFromBrowser(host, cookies, partition: partition);
     await _saveCookies();
   }
 
-  /// Forget every cookie ("Clear cookies" in settings).
-  Future<void> clearCookies() async {
-    _cookies.clear();
+  /// Forget the cookies of [partition], or every one.
+  Future<void> clearCookies({String? partition}) async {
+    jar.clear(partition: partition);
     await _saveCookies();
   }
 
-  static String _bareHost(String host) => host.startsWith('www.') ? host.substring(4) : host;
+  /// The most a response may hold, unpacked: a page that is more is not a
+  /// page (and must not fill the phone's memory).
+  static const maxBody = 16 << 20;
 
-  /// Make a request. [body] is a String, bytes, or null.
+  /// Make a request. [body] is a String, bytes, or null. [partition]: whose
+  /// cookies go with it and keep what it sets (a source's plugin id).
+  /// [maxBytes]: a longer response is given up on. [timeout]: the longest
+  /// wait for any one step (a connection, the headers, the next piece of
+  /// the body); [total]: the longest for the whole, after which the
+  /// request is cut off rather than left running.
   Future<NetResponse> request(
     String url, {
     String method = 'GET',
     Map<String, String> headers = const {},
     Object? body,
     Duration timeout = const Duration(seconds: 30),
+    Duration total = maxTime,
+    String partition = '',
+    int maxBytes = maxBody,
   }) async {
+    final deadline = DateTime.now().add(total);
+    Duration step() {
+      final left = deadline.difference(DateTime.now());
+      if (left <= Duration.zero) throw TimeoutException('The site took too long to answer.', total);
+      return left < timeout ? left : timeout;
+    }
+
+    HttpClientRequest? open;
+    try {
+      return await _request(url, method, headers, body, partition, maxBytes, step, (r) => open = r);
+    } on TimeoutException {
+      // Cut off, not left to finish in the background.
+      open?.abort();
+      rethrow;
+    }
+  }
+
+  Future<NetResponse> _request(
+    String url,
+    String method,
+    Map<String, String> headers,
+    Object? body,
+    String partition,
+    int maxBytes,
+    Duration Function() step,
+    void Function(HttpClientRequest r) opened,
+  ) async {
     var uri = Uri.parse(url);
     // Follow redirects ourselves so cookies set along the way are kept and
     // POSTs that redirect become GETs, the way browsers do it.
     for (var hop = 0; hop < 8; hop++) {
-      final req = await _client.openUrl(method, uri).timeout(timeout);
+      if (!isWebAddress(uri.toString())) throw BlockedAddressException('Only web pages can be asked for.');
+      final req = await _client.openUrl(method, uri).timeout(step());
+      opened(req);
       req.followRedirects = false;
       req.headers.set(HttpHeaders.userAgentHeader, userAgent);
-      final cookie = cookieHeader(uri.host);
+      final cookie = jar.headerFor(uri, partition: partition);
       if (cookie != null) req.headers.set(HttpHeaders.cookieHeader, cookie);
       req.headers.set(HttpHeaders.acceptLanguageHeader, 'en-US,en;q=0.9');
       if (!headers.keys.any((k) => k.toLowerCase() == 'accept')) {
@@ -188,15 +454,11 @@ class Net {
       } else if (body is List<int>) {
         req.add(body);
       }
-      final res = await req.close().timeout(timeout);
-      final set = <String, String>{};
-      for (final c in res.cookies) {
-        set[c.name] = c.value;
-      }
-      if (set.isNotEmpty) await setCookies(uri.host, set);
+      final res = await req.close().timeout(step());
+      if (res.cookies.isNotEmpty) _took(uri, res.cookies, partition);
       final location = res.headers.value(HttpHeaders.locationHeader);
       if (res.isRedirect && location != null) {
-        await res.drain<void>();
+        await res.drain<void>().timeout(step());
         uri = uri.resolve(location);
         if (res.statusCode != 307 && res.statusCode != 308) {
           method = 'GET';
@@ -205,8 +467,13 @@ class Net {
         continue;
       }
       final builder = BytesBuilder(copy: false);
-      await for (final chunk in res.timeout(timeout)) {
+      // Each piece within the step's time, and all of them by the deadline.
+      await for (final chunk in res.timeout(step())) {
         builder.add(chunk);
+        // Counted as it is unpacked, so a small compressed page that would
+        // inflate to gigabytes stops here.
+        if (builder.length > maxBytes) throw HttpException('The page is too large', uri: uri);
+        step();
       }
       final out = <String, String>{};
       res.headers.forEach((name, values) => out[name.toLowerCase()] = values.join(', '));

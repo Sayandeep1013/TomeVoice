@@ -2,9 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'sources/bridge.dart';
 import 'sources/models.dart';
 import 'sources/net.dart';
+import 'sources/net_image.dart';
+import 'sources/source_engine.dart';
 import 'sources/source_store.dart';
+import 'sources/source_updates.dart';
 import 'theme.dart';
 import 'ui.dart';
 
@@ -22,6 +26,10 @@ class SourcesScreen extends StatefulWidget {
 
 class _SourcesScreenState extends State<SourcesScreen> {
   List<String> _repos = const [];
+
+  /// Lists on http:// addresses, added before only https was taken: not
+  /// read until added again with https.
+  Set<String> _insecure = const {};
   List<PluginInfo> _installed = const [];
   List<PluginInfo> _available = const [];
   Map<String, PluginInfo> _updates = const {};
@@ -55,18 +63,18 @@ class _SourcesScreenState extends State<SourcesScreen> {
   Future<void> _load({bool refresh = false}) async {
     setState(() => _loading = true);
     final repos = await _store.repos();
+    final insecure = await _store.insecureRepos();
     final installed = await _store.installed();
     final available = await _store.available(refresh: refresh);
-    final newest = {for (final p in available) p.id: p};
+    // Each source is updated from the list it came from, never another's.
+    final updates = await _store.updates();
     if (!mounted) return;
     setState(() {
       _repos = repos;
+      _insecure = insecure.toSet();
       _installed = installed;
       _available = available;
-      _updates = {
-        for (final p in installed)
-          if (newest[p.id] != null && p.olderThan(newest[p.id]!)) p.id: newest[p.id]!,
-      };
+      _updates = updates;
       _language ??= _defaultLanguage(available);
       _loading = false;
       _loadedAt ??= DateTime.now();
@@ -113,8 +121,19 @@ class _SourcesScreenState extends State<SourcesScreen> {
   Future<void> _install(PluginInfo p) async {
     setState(() => _busy.add(p.id));
     try {
-      await _store.install(p);
-      if (mounted) showSnack(context, '${p.name} is ready in Browse.');
+      final installed = await _store.install(p);
+      // Tried at once (its first popular page), so a source that does not
+      // work here says so now, not when a novel is wanted from it.
+      final problem = await SourceEngine.instance.smokeTest(installed, _store.codePath(installed.id), installed.sha256!);
+      if (mounted) {
+        showSnack(
+          context,
+          problem == null
+              ? '${p.name} is ready in Browse.'
+              : '${p.name} is installed, but its first page did not load: $problem',
+          long: problem != null,
+        );
+      }
     } on Object catch (e) {
       if (mounted) showSnack(context, '${p.name}: ${_message(e)}', long: true);
     } finally {
@@ -123,9 +142,61 @@ class _SourcesScreenState extends State<SourcesScreen> {
     }
   }
 
+  /// "Update all" while it runs: which source, and how far.
+  String? _updating;
+
+  /// Update [updates] (one, from its row, or all), each kept at the version
+  /// that works (see updateSources), and say what came of it.
+  Future<void> _update(List<PluginInfo> updates) async {
+    if (_updating != null || updates.isEmpty) return;
+    setState(() {
+      _busy.addAll(updates.map((p) => p.id));
+      _updating = 'Getting ready…';
+    });
+    try {
+      final outcomes = await updateSources(_store, SourceEngine.instance, updates, onProgress: (p, done, total) {
+        if (mounted) setState(() => _updating = 'Updating ${p.name} (${done + 1} of $total)…');
+      });
+      if (!mounted) return;
+      final updated = outcomes.where((o) => o.updated).length;
+      final notes = [for (final o in outcomes) if (o.note != null) '${o.plugin.name}: ${o.note}'];
+      showSnack(
+        context,
+        [
+          if (updated > 0) updated == 1 ? 'Updated.' : 'Updated $updated sources.',
+          ...notes,
+        ].join(' '),
+        long: notes.isNotEmpty,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy.removeAll(updates.map((p) => p.id));
+          _updating = null;
+        });
+      }
+      await _load();
+    }
+  }
+
   Future<void> _uninstall(PluginInfo p) async {
     await _store.uninstall(p.id);
     await _load();
+  }
+
+  /// Forget the cookies sites set (sign-ins and browser checks among them),
+  /// the app's and the web view's: every site's, or [p]'s.
+  Future<void> _clearCookies([PluginInfo? p]) async {
+    final ok = await confirm(
+      context,
+      title: p == null ? 'Clear site cookies?' : 'Clear ${p.name}\'s cookies?',
+      body: 'Sites forget you were here: any sign-in ends, and a site with a browser check may ask for it again.',
+      action: 'Clear',
+    );
+    if (!ok) return;
+    await Net.instance.clearCookies(partition: p?.id);
+    await SourcesBridge.clearWebCookies(url: p?.site);
+    if (mounted) showSnack(context, p == null ? 'Site cookies cleared.' : '${p.name}\'s cookies cleared.');
   }
 
   static String _message(Object e) => friendlyError(e);
@@ -155,14 +226,21 @@ class _SourcesScreenState extends State<SourcesScreen> {
                 children: [
                   Expanded(child: ScreenTopBar(title: 'Sources', onBack: () => Navigator.of(context).maybePop())),
                   if (_repos.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(right: Gap.m),
-                      child: RoundButton(
-                        icon: Icons.refresh_rounded,
-                        tooltip: 'Check for updates',
-                        onTap: () => _load(refresh: true),
-                      ),
+                    RoundButton(
+                      icon: Icons.refresh_rounded,
+                      tooltip: 'Check for updates',
+                      onTap: () => _load(refresh: true),
                     ),
+                  Padding(
+                    padding: const EdgeInsets.only(right: Gap.s),
+                    child: PopupMenuButton<String>(
+                      tooltip: 'More',
+                      onSelected: (v) {
+                        if (v == 'cookies') unawaited(_clearCookies());
+                      },
+                      itemBuilder: (_) => const [PopupMenuItem(value: 'cookies', child: Text('Clear site cookies'))],
+                    ),
+                  ),
                 ],
               ),
               Expanded(
@@ -185,9 +263,13 @@ class _SourcesScreenState extends State<SourcesScreen> {
                         ),
                       for (final r in _repos)
                         ListTile(
-                          leading: const Icon(Icons.link_rounded),
+                          leading: Icon(_insecure.contains(r) ? Icons.link_off_rounded : Icons.link_rounded),
                           title: Text(_repoName(r), maxLines: 1, overflow: TextOverflow.ellipsis),
-                          subtitle: Text(r, maxLines: 1, overflow: TextOverflow.ellipsis),
+                          subtitle: Text(
+                            _insecure.contains(r) ? 'Not read: http:// is not safe for code. Add it again with https://' : r,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                           trailing: IconButton(
                             tooltip: 'Remove list',
                             icon: const Icon(Icons.close_rounded),
@@ -202,6 +284,29 @@ class _SourcesScreenState extends State<SourcesScreen> {
                           label: const Text('Add a source list'),
                         ),
                       ),
+                      if (_updates.isNotEmpty) ...[
+                        arrive(_section('Updates', note: '${_updates.length}')),
+                        arrive(Padding(
+                          padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  _updating ??
+                                      'Sites change, and their sources are fixed to match. Each update is tried '
+                                          'first; one that does not work leaves the version you have.',
+                                  style: Skin.label(context, size: 13.5),
+                                ),
+                              ),
+                              const SizedBox(width: Gap.m),
+                              FilledButton.tonal(
+                                onPressed: _updating != null ? null : () => _update([..._updates.values]),
+                                child: const Text('Update all'),
+                              ),
+                            ],
+                          ),
+                        )),
+                      ],
                       if (_installed.isNotEmpty) ...[
                         arrive(_section('Installed', note: '${_installed.length}')),
                         for (final p in _installed) arrive(_installedRow(context, p)),
@@ -275,8 +380,9 @@ class _SourcesScreenState extends State<SourcesScreen> {
           height: 40,
           child: p.iconUrl == null
               ? ColoredBox(color: Skin.raisedOn(context), child: const Icon(Icons.public_rounded))
-              : Image.network(
-                  p.iconUrl!,
+              : Image(
+                  image: ResizeImage.resizeIfNeeded(
+                      (40 * MediaQuery.devicePixelRatioOf(context)).round(), null, NetImage(p.iconUrl!)),
                   fit: BoxFit.cover,
                   errorBuilder: (_, __, ___) =>
                       ColoredBox(color: Skin.raisedOn(context), child: const Icon(Icons.public_rounded)),
@@ -295,13 +401,16 @@ class _SourcesScreenState extends State<SourcesScreen> {
         children: [
           if (update != null)
             TextButton(
-              onPressed: _busy.contains(p.id) ? null : () => _install(update),
+              onPressed: _busy.contains(p.id) || _updating != null ? null : () => _update([update]),
               child: const Text('Update'),
             ),
           PopupMenuButton<String>(
             tooltip: 'Options for ${p.name}',
-            onSelected: (_) => _uninstall(p),
-            itemBuilder: (_) => const [PopupMenuItem(value: 'remove', child: Text('Uninstall'))],
+            onSelected: (v) => v == 'cookies' ? _clearCookies(p) : _uninstall(p),
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'cookies', child: Text('Clear its cookies')),
+              PopupMenuItem(value: 'remove', child: Text('Uninstall')),
+            ],
           ),
         ],
       ),

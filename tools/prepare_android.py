@@ -52,6 +52,10 @@ copied in. The generated project cannot know about any of this:
     one-tap question in Settings > Listening. Fine for the GitHub build; a
     Play build must justify it or leave it out (docs/18).
 
+12. Web novels: WorkManager for the check for new chapters made with the app
+    closed (NovelCheckWorker.kt), and the downloads' data-sync service
+    (DownloadService.kt).
+
 Idempotent: running it twice changes nothing the second time.
 """
 
@@ -73,6 +77,9 @@ APP_LABEL = "TomeVoice"
 MIN_SDK = 26
 TARGET_SDK = 36
 PDFBOX = 'implementation("com.tom-roush:pdfbox-android:2.0.27.0")'
+# Web novels: WorkManager runs the check for new chapters with the app closed
+# (NovelCheckWorker.kt). Apache-2.0 (AndroidX).
+WORK = 'implementation("androidx.work:work-runtime:2.10.0")'
 
 QUERIES_BLOCK = """    <!-- Required since Android 11 for TextToSpeech.getEngines() to see
          installed engines. -->
@@ -137,6 +144,17 @@ EXPORT_PERMISSION = """    <uses-permission android:name="android.permission.FOR
 
 EXPORT_SERVICE = """        <service
             android:name=".AudioExportService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+"""
+
+# Web novels: chapters downloading in the background show their progress and
+# keep the app alive (DownloadService.kt, download_queue.dart).
+DOWNLOAD_PERMISSION = """    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+"""
+
+DOWNLOAD_SERVICE = """        <service
+            android:name=".DownloadService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 """
@@ -309,6 +327,16 @@ def patch_manifest(path: Path, label: str = APP_LABEL) -> str:
         text = text.replace("</application>", WIDGETS + "    </application>", 1)
         notes.append("widgets")
 
+    # Web novels' downloads (DownloadService.kt).
+    if "FOREGROUND_SERVICE_DATA_SYNC" not in text:
+        text, n = re.subn(r"(<manifest\b[^>]*>\n?)", r"\1" + DOWNLOAD_PERMISSION, text, count=1)
+        if n != 1:
+            raise SystemExit("manifest: no <manifest> tag")
+        notes.append("data sync permission")
+    if ".DownloadService" not in text:
+        text = text.replace("</application>", DOWNLOAD_SERVICE + "    </application>", 1)
+        notes.append("download service")
+
     if ".ShareProvider" not in text:
         text = text.replace("</application>", PROVIDER + "    </application>", 1)
         notes.append("share provider")
@@ -412,6 +440,11 @@ def patch_gradle(path: Path, signing: bool, app_id: str = APPLICATION_ID) -> str
         else:
             text = text.rstrip() + "\n\ndependencies {\n    implementation 'com.tom-roush:pdfbox-android:2.0.27.0'\n}\n"
         notes.append("pdfbox")
+
+    # Web novels: the background check for new chapters (NovelCheckWorker.kt).
+    if WORK not in text and path.suffix == ".kts":
+        text = text.rstrip() + f"\n\ndependencies {{\n    {WORK}\n}}\n"
+        notes.append("workmanager")
 
     if 'proguardFiles("proguard-rules.pro")' not in text and path.suffix == ".kts":
         text, n = re.subn(

@@ -57,6 +57,9 @@ flutter:
     # them (tools/lnreader_libs builds the first).
     - assets/js/lnreader_libs.js
     - assets/js/lnreader_shim.js
+    # Web novels: loaded only by the sources that ask for it (protobufjs for
+    # fetchProto, @noble/ciphers for @libs/aes).
+    - assets/js/lnreader_extra.js
     - assets/licenses/third_party.txt
     # The book a new install starts with (public domain; see starter.dart).
     - assets/starter/pride-and-prejudice.epub
