@@ -233,21 +233,6 @@ class SpeechService {
     }
   }
 
-  /// Offer the phone's UPI apps to pay [url] (a `upi://pay` link) with;
-  /// false when there are none.
-  Future<bool> payUpi(String url, {String? title}) async {
-    try {
-      return await _channel.invokeMethod<bool>('payUpi', {'url': url, 'title': title}) ?? false;
-    } on Object {
-      return false;
-    }
-  }
-
-  /// Save a PNG to Pictures/TomeVoice (before Android 10, where the reader
-  /// chooses); false if they cancelled. Throws if it could not be written.
-  Future<bool> saveImage(Uint8List bytes, String name) async =>
-      await _channel.invokeMethod<bool>('saveImage', {'bytes': bytes, 'name': name}) ?? false;
-
   /// Read a NovelDokusha backup zip; the path of the JSON it was turned into.
   Future<String> readNovelDokushaBackup(String path) async {
     final out = await _channel.invokeMethod<String>('readNovelDokushaBackup', {'path': path});
