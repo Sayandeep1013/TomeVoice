@@ -50,3 +50,15 @@ file's `_note` says the same.
 |---|---|---|---|---|
 | `pride-and-prejudice.pdftext.json` | 33 KB | Chapters I to III of *Pride and Prejudice* (1813) as a small printed book, 14 pages: an 1813-style title page, a contents page, chapters opening on a new page with the folio at the foot, running heads with folios (the book on left-hand pages, the chapter on right-hand ones), dialogue set in by an em, words broken at line ends, and an editor's footnote | Standard Ebooks' text of the chapters (https://standardebooks.org/ebooks/jane-austen/pride-and-prejudice); the footnote written for the corpus | Public domain and CC0; the note GPL-3.0 |
 | `selected-fables.pdftext.json` | 22 KB | Seventeen fables as a two-column booklet with bookmarks, 4 pages: a cover, a running head across both columns, folios at the foot ("- 2 -"), titles set larger with little space under them, and one page drawn right column first | Townsend's translation (Gutenberg #21); the cover lines written for the corpus | Public domain; the cover lines GPL-3.0 |
+
+A scan has no text of its own: the app reads its pages with OCR
+(Tesseract, in `Ocr.kt`) and keeps what it read with the book, in the same
+map, as `ocrPdfText` (`app/lib/ocr.dart`) makes it: each page as Tesseract
+reads one (its paragraphs opened by U+2029, its lines kept, page numbers and
+running heads included), an empty layout for every page, the scan's own
+bookmarks, and `ocr` and `ocrPages` for the languages and pages read. Also
+built by a script, not captured from a device.
+
+| File | Size | What it is | Text from | Licence |
+|---|---|---|---|---|
+| `kheya-ghat-scan.pdftext.json` | 5 KB | A short story in Bengali as OCR reads a scan of it, 8 pages: a title page, three chapters each opening on a page with its title under "প্রথম পরিচ্ছেদ" and the like, a running head and Bengali page numbers on the others, a sentence cut by a page, and the bookmarks an image-to-PDF tool writes, one a page named after its picture ("DSC01139.tif") | *খেয়াঘাট* (The Ferry Landing), written for the corpus | GPL-3.0 |

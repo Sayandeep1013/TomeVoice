@@ -18,8 +18,9 @@ const pdfParagraphMark = '\u2029';
 /// and columns from the line layout; 3: paragraphs set in by an indent,
 /// which the extractor ran together, dialogue above all; 4: a title run
 /// into its text, a short chapter's running head, title and contents pages
-/// not read on opening).
-const pdfParserVersion = 4;
+/// not read on opening; 5: a scan's bookmarks named after its pictures, or
+/// one on every page, are not chapters).
+const pdfParserVersion = 5;
 
 /// One outline (bookmark) entry: a title and the 0-based page it points at.
 typedef PdfOutlineEntry = ({String title, int page});
@@ -64,8 +65,13 @@ List<List<int>>? pdfLayoutFromPlatform(Object? raw) {
 /// chapters (Part One, Book II, a volume) rather than being a chapter: a book
 /// in Parts keeps its chapters, and a textbook's "Chapter 3" keeps its
 /// sections to itself. When chapters in different groups share titles
-/// ("Chapter 1" in every Part), each is named with its group's.
+/// ("Chapter 1" in every Part), each is named with its group's. A bookmark
+/// named after a picture is no chapter (see [_bookmarkTitle]).
 List<PdfOutlineEntry> flattenPdfOutline(List<PdfBookmark> bookmarks) {
+  bookmarks = [
+    for (final b in bookmarks)
+      if (_bookmarkTitle(b.title) case final title?) (title: title, page: b.page, level: b.level),
+  ];
   // A bookmark that points nowhere and holds nothing ("How to share this
   // eBook") is no chapter, and does not keep the book's own title from
   // being unwrapped.
@@ -114,6 +120,40 @@ List<PdfOutlineEntry> flattenPdfOutline(List<PdfBookmark> bookmarks) {
         ),
   ];
 }
+
+/// A bookmark's title as a chapter's, or null for a picture's file name.
+///
+/// A scan made by an image-to-PDF tool has a bookmark on every page named
+/// after its picture ("DSC01139.tif", "IMG_2041.JPG", "scan0001"): each was
+/// a chapter, its name shown over the page and read aloud. A PDF joined from
+/// documents has a bookmark for each, named after its file ("Chapter
+/// 1.pdf"): that is a chapter, named without the extension, unless the name
+/// is only a camera's or a scanner's ("scan0001.pdf", "0001.pdf").
+String? _bookmarkTitle(String title) {
+  final t = title.trim();
+  if (_pictureFile.hasMatch(t)) return null;
+  final document = _documentFile.firstMatch(t);
+  final name = document == null ? t : t.substring(0, document.start).trim();
+  if (_cameraName.hasMatch(name) || (document != null && !_letters.hasMatch(name))) return null;
+  return name;
+}
+
+/// A picture's file name.
+final _pictureFile = RegExp(
+  r'\.(tiff?|jpe?g|jpe|jfif|jp2|j2k|png|gif|bmp|webp|heic|heif|avif|psd|pcx|pnm|pbm|pgm|ppm|cr2|nef|dng)$',
+  caseSensitive: false,
+);
+
+/// A document's file name.
+final _documentFile = RegExp(r'\.(pdf|djvu?|docx?|odt|rtf|txt|xps|epub)$', caseSensitive: false);
+
+/// What a camera, a phone or a scanner names a picture: "DSC01139",
+/// "IMG_2041", "IMG-20240501-WA0003", "PXL_20240501_101530", "scan0001",
+/// "P1010001". Three digits at least: "Image 3" may be a chapter.
+final _cameraName = RegExp(
+  r'^(dsc[nf]?|img|imag|image|_mg|pxl|cimg|imgp|sam|sdc|scan|scanned|photo|pict?|p)[\s_-]?\d{3,}[\w-]*$',
+  caseSensitive: false,
+);
 
 /// A bookmark that names a chapter or a numbered section ("Chapter 3",
 /// "3 The Trial", "1.2 Methods"): anything under it is its own sections.
@@ -255,20 +295,46 @@ Book bookFromPdfText({
   }
   close();
 
+  // The platform ends every page with a page break: the empty string after
+  // the last one is not a page.
+  final pageCount = pages.last.isEmpty ? pages.length - 1 : pages.length;
+  final chapters = usable.length >= 2 && !_marksPages(usable, paras, pageCount) ? usable : const <PdfOutlineEntry>[];
+  // A scan can be titled with its first picture's name, as its bookmarks
+  // are; a PDF printed from a document, with the document's file name.
+  final named = title == null ? null : _bookmarkTitle(collapseWhitespace(title));
   return assembleBook(
     id: id,
     metadata: BookMetadata(
-      title: (title ?? '').trim().isNotEmpty
-          ? title!.trim()
-          : (titleFromFilename(filename) ?? 'Untitled PDF'),
+      title: named != null && named.isNotEmpty ? named : (titleFromFilename(filename) ?? 'Untitled PDF'),
       authors: (author ?? '').trim().isEmpty ? const [] : [author!.trim()],
     ),
-    sections: usable.length >= 2
-        ? _sectionsFromOutline(paras, usable)
+    sections: chapters.isNotEmpty
+        ? _sectionsFromOutline(paras, chapters)
         : _sectionsFromHeadings(paras, front: front),
     source: SourceKind.pdf,
     filename: filename,
   );
+}
+
+/// Whether [outline] marks the pages rather than the chapters: a bookmark on
+/// most of the [count] pages and hardly two on one, their titles not printed
+/// on them ("Page 12", "Scan 3", a scanner's names for its pictures). A
+/// chapter a page was a heading over every page, read aloud; the chapters
+/// are found in the text instead. A poem or a slide a page has its title
+/// printed over it, and keeps its bookmarks.
+bool _marksPages(List<PdfOutlineEntry> outline, List<_Para> paras, int count) {
+  if (count < 6) return false;
+  final marked = {for (final o in outline) o.page};
+  if (marked.length * 4 < count * 3 || outline.length * 4 > marked.length * 5) return false;
+  final texts = <int, List<String>>{};
+  for (final p in paras) {
+    if (p.role == null) (texts[p.page] ??= []).add(p.text);
+  }
+  var printed = 0;
+  for (final o in outline) {
+    if (texts[o.page]?.any((t) => _isTitle(t, o.title)) ?? false) printed++;
+  }
+  return printed * 4 < outline.length;
 }
 
 /// How much of a PDF is text. A scan with a few typed pages (a publisher's

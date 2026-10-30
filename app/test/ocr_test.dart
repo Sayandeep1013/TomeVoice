@@ -243,12 +243,13 @@ void main() {
   });
 
   /// A scan read to its end, made into a book in [store]: its job as
-  /// OcrJobs.start leaves one, and its pages as Ocr.kt writes them.
-  Future<LibraryEntry> ocrBook(LibraryStore store, File pdf, {int pages = 12}) async {
+  /// OcrJobs.start leaves one, and its pages as Ocr.kt writes them. [outline]
+  /// is the scan's own bookmarks.
+  Future<LibraryEntry> ocrBook(LibraryStore store, File pdf, {int pages = 12, List<Object?> outline = const []}) async {
     final id = bookIdOf(pdf.readAsBytesSync());
     final dir = Directory('${tmp.path}/ocr/jobs/$id')..createSync(recursive: true);
     final source = pdf.renameSync('${dir.path}/source.pdf');
-    File('${dir.path}/pdf.json').writeAsStringSync(jsonEncode(scanText(pages)));
+    File('${dir.path}/pdf.json').writeAsStringSync(jsonEncode({...scanText(pages), 'outline': outline}));
     File('${dir.path}/job.json').writeAsStringSync(jsonEncode({
       'id': id,
       'name': 'The Lantern Keeper.pdf',
@@ -347,6 +348,27 @@ void main() {
       final layout = await store.loadLayout(entry.id);
       expect(layout.units.map((u) => u.text).join(' '), contains('lighthouse'));
       expect(layout.chapters.length, greaterThanOrEqualTo(3));
+    });
+
+    test("a scan's bookmarks, a picture's name on every page, are not its chapters", () async {
+      // As an image-to-PDF tool makes a scan: a bookmark a page, named after
+      // the page's picture. Each was a chapter, its name over the page.
+      final pdf = picked('kheya.pdf', utf8.encode('%PDF-1.4 a scan, a bookmark a page'));
+      final entry = await ocrBook(store, pdf, outline: [
+        for (var p = 0; p < 12; p++) {'title': 'DSC0${1139 + p}.tif', 'page': p, 'level': 0},
+      ]);
+      List<String> chapters(ReadingLayout l) => [for (var c = 0; c < l.chapters.length; c++) l.chapterTitle(c)];
+      final layout = await store.loadLayout(entry.id);
+      expect(chapters(layout), [contains('Birch Road'), contains('Fern Road'), contains('Juniper Road')]);
+      expect(layout.units.map((u) => u.text).join(' '), isNot(contains('DSC0')));
+
+      // A book made from the same scan by an older PDF reader, its pictures'
+      // names its chapters, is made again from the text OCR gave it.
+      final index = File('${tmp.path}/library.json');
+      index.writeAsStringSync(index.readAsStringSync().replaceAll('"pdfParser": $pdfParserVersion', '"pdfParser": 4'));
+      final again = LibraryStore(tmp);
+      expect(chapters(await again.loadLayout(entry.id)), [contains('Birch Road'), contains('Fern Road'), contains('Juniper Road')]);
+      expect((await again.list()).single.pdfParser, pdfParserVersion);
     });
 
     test('opened again, or made by a newer PDF reader, it is never read again', () async {

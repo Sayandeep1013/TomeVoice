@@ -359,6 +359,74 @@ void main() {
       expect(titles(outline), ['Chapter 1 Cells', '2 Tissues']);
     });
 
+    test("a scan's bookmarks named after its pictures are not chapters", () {
+      // An image-to-PDF tool's bookmark on every page, named after the page's
+      // picture: each was a chapter, its name over the page and read aloud.
+      final outline = pdfOutlineFromPlatform([
+        for (var p = 0; p < 4; p++) {'title': 'DSC0${1139 + p}.tif', 'page': p, 'level': 0},
+        {'title': 'IMG_2041.JPG', 'page': 4, 'level': 0},
+        {'title': 'IMG-20240501-WA0003', 'page': 5, 'level': 0},
+        {'title': 'PXL_20240501_101530123', 'page': 6, 'level': 0},
+        {'title': 'scan0001.pdf', 'page': 7, 'level': 0},
+        {'title': '0009.pdf', 'page': 8, 'level': 0},
+        {'title': 'page_010.png', 'page': 9, 'level': 0},
+      ]);
+      expect(outline, isEmpty);
+    });
+
+    test('a PDF joined from files keeps a chapter for each, named without the extension', () {
+      final outline = pdfOutlineFromPlatform([
+        {'title': 'Chapter 1.pdf', 'page': 0, 'level': 0},
+        {'title': 'The Storm.PDF', 'page': 9, 'level': 0},
+        {'title': 'Image 3', 'page': 12, 'level': 0},
+        {'title': '1914', 'page': 15, 'level': 0},
+      ]);
+      expect(titles(outline), ['Chapter 1', 'The Storm', 'Image 3', '1914']);
+    });
+
+    test("a scan titled with its first picture's name is named by its file", () {
+      final pages = [_page([_prose(0), _prose(1)])];
+      String titled(String? title) =>
+          ingestPdfText(id: 'x', pages: pages, title: title, filename: 'Sonar Tori.pdf').metadata.title;
+      expect(titled('DSC01139.tif'), 'Sonar Tori');
+      expect(titled('IMG_2041'), 'Sonar Tori');
+      expect(titled('  '), 'Sonar Tori');
+      expect(titled('The Harbour Book.docx'), 'The Harbour Book');
+      expect(titled('The Harbour Book'), 'The Harbour Book');
+    });
+
+    test('a bookmark on every page, its title not printed there, marks the page, not a chapter', () {
+      // A scanned book with "Page 1" to "Page 12" in its bookmarks, and its
+      // chapters printed in its text.
+      final pages = [
+        for (var p = 0; p < 12; p++)
+          _page([
+            if (p % 4 == 0) ['CHAPTER ${['I', 'II', 'III'][p ~/ 4]}.'],
+            _prose(p),
+            _prose(p + 12),
+          ]),
+      ];
+      final book = ingestPdfText(id: 'x', pages: pages, outline: [
+        for (var p = 0; p < 12; p++) (title: 'Page ${p + 1}', page: p),
+      ]);
+      expect(_titles(book), ['Chapter I', 'Chapter II', 'Chapter III']);
+    });
+
+    test('a poem a page, its title printed over it, keeps its bookmarks', () {
+      const poems = ['The Lantern', 'Low Water', 'The Salt Road', 'Gulls', 'The Ford', 'Night Boats', 'Driftwood'];
+      final pages = [
+        for (var p = 0; p < poems.length; p++)
+          _page([
+            [poems[p]],
+            _prose(p),
+          ]),
+      ];
+      final book = ingestPdfText(id: 'x', pages: pages, outline: [
+        for (var p = 0; p < poems.length; p++) (title: poems[p], page: p),
+      ]);
+      expect(_titles(book), poems);
+    });
+
     test('bookmarks without levels, from an older extractor, read as before', () {
       final outline = pdfOutlineFromPlatform([
         {'title': 'Intro', 'page': 0},

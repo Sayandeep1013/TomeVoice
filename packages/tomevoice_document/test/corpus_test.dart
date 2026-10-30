@@ -486,6 +486,26 @@ final _corpus = <String, List<_Check>>{
       }
     }),
   ],
+
+  // Recorded OCR output: a scan in Bengali as Tesseract read it, kept as
+  // the app keeps it, with the bookmarks the image-to-PDF tool wrote: one a
+  // page, named after the page's picture.
+  'kheya-ghat-scan.pdftext.json': [
+    _check("the pictures' names in the bookmarks are not chapters; the printed chapters are", (r) {
+      expect(r.chapters, ['প্রথম পরিচ্ছেদ: হরিপদ মাঝি', 'দ্বিতীয় পরিচ্ছেদ: বর্ষার রাত', 'তৃতীয় পরিচ্ছেদ: ভোরের নৌকা']);
+      expect(r.text, isNot(contains('DSC')));
+      expect(r.chapters, everyElement(isNot(contains('.tif'))));
+    }),
+    _check('opens on the first chapter; the running head and page numbers are not read', (r) {
+      expect(r.spoken.first, 'প্রথম পরিচ্ছেদ');
+      expect(r.spoken, isNot(contains('খেয়াঘাট')));
+      expect(r.spoken.where((s) => RegExp('^[০-৯]+\$').hasMatch(s)), isEmpty);
+    }),
+    _check('read as Bengali; a sentence a page break cut is whole', (r) {
+      expect(r.book.metadata.language, 'bn');
+      expect(r.spoken, contains('হাটের দিনে ঘাটে ভিড় হতো খুব বেশি।'));
+    }),
+  ],
 };
 
 void main() {
