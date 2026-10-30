@@ -409,18 +409,23 @@ class DownloadQueue {
       return;
     }
     final now = _running.values.firstOrNull;
-    final title = now == null ? 'Downloading chapters' : (_titles[now.bookId] ?? 'Downloading chapters');
+    // A novel on a secret shelf is never named here, nor its chapter, the
+    // shelf open or not: the notification shows on the lock screen, and
+    // stays once the app is left and the shelf shuts. Nor is one before its
+    // shelf is known (its title is found with the library's index).
+    final title = now == null ? null : _titles[now.bookId];
+    final shown = now != null && title != null && !(_store?.isSecret(now.bookId) ?? true) ? (title, now.name) : null;
     unawaited(SourcesBridge.downloadProgress({
-      'title': title,
-      'text': now == null ? '$waiting to go' : '${now.name} · $waiting to go',
+      'title': shown?.$1 ?? 'Downloading chapters',
+      'text': shown == null ? '$waiting to go' : '${shown.$2} · $waiting to go',
       'done': _done,
       'total': _done + waiting,
     }));
-    if (now != null && !_titles.containsKey(now.bookId)) unawaited(_title(now.bookId));
+    if (now != null && title == null) unawaited(_title(now.bookId));
   }
 
-  /// Novel titles for the notification (none for one on a secret shelf
-  /// while the shelves are shut).
+  /// Novel titles for the notification, found with the library's index
+  /// (never shown for one on a secret shelf).
   final _titles = <String, String>{};
 
   Future<void> _title(String bookId) async {
@@ -428,7 +433,7 @@ class DownloadQueue {
     if (store == null) return;
     final e = (await store.list(all: true)).where((e) => e.id == bookId).firstOrNull;
     if (e == null) return;
-    _titles[bookId] = store.isSecret(bookId) && !LibraryStore.secretOpen.value ? 'Downloading chapters' : e.title;
+    _titles[bookId] = e.title;
     _notify();
   }
 }

@@ -6,6 +6,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_spike/download_queue.dart';
 import 'package:tomevoice_spike/library_store.dart';
@@ -57,6 +58,8 @@ PluginInfo _plugin(String id) =>
     PluginInfo(id: id, name: 'Site $id', site: 'https://$id.test/', lang: 'English', version: '1', url: 'https://x/$id.js');
 
 void main() {
+  // The notification's channel (the platform answers nothing here).
+  TestWidgetsFlutterBinding.ensureInitialized();
   late Directory tmp;
   late LibraryStore store;
   late _Sites sites;
@@ -193,5 +196,35 @@ void main() {
     await q.resume();
     await until(() => store.downloadedChapters(a).isNotEmpty);
     expect(store.downloadedChapters(a), {3});
+  });
+
+  test("the notification names a novel and its chapter, but never a secret shelf's, open or not", () async {
+    final shown = <Map<Object?, Object?>>[];
+    const channel = MethodChannel('tomevoice/sources');
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'downloadProgress' && call.arguments is Map) shown.add(call.arguments as Map);
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final (open, oc) = await novel('a', 'shown', 2);
+    final hidden = (await store.addWebNovel(
+            _plugin('b'),
+            SourceNovel(path: 'hush', name: 'Hush Hush', chapters: [
+              for (var i = 1; i <= 2; i++) ChapterItem(name: 'The Hush Chapter $i', path: 'hush/$i'),
+            ])))
+        .id;
+    final shelf = await store.addCategory('Hidden', secret: true);
+    await store.moveBooks({hidden}, shelf.id);
+    LibraryStore.secretOpen.value = true;
+    addTearDown(() => LibraryStore.secretOpen.value = false);
+    final q = queue(pace: const Duration(milliseconds: 60));
+    await q.attach(store);
+    await q.add(open, oc);
+    await q.add(hidden, [for (var i = 1; i <= 2; i++) ChapterItem(name: 'The Hush Chapter $i', path: 'hush/$i')]);
+    await until(() => q.of(open) == null && q.of(hidden) == null);
+    final said = [for (final m in shown) '${m['title']} ${m['text']}'];
+    expect(said.any((s) => s.contains('Novel shown') && s.contains('Chapter')), isTrue, reason: 'an open one is named');
+    expect(said.where((s) => s.contains('Hush')), isEmpty);
   });
 }
