@@ -320,6 +320,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
   /// the shelf unless [fromShelf] is false.
   Future<void> _showBook(LibraryEntry entry, {bool fromShelf = true}) async {
     FocusManager.instance.primaryFocus?.unfocus();
+    if (!await SecretShelf.mayShow(context, _store, entry.id) || !mounted) return;
     // A web novel's page lists every chapter on the site, not only the ones
     // fetched so far.
     if (entry.isWeb) {
@@ -342,6 +343,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
 
   /// Straight into the reader, at the saved place.
   Future<void> _resume(LibraryEntry entry, {bool autoplay = false}) async {
+    if (!await SecretShelf.mayShow(context, _store, entry.id) || !mounted) return;
     await openBook(context, _store, entry, autoplay: autoplay);
     await _refresh();
   }
