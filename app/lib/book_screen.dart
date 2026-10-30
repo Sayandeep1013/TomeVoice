@@ -7,6 +7,8 @@ import 'book_actions.dart';
 import 'book_card.dart';
 import 'book_search.dart';
 import 'book_tint.dart';
+import 'cast.dart';
+import 'cast_sheet.dart';
 import 'chapter_finder.dart';
 import 'export_audio_sheet.dart';
 import 'fast_scroller.dart';
@@ -16,6 +18,7 @@ import 'listen_sheet.dart';
 import 'prefs.dart';
 import 'reader_screen.dart';
 import 'rules_screen.dart';
+import 'speakers.dart' show Character;
 import 'speech_service.dart';
 import 'theme.dart';
 import 'ui.dart';
@@ -41,6 +44,10 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
   ReadingCursor _cursor = ReadingCursor.zero;
   Object? _error;
   bool _blurbOpen = false;
+
+  /// Who the book's speech tags name, once found (none for a book with no
+  /// dialogue, or not in English).
+  List<Character> _people = const [];
 
   /// The list holding the chapters, for the fast scroller beside them.
   final _scroll = ScrollController();
@@ -90,6 +97,10 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
         _cursor = cursor;
         _index = idx;
       });
+      // Who speaks in it, found off the screen's isolate: the Characters
+      // entry appears when anyone does.
+      final people = await bookCharacters(_entry.id, layout);
+      if (mounted && people.isNotEmpty) setState(() => _people = people);
     } on Object catch (e) {
       if (mounted) setState(() => _error = e);
     }
@@ -252,7 +263,20 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
       ),
       SliverPadding(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
-        sliver: SliverToBoxAdapter(child: _voice(context)),
+        sliver: SliverToBoxAdapter(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _voice(context),
+              growIn(
+                context,
+                _people.isEmpty
+                    ? null
+                    : Padding(padding: const EdgeInsets.only(top: Gap.s), child: _characters(context)),
+              ),
+            ],
+          ),
+        ),
       ),
       SliverPadding(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
@@ -591,6 +615,52 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                           : v == null
                               ? 'No ${languageName(_language)} voice yet'
                               : '${v.languageLabel} · ${_catalog.friendlyName(v)} · $speed×',
+                      style: Skin.ui(size: 15.5, weight: FontWeight.w600, color: Skin.inkOn(context)),
+                    ),
+                  ],
+                ),
+              ),
+              Text('Change', style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentSoftOf(context))),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The book's characters, and the voices their lines are read in: under
+  /// its voice, once its speech tags have named anyone.
+  Widget _characters(BuildContext context) {
+    final summary = castSummary(_prefs.castByBook[_entry.id]);
+    final n = _people.length;
+    return Material(
+      color: Skin.capsuleOn(context),
+      borderRadius: BorderRadius.circular(Radii.row + 4),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(Radii.row + 4),
+        onTap: () => showCastSheet(
+          context,
+          bookId: _entry.id,
+          title: _entry.title,
+          people: _people,
+          listen: _listen,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Gap.l, vertical: 14),
+          child: Row(
+            children: [
+              Icon(Icons.groups_outlined, color: Skin.accentOf(context)),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Eyebrow('Characters'),
+                    const SizedBox(height: 2),
+                    Text(
+                      summary ?? '$n ${n == 1 ? 'speaks' : 'speak'}, all in the dialogue voice',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: Skin.ui(size: 15.5, weight: FontWeight.w600, color: Skin.inkOn(context)),
                     ),
                   ],

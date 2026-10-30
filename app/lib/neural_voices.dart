@@ -842,7 +842,12 @@ class NeuralEngine {
   /// for it (about 6 GB), so a natural narrator and a natural dialogue voice
   /// do not take turns reloading at every quote (a second or two each, more
   /// for HD); one elsewhere.
-  late final int slots = slotsFor(_memTotalKb());
+  int get slots => slotsForTests ?? _slots;
+  late final int _slots = slotsFor(_memTotalKb());
+
+  /// [slots] for a test's phone.
+  @visibleForTesting
+  int? slotsForTests;
 
   /// Whether two natural voices (a narrator and a dialogue voice) can stay
   /// loaded together on this phone.

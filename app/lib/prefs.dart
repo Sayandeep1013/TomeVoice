@@ -8,6 +8,7 @@ import 'package:tomevoice_audio/tomevoice_audio.dart';
 
 import 'folders.dart';
 import 'safe_file.dart';
+import 'speakers.dart' show BookCast;
 import 'theme.dart';
 
 /// What the reader chose, remembered across books and launches: voice and
@@ -19,6 +20,7 @@ class ListeningPrefs {
     Map<String, String>? voiceByLanguage,
     Map<String, String>? voiceByBook,
     Map<String, String>? dialogueByBook,
+    Map<String, BookCast>? castByBook,
     Map<String, double>? pitchByVoice,
     Map<String, double>? speedByBook,
     Map<String, int>? highlightOffsetMs,
@@ -69,6 +71,7 @@ class ListeningPrefs {
         voiceByLanguage = voiceByLanguage ?? {},
         voiceByBook = voiceByBook ?? {},
         dialogueByBook = dialogueByBook ?? {},
+        castByBook = castByBook ?? {},
         pitchByVoice = pitchByVoice ?? {},
         speedByBook = speedByBook ?? {},
         highlightOffsetMs = highlightOffsetMs ?? {},
@@ -91,6 +94,20 @@ class ListeningPrefs {
   /// Book id -> the voice its dialogue (words in quotation marks) is read
   /// in, when not the narrator's.
   final Map<String, String> dialogueByBook;
+
+  /// Book id -> its characters and the voices they are read in, for a book
+  /// whose characters were given any (see BookCast). Kept here with the
+  /// book's other voices, so a backup carries it as it carries them.
+  final Map<String, BookCast> castByBook;
+
+  /// Keep [cast] for [book]; one that gives nobody a voice is not kept.
+  void setCast(String book, BookCast? cast) {
+    if (cast == null || !cast.anyVoice) {
+      castByBook.remove(book);
+    } else {
+      castByBook[book] = cast;
+    }
+  }
 
   /// Voice name -> its pitch in semitones, for the voices given one. Each
   /// voice keeps its own: on Google's voices any pitch but 0 makes Google
@@ -349,6 +366,7 @@ class ListeningPrefs {
         'voiceByLanguage': voiceByLanguage,
         'voiceByBook': voiceByBook,
         'dialogueByBook': dialogueByBook,
+        if (castByBook.isNotEmpty) 'castByBook': {for (final e in castByBook.entries) e.key: e.value.toJson()},
         'pitchByVoice': pitchByVoice,
         'speedByBook': speedByBook,
         'highlightOffsetMs': highlightOffsetMs,
@@ -412,6 +430,10 @@ class ListeningPrefs {
         voiceByBook: {
           for (final e in (json['voiceByBook'] as Map? ?? const {}).entries)
             e.key.toString(): e.value.toString(),
+        },
+        castByBook: {
+          for (final e in (json['castByBook'] is Map ? json['castByBook'] as Map : const {}).entries)
+            if (BookCast.fromJson(e.value) case final cast? when cast.anyVoice) '${e.key}': cast,
         },
         pitchByVoice: {
           for (final e in (json['pitchByVoice'] as Map? ?? const {}).entries)

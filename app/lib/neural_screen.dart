@@ -207,6 +207,9 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
     p.voiceByBook.removeWhere((_, v) => names.contains(v));
     p.voiceByLanguage.removeWhere((_, v) => names.contains(v));
     p.dialogueByBook.removeWhere((_, v) => names.contains(v));
+    for (final book in [...p.castByBook.keys]) {
+      p.setCast(book, p.castByBook[book]!.without(names));
+    }
     p.save();
   }
 

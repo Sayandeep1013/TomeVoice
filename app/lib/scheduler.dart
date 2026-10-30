@@ -32,6 +32,19 @@ class WordMark {
   int get hashCode => Object.hash(unit, start, end);
 }
 
+/// The voices a book's cast gives its characters (cast.dart): who says the
+/// words in quotation marks in each sentence, in the voice chosen for them.
+abstract interface class SpeakerVoices {
+  /// The voice for unit [unit]'s quotations: the one its speaker is given,
+  /// or null for the dialogue voice. A Future the first time a stretch of
+  /// the book is read for it; at once after.
+  FutureOr<String?> voiceAt(int unit);
+
+  /// Every voice the cast reads with now: a natural one stays loaded
+  /// between its character's lines.
+  Iterable<String> get voices;
+}
+
 class _Chunk {
   _Chunk(this.unit, this.start, this.speechFrames, this.totalFrames, this.timings, this.levels, this.pcm);
   final int unit;
@@ -72,6 +85,7 @@ class PlaybackScheduler {
     this.pitchOf,
     this.quoteOpenAt,
     this.fallbackVoiceOf,
+    this.speakers,
   });
 
   final SpeechService service;
@@ -105,6 +119,22 @@ class PlaybackScheduler {
   /// natural voice fails (docs/04 section 4.9), rather than sentences being
   /// skipped and the book stopping.
   final String? Function()? fallbackVoiceOf;
+
+  /// The book's cast: its characters' lines in voices of their own. Null
+  /// (or a cast that gives nobody a voice) reads every quotation in the
+  /// dialogue voice, exactly as before.
+  final SpeakerVoices? speakers;
+
+  /// The voice for the words in quotation marks in unit [i]: the one the
+  /// book's cast gives whoever says them (the narrator's, for a character
+  /// read in it), else the dialogue voice. Saving as audio makes each
+  /// sentence with this, as reading aloud does.
+  Future<String?> quoteVoiceAt(int i) async {
+    final dialogue = dialogueVoiceOf?.call();
+    final cast = speakers;
+    if (cast == null) return dialogue;
+    return await cast.voiceAt(i) ?? dialogue;
+  }
 
   final state = ValueNotifier<PlayState>(PlayState.idle);
   final unit = ValueNotifier<int>(0);
@@ -528,9 +558,10 @@ class PlaybackScheduler {
       "that works offline (or download this language's voice in the phone's speech settings).";
 
   /// A natural voice in this sentence failed: the phone's voice reads from
-  /// here (a natural dialogue voice gives way to the narrator's), with a
-  /// line on screen saying why. False when there is nothing to fall back to.
-  bool _fallBack(String? narrator, String? dialogue, Object e) {
+  /// here (a natural dialogue voice gives way to the narrator's, and a
+  /// character's to the dialogue voice), with a line on screen saying why.
+  /// False when there is nothing to fall back to.
+  bool _fallBack(String? narrator, String? dialogue, Object e, {bool character = false}) {
     final natural = [
       if (isNeural(narrator) && !_failed.contains(narrator)) narrator!,
       if (isNeural(dialogue) && !_failed.contains(dialogue)) dialogue!,
@@ -542,7 +573,9 @@ class PlaybackScheduler {
     debugPrint('TomeVoice: $name failed ($e); reading on in the phone\'s voice');
     notice.value = natural.contains(narrator)
         ? "$name could not speak on this phone, so the phone's own voice reads on."
-        : '$name could not speak on this phone, so the narrator reads the dialogue too.';
+        : character
+            ? "$name could not speak on this phone, so its character's lines are read in the dialogue voice."
+            : '$name could not speak on this phone, so the narrator reads the dialogue too.';
     return true;
   }
 
@@ -551,7 +584,7 @@ class PlaybackScheduler {
     var retries = 0;
     while (gen == _gen) {
       if (_next >= units.length) break;
-      final ahead = _queuedEnd - _position;
+      var ahead = _queuedEnd - _position;
       if (_chunks.isNotEmpty && ahead > _rate * _ahead.inSeconds) {
         // Full: wait for the head to make room, without polling.
         await (_room ??= Completer<void>()).future;
@@ -567,6 +600,22 @@ class PlaybackScheduler {
         _next = i + 1;
         continue;
       }
+      // The voice the book's cast gives whoever says this sentence's
+      // quotations. Its stretch of the book is read for it once, on
+      // another isolate, a chapter ahead; a book with no cast waits for
+      // nothing here.
+      final cast = speakers;
+      String? character;
+      if (cast != null) {
+        final asked = cast.voiceAt(i);
+        if (asked is Future<String?>) {
+          character = await asked;
+          if (gen != _gen) return;
+          ahead = _queuedEnd - _position;
+        } else {
+          character = asked;
+        }
+      }
       // Little queued for the time this sentence will take (starting, or
       // the voice catching up): make it at full priority. Well ahead, with
       // twice that to spare and a second and a half more: let the screen
@@ -581,10 +630,20 @@ class PlaybackScheduler {
       if (_failed.contains(narrator)) narrator = fallbackVoiceOf?.call() ?? narrator;
       var dialogue = dialogueVoiceOf?.call();
       if (_failed.contains(dialogue) || dialogue == narrator) dialogue = null;
+      // Who says the words in quotation marks: the character's own voice
+      // (none, for one read in the narrator's), else the dialogue voice.
+      var quoted = dialogue;
+      if (character != null && !_failed.contains(character)) quoted = character == narrator ? null : character;
       // A natural voice switched away from (or one that failed) is let go
-      // now, before another loads, not minutes later.
+      // now, before another loads, not minutes later. The cast's stay: each
+      // is admitted only while the phone holds them all (cast.dart).
       NeuralEngine.instance.keepOnly([
-        for (final v in [narrator, dialogue])
+        for (final v in [
+          narrator,
+          dialogue,
+          if (quoted != dialogue) quoted,
+          if (cast != null) ...cast.voices.where((v) => !_failed.contains(v)),
+        ])
           if (neuralVoiceFor(v) case final natural?) natural,
       ]);
       try {
@@ -592,10 +651,10 @@ class PlaybackScheduler {
           service: service,
           text: text,
           settings: settingsFor(text),
-          open: dialogue == null ? null : quoteOpenAt?.call(i),
+          open: quoted == null ? null : quoteOpenAt?.call(i),
           engineId: engineIdOf(),
           narrator: narrator,
-          dialogue: dialogue,
+          dialogue: quoted,
           pitchOf: pitchOf,
           pauseAfterMs: () => pauseAfter(i),
           levelDb: _levelDb,
@@ -665,7 +724,7 @@ class PlaybackScheduler {
         // A natural voice that cannot speak (a broken download, too little
         // memory, its worker gone): the same sentence again in the phone's
         // voice, not skipped.
-        if (_fallBack(narrator, dialogue, e)) continue;
+        if (_fallBack(narrator, quoted, e, character: quoted != dialogue)) continue;
         failures++;
         _next = i + 1;
         if (failures >= 3) {
@@ -787,12 +846,14 @@ class PlaybackScheduler {
 }
 
 /// One sentence as reading aloud makes it: said by [narrator] (words in
-/// quotation marks by [dialogue], when the book has a dialogue voice), at
-/// the speed and pitch in [settings], then through the pipeline with the
-/// reader's word gap, punctuation pauses and loudness, with [pauseAfterMs]
-/// of silence after it. The scheduler makes every sentence it reads this
-/// way, and saving a book as audio (export_audio.dart) every sentence it
-/// writes, so what is saved is what is heard.
+/// quotation marks by [dialogue]: the voice the book's cast gives whoever
+/// says them, else the book's dialogue voice, when it has one), at the
+/// speed and pitch in [settings] ([pitchOf] gives each voice its own), then
+/// through the pipeline with the reader's word gap, punctuation pauses and
+/// loudness, with [pauseAfterMs] of silence after it. The scheduler makes
+/// every sentence it reads this way, and saving a book as audio
+/// (export_audio.dart, with [PlaybackScheduler.quoteVoiceAt]) every
+/// sentence it writes, so what is saved is what is heard.
 ///
 /// [settings] are the listening settings for [text]; [open] whether a
 /// quotation is already open where the sentence begins, when that is

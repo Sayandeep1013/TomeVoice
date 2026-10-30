@@ -256,7 +256,9 @@ class _SaveSheetState extends State<_SaveSheet> {
     final settings = _voice.settingsFor('');
     final narrator = _voice.voiceNameOf();
     final dialogue = _voice.dialogueVoiceOf?.call();
-    final natural = isNeural(narrator) || isNeural(dialogue);
+    // The voices the book's cast gives its characters (cast.dart).
+    final cast = {...?_voice.speakers?.voices}..removeAll([narrator, dialogue]);
+    final natural = isNeural(narrator) || isNeural(dialogue) || cast.any(isNeural);
     final short = _free >= 0 && _free < spaceWanted(bytes);
     final tooLong = length > maxExportLength;
     final faint = Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context)).copyWith(height: 1.4);
@@ -325,6 +327,7 @@ class _SaveSheetState extends State<_SaveSheet> {
               Icons.record_voice_over_outlined,
               'Read by ${_voiceLabel(narrator)}'
               '${dialogue == null || dialogue == narrator ? '' : ', the dialogue by ${_voiceLabel(dialogue)}'}'
+              '${cast.isEmpty ? '' : ', its characters in ${cast.length == 1 ? 'a voice' : 'voices'} of their own'}'
               ' at ${trimSpeed(settings.speedScale)}×, with your word gap, pauses and pronunciations: '
               'the current voice and settings, as you hear them.',
             ),

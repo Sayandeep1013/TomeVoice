@@ -8,6 +8,7 @@ Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoi
 On the `next` branch, waiting for a phone check:
 
 - **Save as audio:** a chapter, or a whole book as an M4B audiobook with its chapters marked, or as an MP3 with its chapters too. Swiped away from Recents, it goes on saving.
+- **A voice for each character** (experimental): a book's page lists who speaks in it, found from its speech tags, and each one's lines can have a voice of their own, aloud and in Save as audio. English books; a line it cannot place stays in the dialogue voice.
 - **Reading from outside the app:** swiped away from Recents, the book reads on; the media card and a headset's Play pick it up with the app closed; Android Auto lists your books. Battery help in Settings → Listening.
 - **Web novels that look after themselves:** new chapters checked with the app closed, a download queue that keeps going, each site in its own sandbox off your home network with its code checked, and a changed chapter list never deletes downloads.
 - **More for web novels:** move a novel to another source with its place, downloads, quotes and read marks; mark chapters read or unread, or all above one; export the downloaded chapters as an EPUB; sign in to a source's site; new chapters that download by themselves for the novels you choose (on Wi-Fi only, unless you say otherwise); and new-chapter notifications with TomeVoice left in the background too. NovelUpdates has no API for apps, so it gets a link to find each novel there, not tracking.
