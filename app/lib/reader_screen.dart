@@ -698,6 +698,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   Route<void>? _nowPlaying;
   NavigatorState? _nowPlayingNav;
 
+  /// Now Playing's screen, for where a message sits over it (see
+  /// [_snackMargin]); a new key each time it opens.
+  GlobalKey _nowPlayingKey = GlobalKey();
+
   /// Redraws the sleep countdown in the player bar.
   Timer? _sleepTick;
 
@@ -1521,7 +1525,42 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       : (_barKey.currentContext?.findRenderObject() as RenderBox?)?.size.height ?? 0;
 
   void _snack(String text) {
-    if (mounted) showSnack(context, text, lift: _barLift);
+    if (mounted) showSnack(context, text, margin: _snackMargin);
+  }
+
+  /// Where a message floats: above the player, or at the foot while the
+  /// bars are away. With Now Playing open over the page, above its scrubber
+  /// instead, over the fade at the foot of its text and across its panel
+  /// only: the player's height put it over Now Playing's own controls.
+  EdgeInsets get _snackMargin {
+    final open = _nowPlaying;
+    final now = _nowPlayingKey.currentContext;
+    if (open != null && open.isActive && now != null) {
+      RenderBox? scrubber;
+      void find(Element e) {
+        if (scrubber != null) return;
+        if (e.widget is ChapterScrubber) {
+          scrubber = e.findRenderObject() as RenderBox?;
+        } else {
+          e.visitChildren(find);
+        }
+      }
+
+      now.visitChildElements(find);
+      final box = scrubber;
+      if (box != null && box.hasSize && box.attached) {
+        final at = box.localToGlobal(Offset.zero);
+        final screen = MediaQuery.sizeOf(now);
+        final foot = screen.height - MediaQuery.paddingOf(now).bottom;
+        return EdgeInsets.fromLTRB(
+          at.dx,
+          0,
+          math.max(0.0, screen.width - at.dx - box.size.width),
+          math.max(Gap.l, foot - at.dy + Gap.s),
+        );
+      }
+    }
+    return EdgeInsets.fromLTRB(Gap.l, 0, Gap.l, Gap.l + _barLift);
   }
 
   // ----------------------------------------------------- keep and share
@@ -1552,7 +1591,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     showSnack(
       context,
       said,
-      lift: _barLift,
+      margin: _snackMargin,
       actionLabel: 'Undo',
       onAction: () => unawaited(MarkStore.instance.remove(mark.id)),
     );
@@ -2148,7 +2187,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     showSnack(
       context,
       here.length == 1 ? 'Bookmark removed.' : '${here.length} bookmarks removed.',
-      lift: _barLift,
+      margin: _snackMargin,
       actionLabel: 'Undo',
       onAction: () async {
         for (final m in here) {
@@ -2222,7 +2261,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                                   await MarkStore.instance.remove(m.id);
                                   if (!mounted) return;
                                   showSnack(context, 'Bookmark removed.',
-                                      lift: _barLift,
+                                      margin: _snackMargin,
                                       actionLabel: 'Undo',
                                       onAction: () => unawaited(MarkStore.instance.restore(m)));
                                 },
@@ -2483,12 +2522,15 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (_nowPlaying?.isActive ?? false) return;
     final from = context;
     final nav = Navigator.of(context);
+    // Its own key: one closing may still be on screen as this one opens.
+    final key = _nowPlayingKey = GlobalKey();
     final route = PageRouteBuilder<void>(
       transitionDuration: Motion.of(context, Motion.page),
       reverseTransitionDuration: Motion.of(context, Motion.standard),
       pageBuilder: (ctx, _, __) => carryTint(
         from,
         NowPlayingScreen(
+          key: key,
           title: _book.metadata.title,
           cover: _cover,
           layout: _l,

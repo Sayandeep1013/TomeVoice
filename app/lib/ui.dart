@@ -618,11 +618,14 @@ class SheetHeader extends StatelessWidget {
 }
 
 /// A short message at the bottom of the screen, styled by the theme.
+/// [margin], when given, is where it floats instead of [lift] above the foot
+/// (over a screen whose own controls are elsewhere than the reader's).
 void showSnack(
   BuildContext context,
   String text, {
   bool long = false,
   double lift = 0,
+  EdgeInsets? margin,
   String? actionLabel,
   VoidCallback? onAction,
 }) {
@@ -641,7 +644,7 @@ void showSnack(
       // A message with a button (Undo) would otherwise stay until dismissed.
       persist: false,
       duration: Duration(seconds: long ? 8 : (onAction == null ? 3 : 4)),
-      margin: EdgeInsets.fromLTRB(Gap.l, 0, Gap.l, Gap.l + lift),
+      margin: margin ?? EdgeInsets.fromLTRB(Gap.l, 0, Gap.l, Gap.l + lift),
     ));
 }
 

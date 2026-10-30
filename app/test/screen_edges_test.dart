@@ -1,6 +1,7 @@
 // What sits at a screen's edges: the text and the shelf fade into the ground
 // at their edges only (a mask over all of it drew it all again offscreen on
-// every frame it moved).
+// every frame it moved); a message over Now Playing sits clear of its
+// controls.
 
 import 'dart:io';
 
@@ -14,7 +15,9 @@ import 'package:tomevoice_spike/library_screen.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/main.dart';
 import 'package:tomevoice_spike/marks.dart';
+import 'package:tomevoice_spike/now_playing.dart';
 import 'package:tomevoice_spike/page_tone.dart';
+import 'package:tomevoice_spike/player_controls.dart';
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/reader_screen.dart';
 import 'package:tomevoice_spike/speech_service.dart';
@@ -190,5 +193,57 @@ void main() {
     expect(copy.localToGlobal(Offset.zero), Offset.zero);
     expect(copy.size, tester.getSize(find.byType(LibraryScreen)));
     await finish(tester);
+  });
+
+  group('a message over Now Playing', () {
+    for (final onItsSide in [false, true]) {
+      testWidgets('sits above its scrubber, clear of its controls${onItsSide ? ', on its side' : ''}',
+          (tester) async {
+        phone(tester, onItsSide: onItsSide);
+        await openReader(tester, ReadingLayout.build(specimenBook()));
+        // Swiped up from the player.
+        await tester.fling(find.byTooltip('Speed'), const Offset(0, -300), 1500);
+        await tester.pumpAndSettle();
+        expect(find.byType(NowPlayingScreen), findsOneWidget);
+        final now = find.byType(NowPlayingScreen);
+        await tester.tap(find.descendant(of: now, matching: find.text('Save')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        final snack = find.descendant(of: now, matching: find.byType(SnackBar));
+        expect(snack, findsOneWidget);
+        expect(find.descendant(of: snack, matching: find.text('Undo')), findsOneWidget);
+        final message = tester.getRect(find.descendant(of: snack, matching: find.byType(Material)).first);
+        final scrubber = tester.getRect(find.descendant(of: now, matching: find.byType(ChapterScrubber)));
+        expect(message.bottom, lessThanOrEqualTo(scrubber.top), reason: 'above the scrubber');
+        expect(message.left, greaterThanOrEqualTo(scrubber.left - 0.5), reason: 'over the text, not the cover');
+        // Nothing to tap lies under it.
+        final controls = find.descendant(
+          of: now,
+          matching: find.byWidgetPredicate((w) => w is IconButton || w is InkWell || w is PlayButton),
+        );
+        for (final c in controls.evaluate()) {
+          if (find.descendant(of: snack, matching: find.byWidget(c.widget)).evaluate().isNotEmpty) continue;
+          final r = tester.getRect(find.byWidget(c.widget).first);
+          expect(r.overlaps(message), isFalse, reason: '${c.widget} at $r is under the message at $message');
+        }
+        await finish(tester);
+      });
+    }
+
+    testWidgets('closed, a message sits above the player again', (tester) async {
+      phone(tester);
+      await openReader(tester, ReadingLayout.build(specimenBook()));
+      await tester.fling(find.byTooltip('Speed'), const Offset(0, -300), 1500);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Bookmark this page'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      final message = tester.getRect(find.descendant(of: find.byType(SnackBar), matching: find.byType(Material)).first);
+      final play = tester.getRect(find.byType(PlayButton));
+      expect(message.bottom, lessThanOrEqualTo(play.top));
+      await finish(tester);
+    });
   });
 }
