@@ -369,6 +369,15 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   bool _fullScreen = false;
   bool _volumeKeys = false;
 
+  /// The safe area the page is laid out in and the size it was for (see
+  /// [_steadyInsets]); whether the app is away, or only just back; and the
+  /// waits before a change of insets is followed.
+  EdgeInsets? _insets;
+  Size? _insetsFor;
+  bool _away = false;
+  Timer? _backTimer;
+  Timer? _insetsTimer;
+
   /// The chapter at the top of the screen. While the reader looks around
   /// (detached), the top bar names it instead of the one being read.
   late final _viewChapter = ValueNotifier<int>(_l.chapterOfUnit(_cursor.value));
@@ -718,6 +727,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     }
     _sleepTick?.cancel();
     _eyesTimer?.cancel();
+    _backTimer?.cancel();
+    _insetsTimer?.cancel();
     if (_fullScreen) unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
     if (_volumeKeys) unawaited(_svc.volumeKeysTurnPages(false));
     WidgetsBinding.instance.removeObserver(this);
@@ -788,6 +799,57 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       _countTime();
       unawaited(StatsStore.instance.flush());
     }
+    _insetsTimer?.cancel();
+    _backTimer?.cancel();
+    if (state != AppLifecycleState.resumed) {
+      _away = true;
+      return;
+    }
+    // Back in front: the phone's bars a system sheet brought go again in a
+    // moment. Insets still changed after that are followed.
+    _backTimer = Timer(const Duration(milliseconds: 600), () {
+      if (!mounted) return;
+      _away = false;
+      setState(() {});
+    });
+  }
+
+  /// The safe area the page is laid out in. In full screen, a system sheet
+  /// over the app (Look up's choice of apps) brings the phone's bars back,
+  /// and they go again as it closes: followed, the pages were cut afresh
+  /// behind the sheet and again after it, and the page jumped. So in full
+  /// screen new insets at the same size are held while the app is away and
+  /// a moment after it is back, and bars that appear are held a moment with
+  /// it in front too (the sheet can come before the app is told it is away);
+  /// a change still there then is followed. A new size (the phone turned) is
+  /// followed at once, and so is room given back (bars gone).
+  EdgeInsets _steadyInsets(BuildContext context) {
+    final now = MediaQuery.paddingOf(context);
+    final size = MediaQuery.sizeOf(context);
+    final held = _insets;
+    if (!_prefs.fullScreen || held == null || size != _insetsFor) {
+      _insetsTimer?.cancel();
+      _insets = now;
+      _insetsFor = size;
+      return now;
+    }
+    if (now == held) {
+      _insetsTimer?.cancel();
+      return held;
+    }
+    if (_away) return held;
+    final grew = now.left > held.left || now.top > held.top || now.right > held.right || now.bottom > held.bottom;
+    if (!grew) {
+      _insetsTimer?.cancel();
+      _insets = now;
+      return now;
+    }
+    if (!(_insetsTimer?.isActive ?? false)) {
+      _insetsTimer = Timer(const Duration(milliseconds: 300), () {
+        if (mounted && !_away) setState(() => _insets = null);
+      });
+    }
+    return held;
   }
 
   /// The width the scroll was last laid out at.
@@ -1844,7 +1906,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     );
     // Out to the screen's own edges, past the safe area (the camera's side,
     // the gesture bar): ending inside the screen, the haze showed a hard edge.
-    final insets = MediaQuery.paddingOf(context);
+    final insets = _steadyInsets(context);
     // It glows from behind the player: with the player put away (a tap
     // on the page), it goes with it rather than lighting a bare edge.
     final light = ValueListenableBuilder<bool>(
@@ -1871,7 +1933,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     );
     final paged = _inPages;
     final reading = paged
-        ? _pagedReading(context, bar, rail, glow)
+        ? _pagedReading(context, bar, rail, glow, insets)
         // Upright, the glow lies under the text and shows through the fade
         // at its foot: the fade draws it again, in its place on the ground.
         : _scrollReading(context, bar, rail,
@@ -1885,7 +1947,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       child: Scaffold(
       body: _ground(
         context,
-        SafeArea(
+        _HeldSafeArea(
+          insets: insets,
           child: Stack(
                   // The glow reaches past the safe area.
                   clipBehavior: Clip.none,
@@ -2337,12 +2400,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   /// The book in pages, with the top bar and the player over them, shown
   /// by a tap in the middle of the page and gone as the page turns.
-  Widget _pagedReading(BuildContext context, Widget bar, bool rail, Widget glow) {
+  Widget _pagedReading(BuildContext context, Widget bar, bool rail, Widget glow, EdgeInsets insets) {
     final tone = _tone;
     final ground = tone.paper?.first ?? Skin.ground(context).colors.first;
     final foot = tone.paper?.last ?? Skin.groundFoot(context);
     final size = MediaQuery.sizeOf(context);
-    final insets = MediaQuery.paddingOf(context);
     // On its side, a wide screen opens like a book: two pages.
     final spread = size.width > size.height && size.width >= 600;
     return Stack(
@@ -3291,6 +3353,29 @@ class _BlockTextState extends State<_BlockText> {
     ];
     return Text.rich(TextSpan(children: spans), key: _key, style: widget.style, textAlign: align);
   }
+}
+
+/// A [SafeArea] of the [insets] given rather than the phone's of the moment:
+/// the reader's, held steady while a system sheet is over it (see
+/// _ReaderScreenState._steadyInsets).
+class _HeldSafeArea extends StatelessWidget {
+  const _HeldSafeArea({required this.insets, required this.child});
+
+  final EdgeInsets insets;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: insets,
+        child: MediaQuery.removePadding(
+          context: context,
+          removeLeft: true,
+          removeTop: true,
+          removeRight: true,
+          removeBottom: true,
+          child: child,
+        ),
+      );
 }
 
 /// The player: what is playing, how fast, in whose voice, and the controls.

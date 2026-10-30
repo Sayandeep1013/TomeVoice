@@ -1,7 +1,8 @@
 // What sits at a screen's edges: the text and the shelf fade into the ground
 // at their edges only (a mask over all of it drew it all again offscreen on
 // every frame it moved); a message over Now Playing sits clear of its
-// controls.
+// controls; and a system sheet over pages in full screen leaves them as they
+// were cut.
 
 import 'dart:io';
 
@@ -17,6 +18,7 @@ import 'package:tomevoice_spike/main.dart';
 import 'package:tomevoice_spike/marks.dart';
 import 'package:tomevoice_spike/now_playing.dart';
 import 'package:tomevoice_spike/page_tone.dart';
+import 'package:tomevoice_spike/paged_view.dart';
 import 'package:tomevoice_spike/player_controls.dart';
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/reader_screen.dart';
@@ -243,6 +245,81 @@ void main() {
       final message = tester.getRect(find.descendant(of: find.byType(SnackBar), matching: find.byType(Material)).first);
       final play = tester.getRect(find.byType(PlayButton));
       expect(message.bottom, lessThanOrEqualTo(play.top));
+      await finish(tester);
+    });
+  });
+
+  group('a system sheet over pages in full screen', () {
+    const bars = FakeViewPadding(top: 66, bottom: 132);
+
+    void barsShown(WidgetTester tester, bool shown) {
+      if (shown) {
+        tester.view.padding = bars;
+        tester.view.viewPadding = bars;
+      } else {
+        tester.view.resetPadding();
+        tester.view.resetViewPadding();
+      }
+    }
+
+    testWidgets('leaves the pages as they were cut, and a change still there after is followed', (tester) async {
+      ListeningPrefs.memory
+        ..pages = true
+        ..fullScreen = true;
+      phone(tester);
+      await openReader(tester, longBook());
+      final book = find.byType(PagedBook);
+      final was = tester.getRect(book);
+      final count = find.textContaining(RegExp(r'^\d+ / \d+$'));
+      final page = tester.widget<Text>(count).data;
+
+      // The sheet comes: the app is told it is away, and the phone's bars show.
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      barsShown(tester, true);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(tester.getRect(book), was, reason: 'the page did not move behind the sheet');
+      // It goes, and the bars with it.
+      barsShown(tester, false);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(tester.getRect(book), was);
+      expect(tester.widget<Text>(count).data, page);
+
+      // Bars that show a moment before the app is told it is away are held
+      // too.
+      barsShown(tester, true);
+      await tester.pump(const Duration(milliseconds: 100));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump(const Duration(seconds: 1));
+      expect(tester.getRect(book), was);
+
+      // Back with the bars still there: the pages are laid out clear of them,
+      // once the app has been back a moment.
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(tester.getRect(book), was, reason: 'not the moment it is back');
+      for (var i = 0; i < 4; i++) {
+        await tester.pump(const Duration(milliseconds: 500));
+      }
+      await tester.pumpAndSettle();
+      expect(tester.getSize(book).height, closeTo(was.height - (66 + 132) / 2.75, 0.01));
+      await finish(tester);
+    });
+
+    testWidgets('out of full screen, the bars are followed at once', (tester) async {
+      ListeningPrefs.memory.pages = true;
+      phone(tester);
+      await openReader(tester, longBook());
+      final book = find.byType(PagedBook);
+      final was = tester.getSize(book);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      barsShown(tester, true);
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(tester.getSize(book).height, closeTo(was.height - (66 + 132) / 2.75, 0.01));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await finish(tester);
     });
   });
