@@ -37,6 +37,10 @@ copied in. The generated project cannot know about any of this:
    beside the real one with a library of its own, so a risky build never
    touches the reader's books.
 
+9. **Saving a book as audio with the screen off.** A dataSync foreground
+   service (AudioExportService) and its permission: the reading service is
+   mediaPlayback and belongs to reading aloud.
+
 Idempotent: running it twice changes nothing the second time.
 """
 
@@ -91,6 +95,18 @@ SERVICE = """        <service
             android:name=".ReadAloudService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+"""
+
+# Saving a book as audio (AudioExport.kt): a job that goes on with the screen
+# off, while nothing is read aloud. Its own blocks, so a manifest patched
+# before them gains them too.
+EXPORT_PERMISSION = """    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+"""
+
+EXPORT_SERVICE = """        <service
+            android:name=".AudioExportService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 """
 
 # The home-screen widgets (Widgets.kt) and the screen that picks a widget's book.
@@ -223,6 +239,18 @@ def patch_manifest(path: Path, label: str = APP_LABEL) -> str:
             raise SystemExit("manifest: no </application>")
         text = text.replace("</application>", SERVICE + "    </application>", 1)
         notes.append("service")
+
+    if "FOREGROUND_SERVICE_DATA_SYNC" not in text:
+        text, n = re.subn(r"(<manifest\b[^>]*>\n?)", r"\1" + EXPORT_PERMISSION, text, count=1)
+        if n != 1:
+            raise SystemExit("manifest: no <manifest> tag")
+        notes.append("export permission")
+
+    if ".AudioExportService" not in text:
+        if "</application>" not in text:
+            raise SystemExit("manifest: no </application>")
+        text = text.replace("</application>", EXPORT_SERVICE + "    </application>", 1)
+        notes.append("export service")
 
     if ".PlayerWidget" not in text:
         text = text.replace("</application>", WIDGETS + "    </application>", 1)
