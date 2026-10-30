@@ -34,7 +34,14 @@ Uint8List minimalEpub({
 ''',
   );
   if (encrypted) {
-    add('META-INF/encryption.xml', '<encryption/>');
+    // What Adobe's DRM writes: the chapters themselves encrypted with AES.
+    add('META-INF/encryption.xml', '''<?xml version="1.0"?>
+<encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container" xmlns:enc="http://www.w3.org/2001/04/xmlenc#">
+  <enc:EncryptedData>
+    <enc:EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#aes128-cbc"/>
+    <enc:CipherData><enc:CipherReference URI="OEBPS/ch1.xhtml"/></enc:CipherData>
+  </enc:EncryptedData>
+</encryption>''');
   }
   add(
     'OEBPS/content.opf',
@@ -96,3 +103,54 @@ Uint8List minimalEpub({
 
   return ZipEncoder().encodeBytes(archive);
 }
+
+/// An EPUB from its parts: [files] by path (a String is stored as UTF-8,
+/// a List<int> as it is), with the mimetype and a container pointing at
+/// [opfPath] added.
+Uint8List epubOf(Map<String, Object> files, {String opfPath = 'OEBPS/content.opf'}) {
+  final archive = Archive();
+  archive.addFile(ArchiveFile.noCompress('mimetype', 20, utf8.encode('application/epub+zip')));
+  archive.addFile(ArchiveFile.bytes(
+    'META-INF/container.xml',
+    utf8.encode('<?xml version="1.0"?><container version="1.0" '
+        'xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles>'
+        '<rootfile full-path="$opfPath" media-type="application/oebps-package+xml"/>'
+        '</rootfiles></container>'),
+  ));
+  for (final e in files.entries) {
+    final v = e.value;
+    archive.addFile(ArchiveFile.bytes(e.key, v is String ? utf8.encode(v) : v as List<int>));
+  }
+  return ZipEncoder().encodeBytes(archive);
+}
+
+/// A package document: [items] are (id, href, media type, properties),
+/// [spine] the ids in order ("id|no" for linear="no").
+String opfOf(
+  List<(String, String, String, String?)> items,
+  List<String> spine, {
+  String title = 'Test Book',
+  String? toc,
+}) =>
+    '''<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>$title</dc:title><dc:language>en</dc:language><dc:identifier id="id">x</dc:identifier>
+  </metadata>
+  <manifest>
+${[for (final (id, href, type, props) in items) '    <item id="$id" href="$href" media-type="$type"${props == null ? '' : ' properties="$props"'}/>'].join('\n')}
+  </manifest>
+  <spine${toc == null ? '' : ' toc="$toc"'}>
+${[for (final s in spine) s.endsWith('|no') ? '    <itemref idref="${s.substring(0, s.length - 3)}" linear="no"/>' : '    <itemref idref="$s"/>'].join('\n')}
+  </spine>
+</package>''';
+
+/// An XHTML document with [body].
+String xhtml(String body, {String title = ''}) => '<?xml version="1.0" encoding="UTF-8"?>'
+    '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">'
+    '<head><title>$title</title></head><body>$body</body></html>';
+
+/// A chapter long enough to count as one.
+String chapterText(String name) =>
+    '<p>$name begins here, and goes on for long enough that it is a chapter worth reading aloud.</p>'
+    '<p>A second paragraph of $name follows the first.</p>';

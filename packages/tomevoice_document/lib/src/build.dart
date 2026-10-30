@@ -7,6 +7,36 @@ String _blockId() => 'b${_nextId++}';
 
 void resetBlockIds() => _nextId = 0;
 
+// Noncharacters around text that is shown but not spoken, from a parser to
+// [makeBlock]. Unicode promises they never stand for anything in a book.
+const _silentOpen = 0xFDD0;
+const _silentClose = 0xFDD1;
+
+final _openMark = String.fromCharCode(_silentOpen);
+final _closeMark = String.fromCharCode(_silentClose);
+
+/// [text] marked as shown but not spoken (a footnote marker), for a parser
+/// to put in the text it hands to [makeBlock].
+String silentMark(String text) => text.isEmpty ? '' : '$_openMark$text$_closeMark';
+
+/// [block]'s text with its silent stretches marked again, to build a new
+/// block from it (a drop cap joined to its word).
+String markedText(Block block) {
+  final silent = block.sentences.expand((s) => s.silent).toList();
+  if (silent.isEmpty) return block.text;
+  final out = StringBuffer();
+  var at = 0;
+  for (final r in silent) {
+    if (r.start < at || r.end > block.text.length) continue;
+    out
+      ..write(block.text.substring(at, r.start))
+      ..write(silentMark(block.text.substring(r.start, r.end)));
+    at = r.end;
+  }
+  out.write(block.text.substring(at));
+  return out.toString();
+}
+
 Block makeBlock({
   required BlockRole role,
   required String text,
@@ -15,17 +45,79 @@ Block makeBlock({
   String? id,
   String? image,
 }) {
-  final collapsed = collapseWhitespace(text);
+  final (:clean, :silent) = _takeSilent(collapseWhitespace(text));
   return Block(
     id: id ?? _blockId(),
     role: role,
-    text: collapsed,
-    sentences: segmentSentences(collapsed),
-    anchor: anchor ?? OffsetAnchor(0, collapsed.length),
+    text: clean,
+    sentences: segmentSentences(clean, silent: silent, words: false),
+    anchor: anchor ?? OffsetAnchor(0, clean.length),
     language: language,
     image: image,
   );
 }
+
+/// [text] without its silent marks, and where the marked stretches are.
+/// Spaces are collapsed again across a mark, so offsets are final.
+({String clean, List<TextStretch> silent}) _takeSilent(String text) {
+  if (!text.contains(_openMark) && !text.contains(_closeMark)) {
+    return (clean: text, silent: const []);
+  }
+  final out = StringBuffer();
+  final silent = <TextStretch>[];
+  var open = -1;
+  var lastSpace = true;
+  for (var i = 0; i < text.length; i++) {
+    final c = text.codeUnitAt(i);
+    if (c == _silentOpen) {
+      if (open < 0) open = out.length;
+      continue;
+    }
+    if (c == _silentClose) {
+      if (open >= 0 && out.length > open) silent.add((start: open, end: out.length));
+      open = -1;
+      continue;
+    }
+    final space = c == 0x20;
+    if (space && lastSpace) continue;
+    out.writeCharCode(c);
+    lastSpace = space;
+  }
+  var clean = out.toString();
+  if (clean.endsWith(' ')) clean = clean.substring(0, clean.length - 1);
+  final kept = <TextStretch>[];
+  for (final r in silent) {
+    if (r.start >= clean.length) continue;
+    final end = r.end > clean.length ? clean.length : r.end;
+    var start = r.start;
+    // "fantasy [1]?" says "fantasy?": the space before a marker goes with
+    // it when a stop, a space or nothing comes after.
+    if (start > 0 &&
+        clean.codeUnitAt(start - 1) == 0x20 &&
+        (kept.isEmpty || kept.last.end < start - 1) &&
+        (end == clean.length || _closesUp(clean.codeUnitAt(end)))) {
+      start--;
+    }
+    kept.add((start: start, end: end));
+  }
+  return (clean: clean, silent: kept);
+}
+
+bool _closesUp(int c) =>
+    c == 0x20 || // space
+    c == 0x2E || // .
+    c == 0x2C || // ,
+    c == 0x3B || // ;
+    c == 0x3A || // :
+    c == 0x21 || // !
+    c == 0x3F || // ?
+    c == 0x29 || // )
+    c == 0x5D || // ]
+    c == 0x22 || // "
+    c == 0x201D || // ”
+    c == 0x2019 || // ’
+    c == 0xBB || // »
+    c == 0x2026; // …
 
 List<Speakable> flattenSpeakable(
   Book book, {
@@ -38,7 +130,8 @@ List<Speakable> flattenSpeakable(
       if (skip.contains(block.role) || block.text.isEmpty) continue;
       for (var si = 0; si < block.sentences.length; si++) {
         final sentence = block.sentences[si];
-        final text = sentence.of(block.text).trim();
+        final raw = sentence.of(block.text);
+        final text = raw.trim();
         if (text.isEmpty) continue;
         out.add(Speakable(
           sectionIndex: section.index,
@@ -47,11 +140,27 @@ List<Speakable> flattenSpeakable(
           text: text,
           role: block.role,
           blockId: block.id,
+          silent: _relative(sentence, raw.length - raw.trimLeft().length, text.length),
         ));
       }
     }
   }
   return out;
+}
+
+/// [sentence]'s silent stretches as offsets in its trimmed text, which
+/// starts [lead] characters into it and is [length] long.
+List<TextStretch> _relative(Sentence sentence, int lead, int length) {
+  if (sentence.silent.isEmpty) return const [];
+  final base = sentence.startOffset + lead;
+  return [
+    for (final r in sentence.silent)
+      if (r.end - base > 0 && r.start - base < length)
+        (
+          start: r.start - base < 0 ? 0 : r.start - base,
+          end: r.end - base > length ? length : r.end - base,
+        ),
+  ];
 }
 
 int indexOfCursor(List<Speakable> units, ReadingCursor cursor) {
@@ -142,29 +251,102 @@ String? titleFromFilename(String? filename) {
   return cleaned.isEmpty ? null : cleaned;
 }
 
+/// Words that begin a chapter heading, in the languages TomeVoice reads:
+/// "Chapter 12", "Глава 3", "Capítulo XII", "Kapitel 1", "অধ্যায় ৩".
+final _chapterKeyword =
+  r'hoofdstuk|capitolo|capitulo|capítulo|chapitre|kapitola|kapittel|'
+  r'rozdział|পরিচ্ছেদ|chapter|kapitel|частина|অধ্যায়|bagian|chap\.|chương|'
+  r'księga|partie|volume|розділ|अध्याय|bölüm|część|libro|livre|livro|parte|'
+  r'глава|книга|часть|boek|book|buch|deel|part|phần|teil|tome|tomo|část|'
+  r'খণ্ড|পর্ব|bab|том|खंड|भाग';
+
+/// Numbers a heading uses after its keyword: digits (also Bengali and
+/// Devanagari), roman numerals and words ("Chapter One", "Глава первая",
+/// "Chapitre premier", "অধ্যায় এক").
+final _chapterNumber = r'(?:\d+|[ivxlcdm]+|[০-৯]+|[०-९]+|'
+  r'seventeen|troisième|последний|последняя|четвертая|четвёртая|dernière|'
+  r'deuxième|eighteen|fourteen|nineteen|pierwsza|pierwszy|première|'
+  r'primeira|primeiro|terceira|terceiro|thirteen|dernier|fifteen|hundred|'
+  r'premier|primera|primero|quattro|seconde|segunda|segundo|seventh|'
+  r'seventy|sixteen|séptima|séptimo|tercera|tercero|trzecia|восьмая|'
+  r'девятая|десятая|седьмая|cinque|cuarta|cuarto|cuatro|décima|décimo|'
+  r'eighth|eighty|eleven|fourth|ninety|novena|noveno|octava|octavo|quatre|'
+  r'quatro|quinta|quinto|second|sieben|thirty|trzeci|twelve|twenty|ultima|'
+  r'ultimo|última|último|вторая|второе|второй|первая|первое|первый|третий|'
+  r'третье|третья|четыре|шестая|cinco|dieci|druga|drugi|eight|fifth|fifty|'
+  r'final|first|forty|negen|ninth|nueve|prima|primo|sechs|sette|seven|'
+  r'sexta|sexto|siete|sixth|sixty|tenth|terza|terzo|third|three|trois|'
+  r'zeven|друга|перша|пятая|третя|acht|cinq|deux|diez|dois|drei|drie|duas|'
+  r'eins|five|four|fünf|huit|last|neuf|neun|nine|nove|ocho|oito|otto|seis|'
+  r'sept|sete|tien|tres|três|twee|vier|vijf|zehn|zwei|один|пять|पाँच|पांच|'
+  r'পাঁচ|dez|dix|dos|due|one|sei|six|ten|tre|two|uno|zes|два|три|चार|तीन|'
+  r'सात|চার|ছয়|তিন|দুই|নয়|সাত|आठ|एक|छह|दस|दो|नौ|আট|এক|দশ'
+    r')';
+
+/// An ordinal before its keyword: "Erstes Kapitel", "Primera parte",
+/// "প্রথম অধ্যায়", "पहला अध्याय".
+final _ordinalFirst = r'(?:'
+  r'siebentes|troisième|dernière|deuxième|première|primeira|sechstes|'
+  r'terceira|দ্বিতীয়|dritter|drittes|fünftes|letzter|letztes|neuntes|'
+  r'premier|primera|seconda|seconde|segunda|siebtes|tercera|vierter|'
+  r'viertes|zehntes|zweiter|zweites|द्वितीय|achtes|cuarta|erster|erstes|'
+  r'second|última|चतुर्थ|চতুর্থ|তৃতীয়|দ্বাদশ|prima|terza|अंतिम|तीसरा|'
+  r'तृतीय|दूसरा|प्रथम|অষ্টম|একাদশ|পঞ্চম|প্রথম|সপ্তম|चौथा|पहला|ষষ্ঠ|দশম|নবম|'
+  r'শেষ'
+    r')\s+(?:'
+  r'chapitre|পরিচ্ছেদ|kapitel|অধ্যায়|partie|अध्याय|libro|livre|livro|'
+  r'parte|buch|teil|খণ্ড|পর্ব|खंड|भाग'
+    r')';
+
+/// Sections with a name of their own: "Prologue", "Epílogo", "Vorwort".
+final _namedSection = r'(?:'
+  r'avant\-propos|introducción|introduction|introduzione|послесловие|'
+  r'предисловие|einleitung|prefazione|вступление|afterword|interlude|'
+  r'epilogue|foreword|nachwort|prefacio|prologue|épilogue|введение|epilogo|'
+  r'epílogo|preface|prologo|préface|prólogo|vorwort|epilog|prolog|пролог|'
+  r'эпилог'
+    r')';
+
 /// Lines that begin a chapter in plain text: "Chapter 12", "CHAPTER XII.",
-/// "Part Two", "Prologue", and the Bengali / Hindi equivalents.
+/// "Part Two", "Prologue", and the same in other languages; "第十二章" and
+/// "第3話" in Chinese and Japanese, "제1장" in Korean.
 final chapterLine = RegExp(
   // A chapter keyword followed by its number ("Chapter 12", "CHAPTER XII.",
-  // "Part Two", "অধ্যায় ৩"), or a standalone named section. The number is
-  // required: "book of rules for shutting people up" is prose that happens
-  // to start with "book".
-  r'^(?:(?:chapter|chap\.|part|book|volume|অধ্যায়|পরিচ্ছেদ|পর্ব|अध्याय|भाग)'
+  // "Part Two", "অধ্যায় ৩"), an ordinal before one ("Erstes Kapitel"), or
+  // a standalone named section. The number is required: "book of rules for
+  // shutting people up" is prose that happens to start with "book".
+  '^(?:(?:$_chapterKeyword)'
   r'[\s.:\-–—]*'
-  r'(?:\d+|[ivxlcdm]+|[০-৯]+|[०-९]+|one|two|three|four|five|six|seven|eight|'
-  r'nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|'
-  r'eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|'
-  r'hundred|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|'
-  r'last|final)'
+  '$_chapterNumber'
   r'(?=$|[\s.:\-–—,])'
-  r'|(?:prologue|epilogue|interlude|afterword|introduction|preface|foreword)'
-  r'(?=$|[\s.:\-–—,]))'
+  '|$_ordinalFirst'
+  r'(?=$|[\s.:\-–—,])'
+  '|$_namedSection'
+  r'(?=$|[\s.:\-–—,])'
+  r'|第[0-9０-９零〇一二三四五六七八九十百千万两]+[章回节節卷部篇集话話幕]'
+  r'|제\s*[0-9]+\s*[장화부편]'
+  r'|序章|终章|終章|楔子|尾声|尾聲|序言|后记|後記|番外|プロローグ|エピローグ|프롤로그|에필로그'
+  r')'
   r'.{0,70}$',
   caseSensitive: false,
 );
 
+/// Bengali letters with a nukta, decomposed as Unicode normalises them
+/// (য় is য + ়): files have both forms, the patterns only one.
+String _nuktaDecomposed(String s) {
+  if (!s.contains(_yaNukta) && !s.contains(_ddaNukta) && !s.contains(_ddhaNukta)) return s;
+  return s
+      .replaceAll(_yaNukta, String.fromCharCodes(const [0x09AF, 0x09BC]))
+      .replaceAll(_ddaNukta, String.fromCharCodes(const [0x09A1, 0x09BC]))
+      .replaceAll(_ddhaNukta, String.fromCharCodes(const [0x09A2, 0x09BC]));
+}
+
+final _yaNukta = String.fromCharCode(0x09DF);
+final _ddaNukta = String.fromCharCode(0x09DC);
+final _ddhaNukta = String.fromCharCode(0x09DD);
+
 bool looksLikeChapterLine(String line) {
-  final t = line.trim();
+  final t = _nuktaDecomposed(line.trim());
   if (t.isEmpty || t.length > 90) return false;
   if (!chapterLine.hasMatch(t)) return false;
   // "Chapter one was the best part of the book." is prose, not a heading.
