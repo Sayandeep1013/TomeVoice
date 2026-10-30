@@ -26,6 +26,7 @@ import 'prefs.dart';
 import 'reader_screen.dart';
 import 'reading_rules.dart';
 import 'saved_screen.dart';
+import 'scheduler.dart' show PlaybackScheduler;
 import 'stats.dart';
 import 'stats_screen.dart';
 import 'settings_screen.dart';
@@ -84,11 +85,12 @@ Future<OpenLibrary> _open(String dir) async {
   // The check made with the app closed asks with the same agent.
   if (agent != null && agent.isNotEmpty) unawaited(sources.saveUserAgent(agent));
   final store = LibraryStore(Directory(dir));
+  _settleWhenLeft(store);
   // What the error log must never write, whatever an error says: every
-  // book's title and author, and the secret shelves' names.
+  // book's title, author, series and tags, and the secret shelves' names.
   void keepOutOfLog() => unawaited(store.index(all: true).then((idx) {
         ErrorLog.instance.privateWords = [
-          for (final e in idx.entries) ...[e.title, ...e.authors],
+          for (final e in idx.entries) ...[e.title, ...e.authors, ...e.tags, if (e.seriesName != null) e.seriesName!],
           for (final c in idx.categories)
             if (c.secret) c.name,
         ];
@@ -136,6 +138,32 @@ Future<Map<String, Object?>> checkInApp({Duration recent = const Duration(minute
   }
   return describeNewChapters(library.store, r.added);
 }
+
+/// The reading places the library keeps in memory a few seconds (see
+/// LibraryStore.saveCursor) are written at once when the app is put away,
+/// a screen is left (a book's, most often) or reading pauses.
+void _settleWhenLeft(LibraryStore store) {
+  placeSettler.store = store;
+  void settle() => unawaited(placeSettler.store?.settlePlaces().catchError((Object _) {}));
+  PlaybackScheduler.onPaused = settle;
+  _appLeft ??= AppLifecycleListener(onHide: settle, onPause: settle, onDetach: settle);
+}
+
+AppLifecycleListener? _appLeft;
+
+/// Leaving a screen writes the places the library was keeping in memory,
+/// and the reader's own save as it closes, a moment after, is written at
+/// once (LibraryStore.settlePlaces). For the app's navigator (main.dart).
+class PlaceSettler extends NavigatorObserver {
+  LibraryStore? store;
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (route is PageRoute) unawaited(store?.settlePlaces().catchError((Object _) {}));
+  }
+}
+
+final placeSettler = PlaceSettler();
 
 /// The app around the screens: storage and settings are opened once here,
 /// and the menu (top left of the library) moves between them.

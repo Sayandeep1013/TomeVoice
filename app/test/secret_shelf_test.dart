@@ -129,6 +129,61 @@ void main() {
       expect(MarkStore.instance.forBook(open), hasLength(1));
     });
 
+    test("a removed book's marks that may have been a secret one's show only with the shelf open", () async {
+      // Left behind by a secret book removed before 1.4: nothing tells it
+      // from any other removed book's.
+      await save('0ld5ecre7b00c000', 'Old secret', MarkKind.quote, 'A line left behind before 1.4.');
+      // Removed from an open shelf now: known not to have been secret.
+      final open = await openBook();
+      await save(open, 'Open', MarkKind.quote, 'An open story goes on.');
+      await store.remove(open);
+
+      var shown = await store.marksShown();
+      expect([for (final m in MarkStore.instance.all) if (shown(m)) m.text], ['An open story goes on.']);
+      expect([for (final b in await quotesToExport(store)) b.title], ['Open'], reason: 'nor exported');
+
+      LibraryStore.secretOpen.value = true;
+      shown = await store.marksShown();
+      expect([for (final m in MarkStore.instance.all) if (shown(m)) m.text], hasLength(2));
+
+      // With no secret shelf at all, there is nothing to hide them from.
+      LibraryStore.secretOpen.value = false;
+      await store.saveCategories([
+        for (final c in (await store.index(all: true)).categories) c.withSecret(false),
+      ]);
+      shown = await store.marksShown();
+      expect([for (final m in MarkStore.instance.all) if (shown(m)) m.text], hasLength(2));
+    });
+
+    testWidgets('Saved offers to clear only what it shows of books gone', (tester) async {
+      await tester.runAsync(() async {
+        await save('0ld5ecre7b00c000', 'Old secret', MarkKind.quote, 'A line left behind before 1.4.');
+        final open = await openBook();
+        await save(open, 'Open', MarkKind.quote, 'An open story goes on.');
+        await store.remove(open);
+        await store.index(all: true);
+      });
+      await tester.pumpWidget(MaterialApp(home: SavedScreen(store: store)));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('left behind'), findsNothing);
+      expect(find.text('Old secret'), findsNothing);
+      expect(find.text('1 quote is from books no longer in your library'), findsOneWidget);
+      await tester.tap(find.widgetWithText(TextButton, 'Clear'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, 'Clear').last);
+      await tester.pumpAndSettle();
+      expect([for (final m in MarkStore.instance.all) m.text], ['A line left behind before 1.4.'],
+          reason: 'what was not shown is not cleared');
+      await tester.pump(const Duration(seconds: 5));
+      // marks.json is written with real file work: let it finish.
+      final marks = File('${tmp.path}/marks.json');
+      for (var i = 0; i < 60 && marks.readAsStringSync().contains('An open story'); i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 25)));
+        await tester.pump();
+      }
+      expect(marks.readAsStringSync(), isNot(contains('An open story')));
+    });
+
     testWidgets("Saved shows nothing of a secret book once it is removed", (tester) async {
       await tester.runAsync(() async {
         await save(id, 'Pride and Prejudice', MarkKind.quote, 'It is a truth universally acknowledged.');

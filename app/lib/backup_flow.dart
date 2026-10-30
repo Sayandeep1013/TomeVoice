@@ -190,7 +190,11 @@ Future<void> runRestore(BuildContext context, LibraryStore store) async {
   // A book reading on in the background keeps saving its place and stats:
   // stopped first, it cannot write into the library being swapped or over
   // the files just merged.
-  await BackgroundReading.current.value?.stop();
+  final reading = BackgroundReading.current.value;
+  await reading?.stop();
+  await reading?.saved;
+  // The places kept in memory go into library.json, which Add merges by.
+  await store.settlePlaces();
   // Nothing may write the old book list back over the restored one before
   // the app starts again.
   store.hold();

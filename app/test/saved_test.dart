@@ -9,6 +9,7 @@ import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor;
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/marks.dart';
 import 'package:tomevoice_spike/saved_screen.dart';
+import 'package:tomevoice_spike/speech_service.dart';
 
 void main() {
   late Directory tmp;
@@ -83,6 +84,37 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Persuasion'), findsOneWidget);
     expect(find.textContaining('forced into prudence'), findsNothing);
+    await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('quotes of books no longer in the library are cleared together; Undo brings them back',
+      (tester) async {
+    late String kept;
+    await tester.runAsync(() async {
+      final f = File('${tmp.path}/incoming/here/here.txt')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('A book still here. ${'It goes on and on, as books do. ' * 20}');
+      kept = (await store.importFile(PickedFile(path: f.path, name: 'here.txt'))).id;
+    });
+    await quote(kept, 'here', 'A book still here.');
+    await quote('a', 'Persuasion', 'There could have been no two hearts so open.');
+    await quote('b', 'Emma', 'One half of the world cannot understand the pleasures of the other.');
+    await pumpSaved(tester);
+    expect(find.text('2 quotes are from books no longer in your library'), findsOneWidget);
+    expect(find.text('NO LONGER IN YOUR LIBRARY'), findsNWidgets(2), reason: 'under each of their headings');
+
+    await tester.tap(find.widgetWithText(TextButton, 'Clear'));
+    await tester.pumpAndSettle();
+    expect(find.text('Clear 2 quotes?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, 'Clear').last);
+    await tester.pumpAndSettle();
+    expect([for (final m in MarkStore.instance.all) m.bookId], [kept], reason: 'the book still here keeps its own');
+    expect(find.textContaining('no longer in your library'), findsNothing);
+
+    await tester.tap(find.text('Undo'));
+    await tester.pumpAndSettle();
+    expect(MarkStore.instance.all, hasLength(3));
+    expect(find.text('2 quotes are from books no longer in your library'), findsOneWidget);
     await tester.pump(const Duration(seconds: 5));
   });
 

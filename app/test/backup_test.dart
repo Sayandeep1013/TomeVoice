@@ -8,6 +8,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_spike/app_update.dart';
 import 'package:tomevoice_spike/backup.dart';
+import 'package:tomevoice_spike/library_store.dart';
 
 void main() {
   late Directory tmp;
@@ -342,6 +343,65 @@ void main() {
       expect(await takeRestoreReport(root), 'Added 2 books from the backup.');
       expect(await takeRestoreReport(root), isNull);
     });
+  });
+
+  test("add puts both phones' tags on a book in both; a series given here stays, one missing comes", () async {
+    put(root, 'library.json', {
+      'books': [
+        {...book('both'), 'tags': ['Fantasy', 'Mine'], 'series': 'Saga', 'seriesIndex': 2},
+        // Taken out of its series here: it stays out.
+        {...book('cleared'), 'series': ''},
+        book('bare'),
+      ],
+    });
+    put(staging, 'library.json', {
+      'books': [
+        {...book('both'), 'tags': ['fantasy', 'Theirs'], 'series': 'Other Saga', 'seriesIndex': 5, 'print': 'AAAA'},
+        {...book('cleared'), 'series': 'Back Again', 'seriesIndex': 1},
+        {...book('bare'), 'series': 'Found There', 'seriesIndex': 3, 'tags': ['Lent']},
+        {...book('new'), 'tags': ['Brought'], 'series': 'New Saga', 'seriesIndex': 1},
+      ],
+    });
+
+    final report = await addToLibrary(root, staged());
+
+    final byId = {for (final b in read(root, 'library.json')['books'] as List) (b as Map)['id']: b};
+    expect(byId['both']!['tags'], ['Fantasy', 'Mine', 'Theirs'], reason: 'each tag once, as spelled here');
+    expect((byId['both']!['series'], byId['both']!['seriesIndex']), ('Saga', 2));
+    expect(byId['both']!['print'], 'AAAA', reason: 'a print of the same text, made there');
+    expect((byId['cleared']!['series'], byId['cleared']!.containsKey('seriesIndex')), ('', false));
+    expect((byId['bare']!['series'], byId['bare']!['seriesIndex']), ('Found There', 3));
+    expect(byId['bare']!['tags'], ['Lent']);
+    expect(byId['new']!['tags'], ['Brought']);
+    expect(byId['new']!['series'], 'New Saga');
+    expect(report.updated, 2, reason: 'the two books given something; the one left alone is not');
+
+    // As the library reads it.
+    final entries = {for (final e in await LibraryStore(root).list(all: true)) e.id: e};
+    expect(entries['both']!.tags, ['Fantasy', 'Mine', 'Theirs']);
+    expect(entries['cleared']!.seriesName, isNull);
+    expect((entries['bare']!.seriesName, entries['bare']!.seriesIndex), ('Found There', 3.0));
+  });
+
+  test("the same backup added twice changes nothing the second time", () async {
+    put(root, 'library.json', {
+      'books': [
+        {...book('both'), 'tags': ['Mine']},
+      ],
+    });
+    Map<String, Object?> theirs() => {
+          'books': [
+            {...book('both'), 'tags': ['Theirs'], 'series': 'Saga', 'seriesIndex': 1},
+          ],
+        };
+    put(staging, 'library.json', theirs());
+    expect((await addToLibrary(root, staged())).updated, 1);
+    staging.createSync(recursive: true);
+    put(staging, 'library.json', theirs());
+    expect((await addToLibrary(root, staged())).updated, 0);
+    final both = (read(root, 'library.json')['books'] as List).single as Map;
+    expect(both['tags'], ['Mine', 'Theirs']);
+    expect(both['series'], 'Saga');
   });
 
   test('a secret shelf in a backup never merges into an open one here', () async {

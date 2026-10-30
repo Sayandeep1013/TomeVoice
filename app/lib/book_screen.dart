@@ -13,6 +13,9 @@ import 'chapter_finder.dart';
 import 'export_audio_sheet.dart';
 import 'fast_scroller.dart';
 import 'library_store.dart';
+import 'novel_screen.dart';
+import 'organise.dart' show seriesLine;
+import 'organise_sheets.dart';
 import 'saved_screen.dart';
 import 'listen_sheet.dart';
 import 'prefs.dart';
@@ -419,6 +422,8 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                     await changeCover(context, _store, _entry);
                   case 'move':
                     await moveBook(context, _store, _entry);
+                  case 'organise':
+                    await editTagsAndSeries(context, _store, _entry);
                   case 'restart':
                     // One tap from the menu: the place it had is one tap away.
                     final was = _entry;
@@ -444,6 +449,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                 const PopupMenuItem(value: 'rules', child: Text('Reading rules')),
                 const PopupMenuItem(value: 'cover', child: Text('Change cover')),
                 const PopupMenuItem(value: 'move', child: Text('Move to…')),
+                const PopupMenuItem(value: 'organise', child: Text('Tags and series…')),
                 if (_entry.progress > 0)
                   const PopupMenuItem(value: 'restart', child: Text('Start from the beginning')),
                 const PopupMenuItem(value: 'remove', child: Text('Remove from library')),
@@ -493,33 +499,89 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
               ],
               if (category != null) ...[
                 const SizedBox(height: Gap.m),
-                InkWell(
-                  borderRadius: BorderRadius.circular(Radii.pill),
+                _detail(
+                  context,
+                  icon: Icons.folder_outlined,
+                  label: category.name,
                   onTap: () => moveBook(context, _store, _entry),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: Gap.xs),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.folder_outlined, size: 18, color: Skin.inkSoftOn(context)),
-                        const SizedBox(width: 6),
-                        Flexible(
-                          child: Text(category.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Skin.ui(size: 14, weight: FontWeight.w600, color: Skin.inkSoftOn(context))),
-                        ),
-                        Icon(Icons.arrow_drop_down_rounded, color: Skin.inkSoftOn(context)),
-                      ],
-                    ),
-                  ),
                 ),
               ],
+              // Its series, in order, a tap away; and its tags.
+              if (e.seriesName != null)
+                _detail(
+                  context,
+                  icon: Icons.collections_bookmark_outlined,
+                  label: seriesLine(e),
+                  onTap: _showSeries,
+                  more: Icons.chevron_right_rounded,
+                ),
+              _detail(
+                context,
+                icon: Icons.sell_outlined,
+                label: e.tags.isEmpty ? 'Add tags' : e.tags.join(' · '),
+                faint: e.tags.isEmpty,
+                onTap: () => editTagsAndSeries(context, _store, _entry),
+              ),
             ],
           ),
         ),
       ],
     );
+  }
+
+  /// One quiet line of the book's details under its facts: its shelf, its
+  /// series, its tags, each opening what changes it.
+  Widget _detail(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    IconData more = Icons.arrow_drop_down_rounded,
+    bool faint = false,
+  }) {
+    final color = faint ? Skin.inkFaintOn(context) : Skin.inkSoftOn(context);
+    return InkWell(
+      borderRadius: BorderRadius.circular(Radii.pill),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: Gap.xs),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: color),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Skin.ui(size: 14, weight: FontWeight.w600, color: color)),
+            ),
+            Icon(more, color: color),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The book's series in its order; another of them opens its own page.
+  Future<void> _showSeries() async {
+    final name = _entry.seriesName;
+    if (name == null) return;
+    final books = (await _store.index()).entries;
+    if (!mounted) return;
+    final picked = await showSeriesBooks(context, name: name, books: books, current: _entry.id);
+    if (picked == null || picked.id == _entry.id || !mounted) return;
+    if (picked.isWeb) {
+      await NovelScreen.openEntry(context, _store, picked);
+      return;
+    }
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => BookTint(
+        bookId: picked.id,
+        cover: picked.shownCover,
+        child: BookScreen(store: _store, entry: picked),
+      ),
+    ));
   }
 
   Widget _actions(BuildContext context) {

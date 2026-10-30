@@ -165,6 +165,11 @@ class PlaybackScheduler {
   /// cannot share the one audio stream.
   static void Function(PlaybackScheduler? next)? beforePlay;
 
+  /// Told when any scheduler pauses: the library writes the reading places
+  /// it keeps in memory then, rather than a few seconds on
+  /// (LibraryStore.settlePlaces).
+  static void Function()? onPaused;
+
   static const _ahead = Duration(seconds: 10);
 
   /// A pause longer than this goes back to the start of the sentence on
@@ -300,6 +305,7 @@ class PlaybackScheduler {
     final gen = _gen;
     final token = ++_pauseToken;
     state.value = PlayState.paused;
+    onPaused?.call();
     _rewindDue = false;
     _rewindTimer?.cancel();
     _rewindTimer = Timer(rewindAfter, () => _rewindDue = true);
