@@ -38,6 +38,22 @@ void main() {
     expect(e.category, later);
   });
 
+  test('a book another copy of the app added is not written over', () async {
+    // Opened by a file manager, TomeVoice ran twice, each copy with the
+    // index in memory: this one saving a place wrote out its list, without
+    // the book the other had just imported.
+    final other = LibraryStore(tmp);
+    final text = File('${tmp.path}/incoming/s/other.txt')..createSync(recursive: true);
+    text.writeAsStringSync('A book the other copy imported. It has a sentence or two.');
+    final added = await other.importFile(PickedFile(path: text.path, name: 'other.txt'));
+    await store.saveCursor(id, const ReadingCursor(sectionIndex: 1), 0.25);
+    final onDisk = LibraryStore(tmp);
+    expect([for (final e in await onDisk.list(all: true)) e.id], containsAll([id, added.id]));
+    expect((await onDisk.list(all: true)).firstWhere((e) => e.id == id).progress, 0.25);
+    // And this copy shows it too.
+    expect((await store.list(all: true)).map((e) => e.id), contains(added.id));
+  });
+
   test('an unreadable library list is kept aside, not written over', () async {
     File('${tmp.path}/library.json').writeAsStringSync('{"books": [ {"id": "cut sho');
     // As the app finds it when it next starts.

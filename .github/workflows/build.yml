@@ -229,8 +229,11 @@ jobs:
           set -e
           K=android/app/src/main/kotlin/app/tomevoice/tomevoice_spike
           M=android/app/src/main/AndroidManifest.xml
-          for f in MainActivity PcmPlayer ReadAloudService PdfText PdfPages ShareProvider LibraryBackup Widgets WidgetConfigActivity; do test -f "$K/$f.kt"; done
+          for f in MainActivity OpenActivity PcmPlayer ReadAloudService PdfText PdfPages ShareProvider LibraryBackup Widgets WidgetConfigActivity; do test -f "$K/$f.kt"; done
           grep -q "PlayerWidget" "$M"
+          # Open with and Share land on OpenActivity, never on MainActivity
+          # itself (a second copy of the app inside the file manager's task).
+          grep -q 'android:name=".OpenActivity"' "$M"
           grep -q "tomevoice/tts" "$K/MainActivity.kt"
           grep -q "TTS_SERVICE" "$M"
           grep -q "ReadAloudService" "$M"

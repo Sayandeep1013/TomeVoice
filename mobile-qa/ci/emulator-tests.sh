@@ -240,6 +240,38 @@ if check listen-to-library "Listen, then back to the library" "Listen opens the 
   back_test other "BACK TEST, opened by another app" FAIL
 fi
 
+# -------------------------------------------------------------- Open with
+#
+# Open with and Share land on OpenActivity, which hands the file to the
+# TomeVoice already running, in its own task. A file manager opening a file
+# on MainActivity itself (for a result, which no adb command can ask for) put
+# a second TomeVoice inside the file manager's task, each copy with its own
+# library in memory. This checks the hand-over: one MainActivity afterwards,
+# and on screen.
+open_with_test() {
+  local file=/sdcard/Download/tv-open-with.txt n
+  adb shell "echo 'Opened with TomeVoice.' > $file"
+  adb shell monkey -p "$pkg" -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1
+  sleep 5
+  dev am start -W -a android.intent.action.VIEW -t text/plain -d "file://$file" \
+    -n "$pkg/app.tomevoice.tomevoice_spike.OpenActivity" > "$out/open-with-start.txt"
+  sleep 4
+  dev dumpsys activity activities > "$out/open-with-activities.txt"
+  shot open-with
+  n=$(grep -cE "Hist[[:space:]]+#[0-9]+:.*$activity" "$out/open-with-activities.txt")
+  if grep -qE "^Error|Exception" "$out/open-with-start.txt"; then
+    result FAIL "Open with" "OpenActivity could not be started: $(grep -m1 -E '^Error|Exception' "$out/open-with-start.txt")"
+  elif [ "$n" -ne 1 ]; then
+    result FAIL "Open with" "$n copies of MainActivity after a file was opened with TomeVoice (one expected)"
+  elif ! resumed "$out/open-with-activities.txt"; then
+    result FAIL "Open with" "TomeVoice was not brought to the front for the file"
+  else
+    result PASS "Open with" "the file went to the one TomeVoice, brought to the front"
+  fi
+  adb shell rm -f "$file"
+}
+open_with_test
+
 # ------------------------------------------------------------------ crashes
 
 adb logcat -d > "$out/logcat.txt" 2>&1 || true

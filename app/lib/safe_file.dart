@@ -1,9 +1,15 @@
 import 'dart:io';
+import 'dart:math';
 
 /// Writes in flight, by path, so writes to one file happen one at a time and
 /// in order (the last one asked for is the one that stays).
 final _pending = <String, Future<void>>{};
 var _serial = 0;
+
+/// Told apart from another copy of the app writing the same file (an engine
+/// of its own, its serial counting from 0 too): two writers sharing a temp
+/// file would interleave into invalid JSON.
+final _salt = Random().nextInt(1 << 32).toRadixString(36);
 
 /// Write [text] to [file] so that a crash, or a second write at the same
 /// moment, never leaves it half written: the text goes into a file beside it,
@@ -14,7 +20,7 @@ Future<void> writeSafely(File? file, String text) {
   final path = file.path;
   final before = _pending[path] ?? Future<void>.value();
   final write = before.catchError((Object _) {}).then((_) async {
-    final tmp = File('$path.${_serial++}.tmp');
+    final tmp = File('$path.$_salt${_serial++}.tmp');
     try {
       await tmp.writeAsString(text, flush: true);
       await tmp.rename(path);

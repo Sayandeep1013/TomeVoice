@@ -16,9 +16,10 @@ copied in. The generated project cannot know about any of this:
    permissions it needs. Without it Android freezes the app seconds after the
    screen turns off and the next sentence is never synthesised.
 
-4. **Open with / Share to TomeVoice** intent filters for document types, and a
-   singleTask launch mode so a file opened from another app lands in the
-   running reader instead of a second copy of it.
+4. **Open with / Share to TomeVoice** intent filters for document types, on
+   OpenActivity, which hands the file to the running reader in its own task.
+   singleTask alone did not do it: a file manager opens files for a result,
+   and that started a second copy inside the file manager's task.
 
 5. **PDF text extraction** via PdfBox-Android (Apache-2.0, GPL-3.0 compatible),
    without BouncyCastle's post-quantum tables, which it drags in and no PDF
@@ -184,11 +185,21 @@ DOC_MIME_TYPES = [
 ]
 
 
-def _filters() -> str:
+# Open with and Share to TomeVoice land on OpenActivity, which hands them to
+# the running TomeVoice in its own task (see OpenActivity.kt): MainActivity
+# opened by a file manager joined the file manager's task as a second copy.
+def _open_activity() -> str:
     data = "\n".join(
         f'                <data android:mimeType="{m}" />' for m in DOC_MIME_TYPES
     )
-    return f"""            <!-- Open with TomeVoice -->
+    return f"""        <activity
+            android:name=".OpenActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay">
+            <!-- Open with TomeVoice -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -201,6 +212,7 @@ def _filters() -> str:
                 <category android:name="android.intent.category.DEFAULT" />
 {data}
             </intent-filter>
+        </activity>
 """
 
 
@@ -232,11 +244,9 @@ def patch_manifest(path: Path, label: str = APP_LABEL) -> str:
         text = text.replace("</application>", PROVIDER + "    </application>", 1)
         notes.append("share provider")
 
-    if "android.intent.action.SEND" not in text:
-        if "</activity>" not in text:
-            raise SystemExit("manifest: no </activity>")
-        text = text.replace("</activity>", _filters() + "        </activity>", 1)
-        notes.append("open-with filters")
+    if ".OpenActivity" not in text:
+        text = text.replace("</application>", _open_activity() + "    </application>", 1)
+        notes.append("open-with activity")
 
     text, n = re.subn(r'android:launchMode="singleTop"', 'android:launchMode="singleTask"', text)
     if n:
