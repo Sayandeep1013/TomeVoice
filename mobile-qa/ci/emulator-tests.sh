@@ -32,9 +32,9 @@ result() {
   case $1 in
     FAIL)
       failures=$((failures + 1))
-      echo "::error title=$2 (API $api)::$3"
+      echo "::error title=$2 (API $api)::$2: $3"
       ;;
-    WARN) echo "::warning title=$2 (API $api)::$3" ;;
+    WARN) echo "::warning title=$2 (API $api)::$2: $3" ;;
     *) echo "$1 $2: $3" ;;
   esac
 }
@@ -46,6 +46,8 @@ shot() { adb exec-out screencap -p > "$out/$1.png" 2>/dev/null || true; }
 flow() {
   local status
   adb shell pm clear "$pkg" > /dev/null
+  # Whatever system dialog is up goes (an emulator's "isn't responding").
+  adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS > /dev/null 2>&1 || true
   echo "::group::maestro test $1.yaml"
   timeout 600 maestro test --format junit --output "$out/maestro/$1.xml" --test-output-dir "$out/maestro/$1" "$flows/$1.yaml" 2>&1 | tee "$out/maestro/$1.log"
   status=${PIPESTATUS[0]}
@@ -113,6 +115,13 @@ adb shell svc power stayon true || true
 adb shell input keyevent KEYCODE_WAKEUP || true
 adb shell wm dismiss-keyguard || true
 adb shell settings put system screen_off_timeout 1800000 || true
+# A busy CI emulator can leave a system app's "isn't responding" dialog over
+# everything (the Pixel Launcher did, in one run). With this set, Android
+# kills a process that stops responding instead of asking; TomeVoice
+# crashing or hanging still fails a flow, and a crash shows in the crash log.
+adb shell settings put global hide_error_dialogs 1 || true
+# Room for a whole run's logs.
+adb logcat -G 16M || true
 
 if ! adb install -r "$apk"; then
   echo "::error title=Install (API $api)::adb install failed; nothing was tested"
@@ -156,7 +165,7 @@ check reading-settings "Reading settings" "the sheet opens, and its Listen tab s
 # of MainActivity, from the activity events and dumpsys. A destroyed activity
 # is reported as <FAIL|WARN>. Files go to $out/<id>-*.
 back_test() {
-  local id=$1 name=$2 level=$3 before after pid destroyed line process
+  local id=$1 name=$2 level=$3 before after pid destroyed detail line process
   local media_before media_after service_before service_after
   snapshot "$id-before"
   before=$(record_state "$out/$id-before-activities.txt")
@@ -178,18 +187,19 @@ back_test() {
   fi
 
   if [ "${before%% *}" != RESUMED ] && ! resumed "$out/$id-before-activities.txt"; then
-    line="$name: TomeVoice was not on screen to press Back on API $api (MainActivity: ${before:-no activity})"
-    result FAIL "$name" "$line"
+    detail="TomeVoice was not on screen to press Back on API $api (MainActivity: ${before:-no activity})"
+    result FAIL "$name" "$detail"
   elif [ "$destroyed" = yes ]; then
-    line="$name: activity destroyed on API $api"
-    result "$level" "$name" "$line"
+    detail="activity destroyed on API $api"
+    result "$level" "$name" "$detail"
   elif [ "${after%% *}" = RESUMED ] || resumed "$out/$id-after-activities.txt"; then
-    line="$name: Back did not leave the app on API $api (MainActivity still resumed)"
-    result FAIL "$name" "$line"
+    detail="Back did not leave the app on API $api (MainActivity still resumed)"
+    result FAIL "$name" "$detail"
   else
-    line="$name: activity kept, moved to the back on API $api (MainActivity ${after:-state unknown})"
-    result PASS "$name" "$line"
+    detail="activity kept, moved to the back on API $api (MainActivity ${after:-state unknown})"
+    result PASS "$name" "$detail"
   fi
+  line="$name: $detail"
   echo "$line"
 
   media_before=$(media_state "$out/$id-before-media_session.txt")
@@ -219,12 +229,12 @@ back_test() {
 if check listen-from-home "Open from the home screen, listen, back to the library" "the launcher opens TomeVoice; Listen, then its Back buttons, return to the shelf" "could not open TomeVoice from the launcher, listen and go back to the library"; then
   back_test home "BACK TEST" FAIL
 else
-  result FAIL "BACK TEST" "BACK TEST: not run on API $api, TomeVoice could not be opened from the launcher"
+  result FAIL "BACK TEST" "not run on API $api: TomeVoice could not be opened from the launcher"
 fi
 
-# TomeVoice opened by another app instead (Maestro here; on a phone a file
-# opened with TomeVoice, for one). Android 16 finishes the activity on Back
-# then too, by its own rule. Reported, not yet a failure.
+# TomeVoice opened by another app instead (Maestro here; by the same rule,
+# any start that is not from the home screen). Android 16 finishes the
+# activity on Back then too. Reported as a warning, not (yet) a failure.
 if check listen-to-library "Listen, then back to the library" "Listen opens the reader; its Back to library and the book page's Back return to the shelf" "could not listen and go back to the library"; then
   back_test other "BACK TEST, opened by another app" WARN
 fi
