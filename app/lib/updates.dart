@@ -170,10 +170,24 @@ enum UpdateEvery {
 /// app, and sources whose sites need a browser check are skipped, as no web
 /// view can run there.
 class Updates {
-  Updates(this.store, {this.background = false});
+  Updates(this.store, {this.background = false, this.stopWhen});
 
   final LibraryStore store;
   final bool background;
+
+  /// Asked before each novel and just before each write (away from the
+  /// app: whether the app has opened since). True stops the check there;
+  /// what was done is logged, and the rest is the app's to check.
+  final Future<bool> Function()? stopWhen;
+
+  Future<bool> _stopping() async {
+    if (_stopped) return true;
+    final ask = stopWhen;
+    if (ask == null) return false;
+    return _stopped = await ask();
+  }
+
+  bool _stopped = false;
 
   /// Novels asked at once.
   static const parallel = 4;
@@ -254,6 +268,7 @@ class Updates {
 
   Future<CheckResult> _checkAll(bool skipCompleted) async {
     running.value = true;
+    _stopped = false;
     final now = DateTime.now();
     final added = <NewChapter>[];
     final counts = <String, int>{};
@@ -286,6 +301,7 @@ class Updates {
       var done = 0;
       Future<void> lane() async {
         while (true) {
+          if (await _stopping()) return;
           final i = queue.indexWhere((e) => !busy.contains(e.plugin));
           if (i < 0) {
             if (queue.isEmpty) return;
@@ -314,7 +330,16 @@ class Updates {
       }
 
       await Future.wait([for (var i = 0; i < parallel; i++) lane()]);
-      await _save(added, now, ok: reached > 0 || web.isEmpty, problems: problems.values.toList(), counts: counts);
+      await _save(
+        added,
+        now,
+        // Stopped part way (the app opened): not a whole check, so the
+        // app's own check on opening is still due and asks the rest.
+        ok: (reached > 0 || web.isEmpty) && !_stopped,
+        stopped: _stopped,
+        problems: problems.values.toList(),
+        counts: counts,
+      );
     } finally {
       running.value = false;
       status.value = null;
@@ -364,6 +389,9 @@ class Updates {
           return (const <NewChapter>[], null);
         }
         if (!verdict.taken) return (const <NewChapter>[], null);
+        // The app opened meanwhile: it takes over from here, rather than
+        // two engines writing the same novel.
+        if (await _stopping()) return (null, null);
         // Grown at the end only; anything else is the app's to take.
         if (!await store.appendWebChapters(e.id, info, fresh.chapters)) return (const <NewChapter>[], null);
         return (found, fresh.chapters.length);
@@ -392,6 +420,7 @@ class Updates {
     required bool ok,
     required List<CheckProblem> problems,
     Map<String, int> counts = const {},
+    bool stopped = false,
   }) async {
     // Read again: a check in the other engine may have written since.
     final raw = await _raw();
@@ -410,7 +439,8 @@ class Updates {
         // Only a run that reached a site counts as a check: offline, the
         // next opening (or the next background run) tries again.
         'checked': ok ? now.toIso8601String() : raw['checked'],
-        'attempted': now.toIso8601String(),
+        // A stopped run is no failed attempt either: no half hour's wait.
+        'attempted': stopped ? raw['attempted'] : now.toIso8601String(),
         'new': [for (final c in kept) c.toJson()],
         'problems': [for (final p in problems) p.toJson()],
         if (counts.isNotEmpty || before is Map) 'counts': {if (before is Map) ...before, ...counts},

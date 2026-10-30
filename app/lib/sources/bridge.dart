@@ -53,6 +53,10 @@ class SourcesBridge {
   /// own check on opening to it).
   static Future<bool> backgroundBusy() async => await _ask<bool>('backgroundBusy') ?? false;
 
+  /// Whether the app's own engine is up (asked by the background check
+  /// before each write: it stops, and leaves the rest to the app).
+  static Future<bool> appIsOpen() async => await _ask<bool>('appIsOpen') ?? false;
+
   /// Whether TomeVoice may post notifications (asked for on Android 13 and
   /// later); null where the platform does not say.
   static Future<bool?> notificationsAllowed() => _ask<bool>('notificationsAllowed');

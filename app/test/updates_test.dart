@@ -19,6 +19,7 @@ class _Sites extends SourceEngine {
   _Sites() : super.forTests();
 
   final lists = <String, Object>{};
+  final delays = <String, Duration>{};
   final inFlight = <String, int>{};
   var mostAtOnceOneSite = 0;
   var mostAtOnce = 0;
@@ -32,7 +33,7 @@ class _Sites extends SourceEngine {
     if (inFlight[p.id]! > mostAtOnceOneSite) mostAtOnceOneSite = inFlight[p.id]!;
     if (all > mostAtOnce) mostAtOnce = all;
     try {
-      await Future<void>.delayed(const Duration(milliseconds: 30));
+      await Future<void>.delayed(delays[path] ?? const Duration(milliseconds: 30));
       final got = lists[path];
       if (got is Exception) throw got;
       return SourceNovel(path: path, name: path, chapters: got as List<ChapterItem>);
@@ -157,6 +158,24 @@ void main() {
     await Updates(app).takeCounts();
     expect((await app.list()).firstWhere((e) => e.id == grown).chapterCount, 6);
     expect(jsonDecode(File('${tmp.path}/updates.json').readAsStringSync()), isNot(contains('counts')));
+  });
+
+  test('away from the app, the check stops before its next write once the app opens, keeping what it did', () async {
+    final a = await add('a', 'a0', 3);
+    final b = await add('b', 'b0', 3);
+    sites.lists['a0'] = _chapters('a0', 4);
+    sites.lists['b0'] = _chapters('b0', 4);
+    // b0's site is slow; the app opens once a0 has been stored.
+    sites.delays['b0'] = const Duration(milliseconds: 400);
+    final updates = Updates(store, background: true, stopWhen: () async => (await store.webNovel(a))!.chapters.length == 4);
+    final r = await updates.checkAll();
+    expect(r.found, 1);
+    final grown = [for (final id in [a, b]) (await store.webNovel(id))!.chapters.length];
+    expect(grown..sort(), [3, 4], reason: 'one novel stored, the other left to the app');
+    final log = await updates.log();
+    expect(log.items, hasLength(1), reason: 'what was done is logged');
+    expect((log.checked, log.attempted), (null, null), reason: "not a whole check: the app's own is still due");
+    expect(await Updates(store).checkIfDue(UpdateEvery.daily), 1, reason: 'and finds the rest');
   });
 
   test('away from the app, sources whose sites need a browser check are skipped and said', () async {

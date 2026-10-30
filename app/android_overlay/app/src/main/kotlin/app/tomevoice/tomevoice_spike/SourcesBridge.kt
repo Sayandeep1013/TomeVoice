@@ -69,6 +69,9 @@ object SourcesBridge {
                     onDone?.invoke(args)
                 }
                 "backgroundBusy" -> result.success(NovelCheckWorker.running.get())
+                // Asked by the background check before each write: the app
+                // opened meanwhile, so it stops and leaves the rest to it.
+                "appIsOpen" -> result.success(appIsOpen())
                 // A page in a charset Dart does not read (GBK, Big5,
                 // Shift_JIS, windows-1251...): Java knows them all. Off the
                 // main thread; null for a name it does not know.

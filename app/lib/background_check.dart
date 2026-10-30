@@ -62,7 +62,10 @@ Future<Map<String, Object?>> runBackgroundCheck({String? libraryRoot, String? so
   await Net.instance.attach(sources.dir);
   SourceEngine.instance.attach(sources);
   final store = LibraryStore(Directory(library));
-  final result = await Updates(store, background: true).checkAll();
+  // The app opening mid-check takes over: this one stops before its next
+  // write (the log of what it did is still kept; the app waits for it,
+  // see SourcesBridge.backgroundBusy).
+  final result = await Updates(store, background: true, stopWhen: SourcesBridge.appIsOpen).checkAll();
   return describeNewChapters(store, result.added);
 }
 

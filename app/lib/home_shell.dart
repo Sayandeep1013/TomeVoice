@@ -242,12 +242,19 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
     }
   }
 
-  /// Check for new chapters if one is due, unless a check with the app
-  /// closed is running now (two engines must not write the library at
-  /// once). Chapter counts such a check found reach the shelf first.
+  /// Check for new chapters if one is due. A check made with the app closed
+  /// that is still running stops before its next write once the app is open
+  /// (background_check.dart): it is waited for, as two engines must not
+  /// write the library at once, and what it left is asked then. Chapter
+  /// counts such a check found reach the shelf first.
   Future<void> _checkChapters(Updates updates) async {
     try {
-      if (await SourcesBridge.backgroundBusy()) return;
+      for (var waited = 0; await SourcesBridge.backgroundBusy(); waited++) {
+        // A site that does not answer: given up on for now (two minutes),
+        // and asked again on coming back to the app.
+        if (waited >= 60 || !mounted) return;
+        await Future<void>.delayed(const Duration(seconds: 2));
+      }
       await updates.takeCounts();
       await updates.checkIfDue(UpdateEvery.byName(ListeningPrefs.loaded?.updateEvery));
     } on Object {
