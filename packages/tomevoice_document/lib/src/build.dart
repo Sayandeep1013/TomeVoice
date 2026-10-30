@@ -50,7 +50,7 @@ Block makeBlock({
     id: id ?? _blockId(),
     role: role,
     text: clean,
-    sentences: segmentSentences(clean, silent: silent),
+    sentences: segmentSentences(clean, silent: silent, words: false),
     anchor: anchor ?? OffsetAnchor(0, clean.length),
     language: language,
     image: image,

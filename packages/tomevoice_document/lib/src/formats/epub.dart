@@ -53,11 +53,11 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename, LegacyDec
     if (e.path != null && e.fragment != null) (anchorsIn[e.path!] ??= {}).add(e.fragment!);
   }
 
-  // Each spine document's text, read once. Before any is parsed, their
-  // marker links say which ids in later documents are notes (an endnotes
-  // file at the back): a link that points back is a note's way home.
-  final texts = <String?>[for (final h in spineHrefs) _read(archive, h, legacy)];
-  final notes = _noteTargets(spineHrefs, texts);
+  // Ids in later documents that marker links point at are notes (an
+  // endnotes file at the back): gathered as the documents are read, in
+  // spine order, so a link pointing back (a note's way home) never counts.
+  final position = {for (var i = 0; i < spineHrefs.length; i++) spineHrefs[i]: i};
+  final notes = <String, Set<String>>{};
 
   resetBlockIds();
   final parts = <_Part>[];
@@ -65,9 +65,9 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename, LegacyDec
   final anchorsOf = <String, Map<String, int>>{};
   for (var i = 0; i < spineHrefs.length; i++) {
     final href = spineHrefs[i];
-    final html = texts[i];
-    texts[i] = null;
+    final html = _read(archive, href, legacy);
     if (html == null) continue;
+    _noteTargets(html, i, spineHrefs, position, notes);
     final chapter = htmlChapter(
       html,
       language: metadata.language,
@@ -109,7 +109,7 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename, LegacyDec
   // Many EPUBs never declare a cover, or declare one that is not in the
   // archive; their first picture is the cover.
   final declared = _coverPath(opf, manifest);
-  final cover = declared != null && _bytes(archive, declared) != null
+  final cover = declared != null && _entry(archive, declared) != null
       ? declared
       : withImages
           .take(8)
@@ -196,23 +196,23 @@ void _refuseDrm(Archive archive, Map<String, ({String href, String media, String
   }
 }
 
-/// Spine path -> ids in it that marker links in earlier documents point at.
-Map<String, Set<String>> _noteTargets(List<String> spine, List<String?> texts) {
-  final position = {for (var i = 0; i < spine.length; i++) spine[i]: i};
-  final out = <String, Set<String>>{};
-  for (var i = 0; i < spine.length; i++) {
-    final html = texts[i];
-    if (html == null) continue;
-    for (final link in markerLinks(html)) {
-      final hash = link.indexOf('#');
-      final path = link.substring(0, hash);
-      if (path.isEmpty || path.contains(':')) continue;
-      final target = zipJoin(_dirOf(spine[i]), _decodeHref(path));
-      final at = position[target];
-      if (at != null && at > i) (out[target] ??= {}).add(_decodeHref(link.substring(hash + 1)));
-    }
+/// Adds to [out] (spine path -> note ids) the ids in later documents that
+/// the marker links of document [i] ([html]) point at.
+void _noteTargets(
+  String html,
+  int i,
+  List<String> spine,
+  Map<String, int> position,
+  Map<String, Set<String>> out,
+) {
+  for (final link in markerLinks(html)) {
+    final hash = link.indexOf('#');
+    final path = link.substring(0, hash);
+    if (path.isEmpty || path.contains(':')) continue;
+    final target = zipJoin(_dirOf(spine[i]), _decodeHref(path));
+    final at = position[target];
+    if (at != null && at > i) (out[target] ??= {}).add(_decodeHref(link.substring(hash + 1)));
   }
-  return out;
 }
 
 String _decodeHref(String s) {
@@ -228,9 +228,17 @@ String _decodeHref(String s) {
 String? _read(Archive archive, String path, [LegacyDecoder? legacy]) {
   final f = _entry(archive, path);
   if (f == null) return null;
-  final data = f.readBytes();
-  if (data == null || data.isEmpty) return null;
+  final data = _contentOf(f);
+  if (data.isEmpty) return null;
   return decodeBytes(data, markup: true, legacy: legacy);
+}
+
+/// [f]'s bytes, decompressed without the archive keeping a copy: readBytes
+/// caches every entry it is asked for, so a big book ended up held twice.
+Uint8List _contentOf(ArchiveFile f) {
+  final out = OutputMemoryStream(size: f.size > 0 ? f.size : null);
+  f.decompress(out);
+  return out.getBytes();
 }
 
 ArchiveFile? _entry(Archive archive, String path) {
@@ -748,9 +756,8 @@ String? _coverPath(
 }
 
 Uint8List? _bytes(Archive archive, String path) {
-  final f = archive.findFile(path);
-  final data = f?.readBytes();
-  return data == null ? null : Uint8List.fromList(data);
+  final f = _entry(archive, path);
+  return f == null ? null : _contentOf(f);
 }
 
 /// The bytes of [paths] inside an EPUB, for the importer to store next to

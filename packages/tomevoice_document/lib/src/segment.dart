@@ -58,7 +58,15 @@ bool _isSoftStop(int c) => c == 0x2E || c == 0x21 || c == 0x3F; // . ! ?
 /// [silent] stretches (footnote markers) are shown but not spoken, so they
 /// are transparent here: "house.¹ The next" is two sentences, the marker
 /// ending the first, and nothing is ever cut inside one.
-List<Sentence> segmentSentences(String text, {List<TextStretch> silent = const []}) {
+///
+/// [words] fills each sentence's word spans; a book's blocks are made
+/// without them (nothing reads them back, and an object per word was a
+/// large share of the memory a big import took).
+List<Sentence> segmentSentences(
+  String text, {
+  List<TextStretch> silent = const [],
+  bool words = true,
+}) {
   if (text.isEmpty) return const [];
 
   // Start of each silent stretch -> its end.
@@ -132,7 +140,7 @@ List<Sentence> segmentSentences(String text, {List<TextStretch> silent = const [
       out.add(Sentence(
         startOffset: piece.start,
         endOffset: piece.end,
-        words: wordSpans(text, piece.start, piece.end),
+        words: words ? wordSpans(text, piece.start, piece.end) : const [],
         silent: silent.isEmpty
             ? const []
             : [
