@@ -1,8 +1,8 @@
-# Dart / Flutter
+# Dart / Flutter. The pubspec.lock files are committed: CI resolves with
+# --enforce-lockfile, so every build uses the same packages (docs/13 §13.12).
 .dart_tool/
 .packages
 build/
-pubspec.lock
 .flutter-plugins
 .flutter-plugins-dependencies
 *.iml
