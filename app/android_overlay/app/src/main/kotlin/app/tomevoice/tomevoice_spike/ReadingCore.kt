@@ -1,5 +1,6 @@
 package app.tomevoice.tomevoice_spike
 
+import android.app.Activity
 import android.app.KeyguardManager
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -8,10 +9,13 @@ import android.content.IntentFilter
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
+import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.webkit.WebSettings
@@ -278,6 +282,8 @@ object ReadingCore {
                 result.success(null)
             }
             "activityAttached" -> result.success(activity != null)
+            "batteryStatus" -> result.success(batteryStatus())
+            "openBatterySettings" -> result.success(openBatterySettings())
             else -> return false
         }
         return true
@@ -355,6 +361,50 @@ object ReadingCore {
             // the screen turning off.
             result.error("SESSION", e.message, null)
         }
+    }
+
+    // -------------------------------------------------------------- battery
+
+    /** Whether Android's battery optimisation leaves TomeVoice alone, and who made the phone. */
+    private fun batteryStatus(): Map<String, Any?> {
+        val power = app.getSystemService(Context.POWER_SERVICE) as PowerManager
+        return mapOf(
+            "exempt" to power.isIgnoringBatteryOptimizations(app.packageName),
+            "maker" to Build.MANUFACTURER,
+            "brand" to Build.BRAND,
+        )
+    }
+
+    /**
+     * Android's own place to let TomeVoice run with the screen off: its
+     * one-tap question while TomeVoice is not exempt (it needs
+     * REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, a GitHub-build permission, see
+     * docs/18), else the list of apps, else TomeVoice's own settings page.
+     * Some phones have only some of these. False when none would open.
+     */
+    private fun openBatterySettings(): Boolean {
+        val from: Context = activity ?: app
+        val pkg = Uri.parse("package:" + app.packageName)
+        val power = app.getSystemService(Context.POWER_SERVICE) as PowerManager
+        val tries = listOfNotNull(
+            if (power.isIgnoringBatteryOptimizations(app.packageName)) {
+                null
+            } else {
+                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, pkg)
+            },
+            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkg),
+        )
+        for (intent in tries) {
+            if (from !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            try {
+                from.startActivity(intent)
+                return true
+            } catch (e: Exception) {
+                // The next, more general, page.
+            }
+        }
+        return false
     }
 
     // ------------------------------------------------------------------ TTS

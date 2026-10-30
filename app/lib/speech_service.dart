@@ -260,6 +260,32 @@ class SpeechService {
     }
   }
 
+  /// Whether Android's battery optimisation leaves TomeVoice alone, and the
+  /// phone's maker and brand; null where the platform cannot say.
+  Future<({bool exempt, String maker, String brand})?> batteryStatus() async {
+    try {
+      final raw = await _channel.invokeMapMethod<String, Object?>('batteryStatus');
+      if (raw == null) return null;
+      return (
+        exempt: raw['exempt'] == true,
+        maker: raw['maker'] as String? ?? '',
+        brand: raw['brand'] as String? ?? '',
+      );
+    } on Object {
+      return null;
+    }
+  }
+
+  /// Android's setting that lets TomeVoice read on with the screen off.
+  /// False when the phone has none to open.
+  Future<bool> openBatterySettings() async {
+    try {
+      return await _channel.invokeMethod<bool>('openBatterySettings') ?? false;
+    } on Object {
+      return false;
+    }
+  }
+
   /// Whether the phone has a lock (a PIN, pattern or password) to ask for.
   Future<bool> deviceSecure() async {
     try {

@@ -293,6 +293,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           padding: EdgeInsets.zero,
                           onChanged: (v) => _change(() => _prefs.keepReading = v),
                         ),
+                        const ScreenOffRow(),
                         const SizedBox(height: Gap.xl),
                         const SectionTitle('Style'),
                         const SizedBox(height: Gap.m),
@@ -639,6 +640,118 @@ class _Link extends StatelessWidget {
           ),
         ),
       );
+}
+
+/// Phone makers known to stop apps reading in the background in ways of
+/// their own, beyond Android's battery saving (dontkillmyapp.com ranks them):
+/// the name the phone goes by, and the maker's page there. Brand first: a
+/// Redmi is made by Xiaomi. Null for the rest (Pixel, Nothing and others that
+/// behave as Android does; dontkillmyapp.com has no page for Honor, whose
+/// apps the Huawei page covers).
+({String name, String page})? aggressiveMaker(String maker, String brand) {
+  const pages = {
+    'xiaomi': ('Xiaomi', 'xiaomi'),
+    'redmi': ('Redmi', 'xiaomi'),
+    'poco': ('POCO', 'xiaomi'),
+    'samsung': ('Samsung', 'samsung'),
+    'oppo': ('OPPO', 'oppo'),
+    'realme': ('realme', 'realme'),
+    'oneplus': ('OnePlus', 'oneplus'),
+    'vivo': ('vivo', 'vivo'),
+    'iqoo': ('iQOO', 'vivo'),
+    'huawei': ('Huawei', 'huawei'),
+    'honor': ('Honor', 'huawei'),
+  };
+  for (final key in [brand.trim().toLowerCase(), maker.trim().toLowerCase()]) {
+    final hit = pages[key];
+    if (hit != null) return (name: hit.$1, page: hit.$2);
+  }
+  return null;
+}
+
+/// Settings > Listening: whether Android lets TomeVoice read on with the
+/// screen off, and the way to its setting (the phone's own question, or its
+/// list of apps). On phones whose makers stop apps in ways of their own as
+/// well, a line to the maker's page on dontkillmyapp.com, which says what
+/// else to turn off. Nothing shows where the phone cannot say (tests).
+class ScreenOffRow extends StatefulWidget {
+  const ScreenOffRow({super.key});
+
+  @override
+  State<ScreenOffRow> createState() => _ScreenOffRowState();
+}
+
+class _ScreenOffRowState extends State<ScreenOffRow> {
+  ({bool exempt, String maker, String brand})? _status;
+  late final AppLifecycleListener _life;
+
+  @override
+  void initState() {
+    super.initState();
+    // Back from Android's setting: show what it says now.
+    _life = AppLifecycleListener(onResume: () => unawaited(_load()));
+    unawaited(_load());
+  }
+
+  @override
+  void dispose() {
+    _life.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final status = await _svc.batteryStatus();
+    if (mounted) setState(() => _status = status);
+  }
+
+  Future<void> _open() async {
+    if (!await _svc.openBatterySettings() && mounted) {
+      showSnack(context, 'This phone has no battery setting TomeVoice can open.');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final status = _status;
+    if (status == null) return const SizedBox.shrink();
+    final maker = aggressiveMaker(status.maker, status.brand);
+    return Padding(
+      padding: const EdgeInsets.only(top: Gap.l),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _Link(
+            icon: status.exempt ? Icons.bedtime_outlined : Icons.battery_alert_outlined,
+            title: 'Keep reading with the screen off',
+            subtitle: status.exempt
+                ? 'Allowed: battery saving leaves TomeVoice alone'
+                : 'Battery saving may stop the voice with the screen off. Tap to allow TomeVoice',
+            onTap: _open,
+          ),
+          if (maker != null)
+            // In line with the row's text, under its icon's gap.
+            Padding(
+              padding: const EdgeInsets.only(left: 38),
+              child: Semantics(
+                link: true,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(Radii.row),
+                  onTap: () => _svc.openUrl('https://dontkillmyapp.com/${maker.page}'),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: Gap.xs),
+                    child: Text(
+                      '${maker.name} phones can also stop apps in ways of their own: '
+                      'dontkillmyapp.com/${maker.page}',
+                      style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 /// The app, its version, its licence and the licences of what it is made of.

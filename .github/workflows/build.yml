@@ -242,6 +242,8 @@ jobs:
           grep -q "android.media.browse.MediaBrowserService" "$M"
           grep -q "com.google.android.gms.car.application" "$M"
           test -f android/app/src/main/res/xml/automotive_app_desc.xml
+          # Settings > Listening's one-tap question about battery saving.
+          grep -q "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" "$M"
           # TomeVoice, or the test app when TV_APP_ID / TV_APP_LABEL say so.
           grep -qF "android:label=\"${TV_APP_LABEL:-TomeVoice}\"" "$M"
           # The secret shelf's fingerprint, face or PIN prompt.
