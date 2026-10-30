@@ -568,6 +568,16 @@ class MainActivity : FlutterActivity() {
         disableFocusHighlight(window.decorView)
     }
 
+    // Back out of the library puts TomeVoice behind, as Home does, instead of
+    // finishing it. Finishing ran onDestroy, which ends the reading service
+    // and the player, so on Android 15 and older leaving with Back stopped the
+    // book being read. Android 16 (predictive back, targetSdk 36) already
+    // moved the app behind, which is why it never showed there.
+    override fun popSystemNavigator(): Boolean {
+        moveTaskToBack(true)
+        return true
+    }
+
     private fun disableFocusHighlight(view: View) {
         if (Build.VERSION.SDK_INT >= 26) view.defaultFocusHighlightEnabled = false
         if (view is ViewGroup) {
