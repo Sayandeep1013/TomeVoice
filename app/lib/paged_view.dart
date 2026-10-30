@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'page_curl.dart';
@@ -712,7 +713,7 @@ class _PagedBookState extends State<PagedBook> {
           }
           _ensureController(0);
           if (widget.turn == PageTurn.curl) {
-            return PageCurl(
+            return _turnable(PageCurl(
               key: ValueKey(_row),
               controller: _curl,
               itemCount: _count,
@@ -727,9 +728,9 @@ class _PagedBookState extends State<PagedBook> {
                 _index = i;
                 _settled(byHand: byHand);
               },
-            );
+            ));
           }
-          return NotificationListener<ScrollNotification>(
+          return _turnable(NotificationListener<ScrollNotification>(
             onNotification: (n) {
               if (n.depth != 0) return false;
               if (n is ScrollStartNotification && n.dragDetails != null) _turningByHand = true;
@@ -744,6 +745,9 @@ class _PagedBookState extends State<PagedBook> {
             },
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
+              // TalkBack turns pages by the actions in _turnable: its double
+              // tap arrives here with no place on the page, read as "back".
+              excludeFromSemantics: true,
               onTapUp: (d) {
                 final x = d.localPosition.dx / size.width;
                 if (widget.tapToTurn && x < 0.28) {
@@ -780,9 +784,35 @@ class _PagedBookState extends State<PagedBook> {
                     : _leafView(context, i, 0),
               ),
             ),
-          );
+          ));
         },
       );
+
+  /// The page turns, and the bars, as TalkBack actions (with the two-finger
+  /// swipe): the pages are painted and turned by taps at their sides, which
+  /// a screen reader could not reach.
+  Widget _turnable(Widget child) => Semantics(
+        container: true,
+        explicitChildNodes: true,
+        onScrollLeft: () => _turn(1),
+        onScrollRight: () => _turn(-1),
+        customSemanticsActions: {
+          const CustomSemanticsAction(label: 'Next page'): () => _turn(1),
+          const CustomSemanticsAction(label: 'Previous page'): () => _turn(-1),
+          const CustomSemanticsAction(label: 'Show the controls'): widget.onTapMiddle,
+        },
+        child: child,
+      );
+
+  /// The words a slice of a paragraph shows, for TalkBack: the page is
+  /// painted, and read out only the chapter's name and the page count.
+  String _sliceText(_Piece p, _Laid laid) {
+    final text = laid.painter.plainText;
+    final s = laid.painter.getPositionForOffset(Offset(0, p.top + 1)).offset.clamp(0, text.length);
+    final e = laid.painter.getPositionForOffset(Offset(_columnWidth, p.top + p.height - 1)).offset.clamp(s, text.length);
+    // The indent is a placeholder in the painter's text.
+    return text.substring(s, e).replaceAll(String.fromCharCode(0xFFFC), '').trim();
+  }
 
   Widget _leafView(BuildContext context, int index, int side) {
     if (_itemAt(index) == null && _hasEnd) {
@@ -905,7 +935,9 @@ class _PagedBookState extends State<PagedBook> {
         final laid = _lay(p.item);
         return Padding(
           padding: EdgeInsets.only(bottom: last ? 0 : p.gapAfter),
-          child: GestureDetector(
+          child: Semantics(
+            label: _sliceText(p, laid),
+            child: GestureDetector(
             onLongPressStart: p.kind == _Kind.title
                 ? null
                 : (d) {
@@ -925,6 +957,7 @@ class _PagedBookState extends State<PagedBook> {
                 wordWash: look.wordWash,
               ),
             ),
+          ),
           ),
         );
     }

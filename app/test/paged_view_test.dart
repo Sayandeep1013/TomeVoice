@@ -2,6 +2,7 @@
 // afresh: a new text size or font, or the phone turned on its side.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 import 'package:tomevoice_spike/paged_view.dart';
@@ -107,6 +108,25 @@ void main() {
     phone(tester);
     await tester.pumpAndSettle();
     expect(showing(first), isTrue, reason: 'upright again');
+  });
+
+  testWidgets('TalkBack reads the page, and turns it by its actions', (tester) async {
+    final semantics = tester.ensureSemantics();
+    phone(tester);
+    await pump(tester, look(19));
+    // The page's own words, not only its chapter and count.
+    expect(find.bySemanticsLabel(RegExp('Sentence number 0 of the paragraph')), findsWidgets);
+    final before = controller.range!.$1;
+    final book = tester.getSemantics(find.byWidgetPredicate(
+        (w) => w is Semantics && (w.properties.customSemanticsActions?.isNotEmpty ?? false)));
+    final next = CustomSemanticsAction.getIdentifier(const CustomSemanticsAction(label: 'Next page'));
+    expect(book.getSemanticsData().customSemanticsActionIds, contains(next));
+    book.owner!.performAction(book.id, SemanticsAction.customAction, next);
+    await tester.pumpAndSettle();
+    expect(controller.range!.$1, greaterThan(before));
+    // The chapters either side are cut a moment after a page settles.
+    await tester.pump(const Duration(milliseconds: 200));
+    semantics.dispose();
   });
 
   testWidgets('a turn by hand after a new size moves the place on', (tester) async {
