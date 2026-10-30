@@ -31,6 +31,7 @@ import 'package:tomevoice_spike/paged_view.dart';
 import 'package:tomevoice_spike/pages_view.dart';
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/reader_screen.dart';
+import 'package:tomevoice_spike/rules_screen.dart';
 import 'package:tomevoice_spike/speech_service.dart';
 import 'package:tomevoice_spike/stats.dart';
 import 'package:tomevoice_spike/theme.dart';
@@ -661,6 +662,23 @@ void main() {
       expect(find.byType(NowPlayingScreen), findsNothing);
       expect(washed(tester), startsWith('Beta'));
       expect(find.textContaining('2/2'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets("the listening sheet's reading rules are the book's own, by its title", (tester) async {
+      final layout = numbered();
+      await open(tester, layout);
+      await tester.tap(find.byTooltip('Voice'));
+      await tester.pumpAndSettle();
+      final sheet = find.descendant(of: find.byKey(const Key('reader-settings')), matching: find.byType(Scrollable)).first;
+      final rules = find.byIcon(Icons.rule_rounded);
+      await tester.scrollUntilVisible(rules, 300, scrollable: sheet);
+      await tester.pumpAndSettle();
+      await tester.tap(rules);
+      await tester.pumpAndSettle();
+      final screen = tester.widget<RulesScreen>(find.byType(RulesScreen));
+      expect(screen.bookId, layout.book.id);
+      expect(screen.bookTitle, 'Numbered');
       await finish(tester);
     });
 

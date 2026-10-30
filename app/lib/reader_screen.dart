@@ -742,6 +742,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         prefs: _prefs,
         language: _reader.language,
         bookId: _book.id,
+        // The book's reading rules, opened from the sheet, go by its title.
+        bookTitle: _book.metadata.title,
         onChanged: _reader.settingsChanged,
         sleep: _reader.sleep,
         onSleep: _reader.setSleep,
