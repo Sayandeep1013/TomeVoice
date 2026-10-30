@@ -121,8 +121,19 @@ class _SourcesScreenState extends State<SourcesScreen> {
   Future<void> _install(PluginInfo p) async {
     setState(() => _busy.add(p.id));
     try {
-      await _store.install(p);
-      if (mounted) showSnack(context, '${p.name} is ready in Browse.');
+      final installed = await _store.install(p);
+      // Tried at once (its first popular page), so a source that does not
+      // work here says so now, not when a novel is wanted from it.
+      final problem = await SourceEngine.instance.smokeTest(installed, _store.codePath(installed.id), installed.sha256!);
+      if (mounted) {
+        showSnack(
+          context,
+          problem == null
+              ? '${p.name} is ready in Browse.'
+              : '${p.name} is installed, but its first page did not load: $problem',
+          long: problem != null,
+        );
+      }
     } on Object catch (e) {
       if (mounted) showSnack(context, '${p.name}: ${_message(e)}', long: true);
     } finally {

@@ -46,6 +46,27 @@
     return null;
   };
 
+  // Bytes cross to Dart and back as base64 (QuickJS has atob and btoa from
+  // the libraries bundle).
+  function toBase64(bytes) {
+    var s = '';
+    for (var i = 0; i < bytes.length; i += 0x8000) {
+      s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    }
+    return btoa(s);
+  }
+  function fromBase64(b64) {
+    var s = atob(b64);
+    var out = new Uint8Array(s.length);
+    for (var i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+    return out;
+  }
+  function bytesOf(body) {
+    if (body instanceof ArrayBuffer) return new Uint8Array(body);
+    if (ArrayBuffer.isView(body)) return new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
+    return null;
+  }
+
   function Response(r) {
     this.status = r.status;
     this.statusText = r.statusText || '';
@@ -54,11 +75,25 @@
     this.redirected = !!r.redirected;
     this.headers = new Headers(r.headers);
     this._body = r.body == null ? '' : r.body;
+    this._id = r.id;
+    this._bytes = r.bodyBase64 == null ? null : fromBase64(r.bodyBase64);
   }
   Response.prototype.text = function () { return Promise.resolve(this._body); };
   Response.prototype.json = function () {
     var body = this._body;
     return Promise.resolve().then(function () { return JSON.parse(body); });
+  };
+  // The body's bytes, as Dart kept them (the text above is decoded already).
+  Response.prototype.arrayBuffer = function () {
+    var self = this;
+    return Promise.resolve().then(function () {
+      if (!self._bytes) {
+        var b64 = self._id == null ? null : send('tv_body', JSON.stringify([self._id]));
+        if (b64 == null) throw new Error('This response is no longer kept; fetch it again.');
+        self._bytes = fromBase64(b64);
+      }
+      return self._bytes.buffer.slice(self._bytes.byteOffset, self._bytes.byteOffset + self._bytes.byteLength);
+    });
   };
 
   function normalize(init) {
@@ -77,10 +112,53 @@
     } else if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) {
       body = body.toString();
       if (!has('content-type')) h['Content-Type'] = 'application/x-www-form-urlencoded;charset=UTF-8';
+    } else if (bytesOf(body)) {
+      // Bytes (a protobuf message, an upload) go as they are.
+      return {
+        method: String(init.method || 'GET').toUpperCase(), headers: h, body: null, bodyBase64: toBase64(bytesOf(body)),
+      };
     } else if (body != null && typeof body !== 'string') {
       body = String(body);
     }
     return { method: String(init.method || 'GET').toUpperCase(), headers: h, body: body == null ? null : body };
+  }
+
+  // What only a few plugins use (protobufjs, @noble/ciphers): read in only
+  // when one of them asks, so no other source's context starts slower.
+  function extra() {
+    if (!g.__tvExtra) {
+      var src = send('tv_lib', '[]');
+      if (!src) throw new Error('This source needs libraries TomeVoice could not load.');
+      (0, eval)(src);
+    }
+    return g.__tvExtra;
+  }
+
+  // From the LNReader app's src/plugins/helpers/fetch.ts (MIT): a gRPC-web
+  // call, its message framed (a zero byte, then its length) both ways.
+  function fetchProto(protoInit, url, init) {
+    return Promise.resolve().then(function () {
+      var root = extra().parseProto(protoInit.proto).root;
+      var Request = root.lookupType(protoInit.requestType);
+      if (Request.verify(protoInit.requestData)) throw new Error('Invalid Proto');
+      var message = Request.encode(protoInit.requestData).finish();
+      var n = message.length;
+      var framed = new Uint8Array(5 + n);
+      framed[1] = (n >>> 24) & 255;
+      framed[2] = (n >>> 16) & 255;
+      framed[3] = (n >>> 8) & 255;
+      framed[4] = n & 255;
+      framed.set(message, 5);
+      var req = normalize(Object.assign({}, init || {}, { method: 'POST', body: framed }));
+      req.wantBytes = true;
+      return send('tv_fetch', JSON.stringify([String(url), req]));
+    }).then(function (raw) {
+      var r = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      var payload = r.bodyBase64 == null ? new Uint8Array(0) : fromBase64(r.bodyBase64);
+      var length = ((payload[1] << 24) | (payload[2] << 16) | (payload[3] << 8) | payload[4]) >>> 0;
+      var Message = extra().parseProto(protoInit.proto).root.lookupType(protoInit.responseType);
+      return Message.decode(payload.slice(5, 5 + length));
+    });
   }
 
   function fetchApi(url, init) {
@@ -158,7 +236,7 @@
     'cheerio': L.cheerio,
     'dayjs': L.dayjs,
     'urlencode': { encode: encodeURIComponent, decode: decodeURIComponent },
-    '@libs/fetch': { fetchApi: fetchApi, fetchText: fetchText },
+    '@libs/fetch': { fetchApi: fetchApi, fetchText: fetchText, fetchProto: fetchProto },
     '@libs/novelStatus': { NovelStatus: NovelStatus },
     '@libs/isAbsoluteUrl': { isUrlAbsolute: isUrlAbsolute },
     '@libs/filterInputs': { FilterTypes: FilterTypes },
@@ -178,6 +256,8 @@
   g.__tvLoadPlugin = function (pluginId, code) {
     var req = function (name) {
       if (name === '@libs/storage') return storageFor();
+      if (name === '@libs/aes') return { gcm: extra().gcm };
+      if (name === '@libs/utils') return { utf8ToBytes: extra().utf8ToBytes, bytesToUtf8: extra().bytesToUtf8 };
       var lib = packages[name];
       if (lib === undefined) throw new Error('This source needs "' + name + '", which TomeVoice does not have yet.');
       return lib;

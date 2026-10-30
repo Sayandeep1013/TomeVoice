@@ -26,6 +26,12 @@ class SourcesBridge {
   /// The library's folder (external app storage), as MainActivity has it.
   static Future<String?> libraryRoot() => _ask<String>('libraryRoot');
 
+  /// [bytes] as text in [charset] (any the phone knows: GBK, Big5,
+  /// Shift_JIS, windows-1251…); null when it cannot (an unknown name, or no
+  /// platform, as in tests).
+  static Future<String?> decode(Uint8List bytes, String charset) =>
+      _ask<String>('decode', {'bytes': bytes, 'charset': charset});
+
   /// Forget the phone's web view cookies (browser checks, sign-ins): all of
   /// them, or those of [url]'s site.
   static Future<void> clearWebCookies({String? url}) => _ask<void>('clearWebCookies', {'url': url});

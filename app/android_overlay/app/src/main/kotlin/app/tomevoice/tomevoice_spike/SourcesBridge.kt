@@ -6,11 +6,15 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.webkit.CookieManager
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
 import java.lang.ref.WeakReference
+import java.nio.charset.Charset
+import java.util.concurrent.Executors
 
 /**
  * Web novels' own channel to the platform ("tomevoice/sources"), kept out of
@@ -65,6 +69,25 @@ object SourcesBridge {
                     onDone?.invoke(args)
                 }
                 "backgroundBusy" -> result.success(NovelCheckWorker.running.get())
+                // A page in a charset Dart does not read (GBK, Big5,
+                // Shift_JIS, windows-1251...): Java knows them all. Off the
+                // main thread; null for a name it does not know.
+                "decode" -> {
+                    val bytes = call.argument<ByteArray>("bytes")
+                    val name = call.argument<String>("charset")
+                    if (bytes == null || name == null) {
+                        result.success(null)
+                    } else {
+                        decoder.execute {
+                            val text = try {
+                                if (Charset.isSupported(name)) String(bytes, Charset.forName(name)) else null
+                            } catch (e: Exception) {
+                                null
+                            }
+                            mainThread.post { result.success(text) }
+                        }
+                    }
+                }
                 // A page through the web view, for sites that turn the app's
                 // own requests away (a POST is sent as a form). Only with the
                 // app's activity: the background check has none.
@@ -170,4 +193,7 @@ object SourcesBridge {
 
     /** The permission prompt was shown once this run. */
     private var asked = false
+
+    private val decoder = Executors.newSingleThreadExecutor()
+    private val mainThread = Handler(Looper.getMainLooper())
 }

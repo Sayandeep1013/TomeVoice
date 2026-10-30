@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'bridge.dart';
 import 'cookies.dart';
 
 /// [e] in words a reader understands: no "SocketException" on screen.
@@ -47,13 +48,43 @@ class NetResponse {
 
   bool get ok => status >= 200 && status < 300;
 
-  /// The body as text, in the charset the server named (UTF-8 otherwise).
+  /// The body as text, in the charset the server named (UTF-8 otherwise),
+  /// read here: UTF-8 and Latin-1 only (see [decode] for the rest).
   String text([String? charset]) {
     final named = (charset ?? _charsetOf(headers['content-type']))?.toLowerCase();
     if (named == 'iso-8859-1' || named == 'latin1' || named == 'windows-1252') {
       return latin1.decode(bytes, allowInvalid: true);
     }
     return utf8.decode(bytes, allowMalformed: true);
+  }
+
+  /// The body as text, in its charset: as [charset] says (a plugin's
+  /// fetchText), else the server, else the page itself (a byte order mark,
+  /// `<meta charset>`, an XML declaration), else UTF-8. UTF-8 and Latin-1
+  /// are read here; every other (GBK, Big5, Shift_JIS, windows-1251, EUC-KR
+  /// and the rest) by the phone, which knows them all (SourcesBridge.decode).
+  /// Without it (tests), UTF-8.
+  Future<String> decode([String? charset]) async {
+    final name = (charset ?? _charsetOf(headers['content-type']) ?? _sniffed())?.toLowerCase().trim();
+    if (name == null || name == 'utf-8' || name == 'utf8') {
+      final skip = bytes.length >= 3 && bytes[0] == 0xef && bytes[1] == 0xbb && bytes[2] == 0xbf ? 3 : 0;
+      return utf8.decode(skip == 0 ? bytes : bytes.sublist(skip), allowMalformed: true);
+    }
+    if (name == 'iso-8859-1' || name == 'latin1' || name == 'us-ascii' || name == 'ascii') {
+      return latin1.decode(bytes, allowInvalid: true);
+    }
+    return await SourcesBridge.decode(bytes, name) ??
+        (name == 'windows-1252' ? latin1.decode(bytes, allowInvalid: true) : utf8.decode(bytes, allowMalformed: true));
+  }
+
+  /// The charset a page names for itself near its start.
+  String? _sniffed() {
+    if (bytes.length >= 2 && bytes[0] == 0xff && bytes[1] == 0xfe) return 'utf-16le';
+    if (bytes.length >= 2 && bytes[0] == 0xfe && bytes[1] == 0xff) return 'utf-16be';
+    final head = latin1.decode(bytes.length > 4096 ? bytes.sublist(0, 4096) : bytes, allowInvalid: true);
+    final m = RegExp(r'''<meta[^>]+charset\s*=\s*["']?\s*([\w.:-]+)''', caseSensitive: false).firstMatch(head) ??
+        RegExp(r'''<\?xml[^>]+encoding\s*=\s*["']([\w.:-]+)''', caseSensitive: false).firstMatch(head);
+    return m?.group(1);
   }
 
   /// A Cloudflare "checking your browser" page instead of the site: said by

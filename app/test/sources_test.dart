@@ -133,6 +133,16 @@ Future<HttpServer> _site() async {
     } else if (path == '/ch/1') {
       res.headers.contentType = ContentType.html;
       res.write('<div id="content"><p>It&#39;s the first chapter.</p><p>Second line.</p></div>');
+    } else if (path == '/grpc' && req.method == 'POST') {
+      // A gRPC-web reply to Q{q}: A{answer: "got " + q}, framed as asked.
+      final body = await req.fold<List<int>>([], (a, b) => a..addAll(b));
+      final q = utf8.decode(body.sublist(7, 7 + body[6]));
+      final answer = utf8.encode('got $q');
+      final message = [0x0a, answer.length, ...answer];
+      res.headers.contentType = ContentType('application', 'grpc-web+proto');
+      res.add([0, 0, 0, 0, message.length, ...message]);
+    } else if (path == '/bytes') {
+      res.add([0, 1, 2, 255]);
     } else if (path == '/setcookie') {
       res.cookies.add(Cookie('sid', 'abc')..path = '/');
       res.write('set');
@@ -149,6 +159,29 @@ Future<HttpServer> _site() async {
   });
   return server;
 }
+
+/// A plugin using what only a few do: a gRPC-web call (fetchProto), a
+/// response's bytes, and the ciphers (@libs/aes, @libs/utils).
+const _extraPlugin = r'''
+var fetch_1 = require("@libs/fetch");
+exports.default = {
+  id: "extra", name: "Extra", site: SITE, version: "1",
+  popularNovels: function () { return Promise.resolve([]); },
+  searchNovels: function (term) {
+    var site = this.site;
+    var proto = 'syntax = "proto3"; message Q { string q = 1; } message A { string answer = 1; }';
+    return fetch_1.fetchProto({ proto: proto, requestType: "Q", requestData: { q: term }, responseType: "A" }, site + "grpc",
+        { headers: { "Content-Type": "application/grpc-web+proto" } })
+      .then(function (a) {
+        return fetch_1.fetchApi(site + "bytes").then(function (r) { return r.arrayBuffer(); }).then(function (buf) {
+          var aes = require("@libs/aes"), utils = require("@libs/utils");
+          return [{ name: a.answer + "|" + Array.prototype.join.call(new Uint8Array(buf), ",") + "|" +
+              typeof aes.gcm + "|" + utils.bytesToUtf8(utils.utf8ToBytes("hi")), path: "x" }];
+        });
+      });
+  },
+};
+''';
 
 /// A source worker, as far as cookies go: it reads the file, never writes
 /// it, and hands what the site set to the main isolate.
@@ -189,6 +222,7 @@ PluginHost _host(Directory dir, {BrowserFetch? viaBrowser, int maxLive = 4}) => 
       createJsRuntime,
       libs: File('assets/js/lnreader_libs.js').readAsStringSync(),
       shim: File('assets/js/lnreader_shim.js').readAsStringSync(),
+      extra: File('assets/js/lnreader_extra.js').readAsStringSync(),
       sourcesDir: dir.path,
       viaBrowser: viaBrowser,
       maxLive: maxLive,
@@ -329,6 +363,26 @@ void main() {
     expect(page(200, const {'cf-mitigated': 'challenge'}, '').isChallenge, isTrue);
     expect(page(403, cf, '<h1>Error 1020: Access denied</h1>').isChallenge, isFalse, reason: "the site's own answer");
     expect(page(403, const {'server': 'nginx'}, 'challenge-platform').isChallenge, isFalse);
+  });
+
+  test('a plugin can make a gRPC-web call, read bytes, and use the ciphers LNReader hands it', () async {
+    if (!_hasEngine()) {
+      markTestSkipped('QuickJS is not built on this machine');
+      return;
+    }
+    final server = await _site();
+    final dir = Directory.systemTemp.createTempSync('tv_extra');
+    final host = _host(dir);
+    addTearDown(() async {
+      await server.close(force: true);
+      host.dispose();
+      dir.deleteSync(recursive: true);
+    });
+    final site = 'http://127.0.0.1:${server.port}/';
+    final code = File('${dir.path}/extra.js')..writeAsStringSync(_extraPlugin.replaceAll('SITE', jsonEncode(site)));
+    host.ensure('extra', '1', code.path, site: site);
+    final got = await host.call('extra', 'searchNovels', ['dragons', 1]) as List;
+    expect(NovelItem.fromJs(got.single)!.name, 'got dragons|0,1,2,255|function|hi');
   });
 
   test('only addresses on the open internet are asked', () {

@@ -27,9 +27,11 @@ class SourceEngine {
   /// [chapter] and the like), set as [instance]; or a real one, given the
   /// libraries and the shim (read from assets/js without the asset bundle).
   @visibleForTesting
-  SourceEngine.forTests({String? libs, String? shim})
+  SourceEngine.forTests({String? libs, String? shim, String? extra})
       : _libs = libs,
-        _shim = shim;
+        _shim = shim,
+        // Given the libraries but not the extras: none (no asset bundle).
+        _extra = extra ?? (libs == null ? null : '');
 
   static SourceEngine _instance = SourceEngine._();
 
@@ -44,6 +46,9 @@ class SourceEngine {
   final _workers = <_Worker>[];
   String? _libs;
   String? _shim;
+
+  /// lnreader_extra.js, for the few plugins that need it.
+  String? _extra;
 
   /// Where installed plugins and their storage live.
   void attach(SourceStore store) => _store = store;
@@ -81,13 +86,15 @@ class SourceEngine {
   Future<_Worker> _workerFor(String pluginId) async {
     _libs ??= await rootBundle.loadString('assets/js/lnreader_libs.js');
     _shim ??= await rootBundle.loadString('assets/js/lnreader_shim.js');
+    _extra ??= await rootBundle.loadString('assets/js/lnreader_extra.js');
     final have = _assigned[pluginId];
     if (have != null && !have.retired) return have;
     final live = [for (final w in _workers) if (!w.retired) w];
     final _Worker w;
     if (live.length < _poolSize) {
       w = await (_spawning ??=
-          _Worker.spawn(libs: _libs!, shim: _shim!, sourcesDir: store.dir.path, cookies: _cookieSink).then((w) {
+          _Worker.spawn(libs: _libs!, shim: _shim!, extra: _extra, sourcesDir: store.dir.path, cookies: _cookieSink)
+              .then((w) {
         _workers.add(w);
         return w;
       }).whenComplete(() => _spawning = null));
@@ -255,6 +262,7 @@ class _Worker {
     required String shim,
     required String sourcesDir,
     required SendPort cookies,
+    String? extra,
   }) async {
     final receive = ReceivePort();
     final ready = Completer<SendPort>();
@@ -274,6 +282,7 @@ class _Worker {
           RootIsolateToken.instance,
           Net.allowPrivateAddresses,
           cookies,
+          extra,
         ],
         debugName: 'source-worker');
     final send = await ready.future;
@@ -339,6 +348,7 @@ class _Worker {
       createJsRuntime,
       libs: boot[2] as String,
       shim: boot[3] as String,
+      extra: boot[9] as String?,
       sourcesDir: dir,
       viaBrowser: viaBrowser,
       onBrowserHost: (host) => unawaited(noteBrowserHost(Directory(dir), host)),

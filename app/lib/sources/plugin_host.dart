@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'cookies.dart';
 import 'net.dart';
@@ -135,6 +136,9 @@ class _Plugin {
   /// The hash its code was checked against when loaded.
   String? sha256;
 
+  /// The bytes of its last few responses, by id, for Response.arrayBuffer.
+  final bodies = <int, Uint8List>{};
+
   /// Calls in flight, each collecting the browser checks its requests met.
   final calls = <_Call>{};
 
@@ -170,7 +174,12 @@ class PluginHost {
     this.viaBrowser,
     this.maxLive = 5,
     this.onBrowserHost,
+    this.extra,
   });
+
+  /// lnreader_extra.js (protobufjs, @noble/ciphers): handed to a plugin's
+  /// context only when it asks for them.
+  final String? extra;
 
   /// A site turned out to need [viaBrowser] (see browser_hosts.dart).
   final void Function(String host)? onBrowserHost;
@@ -218,6 +227,8 @@ class PluginHost {
     try {
       rt.onMessage('tv_fetch', (args) => _fetch(p, args));
       rt.onMessage('tv_storage', (args) => _storage(p, args));
+      rt.onMessage('tv_body', (args) => _body(p, args));
+      rt.onMessage('tv_lib', (_) => extra);
       rt.eval(libs, name: 'lnreader_libs.js');
       rt.eval(shim, name: 'lnreader_shim.js');
       final raw = rt.eval('__tvLoadPlugin(${jsonEncode(id)}, ${jsonEncode(code)})', name: id);
@@ -339,11 +350,13 @@ class PluginHost {
     final method = (req['method'] as String? ?? 'GET').toUpperCase();
     final host = Uri.tryParse(url)?.host ?? '';
     final body = req['body'] as String?;
+    // Bytes (a protobuf message) come as base64.
+    final bytes = req['bodyBase64'] is String ? base64Decode(req['bodyBase64'] as String) : null;
     // A POST goes through the web view only as a form, the one kind it can
     // send. Only the plugin's own site may be fetched there, which keeps
     // every site's cookies (logins too) in one place.
     final contentType = headers.entries.where((e) => e.key.toLowerCase() == 'content-type').firstOrNull?.value;
-    final form = method == 'POST' && (contentType == null || contentType.contains('x-www-form-urlencoded'));
+    final form = method == 'POST' && bytes == null && (contentType == null || contentType.contains('x-www-form-urlencoded'));
     final browser = (method == 'GET' || form) && sameSite(host, p.site) ? viaBrowser : null;
     Future<String?> viaWebView() => browser!(url, method: method, body: body);
     try {
@@ -358,7 +371,7 @@ class PluginHost {
         url,
         method: method,
         headers: headers,
-        body: body,
+        body: bytes ?? body,
         partition: p.id,
       );
       if (r.isChallenge && browser != null) {
@@ -380,19 +393,37 @@ class PluginHost {
           }
         }
       }
+      // The bytes kept a while, for Response.arrayBuffer (the last few, as
+      // a plugin reads them right after the fetch).
+      final id = ++_bodySeq;
+      p.bodies[id] = r.bytes;
+      while (p.bodies.length > 4) {
+        p.bodies.remove(p.bodies.keys.first);
+      }
+      final raw = req['wantBytes'] == true;
       return jsonEncode({
         'status': r.status,
         'statusText': '',
         'url': r.url,
         'redirected': r.url != url,
         'headers': r.headers,
-        'body': r.text(req['encoding'] as String?),
+        'id': id,
+        if (raw) 'bodyBase64': base64Encode(r.bytes) else 'body': await r.decode(req['encoding'] as String?),
       });
     } on Object catch (e) {
       // A network failure looks to the plugin like a failed response, which
       // is what a browser fetch would report as well.
       return _failed(url, '$e');
     }
+  }
+
+  var _bodySeq = 0;
+
+  /// A response's bytes (`[id]`), as base64; null once let go.
+  Object? _body(_Plugin p, List<Object?> args) {
+    final id = args.isEmpty ? null : args[0];
+    final bytes = id is int ? p.bodies[id] : null;
+    return bytes == null ? null : base64Encode(bytes);
   }
 
   static String _failed(String url, String why) => jsonEncode({
