@@ -980,6 +980,22 @@ class ReadingControls extends StatelessWidget {
               padding: EdgeInsets.zero,
               onChanged: (v) => _apply(() => prefs.pdfPages = v),
             ),
+            // Only the real pages have margins to cut: it opens in under them.
+            growIn(
+              context,
+              !prefs.pdfPages
+                  ? null
+                  : Padding(
+                      padding: const EdgeInsets.only(top: Gap.s),
+                      child: SwitchRow(
+                        title: 'Crop margins',
+                        subtitle: 'The white edges cut away, so the print is larger. Pictures stay whole',
+                        value: prefs.pdfCrop,
+                        padding: EdgeInsets.zero,
+                        onChanged: (v) => _apply(() => prefs.pdfCrop = v),
+                      ),
+                    ),
+            ),
           ],
         ],
       );
