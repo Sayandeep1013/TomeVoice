@@ -528,7 +528,7 @@ class MainActivity : FlutterActivity() {
                         it.uri.toString() == tree && it.isWritePermission
                     })
                 }
-                "writeToFolder", "listFolder", "deleteFromFolder", "backupToFolder" -> folderCall(call, result)
+                "writeToFolder", "copyToFolder", "listFolder", "deleteFromFolder", "backupToFolder" -> folderCall(call, result)
                 else -> result.notImplemented()
             }
         }
@@ -803,6 +803,34 @@ class MainActivity : FlutterActivity() {
                         val stream = contentResolver.openOutputStream(doc, "wt")
                             ?: throw IllegalStateException("Android would not open the new file")
                         stream.use { it.write(call.argument<String>("text").orEmpty().toByteArray(Charsets.UTF_8)) }
+                        queryDisplayName(doc)
+                    }
+                    // A file the app made (a novel as an EPUB), from its own
+                    // storage only.
+                    "copyToFolder" -> {
+                        val source = File(call.argument<String>("path").orEmpty()).canonicalFile
+                        val ours = listOfNotNull(cacheDir, filesDir, externalCacheDir, getExternalFilesDir(null))
+                            .map { it.canonicalPath + File.separator }
+                        if (!source.isFile || ours.none { source.path.startsWith(it) }) {
+                            throw IllegalStateException("That file is not one TomeVoice made")
+                        }
+                        val doc = createInFolder(
+                            tree,
+                            call.argument<String>("mime") ?: "application/octet-stream",
+                            call.argument<String>("name") ?: source.name
+                        )
+                        try {
+                            val stream = contentResolver.openOutputStream(doc, "wt")
+                                ?: throw IllegalStateException("Android would not open the new file")
+                            stream.use { out -> source.inputStream().use { it.copyTo(out) } }
+                        } catch (e: Throwable) {
+                            // No half-written copy is left behind.
+                            try {
+                                DocumentsContract.deleteDocument(contentResolver, doc)
+                            } catch (_: Throwable) {
+                            }
+                            throw e
+                        }
                         queryDisplayName(doc)
                     }
                     "listFolder" -> listFolder(tree)

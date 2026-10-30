@@ -11,6 +11,7 @@ import 'book_tint.dart';
 import 'browser_check.dart';
 import 'chapter_finder.dart';
 import 'download_queue.dart';
+import 'epub_export.dart';
 import 'fast_scroller.dart';
 import 'library_store.dart';
 import 'novel_move_screen.dart';
@@ -944,6 +945,8 @@ class _NovelScreenState extends State<NovelScreen> {
                     if (e != null) await moveBook(context, _store, e);
                   case 'source':
                     await _moveSource();
+                  case 'epub':
+                    if (e != null) await exportNovelEpub(context, _store, e);
                   case 'cover':
                     if (e != null) await changeCover(context, _store, e);
                   case 'remove':
@@ -952,8 +955,10 @@ class _NovelScreenState extends State<NovelScreen> {
                 }
               },
               itemBuilder: (_) => [
-                if (_entry != null && _downloaded.isNotEmpty)
+                if (_entry != null && _downloaded.isNotEmpty) ...[
                   const PopupMenuItem(value: 'passage', child: Text('Find a passage')),
+                  const PopupMenuItem(value: 'epub', child: Text('Export as EPUB')),
+                ],
                 const PopupMenuItem(value: 'browser', child: Text('Open in browser')),
                 const PopupMenuItem(value: 'download10', child: Text('Download next 10 chapters')),
                 const PopupMenuItem(value: 'download50', child: Text('Download next 50 chapters')),
