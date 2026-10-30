@@ -124,6 +124,13 @@ List<Sentence> segmentSentences(
         // "“Help!” he cried." — lowercase continues the sentence, in any
         // script with capitals ("т. е. согласился").
         if (_isLower(text.codeUnitAt(next))) continue;
+        // "— Огонь! — крикнул Андреич." — so does a dash after "!" or "?"
+        // with lower case after it, who spoke: Russian and Ukrainian set
+        // dialogue so. A capital after the dash starts a sentence.
+        if (c != 0x2E && _isDash(text.codeUnitAt(next))) {
+          final after = _skipSpace(text, next + 1);
+          if (after > next + 1 && after < n && _isLower(text.codeUnitAt(after))) continue;
+        }
       }
     }
 
@@ -324,6 +331,10 @@ bool _isCloser(int c) =>
     c == 0x300B || // 》
     c == 0x3011 || // 】
     c == 0xFF09; // ）
+
+/// Dashes that set off who spoke: em, en, figure dash, horizontal bar, and a
+/// hyphen standing for one.
+bool _isDash(int c) => c == 0x2014 || c == 0x2013 || c == 0x2012 || c == 0x2015 || c == 0x2D;
 
 bool _isSpace(int c) =>
     c == 0x20 ||

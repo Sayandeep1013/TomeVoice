@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor, SourceKind, cursorOf;
 
+import 'auto_download.dart';
 import 'book_actions.dart';
 import 'book_card.dart';
 import 'book_search.dart';
@@ -11,9 +12,13 @@ import 'book_tint.dart';
 import 'browser_check.dart';
 import 'chapter_finder.dart';
 import 'download_queue.dart';
+import 'epub_export.dart';
 import 'fast_scroller.dart';
 import 'library_store.dart';
+import 'novel_move_screen.dart';
+import 'novel_updates.dart';
 import 'prefs.dart';
+import 'read_marks.dart';
 import 'saved_screen.dart';
 import 'secret_shelf.dart';
 import 'sources/models.dart';
@@ -81,6 +86,9 @@ class _NovelScreenState extends State<NovelScreen> {
   LibraryEntry? _entry;
   Set<int> _downloaded = const {};
   int _current = -1;
+
+  /// Chapters marked read or unread by hand (see ReadMarks).
+  ReadMarks _marks = ReadMarks.none;
   Object? _error;
   bool _loading = true;
   /// Newest chapter first: remembered for this novel (and, for novels not
@@ -114,6 +122,7 @@ class _NovelScreenState extends State<NovelScreen> {
     _store.placeChanges.addListener(_placeSaved);
     LibraryStore.secretOpen.addListener(_secretChanged);
     DownloadQueue.instance.changes.addListener(_queueChanged);
+    ReadMarkStore.instance.changes.addListener(_refreshLocal);
     _queueChanged();
     unawaited(_load());
   }
@@ -125,6 +134,7 @@ class _NovelScreenState extends State<NovelScreen> {
     _store.placeChanges.removeListener(_placeSaved);
     LibraryStore.secretOpen.removeListener(_secretChanged);
     DownloadQueue.instance.changes.removeListener(_queueChanged);
+    ReadMarkStore.instance.changes.removeListener(_refreshLocal);
     _scroll.dispose();
     super.dispose();
   }
@@ -191,12 +201,14 @@ class _NovelScreenState extends State<NovelScreen> {
     final hidden = !LibraryStore.secretOpen.value && _store.isSecret(_id);
     final entry = hidden ? null : (await _store.list()).where((e) => e.id == _id).firstOrNull;
     final cursor = entry == null ? null : await _store.cursorFor(_id);
+    final marks = entry == null ? ReadMarks.none : await ReadMarkStore.instance.of(_store, _id);
     if (!mounted) return;
     setState(() {
       _hidden = hidden;
       _entry = entry;
       _downloaded = hidden ? const {} : _store.downloadedChapters(_id);
       _current = entry == null || entry.openedAt == null ? -1 : cursor!.sectionIndex;
+      _marks = marks;
     });
   }
 
@@ -477,6 +489,92 @@ class _NovelScreenState extends State<NovelScreen> {
 
   /// One chapter, from the download button on its row: first in the queue.
   Future<void> _downloadOne(int chapter) => _downloadList([chapter], first: true);
+
+  /// Whether chapter [i] shows as read: its own mark, or the place past it.
+  bool _isRead(int i) => i >= 0 && i < _chapters.length && _marks.isRead(i, _chapters[i].path, _current);
+
+  /// The picked chapters marked read ([how] 'read') or unread ('unread');
+  /// or, for one chapter, every chapter before it marked read ('earlier':
+  /// those above it, oldest first, or below it, newest first).
+  Future<void> _markPicked(String how) async {
+    final picked = [..._picked]..sort();
+    setState(_picked.clear);
+    final paths = how == 'earlier'
+        ? chaptersBefore([for (final c in _chapters) c.path], picked.first)
+        : _pathsOf(picked);
+    if (paths.isEmpty) return;
+    // Marks are kept with the novel: one from Browse is added first.
+    final e = await _ensureAdded(announce: false);
+    if (e == null || !mounted) return;
+    final marks = await ReadMarkStore.instance.mark(_store, _id, paths, read: how != 'unread');
+    if (!mounted) return;
+    setState(() => _marks = marks);
+    final n = paths.length;
+    showSnack(
+      context,
+      how == 'unread'
+          ? (n == 1 ? 'Marked as unread.' : 'Marked $n chapters as unread.')
+          : (n == 1 ? 'Marked as read.' : 'Marked $n chapters as read.'),
+    );
+  }
+
+  /// Whether this novel's new chapters download by themselves as a check
+  /// finds them (see AutoDownload): off, on Wi-Fi, or on any network.
+  Future<void> _chooseAutoDownload() async {
+    final now = AutoDownload.of(_id);
+    final picked = await showModalBottomSheet<AutoDownload>(
+      context: context,
+      sheetAnimationStyle: sheetMotion(context),
+      useSafeArea: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SheetHeader('Download new chapters', subtitle: 'As the check for new chapters finds them'),
+            for (final a in AutoDownload.values)
+              SheetAction(
+                icon: a == now ? Icons.radio_button_checked_rounded : Icons.radio_button_unchecked_rounded,
+                label: a.label,
+                detail: a.detail,
+                onTap: () => Navigator.pop(ctx, a),
+              ),
+            const SizedBox(height: Gap.s),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || picked == now || !mounted) return;
+    AutoDownload.set(_id, picked);
+    showSnack(
+      context,
+      switch (picked) {
+        AutoDownload.off => 'New chapters wait for you to download them.',
+        AutoDownload.wifi => 'New chapters download by themselves on Wi-Fi.',
+        AutoDownload.any => 'New chapters download by themselves.',
+      },
+    );
+  }
+
+  /// Find the novel at another source and move it there (see
+  /// NovelMoveScreen); this page then makes way for the novel's page there.
+  Future<void> _moveSource() async {
+    final e = _entry;
+    if (e == null || !NovelMoveScreen.mayMove(context, e)) return;
+    final moved = await Navigator.of(context).push<LibraryEntry>(MaterialPageRoute(
+      builder: (_) => NovelMoveScreen(store: _store, entry: e, from: widget.plugin),
+    ));
+    if (moved == null || !mounted) return;
+    final info = await _store.webNovel(moved.id);
+    if (info == null || !mounted) return;
+    unawaited(Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
+      builder: (_) => BookTint(
+        bookId: moved.id,
+        cover: moved.shownCover,
+        child: NovelScreen(store: _store, plugin: info.plugin, path: info.novel.path, name: moved.title),
+      ),
+    )));
+  }
 
   Future<void> _openInBrowser() async {
     var url = widget.plugin.site;
@@ -770,6 +868,7 @@ class _NovelScreenState extends State<NovelScreen> {
   Widget _pickBar(BuildContext context) {
     final toGet = _picked.where((i) => !_downloaded.contains(i)).length;
     final toDrop = _picked.length - toGet;
+    final read = _picked.where(_isRead).length;
     final onDark = Skin.onDark(context);
     return Center(
       key: const ValueKey('picking'),
@@ -810,6 +909,23 @@ class _NovelScreenState extends State<NovelScreen> {
                   tooltip: toDrop == 0 ? 'Remove download' : 'Remove $toDrop download${toDrop == 1 ? '' : 's'}',
                   icon: Icon(Icons.delete_outline_rounded, color: toDrop == 0 ? onDark.withValues(alpha: 0.3) : onDark),
                   onPressed: toDrop == 0 ? null : _removePicked,
+                ),
+                PopupMenuButton<String>(
+                  tooltip: 'Mark as read or unread',
+                  position: PopupMenuPosition.over,
+                  style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                  icon: Icon(Icons.done_all_rounded, color: onDark),
+                  onSelected: (how) => unawaited(_markPicked(how)),
+                  itemBuilder: (_) => [
+                    if (read < _picked.length) const PopupMenuItem(value: 'read', child: Text('Mark as read')),
+                    if (read > 0) const PopupMenuItem(value: 'unread', child: Text('Mark as unread')),
+                    // The chapters before the one picked, wherever they show.
+                    if (_picked.length == 1 && _picked.first > 0)
+                      PopupMenuItem(
+                        value: 'earlier',
+                        child: Text(_newestFirst ? 'Mark all below as read' : 'Mark all above as read'),
+                      ),
+                  ],
                 ),
                 const SizedBox(width: Gap.xs),
                 // Its own width first (as a Flexible beside the Expanded count
@@ -857,6 +973,9 @@ class _NovelScreenState extends State<NovelScreen> {
                 switch (v) {
                   case 'browser':
                     await _openInBrowser();
+                  case 'novelupdates':
+                    final title = _novel?.name.isNotEmpty == true ? _novel!.name : (widget.name ?? _entry?.title ?? '');
+                    if (title.isNotEmpty) await const SpeechService().openUrl(NovelUpdates.searchFor(title));
                   case 'passage':
                     await _findPassage();
                   case 'download10':
@@ -867,6 +986,12 @@ class _NovelScreenState extends State<NovelScreen> {
                     await _download(_chapters.length, from: 0);
                   case 'move':
                     if (e != null) await moveBook(context, _store, e);
+                  case 'source':
+                    await _moveSource();
+                  case 'epub':
+                    if (e != null) await exportNovelEpub(context, _store, e);
+                  case 'auto':
+                    if (e != null) await _chooseAutoDownload();
                   case 'cover':
                     if (e != null) await changeCover(context, _store, e);
                   case 'remove':
@@ -875,9 +1000,15 @@ class _NovelScreenState extends State<NovelScreen> {
                 }
               },
               itemBuilder: (_) => [
-                if (_entry != null && _downloaded.isNotEmpty)
+                if (_entry != null && _downloaded.isNotEmpty) ...[
                   const PopupMenuItem(value: 'passage', child: Text('Find a passage')),
+                  const PopupMenuItem(value: 'epub', child: Text('Export as EPUB')),
+                ],
                 const PopupMenuItem(value: 'browser', child: Text('Open in browser')),
+                // Off unless turned on in Settings; never for a novel on a
+                // shut secret shelf (its title would go to the browser).
+                if (NovelUpdates.offered(on: _prefs.novelUpdates, hidden: _hidden))
+                  const PopupMenuItem(value: 'novelupdates', child: Text('Find on NovelUpdates')),
                 const PopupMenuItem(value: 'download10', child: Text('Download next 10 chapters')),
                 const PopupMenuItem(value: 'download50', child: Text('Download next 50 chapters')),
                 if (_chapters.length > _downloaded.length)
@@ -886,7 +1017,9 @@ class _NovelScreenState extends State<NovelScreen> {
                     child: Text('Download all (${_chapters.length - _downloaded.length} to go)'),
                   ),
                 if (_entry != null) ...[
+                  const PopupMenuItem(value: 'auto', child: Text('Download new chapters…')),
                   const PopupMenuItem(value: 'move', child: Text('Move to…')),
+                  const PopupMenuItem(value: 'source', child: Text('Move to another source')),
                   const PopupMenuItem(value: 'cover', child: Text('Change cover')),
                   const PopupMenuItem(value: 'remove', child: Text('Remove from library')),
                 ],
@@ -1023,7 +1156,7 @@ class _NovelScreenState extends State<NovelScreen> {
   Widget _chapterRow(BuildContext context, int i) {
     final c = _chapters[i];
     final isCurrent = i == _current;
-    final read = _current >= 0 && i < _current;
+    final read = _isRead(i);
     final have = _downloaded.contains(i);
     final release = _shortDate(c.releaseTime);
     final picked = _picked.contains(i);

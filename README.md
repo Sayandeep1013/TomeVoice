@@ -97,7 +97,9 @@ No account. No cloud. Your books never leave the phone.
   *Unknown sources* is on). Settings → Listening also asks Android to leave TomeVoice's
   battery alone, with a link to your phone maker's own advice.
 - **Save as audio.** A chapter, or a whole book as an M4B audiobook with its chapters
-  marked, made exactly as it is read aloud, to play anywhere.
+  marked, made exactly as it is read aloud, to play anywhere; or as an MP3, chapters
+  and all, for the players that take nothing else. It goes on with the screen off, and
+  with TomeVoice swiped away from Recents.
 - **Starts where you stopped**, with a sleep timer for listening in bed.
 - **Now Playing.** Swipe the player up for the cover and the page around the voice: the
   sentence being read lit and its word in the book's colour, the paragraphs before and

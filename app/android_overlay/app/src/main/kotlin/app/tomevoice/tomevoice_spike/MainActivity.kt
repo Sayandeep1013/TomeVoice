@@ -81,6 +81,10 @@ class MainActivity : FlutterActivity() {
         private const val REQ_RESTORE = 75
         private const val REQ_CONFIRM = 76
         private const val REQ_FOLDER = 77
+
+        /** The launch argument that has a PDF's extraction written out (dumpPdfIfAsked). */
+        private const val EXTRA_DUMP_PDF = "dumpPdf"
+        private const val LOG_TAG = "TomeVoice"
     }
 
     /**
@@ -119,15 +123,13 @@ class MainActivity : FlutterActivity() {
     /** The answer to "is it you?" on phones too old for BiometricPrompt's PIN. */
     private var confirmResult: MethodChannel.Result? = null
 
-    /** Saving a book as audio: its own channel, "tomevoice/export". */
-    private var exporter: AudioExport? = null
-
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         // An engine already running: the app is there, or a book was being
-        // read with no activity, and this activity only shows it.
+        // read or saved as audio with no activity, and this activity only
+        // shows it. (Saving as audio, "tomevoice/export", is the engine's:
+        // ReadingCore.exporter, attached to this activity in engineFor.)
         rejoined = flutterEngine.dartExecutor.isExecutingDart
-        exporter = AudioExport(this, flutterEngine.dartExecutor.binaryMessenger)
 
         val ch = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
         channel = ch
@@ -308,15 +310,16 @@ class MainActivity : FlutterActivity() {
                         startActivityForResult(intent, REQ_RESTORE)
                     }
                 }
-                "shareImage" -> {
-                    // A picture in cache/share, with words to go with it.
+                "shareImage", "shareFile" -> {
+                    // A picture in cache/share (or another file made to be
+                    // passed on, as its type), with words to go with it.
                     try {
                         val file = File(call.argument<String>("path").orEmpty())
                         val shared = File(ShareProvider.dir(cacheDir), file.name)
                         if (file.canonicalPath != shared.canonicalPath) file.copyTo(shared, overwrite = true)
                         val uri = ShareProvider.uriFor("$packageName.share", shared)
                         val send = Intent(Intent.ACTION_SEND).apply {
-                            type = "image/png"
+                            type = call.argument<String>("mime") ?: "image/png"
                             putExtra(Intent.EXTRA_STREAM, uri)
                             call.argument<String>("text")?.let { putExtra(Intent.EXTRA_TEXT, it) }
                             clipData = android.content.ClipData.newRawUri("", uri)
@@ -529,7 +532,7 @@ class MainActivity : FlutterActivity() {
                         it.uri.toString() == tree && it.isWritePermission
                     })
                 }
-                "writeToFolder", "listFolder", "deleteFromFolder", "backupToFolder" -> folderCall(call, result)
+                "writeToFolder", "copyToFolder", "listFolder", "deleteFromFolder", "backupToFolder" -> folderCall(call, result)
                 else -> result.notImplemented()
             }
         }
@@ -541,6 +544,7 @@ class MainActivity : FlutterActivity() {
         OcrService.onEvent = { e -> event(e) }
         cleanSynthDir()
         handleViewIntent(intent)
+        dumpPdfIfAsked(intent)
         // A widget's book for an app already running is told, as onNewIntent
         // tells it: the shelf asked once, when it first opened.
         if (takeWidgetIntent(intent) && rejoined) event(mapOf("type" to "widgetLaunch"))
@@ -558,11 +562,12 @@ class MainActivity : FlutterActivity() {
     override fun provideFlutterEngine(context: Context): FlutterEngine = ReadingCore.engineFor(this)
 
     /**
-     * Kept while a book is being read: a swipe from Recents, or Android
-     * closing the activity, leaves the voice reading. With nothing read, an
-     * activity that is finishing takes it along, so the next opening starts
-     * afresh, as it always did (decided in cleanUpFlutterEngine, which comes
-     * first). Never while a newer activity takes the engine over.
+     * Kept while a book is being read or saved as audio: a swipe from
+     * Recents, or Android closing the activity, leaves the voice reading and
+     * the save going. With neither, an activity that is finishing takes it
+     * along, so the next opening starts afresh, as it always did (decided in
+     * cleanUpFlutterEngine, which comes first). Never while a newer activity
+     * takes the engine over.
      */
     override fun shouldDestroyEngineWithHost(): Boolean = engineGoes
 
@@ -571,9 +576,9 @@ class MainActivity : FlutterActivity() {
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
         engineGoes = isFinishing && !isChangingConfigurations && ReadingCore.shows(this) &&
-            !ReadAloudService.isRunning() && !ReadAloudService.isStarting()
-        // Reading carries on; this activity's own calls (pickers, the window,
-        // prompts) go with it.
+            !ReadAloudService.isRunning() && !ReadAloudService.isStarting() && !ReadingCore.saving()
+        // Reading and a save carry on; this activity's own calls (pickers,
+        // the window, prompts) go with it.
         ReadingCore.detach(this)
         channel = null
         super.cleanUpFlutterEngine(flutterEngine)
@@ -641,6 +646,7 @@ class MainActivity : FlutterActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleViewIntent(intent)
+        dumpPdfIfAsked(intent)
         if (takeWidgetIntent(intent)) event(mapOf("type" to "widgetLaunch"))
     }
 
@@ -805,6 +811,34 @@ class MainActivity : FlutterActivity() {
                         stream.use { it.write(call.argument<String>("text").orEmpty().toByteArray(Charsets.UTF_8)) }
                         queryDisplayName(doc)
                     }
+                    // A file the app made (a novel as an EPUB), from its own
+                    // storage only.
+                    "copyToFolder" -> {
+                        val source = File(call.argument<String>("path").orEmpty()).canonicalFile
+                        val ours = listOfNotNull(cacheDir, filesDir, externalCacheDir, getExternalFilesDir(null))
+                            .map { it.canonicalPath + File.separator }
+                        if (!source.isFile || ours.none { source.path.startsWith(it) }) {
+                            throw IllegalStateException("That file is not one TomeVoice made")
+                        }
+                        val doc = createInFolder(
+                            tree,
+                            call.argument<String>("mime") ?: "application/octet-stream",
+                            call.argument<String>("name") ?: source.name
+                        )
+                        try {
+                            val stream = contentResolver.openOutputStream(doc, "wt")
+                                ?: throw IllegalStateException("Android would not open the new file")
+                            stream.use { out -> source.inputStream().use { it.copyTo(out) } }
+                        } catch (e: Throwable) {
+                            // No half-written copy is left behind.
+                            try {
+                                DocumentsContract.deleteDocument(contentResolver, doc)
+                            } catch (_: Throwable) {
+                            }
+                            throw e
+                        }
+                        queryDisplayName(doc)
+                    }
                     "listFolder" -> listFolder(tree)
                     "deleteFromFolder" -> {
                         val id = call.argument<String>("id").orEmpty()
@@ -907,6 +941,47 @@ class MainActivity : FlutterActivity() {
         return extras.keySet().associateWith { key ->
             @Suppress("DEPRECATION")
             extras.get(key)?.toString() ?: ""
+        }
+    }
+
+    /**
+     * A development tool, driven from adb like the measurement runs:
+     * `--es dumpPdf <book id>` writes what the extractor reads of that PDF in
+     * the library (its text, bookmarks and line layout, PdfText.dump) to
+     * pdf-dump-<book id>.json beside the books, to pull off the phone and
+     * study. It changes nothing, and says how it went in the log
+     * (`adb logcat -s TomeVoice`).
+     */
+    private fun dumpPdfIfAsked(intent: Intent?) {
+        val i = intent ?: return
+        val id = i.getStringExtra(EXTRA_DUMP_PDF) ?: return
+        // Once: not again when the activity is made anew.
+        i.removeExtra(EXTRA_DUMP_PDF)
+        // Any app may start this activity: only with USB debugging on, as
+        // adb is, so no other app can set a book's extraction going.
+        if (Settings.Global.getInt(contentResolver, Settings.Global.ADB_ENABLED, 0) != 1) {
+            android.util.Log.w(LOG_TAG, "dumpPdf: USB debugging is off")
+            return
+        }
+        // A book's folder, as LibraryStore.isBookId has them: never a path.
+        if (!Regex("[A-Za-z0-9_-]{1,64}").matches(id)) {
+            android.util.Log.w(LOG_TAG, "dumpPdf: not a book id")
+            return
+        }
+        val dir = outputDir()
+        val source = File(dir, "books/$id/source.pdf")
+        if (!source.isFile) {
+            android.util.Log.w(LOG_TAG, "dumpPdf: no PDF at ${source.absolutePath}")
+            return
+        }
+        io.execute {
+            val out = File(dir, "pdf-dump-$id.json")
+            try {
+                PdfText.dump(this, source.absolutePath, out)
+                android.util.Log.i(LOG_TAG, "dumpPdf: wrote ${out.absolutePath}")
+            } catch (e: Throwable) {
+                android.util.Log.w(LOG_TAG, "dumpPdf: ${e.javaClass.simpleName}: ${e.message}")
+            }
         }
     }
 
@@ -1017,7 +1092,7 @@ class MainActivity : FlutterActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
-        if (exporter?.onActivityResult(requestCode, resultCode, data) == true) return
+        if (ReadingCore.exporter?.onActivityResult(requestCode, resultCode, data) == true) return
         if (requestCode == REQ_CONFIRM) {
             confirmResult?.success(resultCode == Activity.RESULT_OK)
             confirmResult = null
@@ -1215,15 +1290,13 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
-        exporter?.close()
-        exporter = null
         stopSample()
         // A scan being read goes on without the app; its book is made when
         // the app is next opened (ocr_jobs.dart).
         OcrService.onEvent = null
-        // The reading, the voice and the player are the engine's and carry
-        // on (ReadingCore): leaving the app, by a swipe from Recents too,
-        // does not stop a book being read.
+        // The reading, the voice, the player and a save as audio are the
+        // engine's and carry on (ReadingCore): leaving the app, by a swipe
+        // from Recents too, does not stop a book being read or saved.
         io.shutdown()
         pages.execute { PdfPages.close() }
         pages.shutdown()

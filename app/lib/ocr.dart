@@ -551,26 +551,30 @@ String ocrPageText(String raw) {
 
 /// A scan's text in the platform's PDF form: its own text for the pages that
 /// had some ([pdf], as PdfText.kt gives it), Tesseract's for those it read
-/// ([read], page to text). With the bookmarks and the line layout of the
-/// pages that kept their own text (an OCR'd page has none, so it is read as
-/// it comes), and which [languages] read it.
+/// ([read], page to text). With the bookmarks, and the line layout and
+/// raised runs of the pages that kept their own text (an OCR'd page has
+/// neither, so it is read as it comes), and which [languages] read it.
 Map<String, Object?> ocrPdfText(Map<String, Object?> pdf, Map<int, String> read, {required String languages}) {
   final ff = String.fromCharCode(0x0C);
   final own = (pdf['text'] as String? ?? '').split(ff);
   final ownCount = own.isNotEmpty && own.last.isEmpty ? own.length - 1 : own.length;
   final layout = pdfLayoutFromPlatform(pdf['layout']);
+  final raised = pdfRaisedFromPlatform(pdf['raised']);
   final last = read.keys.fold<int>(-1, math.max);
   final count = math.max(math.max(pdf['pages'] as int? ?? 0, ownCount), last + 1);
   final pages = <String>[];
   final lines = <List<int>>[];
+  final runs = <List<int>>[];
   for (var p = 0; p < count; p++) {
     final ocr = read[p];
     if (ocr != null) {
       pages.add(ocrPageText(ocr));
       lines.add(const []);
+      runs.add(const []);
     } else {
       pages.add(p < ownCount ? own[p] : '');
       lines.add(layout != null && p < layout.length ? layout[p] : const []);
+      runs.add(raised != null && p < raised.length ? raised[p] : const []);
     }
   }
   return {
@@ -578,6 +582,7 @@ Map<String, Object?> ocrPdfText(Map<String, Object?> pdf, Map<int, String> read,
     'text': pages.map((p) => '$p$ff').join(),
     'pages': count,
     'layout': lines,
+    'raised': runs,
     'outline': pdf['outline'] ?? const [],
     'title': pdf['title'],
     'author': pdf['author'],

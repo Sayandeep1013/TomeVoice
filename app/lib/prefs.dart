@@ -24,6 +24,7 @@ class ListeningPrefs {
     Map<String, int>? highlightOffsetMs,
     this.skipBy = SkipBy.sentence,
     Map<String, bool>? newestFirstByNovel,
+    Map<String, String>? autoDownloadByNovel,
     this.newestFirst = false,
     this.engineId,
     this.textSize = 19,
@@ -45,6 +46,7 @@ class ListeningPrefs {
     this.themeMode = ThemeMode.system,
     this.paletteId = 'forest',
     this.updateEvery = 'daily',
+    this.novelUpdates = false,
     this.gridView = true,
     this.sort = LibrarySort.recent,
     this.bookColours = true,
@@ -70,7 +72,8 @@ class ListeningPrefs {
         pitchByVoice = pitchByVoice ?? {},
         speedByBook = speedByBook ?? {},
         highlightOffsetMs = highlightOffsetMs ?? {},
-        newestFirstByNovel = newestFirstByNovel ?? {};
+        newestFirstByNovel = newestFirstByNovel ?? {},
+        autoDownloadByNovel = autoDownloadByNovel ?? {};
 
   /// Bumped on every change, so the app (theme) and open screens can follow.
   static final revision = ValueNotifier<int>(0);
@@ -166,6 +169,11 @@ class ListeningPrefs {
     save();
   }
 
+  /// Web novel id -> when its new chapters download by themselves as a
+  /// check finds them: "wifi" (on Wi-Fi only) or "any" (on any network).
+  /// A novel not here does not (see AutoDownload).
+  final Map<String, String> autoDownloadByNovel;
+
   String? engineId;
 
   /// Size of the book's text, in logical pixels.
@@ -230,6 +238,10 @@ class ListeningPrefs {
 
   /// How often web novels are checked for new chapters (see UpdateEvery).
   String updateEvery;
+
+  /// A link on each web novel's page to find it on NovelUpdates, in the
+  /// browser (see NovelUpdates). Off until turned on.
+  bool novelUpdates;
 
   /// The library as a grid of covers instead of a list.
   bool gridView;
@@ -342,6 +354,7 @@ class ListeningPrefs {
         'highlightOffsetMs': highlightOffsetMs,
         'skipBy': skipBy.name,
         'newestFirstByNovel': newestFirstByNovel,
+        if (autoDownloadByNovel.isNotEmpty) 'autoDownloadByNovel': autoDownloadByNovel,
         'newestFirst': newestFirst,
         'engineId': engineId,
         'textSize': textSize,
@@ -363,6 +376,7 @@ class ListeningPrefs {
         'themeMode': themeMode.name,
         'palette': paletteId,
         'updateEvery': updateEvery,
+        if (novelUpdates) 'novelUpdates': true,
         'gridView': gridView,
         'sort': sort.name,
         'bookColours': bookColours,
@@ -416,6 +430,10 @@ class ListeningPrefs {
           for (final e in (json['newestFirstByNovel'] as Map? ?? const {}).entries)
             if (e.value is bool) e.key.toString(): e.value as bool,
         },
+        autoDownloadByNovel: {
+          for (final e in (json['autoDownloadByNovel'] is Map ? json['autoDownloadByNovel'] as Map : const {}).entries)
+            if (e.value is String) e.key.toString(): e.value as String,
+        },
         newestFirst: json['newestFirst'] == true,
         engineId: json['engineId'] as String?,
         textSize: ((json['textSize'] as num?)?.toDouble() ?? 19).clamp(14, 30).toDouble(),
@@ -439,6 +457,7 @@ class ListeningPrefs {
         gridView: json['gridView'] as bool? ?? true,
         paletteId: json['palette'] as String? ?? 'forest',
         updateEvery: json['updateEvery'] as String? ?? 'daily',
+        novelUpdates: json['novelUpdates'] == true,
         sort: LibrarySort.values.where((m) => m.name == json['sort']).firstOrNull ??
             LibrarySort.recent,
         bookColours: json['bookColours'] != false,

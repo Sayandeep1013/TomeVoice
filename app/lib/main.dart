@@ -13,6 +13,7 @@ import 'listening_session.dart';
 import 'prefs.dart';
 import 'reader_screen.dart';
 import 'secret_shelf.dart';
+import 'sources/bridge.dart';
 import 'speech_service.dart';
 import 'theme.dart';
 
@@ -57,6 +58,8 @@ void backgroundMain() {
 void _listen() {
   MediaRequests.listen(() async => (await openLibrary()).store);
   SpeechService.events.where((e) => e['type'] == 'shown').listen((_) => _show());
+  // The closed-app check's worker, finding this engine up, asks it to check.
+  SourcesBridge.answerChecks(checkInApp);
 }
 
 var _built = false;

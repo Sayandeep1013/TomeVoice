@@ -337,6 +337,10 @@ class _Walker {
     final role = _isNote(node) ? BlockRole.footnote : _roleFor(node, name, inherited);
     if (_isLeaf(node, name)) {
       final text = _inlineText([node], this);
+      // "Transcriber's note: the spelling of the original is kept."
+      if (text.length < 3000 && _transcribersNote.hasMatch(collapseWhitespace(text.replaceAll(_ownMarks, ' ')))) {
+        return;
+      }
       _emitText(
         text,
         text.length <= 3000 && _opensNote(node.children) ? BlockRole.footnote : role,
@@ -353,6 +357,12 @@ class _Walker {
   /// The children of a block that holds other blocks. Text and inline
   /// elements between those blocks (`<h2>…</h2>text<br/>text`, or text
   /// straight in `<body>`) are paragraphs of their own, not dropped.
+  ///
+  /// A transcriber's notes, under their title, are passed over: notes about
+  /// the e-text ("New original cover art included with this eBook is
+  /// granted to the public domain"), which Project Gutenberg's books have at
+  /// their end, read aloud after the story. They run to the next heading as
+  /// high as their title, or the end of what holds them.
   void _container(XmlElement node, BlockRole? role, String? language) {
     final run = <XmlNode>[];
     void flush() {
@@ -370,11 +380,29 @@ class _Walker {
       run.clear();
     }
 
+    // While a transcriber's notes are passed over: the heading level that
+    // ends them, and how much has gone.
+    int? notesEnd;
+    var passed = 0;
     for (final child in node.children) {
       if (child is XmlElement && _breaksRun(child)) {
         flush();
+        if (notesEnd != null) {
+          final level = _headingLevel(child);
+          if ((level == null || level > notesEnd) && passed < _longestTranscribersNotes) {
+            passed += child.innerText.length;
+            continue;
+          }
+          notesEnd = null;
+        }
+        final notes = _transcribersNotesTitle(child);
+        if (notes != null) {
+          notesEnd = notes;
+          passed = 0;
+          continue;
+        }
         walk(child, language, inherited: role);
-      } else {
+      } else if (notesEnd == null) {
         run.add(child);
       }
     }
@@ -414,7 +442,9 @@ class _Walker {
       final name = el.localName.toLowerCase();
       final src = name == 'img' ? el.getAttribute('src') ?? '' : _attr(el, 'href');
       final alt = collapseWhitespace(el.getAttribute('alt') ?? '');
-      final path = href == null || src.isEmpty || src.startsWith('data:')
+      // A picture is a file of the book's: not one that has a scheme
+      // (data:, http:, a Kindle book's kindle:embed:0001).
+      final path = href == null || src.isEmpty || _scheme.hasMatch(src)
           ? null
           : zipJoin(_dirOfPath(href!), _decode(src));
       if (path == null && alt.isEmpty) continue;
@@ -439,6 +469,51 @@ class _Walker {
       }
     }
   }
+}
+
+/// "Transcriber's Notes", "TRANSCRIBERS' NOTE:", "Note from the transcriber":
+/// notes on how an e-text was made from its book.
+final _transcribersNote = RegExp(
+  r'''^(transcriber['’`]?s?['’`]?\s+notes?|notes?\s+(of|from|by)\s+the\s+transcriber)\b''',
+  caseSensitive: false,
+);
+
+/// The most of a transcriber's notes passed over: past it, what follows a
+/// title is taken for the book.
+const _longestTranscribersNotes = 20000;
+
+/// For a block that is only the title of a transcriber's notes ("<h2>
+/// Transcriber's Notes</h2>", "<div><b>Transcriber’s Notes</b></div>"): the
+/// heading level that ends them (7 for any heading, under a title that is
+/// no heading). Null for any other block.
+int? _transcribersNotesTitle(XmlElement e) {
+  if (_firstText(e) case final first? when first.length < 60 && _transcribersNote.hasMatch(first)) {
+    final text = collapseWhitespace(e.innerText);
+    if (text.length < 60 && _transcribersNote.hasMatch(text) && !_textAfterStop.hasMatch(text)) {
+      return _headingLevel(e) ?? 7;
+    }
+  }
+  return null;
+}
+
+/// A title is only a title: "Transcriber's Note: the spelling..." is a note.
+final _textAfterStop = RegExp(r'[:.]\s*\S');
+
+/// The first words of [e]'s text, looked for without reading all of it.
+String? _firstText(XmlElement e) {
+  for (final n in e.descendants) {
+    if (n is XmlText || n is XmlCDATA) {
+      final t = n.value!.trim();
+      if (t.isNotEmpty) return t;
+    }
+  }
+  return null;
+}
+
+/// 1 to 6 for a heading element, null for anything else.
+int? _headingLevel(XmlElement e) {
+  final name = e.localName.toLowerCase();
+  return _headingTags.contains(name) ? int.parse(name.substring(1)) : null;
 }
 
 /// A block element that holds no other blocks: its text is one block.
@@ -782,6 +857,8 @@ List<Block> lenientHtmlBlocks(String html, {String? language}) {
 /// `&eacute;`, `&#233;` and `&#xE9;` as the characters they stand for: every
 /// HTML5 name, not only the handful a hand-written table remembered.
 String decodeEntities(String s) => _entities.decode(s);
+
+final _scheme = RegExp(r'^[A-Za-z][A-Za-z0-9+.-]*:');
 
 bool _isPicture(XmlElement e) {
   final n = e.localName.toLowerCase();

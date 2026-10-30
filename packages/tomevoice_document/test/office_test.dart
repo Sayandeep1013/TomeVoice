@@ -100,6 +100,32 @@ void main() {
       final first = blocks.indexWhere((b) => b.text.startsWith('The house fell.'));
       expect(blocks[first + 1].role, BlockRole.footnote);
     });
+
+    test('a table of data is read a row at a time; one laid out to hold text, a paragraph at a time', () {
+      String cell(String text) => '<w:tc>${_p(text)}</w:tc>';
+      String row(List<String> cells) => '<w:tr>${cells.map(cell).join()}</w:tr>';
+      final data = '<w:tbl>${row(['Fable', 'Words'])}${row(['The Lion And The Mouse', '133'])}'
+          '<w:tr><w:tc><w:p><w:r><w:t>The Wolf And The Lamb</w:t></w:r><w:r><w:footnoteReference w:id="5"/></w:r></w:p></w:tc>'
+          '${cell('146')}</w:tr></w:tbl>';
+      final layout = '<w:tbl><w:tr><w:tc>${_p('The left column has a paragraph.')}${_p('And a second one.')}</w:tc>'
+          '${cell('The right column.')}</w:tr></w:tbl>';
+      final book = ingestBytes(
+        _docx('${_p('Before the tables.')}$data$layout${_p('After them.')}',
+            footnotes: '<w:footnote w:id="5">${_p('Counted twice.')}</w:footnote>'),
+        filename: 'tables.docx',
+      );
+      expect([for (final s in book.sections) for (final b in s.blocks) '${b.role.name}: ${b.text}'], [
+        'paragraph: Before the tables.',
+        'table: Fable Words',
+        'table: The Lion And The Mouse 133',
+        'table: The Wolf And The Lamb¹ 146',
+        'footnote: ¹ Counted twice.',
+        'paragraph: The left column has a paragraph.',
+        'paragraph: And a second one.',
+        'paragraph: The right column.',
+        'paragraph: After them.',
+      ]);
+    });
   });
 
   group('odt', () {
@@ -111,6 +137,7 @@ void main() {
           'xmlns:dc="http://purl.org/dc/elements/1.1/"><office:meta><dc:title>Parables</dc:title></office:meta></office:document-meta>');
       add('content.xml', '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
           'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" '
+          'xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" '
           'xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink">'
           '<office:body><office:text>$body</office:text></office:body></office:document-content>');
       return Uint8List.fromList(ZipEncoder().encode(a));
@@ -137,6 +164,21 @@ void main() {
         'The Fox',
         'A fox looked at his shadow.',
       ]);
+    });
+
+    test('a table of data is read a row at a time, its header row too', () {
+      String row(List<String> cells) =>
+          '<table:table-row>${[for (final c in cells) '<table:table-cell><text:p>$c</text:p></table:table-cell>'].join()}'
+          '</table:table-row>';
+      final book = ingestBytes(
+        odt('<text:p>Five parables, by length.</text:p>'
+            '<table:table><table:table-header-rows>${row(['Parable', 'Paragraphs'])}</table:table-header-rows>'
+            '${row(['The Scarecrow', '7'])}${row(['The Fox', '1'])}</table:table>'
+            '<text:p>The end.</text:p>'),
+        filename: 't.odt',
+      );
+      expect(_texts(book), ['Five parables, by length.', 'Parable Paragraphs', 'The Scarecrow 7', 'The Fox 1', 'The end.']);
+      expect([for (final s in book.sections) for (final b in s.blocks) b.role].where((r) => r == BlockRole.table), hasLength(3));
     });
   });
 

@@ -27,9 +27,10 @@
   "notRead": [],
   "blocks": {
     "heading": 7,
-    "paragraph": 23,
+    "paragraph": 11,
     "listItem": 2,
-    "footnote": 2
+    "footnote": 2,
+    "table": 6
   },
   "displayOnly": [
     "footnote: ¹ Aesop is said to have been a slave on the island of Samos, some six hundred years before Christ.",
@@ -44,13 +45,13 @@
     "It happened shortly after this that the Lion was caught by some hunters, who bound him by strong ropes to the ground."
   ],
   "last": [
-    "87",
+    "The Dog and the Shadow 87",
     "This selection was put together for listening tests.",
     "Its sources:",
     "The fables, from Townsend’s translation of 1867.",
     "The notes, written for this selection."
   ],
-  "sentences": 55,
+  "sentences": 49,
   "words": 730,
-  "spokenSha256": "d639dbfde536611a8c1e623bbd80b5f1a8c14574ebce0483b2a689000e98dd89"
+  "spokenSha256": "7064cd1635d17951f8611f30ae1f6888d7cd4197981773b87c6b2b7f8b372f56"
 }

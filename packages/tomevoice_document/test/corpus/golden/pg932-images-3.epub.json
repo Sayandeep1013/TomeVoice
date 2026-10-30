@@ -18,8 +18,7 @@
   ],
   "blocks": {
     "heading": 1,
-    "paragraph": 46,
-    "listItem": 1,
+    "paragraph": 45,
     "footnote": 1,
     "table": 14,
     "figure": 1
@@ -36,13 +35,13 @@
     "De Béranger."
   ],
   "last": [
+    "The storm was still abroad in all its wrath as I found myself crossing the old causeway.",
+    "Suddenly there shot along the path a wild light, and I turned to see whence a gleam so unusual could have issued; for the vast house and its shadows were alone behind me.",
     "The radiance was that of the full, setting, and blood-red moon which now shone vividly through that once barely-discernible fissure of which I have before spoken as extending from the roof of the building, in a zigzag direction, to the base.",
     "While I gazed, this fissure rapidly widened—there came a fierce breath of the whirlwind—the entire orb of the satellite burst at once upon my sight—my brain reeled as I saw the mighty walls rushing asunder—there was a long tumultuous shouting sound like the voice of a thousand",
-    "waters—and the deep and dank tarn at my feet closed sullenly and silently over the fragments of the “House of Usher.”",
-    "Transcriber’s Notes",
-    "New original cover art included with this eBook is granted to the public domain."
+    "waters—and the deep and dank tarn at my feet closed sullenly and silently over the fragments of the “House of Usher.”"
   ],
-  "sentences": 297,
-  "words": 7096,
-  "spokenSha256": "264d933858d91c7b09d3113d9340262b70a44ec64dcbd898a5d15e344dfa7f75"
+  "sentences": 295,
+  "words": 7080,
+  "spokenSha256": "76fedb9f71bca8ab855d6bd51fcbb812dfd7c281ba545a1b428fa8bee03432b7"
 }

@@ -21,7 +21,7 @@ class PickedFolder {
 typedef FolderFile = ({String id, String name, int size, DateTime modified});
 
 /// Android's folder picker and the files TomeVoice writes there (automatic
-/// backups, quotes as Markdown). Each call fails with a PlatformException
+/// backups, quotes as Markdown, novels as EPUB). Each call fails with a PlatformException
 /// coded FOLDER when the folder is gone or may no longer be written to.
 class Folders {
   const Folders();
@@ -53,6 +53,17 @@ class Folders {
         'name': name,
         'mime': mime,
         'text': text,
+      }) ??
+      name;
+
+  /// A copy of the file at [path] (one TomeVoice made, in its own storage:
+  /// an EPUB) as a new file [name] in [folder]. The name Android gave it.
+  Future<String> copyFile(PickedFolder folder, String name, String path, {required String mime}) async =>
+      await _channel.invokeMethod<String>('copyToFolder', {
+        'tree': folder.uri,
+        'name': name,
+        'mime': mime,
+        'path': path,
       }) ??
       name;
 

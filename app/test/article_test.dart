@@ -97,7 +97,40 @@ void main() {
       expect(a.words, inInclusiveRange(100, 130));
     });
 
-    test('a Wikipedia page: the article, its notes shown but not read', () {
+    test("a Wikipedia page in sections: every section, without the lists at its end", () {
+      // As Wikipedia serves a phone: a <section> for every heading, and a
+      // collapsed box inside one holding more text than any one section.
+      // The box alone was taken for the article (794 words of Tagore's
+      // 10,000), and the references, bibliography and links were read out.
+      String para(String s) => '<p>$s ${'The poet wrote and composed and travelled widely across the world. ' * 6}</p>';
+      final page = '<html><head><title>Rabindranath Tagore - Wikipedia</title></head><body><main>'
+          '<div class="mw-content-ltr mw-parser-output">'
+          '<section data-mw-section-id="0">${para('Rabindranath Tagore (Bengali: <span lang="bn-Latn-fonipa">[ˈrobind̪ɾonat̪ʰ]</span><sup>ⓘ</sup>; 7 May 1861) was a Bengali poet.')}</section>'
+          '<section data-mw-section-id="1"><div class="mw-heading mw-heading2"><h2>Early life</h2></div>${para('Early life opens here.')}'
+          '<div class="mw-collapsible"><div class="mw-collapsible-content">${para('A long quotation in a box.') * 4}</div></div></section>'
+          '<section data-mw-section-id="2"><div class="mw-heading mw-heading2"><h2>Works</h2></div>${para('Works open here.')}'
+          '<section data-mw-section-id="3"><div class="mw-heading mw-heading3"><h3>Poetry</h3></div>${para('Poetry opens here.')}</section></section>'
+          '<section data-mw-section-id="4"><div class="mw-heading mw-heading2"><h2>References</h2></div>'
+          '<ol class="references"><li id="cite_note-1">Dutta, K. (1995). Retrieved 12 April 2020.</li></ol></section>'
+          '<section data-mw-section-id="5"><div class="mw-heading mw-heading2"><h2>Bibliography</h2></div>'
+          '<ul><li>Tagore, Rabindranath (1952), Collected Poems and Plays, ISBN 978-0-02-615920-3</li></ul></section>'
+          '<section data-mw-section-id="6"><div class="mw-heading mw-heading2"><h2>External links</h2></div>'
+          '<ul><li>Works by Rabindranath Tagore at Project Gutenberg</li></ul></section>'
+          '</div></main></body></html>';
+      final a = extractArticle(page, url: Uri.parse('https://en.wikipedia.org/wiki/Rabindranath_Tagore'));
+      expectAll(a.text, [
+        'was a Bengali poet',
+        'Early life opens here.',
+        'A long quotation in a box.',
+        'Works open here.',
+        'Poetry opens here.',
+      ], [
+        'ˈrobind', 'ⓘ', 'Retrieved 12 April 2020', 'Collected Poems and Plays', 'Project Gutenberg',
+        'References', 'Bibliography', 'External links',
+      ]);
+    });
+
+    test('a Wikipedia page: the article, without its references', () {
       final a = extractArticle(wikiPage, url: Uri.parse('https://en.wikipedia.org/wiki/Alpine_swift'));
       expect(a.title, 'Alpine swift', reason: '" - Wikipedia" is the site');
       expect(a.byline, isNull);
@@ -116,9 +149,9 @@ void main() {
       ]);
 
       final book = bookOf(a);
-      final notes = blocksOf(book).where((b) => b.role == BlockRole.footnote).map((b) => b.text).join('\n');
-      expect(notes, contains('BirdLife International'), reason: 'the references are notes');
-      expect(notes, contains('Non-stop flight'));
+      // Left out: on a real page most references are not linked from the
+      // text, and read out they were a long list of sources.
+      expect(blocksOf(book).map((b) => b.text).join('\n'), isNot(contains('BirdLife International')));
       final voice = spoken(book);
       expectAll(voice, [
         'winters in Africa.',

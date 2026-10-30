@@ -17,6 +17,7 @@ import 'folders.dart';
 import 'library_store.dart';
 import 'listen_sheet.dart';
 import 'neural_screen.dart';
+import 'novel_updates.dart';
 import 'noveldokusha_import.dart';
 import 'prefs.dart';
 import 'problem_report.dart';
@@ -394,7 +395,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                         _Link(
                           icon: Icons.rule_rounded,
                           title: 'Reading rules',
-                          subtitle: 'Words said your way, and lines left out of web novels',
+                          subtitle: 'Words said your way, shared lists of them, and what the voice skips',
                           onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
                             builder: (_) => RulesScreen(
                               bookTitles: {for (final e in idx?.entries ?? const <LibraryEntry>[]) e.id: e.title},
@@ -475,6 +476,14 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                         Text(
                           'Web novels in your library are checked when TomeVoice opens, at most this often.',
                           style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
+                        ),
+                        const SizedBox(height: Gap.s),
+                        SwitchRow(
+                          title: 'Find on NovelUpdates',
+                          subtitle: NovelUpdates.about,
+                          value: _prefs.novelUpdates,
+                          padding: EdgeInsets.zero,
+                          onChanged: (v) => _change(() => _prefs.novelUpdates = v),
                         ),
                         const SizedBox(height: Gap.l),
                         _Link(

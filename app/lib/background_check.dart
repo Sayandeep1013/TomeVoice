@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/widgets.dart';
 
+import 'auto_download.dart';
 import 'library_store.dart';
 import 'prefs.dart';
 import 'sources/bridge.dart';
@@ -20,8 +21,13 @@ import 'updates.dart';
 /// engine has none of the app's own platform calls (the web view, the
 /// phone's browser agent): sources whose sites need a browser check are
 /// skipped and listed on the Updates screen, and the library index is left
-/// to the app (see Updates.background). While the app is open, the worker
-/// does nothing: the app checks on opening and on coming back to it.
+/// to the app (see Updates.background).
+///
+/// While the app's own engine is up (TomeVoice open, left in the background
+/// with Back, or reading a book with no screen), the worker starts no engine:
+/// it asks that one to check (checkInApp, through SourcesBridge's
+/// "runCheck"), as two engines must never write the library at once, and
+/// posts the same notification with what it found.
 class BackgroundChecks {
   const BackgroundChecks._();
 
@@ -51,6 +57,7 @@ Future<void> backgroundCheckMain() async {
 /// The check, from the app's folders ([libraryRoot] and [sourcesRoot], as
 /// SourcesBridge gives them, or a test's). What the notification says.
 Future<Map<String, Object?>> runBackgroundCheck({String? libraryRoot, String? sourcesRoot}) async {
+  final started = DateTime.now();
   final library = libraryRoot ?? await SourcesBridge.libraryRoot();
   final internal = sourcesRoot ?? await SourcesBridge.sourcesRoot();
   if (library == null || internal == null) return const {'found': 0};
@@ -65,20 +72,38 @@ Future<Map<String, Object?>> runBackgroundCheck({String? libraryRoot, String? so
   // The app opening mid-check takes over: this one stops before its next
   // write (the log of what it did is still kept; the app waits for it,
   // see SourcesBridge.backgroundBusy).
-  final result = await Updates(store, background: true, stopWhen: SourcesBridge.appIsOpen).checkAll();
+  final updates = Updates(store, background: true, stopWhen: SourcesBridge.appIsOpen);
+  final result = await updates.checkAll();
+  // New chapters of novels that download them by themselves, while there
+  // is time (the worker gives this engine nine minutes); the rest wait in
+  // the log for the app.
+  try {
+    await downloadAway(
+      store,
+      updates,
+      result.added,
+      stopWhen: SourcesBridge.appIsOpen,
+      unmetered: onWifi,
+      until: started.add(const Duration(minutes: 6)),
+    );
+  } on Object {
+    // What was found is still said.
+  }
   return describeNewChapters(store, result.added);
 }
 
 /// What to tell the reader of [added]: how many chapters, and of which
-/// novels. One on a secret shelf goes unnamed, as everywhere the shelves
-/// are shut ("a novel"); away from the app they always are.
+/// novels. One on a secret shelf goes unnamed ("a novel"), open or not: the
+/// notification stays, on the lock screen too, after TomeVoice is left and
+/// the shelves shut (it is worded in the app's engine as well, when the
+/// worker asks it).
 Map<String, Object?> describeNewChapters(LibraryStore store, List<NewChapter> added) {
   if (added.isEmpty) return const {'found': 0};
   final byBook = <String, int>{};
   final titles = <String, String>{};
   for (final c in added) {
     byBook[c.bookId] = (byBook[c.bookId] ?? 0) + 1;
-    titles[c.bookId] = store.isSecret(c.bookId) && !LibraryStore.secretOpen.value ? 'A novel' : c.title;
+    titles[c.bookId] = store.isSecret(c.bookId) ? 'A novel' : c.title;
   }
   String chapters(int n) => n == 1 ? 'a new chapter' : '$n new chapters';
   final lines = [for (final e in byBook.entries) '${titles[e.key]}: ${chapters(e.value)}'];

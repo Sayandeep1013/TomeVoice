@@ -338,9 +338,15 @@ class _Scores {
       paragraphs.add(e);
       var node = e.parent;
       var w = 1.0;
-      for (var d = 0; d < 3 && node != null && node.isElement; d++) {
+      for (var d = 0; d < 3 && node != null && node.isElement;) {
         raw[node] = (raw[node] ?? 0) + w * len;
-        w /= 2;
+        // A <section> is a part of the article around it: Wikipedia gives
+        // every heading one, and counted as a level each, no section held
+        // as much as a collapsed box beside them, which was read alone.
+        if (node.tag != 'section') {
+          w /= 2;
+          d++;
+        }
         node = node.parent;
       }
     }
@@ -449,6 +455,11 @@ void _tidy(HtmlNode root, _Meta meta, {HtmlNode? keep}) {
   for (final b in meta.bylineNodes) {
     if (root.contains(b) && !identical(b, root) && !kept(b) && _visible(b.textContent) < 140) b.remove();
   }
+  // A pronunciation in phonetic letters ("[ˈrobind̪ɾonat̪ʰ]", marked as such by
+  // its language tag) and Wikipedia's audio mark beside it are not for
+  // reading out; nor are the lists at an article's end.
+  _prune(root, (e) => (e.attr('lang') ?? '').toLowerCase().contains('fonipa') || (e.tag == 'sup' && e.textContent.trim() == 'ⓘ'));
+  _dropBackMatter(root);
 
   // From the innermost blocks out, so each is judged by what is left in it.
   final stats = _Stats(root);
@@ -459,6 +470,60 @@ void _tidy(HtmlNode root, _Meta meta, {HtmlNode? keep}) {
     e.remove();
   }
   _dropBareHeadings(root);
+}
+
+/// Lists at an article's end that nobody listens to: Wikipedia's See also,
+/// Notes, References, Bibliography, Further reading and External links, and
+/// the like elsewhere. Its references became notes only where a marker in
+/// the text pointed at them; the rest (about 180 of Tagore's 230) were read
+/// out, "Retrieved 12 April 2020" and all. The markers themselves are
+/// already passed over in speech.
+final _backMatter = RegExp(
+  r'^(see also|notes|references|notes and references|citations|footnotes|sources|bibliography|further reading|external links|works cited|related (articles|pages|links|reading))$',
+  caseSensitive: false,
+);
+
+bool _isBackMatter(HtmlNode h) => _backMatter.hasMatch(h.textContent.replaceAll(RegExp(r'\s+'), ' ').trim());
+
+/// Drop each [_backMatter] heading and what it heads: the section it opens
+/// (Wikipedia gives every heading one), or else what follows it up to the
+/// next heading as high.
+void _dropBackMatter(HtmlNode root) {
+  for (final h in root.elements.where((e) => e.tag == 'h2' || e.tag == 'h3').toList()) {
+    if (!root.contains(h) || !_isBackMatter(h)) continue;
+    HtmlNode? section;
+    for (var p = h.parent; p != null && !identical(p, root); p = p.parent) {
+      if (p.tag == 'section') {
+        section = p;
+        break;
+      }
+    }
+    if (section != null) {
+      section.remove();
+      continue;
+    }
+    // The heading with the wrappers that hold nothing else.
+    var top = h;
+    while (top.parent != null &&
+        !identical(top.parent, root) &&
+        top.parent!.children.where((c) => c.isElement || c.text.trim().isNotEmpty).length == 1) {
+      top = top.parent!;
+    }
+    final siblings = top.parent?.children.toList() ?? const <HtmlNode>[];
+    final doomed = [top];
+    for (final s in siblings.skip(siblings.indexOf(top) + 1)) {
+      final next = !s.isElement
+          ? null
+          : _headingTags.contains(s.tag)
+              ? s
+              : s.elements.where((e) => e.tag == 'h1' || e.tag == 'h2' || e.tag == h.tag).firstOrNull;
+      if (next != null && (next.tag == 'h1' || next.tag == 'h2' || next.tag == h.tag) && !_isBackMatter(next)) break;
+      doomed.add(s);
+    }
+    for (final d in doomed) {
+      d.remove();
+    }
+  }
 }
 
 /// Whether [e], inside the article, is not part of it (see [_tidy]).

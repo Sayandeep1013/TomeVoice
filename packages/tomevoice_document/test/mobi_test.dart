@@ -142,6 +142,51 @@ void main() {
       expect(_texts(book), ['Chapter One', 'The lamp was lit at dusk.']);
     });
 
+    test('notes are found by their kindle:pos links: shown, not read, their marks not said', () {
+      // A link is a fragment and an offset into it, in base 32. Here a
+      // footnote in the chapter's own part, at an element with an id, and an
+      // endnote in a later part, at one with only Amazon's aid.
+      String pos(int fragment, int offset) => 'kindle:pos:fid:${fragment.toRadixString(32).toUpperCase().padLeft(4, '0')}'
+          ':off:${offset.toRadixString(32).toUpperCase().padLeft(10, '0')}';
+      const note = '<hr/><p class="noindent"><a id="fn1">*</a> He had been at sea for a month.</p>';
+      const notesHead = '<h1>Notes</h1>';
+      final book = ingestBytes(
+        kf8Book(parts: [
+          [
+            '<h1>Chapter One</h1><p>He came home late<a href="${pos(1, note.indexOf('<a'))}" class="reference">*</a> '
+                'and said nothing to anyone that night.</p>'
+                '<p>The harbour<a href="${pos(2, notesHead.length)}">2</a> was quiet.</p>',
+            note,
+          ],
+          ['$notesHead<p aid="N1">2. The harbour was rebuilt in 1890, after the great storm.</p>'],
+        ]),
+        filename: 'tale.azw3',
+      );
+      final blocks = [for (final s in book.sections) ...s.blocks];
+      expect([for (final b in blocks) if (b.role == BlockRole.footnote && b.text != 'Notes') b.text], [
+        '* He had been at sea for a month.',
+        '2. The harbour was rebuilt in 1890, after the great storm.',
+      ]);
+      final said = [for (final u in flattenSpeakable(book)) spokenText(u.text, u.silent).text];
+      expect(said, ['Chapter One', 'He came home late and said nothing to anyone that night.', 'The harbour was quiet.']);
+      expect(blocks.map((b) => b.text), contains('He came home late* and said nothing to anyone that night.'));
+    });
+
+    test("a picture is not taken for a file of the book's: its kindle:embed is no path", () {
+      final book = ingestBytes(
+        kf8Book(parts: [
+          [
+            '<div><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">'
+                '<image xlink:href="kindle:embed:0001?mime=image/jpeg"/></svg></div>'
+                '<h1>Chapter One</h1><p>The lamp was lit at dusk.</p>',
+          ],
+        ]),
+        filename: 'tale.azw3',
+      );
+      expect([for (final s in book.sections) for (final b in s.blocks) if (b.isImage) b.image], isEmpty);
+      expect(_texts(book), ['Chapter One', 'The lamp was lit at dusk.']);
+    });
+
     test('a joint MOBI 6 and KF8 file is read from its KF8 half', () {
       final book = ingestBytes(kf8Book(parts: parts, toc: toc, joint: true), filename: 'tale.mobi');
       expect(_texts(book), isNot(contains('The old copy.')));
