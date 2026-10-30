@@ -13,6 +13,7 @@ import 'chapter_finder.dart';
 import 'download_queue.dart';
 import 'fast_scroller.dart';
 import 'library_store.dart';
+import 'novel_move_screen.dart';
 import 'prefs.dart';
 import 'read_marks.dart';
 import 'saved_screen.dart';
@@ -514,6 +515,26 @@ class _NovelScreenState extends State<NovelScreen> {
     );
   }
 
+  /// Find the novel at another source and move it there (see
+  /// NovelMoveScreen); this page then makes way for the novel's page there.
+  Future<void> _moveSource() async {
+    final e = _entry;
+    if (e == null || !NovelMoveScreen.mayMove(context, e)) return;
+    final moved = await Navigator.of(context).push<LibraryEntry>(MaterialPageRoute(
+      builder: (_) => NovelMoveScreen(store: _store, entry: e, from: widget.plugin),
+    ));
+    if (moved == null || !mounted) return;
+    final info = await _store.webNovel(moved.id);
+    if (info == null || !mounted) return;
+    unawaited(Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
+      builder: (_) => BookTint(
+        bookId: moved.id,
+        cover: moved.shownCover,
+        child: NovelScreen(store: _store, plugin: info.plugin, path: info.novel.path, name: moved.title),
+      ),
+    )));
+  }
+
   Future<void> _openInBrowser() async {
     var url = widget.plugin.site;
     try {
@@ -921,6 +942,8 @@ class _NovelScreenState extends State<NovelScreen> {
                     await _download(_chapters.length, from: 0);
                   case 'move':
                     if (e != null) await moveBook(context, _store, e);
+                  case 'source':
+                    await _moveSource();
                   case 'cover':
                     if (e != null) await changeCover(context, _store, e);
                   case 'remove':
@@ -941,6 +964,7 @@ class _NovelScreenState extends State<NovelScreen> {
                   ),
                 if (_entry != null) ...[
                   const PopupMenuItem(value: 'move', child: Text('Move to…')),
+                  const PopupMenuItem(value: 'source', child: Text('Move to another source')),
                   const PopupMenuItem(value: 'cover', child: Text('Change cover')),
                   const PopupMenuItem(value: 'remove', child: Text('Remove from library')),
                 ],

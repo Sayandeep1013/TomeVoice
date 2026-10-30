@@ -206,6 +206,20 @@ class DownloadQueue {
     _kick();
   }
 
+  /// Take novel [bookId]'s chapters out of the queue (it is moving to
+  /// another source), once none of them is on its way down: those that
+  /// were waiting, to be queued again at their places there.
+  Future<List<DownloadJob>> takeOut(String bookId) async {
+    final out = [for (final j in _jobs) if (j.bookId == bookId) j];
+    _jobs.removeWhere((j) => j.bookId == bookId);
+    await _save();
+    _kick();
+    for (var waited = 0; _running.values.any((j) => j.bookId == bookId) && waited < 300; waited++) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    return out;
+  }
+
   /// Try again the chapters of [bookId] that failed.
   Future<void> retry(String bookId) async {
     for (final j in _jobs) {
