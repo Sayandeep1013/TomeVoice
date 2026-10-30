@@ -381,6 +381,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   final _catalog = VoiceCatalog.instance;
   late final String _language = primaryLanguage(_book.metadata.language);
 
+  /// Arabic, Hebrew and the other right-to-left scripts are set and turned
+  /// that way (they were laid out left to right).
+  late final TextDirection _direction = directionOfLanguage(_language);
+
   StreamSubscription<Map<String, Object?>>? _events;
   Timer? _persistTimer;
   Timer? _restartTimer;
@@ -2091,6 +2095,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             tapToTurn: _prefs.tapToTurn,
             endButton: widget.onReachedEnd == null ? null : _more(context),
             marks: _markedUnits,
+            textDirection: _direction,
           )),
         ),
         Positioned(
@@ -2456,7 +2461,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           child: LayoutBuilder(
             builder: (context, box) {
               _viewport = box.maxHeight;
-              return ScrollablePositionedList.builder(
+              return Directionality(
+                textDirection: _direction,
+                child: ScrollablePositionedList.builder(
                 // One more item at the end when there is more to fetch: the way on.
                 itemCount: _l.items.length + (widget.onReachedEnd == null ? 0 : 1),
                 itemScrollController: _scroll,
@@ -2466,6 +2473,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                 initialAlignment: initial == 0 ? 0 : 0.12,
                 padding: EdgeInsets.fromLTRB(side, 16, side, 120),
                 itemBuilder: (context, i) => i == _l.items.length ? _more(context) : _item(context, i),
+              ),
               );
             },
           ),
@@ -3509,6 +3517,13 @@ String encodeReport(Map<String, Object?> m) =>
 
 /// The word around [offset] in [text] (letters, digits, apostrophes,
 /// hyphens), or the one just beside it; empty far from any word.
+/// Right to left for the scripts read that way: Arabic (and Persian, Urdu,
+/// Pashto, Sindhi, Uyghur, Sorani), Hebrew and Yiddish, Thaana and Syriac.
+TextDirection directionOfLanguage(String language) =>
+    const {'ar', 'fa', 'ur', 'ps', 'sd', 'ug', 'ckb', 'he', 'iw', 'yi', 'dv', 'syr'}.contains(language)
+        ? TextDirection.rtl
+        : TextDirection.ltr;
+
 String wordAt(String text, int offset) {
   // Marks too (\p{M}): Bengali and Hindi vowel signs and the virama are
   // marks, and without them বাংলা came back as ব.

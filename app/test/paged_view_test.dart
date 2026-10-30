@@ -38,7 +38,8 @@ void main() {
   final marked = ValueNotifier<int>(-1);
   final word = ValueNotifier<WordMark>(WordMark.none);
 
-  Future<void> pump(WidgetTester tester, PageLook look) async {
+  Future<void> pump(WidgetTester tester, PageLook look,
+      {PageTurn turn = PageTurn.none, TextDirection direction = TextDirection.ltr}) async {
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
         body: PagedBook(
@@ -53,7 +54,8 @@ void main() {
           onTapMiddle: () {},
           onHold: (item, offset) {},
           pictureOf: (block, size) => SizedBox.fromSize(size: size),
-          turn: PageTurn.none,
+          turn: turn,
+          textDirection: direction,
         ),
       ),
     ));
@@ -127,6 +129,47 @@ void main() {
     // The chapters either side are cut a moment after a page settles.
     await tester.pump(const Duration(milliseconds: 200));
     semantics.dispose();
+  });
+
+  group('a right-to-left book', () {
+    ReadingLayout arabic() {
+      final para = List.generate(40, (i) => 'هذه الجملة رقم $i من الفقرة تستمر قليلا.').join(' ');
+      return ReadingLayout.build(ingestString('# واحد\n\n${List.filled(20, para).join('\n\n')}', filename: 'book.md'));
+    }
+
+    for (final turn in [PageTurn.none, PageTurn.curl]) {
+      testWidgets('turns on at its left side and back at its right (${turn.name})', (tester) async {
+        layout = arabic();
+        phone(tester);
+        await pump(tester, look(19), turn: turn, direction: TextDirection.rtl);
+        final start = controller.range!.$1;
+        final box = tester.getRect(find.byType(PagedBook));
+        await tester.tapAt(Offset(box.left + box.width * 0.1, box.center.dy));
+        await tester.pumpAndSettle();
+        expect(controller.range!.$1, greaterThan(start), reason: 'the left side turns on');
+        await tester.tapAt(Offset(box.right - box.width * 0.1, box.center.dy));
+        await tester.pumpAndSettle();
+        expect(controller.range!.$1, start, reason: 'the right side turns back');
+        await tester.pump(const Duration(milliseconds: 200));
+      });
+    }
+
+    testWidgets('its lines begin at the right', (tester) async {
+      layout = arabic();
+      phone(tester);
+      await pump(tester, look(19), direction: TextDirection.rtl);
+      // Pages cut by where right-to-left lines begin: every sentence is on a
+      // page, none lost between two.
+      var seen = controller.range!.$2;
+      for (var i = 0; i < 4; i++) {
+        controller.turn(1);
+        await tester.pumpAndSettle();
+        final (first, end) = controller.range!;
+        expect(first, lessThanOrEqualTo(seen), reason: 'page ${i + 2} begins where the last ended');
+        seen = end;
+      }
+      await tester.pump(const Duration(milliseconds: 200));
+    });
   });
 
   testWidgets('a turn by hand after a new size moves the place on', (tester) async {

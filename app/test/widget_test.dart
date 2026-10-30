@@ -663,6 +663,17 @@ void main() {
       await finish(tester);
     });
 
+    testWidgets('an Arabic book is set right to left', (tester) async {
+      final para = List.filled(10, 'هذه جملة من القصة تستمر قليلا.').join(' ');
+      await pumpLong(tester, ReadingLayout.build(ingestString('# الفصل\n\n$para\n\n$para', filename: 'book.md')));
+      final para0 = find.byWidgetPredicate((w) => w is RichText && w.text.toPlainText().startsWith('هذه')).first;
+      expect(Directionality.of(tester.element(para0)), TextDirection.rtl);
+      // The reader's own bars stay as they are.
+      expect(Directionality.of(tester.element(find.byType(ScrollablePositionedList))), TextDirection.rtl);
+      expect(Directionality.of(tester.element(find.byType(ReaderScreen))), TextDirection.ltr);
+      await finish(tester);
+    });
+
     testWidgets("the scroll is in the page tone's ink, whatever the phone's theme", (tester) async {
       // A paper tone on a phone that has gone dark (and the dim one on a light
       // phone): the text took the app's ink, near-white on cream paper.
