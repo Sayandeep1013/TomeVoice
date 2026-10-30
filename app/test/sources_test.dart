@@ -837,6 +837,53 @@ void main() {
     expect(most, Net.perHost);
   });
 
+  test('a paged chapter list is read a few pages at a time; a failed page keeps what came before it', () async {
+    if (!_hasEngine()) {
+      markTestSkipped('QuickJS is not built on this machine');
+      return;
+    }
+    final dir = Directory.systemTemp.createTempSync('tv_paged');
+    final engine = SourceEngine.forTests(
+      libs: File('assets/js/lnreader_libs.js').readAsStringSync(),
+      shim: File('assets/js/lnreader_shim.js').readAsStringSync(),
+    );
+    addTearDown(() {
+      engine.close();
+      dir.deleteSync(recursive: true);
+    });
+    final store = SourceStore(dir, defaults: const []);
+    engine.attach(store);
+    // Six pages of two chapters; page 5 fails. Pages are asked a few at once.
+    const code = r'''
+var asking = 0, most = 0;
+exports.default = { id: "paged", name: "Paged", site: "https://p.test/", version: "1",
+  popularNovels: function () { return Promise.resolve([]); },
+  parseNovel: function (path) {
+    return Promise.resolve({ path: path, name: "Long", totalPages: 6,
+      chapters: [{ name: "c1", path: "1" }, { name: "c2", path: "2" }] });
+  },
+  parsePage: function (path, page) {
+    asking++; most = Math.max(most, asking);
+    return new Promise(function (done) { setTimeout(done, 50); }).then(function () {
+      asking--;
+      if (page === "5") throw new Error("down");
+      var n = Number(page) * 2;
+      return { page: Number(page), chapters: [{ name: "c" + (n - 1) + " m" + most, path: String(n - 1) }, { name: "c" + n, path: String(n) }] };
+    });
+  },
+};''';
+    File(store.codePath('paged'))
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync(code);
+    final p = const PluginInfo(id: 'paged', name: 'Paged', site: 'https://p.test/', lang: 'English', version: '1', url: '')
+        .withHash(sha256Hex(utf8.encode(code)));
+    File('${store.dir.path}/installed.json').writeAsStringSync(jsonEncode([p.toJson()]));
+    final novel = await engine.novel(p, 'n');
+    expect(novel.complete, isFalse);
+    expect(novel.chapters.map((c) => c.path), ['1', '2', '3', '4', '5', '6', '7', '8'], reason: 'pages 1 to 4');
+    expect(novel.chapters.any((c) => c.name.endsWith('m3')), isTrue, reason: 'three pages were asked at once');
+  });
+
   test('a source that runs out of time has its worker replaced', () async {
     if (!_hasEngine()) {
       markTestSkipped('QuickJS is not built on this machine');

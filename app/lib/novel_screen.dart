@@ -206,6 +206,13 @@ class _NovelScreenState extends State<NovelScreen> {
     // What is on the phone first, so the page fills at once (unless it is
     // on a shut secret shelf: then the page is the site's alone).
     final stored = await _showStored();
+    // A long novel's list is many pages of the site: asked again at most
+    // hourly, unless the reader pulls for new chapters.
+    final checked = stored?.checkedAt;
+    if (!pulled && checked != null && DateTime.now().difference(checked) < const Duration(hours: 1)) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
     // Then the site, for fresh details and new chapters.
     try {
       final plugin = await SourceEngine.instance.store.installedById(widget.plugin.id);

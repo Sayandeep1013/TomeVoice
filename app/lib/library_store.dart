@@ -343,12 +343,10 @@ class LibraryStore {
     final file = File('${bookDir(id)}/novel.json');
     switch (verdict.change) {
       case ListChange.same:
-        // Checked, and nothing came of it; a refusal recorded earlier no
-        // longer holds.
-        if (info.refusal != null) {
-          await writeSafely(file, jsonEncode(info.copyWith(checkedAt: now, clearRefusal: true).toJson()));
-          await _discardOffered(id);
-        }
+        // Checked (so the novel's page need not ask again for a while), and
+        // nothing came of it; a refusal recorded earlier no longer holds.
+        await writeSafely(file, jsonEncode(info.copyWith(checkedAt: now, clearRefusal: true).toJson()));
+        if (info.refusal != null) await _discardOffered(id);
       case ListChange.taken:
         await _replaceChapters(id, info, info.copyWith(chapters: fresh, checkedAt: now, clearRefusal: true));
         await _discardOffered(id);
@@ -604,12 +602,18 @@ class LibraryStore {
   }
 
   /// The reading layout for [id], built on a background isolate.
-  Future<ReadingLayout> loadLayout(String id) async {
+  ///
+  /// For a web novel, every chapter has its section (so positions are
+  /// chapter numbers), and the downloaded ones have their text; with
+  /// [around], only those in a window round that chapter do (see
+  /// [webWindow]): opening chapter 2,000 of a long novel reads a few dozen
+  /// files, not every one on the phone.
+  Future<ReadingLayout> loadLayout(String id, {int? around}) async {
     final entries = await list();
     final entry = entries.where((e) => e.id == id).firstOrNull;
     if (entry != null && entry.isWeb) {
       final dir = bookDir(id);
-      final layout = await _runLoadWeb(dir, id);
+      final layout = await _runLoadWeb(dir, id, around);
       // The chapters' script settles the language the source only named;
       // the library's card says the same.
       final language = layout.book.metadata.language;
@@ -764,7 +768,8 @@ Future<LibraryEntry> _runImport(_ImportJob job) => Isolate.run(() => _importSync
 
 Future<ReadingLayout> _runLoad(_LoadJob job) => Isolate.run(() => _loadLayoutSync(job));
 
-Future<ReadingLayout> _runLoadWeb(String dir, String id) => Isolate.run(() => _loadWebSync(dir, id));
+Future<ReadingLayout> _runLoadWeb(String dir, String id, int? around) =>
+    Isolate.run(() => _loadWebSync(dir, id, around: around));
 
 Future<void> _runSaveChapter(String path, int index, String title, String html, String? language) =>
     Isolate.run(() {
@@ -1185,20 +1190,46 @@ String? coverFileOf(String dir, Book book) {
   return cover == null ? null : '$dir/img/${imageFileName(cover)}';
 }
 
+/// The chapters of a web novel read into a layout opened at chapter [at]:
+/// the downloaded ones among the [before] before it, and from it on those
+/// downloaded one after another, at most [after] (the reader carries on
+/// past the window's end through its onReachedEnd, which fetches what is
+/// missing and opens a new window there). [have] says which are on the
+/// phone; [count] is how many the novel lists.
+Set<int> webWindow(int at, int count, bool Function(int chapter) have, {int before = 10, int after = 30}) {
+  final window = <int>{};
+  for (var i = at - 1, found = 0; i >= 0 && found < before && i >= at - 60; i--) {
+    if (have(i)) {
+      window.add(i);
+      found++;
+    }
+  }
+  for (var i = at; i < count && i < at + after; i++) {
+    if (!have(i)) break;
+    window.add(i);
+  }
+  return window;
+}
+
 /// A web novel as one book: every chapter in order, the fetched ones with
-/// their text, the rest empty (and so skipped by the reader).
-ReadingLayout _loadWebSync(String dir, String id) {
+/// their text, the rest empty (and so skipped by the reader). With [around],
+/// only the chapters of [webWindow] round it have their text.
+ReadingLayout _loadWebSync(String dir, String id, {int? around}) {
   final info = WebNovelInfo.fromJson(
     Map<String, Object?>.from(jsonDecode(File('$dir/novel.json').readAsStringSync()) as Map),
   );
   final sections = <Section>[];
   // Lines the reader chose not to hear, from rules.json at the library root.
   final skip = ReadingRules.skipTextsSync(Directory(dir).parent.parent.path, info.plugin.id);
+  final window = around == null
+      ? null
+      : webWindow(around.clamp(0, math.max(0, info.chapters.length - 1)), info.chapters.length,
+          (i) => File('$dir/ch/$i.json').existsSync());
   for (var i = 0; i < info.chapters.length; i++) {
     final title = info.chapters[i].name;
     final f = File('$dir/ch/$i.json');
     Section? s;
-    if (f.existsSync()) {
+    if ((window == null || window.contains(i)) && f.existsSync()) {
       try {
         s = cleanWebChapter(
           Section.fromJson(Map<String, Object?>.from(jsonDecode(f.readAsStringSync()) as Map)),

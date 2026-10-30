@@ -133,7 +133,9 @@ class _WebNovelReaderState extends State<WebNovelReader> {
       await fetchChapters(_store, _id, from, onProgress: (c) {
         if (mounted) setState(() => _status = 'Fetching chapter ${c + 1}…');
       });
-      final layout = await _store.loadLayout(_id);
+      // A window of chapters round the place, not every one on the phone
+      // (see LibraryStore.webWindow): its end opens the next.
+      final layout = await _store.loadLayout(_id, around: at?.sectionIndex ?? from);
       if (at != null) {
         cursor = at;
       } else if (start != null && !keepPlace && !layout.isEmpty) {
@@ -191,6 +193,25 @@ class _WebNovelReaderState extends State<WebNovelReader> {
         return;
       }
       next = after;
+    }
+    // Not on the phone, and the site cannot give it now (offline): on to
+    // the next chapter that is on the phone, as reading did before it was
+    // opened a window at a time, rather than stopping there.
+    if (!_store.hasChapter(_id, next)) {
+      try {
+        await fetchChapters(_store, _id, next, count: 1);
+      } on Object catch (e) {
+        final later = [for (final c in _store.downloadedChapters(_id)) if (c > next) c];
+        if (later.isEmpty) {
+          if (mounted) setState(() => _error = e);
+          return;
+        }
+        final to = later.reduce((a, b) => a < b ? a : b);
+        if (mounted) {
+          showSnack(context, 'Chapter ${next + 1} could not be fetched, so on to chapter ${to + 1}, which is on the phone.');
+        }
+        next = to;
+      }
     }
     await _open(next, autoplay: playing, keepPlace: browse);
   }

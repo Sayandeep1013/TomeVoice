@@ -240,6 +240,33 @@ void main() {
       expect(Directory('${tmp.path}/books/$id/ch/orphaned').existsSync(), isFalse);
     });
 
+    test('a novel of 3,000 chapters is opened a window at a time, not every chapter at once', () async {
+      final names = [for (var i = 1; i <= 3000; i++) 'Chapter $i'];
+      final id = await novelOf('huge', names, (i) => 'ch/$i', const []);
+      final ch = Directory('${tmp.path}/books/$id/ch')..createSync(recursive: true);
+      for (var i = 0; i < 3000; i++) {
+        if (i == 1520) continue; // not on the phone: the window ends before it
+        final s = webChapterSection(index: i, title: names[i], html: '<p>${names[i]} has words of its own to read.</p>');
+        File('${ch.path}/$i.json').writeAsStringSync(jsonEncode(s.toJson()));
+      }
+      final sw = Stopwatch()..start();
+      final window = await store.loadLayout(id, around: 1500);
+      final windowTime = sw.elapsedMilliseconds;
+      expect(window.book.sections, hasLength(3000), reason: 'every chapter keeps its place, and so every position');
+      final read = window.units.map((u) => u.sectionIndex).toSet();
+      expect((read.reduce((a, b) => a < b ? a : b), read.reduce((a, b) => a > b ? a : b)), (1490, 1519));
+      expect(window.chapterTitle(0), 'Chapter 1491');
+      sw
+        ..reset()
+        ..start();
+      final whole = await store.loadLayout(id);
+      final wholeTime = sw.elapsedMilliseconds;
+      expect(whole.units.map((u) => u.sectionIndex).toSet(), hasLength(2999));
+      // ignore: avoid_print
+      print('A novel of 3,000 chapters opened in ${windowTime}ms as a window, ${wholeTime}ms whole.');
+      expect(windowTime * 4, lessThan(wholeTime));
+    });
+
     test('two downloads wanting one place: the other is set aside, not deleted', () async {
       // An older build left chapter 3's text under both 2 and 3.
       final names = ['A', 'B', 'C', 'D'];

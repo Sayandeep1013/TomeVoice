@@ -168,27 +168,53 @@ class SourceEngine {
   Future<List<NovelItem>> search(PluginInfo p, String query, int page) async =>
       _novels(await _call(p, 'searchNovels', [query, page]));
 
+  /// Pages of a paged chapter list asked at once.
+  static const _pagesAtOnce = 3;
+
+  /// The most pages read (some 50,000 chapters); a longer list is marked
+  /// incomplete.
+  static const _maxPages = 1000;
+
   /// A novel's details and its whole chapter list, oldest first. Sites that
-  /// split the list over pages are read to the end; a page that comes back
-  /// empty before the last one leaves the list marked incomplete
-  /// ([SourceNovel.complete]), so it never replaces a stored list.
+  /// split the list over pages are read a few pages at a time to the end. A
+  /// page that fails or comes back empty ends the list there: what came
+  /// before it is kept, marked incomplete ([SourceNovel.complete]), so it is
+  /// shown but never replaces a stored list. A browser check is said, not
+  /// kept quiet: the reader can pass it and try again.
   Future<SourceNovel> novel(PluginInfo p, String path) async {
     final first = SourceNovel.fromJs(await _call(p, 'parseNovel', [path]), path: path);
     final pages = first.totalPages ?? 0;
     if (pages <= 1) return first;
     final chapters = [...first.chapters];
-    var complete = pages <= 400;
-    for (var n = first.chapters.isEmpty ? 1 : 2; n <= pages && n <= 400; n++) {
-      final page = await _call(p, 'parsePage', [path, '$n']);
-      final more = [
-        for (final c in ((page is Map ? page['chapters'] : null) as List? ?? const []))
-          if (ChapterItem.fromJs(c) case final ch?) ch,
-      ];
-      if (more.isEmpty) {
-        complete = false;
-        break;
+    final last = pages < _maxPages ? pages : _maxPages;
+    var complete = pages <= _maxPages;
+    Future<List<ChapterItem>?> page(int n) async {
+      try {
+        final r = await _call(p, 'parsePage', [path, '$n']);
+        return [
+          for (final c in ((r is Map ? r['chapters'] : null) as List? ?? const []))
+            if (ChapterItem.fromJs(c) case final ch?) ch,
+        ];
+      } on ChallengeException {
+        rethrow;
+      } on Object {
+        return null;
       }
-      chapters.addAll(more);
+    }
+
+    var n = first.chapters.isEmpty ? 1 : 2;
+    pages:
+    while (n <= last) {
+      final batch = [for (var k = n; k < n + _pagesAtOnce && k <= last; k++) k];
+      final got = await Future.wait([for (final k in batch) page(k)]);
+      for (final more in got) {
+        if (more == null || more.isEmpty) {
+          complete = false;
+          break pages;
+        }
+        chapters.addAll(more);
+      }
+      n += batch.length;
     }
     return SourceNovel(
       path: first.path,
