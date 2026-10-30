@@ -344,6 +344,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// A PDF's real pages, turned from outside (the page keys).
   final _pdf = PdfPagesController();
 
+  /// The ground under the page, which the fades at the text's edges draw
+  /// again over it (see [GroundFade]).
+  final _groundLink = LayerLink();
+
   /// The scroll's top bar and player: there until a tap on the text puts
   /// them away for reading alone, and back with another.
   final _scrollBars = ValueNotifier<bool>(true);
@@ -1802,27 +1806,37 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     // Out to the screen's own edges, past the safe area (the camera's side,
     // the gesture bar): ending inside the screen, the haze showed a hard edge.
     final insets = MediaQuery.paddingOf(context);
+    // It glows from behind the player: with the player put away (a tap
+    // on the page), it goes with it rather than lighting a bare edge.
+    final light = ValueListenableBuilder<bool>(
+      valueListenable: _inPages ? _chrome : _scrollBars,
+      builder: (context, shown, glow) => AnimatedOpacity(
+        opacity: shown ? 1 : 0,
+        duration: Motion.of(context, Motion.standard),
+        curve: Motion.out,
+        child: TickerMode(enabled: shown, child: glow!),
+      ),
+      child: VoiceGlow(level: _player.level, state: _player.state),
+    );
+    // Tall enough to rise clear of the player card at a speaking voice.
+    final rise = (rail ? 240 : 600) + insets.bottom;
     final glow = Positioned(
+      // Made afresh with the text's fade (the phone turned, a PDF's pages
+      // and back), so it keeps time with its copy there.
+      key: ValueKey(('glow', rail, _showPages)),
       left: -insets.left,
       right: -insets.right,
       bottom: -insets.bottom,
-      // Tall enough to rise clear of the player card at a speaking voice.
-      height: (rail ? 240 : 600) + insets.bottom,
-      // It glows from behind the player: with the player put away (a tap
-      // on the page), it goes with it rather than lighting a bare edge.
-      child: ValueListenableBuilder<bool>(
-        valueListenable: _inPages ? _chrome : _scrollBars,
-        builder: (context, shown, glow) => AnimatedOpacity(
-          opacity: shown ? 1 : 0,
-          duration: Motion.of(context, Motion.standard),
-          curve: Motion.out,
-          child: TickerMode(enabled: shown, child: glow!),
-        ),
-        child: VoiceGlow(level: _player.level, state: _player.state),
-      ),
+      height: rise,
+      child: light,
     );
     final paged = _inPages;
-    final reading = paged ? _pagedReading(context, bar, rail, glow) : _scrollReading(context, bar, rail);
+    final reading = paged
+        ? _pagedReading(context, bar, rail, glow)
+        // Upright, the glow lies under the text and shows through the fade
+        // at its foot: the fade draws it again, in its place on the ground.
+        : _scrollReading(context, bar, rail,
+            rail ? null : Positioned(left: 0, right: 0, bottom: 0, height: rise, child: light));
     return PopScope(
       canPop: _hits.isEmpty,
       onPopInvokedWithResult: (didPop, _) {
@@ -1922,13 +1936,19 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         systemNavigationBarContrastEnforced: false,
         systemStatusBarContrastEnforced: false,
       ),
-      child: PageGround(tone: tone, vignette: !_inPages, child: child),
+      // The text's fades draw this ground again where they are (GroundFade).
+      child: CompositedTransformTarget(
+        link: _groundLink,
+        child: PageGround(tone: tone, vignette: !_inPages, child: child),
+      ),
     );
   }
 
   /// The book as one long page, the top bar above it and the player below;
   /// a tap on the text folds them away, and another brings them back.
-  Widget _scrollReading(BuildContext context, Widget bar, bool rail) {
+  /// [glow] is the voice's glow placed on the ground, when it lies under the
+  /// text (see [_text]).
+  Widget _scrollReading(BuildContext context, Widget bar, bool rail, Widget? glow) {
     return Column(
       children: [
         _fold(context, top: true, child: _topBar(context)),
@@ -1963,7 +1983,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                             curve: veiled ? Curves.easeIn : Motion.out,
                             child: text,
                           ),
-                          child: _tapForBars(toned(context, _tone, _text(context))),
+                          child: _tapForBars(toned(context, _tone, _text(context, glow: glow))),
                         ),
                 ),
               ),
@@ -2634,7 +2654,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         ),
       );
 
-  Widget _text(BuildContext context) {
+  Widget _text(BuildContext context, {Widget? glow}) {
     if (_l.isEmpty) {
       return Center(
         child: Padding(
@@ -2659,7 +2679,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     // A wide screen keeps a comfortable line (about 70 characters), centred.
     final side = math.max(_prefs.margin, (MediaQuery.sizeOf(context).width - 720) / 2);
     // Text fades out under the top bar and the player instead of being cut
-    // off against them.
+    // off against them: the ground is drawn again over its two edges, fading
+    // away from them. (A mask over all the text did the same at the cost of
+    // drawing it all again offscreen on every frame it scrolled.)
     // A long book has a thumb at the edge: dragged, it goes straight through
     // the book, the bubble naming the chapter.
     return FastScroller(
@@ -2668,36 +2690,52 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       bottom: 16,
       labelAt: (f) => _l.chapterTitle(_l.items[(f * (_l.items.length - 1)).round()].chapter),
       onDrag: _onFastScroll,
-      child: ShaderMask(
-        blendMode: BlendMode.dstIn,
-        shaderCallback: (rect) => LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: const [Colors.transparent, Colors.black, Colors.black, Colors.transparent],
-          stops: [0, 18 / rect.height, 1 - 28 / rect.height, 1],
-        ).createShader(rect),
-        child: NotificationListener<ScrollNotification>(
-          onNotification: _onScrollNotification,
-          child: LayoutBuilder(
-            builder: (context, box) {
-              _viewport = box.maxHeight;
-              return Directionality(
-                textDirection: _direction,
-                child: ScrollablePositionedList.builder(
-                // One more item at the end when there is more to fetch: the way on.
-                itemCount: _l.items.length + (widget.onReachedEnd == null ? 0 : 1),
-                itemScrollController: _scroll,
-                scrollOffsetController: _offsets,
-                itemPositionsListener: _positions,
-                initialScrollIndex: initial,
-                initialAlignment: initial == 0 ? 0 : 0.12,
-                padding: EdgeInsets.fromLTRB(side, 16, side, 120),
-                itemBuilder: (context, i) => i == _l.items.length ? _more(context) : _item(context, i),
-              ),
-              );
-            },
+      child: Stack(
+        children: [
+          NotificationListener<ScrollNotification>(
+            onNotification: _onScrollNotification,
+            child: LayoutBuilder(
+              builder: (context, box) {
+                _viewport = box.maxHeight;
+                return Directionality(
+                  textDirection: _direction,
+                  child: ScrollablePositionedList.builder(
+                  // One more item at the end when there is more to fetch: the way on.
+                  itemCount: _l.items.length + (widget.onReachedEnd == null ? 0 : 1),
+                  itemScrollController: _scroll,
+                  scrollOffsetController: _offsets,
+                  itemPositionsListener: _positions,
+                  initialScrollIndex: initial,
+                  initialAlignment: initial == 0 ? 0 : 0.12,
+                  padding: EdgeInsets.fromLTRB(side, 16, side, 120),
+                  itemBuilder: (context, i) => i == _l.items.length ? _more(context) : _item(context, i),
+                ),
+                );
+              },
+            ),
           ),
-        ),
+          Positioned(left: 0, top: 0, right: 0, height: 18, child: _edge(context, top: true)),
+          Positioned(left: 0, right: 0, bottom: 0, height: 28, child: _edge(context, glow: glow)),
+        ],
+      ),
+    );
+  }
+
+  /// The ground once more over an edge of the scrolling text, fading it out
+  /// there (see [GroundFade]): the page's paper and its vignette and, at the
+  /// foot, the voice's [glow], which shows through the text's fade there.
+  Widget _edge(BuildContext context, {bool top = false, Widget? glow}) {
+    return GroundFade(
+      link: _groundLink,
+      // The page's ground fills the screen. (A keyboard shortens it, but
+      // only ever comes with a sheet over the page, and following it would
+      // build the whole page again on every frame it rises.)
+      size: MediaQuery.sizeOf(context),
+      top: top,
+      ground: PageGround(
+        tone: _tone,
+        vignette: !_inPages,
+        child: glow == null ? const SizedBox.shrink() : Stack(children: [glow]),
       ),
     );
   }

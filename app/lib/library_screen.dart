@@ -91,6 +91,9 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
 
   final _shelfKey = GlobalKey();
 
+  /// The ground, which the fade at the shelf's foot draws again over it.
+  final _groundLink = LayerLink();
+
   /// Files handed over by "Open with" arrive both as an event and as the
   /// pending-open value; whichever reaches us second is ignored.
   final _handled = <String>{};
@@ -775,7 +778,9 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
           }
         }
       },
-      child: DecoratedBox(
+      child: CompositedTransformTarget(
+        link: _groundLink,
+        child: DecoratedBox(
         decoration: BoxDecoration(gradient: Skin.ground(context)),
         child: SafeArea(
           child: Stack(
@@ -823,14 +828,17 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
                   ),
                   // A scan being read with OCR, and one that stopped.
                   const OcrProgressCard(lift: 84),
-                  // Books fade out as they scroll under the dock. The content
-                  // itself fades, so the real ground shows through: a painted
-                  // band never matched the diagonal ground and read as a bar.
-                  // The fade grows and shrinks as the dock rises and sinks
-                  // (it snapped on and off under the moving dock). The key
-                  // carries the shelf across the mask coming and going
-                  // (selecting a book hides the dock): rebuilt fresh, the
-                  // pages would snap back to the first category.
+                  // Books fade out as they scroll under the dock. The ground
+                  // is drawn again over the shelf's foot, in its place, so it
+                  // meets the real one: a painted band of one colour never
+                  // matched the diagonal ground and read as a bar. (A mask
+                  // over the whole shelf did it at the cost of drawing every
+                  // cover again offscreen on each frame it scrolled.) The
+                  // fade grows and shrinks as the dock rises and sinks (it
+                  // snapped on and off under the moving dock). The key keeps
+                  // the shelf as the fade comes and goes (selecting a book
+                  // hides the dock): rebuilt fresh, the pages would snap back
+                  // to the first category.
                   Expanded(
                     child: HeroMode(
                       enabled: _shelfHeroes,
@@ -839,18 +847,23 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
                         duration: Motion.of(context, showDock ? Motion.page : Motion.standard),
                         curve: Motion.out,
                         child: KeyedSubtree(key: _shelfKey, child: body),
-                        builder: (context, fade, shelf) => fade <= 0
-                            ? shelf!
-                            : ShaderMask(
-                                blendMode: BlendMode.dstIn,
-                                shaderCallback: (rect) => LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  colors: const [Colors.black, Colors.black, Colors.transparent],
-                                  stops: [0, (1 - fade / rect.height).clamp(0.0, 1.0), 1],
-                                ).createShader(rect),
-                                child: shelf,
+                        builder: (context, fade, shelf) => Stack(
+                          children: [
+                            shelf!,
+                            if (fade > 0)
+                              Positioned(
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                height: fade,
+                                child: GroundFade(
+                                  link: _groundLink,
+                                  size: MediaQuery.sizeOf(context),
+                                  ground: DecoratedBox(decoration: BoxDecoration(gradient: Skin.ground(context))),
+                                ),
                               ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -896,6 +909,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
             ],
           ),
         ),
+      ),
       ),
     ));
   }
