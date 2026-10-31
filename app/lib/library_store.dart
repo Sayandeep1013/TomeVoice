@@ -193,24 +193,35 @@ class LibraryStore {
   /// [entries] with the series their titles share found again, or null when
   /// none changes (see seriesAcross). Asked for each book whose series comes
   /// from its title ([_fromTitle]), among the books shown; the rest lend the
-  /// series they are in. While a secret shelf is shut its books are left
-  /// out altogether, theirs kept as they are, so no series shown can tell
-  /// of them.
+  /// series they are in. An ordinary book's is found among the ordinary
+  /// books alone, a secret book's (its shelf open) among them all: found
+  /// with a secret title, an ordinary book kept that series, on show, once
+  /// the shelf shut. While a secret shelf is shut its books are left out
+  /// altogether, theirs kept as they are, so no series shown can tell of
+  /// them.
   List<LibraryEntry>? _withSeries(List<LibraryEntry> entries) {
-    final shut = secretOpen.value ? const <String>{} : {for (final c in _categories) if (c.secret) c.id};
-    final asked = <int>[];
-    final named = <String>[];
+    final secret = {for (final c in _categories) if (c.secret) c.id};
+    final ordinary = <int>[], hidden = <int>[];
+    final named = <String>[], namedHidden = <String>[];
     for (var i = 0; i < entries.length; i++) {
       final e = entries[i];
-      if (shut.isNotEmpty && shut.contains(e.categoryIn(_categories, _defaultCategory))) continue;
+      final isSecret = secret.isNotEmpty && secret.contains(e.categoryIn(_categories, _defaultCategory));
+      if (isSecret && !secretOpen.value) continue;
       if (_fromTitle(e)) {
-        asked.add(i);
+        (isSecret ? hidden : ordinary).add(i);
       } else if (e.seriesName case final name?) {
-        named.add(name);
+        (isSecret ? namedHidden : named).add(name);
       }
     }
+    final asked = [...ordinary, ...hidden];
     if (asked.isEmpty) return null;
-    final found = seriesAcross([for (final i in asked) entries[i].title], named: named);
+    final found = [
+      ...seriesAcross([for (final i in ordinary) entries[i].title], named: named),
+      // Of every title asked together, only the secret books' answers.
+      if (hidden.isNotEmpty)
+        ...seriesAcross([for (final i in asked) entries[i].title], named: [...named, ...namedHidden])
+            .skip(ordinary.length),
+    ];
     List<LibraryEntry>? out;
     for (var j = 0; j < asked.length; j++) {
       final e = entries[asked[j]];
