@@ -479,7 +479,7 @@ void _tidy(HtmlNode root, _Meta meta, {HtmlNode? keep}) {
 /// out, "Retrieved 12 April 2020" and all. The markers themselves are
 /// already passed over in speech.
 final _backMatter = RegExp(
-  r'^(see also|notes|references|notes and references|citations|footnotes|sources|bibliography|further reading|external links|works cited|related (articles|pages|links|reading))$',
+  r'^(see also|notes|explanatory notes|references|notes and references|notes and citations|citations|footnotes|sources|cited sources|general and cited sources|bibliography|further reading|external links|works cited|related (articles|pages|links|reading))$',
   caseSensitive: false,
 );
 
