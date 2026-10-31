@@ -64,8 +64,8 @@ class OcrService : Service() {
     /** How a scan's reading ended: the event Dart is sent. */
     private class Outcome(val type: String, val message: String? = null, val data: Boolean = false)
 
-    /** A page drawn and made grey, one byte a pixel. */
-    private class Grey(val pixels: ByteArray, val width: Int, val height: Int)
+    /** A page drawn and made grey, one byte a pixel, at [dpi] dots an inch. */
+    private class Grey(val pixels: ByteArray, val width: Int, val height: Int, val dpi: Int)
 
     companion object {
         private const val ACTION_STOP = "app.tomevoice.action.OCR_STOP"
@@ -366,6 +366,12 @@ class OcrService : Service() {
                     if (page != null) {
                         grey = page.pixels
                         try {
+                            // Raw pixels carry no resolution, and Tesseract
+                            // then takes them for 70 dpi: a 300 dpi page's
+                            // letters look four times their size, and whole
+                            // lines are let go as noise (four of fourteen in
+                            // a Bengali page). It is told what it was drawn at.
+                            api.setVariable("user_defined_dpi", page.dpi.toString())
                             api.setImage(page.pixels, page.width, page.height, 1, page.width)
                             text = api.getUTF8Text() ?: ""
                         } catch (e: Throwable) {
@@ -434,7 +440,7 @@ class OcrService : Service() {
                         out[at + x] = ((r * 77 + g * 150 + b * 29) shr 8).toByte()
                     }
                 }
-                return Grey(out, w, h)
+                return Grey(out, w, h, (72f * scale).roundToInt())
             } finally {
                 bitmap.recycle()
             }
