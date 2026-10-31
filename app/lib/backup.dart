@@ -4,6 +4,7 @@ import 'dart:math' as math;
 
 import 'error_log.dart' show ErrorLog;
 import 'library_store.dart';
+import 'marks.dart' show Mark;
 import 'organise.dart' show distinctTags;
 import 'safe_file.dart';
 import 'speech_service.dart';
@@ -415,14 +416,15 @@ Map<String, Object?>? _organised(Map<String, Object?> mine, Map<String, Object?>
 }
 
 /// Quotes and bookmarks from [from] that are not here (by id), the whole
-/// list newest first, as Saved keeps it.
+/// list newest first, as Saved keeps it. Only those that read as quotes:
+/// one that did not made the whole list unreadable here.
 Future<int> _addMarks(Directory root, String from) async {
   final theirs = await _readList(File('$from/marks.json'));
   if (theirs.isEmpty) return 0;
   final file = File('${root.path}/marks.json');
   final mine = await _readList(file);
   final ids = {for (final m in mine) if (m is Map) m['id']};
-  final added = [for (final m in theirs) if (m is Map && m['id'] is String && !ids.contains(m['id'])) m];
+  final added = [for (final m in theirs) if (Mark.fromJson(m) case final x? when !ids.contains(x.id)) m];
   if (added.isEmpty) return 0;
   // By the moment each was saved: a time from before they carried a Z
   // (this phone's own clock's) does not sort as text with one that does.

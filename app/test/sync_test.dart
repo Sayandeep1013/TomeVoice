@@ -258,6 +258,40 @@ void main() {
       expect(MarkStore.instance.forBook(book.id), hasLength(4));
     });
 
+    test('a quote that cannot be read is passed over alone, and the file is kept beside', () async {
+      Map<String, Object?> json(String id) => _mark(id, book: book.id).toJson();
+      File('${tmp.path}/marks.json').writeAsStringSync(jsonEncode([
+        json('one'),
+        {...json('bad'), 'span': 'two'},
+        json('two'),
+        'not a quote',
+      ]));
+      await MarkStore.instance.attach(tmp);
+      expect(MarkStore.instance.forBook(book.id).map((m) => m.id), ['one', 'two']);
+      expect(File('${tmp.path}/marks.json.broken').readAsStringSync(), contains('"bad"'));
+      MarkStore.instance.reset();
+    });
+
+    test('quotes only missing here are not taken for removed: they stay on the server, and come back', () async {
+      await turnOn();
+      final q = await quote(3);
+      await BookSync.instance.syncNow(store: store);
+      expect(onServer().marks.single.id, q.id);
+      // marks.json unreadable, or lost: Saved is empty, and nothing was
+      // removed here.
+      MarkStore.instance.reset();
+      await BookSync.instance.syncNow(store: store);
+      expect(onServer().marks.map((m) => m.id), [q.id], reason: 'never taken off the other phones');
+      expect(onServer().removed, isEmpty);
+      expect(MarkStore.instance.forBook(book.id).map((m) => m.id), [q.id], reason: 'brought back');
+      // Removed here, it goes there too.
+      await MarkStore.instance.remove(q.id);
+      expect(MarkStore.instance.removedOf(book.id).keys, [q.id]);
+      await BookSync.instance.syncNow(store: store);
+      expect(onServer().marks, isEmpty);
+      expect(onServer().removed.keys, [q.id]);
+    });
+
     test('a book on a shut secret shelf is never sent; open, it is', () async {
       await turnOn();
       final secret = await store.addCategory('Hidden', secret: true);

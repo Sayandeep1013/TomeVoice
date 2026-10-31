@@ -331,6 +331,18 @@ void main() {
       expect(addSummary(again), 'Nothing new to add from the backup.');
     });
 
+    test('a quote that does not read as one is not added', () async {
+      put(staging, 'marks.json', [
+        mark('q-good', '2026-10-20T10:00:00.000Z'),
+        {...mark('q-bad', '2026-10-21T10:00:00.000Z'), 'text': 7},
+        {'id': 'q-shapeless'},
+      ]);
+      final report = await addToLibrary(root, staged());
+      expect(report.marks, 1);
+      final marks = [for (final m in jsonDecode(File('${root.path}/marks.json').readAsStringSync()) as List) (m as Map)['id']];
+      expect(marks, ['q-good', 'q-mine']);
+    });
+
     test("the backup's settings only when asked", () async {
       final report = await addToLibrary(root, staged(), settings: true);
       expect(report.settings, isTrue);

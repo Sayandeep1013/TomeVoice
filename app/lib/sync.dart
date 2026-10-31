@@ -337,9 +337,9 @@ class WebDav {
 // ----------------------------------------------------------------- state
 
 /// What was synced, and when: the tags of the files as last seen, what was
-/// in them, and the marks known to the server (one gone from here since
-/// was removed here). In `sync_state.json` at the library root, so a backup
-/// carries it with the marks it describes; started afresh for a new server.
+/// in them, and the removals last merged. In `sync_state.json` at the
+/// library root, so a backup carries it with the marks it describes;
+/// started afresh for a new server.
 class SyncState {
   SyncState(this._file, this._j);
 
@@ -564,22 +564,26 @@ Future<({int sent, int taken})> syncWebDav(
     for (final e in books) {
       final name = '${e.id}.json';
       final mine = Map<String, Object?>.from(known[e.id] as Map? ?? const {});
-      // Marks the server had that are gone from here: removed here, now
-      // (or when that was first seen).
+      // Marks removed, and when: elsewhere, as last merged, and here, as
+      // this phone noted each. One the server has that is only missing
+      // here is not taken for removed: a marks.json unreadable or lost took
+      // every quote off every phone that way.
       final removed = {
         for (final r in (mine['removed'] as Map? ?? const {}).entries)
           if (DateTime.tryParse('${r.value}') case final t?) '${r.key}': t,
       };
-      final here = {for (final m in MarkStore.instance.forBook(e.id)) m.id};
-      for (final id in (mine['known'] as List? ?? const []).cast<String>()) {
-        if (!here.contains(id)) removed.putIfAbsent(id, () => now);
-      }
+      MarkStore.instance.removedOf(e.id).forEach((id, t) {
+        final o = removed[id];
+        if (o == null || t.isAfter(o)) removed[id] = t;
+      });
       final local = localRecord(e, removed: removed);
       var onServer = listing.containsKey(name);
       final tag = listing[name];
-      // Read only what changed there since: the rest is what was merged
-      // last time, which the phone already holds.
-      var read = onServer && (tag == null || tag != mine['etag']);
+      // Read only what changed there, or here, since: the rest is what was
+      // merged last time. What is written is always merged with the copy
+      // there, never this phone's alone over it: quotes only missing here
+      // went from the server too.
+      var read = onServer && (tag == null || tag != mine['etag'] || _hash(local.encode()) != mine['hash']);
       var merged = local;
       var etag = mine['etag'] as String?;
       for (var attempt = 0; attempt < 3; attempt++) {
@@ -609,7 +613,6 @@ Future<({int sent, int taken})> syncWebDav(
       known[e.id] = {
         if (etag != null) 'etag': etag,
         'hash': _hash(merged.encode()),
-        'known': [for (final m in merged.marks) m.id]..sort(),
         // Removals are remembered for half a year, then let go.
         'removed': {
           for (final r in merged.removed.entries)
