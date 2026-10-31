@@ -68,18 +68,24 @@ class Folders {
       name;
 
   /// The library zipped into a new file [name] in [folder], [manifest]
-  /// first: what the backup writer puts in a backup saved by hand.
+  /// first: what the backup writer puts in a backup saved by hand, but for
+  /// [leaveOut] (files, and folders ending in "/", from the library's top)
+  /// and the files in [swapped], which go in with the text given instead.
   Future<({int files, int bytes})> backUp(
     PickedFolder folder, {
     required String name,
     required String manifest,
     required bool includeChapters,
+    List<String> leaveOut = const [],
+    Map<String, String> swapped = const {},
   }) async {
     final r = await _channel.invokeMapMethod<String, Object?>('backupToFolder', {
       'tree': folder.uri,
       'name': name,
       'manifest': manifest,
       'includeChapters': includeChapters,
+      if (leaveOut.isNotEmpty) 'leaveOut': leaveOut,
+      if (swapped.isNotEmpty) 'swapped': swapped,
     });
     return (files: (r?['files'] as num?)?.toInt() ?? 0, bytes: (r?['bytes'] as num?)?.toInt() ?? 0);
   }

@@ -53,19 +53,31 @@ class _SyncScreenState extends State<SyncScreen> {
     super.dispose();
   }
 
-  /// [raw] as a web address, or null with a message said.
-  String? _address(String raw) {
-    var url = raw.trim();
+  /// [raw] as a web address, or null with a message said. https:// when
+  /// it names no scheme; one typed as plain http:// out on the internet
+  /// only once the reader has been told what that sends, and agreed.
+  Future<String?> _address(String raw) async {
+    final url = withScheme(raw);
     if (url.isEmpty) {
       showSnack(context, 'Give the server’s address first.');
       return null;
     }
-    if (!url.contains('://')) url = 'http://$url';
     final uri = Uri.tryParse(url);
     if (uri == null || !(uri.isScheme('http') || uri.isScheme('https')) || uri.host.isEmpty) {
       showSnack(context, 'That is not a web address.');
       return null;
     }
+    if (await passwordMayGo(url, agreed: _prefs.plainHttpOk)) return url;
+    if (!mounted) return null;
+    final ok = await confirm(
+      context,
+      title: 'Send your password unencrypted?',
+      body: 'This address starts with http://, not https://. Your password, and the places and quotes synced, '
+          'would cross the internet where anyone on the way could read them. Use https:// if your server has it.',
+      action: 'Use http',
+    );
+    if (!ok) return null;
+    _prefs.plainHttpOk.add(url);
     return url;
   }
 
@@ -98,8 +110,8 @@ class _SyncScreenState extends State<SyncScreen> {
           _prefs.save();
           return;
         }
-        final url = _address(_davUrl.text);
-        if (url == null) return;
+        final url = await _address(_davUrl.text);
+        if (url == null || !mounted) return;
         _prefs
           ..webdavOn = true
           ..webdavUrl = url
@@ -114,9 +126,9 @@ class _SyncScreenState extends State<SyncScreen> {
 
   /// Sign in to KOReader's server, making the account first if [create].
   Future<void> _kosyncSignIn({bool create = false}) => _run(() async {
-        final url = _address(_koUrl.text);
+        final url = await _address(_koUrl.text);
         final user = _koUser.text.trim();
-        if (url == null) return;
+        if (url == null || !mounted) return;
         if (user.isEmpty || (_koPassword.text.isEmpty && !_koKeyKept)) {
           showSnack(context, 'Give a user name and a password.');
           return;

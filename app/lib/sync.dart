@@ -9,6 +9,7 @@ import 'package:flutter/widgets.dart' show AppLifecycleListener;
 import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor;
 import 'package:xml/xml.dart';
 
+import 'error_log.dart' show ErrorLog;
 import 'kosync.dart';
 import 'library_store.dart';
 import 'marks.dart';
@@ -194,8 +195,14 @@ String _encodeDays(Map<String, Map<String, int>> days) {
   });
 }
 
-Map<String, Map<String, int>> _decodeDays(String text) {
-  final j = jsonDecode(text);
+/// The days' totals [text] holds; null when it cannot be read.
+Map<String, Map<String, int>>? _decodeDays(String text) {
+  final Object? j;
+  try {
+    j = jsonDecode(text);
+  } on FormatException {
+    return null;
+  }
   final days = j is Map && j['days'] is Map ? j['days'] as Map : const {};
   return {
     for (final e in days.entries)
@@ -207,6 +214,18 @@ Map<String, Map<String, int>> _decodeDays(String text) {
   };
 }
 
+/// Book [id]'s record as [text] holds it; null when it cannot be read (a
+/// damaged file, or another app's), said in the error log without the
+/// book's name.
+BookRecord? _readRecord(String id, String text) {
+  try {
+    return BookRecord.fromJson(id, jsonDecode(text));
+  } on Object catch (e) {
+    ErrorLog.instance.record('Sync passed over a book: its file on the server could not be read (${e.runtimeType})', null);
+    return null;
+  }
+}
+
 String _hash(String text) => md5.convert(utf8.encode(text)).toString();
 
 // ---------------------------------------------------------------- WebDAV
@@ -216,6 +235,55 @@ class SyncAuthException implements Exception {
   const SyncAuthException();
   @override
   String toString() => 'The server did not take that user name and password.';
+}
+
+/// Nothing was sent: the server's address is plain http:// on the internet
+/// (see [passwordMayGo]).
+class SyncPlainException implements Exception {
+  const SyncPlainException();
+  @override
+  String toString() => 'Not synced: the address starts with http://, so your password would cross the internet '
+      'unencrypted. Use https://, or set it up again in Settings > Sync to allow it.';
+}
+
+/// A server's address as the reader typed it: https:// when it names no
+/// scheme. Plain http:// only when typed so.
+String withScheme(String typed) {
+  final url = typed.trim();
+  return url.isEmpty || url.contains('://') ? url : 'https://$url';
+}
+
+/// Whether a password may go to [url]: over https; over plain http only to
+/// this phone or the reader's own network (a NAS at home, a test server
+/// over USB), which it never leaves, or to an address the reader was
+/// warned of and chose anyway ([agreed], as typed).
+Future<bool> passwordMayGo(String url, {Iterable<String> agreed = const []}) async {
+  final uri = Uri.tryParse(url);
+  if (uri == null || !uri.isScheme('http')) return true;
+  if (agreed.contains(url)) return true;
+  final host = uri.host;
+  if (host == 'localhost') return true;
+  var found = [if (InternetAddress.tryParse(host) case final ip?) ip];
+  if (found.isEmpty) {
+    try {
+      found = await InternetAddress.lookup(host).timeout(const Duration(seconds: 10));
+    } on Object {
+      return false;
+    }
+  }
+  return found.isNotEmpty && found.every(_ownNetwork);
+}
+
+/// This phone, or an address that only a home or office network has: the
+/// private ranges, and those of a link alone.
+bool _ownNetwork(InternetAddress a) {
+  if (a.isLoopback || a.isLinkLocal) return true;
+  final b = a.rawAddress;
+  if (a.type == InternetAddressType.IPv4) {
+    return b[0] == 10 || (b[0] == 172 && b[1] >= 16 && b[1] < 32) || (b[0] == 192 && b[1] == 168);
+  }
+  // IPv6's own private range, fc00::/7.
+  return a.type == InternetAddressType.IPv6 && (b[0] & 0xfe) == 0xfc;
 }
 
 /// A file changed on the server between reading and writing it.
@@ -244,7 +312,10 @@ class WebDav {
 
   Future<bool> _signIn(Uri url, String scheme, String? realm) async {
     final u = user;
-    if (u == null || u.isEmpty || url.host != base.host || url.port != base.port) return false;
+    // Only to the address given, never to another (or to http, redirected).
+    if (u == null || u.isEmpty || url.scheme != base.scheme || url.host != base.host || url.port != base.port) {
+      return false;
+    }
     // Asked again for the same: what was given was refused.
     if (!_given.add('$scheme ${realm ?? ''}')) return false;
     _http.addCredentials(
@@ -337,9 +408,9 @@ class WebDav {
 // ----------------------------------------------------------------- state
 
 /// What was synced, and when: the tags of the files as last seen, what was
-/// in them, and the marks known to the server (one gone from here since
-/// was removed here). In `sync_state.json` at the library root, so a backup
-/// carries it with the marks it describes; started afresh for a new server.
+/// in them, the marks known to the server, and the removals last merged.
+/// In `sync_state.json` at the library root, so a backup carries it with
+/// the marks it describes; started afresh for a new server.
 class SyncState {
   SyncState(this._file, this._j);
 
@@ -367,7 +438,10 @@ class SyncState {
     return _j[kind] = <String, Object?>{'server': server};
   }
 
-  Future<void> save() => writeSafely(_file, jsonEncode(_j));
+  /// Kept, unless a restore is under way (see RestoreGate).
+  Future<void> save() async {
+    if (!RestoreGate.shut) await writeSafely(_file, jsonEncode(_j));
+  }
 }
 
 // ------------------------------------------------------------------ sync
@@ -410,12 +484,19 @@ Future<bool> applyRecord(LibraryStore store, BookRecord local, BookRecord merged
   var changed = false;
   final mp = merged.place, lp = local.place;
   if (mp != null && (lp == null || (mp.at.isAfter(lp.at) && !mp.samePlace(lp)))) {
-    await store.saveCursor(merged.id, mp.cursor, mp.progress, where: mp.where);
+    // At the time it was saved there, not now: stamped now, it beat a
+    // later place on the phone it came from, and moved the book up History.
+    await store.saveCursor(merged.id, mp.cursor, mp.progress, where: mp.where, at: mp.at.toLocal());
     changed = true;
   }
   String sig(Iterable<Mark> ms) => ([for (final m in ms) '${m.id}@${m.changed.toIso8601String()}']..sort()).join(',');
-  if (sig(merged.marks) != sig(local.marks)) {
-    await MarkStore.instance.replaceBook(merged.id, merged.marks);
+  // Merged again with the marks as they are now, not as they were when the
+  // sync set out: one saved, changed or removed here meanwhile stays so.
+  // Nothing is awaited between the two, so nothing comes between.
+  final now = MarkStore.instance.forBook(merged.id);
+  final marks = mergeBooks(BookRecord(id: merged.id, marks: now, removed: MarkStore.instance.removedOf(merged.id)), merged).marks;
+  if (sig(marks) != sig(now)) {
+    await MarkStore.instance.replaceBook(merged.id, marks);
     changed = true;
   }
   var timeChanged = false;
@@ -466,7 +547,7 @@ class BookSync {
   /// Places were saved (a book read, then left): sync shortly, at most
   /// once a minute while a book reads on in the background.
   void soon() {
-    if (!on || _store == null) return;
+    if (!on || _store == null || RestoreGate.shut) return;
     _soon?.cancel();
     final last = _last;
     final wait = last == null
@@ -478,7 +559,8 @@ class BookSync {
   /// Sync now (or join the sync already running).
   Future<SyncReport> syncNow({LibraryStore? store}) {
     final s = store ?? _store;
-    if (s == null || !on) return Future.value((sent: 0, taken: 0, problem: null));
+    // Nor while a restore is under way (see RestoreGate).
+    if (s == null || !on || RestoreGate.shut) return Future.value((sent: 0, taken: 0, problem: null));
     return _running ??= _sync(s).whenComplete(() => _running = null);
   }
 
@@ -494,6 +576,7 @@ class BookSync {
     final p = _prefs;
     if (p.webdavOn && (p.webdavUrl ?? '').isNotEmpty) {
       try {
+        if (!await passwordMayGo(p.webdavUrl!, agreed: p.plainHttpOk)) throw const SyncPlainException();
         final r = await syncWebDav(store, books, state, url: p.webdavUrl!, user: p.webdavUser, password: secrets['webdav']);
         sent += r.sent;
         taken += r.taken;
@@ -503,6 +586,7 @@ class BookSync {
     }
     if (p.kosyncOn && (p.kosyncUrl ?? '').isNotEmpty) {
       try {
+        if (!await passwordMayGo(p.kosyncUrl!, agreed: p.plainHttpOk)) throw const SyncPlainException();
         final r = await syncKosync(store, books, state,
             url: p.kosyncUrl!, user: p.kosyncUser ?? '', key: secrets['kosync'] ?? '', device: await deviceId(store.root));
         sent += r.sent;
@@ -562,26 +646,36 @@ Future<({int sent, int taken})> syncWebDav(
     var sent = 0, taken = 0;
     final now = DateTime.now().toUtc();
     for (final e in books) {
+      // A restore begun meanwhile: nothing more is taken in.
+      if (RestoreGate.shut) return (sent: sent, taken: taken);
       final name = '${e.id}.json';
       final mine = Map<String, Object?>.from(known[e.id] as Map? ?? const {});
-      // Marks the server had that are gone from here: removed here, now
-      // (or when that was first seen).
+      // Marks removed, and when: elsewhere, as last merged, and here, as
+      // this phone noted each. One the server has that is only missing
+      // here is not taken for removed: a marks.json unreadable or lost took
+      // every quote off every phone that way.
       final removed = {
         for (final r in (mine['removed'] as Map? ?? const {}).entries)
           if (DateTime.tryParse('${r.value}') case final t?) '${r.key}': t,
       };
-      final here = {for (final m in MarkStore.instance.forBook(e.id)) m.id};
-      for (final id in (mine['known'] as List? ?? const []).cast<String>()) {
-        if (!here.contains(id)) removed.putIfAbsent(id, () => now);
-      }
+      MarkStore.instance.removedOf(e.id).forEach((id, t) {
+        final o = removed[id];
+        if (o == null || t.isAfter(o)) removed[id] = t;
+      });
       final local = localRecord(e, removed: removed);
       var onServer = listing.containsKey(name);
       final tag = listing[name];
+      // Quotes the server had at the last merge, missing here and not
+      // removed: its copy is read and merged, never written over without
+      // them (they went from the server too).
+      final here = {for (final m in local.marks) m.id};
+      final missing = (mine['known'] as List? ?? const []).any((id) => !here.contains(id) && !removed.containsKey(id));
       // Read only what changed there since: the rest is what was merged
       // last time, which the phone already holds.
-      var read = onServer && (tag == null || tag != mine['etag']);
+      var read = onServer && (tag == null || tag != mine['etag'] || missing);
       var merged = local;
       var etag = mine['etag'] as String?;
+      var unreadable = false;
       for (var attempt = 0; attempt < 3; attempt++) {
         String? theirs;
         if (read) {
@@ -590,7 +684,14 @@ Future<({int sent, int taken})> syncWebDav(
           if (got != null) {
             theirs = got.text;
             etag = got.etag ?? tag;
-            merged = mergeBooks(local, BookRecord.fromJson(e.id, jsonDecode(got.text)));
+            final record = _readRecord(e.id, got.text);
+            // Not written over (another app may know it), nor taken in:
+            // this book waits, and the rest are synced.
+            if (record == null) {
+              unreadable = true;
+              break;
+            }
+            merged = mergeBooks(local, record);
           }
         }
         final text = merged.encode();
@@ -605,10 +706,13 @@ Future<({int sent, int taken})> syncWebDav(
           read = true;
         }
       }
+      if (unreadable) continue;
       if (await applyRecord(store, local, merged)) taken++;
       known[e.id] = {
         if (etag != null) 'etag': etag,
         'hash': _hash(merged.encode()),
+        // What the server has, to know one missing here (never taken for
+        // removed: see MarkStore.removedOf).
         'known': [for (final m in merged.marks) m.id]..sort(),
         // Removals are remembered for half a year, then let go.
         'removed': {
@@ -624,7 +728,13 @@ Future<({int sent, int taken})> syncWebDav(
     final localDays = _localDays();
     var mergedDays = localDays;
     final got = await dav.get('TomeVoice/stats.json');
-    if (got != null) mergedDays = mergeDays(localDays, _decodeDays(got.text));
+    final theirDays = got == null ? null : _decodeDays(got.text);
+    if (got != null && theirDays == null) {
+      // Not written over either: the books' places and quotes still sync.
+      ErrorLog.instance.record('Sync passed over the reading time: its file on the server could not be read', null);
+      return (sent: sent, taken: taken);
+    }
+    if (theirDays != null) mergedDays = mergeDays(localDays, theirDays);
     final text = _encodeDays(mergedDays);
     if (got?.text != text) {
       try {

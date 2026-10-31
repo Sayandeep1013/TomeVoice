@@ -220,12 +220,13 @@ void main() {
       expect(server.requests.where((q) => q.startsWith('PUT')).length, puts);
 
       // KOReader on another device read on to 90%, later.
+      final then = DateTime.now().millisecondsSinceEpoch ~/ 1000 + 3600;
       server.progress['reader']![doc] = {
         'percentage': 0.9,
         'progress': '/body/DocFragment[1]/body/p[100]/text().0',
         'device': 'Kobo',
         'device_id': 'KOBO1',
-        'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000 + 3600,
+        'timestamp': then,
       };
       final taken = await BookSync.instance.syncNow(store: store);
       expect(taken.taken, greaterThanOrEqualTo(1));
@@ -233,6 +234,7 @@ void main() {
       final unit = layout.unitForCursor(e.cursor, saved: true);
       expect(percentOf(layout.book, cursorOf(layout.units[unit])), closeTo(0.9, 0.02));
       expect(server.progress['reader']![doc]!['device'], 'Kobo', reason: 'what was taken is not sent back');
+      expect(e.openedAt!.millisecondsSinceEpoch, then * 1000, reason: 'the time KOReader saved it, not now');
     });
   });
 }

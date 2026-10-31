@@ -9,6 +9,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
+import 'package:tomevoice_spike/error_log.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/marks.dart';
 import 'package:tomevoice_spike/prefs.dart';
@@ -82,11 +83,74 @@ void main() {
       });
     });
 
+    test("a quote's times go in UTC; one written without a zone is this phone's clock's", () {
+      final m = _mark('x', created: DateTime(2026, 10, 1, 9), edited: DateTime(2026, 10, 2, 9));
+      final json = m.toJson();
+      // Without a zone, a phone in another one read another moment, and a
+      // removal there could come before the quote it removed.
+      expect(json['created'], endsWith('Z'));
+      expect(json['edited'], endsWith('Z'));
+      final back = Mark.fromJson(json)!;
+      expect(back.created.isUtc, isTrue);
+      expect(back.created.isAtSameMomentAs(DateTime(2026, 10, 1, 9)), isTrue);
+      final old = Mark.fromJson({...json, 'created': '2026-10-01T09:00:00.000', 'edited': null})!;
+      expect(old.created.isUtc, isTrue);
+      expect(old.created.isAtSameMomentAs(DateTime(2026, 10, 1, 9)), isTrue, reason: 'read as local, then made UTC');
+      // Compared as moments: removed an hour after it was saved, it goes.
+      final removed = BookRecord(id: 'b', removed: {'x': DateTime(2026, 10, 1, 10).toUtc()});
+      expect(mergeBooks(BookRecord(id: 'b', marks: [old]), removed).marks, isEmpty);
+    });
+
     test('a record is written the same whatever order it was built in', () {
       final one = BookRecord(id: 'b', marks: [_mark('a'), _mark('b')], days: {'2': 2, '1': 1});
       final two = BookRecord(id: 'b', marks: [_mark('b'), _mark('a')], days: {'1': 1, '2': 2});
       expect(one.encode(), two.encode());
       expect(BookRecord.fromJson('b', jsonDecode(one.encode())).encode(), one.encode());
+    });
+  });
+
+  test("passwords are kept in the app's own storage, moved there once from the library's folder", () async {
+    final tmp = Directory.systemTemp.createTempSync('tomevoice_secrets');
+    addTearDown(() {
+      Secrets.home = null;
+      tmp.deleteSync(recursive: true);
+    });
+    final private = Directory('${tmp.path}/files')..createSync();
+    final library = Directory('${tmp.path}/external')..createSync();
+    File('${library.path}/.secrets.json').writeAsStringSync(jsonEncode({'webdav': 'old', 'kosync': 'key'}));
+    Secrets.home = private;
+    final s = await Secrets.of(library);
+    expect(s['webdav'], 'old');
+    expect(File('${library.path}/.secrets.json').existsSync(), isFalse, reason: 'other apps can read that folder');
+    await s.set('webdav', 'new');
+    expect(jsonDecode(File('${private.path}/.secrets.json').readAsStringSync()), {'webdav': 'new', 'kosync': 'key'});
+    expect(library.listSync(recursive: true), isEmpty);
+  });
+
+  group('addresses', () {
+    test('one typed without a scheme is https; plain http only as typed', () {
+      expect(withScheme(' cloud.example.org/remote.php/dav/ '), 'https://cloud.example.org/remote.php/dav/');
+      expect(withScheme('http://127.0.0.1:8081/dav/'), 'http://127.0.0.1:8081/dav/');
+      expect(withScheme(''), '');
+    });
+
+    test('a password goes over plain http only to this phone, its own network, or where the reader agreed', () async {
+      for (final ok in [
+        'https://cloud.example.org/',
+        'http://127.0.0.1:8081/dav/',
+        'http://localhost:8081/',
+        'http://192.168.1.20/dav/',
+        'http://10.0.0.5:5005/',
+        'http://172.20.1.1/',
+        'http://169.254.10.10/',
+        'http://[fd12:3456::1]/',
+      ]) {
+        expect(await passwordMayGo(ok), isTrue, reason: ok);
+      }
+      for (final no in ['http://203.0.113.5/dav/', 'http://172.32.0.1/', 'http://8.8.8.8/']) {
+        expect(await passwordMayGo(no), isFalse, reason: no);
+      }
+      expect(await passwordMayGo('http://203.0.113.5/dav/', agreed: ['http://203.0.113.5/dav/']), isTrue);
     });
   });
 
@@ -240,6 +304,144 @@ void main() {
       expect(MarkStore.instance.forBook(book.id), hasLength(4));
     });
 
+    test('a quote that cannot be read is passed over alone, and the file is kept beside', () async {
+      Map<String, Object?> json(String id) => _mark(id, book: book.id).toJson();
+      File('${tmp.path}/marks.json').writeAsStringSync(jsonEncode([
+        json('one'),
+        {...json('bad'), 'span': 'two'},
+        json('two'),
+        'not a quote',
+      ]));
+      await MarkStore.instance.attach(tmp);
+      expect(MarkStore.instance.forBook(book.id).map((m) => m.id), ['one', 'two']);
+      expect(File('${tmp.path}/marks.json.broken').readAsStringSync(), contains('"bad"'));
+      MarkStore.instance.reset();
+    });
+
+    test('quotes only missing here are not taken for removed: they stay on the server, and come back', () async {
+      await turnOn();
+      final q = await quote(3);
+      await BookSync.instance.syncNow(store: store);
+      expect(onServer().marks.single.id, q.id);
+      // marks.json unreadable, or lost: Saved is empty, and nothing was
+      // removed here.
+      MarkStore.instance.reset();
+      await BookSync.instance.syncNow(store: store);
+      expect(onServer().marks.map((m) => m.id), [q.id], reason: 'never taken off the other phones');
+      expect(onServer().removed, isEmpty);
+      expect(MarkStore.instance.forBook(book.id).map((m) => m.id), [q.id], reason: 'brought back');
+      // Removed here, it goes there too.
+      await MarkStore.instance.remove(q.id);
+      expect(MarkStore.instance.removedOf(book.id).keys, [q.id]);
+      await BookSync.instance.syncNow(store: store);
+      expect(onServer().marks, isEmpty);
+      expect(onServer().removed.keys, [q.id]);
+    });
+
+    test("a book's file is read again only when it changed there, or quotes it has are missing here", () async {
+      await turnOn();
+      await quote(3);
+      await BookSync.instance.syncNow(store: store);
+      // Another phone's name for the book, and a removal from long ago,
+      // kept there and let go here.
+      server.files[bookFile()] = BookRecord(
+        id: book.id,
+        title: 'Their Name',
+        marks: onServer().marks,
+        removed: {'long-gone': DateTime.now().toUtc().subtract(const Duration(days: 400))},
+      ).encode();
+      await BookSync.instance.syncNow(store: store);
+      final reads = server.requests.where((r) => r == 'GET ${bookFile()}').length;
+      await BookSync.instance.syncNow(store: store);
+      await BookSync.instance.syncNow(store: store);
+      expect(server.requests.where((r) => r == 'GET ${bookFile()}').length, reads);
+    });
+
+    test('a quote saved while sync is out with its book is kept', () async {
+      await turnOn();
+      await quote(2);
+      await BookSync.instance.syncNow(store: store);
+      // Another phone's quote there, so the book is read and taken in.
+      server.files[bookFile()] = mergeBooks(
+        onServer(),
+        BookRecord(id: book.id, marks: [_mark('elsewhere', book: book.id, created: DateTime.now())]),
+      ).encode();
+      Future<Mark>? meanwhile;
+      server.afterGet = (path) {
+        if (path != bookFile()) return;
+        server.afterGet = null;
+        // Saved here while the sync waits on the server.
+        meanwhile = quote(9);
+      };
+      await BookSync.instance.syncNow(store: store);
+      final saved = await meanwhile!;
+      expect(MarkStore.instance.forBook(book.id).map((m) => m.id), containsAll(['elsewhere', saved.id]));
+      expect(MarkStore.instance.forBook(book.id), hasLength(3));
+    });
+
+    test("one book's file that cannot be read is passed over; the others still sync", () async {
+      await turnOn();
+      final f = File('${tmp.path}/incoming/other.txt')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('Chapter 1\n\n${List.generate(30, (i) => 'Another line $i goes by.').join(' ')}');
+      final other = await store.importFile(PickedFile(path: f.path, name: 'other.txt'));
+      // The broken one is read first: the most recently read.
+      await store.saveCursor(book.id, cursorOf(layout.units[5]), 0.2);
+      expect((await store.list(all: true)).first.id, book.id);
+      server.files[bookFile()] = '{"id": "${book.id}", "marks": [';
+      server.files['/dav/TomeVoice/books/${other.id}.json'] =
+          BookRecord(id: other.id, marks: [_mark('there', book: other.id, created: DateTime.now())]).encode();
+      server.files['/dav/TomeVoice/stats.json'] = 'not the days';
+      final r = await BookSync.instance.syncNow(store: store);
+      expect(r.problem, isNull);
+      expect(MarkStore.instance.forBook(other.id).map((m) => m.id), ['there']);
+      expect(server.files[bookFile()], '{"id": "${book.id}", "marks": [', reason: 'never written over');
+      expect(server.files['/dav/TomeVoice/stats.json'], 'not the days');
+      final said = [for (final e in ErrorLog.instance.entries) e.message].where((m) => m.contains('passed over'));
+      expect(said, isNotEmpty);
+      expect(said.join(), isNot(contains(book.title)));
+      // What did sync is kept: the next sync reads the other book no more.
+      final reads = server.requests.where((q) => q.startsWith('GET') && q.contains(other.id)).length;
+      await BookSync.instance.syncNow(store: store);
+      expect(server.requests.where((q) => q.startsWith('GET') && q.contains(other.id)).length, reads);
+    });
+
+    test("a place taken in keeps its own time, so it never beats a later one from the phone it came from", () async {
+      await turnOn();
+      // Another book, read here just now.
+      final f = File('${tmp.path}/incoming/other.txt')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('Chapter 1\n\n${List.generate(30, (i) => 'Another line $i goes by.').join(' ')}');
+      final other = await store.importFile(PickedFile(path: f.path, name: 'other.txt'));
+      await store.saveCursor(other.id, const ReadingCursor(blockIndex: 1), 0.1);
+      // The other phone's place: two hours ago.
+      final now = DateTime.now().toUtc();
+      final earlier = now.subtract(const Duration(hours: 2));
+      server.files[bookFile()] = BookRecord(
+        id: book.id,
+        title: book.title,
+        place: SyncedPlace(cursor: cursorOf(layout.units[10]), progress: 0.25, at: earlier),
+      ).encode();
+      await BookSync.instance.syncNow(store: store);
+      var e = await entry();
+      expect(layout.unitForCursor(e.cursor, saved: true), 10);
+      expect(e.openedAt!.isAtSameMomentAs(earlier), isTrue, reason: 'its own time, not when it came');
+      expect((await store.list()).first.id, other.id, reason: 'not above a book read here since');
+      // That phone read on, an hour ago (its sync held back while it read),
+      // and syncs only now: its later place stands.
+      final later = now.subtract(const Duration(hours: 1));
+      server.files[bookFile()] = mergeBooks(
+        onServer(),
+        BookRecord(id: book.id, place: SyncedPlace(cursor: cursorOf(layout.units[30]), progress: 0.75, at: later)),
+      ).encode();
+      await BookSync.instance.syncNow(store: store);
+      e = await entry();
+      expect(layout.unitForCursor(e.cursor, saved: true), 30);
+      expect(e.openedAt!.isAtSameMomentAs(later), isTrue);
+      expect(onServer().place!.at.isAtSameMomentAs(later), isTrue, reason: 'never sent back as newer');
+      expect(onServer().place!.cursor.sentenceIndex, layout.units[30].sentenceIndex);
+    });
+
     test('a book on a shut secret shelf is never sent; open, it is', () async {
       await turnOn();
       final secret = await store.addCategory('Hidden', secret: true);
@@ -254,6 +456,15 @@ void main() {
       LibraryStore.secretOpen.value = true;
       await BookSync.instance.syncNow(store: store);
       expect(server.files.keys, contains(bookFile()));
+    });
+
+    test('nothing goes to a plain http address out on the internet the reader did not agree to', () async {
+      await turnOn();
+      ListeningPrefs.memory.webdavUrl = 'http://203.0.113.5/dav/';
+      await quote(3);
+      final r = await BookSync.instance.syncNow(store: store);
+      expect(r.problem, contains('http://'));
+      expect(r.sent, 0);
     });
 
     test('a wrong password is said, and nothing changes', () async {
