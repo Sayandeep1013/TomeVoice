@@ -47,6 +47,8 @@ class ListeningPrefs {
     this.keepScreenOn = false,
     this.pageBrightness,
     this.pageWarmth = 0,
+    this.autoScrollLines = 24,
+    this.autoPageSeconds = 30,
     this.themeMode = ThemeMode.system,
     this.paletteId = 'forest',
     this.updateEvery = 'daily',
@@ -256,6 +258,11 @@ class ListeningPrefs {
   /// Amber over the page for reading at night, 0 (none) to 1.
   double pageWarmth;
 
+  /// How fast auto-scroll moves the scroll, in lines a minute, and how long
+  /// it leaves each page in pages, in seconds (see AutoScroll).
+  int autoScrollLines;
+  int autoPageSeconds;
+
   /// Light, dark, or the phone's choice.
   ThemeMode themeMode;
 
@@ -402,6 +409,8 @@ class ListeningPrefs {
         'keepScreenOn': keepScreenOn,
         if (pageBrightness != null) 'pageBrightness': pageBrightness,
         if (pageWarmth > 0) 'pageWarmth': pageWarmth,
+        if (autoScrollLines != 24) 'autoScrollLines': autoScrollLines,
+        if (autoPageSeconds != 30) 'autoPageSeconds': autoPageSeconds,
         'themeMode': themeMode.name,
         'palette': paletteId,
         'updateEvery': updateEvery,
@@ -487,6 +496,8 @@ class ListeningPrefs {
         keepScreenOn: json['keepScreenOn'] == true,
         pageBrightness: (json['pageBrightness'] as num?)?.toDouble().clamp(0.0, 1.0).toDouble(),
         pageWarmth: ((json['pageWarmth'] as num?)?.toDouble() ?? 0).clamp(0.0, 1.0).toDouble(),
+        autoScrollLines: ((json['autoScrollLines'] as num?)?.toInt() ?? 24).clamp(4, 120),
+        autoPageSeconds: ((json['autoPageSeconds'] as num?)?.toInt() ?? 30).clamp(3, 600),
         themeMode: ThemeMode.values.where((m) => m.name == json['themeMode']).firstOrNull ??
             ThemeMode.system,
         gridView: json['gridView'] as bool? ?? true,

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
+import 'auto_scroll.dart';
 import 'book_tint.dart';
 import 'neural_screen.dart';
 import 'neural_voices.dart';
@@ -36,6 +37,7 @@ class ListenController {
     this.isPlaying,
     this.isPdf = false,
     this.light,
+    this.autoScroll,
   });
 
   final ListeningPrefs prefs;
@@ -68,9 +70,10 @@ class ListenController {
   /// The book is a PDF, so the page view can be offered.
   final bool isPdf;
 
-  /// The page's light, moved by the Read tab's sliders as they move: only
-  /// an open book's page has it.
+  /// The page's light, moved by the Read tab's sliders as they move, and
+  /// auto-scroll, started there: only an open book's page has them.
   final ValueNotifier<PageLight>? light;
+  final AutoScroll? autoScroll;
 
   Timer? _sampleTimer;
 
@@ -741,6 +744,10 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
           isPdf: widget.controller.isPdf,
           // The app's light or dark lives in Settings.
           showTheme: false,
+          afterLayout: switch (widget.controller.autoScroll) {
+            final auto? => _autoScroll(context, auto),
+            null => null,
+          },
           onChanged: () {
             setState(() {});
             widget.controller.onChanged(restart: false);
@@ -812,6 +819,60 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
       const SizedBox(height: Gap.xl),
     ];
   }
+
+  /// Auto-scroll, under the layout it moves: how fast (in pages, how long
+  /// on each page), and Start, which closes the sheet onto the page moving;
+  /// Stop while it runs.
+  Widget _autoScroll(BuildContext context, AutoScroll auto) => ListenableBuilder(
+        listenable: auto,
+        builder: (context, _) {
+          final pages = _prefs.pages;
+          // A PDF's real pages scroll as pictures; in pages they turn.
+          final can = !(widget.controller.isPdf && _prefs.pdfPages && !pages);
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: Gap.xl),
+              const SectionTitle('Auto-scroll'),
+              const SizedBox(height: Gap.m),
+              StepperControl(
+                value: auto.label(pages: pages),
+                minusTooltip: pages ? 'Longer on each page' : 'Scroll slower',
+                plusTooltip: pages ? 'Shorter on each page' : 'Scroll faster',
+                valueStyle: Skin.ui(size: 17, weight: FontWeight.w700, color: Skin.inkOn(context), tabular: true),
+                onMinus: auto.canSlowDown(pages: pages) ? () => auto.slowDown(pages: pages) : null,
+                onPlus: auto.canSpeedUp(pages: pages) ? () => auto.speedUp(pages: pages) : null,
+              ),
+              const SizedBox(height: Gap.s),
+              Text(
+                !can
+                    ? 'The real pages turn by themselves in pages: choose Pages above.'
+                    : '${pages ? 'A page turns by itself' : 'The page moves on by itself'} until the chapter ends, '
+                        'and a touch holds it a moment. Starting it stops the voice, and Play stops it.',
+                style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
+              ),
+              const SizedBox(height: Gap.m),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.icon(
+                  onPressed: !can
+                      ? null
+                      : () {
+                          if (auto.on) {
+                            auto.stop();
+                            return;
+                          }
+                          auto.start();
+                          Navigator.of(context).maybePop();
+                        },
+                  icon: Icon(auto.on ? Icons.stop_rounded : Icons.play_arrow_rounded),
+                  label: Text(auto.on ? 'Stop auto-scroll' : 'Start auto-scroll'),
+                ),
+              ),
+            ],
+          );
+        },
+      );
 }
 
 /// The common speeds: the speed sheet's row, and the steps of the media
@@ -894,12 +955,16 @@ class ReadingControls extends StatelessWidget {
     required this.onChanged,
     this.isPdf = false,
     this.showTheme = true,
+    this.afterLayout,
   });
 
   final ListeningPrefs prefs;
   final VoidCallback onChanged;
   final bool isPdf;
   final bool showTheme;
+
+  /// Under the layout's choice, where a book's page is open: its auto-scroll.
+  final Widget? afterLayout;
 
   void _apply(void Function() change) {
     change();
@@ -1009,6 +1074,7 @@ class ReadingControls extends StatelessWidget {
                     ],
                   ),
           ),
+          if (afterLayout case final after?) after,
           if (showTheme) ...[
             const SizedBox(height: Gap.xl),
             const SectionTitle('Theme'),

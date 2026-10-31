@@ -9,6 +9,7 @@ import 'package:flutter/services.dart'
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
+import 'auto_scroll.dart';
 import 'book_tint.dart';
 import 'chapter_finder.dart';
 import 'export_audio_sheet.dart';
@@ -423,6 +424,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   double? _window;
   Timer? _windowTimer;
 
+  /// Reading on without the voice, the page moving by itself (see the
+  /// auto-scroll part below).
+  late final _auto = AutoScroll(() => _prefs);
+
   @override
   void initState() {
     super.initState();
@@ -444,6 +449,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     ReadingRules.instance.changes.addListener(_onRules);
     _light.addListener(_applyLight);
     _sendWindow();
+    _auto.addListener(_onAuto);
+    _chrome.addListener(_onChrome);
     unawaited(_loadPrefs());
     unawaited(_reader.loadCover());
     if (_reader.resumeAt >= 0) {
@@ -501,7 +508,16 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   @override
-  void playStateChanged() => _applyReadingMode();
+  void playStateChanged() {
+    _applyReadingMode();
+    // One of them moves the page at a time: the voice reading stops
+    // auto-scroll, and the voice stopped as auto-scroll began lets it go.
+    if (_player.isPlaying) {
+      _auto.stop();
+    } else if (!_listening) {
+      _autoGoOnLater(soon: true);
+    }
+  }
 
   Future<void> _loadPrefs() async {
     final dir = widget.store?.root.path;
@@ -599,6 +615,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _light.value = PageLight.of(_prefs);
     final paged = _inPages;
     if (paged != _wasPaged) {
+      // Auto-scroll was moving the other layout.
+      _auto.stop();
       // Pages open at what is on screen; the scroll comes back at the page.
       if (paged) {
         _pageStart = _detached.value ? (_unitAtEyes() ?? _cursor.value) : _cursor.value;
@@ -690,6 +708,13 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _eyesTimer?.cancel();
     _backTimer?.cancel();
     _insetsTimer?.cancel();
+    _autoWait?.cancel();
+    _autoPage?.cancel();
+    // Off before it goes: the voice ending as the page closes asks it to stop.
+    _auto.removeListener(_onAuto);
+    _auto.stop();
+    _auto.dispose();
+    _chrome.removeListener(_onChrome);
     // The phone's own brightness again, as the book closes.
     _windowTimer?.cancel();
     if (identical(_windowHolder, this)) {
@@ -732,6 +757,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _backTimer?.cancel();
     if (state != AppLifecycleState.resumed) {
       _away = true;
+      _autoHalt();
       return;
     }
     // Back in front, perhaps in a window of its own (TomeVoice closed and
@@ -743,6 +769,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       if (!mounted) return;
       _away = false;
       setState(() {});
+      _autoGoOnLater();
     });
   }
 
@@ -815,6 +842,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             _player.state.value == PlayState.playing || _player.state.value == PlayState.loading,
         isPdf: _isPdf,
         light: _light,
+        autoScroll: _l.isEmpty ? null : _auto,
       );
 
   /// Say the sentence under the cursor in [voiceName], so a voice is judged
@@ -934,6 +962,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// Track the chapter at the top of the screen as the page moves.
   void _onPositions() {
     if (_l.isEmpty) return;
+    // Auto-scroll stops as the next chapter reaches the middle of the
+    // screen: the end of this one is still there to finish.
+    if (_autoMoving && !_inPages && !_pdfBook) {
+      final at = _chapterAt(0.5);
+      if (at != null && at > _autoChapter) _autoEnd(book: false);
+    }
     ItemPosition? top;
     for (final p in _positions.itemPositions.value) {
       // What crosses a line a fifth of the way down (below the top bar).
@@ -951,6 +985,17 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   bool _onScrollNotification(ScrollNotification n) {
     if (n is ScrollUpdateNotification) _lastMove = DateTime.now();
     if (n is ScrollUpdateNotification && n.dragDetails != null) _reader.lastScroll = DateTime.now();
+    // For auto-scroll: whether the book's end is reached, and the page
+    // scrolled by hand (it holds it, and goes on after).
+    if (n is ScrollUpdateNotification || n is ScrollEndNotification) _atListEnd = n.metrics.extentAfter < 1;
+    if (n is ScrollStartNotification && n.dragDetails != null) {
+      _scrollingByHand = true;
+      _autoHalt();
+    }
+    if (n is ScrollEndNotification) {
+      _scrollingByHand = false;
+      if (!_autoMoving) _autoGoOnLater();
+    }
     if (n is ScrollStartNotification) _eyesTimer?.cancel();
     if (n is ScrollStartNotification && n.dragDetails != null && !_programmaticScroll) {
       // Listening, a scroll is a look around: the voice keeps its place.
@@ -1023,10 +1068,13 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     } else {
       _reader.moveQuietly(unit);
     }
+    _autoNewPage();
   }
 
   /// A PDF's page turned to: as a text page is (see [_onPage]).
   void _onPdfPage(int page, {required bool byHand}) {
+    _pdfShown = page;
+    _pdfTurned = true;
     if (!byHand || _l.isEmpty) return;
     _reader.lastScroll = DateTime.now();
     if (_listening) {
@@ -1034,6 +1082,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     } else {
       _reader.moveQuietly(_l.unitForPage(page));
     }
+    _autoNewPage();
   }
 
   /// Press and hold on a page: the sentence and the word under the finger.
@@ -1210,6 +1259,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       layout: _l,
       chapter: _l.chapterOfUnit(_cursor.value),
       onPick: (hits, i, query) {
+        // A jump elsewhere in the book ends auto-scroll there.
+        _auto.stop();
         setState(() {
           _hits = hits;
           _hit = i;
@@ -1224,8 +1275,317 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   void _stepHit(int delta) {
     if (_hits.isEmpty) return;
+    _auto.stop();
     setState(() => _hit = (_hit + delta) % _hits.length);
     unawaited(_reader.goTo(_hits[_hit].unit));
+  }
+
+  // ---------------------------------------------------------- auto-scroll
+
+  /// Moving now: a stretch of the scroll under way, or a page's wait
+  /// counting down. [_autoRun] counts the stretches, so one a halt ended is
+  /// not followed by the next.
+  bool _autoMoving = false;
+  int _autoRun = 0;
+
+  /// Auto-scroll on, as last heard (see [_onAuto]), and only just started:
+  /// then it sets off even with TalkBack on, which otherwise never starts it
+  /// by itself.
+  bool _autoOn = false;
+  bool _autoFresh = false;
+
+  /// What holds it a moment: fingers on the page, the page scrolled by
+  /// hand, another screen or a sheet in front of it; and TalkBack.
+  int _touches = 0;
+  bool _scrollingByHand = false;
+  bool _front = true;
+  bool _talkBack = false;
+
+  /// The wait before it goes on, and a page's wait in pages.
+  Timer? _autoWait;
+  Timer? _autoPage;
+
+  /// The chapter in the middle of the screen as it set off (it stops as the
+  /// next one gets there), and whether the scroll is at the book's end.
+  int _autoChapter = 0;
+  bool _atListEnd = false;
+
+  /// The pages it last turned from: shown still, the turn went nowhere.
+  (int, int)? _autoTurnedFrom;
+
+  /// A PDF's real page shown, whether its last turn arrived, and whether
+  /// they lie two to a spread.
+  int? _pdfShown;
+  bool _pdfTurned = true;
+  bool _pdfSpread = false;
+
+  /// How far one stretch goes before the next begins.
+  static const _stretch = Duration(seconds: 2);
+
+  /// There is a page for it to move: a PDF's real pages, scrolled, are
+  /// pictures it cannot scroll (in pages, it turns them).
+  bool get _autoCan => !_l.isEmpty && (!_showPages || _prefs.pages);
+
+  /// Free to move: on and not held, the page in front with nothing else
+  /// moving it, the voice silent, and in pages their bars put away.
+  bool get _autoFree =>
+      mounted &&
+      _auto.on &&
+      !_auto.held &&
+      _autoCan &&
+      _front &&
+      !_away &&
+      !_listening &&
+      _touches == 0 &&
+      !_scrollingByHand &&
+      !_programmaticScroll &&
+      !(_inPages && _chrome.value);
+
+  /// Auto-scroll started or stopped, held or gone on, or given a new speed.
+  void _onAuto() {
+    if (_auto.on != _autoOn) {
+      _autoOn = _auto.on;
+      if (_autoOn) {
+        _autoBegin();
+      } else {
+        _autoHalt();
+        _autoPlace();
+      }
+      if (mounted) setState(() {});
+      return;
+    }
+    if (!_autoOn) return;
+    // Held, gone on, or a new speed: from here, at once.
+    _autoHalt();
+    if (!_auto.held) _autoMove();
+  }
+
+  /// Started: the voice stops if it was reading (one of them moves the page
+  /// at a time), the bars go for reading alone, and the page moves a moment
+  /// later, once the sheet it was started from has gone. A search's
+  /// matches and the way back after a jump go: it reads on from here.
+  void _autoBegin() {
+    _autoFresh = true;
+    _reader.returnTo = null;
+    _hits = const [];
+    if (_listening) unawaited(_player.stop());
+    if (_inPages) {
+      _chrome.value = false;
+    } else {
+      _scrollBars.value = false;
+    }
+    _autoGoOnLater(soon: true);
+  }
+
+  /// Another screen or a sheet over the page holds it; gone, it goes on.
+  void _onFront(bool front) {
+    _front = front;
+    if (!_auto.on) return;
+    if (front) {
+      _autoGoOnLater(soon: _autoFresh);
+    } else {
+      _autoHalt();
+    }
+  }
+
+  /// In pages, their bars brought up hold it; put away, it goes on.
+  void _onChrome() {
+    if (!_auto.on || !_inPages) return;
+    if (_chrome.value) {
+      _autoHalt();
+    } else {
+      _autoGoOnLater();
+    }
+  }
+
+  /// A finger on the page holds it; it goes on a moment after the last is
+  /// lifted.
+  void _autoTouch(bool down) {
+    _touches = math.max(0, _touches + (down ? 1 : -1));
+    if (!_auto.on) return;
+    if (_touches > 0) {
+      _autoHalt();
+    } else {
+      _autoGoOnLater();
+    }
+  }
+
+  /// [child], a page whose touches hold auto-scroll.
+  Widget _heldByTouch(Widget child) => Listener(
+        onPointerDown: (_) => _autoTouch(true),
+        onPointerUp: (_) => _autoTouch(false),
+        onPointerCancel: (_) => _autoTouch(false),
+        child: child,
+      );
+
+  /// Go on a moment after what held it: the last finger lifted, a scroll by
+  /// hand come to rest, a sheet closed, the app back. With TalkBack on it
+  /// never goes on by itself (the page would move from under the reader's
+  /// finger): it waits for the pill's Go on, unless just started.
+  void _autoGoOnLater({bool soon = false}) {
+    if (!mounted || !_auto.on || _auto.held || _autoMoving) return;
+    if (_talkBack && !_autoFresh) {
+      _autoHalt();
+      _auto.hold();
+      return;
+    }
+    _autoWait?.cancel();
+    _autoWait = Timer(Duration(milliseconds: soon ? 600 : 1500), _autoMove);
+  }
+
+  /// Move on, if nothing holds it: the next stretch of the scroll, or the
+  /// next page's wait. [onward]: straight on from the stretch before.
+  void _autoMove({bool onward = false}) {
+    _autoWait?.cancel();
+    if (_auto.on && !_autoCan) {
+      // Nothing here it can move now (a PDF's real pages, scrolled).
+      _auto.stop();
+      return;
+    }
+    if (!_autoFree || _autoMoving) return;
+    _autoFresh = false;
+    if (_inPages || _pdfBook) {
+      _autoMoving = true;
+      _autoPage = Timer(Duration(seconds: _auto.seconds), _autoTurn);
+      return;
+    }
+    if (!onward) _autoChapter = _chapterAt(0.5) ?? _l.chapterOfUnit(_cursor.value);
+    _autoStretch();
+  }
+
+  /// One stretch of the steady scroll, the next begun as it ends: the
+  /// reader's lines a minute in the page's own line height, so a bigger
+  /// text or more spacing keeps the same pace through the words. The place
+  /// follows the eyes after each, as it does a scroll by hand.
+  void _autoStretch() {
+    if (!_scroll.isAttached) return;
+    final run = ++_autoRun;
+    _autoMoving = true;
+    final line = _style.look.textScaler.scale(_prefs.textSize) * _prefs.lineHeight;
+    final distance = _auto.lines * line * _stretch.inMilliseconds / 60000;
+    unawaited(_offsets.animateScroll(offset: distance, duration: _stretch).whenComplete(() {
+      if (!mounted || run != _autoRun) return;
+      _autoMoving = false;
+      _autoPlace();
+      if (_atListEnd) {
+        _autoEnd(book: true);
+      } else {
+        _autoMove(onward: true);
+      }
+    }));
+  }
+
+  /// Stop moving for now: a touch, a sheet over the page, the app away.
+  void _autoHalt() {
+    _autoWait?.cancel();
+    _autoPage?.cancel();
+    if (!_autoMoving) return;
+    _autoMoving = false;
+    _autoRun++;
+    // A scroll of nothing ends the stretch where it is (unless another
+    // scroll, the voice's or a jump's, has the page already).
+    if (!_inPages && !_pdfBook && _scroll.isAttached && !_programmaticScroll) {
+      unawaited(_offsets.animateScroll(offset: 0, duration: const Duration(milliseconds: 1)));
+    }
+  }
+
+  /// A page come to rest, turned by a hand or by auto-scroll: the wait for
+  /// the next begins again from here.
+  void _autoNewPage() {
+    _autoTurnedFrom = null;
+    if (!_auto.on) return;
+    _autoHalt();
+    _autoMove();
+  }
+
+  /// A page's wait is up: on to the next, unless this is the chapter's last
+  /// page (or the book's), where it stops.
+  void _autoTurn() {
+    _autoMoving = false;
+    if (!_autoFree) return;
+    if (_pdfBook) {
+      // The turn before went nowhere: the last page.
+      if (!_pdfTurned) {
+        _autoEnd(book: true);
+        return;
+      }
+      final page = _pdfShown ?? (_l.hasPages ? _l.unitPage[_cursor.value.clamp(0, _l.units.length - 1)] : 0);
+      final next = _l.unitForPage(page + (_pdfSpread ? 2 : 1));
+      if (_l.hasPages &&
+          _l.unitPage[next] > page &&
+          _l.chapterOfUnit(next) > _l.chapterOfUnit(_l.unitForPage(page))) {
+        _autoEnd(book: false);
+        return;
+      }
+      _pdfTurned = false;
+      _pdf.turn(1);
+    } else {
+      final shown = _paged.range;
+      if (shown != null) {
+        final c = _l.chapterOfUnit(shown.$1);
+        final last = c >= _l.chapters.length - 1;
+        if (shown.$2 >= (last ? _l.units.length : _l.chapterFirstUnit[c + 1]) || shown == _autoTurnedFrom) {
+          _autoEnd(book: last);
+          return;
+        }
+        _autoTurnedFrom = shown;
+        _paged.turn(1);
+      }
+    }
+    // Waited for again from the page come to rest (see _autoNewPage); one
+    // that never comes to rest is found where it was next time.
+    _autoMove();
+  }
+
+  /// The place where the eyes are, as the scroll moves on (in pages, a page
+  /// turned moves it, see _onPage): saved as a scroll by hand saves it, and
+  /// the time counted as reading.
+  void _autoPlace() {
+    if (_inPages || _pdfBook || _listening || _l.isEmpty) return;
+    _reader.lastScroll = DateTime.now();
+    final u = _unitAtEyes();
+    if (u != null && u != _cursor.value) _reader.moveQuietly(u);
+  }
+
+  /// The chapter's end, or the book's, reached: auto-scroll stops there and
+  /// says so, with the way on into the next chapter.
+  void _autoEnd({required bool book}) {
+    _auto.stop();
+    if (!mounted) return;
+    if (book) {
+      _snack(widget.onReachedEnd == null
+          ? 'End of the book: auto-scroll stopped.'
+          : 'End of the chapters here: auto-scroll stopped.');
+      return;
+    }
+    showSnack(
+      context,
+      'End of chapter: auto-scroll stopped.',
+      margin: _snackMargin,
+      actionLabel: 'Go on',
+      onAction: () {
+        if (!mounted) return;
+        _auto.start();
+        // In pages, on to the next chapter's first page now.
+        if (_inPages) {
+          _paged.turn(1);
+        } else if (_pdfBook) {
+          _pdfTurned = false;
+          _pdf.turn(1);
+        }
+      },
+    );
+  }
+
+  /// The chapter of the paragraph crossing [line] (a share of the page's
+  /// height, from its top).
+  int? _chapterAt(double line) {
+    for (final p in _positions.itemPositions.value) {
+      if (p.index < _l.items.length && p.itemLeadingEdge <= line && p.itemTrailingEdge > line) {
+        return _l.items[p.index].chapter;
+      }
+    }
+    return null;
   }
 
   // ---------------------------------------------------------------- build
@@ -1233,6 +1593,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   @override
   Widget build(BuildContext context) {
     _style = PageStyle.of(context, _prefs);
+    _talkBack = MediaQuery.accessibleNavigationOf(context);
     final size = MediaQuery.sizeOf(context);
     // A phone on its side: the player floats over the foot of the text as
     // one row, so the text keeps the height.
@@ -1296,7 +1657,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         // at its foot: the fade draws it again, in its place on the ground.
         : _scrollReading(context, bar, rail,
             rail ? null : Positioned(left: 0, right: 0, bottom: 0, height: rise, child: light));
-    return PopScope(
+    return FrontWatch(
+      onFront: _onFront,
+      child: PopScope(
       canPop: _hits.isEmpty,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) _reader.leaving = true;
@@ -1377,6 +1740,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         ),
       ),
       ),
+      ),
     );
   }
 
@@ -1416,6 +1780,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// [glow] is the voice's glow placed on the ground, when it lies under the
   /// text (see [_text]).
   Widget _scrollReading(BuildContext context, Widget bar, bool rail, Widget? glow) {
+    _pdfSpread = MediaQuery.sizeOf(context).width > MediaQuery.sizeOf(context).height &&
+        MediaQuery.sizeOf(context).width >= 600;
     return Column(
       children: [
         // A PDF's real pages keep the bars: a tap there reads from the page.
@@ -1428,7 +1794,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                 child: FadeIn(
                   key: ValueKey(_showPages),
                   child: _showPages
-                      ? PdfPagesView(
+                      ? _heldByTouch(PdfPagesView(
                           path: widget.sourcePath!,
                           layout: _l,
                           cursor: _cursor,
@@ -1436,12 +1802,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                           onTapPage: (page) => _reader.goTo(_l.unitForPage(page), play: true),
                           controller: _pdf,
                           turn: _prefs.pages ? PageTurn.byName(_prefs.pageTurn) : null,
-                          spread: MediaQuery.sizeOf(context).width > MediaQuery.sizeOf(context).height &&
-                              MediaQuery.sizeOf(context).width >= 600,
+                          spread: _pdfSpread,
                           tapToTurn: _prefs.tapToTurn,
                           dark: _style.pdfInk,
                           onTurned: _onPdfPage,
-                        )
+                        ))
                       : ValueListenableBuilder<bool>(
                           valueListenable: _veiled,
                           builder: (context, veiled, text) => AnimatedOpacity(
@@ -1497,12 +1862,18 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   /// A tap on the scrolling text puts the bars away or brings them back.
   /// The paragraphs take no tap of their own (pictures do, and keep it);
-  /// a tap that stops a fling only stops it.
+  /// a tap that stops a fling only stops it (auto-scroll's moving is no
+  /// fling: a tap there brings the bars too). A touch holds auto-scroll.
   Widget _tapForBars(Widget child) => Listener(
         onPointerDown: (_) {
           final moved = _lastMove;
-          _tapStopsScroll = moved != null && DateTime.now().difference(moved) < const Duration(milliseconds: 150);
+          _tapStopsScroll = !_autoMoving &&
+              moved != null &&
+              DateTime.now().difference(moved) < const Duration(milliseconds: 150);
+          _autoTouch(true);
         },
+        onPointerUp: (_) => _autoTouch(false),
+        onPointerCancel: (_) => _autoTouch(false),
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           excludeFromSemantics: true,
@@ -1617,6 +1988,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       layout: _l,
       marks: () => _bookmarks,
       onOpen: (u) {
+        _auto.stop();
         if (_inPages) _chrome.value = true;
         _reader.jump(u);
       },
@@ -1642,6 +2014,28 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           onStep: _stepHit,
           onDone: () => setState(() => _hits = const []),
         ),
+      );
+    }
+    if (_auto.on) {
+      final pill = AutoScrollPill(auto: _auto, pages: _inPages || _pdfBook);
+      return KeyedSubtree(
+        key: const ValueKey('auto'),
+        // Over the scroll it comes and goes with the bars, as pages show
+        // it with theirs: reading alone, nothing covers the text.
+        child: _inPages
+            ? pill
+            : ValueListenableBuilder<bool>(
+                valueListenable: _scrollBars,
+                builder: (context, shown, pill) => IgnorePointer(
+                  ignoring: !shown && !_showPages,
+                  child: AnimatedOpacity(
+                    opacity: shown || _showPages ? 1 : 0,
+                    duration: Motion.of(context, Motion.quick),
+                    child: pill,
+                  ),
+                ),
+                child: pill,
+              ),
       );
     }
     if (_reader.returnTo != null) {
@@ -1677,7 +2071,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       clipBehavior: Clip.none,
       children: [
         Positioned.fill(
-          child: toned(context, style.tone, PagedBook(
+          child: toned(context, style.tone, _heldByTouch(PagedBook(
             layout: _l,
             look: style.look,
             controller: _paged,
@@ -1701,7 +2095,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             marks: _markedUnits,
             highlights: _highlights,
             textDirection: _direction,
-          )),
+          ))),
         ),
         // The page's light over the pages, under the bars; the fades the
         // bars stand on are drawn in it, so they meet the page with no seam.
@@ -1875,6 +2269,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         bookmarked: _bookmarkedHere,
         realPages: _isPdf ? _showPages : null,
         onRealPages: () {
+          _auto.stop();
           setState(() => _prefs.pdfPages = !_prefs.pdfPages);
           _prefs.save();
           _detached.value = false;
@@ -2230,7 +2625,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       numberWidth: 40,
       dismissOnDrag: false,
     ).then((chapter) {
-      if (chapter != null && mounted) _reader.jump(_l.chapterFirstUnit[chapter]);
+      if (chapter == null || !mounted) return;
+      _auto.stop();
+      _reader.jump(_l.chapterFirstUnit[chapter]);
     }));
   }
 }
@@ -2246,10 +2643,11 @@ class _TextScrollTarget extends FastScrollTarget {
   @override
   bool get long => _count > 80;
 
-  /// Not while the text follows the voice.
+  /// Not while the text follows the voice, nor while it scrolls by itself.
   @override
   bool get byHand =>
       !_s._programmaticScroll &&
+      !_s._autoMoving &&
       _s._reader.lastScroll != null &&
       DateTime.now().difference(_s._reader.lastScroll!) < const Duration(seconds: 2);
 

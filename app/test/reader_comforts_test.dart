@@ -1,6 +1,9 @@
 // The reader's comforts: the page's brightness (the window's own, and the
 // page darkened below the phone's lowest) and its warmth, over every view
-// of the page and never over the bars or the player.
+// of the page and never over the bars or the player; and auto-scroll, a
+// steady scroll or a page turned every so often, held by a touch, stopped
+// at a chapter's end, never with the voice, and never started by itself
+// with TalkBack on.
 
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -12,6 +15,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
+import 'package:tomevoice_spike/auto_scroll.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/marks.dart';
 import 'package:tomevoice_spike/neural_voices.dart' show wavBytes;
@@ -410,7 +414,7 @@ void main() {
       await finish(tester);
     });
 
-    testWidgets('Settings has no light: it is the page’s, set over it', (tester) async {
+    testWidgets('Settings has neither: they are the page’s, set over it', (tester) async {
       phone(tester);
       late LibraryStore store;
       await tester.runAsync(() async {
@@ -420,7 +424,252 @@ void main() {
       await tester.pumpWidget(MaterialApp(home: SettingsScreen(store: store)));
       await tester.pumpAndSettle();
       expect(find.text('Brightness'), findsNothing);
+      expect(find.text('Auto-scroll'), findsNothing);
       await finish(tester);
+    });
+  });
+
+  group('auto-scroll', () {
+    Finder line(String start) =>
+        find.byWidgetPredicate((w) => w is RichText && w.text.toPlainText().startsWith(start)).first;
+
+    /// Start it from the Read tab, and let the sheet go.
+    Future<void> start(WidgetTester tester, {bool settle = true}) async {
+      await tester.tap(find.byTooltip('Reading settings'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      final button = find.text('Start auto-scroll');
+      await tester.ensureVisible(button);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(button);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byKey(const Key('reader-settings')), findsNothing, reason: 'the sheet closes onto the page');
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+
+    Future<void> run(WidgetTester tester, Duration d) async {
+      for (var t = Duration.zero; t < d; t += const Duration(milliseconds: 100)) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+    }
+
+    Future<int> saved(WidgetTester tester, LibraryStore store, ReadingLayout layout, bool Function(int) until) async {
+      var unit = 0;
+      for (var i = 0; i < 100 && !until(unit); i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 25)));
+        await tester.pump(const Duration(milliseconds: 50));
+        unit = layout.unitForCursor((await tester.runAsync(() => store.cursorFor(layout.book.id)))!, saved: true);
+      }
+      return unit;
+    }
+
+    testWidgets('the scroll moves steadily at its lines a minute, the bars away, the place following the eyes and saved',
+        (tester) async {
+      final store = LibraryStore(_tmp);
+      final layout = short(paragraphs: 40);
+      await open(tester, layout, store: store);
+      await start(tester);
+      expect(find.byTooltip('Search').hitTestable(), findsNothing, reason: 'reading alone');
+      final was = tester.getRect(line('Alpha line 5 ')).top;
+      await run(tester, const Duration(seconds: 4));
+      // 24 lines a minute of 19 px at 1.6: 12.2 px a second.
+      final went = was - tester.getRect(line('Alpha line 5 ')).top;
+      expect(went, inInclusiveRange(4 * 12.16 * 0.85, 4 * 12.16 * 1.1));
+      // The place is where the eyes are, saved as a scroll by hand saves
+      // it, and no wash follows them about.
+      await run(tester, const Duration(seconds: 8));
+      expect(await saved(tester, store, layout, (u) => u > 0), greaterThan(0));
+      final washed = StringBuffer();
+      for (final t in tester.widgetList<RichText>(find.byType(RichText))) {
+        t.text.visitChildren((s) {
+          if (s is TextSpan && s.style?.backgroundColor != null) washed.write(s.text ?? '');
+          return true;
+        });
+      }
+      expect(washed.toString(), isEmpty);
+      await finish(tester);
+    });
+
+    testWidgets('a touch holds it, and it goes on a moment after; the pill slows, quickens, holds and stops it',
+        (tester) async {
+      await open(tester, short(paragraphs: 40));
+      await start(tester);
+      double at() =>
+          tester.getRect(line('Alpha line 4 ')).top - tester.getRect(find.byType(ScrollablePositionedList)).top;
+      final g = await tester.startGesture(tester.getCenter(find.byType(ScrollablePositionedList)));
+      await tester.pump(const Duration(milliseconds: 100));
+      final held = at();
+      await run(tester, const Duration(seconds: 2));
+      expect(at(), held, reason: 'held while the finger is down');
+      await g.up();
+      await tester.pump();
+      await run(tester, const Duration(milliseconds: 1000));
+      expect(at(), held, reason: 'still a moment after');
+      await run(tester, const Duration(seconds: 2));
+      expect(at(), lessThan(held), reason: 'then on again');
+      // That tap brought the bars, and the pill with them.
+      expect(find.text('24 lines a minute').hitTestable(), findsOneWidget);
+      await tester.tap(find.byTooltip('Scroll faster'));
+      await tester.pump();
+      expect(find.text('27 lines a minute'), findsOneWidget);
+      expect(ListeningPrefs.memory.autoScrollLines, 27);
+      await tester.tap(find.byTooltip('Scroll slower'));
+      await tester.pump();
+      expect(ListeningPrefs.memory.autoScrollLines, 24);
+      await tester.tap(find.byTooltip('Pause auto-scroll'));
+      await tester.pump();
+      final paused = at();
+      await run(tester, const Duration(seconds: 3));
+      expect(at(), paused, reason: 'held until Go on');
+      await tester.tap(find.byTooltip('Go on'));
+      await run(tester, const Duration(seconds: 1));
+      expect(at(), lessThan(paused));
+      await tester.tap(find.byTooltip('Stop auto-scroll'));
+      await tester.pumpAndSettle();
+      final stopped = at();
+      await run(tester, const Duration(seconds: 3));
+      expect(at(), stopped);
+      expect(find.byType(AutoScrollPill), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('it stops as the next chapter reaches the middle of the page; Go on carries on', (tester) async {
+      ListeningPrefs.memory.autoScrollLines = 90;
+      await open(tester, short());
+      await start(tester);
+      const said = 'End of chapter: auto-scroll stopped.';
+      for (var i = 0; i < 300 && find.text(said).evaluate().isEmpty; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(find.text(said), findsOneWidget);
+      // The next chapter's row (its label 56 dp below the row's top) at the
+      // middle of the page.
+      final page = tester.getRect(find.byType(ScrollablePositionedList));
+      double next() => tester.getRect(find.text('CHAPTER 2').first).top - 56;
+      final stopped = next();
+      expect(stopped, closeTo(page.top + page.height / 2, 4));
+      await run(tester, const Duration(seconds: 2));
+      expect(next(), stopped, reason: 'stopped');
+      await tester.tap(find.text('Go on'));
+      await run(tester, const Duration(seconds: 2));
+      expect(next(), lessThan(stopped), reason: 'on into Beta');
+      await finish(tester);
+    });
+
+    testWidgets("it stops at the book's end, and says so", (tester) async {
+      ListeningPrefs.memory.autoScrollLines = 90;
+      final layout = short();
+      await open(tester, layout, at: cursorOf(layout.units[layout.chapterFirstUnit[1]]));
+      await start(tester);
+      const said = 'End of the book: auto-scroll stopped.';
+      for (var i = 0; i < 300 && find.text(said).evaluate().isEmpty; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(find.text(said), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byType(AutoScrollPill), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('never with the voice: Play stops it, and starting it stops the voice', (tester) async {
+      await open(tester, short(paragraphs: 40));
+      await start(tester);
+      await tester.tapAt(tester.getCenter(find.byType(ScrollablePositionedList)));
+      await tester.pumpAndSettle();
+      expect(find.byType(AutoScrollPill), findsOneWidget);
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.byTooltip('Pause'), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byType(AutoScrollPill), findsNothing, reason: 'the voice moves the page now');
+      // Started again while the voice reads (the glow and the ring move:
+      // no settling): the voice stops.
+      await start(tester);
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byTooltip('Play'), findsOneWidget);
+      expect(find.byType(AutoScrollPill), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('in pages a page turns every so often, the place with it; it stops on the chapter’s last page',
+        (tester) async {
+      final store = LibraryStore(_tmp);
+      ListeningPrefs.memory
+        ..pages = true
+        ..pageTurn = 'none'
+        ..autoPageSeconds = 5;
+      final layout = short(paragraphs: 30);
+      await open(tester, layout, store: store);
+      final book = tester.widget<PagedBook>(find.byType(PagedBook));
+      final first = book.controller.range!.$1;
+      await tester.tapAt(tester.getCenter(find.byType(PagedBook)));
+      await tester.pumpAndSettle();
+      await start(tester);
+      expect(find.text('A page every 5 s').hitTestable(), findsNothing, reason: 'its pill goes with the bars');
+      await run(tester, const Duration(milliseconds: 5500));
+      final second = book.controller.range!.$1;
+      expect(second, greaterThan(first));
+      // A finger on the page holds it (moved a little, so as not to be a
+      // press and hold); the place went with the page, saved.
+      final g = await tester.startGesture(tester.getCenter(find.byType(PagedBook)));
+      await g.moveBy(const Offset(0, 40));
+      await tester.pump();
+      expect(await saved(tester, store, layout, (u) => u == second), second);
+      await run(tester, const Duration(seconds: 6));
+      expect(book.controller.range!.$1, second, reason: 'held while the finger is down');
+      await g.up();
+      const said = 'End of chapter: auto-scroll stopped.';
+      for (var i = 0; i < 600 && find.text(said).evaluate().isEmpty; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(find.text(said), findsOneWidget);
+      expect(book.controller.range!.$2, layout.chapterFirstUnit[1], reason: "on Alpha's last page");
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.tap(find.text('Go on'));
+      await tester.pumpAndSettle();
+      expect(layout.chapterOfUnit(book.controller.range!.$1), 1, reason: 'on into Beta');
+      await finish(tester);
+    });
+
+    testWidgets('with TalkBack on it never starts again by itself: a touch holds it until Go on', (tester) async {
+      tester.platformDispatcher.accessibilityFeaturesTestValue = const FakeAccessibilityFeatures(accessibleNavigation: true);
+      addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+      await open(tester, short(paragraphs: 40));
+      await start(tester);
+      double at() =>
+          tester.getRect(line('Alpha line 4 ')).top - tester.getRect(find.byType(ScrollablePositionedList)).top;
+      final began = at();
+      await run(tester, const Duration(seconds: 1));
+      expect(at(), lessThan(began), reason: 'started by the reader, it goes');
+      await tester.tapAt(tester.getCenter(find.byType(ScrollablePositionedList)));
+      await tester.pumpAndSettle();
+      final held = at();
+      await run(tester, const Duration(seconds: 5));
+      expect(at(), held, reason: 'not on again by itself');
+      expect(find.byTooltip('Go on'), findsOneWidget);
+      await tester.tap(find.byTooltip('Go on'));
+      await run(tester, const Duration(seconds: 1));
+      expect(at(), lessThan(held));
+      await finish(tester);
+    });
+
+    test('its steps: a speed from before between them goes to the nearest; a minute and more reads as minutes', () {
+      final prefs = ListeningPrefs(autoScrollLines: 25, autoPageSeconds: 31);
+      final auto = AutoScroll(() => prefs);
+      expect(auto.label(pages: false), '25 lines a minute');
+      auto.speedUp(pages: false);
+      expect(prefs.autoScrollLines, 27);
+      auto.speedUp(pages: true);
+      expect(prefs.autoPageSeconds, 25, reason: 'faster in pages is less time on each');
+      prefs.autoPageSeconds = autoPageWaits.first;
+      expect(auto.canSpeedUp(pages: true), isFalse);
+      prefs.autoScrollLines = autoScrollSpeeds.last;
+      expect(auto.canSpeedUp(pages: false), isFalse);
+      expect(waitLabel(90), '1 min 30 s');
+      expect(waitLabel(120), '2 min');
+      auto.dispose();
     });
   });
 }
