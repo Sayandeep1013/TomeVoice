@@ -301,8 +301,9 @@ class ReaderController {
       );
     } else {
       // Only a page whose voice was on the card takes the card away: an idle
-      // page of another book must not end one reading in the background.
-      if (_sessionState != PlayState.idle) unawaited(_svc.session(active: false));
+      // page of another book must not end one reading in the background,
+      // nor one put up since this page last had it (see SpeechService.session).
+      if (_sessionState != PlayState.idle) unawaited(_svc.session(active: false, owner: this));
       player.dispose();
     }
     cursor.dispose();
@@ -586,14 +587,18 @@ class ReaderController {
     _sessionUnit = u;
     _sessionSpeed = speed;
     if (s == PlayState.idle) {
-      if (wasActive) unawaited(_svc.session(active: false));
+      if (wasActive) unawaited(_svc.session(active: false, owner: this));
       return;
     }
+    // Its voice stopped (moved while paused), and another reading has the
+    // card since (a book started from Android Auto): it stays that one's.
+    if (actual == PlayState.idle && !SpeechService.ownsCard(this)) return;
     final clock = cardClock(layout, u, speed);
     // A book on a secret shelf is not named on the lock screen.
     final secret = store?.isSecret(_book.id) ?? false;
     unawaited(_svc.session(
       active: true,
+      owner: this,
       title: secret ? 'TomeVoice' : _book.metadata.title,
       subtitle: secret ? '' : layout.chapterTitle(chapter),
       playing: s != PlayState.paused,

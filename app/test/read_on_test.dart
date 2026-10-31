@@ -1,8 +1,9 @@
 // Reading on: a web novel read past the end of its window of chapters, in
 // the background or handed on by its page, with the card in the shade
 // saying "playing" all the way (said "paused" for a moment, Android 12+
-// took the reading out of the foreground for good), and the chapters
-// joined on as the voice finished not passed over.
+// took the reading out of the foreground for good); the chapters joined on
+// as the voice finished not passed over; and a page that no longer has the
+// card leaving it to the reading that does.
 
 import 'dart:async';
 import 'dart:io';
@@ -282,6 +283,60 @@ void main() {
       final bg = BackgroundReading.current.value!;
       expect(reading(bg), 60, reason: 'the chapters joined on were passed over');
     });
+  });
+
+  test("a page moved while paused, and another book started from outside: the page leaves that book's card alone",
+      () async {
+    final store = LibraryStore(tmp);
+    final books = <LibraryEntry>[];
+    for (final name in ['alpha.txt', 'beta.txt']) {
+      final f = File('${tmp.path}/incoming/$name')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('Chapter 1\n\n${'The $name story goes on. ' * 30}\n\n'
+            'Chapter 2\n\n${'It keeps going here. ' * 30}');
+      books.add(await store.importFile(PickedFile(path: f.path, name: name)));
+    }
+    final (a, b) = (books.first, books.last);
+    final view = _Page();
+    final page = ReaderController(
+      layout: await store.loadLayout(a.id),
+      view: view,
+      initialCursor: ReadingCursor.zero,
+      store: store,
+    );
+    await page.togglePlay();
+    await _until(() => page.player.isPlaying && count('playerEnqueue') > 0);
+    await page.togglePlay();
+    expect(page.player.state.value, PlayState.paused);
+    // Moved while paused (the card's Next): its voice stops, and the card
+    // stays up, paused there.
+    await page.goTo(5);
+    expect(page.player.state.value, PlayState.idle);
+    expect(sessions().last['book'], a.id);
+    expect(sessions().last['playing'], isFalse);
+
+    // Android Auto starts the other book.
+    outside = {'book': b.id, 'reading': true};
+    await MediaRequests.take(() async => store);
+    final bg = BackgroundReading.current.value!;
+    expect(bg.bookId, b.id);
+    await _until(() => bg.player.isPlaying);
+    final from = sessions().length;
+
+    // The page, still there with the app in the background, moves its
+    // place (scrolled), and is then closed.
+    page.moveQuietly(8);
+    view.mounted = false;
+    page
+      ..leaving = true
+      ..dispose();
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    final after = sessions().sublist(from);
+    expect(after.where((s) => s['active'] == false), isEmpty,
+        reason: "the page ended the other book's card, and with it its audio and the phone kept awake");
+    expect(after.where((s) => s['book'] == a.id), isEmpty, reason: 'the page put its own book back on the card');
+    expect(identical(BackgroundReading.current.value, bg), isTrue);
+    expect(bg.player.isPlaying, isTrue);
   });
 }
 

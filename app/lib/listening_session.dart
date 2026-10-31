@@ -614,7 +614,7 @@ class BackgroundReading {
     player.endFade();
     await player.stop();
     player.dispose();
-    await _svc.session(active: false);
+    await _svc.session(active: false, owner: this);
   }
 
   /// The last place saved, done once it is written.
@@ -836,6 +836,7 @@ class BackgroundReading {
     final secret = store.isSecret(bookId);
     unawaited(_svc.session(
       active: true,
+      owner: this,
       title: secret ? 'TomeVoice' : title,
       subtitle: secret ? '' : layout.chapterTitle(chapter),
       // Moving into the next chapters counts as playing: the card (and the
