@@ -406,7 +406,7 @@ class _CataloguesScreenState extends State<CataloguesScreen> {
               padding: const EdgeInsets.fromLTRB(Gap.l, Gap.m, Gap.s, Gap.m),
               child: Row(
                 children: [
-                  Icon(icon, color: Skin.accentOf(context)),
+                  Icon(icon, color: Skin.accentInkOf(context)),
                   const SizedBox(width: Gap.l),
                   Expanded(
                     child: Column(
@@ -1058,7 +1058,7 @@ class _OpdsBookScreenState extends State<OpdsBookScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        LinearProgressIndicator(value: progress == null || total <= 0 ? null : done / total, color: Skin.accentOf(context)),
+        LinearProgressIndicator(value: progress == null || total <= 0 ? null : done / total, color: Skin.accentMarkOf(context)),
         const SizedBox(height: Gap.s),
         Text(
           progress == null

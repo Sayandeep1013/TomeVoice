@@ -413,6 +413,17 @@ class SpeechService {
     }
   }
 
+  /// The colours Android 12 and later make from the wallpaper, by family
+  /// (accent1 to neutral2), each a list of ARGB values from shade 0 to 1000.
+  /// Null on older phones and where the platform cannot say.
+  Future<Object?> systemColours() async {
+    try {
+      return await _channel.invokeMethod<Object?>('systemColours');
+    } on Object {
+      return null;
+    }
+  }
+
   /// The phone, for a problem report: Android's version ("14") and API
   /// level, its maker and its model. Null where the platform cannot say.
   Future<DeviceInfo?> deviceInfo() async {
@@ -572,14 +583,38 @@ class SpeechService {
     );
   }
 
-  /// A rendered page as an image file, [width] pixels wide.
-  Future<String> pdfRender(String path, int page, int width) async {
+  /// A rendered page as an image file, [width] pixels wide: the whole page,
+  /// or only [crop] of it (in fractions of the page), drawn at that width.
+  Future<String> pdfRender(String path, int page, int width, {Rect? crop}) async {
     final file = await _channel.invokeMethod<String>(
       'pdfRender',
-      {'path': path, 'page': page, 'width': width},
+      {
+        'path': path,
+        'page': page,
+        'width': width,
+        if (crop != null) 'crop': [crop.left, crop.top, crop.right, crop.bottom],
+      },
     );
     if (file == null) throw Exception('Page $page could not be drawn');
     return file;
+  }
+
+  /// Where the print lies on each of [pages], found on a small drawing of
+  /// each (PdfPages.findPrint): its box in fractions of the page, or null on
+  /// a blank page. Throws when the phone could not say, so a page it did not
+  /// look at is never taken for a blank one.
+  Future<List<Rect?>> pdfPrint(String path, List<int> pages) async {
+    final raw = await _channel.invokeListMethod<Object?>('pdfPrint', {'path': path, 'pages': pages});
+    if (raw == null || raw.length != pages.length) throw Exception('The pages could not be looked at');
+    return [
+      for (final box in raw)
+        switch (box) {
+          null => null,
+          [final num l, final num t, final num r, final num b] =>
+            Rect.fromLTRB(l.toDouble(), t.toDouble(), r.toDouble(), b.toDouble()),
+          _ => throw Exception('A page could not be looked at'),
+        },
+    ];
   }
 
   // ------------------------------------------------------------- pipeline

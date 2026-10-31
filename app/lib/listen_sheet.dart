@@ -362,7 +362,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
           padding: const EdgeInsets.symmetric(horizontal: Gap.l, vertical: 14),
           child: Row(
             children: [
-              Icon(Icons.record_voice_over_rounded, color: Skin.accentOf(context), size: 22),
+              Icon(Icons.record_voice_over_rounded, color: Skin.accentInkOf(context), size: 22),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -375,7 +375,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
                   ],
                 ),
               ),
-              Text('Change', style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentSoftOf(context))),
+              Text('Change', style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentInkOf(context))),
             ],
           ),
         ),
@@ -397,7 +397,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
           padding: const EdgeInsets.symmetric(horizontal: Gap.l, vertical: 12),
           child: Row(
             children: [
-              Icon(Icons.forum_outlined, color: Skin.accentOf(context), size: 22),
+              Icon(Icons.forum_outlined, color: Skin.accentInkOf(context), size: 22),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -411,7 +411,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
                   ],
                 ),
               ),
-              Text('Change', style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentSoftOf(context))),
+              Text('Change', style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentInkOf(context))),
             ],
           ),
         ),
@@ -445,7 +445,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
           padding: const EdgeInsets.symmetric(horizontal: Gap.l, vertical: 12),
           child: Row(
             children: [
-              Icon(Icons.rule_rounded, color: Skin.accentOf(context), size: 22),
+              Icon(Icons.rule_rounded, color: Skin.accentInkOf(context), size: 22),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -1118,6 +1118,22 @@ class ReadingControls extends StatelessWidget {
               padding: EdgeInsets.zero,
               onChanged: (v) => _apply(() => prefs.pdfPages = v),
             ),
+            // Only the real pages have margins to cut: it opens in under them.
+            growIn(
+              context,
+              !prefs.pdfPages
+                  ? null
+                  : Padding(
+                      padding: const EdgeInsets.only(top: Gap.s),
+                      child: SwitchRow(
+                        title: 'Crop margins',
+                        subtitle: 'The white edges cut away, so the print is larger. Pictures stay whole',
+                        value: prefs.pdfCrop,
+                        padding: EdgeInsets.zero,
+                        onChanged: (v) => _apply(() => prefs.pdfCrop = v),
+                      ),
+                    ),
+            ),
           ],
         ],
       );
@@ -1150,7 +1166,7 @@ class _PageTones extends StatelessWidget {
                     decoration: t.paperOf(context).copyWith(
                           borderRadius: BorderRadius.circular(Radii.chip),
                           border: Border.all(
-                            color: t == selected ? Skin.accentOf(context) : Skin.outlineOn(context),
+                            color: t == selected ? Skin.accentMarkOf(context) : Skin.outlineOn(context),
                             width: t == selected ? 2.5 : 1,
                           ),
                         ),
@@ -1215,7 +1231,7 @@ class LabeledSlider extends StatelessWidget {
                       style: Skin.ui(size: 14.5, weight: FontWeight.w500, color: Skin.inkSoftOn(context))),
                 ),
                 Text(display,
-                    style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentSoftOf(context), tabular: true)),
+                    style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentInkOf(context), tabular: true)),
               ],
             ),
             // No side padding on the slider, so the track starts and ends
@@ -1498,7 +1514,7 @@ class _VoicePickerState extends State<_VoicePicker> {
           padding: const EdgeInsets.fromLTRB(Gap.l, Gap.m, Gap.s, Gap.m),
           child: Row(
             children: [
-              Icon(Icons.record_voice_over_rounded, color: Skin.accentOf(context)),
+              Icon(Icons.record_voice_over_rounded, color: Skin.accentInkOf(context)),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -1550,7 +1566,7 @@ class _VoicePickerState extends State<_VoicePicker> {
                 selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
                 key: ValueKey(selected),
                 size: 22,
-                color: selected ? Skin.accentOf(context) : Skin.inkFaintOn(context),
+                color: selected ? Skin.accentInkOf(context) : Skin.inkFaintOn(context),
               ),
             ),
             const SizedBox(width: 14),
@@ -1571,7 +1587,7 @@ class _VoicePickerState extends State<_VoicePicker> {
                 onPressed: busy ? null : () => _preview(v),
                 icon: busy
                     ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                    : Icon(Icons.play_circle_outline_rounded, color: Skin.accentSoftOf(context), size: 28),
+                    : Icon(Icons.play_circle_outline_rounded, color: Skin.accentInkOf(context), size: 28),
               ),
           ],
         ),

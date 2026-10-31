@@ -10,12 +10,14 @@ import 'brand.dart';
 import 'error_log.dart';
 import 'home_shell.dart';
 import 'listening_session.dart';
+import 'own_colours.dart';
 import 'prefs.dart';
 import 'reader_screen.dart';
 import 'secret_shelf.dart';
 import 'sources/bridge.dart';
 import 'speech_service.dart';
 import 'theme.dart';
+import 'wallpaper_colours.dart';
 
 // Both ways in run in a guarded zone, with Flutter's errors and those
 // nothing caught going to the error log on the phone (error_log.dart) as
@@ -85,7 +87,13 @@ void _show() {
   if (_built) return;
   _built = true;
   runApp(const SpikeApp());
+  // The wallpaper's colours, for its theme: read now, and again each time
+  // the app comes back, since a new wallpaper brings new ones.
+  unawaited(WallpaperColours.refresh());
+  _wallpaper ??= AppLifecycleListener(onResume: () => unawaited(WallpaperColours.refresh()));
 }
+
+AppLifecycleListener? _wallpaper;
 
 /// The fonts ship inside the app, so their licences are listed on the About
 /// screen with everything else.
@@ -123,12 +131,12 @@ class SpikeApp extends StatelessWidget {
   const SpikeApp({super.key});
 
   @override
-  Widget build(BuildContext context) => ValueListenableBuilder<int>(
-        valueListenable: ListeningPrefs.revision,
-        builder: (context, _, __) {
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: Listenable.merge([ListeningPrefs.revision, WallpaperColours.current]),
+        builder: (context, _) {
           final prefs = ListeningPrefs.loaded;
           final follow = (prefs?.bookColours ?? true) ? Skin.followTint : null;
-          final base = Palette.byId(prefs?.paletteId);
+          final base = chosenPalette(prefs);
           // With book colours on, the accent is the cover colour of the book
           // being read; the grounds stay the palette's.
           final palette = follow == null ? base : base.withTint(follow);

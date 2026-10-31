@@ -422,7 +422,7 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
                       style: Skin.ui(
                           size: 13,
                           weight: FontWeight.w600,
-                          color: slow ? const Color(0xFFE5674D) : Skin.accentOf(context))),
+                          color: slow ? Skin.dangerOn(context) : Skin.accentInkOf(context))),
                 ],
                 if (progress != null) ...[
                   const SizedBox(height: 6),
@@ -474,7 +474,7 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
       if (v.pack == null) _hearButton(context, v),
       IconButton(
         tooltip: 'Download $name',
-        icon: Icon(Icons.download_rounded, color: Skin.accentOf(context)),
+        icon: Icon(Icons.download_rounded, color: Skin.accentInkOf(context)),
         onPressed: () => _download(v),
       ),
     ];
@@ -559,7 +559,7 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
             const SizedBox(height: 4),
             Text(status,
                 style: Skin.ui(
-                    size: 13, weight: FontWeight.w600, color: slow ? const Color(0xFFE5674D) : Skin.accentOf(context))),
+                    size: 13, weight: FontWeight.w600, color: slow ? Skin.dangerOn(context) : Skin.accentInkOf(context))),
           ],
           if (progress != null) ...[
             const SizedBox(height: 6),
@@ -654,8 +654,8 @@ class _LicenceLine extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = switch (licence.use) {
       LicenceUse.free || LicenceUse.credit => Skin.inkSoftOn(context),
-      LicenceUse.noncommercial => const Color(0xFFC98A2B),
-      LicenceUse.restricted || LicenceUse.unclear => const Color(0xFFE5674D),
+      LicenceUse.noncommercial => Skin.cautionOn(context),
+      LicenceUse.restricted || LicenceUse.unclear => Skin.dangerOn(context),
     };
     return Semantics(
       button: true,
@@ -805,7 +805,7 @@ Future<bool> _costs(BuildContext context, {required String title, int? size, Neu
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('·  ', style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentOf(ctx))),
+                      Text('·  ', style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentInkOf(ctx))),
                       Expanded(
                         child: Text(line,
                             style: Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkSoftOn(ctx))

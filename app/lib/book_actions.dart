@@ -152,7 +152,7 @@ Future<void> changeCover(BuildContext context, LibraryStore store, LibraryEntry 
                       style: Skin.ui(
                           size: 14,
                           weight: FontWeight.w700,
-                          color: selected ? Skin.accentOf(context) : Skin.inkOn(ctx))),
+                          color: selected ? Skin.accentInkOf(context) : Skin.inkOn(ctx))),
                   const SizedBox(height: 2),
                   Text(detail.toUpperCase(), textAlign: TextAlign.center, style: Skin.meta(ctx, size: 9.5)),
                 ],
@@ -182,7 +182,7 @@ Future<void> changeCover(BuildContext context, LibraryStore store, LibraryEntry 
                 const SizedBox(height: Gap.m),
                 OutlinedButton.icon(
                   onPressed: () => Navigator.pop(ctx, (CoverMode.custom, true)),
-                  icon: Icon(Icons.add_photo_alternate_outlined, size: 18, color: Skin.accentOf(context)),
+                  icon: Icon(Icons.add_photo_alternate_outlined, size: 18, color: Skin.accentInkOf(context)),
                   label: const Text('Choose a different picture'),
                 ),
               ],

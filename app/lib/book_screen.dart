@@ -642,7 +642,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
               ),
               const SizedBox(height: Gap.xs),
               Text(_blurbOpen ? 'Less' : 'More',
-                  style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentSoftOf(context))),
+                  style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentInkOf(context))),
             ],
           ),
         ),
@@ -663,7 +663,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
           padding: const EdgeInsets.symmetric(horizontal: Gap.l, vertical: 14),
           child: Row(
             children: [
-              Icon(Icons.record_voice_over_rounded, color: Skin.accentOf(context)),
+              Icon(Icons.record_voice_over_rounded, color: Skin.accentInkOf(context)),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -682,7 +682,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                   ],
                 ),
               ),
-              Text('Change', style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentSoftOf(context))),
+              Text('Change', style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentInkOf(context))),
             ],
           ),
         ),

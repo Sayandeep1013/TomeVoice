@@ -70,7 +70,7 @@ class _StatsScreenState extends State<StatsScreen> {
     final top = [for (final e in totals.books.entries) if (!_hidden.contains(e.key)) e]
       ..sort((a, b) => b.value.compareTo(a.value));
     final ink = Skin.inkOn(context);
-    final accent = Skin.accentOf(context);
+    final accent = Skin.accentMarkOf(context);
     final goal = _stats.goal.inMinutes;
     return Scaffold(
       body: DecoratedBox(
