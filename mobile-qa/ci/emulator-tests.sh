@@ -43,8 +43,22 @@ shot() { adb exec-out screencap -p > "$out/$1.png" 2>/dev/null || true; }
 
 # flow <name>: mobile-qa/flows/<name>.yaml on an app with no data (as if just
 # installed); succeeds if Maestro passed it.
+# Whether the emulator is still there. One that went away mid-run (an
+# emulator crash, or the runner out of memory) fails every later check
+# slowly, so the run ends at once, saying so, with what the runner holds of
+# the emulator's own crash.
+alive() {
+  [ "$(adb get-state 2>/dev/null)" = device ] && return 0
+  echo "::error title=Emulator gone (API ${api:-?})::the emulator stopped answering; the checks after this were not run"
+  ls -la /tmp/android-runner/ 2>/dev/null | tail -20 || true
+  tail -n 120 "$out/logcat-live.txt" 2>/dev/null || true
+  echo "$((failures + 1)) check(s) failed on API ${api:-?} (the emulator went away)"
+  exit 1
+}
+
 flow() {
   local status
+  alive
   adb shell pm clear "$pkg" > /dev/null
   # Whatever system dialog is up goes (an emulator's "isn't responding").
   adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS > /dev/null 2>&1 || true
@@ -140,6 +154,9 @@ adb shell settings put system screen_off_timeout 1800000 || true
 adb shell settings put global hide_error_dialogs 1 || true
 # Room for a whole run's logs.
 adb logcat -G 16M || true
+# The log as it happens, kept on the runner: if the emulator itself goes
+# down mid-run, the lines before it are not lost with it.
+adb logcat -v threadtime > "$out/logcat-live.txt" 2>&1 &
 
 if ! adb install -r "$apk"; then
   echo "::error title=Install (API $api)::adb install failed; nothing was tested"
