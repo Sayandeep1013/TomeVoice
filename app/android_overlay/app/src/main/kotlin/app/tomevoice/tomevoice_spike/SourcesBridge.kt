@@ -33,6 +33,13 @@ object SourcesBridge {
     /** The app's activity while it lives (see [appIsOpen]). */
     private var app: WeakReference<Activity>? = null
 
+    /**
+     * The activity showing the app now, to put a web view on: asked when a
+     * page's turn comes, not when it was asked for, so one closed meanwhile
+     * (and replaced) is never used.
+     */
+    fun currentActivity(): Activity? = app?.get()?.takeIf { !it.isFinishing && !it.isDestroyed }
+
     /** Whether the app's own engine is up: the background check then stays out of its way. */
     fun appIsOpen(): Boolean {
         // Running with no activity too: a book read from outside the app
@@ -123,40 +130,45 @@ object SourcesBridge {
                     }
                 }
                 // A page through the web view, for sites that turn the app's
-                // own requests away (a POST is sent as a form). Only with the
-                // app's activity: the background check has none.
+                // own requests away (a POST is sent as a form), holding the
+                // asking source's cookies alone. Only on the app's engine:
+                // the background check's has no activity.
                 "browserFetch" -> {
-                    val a = activity
                     val url = call.argument<String>("url")
                     val agent = call.argument<String>("userAgent")
-                    if (a == null || url == null || agent == null) {
+                    if (activity == null || url == null || agent == null) {
                         result.success(null)
                     } else {
                         try {
                             BrowserCheck.fetch(
-                                a,
+                                { currentActivity() },
                                 url,
                                 agent,
                                 call.argument<String>("method") ?: "GET",
                                 call.argument<String>("body"),
-                            ) { html -> result.success(html) }
+                                BrowserCheck.Seed.of(call.argument<Any>("cookies"), call.argument<Any>("domain")),
+                            ) { got -> result.success(got) }
                         } catch (e: Exception) {
                             result.success(null)
                         }
                     }
                 }
-                // A source's site in a web view to sign in to (BrowserCheck.login):
-                // its cookies for the site, for that source's own jar. Only
-                // with the app's activity.
+                // A source's site in a web view to sign in to (BrowserCheck.login),
+                // holding that source's cookies alone: what the site keeps,
+                // for that source's own jar. Only on the app's engine.
                 "browserLogin" -> {
-                    val a = activity
                     val url = call.argument<String>("url")
                     val agent = call.argument<String>("userAgent")
-                    if (a == null || url == null || agent == null) {
+                    if (activity == null || url == null || agent == null) {
                         result.success(null)
                     } else {
                         try {
-                            BrowserCheck.login(a, url, agent) { jar -> result.success(jar) }
+                            BrowserCheck.login(
+                                { currentActivity() },
+                                url,
+                                agent,
+                                BrowserCheck.Seed.of(call.argument<Any>("cookies"), call.argument<Any>("domain")),
+                            ) { got -> result.success(got) }
                         } catch (e: Exception) {
                             // No web view on this phone.
                             result.success(null)

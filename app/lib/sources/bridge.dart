@@ -32,14 +32,25 @@ class SourcesBridge {
   static Future<String?> decode(Uint8List bytes, String charset) =>
       _ask<String>('decode', {'bytes': bytes, 'charset': charset});
 
-  /// The site at [url] in a web view, for the reader to sign in to: its
-  /// cookies for [url] once they tap Done ("a=1; b=2"), or null if they
-  /// closed it (or there is no web view). [userAgent] is the app's own.
-  static Future<String?> browserLogin(String url, String userAgent) =>
-      _ask<String>('browserLogin', {'url': url, 'userAgent': userAgent});
+  /// The site at [url] in a web view, for the reader to sign in to, holding
+  /// [seed] (a source's own cookies there, see Net.browserSeed) and nothing
+  /// else: the cookies it has once they tap Done ({cookies, wide}, see
+  /// Net.keepFromBrowser), or null if they closed it (or there is no web
+  /// view). [userAgent] is the app's own.
+  static Future<Map<Object?, Object?>?> browserLogin(String url, String userAgent, Map<String, Object?> seed) =>
+      _ask<Map<Object?, Object?>>('browserLogin', {'url': url, 'userAgent': userAgent, ...seed});
+
+  /// [url] in a web view nobody sees, holding [seed] alone, for a site
+  /// that turns the app's own requests away ([method] POST sends [body] as
+  /// a form): {html, url (where it ended), cookies, wide}, or null.
+  static Future<Map<Object?, Object?>?> browserFetch(String url, String userAgent,
+          {String method = 'GET', String? body, Map<String, Object?> seed = const {}}) =>
+      _ask<Map<Object?, Object?>>(
+          'browserFetch', {'url': url, 'userAgent': userAgent, 'method': method, 'body': body, ...seed});
 
   /// Forget the phone's web view cookies (browser checks, sign-ins): all of
-  /// them, or those of [url]'s site.
+  /// them, or those of [url]'s site. A visit leaves none there now; builds
+  /// before 1.4 kept every source's there.
   static Future<void> clearWebCookies({String? url}) => _ask<void>('clearWebCookies', {'url': url});
 
   // ------------------------------------------------- the background check

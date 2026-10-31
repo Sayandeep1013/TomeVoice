@@ -376,15 +376,7 @@ class _Worker {
     BrowserFetch? viaBrowser;
     if (boot[6] case final RootIsolateToken token) {
       BackgroundIsolateBinaryMessenger.ensureInitialized(token);
-      const channel = MethodChannel('tomevoice/sources');
-      viaBrowser = (url, {method = 'GET', body}) async {
-        try {
-          return await channel.invokeMethod<String>(
-              'browserFetch', {'url': url, 'userAgent': Net.userAgent, 'method': method, 'body': body});
-        } on Object {
-          return null;
-        }
-      };
+      viaBrowser = Net.instance.viaWebView;
     }
     final host = PluginHost(
       createJsRuntime,

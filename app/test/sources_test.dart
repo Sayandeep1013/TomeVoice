@@ -270,8 +270,8 @@ void main() {
     var browserOn = false;
     host = _host(
       dir,
-      viaBrowser: (url, {method = 'GET', body}) async =>
-          browserOn ? '<ul><li class="novel"><a href="novel/7">Seen by the browser</a></li></ul>' : null,
+      viaBrowser: (url, {method = 'GET', body, partition = ''}) async =>
+          browserOn ? (html: '<ul><li class="novel"><a href="novel/7">Seen by the browser</a></li></ul>', url: url) : null,
     );
     host.ensure('fake', '1.0.0', code.path, site: site);
 
@@ -321,9 +321,11 @@ void main() {
     final server = await _site();
     final dir = Directory.systemTemp.createTempSync('tv_isolation');
     var browserAsked = 0;
-    final host = _host(dir, viaBrowser: (url, {method = 'GET', body}) async {
+    final browserFor = <String>[];
+    final host = _host(dir, viaBrowser: (url, {method = 'GET', body, partition = ''}) async {
       browserAsked++;
-      return method == 'POST' ? '<p>posted $body</p>' : '<p>through the browser</p>';
+      browserFor.add(partition);
+      return (html: method == 'POST' ? '<p>posted $body</p>' : '<p>through the browser</p>', url: url);
     });
     addTearDown(() async {
       await server.close(force: true);
@@ -361,6 +363,7 @@ void main() {
     // A form POST goes through it too; a JSON one cannot (it posts forms only).
     expect(await ask('c', 'form:blocked'), '200:<p>posted q=dragons</p>');
     await expectLater(ask('c', 'json:http://localhost:${server.port}/blocked'), throwsA(isA<ChallengeException>()));
+    expect(browserFor, ['a', 'c'], reason: "each with its own cookies in the web view, no other source's");
 
     // Nothing but web pages, and nothing on the phone or its network.
     expect(await ask('c', 'file:///etc/hosts'), startsWith('0:'));
@@ -448,6 +451,44 @@ void main() {
     jar.clear();
     jar.mergeJson(jsonDecode(jsonEncode(copy.toJson())));
     expect(jar.isEmpty, isTrue, reason: 'an older copy does not bring cleared cookies back');
+  });
+
+  test("the web view is handed one source's cookies for the site as kept, and what it gives back is that source's", () {
+    final jar = CookieJar();
+    final page = Uri.parse('https://www.site.com/novel/1');
+    jar.take(page, [
+      Cookie('host', '1')..path = '/',
+      Cookie('shared', '2')
+        ..domain = '.site.com'
+        ..path = '/',
+      Cookie('safe', '3')
+        ..secure = true
+        ..path = '/novel'
+        ..expires = DateTime.utc(2040),
+    ], partition: 'a');
+    jar.take(Uri.parse('https://other.org/'), [Cookie('elsewhere', '4')..path = '/'], partition: 'a');
+    jar.take(page, [Cookie('theirs', '5')..path = '/'], partition: 'b');
+
+    // Before a page of the site loads for source a: its cookies there, with
+    // their domain, path, expiry and Secure flag, and nothing of b's.
+    expect({for (final c in jar.forBrowser('m.site.com', partition: 'a')) c['cookie']: c['url']}, {
+      'host=1; Path=/': 'https://www.site.com/',
+      'shared=2; Domain=site.com; Path=/': 'https://site.com/',
+      'safe=3; Path=/novel; Expires=${HttpDate.format(DateTime.utc(2040))}; Secure': 'https://www.site.com/novel',
+    });
+    expect(jar.forBrowser('www.site.com', partition: 'c'), isEmpty);
+
+    // After it: one with a new value keeps its flags; a new one is the
+    // host's alone unless the web view has it for the whole site, and
+    // from an https page goes over https only.
+    jar.takeFromBrowser(Uri.parse('https://www.site.com/'), {'host': '9', 'shared': '2', 'fresh': 'f', 'clear': 'c'},
+        wide: {'shared', 'clear'}, partition: 'a');
+    Set<String>? header(String url, [String part = 'a']) =>
+        jar.headerFor(Uri.parse(url), partition: part)?.split('; ').toSet();
+    expect(header('https://www.site.com/'), {'host=9', 'shared=2', 'fresh=f', 'clear=c'});
+    expect(header('https://m.site.com/'), {'shared=2', 'clear=c'});
+    expect(header('http://www.site.com/'), {'host=9', 'shared=2'});
+    expect(header('https://www.site.com/', 'b'), {'theirs=5'}, reason: "b's are b's alone");
   });
 
   test("a shared host is many sites: one blog's cookies and checks are not another's", () {

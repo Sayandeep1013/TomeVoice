@@ -30,6 +30,10 @@ class BlockedAddressException implements Exception {
   String toString() => message;
 }
 
+/// A page as the phone's web view got it: its HTML, and the address it
+/// ended at (the web view follows redirects and scripts).
+typedef BrowserPage = ({String html, String url});
+
 /// What a source plugin gets back from a request.
 class NetResponse {
   const NetResponse({
@@ -367,10 +371,56 @@ class Net {
     return u == null ? null : jar.headerFor(u, partition: partition);
   }
 
-  /// Remember cookies a browser view collected for [host], for [partition].
-  Future<void> setCookies(String host, Map<String, String> cookies, {String partition = ''}) async {
-    jar.takeFromBrowser(host, cookies, partition: partition);
-    await _saveCookies();
+  /// What the phone's web view is to hold for a visit to [page] made for
+  /// source [partition]: that source's own cookies for the site, none of
+  /// another's (the web view keeps one store for the whole app; it is
+  /// cleared before and after each visit), and the site's domain, under
+  /// which it tells a cookie set for the whole site (see [keepFromBrowser]).
+  Map<String, Object?> browserSeed(Uri page, {String partition = ''}) {
+    final host = page.host.toLowerCase();
+    return {
+      'cookies': jar.forBrowser(host, partition: partition),
+      'domain': InternetAddressCheck.notIp(host) ? siteDomain(host) : null,
+    };
+  }
+
+  /// Keep, for source [partition] alone, what the phone's web view had for
+  /// [page] at the end of a visit made for it ([got]: "cookies", those it
+  /// sends [page], "a=1; b=2"; "wide", those it sends anywhere on the site).
+  /// Saved, or handed to the isolate that saves them. How many it had.
+  Future<int> keepFromBrowser(Uri page, Map<Object?, Object?> got, {String partition = ''}) async {
+    final cookies = cookiesOf('${got['cookies'] ?? ''}');
+    final wide = cookiesOf('${got['wide'] ?? ''}').keys.toSet();
+    final changed = jar.takeFromBrowser(page, cookies, wide: wide, partition: partition);
+    if (changed.isNotEmpty) {
+      final owner = _owner;
+      if (owner != null) {
+        owner.send({
+          'part': partition,
+          'cookies': [for (final c in changed) c.toJson()],
+        });
+      } else {
+        await _saveCookies();
+      }
+    }
+    return cookies.length;
+  }
+
+  /// [url] as the phone's web view gets it (see BrowserFetch), for source
+  /// [partition], whose own cookies for the site are the only ones it holds
+  /// meanwhile; what the site sets there is kept for that source alone.
+  /// Null when the web view could not get it (none here: tests, or the
+  /// check made with the app closed).
+  Future<BrowserPage?> viaWebView(String url, {String method = 'GET', String? body, String partition = ''}) async {
+    final page = Uri.tryParse(url);
+    if (page == null || !isWebAddress(url)) return null;
+    final got = await SourcesBridge.browserFetch(url, userAgent,
+        method: method, body: body, seed: browserSeed(page, partition: partition));
+    if (got == null) return null;
+    await keepFromBrowser(page, got, partition: partition);
+    final html = got['html'], at = got['url'];
+    if (html is! String) return null;
+    return (html: html, url: at is String && at.isNotEmpty ? at : url);
   }
 
   /// Forget the cookies of [partition], or every one.

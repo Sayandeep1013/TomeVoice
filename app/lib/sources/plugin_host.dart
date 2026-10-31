@@ -52,7 +52,9 @@ class SourceException implements Exception {
 /// A page as the phone's web view gets it, or null: for sites whose
 /// Cloudflare turns away the app's own requests but lets a browser in. A
 /// POST ([method]) sends [body] as a form, the one kind the web view posts.
-typedef BrowserFetch = Future<String?> Function(String url, {String method, String? body});
+/// [partition]: the source asking, whose cookies alone the web view holds
+/// meanwhile (see Net.viaWebView).
+typedef BrowserFetch = Future<BrowserPage?> Function(String url, {String method, String? body, String partition});
 
 /// The site answered with a browser check (Cloudflare) instead of itself.
 /// Passing it once in a web view ([url]) lets the requests through.
@@ -353,12 +355,12 @@ class PluginHost {
     // Bytes (a protobuf message) come as base64.
     final bytes = req['bodyBase64'] is String ? base64Decode(req['bodyBase64'] as String) : null;
     // A POST goes through the web view only as a form, the one kind it can
-    // send. Only the plugin's own site may be fetched there, which keeps
-    // every site's cookies (logins too) in one place.
+    // send. Only the plugin's own site may be fetched there, with the
+    // plugin's own cookies (logins too) and no other's.
     final contentType = headers.entries.where((e) => e.key.toLowerCase() == 'content-type').firstOrNull?.value;
     final form = method == 'POST' && bytes == null && (contentType == null || contentType.contains('x-www-form-urlencoded'));
     final browser = (method == 'GET' || form) && sameSite(host, p.site) ? viaBrowser : null;
-    Future<String?> viaWebView() => browser!(url, method: method, body: body);
+    Future<String?> viaWebView() async => (await browser!(url, method: method, body: body, partition: p.id))?.html;
     try {
       if (browser != null && _browserHosts.contains(host)) {
         // The web view is held to the open internet as the app's own
