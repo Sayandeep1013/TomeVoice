@@ -58,6 +58,9 @@ class Mark {
   final String text;
   final String? chapter;
   final String? note;
+
+  /// When it was saved, in UTC (as [edited] and [left] are): another phone,
+  /// in another time zone, reads the same moment (sync compares them).
   final DateTime created;
 
   /// A quote's wash on the page.
@@ -102,11 +105,11 @@ class Mark {
 
   /// The same mark with [note] (null or empty: none).
   Mark withNote(String? note) => note == null || note.trim().isEmpty
-      ? _with(clearNote: true, edited: DateTime.now())
-      : _with(note: note.trim(), edited: DateTime.now());
+      ? _with(clearNote: true, edited: DateTime.now().toUtc())
+      : _with(note: note.trim(), edited: DateTime.now().toUtc());
 
   /// The same quote washed in [colour].
-  Mark withColour(MarkColour colour) => _with(colour: colour, edited: DateTime.now());
+  Mark withColour(MarkColour colour) => _with(colour: colour, edited: DateTime.now().toUtc());
 
   /// The same mark at [place].
   Mark movedTo(ReadingCursor place) => _with(at: place);
@@ -126,15 +129,18 @@ class Mark {
         if (note != null) 'note': note,
         // Left out for the accent, as every mark before colours was.
         if (colour != MarkColour.accent) 'colour': colour.name,
-        'created': created.toIso8601String(),
-        if (edited != null) 'edited': edited!.toIso8601String(),
-        if (left != null) 'left': left!.toIso8601String(),
+        // With a Z: written without one, another phone read the time as
+        // its own clock's.
+        'created': created.toUtc().toIso8601String(),
+        if (edited != null) 'edited': edited!.toUtc().toIso8601String(),
+        if (left != null) 'left': left!.toUtc().toIso8601String(),
       };
 
   static Mark? fromJson(Object? json) {
     if (json is! Map) return null;
     final at = json['at'];
     if (json['id'] is! String || json['book'] is! String || at is! Map) return null;
+    DateTime? time(Object? v) => v is String ? DateTime.tryParse(v)?.toUtc() : null;
     return Mark(
       id: json['id'] as String,
       bookId: json['book'] as String,
@@ -146,9 +152,10 @@ class Mark {
       chapter: json['chapter'] as String?,
       note: json['note'] as String?,
       colour: MarkColour.byName(json['colour']),
-      created: DateTime.tryParse(json['created'] as String? ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
-      edited: DateTime.tryParse(json['edited'] as String? ?? ''),
-      left: DateTime.tryParse(json['left'] as String? ?? ''),
+      // A time from before they carried a Z is this phone's own clock's.
+      created: time(json['created']) ?? DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+      edited: time(json['edited']),
+      left: time(json['left']),
     );
   }
 }
@@ -218,7 +225,7 @@ class MarkStore {
       chapter: chapter,
       note: note == null || note.trim().isEmpty ? null : note.trim(),
       colour: colour,
-      created: now,
+      created: now.toUtc(),
     );
     _all = [mark, ..._all];
     await _save();
@@ -254,7 +261,7 @@ class MarkStore {
   /// marks stay, and say so (see [Mark.left]).
   Future<void> leaveBook(String bookId) async {
     if (!_all.any((m) => m.bookId == bookId && m.left == null)) return;
-    final now = DateTime.now();
+    final now = DateTime.now().toUtc();
     _all = [for (final m in _all) m.bookId == bookId && m.left == null ? m.leftAt(now) : m];
     await _save();
   }

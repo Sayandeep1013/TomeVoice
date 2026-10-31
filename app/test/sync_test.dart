@@ -82,6 +82,24 @@ void main() {
       });
     });
 
+    test("a quote's times go in UTC; one written without a zone is this phone's clock's", () {
+      final m = _mark('x', created: DateTime(2026, 10, 1, 9), edited: DateTime(2026, 10, 2, 9));
+      final json = m.toJson();
+      // Without a zone, a phone in another one read another moment, and a
+      // removal there could come before the quote it removed.
+      expect(json['created'], endsWith('Z'));
+      expect(json['edited'], endsWith('Z'));
+      final back = Mark.fromJson(json)!;
+      expect(back.created.isUtc, isTrue);
+      expect(back.created.isAtSameMomentAs(DateTime(2026, 10, 1, 9)), isTrue);
+      final old = Mark.fromJson({...json, 'created': '2026-10-01T09:00:00.000', 'edited': null})!;
+      expect(old.created.isUtc, isTrue);
+      expect(old.created.isAtSameMomentAs(DateTime(2026, 10, 1, 9)), isTrue, reason: 'read as local, then made UTC');
+      // Compared as moments: removed an hour after it was saved, it goes.
+      final removed = BookRecord(id: 'b', removed: {'x': DateTime(2026, 10, 1, 10).toUtc()});
+      expect(mergeBooks(BookRecord(id: 'b', marks: [old]), removed).marks, isEmpty);
+    });
+
     test('a record is written the same whatever order it was built in', () {
       final one = BookRecord(id: 'b', marks: [_mark('a'), _mark('b')], days: {'2': 2, '1': 1});
       final two = BookRecord(id: 'b', marks: [_mark('b'), _mark('a')], days: {'1': 1, '2': 2});

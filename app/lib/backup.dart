@@ -424,7 +424,10 @@ Future<int> _addMarks(Directory root, String from) async {
   final ids = {for (final m in mine) if (m is Map) m['id']};
   final added = [for (final m in theirs) if (m is Map && m['id'] is String && !ids.contains(m['id'])) m];
   if (added.isEmpty) return 0;
-  String created(Object? m) => m is Map ? '${m['created'] ?? ''}' : '';
+  // By the moment each was saved: a time from before they carried a Z
+  // (this phone's own clock's) does not sort as text with one that does.
+  DateTime created(Object? m) =>
+      (m is Map ? DateTime.tryParse('${m['created']}') : null) ?? DateTime.fromMillisecondsSinceEpoch(0);
   final all = [...mine, ...added]..sort((a, b) => created(b).compareTo(created(a)));
   await writeSafely(file, jsonEncode(all));
   return added.length;
