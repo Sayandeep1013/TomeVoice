@@ -921,7 +921,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (mounted) setState(() {});
   }
 
-  ListenController get _listen => ListenController(
+  ListenController get _listen => _listenFor();
+
+  /// The sheet's controller. Over Now Playing [autoScroll] is not offered:
+  /// the page it moves is behind it, so Start stopped the voice and moved
+  /// nothing.
+  ListenController _listenFor({bool autoScroll = true}) => ListenController(
         prefs: _prefs,
         language: _reader.language,
         bookId: _book.id,
@@ -936,7 +941,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         isPdf: _isPdf,
         narration: _l.book.narration != null,
         light: _light,
-        autoScroll: _l.isEmpty ? null : _auto,
+        autoScroll: _l.isEmpty || !autoScroll ? null : _auto,
         characters: _people.isEmpty ? null : _peopleNote,
         onCharacters: _people.isEmpty ? null : _openPeople,
       );
@@ -2331,9 +2336,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             onPrevChapter: () => _reader.goChapter(-1),
             onNextChapter: () => _reader.goChapter(1),
             moreAfter: widget.onReachedEnd != null,
-            onSpeed: () => showListenSheet(ctx, _listen, focus: ListenFocus.speed),
-            onVoice: () => showListenSheet(ctx, _listen),
-            onSleep: () => showListenSheet(ctx, _listen),
+            onSpeed: () => showListenSheet(ctx, _listenFor(autoScroll: false), focus: ListenFocus.speed),
+            onVoice: () => showListenSheet(ctx, _listenFor(autoScroll: false)),
+            onSleep: () => showListenSheet(ctx, _listenFor(autoScroll: false)),
             onSave: () => _save(MarkKind.quote),
             onHold: (unit, word) => unawaited(_onLongPress(unit, word)),
           ),
