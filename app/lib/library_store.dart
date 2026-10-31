@@ -53,7 +53,7 @@ const _narrationVersion = 1;
 /// the reading layout) runs on a background isolate: on the UI isolate it was
 /// a 2.5 second freeze when opening a long EPUB.
 class LibraryStore {
-  LibraryStore(this.root) {
+  LibraryStore(this.root, {this.readOnly = false}) {
     // Opening or locking the secret shelves changes what every page shows,
     // and the titles a series is found among.
     secretOpen.addListener(() {
@@ -63,6 +63,14 @@ class LibraryStore {
   }
 
   final Directory root;
+
+  /// Never writes the library's index (library.json): the check made with
+  /// the app closed (background_check.dart), whose engine must leave it to
+  /// the app's, which may hold it. Reading it looks for no places to take
+  /// in nor series to find (each written as found), and any change stays in
+  /// this copy. The novels' own files (their lists, their chapters) it
+  /// writes as ever.
+  final bool readOnly;
 
   /// Whether the secret shelves are open (unlocked with the phone's own
   /// lock; see secret_shelf.dart). While they are shut, [index] and [list]
@@ -151,7 +159,7 @@ class LibraryStore {
         _known = read;
         _seriesSought = false;
         // Places a run stopped before writing them here (see saveCursor).
-        _recoverPlaces();
+        if (!readOnly) _recoverPlaces();
         _warmParts(read.entries);
       }
       full = _known!;
@@ -175,7 +183,7 @@ class LibraryStore {
   Future<void> _seekSeries() async {
     _seriesSought = true;
     final known = _known;
-    if (known == null || _held) return;
+    if (known == null || _held || readOnly) return;
     final found = _withSeries(known.entries);
     if (found == null) return;
     _known = LibraryIndex(entries: found, categories: _categories, defaultCategory: _defaultCategory);
@@ -360,6 +368,7 @@ class LibraryStore {
   }
 
   Future<void> _write(List<LibraryEntry> entries, {bool place = false}) async {
+    if (readOnly) return;
     // What is written now holds every place kept here so far.
     final written = Map.of(_unwritten);
     _unwritten.clear();
