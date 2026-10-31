@@ -942,7 +942,10 @@ class MainActivity : FlutterActivity() {
                                     it,
                                     call.argument<String>("manifest").orEmpty(),
                                     call.argument<Boolean>("includeChapters") == true,
-                                    File(filesDir, "sources")
+                                    File(filesDir, "sources"),
+                                    // A secret shelf left out (AutoBackup).
+                                    call.argument<List<String>>("leaveOut") ?: emptyList(),
+                                    call.argument<Map<String, String>>("swapped") ?: emptyMap()
                                 ) { _, all -> total = all }
                             }
                             mapOf("files" to files, "bytes" to total, "name" to queryDisplayName(doc))

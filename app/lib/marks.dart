@@ -58,6 +58,9 @@ class Mark {
   final String text;
   final String? chapter;
   final String? note;
+
+  /// When it was saved, in UTC (as [edited] and [left] are): another phone,
+  /// in another time zone, reads the same moment (sync compares them).
   final DateTime created;
 
   /// A quote's wash on the page.
@@ -102,11 +105,11 @@ class Mark {
 
   /// The same mark with [note] (null or empty: none).
   Mark withNote(String? note) => note == null || note.trim().isEmpty
-      ? _with(clearNote: true, edited: DateTime.now())
-      : _with(note: note.trim(), edited: DateTime.now());
+      ? _with(clearNote: true, edited: DateTime.now().toUtc())
+      : _with(note: note.trim(), edited: DateTime.now().toUtc());
 
   /// The same quote washed in [colour].
-  Mark withColour(MarkColour colour) => _with(colour: colour, edited: DateTime.now());
+  Mark withColour(MarkColour colour) => _with(colour: colour, edited: DateTime.now().toUtc());
 
   /// The same mark at [place].
   Mark movedTo(ReadingCursor place) => _with(at: place);
@@ -126,30 +129,41 @@ class Mark {
         if (note != null) 'note': note,
         // Left out for the accent, as every mark before colours was.
         if (colour != MarkColour.accent) 'colour': colour.name,
-        'created': created.toIso8601String(),
-        if (edited != null) 'edited': edited!.toIso8601String(),
-        if (left != null) 'left': left!.toIso8601String(),
+        // With a Z: written without one, another phone read the time as
+        // its own clock's.
+        'created': created.toUtc().toIso8601String(),
+        if (edited != null) 'edited': edited!.toUtc().toIso8601String(),
+        if (left != null) 'left': left!.toUtc().toIso8601String(),
       };
 
+  /// The mark [json] holds, or null when it cannot be read: one with a
+  /// field of the wrong kind (a damaged file, another app's) is passed over
+  /// alone. It threw before, and the whole list was set aside with it.
   static Mark? fromJson(Object? json) {
     if (json is! Map) return null;
     final at = json['at'];
     if (json['id'] is! String || json['book'] is! String || at is! Map) return null;
-    return Mark(
-      id: json['id'] as String,
-      bookId: json['book'] as String,
-      bookTitle: json['bookTitle'] as String? ?? '',
-      kind: MarkKind.values.where((k) => k.name == json['kind']).firstOrNull ?? MarkKind.quote,
-      at: ReadingCursor.fromJson(Map<String, Object?>.from(at)),
-      span: json['span'] as int? ?? 1,
-      text: json['text'] as String? ?? '',
-      chapter: json['chapter'] as String?,
-      note: json['note'] as String?,
-      colour: MarkColour.byName(json['colour']),
-      created: DateTime.tryParse(json['created'] as String? ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
-      edited: DateTime.tryParse(json['edited'] as String? ?? ''),
-      left: DateTime.tryParse(json['left'] as String? ?? ''),
-    );
+    DateTime? time(String? v) => v == null ? null : DateTime.tryParse(v)?.toUtc();
+    try {
+      return Mark(
+        id: json['id'] as String,
+        bookId: json['book'] as String,
+        bookTitle: json['bookTitle'] as String? ?? '',
+        kind: MarkKind.values.where((k) => k.name == json['kind']).firstOrNull ?? MarkKind.quote,
+        at: ReadingCursor.fromJson(Map<String, Object?>.from(at)),
+        span: json['span'] as int? ?? 1,
+        text: json['text'] as String? ?? '',
+        chapter: json['chapter'] as String?,
+        note: json['note'] as String?,
+        colour: MarkColour.byName(json['colour']),
+        // A time from before they carried a Z is this phone's own clock's.
+        created: time(json['created'] as String?) ?? DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+        edited: time(json['edited'] as String?),
+        left: time(json['left'] as String?),
+      );
+    } on Object {
+      return null;
+    }
   }
 }
 
@@ -166,9 +180,22 @@ class MarkStore {
   File? _file;
   List<Mark> _all = const [];
 
+  /// The marks removed here, by id: their book, and when. Sync tells the
+  /// other phones of these, and of no others: a mark only missing here (an
+  /// unreadable marks.json, one lost) is not taken for removed, which took
+  /// every quote off every phone. Kept half a year, in marks_removed.json.
+  Map<String, ({String book, DateTime at})> _removed = {};
+  File? _removedFile;
+
   List<Mark> get all => _all;
 
   List<Mark> forBook(String bookId) => [for (final m in _all) if (m.bookId == bookId) m];
+
+  /// Book [bookId]'s marks removed here, and when (UTC).
+  Map<String, DateTime> removedOf(String bookId) => {
+        for (final e in _removed.entries)
+          if (e.value.book == bookId) e.key: e.value.at,
+      };
 
   /// Forget everything without writing (between widget tests: a write left
   /// waiting inside one test's fake clock held up every save after it).
@@ -176,6 +203,8 @@ class MarkStore {
   void reset() {
     _file = null;
     _all = const [];
+    _removedFile = null;
+    _removed = {};
     changes.value++;
   }
 
@@ -185,13 +214,42 @@ class MarkStore {
     try {
       if (await _file!.exists()) {
         final raw = jsonDecode(await _file!.readAsString()) as List;
-        _all = raw.map(Mark.fromJson).whereType<Mark>().toList();
+        // One by one: a mark that cannot be read is passed over, not the
+        // rest with it, and a copy of the file is kept beside.
+        final read = [for (final m in raw) Mark.fromJson(m)];
+        _all = read.whereType<Mark>().toList();
+        if (_all.length < read.length) await _keepCopy();
         changes.value++;
       }
     } on Object {
       // A broken file: start empty, but keep it beside as marks.json.broken
       // so the next save does not destroy what may be recovered from it.
       await setAside(_file);
+    }
+    _removedFile = File('${root.path}/marks_removed.json');
+    _removed = {};
+    try {
+      if (await _removedFile!.exists()) {
+        final raw = jsonDecode(await _removedFile!.readAsString());
+        for (final e in raw is Map ? raw.entries : const <MapEntry<Object?, Object?>>[]) {
+          final r = e.value;
+          if (e.key is! String || r is! Map || r['book'] is! String) continue;
+          final at = DateTime.tryParse('${r['at']}')?.toUtc();
+          if (at != null) _removed[e.key as String] = (book: r['book'] as String, at: at);
+        }
+      }
+    } on Object {
+      // Unreadable: no removal is told, and none is taken for one.
+    }
+  }
+
+  /// marks.json as it was read, beside it as marks.json.broken: what could
+  /// not be read may still be recovered from it.
+  Future<void> _keepCopy() async {
+    try {
+      await _file!.copy('${_file!.path}.broken');
+    } on Object {
+      // Nothing more to keep.
     }
   }
 
@@ -218,7 +276,7 @@ class MarkStore {
       chapter: chapter,
       note: note == null || note.trim().isEmpty ? null : note.trim(),
       colour: colour,
-      created: now,
+      created: now.toUtc(),
     );
     _all = [mark, ..._all];
     await _save();
@@ -232,18 +290,22 @@ class MarkStore {
   }
 
   Future<void> remove(String id) async {
+    final gone = [for (final m in _all) if (m.id == id) m];
     _all = [for (final m in _all) if (m.id != id) m];
+    _noteRemoved(gone);
     await _save();
   }
 
   /// Put back a mark just removed (Undo).
   Future<void> restore(Mark mark) async {
     _all = [mark, ..._all]..sort((a, b) => b.created.compareTo(a.created));
+    _notRemoved([mark.id]);
     await _save();
   }
 
   /// Every mark of book [bookId] gone, in one write: a book on a secret
   /// shelf leaves none behind it when it is removed (LibraryStore.remove).
+  /// Not noted as removed: the book is gone, and so not synced.
   Future<void> removeBook(String bookId) async {
     if (!_all.any((m) => m.bookId == bookId)) return;
     _all = [for (final m in _all) if (m.bookId != bookId) m];
@@ -254,7 +316,7 @@ class MarkStore {
   /// marks stay, and say so (see [Mark.left]).
   Future<void> leaveBook(String bookId) async {
     if (!_all.any((m) => m.bookId == bookId && m.left == null)) return;
-    final now = DateTime.now();
+    final now = DateTime.now().toUtc();
     _all = [for (final m in _all) m.bookId == bookId && m.left == null ? m.leftAt(now) : m];
     await _save();
   }
@@ -263,7 +325,9 @@ class MarkStore {
   /// whose books are gone).
   Future<void> removeAll(Set<String> ids) async {
     if (ids.isEmpty) return;
+    final gone = [for (final m in _all) if (ids.contains(m.id)) m];
     _all = [for (final m in _all) if (!ids.contains(m.id)) m];
+    _noteRemoved(gone);
     await _save();
   }
 
@@ -271,14 +335,18 @@ class MarkStore {
   Future<void> restoreAll(List<Mark> marks) async {
     final have = {for (final m in _all) m.id};
     _all = [..._all, for (final m in marks) if (!have.contains(m.id)) m]..sort((a, b) => b.created.compareTo(a.created));
+    _notRemoved([for (final m in marks) m.id]);
     await _save();
   }
 
   /// Book [bookId]'s marks are [marks] now (synced from another phone):
   /// those not among them go, the rest are added or replaced. One write.
+  /// The removals came from elsewhere, and are not noted as made here.
   Future<void> replaceBook(String bookId, List<Mark> marks) async {
     final keep = [for (final m in _all) if (m.bookId != bookId) m];
-    _all = [...keep, ...marks.where((m) => m.bookId == bookId)]..sort((a, b) => b.created.compareTo(a.created));
+    final theirs = [...marks.where((m) => m.bookId == bookId)];
+    _all = [...keep, ...theirs]..sort((a, b) => b.created.compareTo(a.created));
+    _notRemoved([for (final m in theirs) m.id]);
     await _save();
   }
 
@@ -324,8 +392,41 @@ class MarkStore {
     await _save();
   }
 
+  /// [gone], removed here now (see [_removed]).
+  void _noteRemoved(List<Mark> gone) {
+    if (gone.isEmpty) return;
+    final now = DateTime.now().toUtc();
+    _removed = {
+      // Half a year on, a removal is let go, as sync lets go of its own.
+      for (final e in _removed.entries)
+        if (now.difference(e.value.at).inDays < 183) e.key: e.value,
+      for (final m in gone) m.id: (book: m.bookId, at: now),
+    };
+    unawaited(_saveRemoved());
+  }
+
+  /// [ids] here again (Undo, or back from another phone): not removed.
+  void _notRemoved(List<String> ids) {
+    if (!ids.any(_removed.containsKey)) return;
+    _removed = {..._removed}..removeWhere((id, _) => ids.contains(id));
+    unawaited(_saveRemoved());
+  }
+
+  Future<void> _saveRemoved() async {
+    if (RestoreGate.shut) return;
+    try {
+      await writeSafely(_removedFile, jsonEncode({
+        for (final e in _removed.entries) e.key: {'book': e.value.book, 'at': e.value.at.toIso8601String()},
+      }));
+    } on Object {
+      // Kept in memory until the next removal.
+    }
+  }
+
   Future<void> _save() async {
     changes.value++;
+    // Kept in memory while a restore is under way (see RestoreGate).
+    if (RestoreGate.shut) return;
     try {
       await writeSafely(_file, jsonEncode([for (final m in _all) m.toJson()]));
     } on Object {

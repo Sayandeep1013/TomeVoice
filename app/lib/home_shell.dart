@@ -28,6 +28,7 @@ import 'reader_screen.dart';
 import 'reading_rules.dart';
 import 'saved_screen.dart';
 import 'scheduler.dart' show PlaybackScheduler;
+import 'secrets.dart';
 import 'stats.dart';
 import 'stats_screen.dart';
 import 'settings_screen.dart';
@@ -73,6 +74,9 @@ Future<OpenLibrary> openLibrary() async {
 }
 
 Future<OpenLibrary> _open(String dir) async {
+  // A restore the app stopped in the middle of is finished or undone first,
+  // before any store reads the library half swapped.
+  await clearStaleRestore(Directory(dir));
   await ListeningPrefs.load(dir);
   // Sources ask as the phone's own browser does (see Net.userAgent).
   final agent = await const SpeechService().webUserAgent();
@@ -80,6 +84,8 @@ Future<OpenLibrary> _open(String dir) async {
   // Sources live in internal storage, moved there once from the library's
   // folder (which other apps can read on Android 8 to 10).
   final internal = await SourcesBridge.sourcesRoot();
+  // So do the passwords (Secrets), moved the first time they are read.
+  if (internal != null) Secrets.home = Directory(internal);
   final sources = await SourceStore.open(Directory(internal ?? dir), legacyRoot: Directory(dir));
   await Net.instance.attach(sources.dir);
   SourceEngine.instance.attach(sources);
@@ -301,9 +307,8 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
           _updates = updates;
         });
       }
-      // A restore that was interrupted leaves its unpacked copy behind, and
-      // an import a crash stopped leaves the picker's copy.
-      unawaited(clearStaleRestore(Directory(dir)));
+      // An import a crash stopped leaves the picker's copy (and a restore
+      // that was, its unpacked one: cleared as the library opened).
       unawaited(store.sweepIncoming());
       unawaited(sweepUpdateDownloads());
       // A restore just made starts the app again: say what it did.

@@ -106,19 +106,23 @@ class LibraryStore {
 
   /// Set while a backup is being restored: library.json is being replaced
   /// on disk, and this copy must not be written back over it.
-  bool _held = false;
+  bool _holding = false;
+
+  /// Whether nothing is to be written: held here, or a restore under way
+  /// (RestoreGate).
+  bool get _held => _holding || RestoreGate.shut;
 
   /// Stop writing the index (a restore is replacing it). Places not yet
   /// written into it are in their books' cursor.json (see [saveCursor]).
   void hold() {
-    _held = true;
+    _holding = true;
     _downloads.clear();
     _dropUnwritten();
   }
 
   /// Write again, reading the index afresh (the restore did not happen).
   void release() {
-    _held = false;
+    _holding = false;
     _known = null;
     _downloads.clear();
     _dropUnwritten();
@@ -197,24 +201,35 @@ class LibraryStore {
   /// [entries] with the series their titles share found again, or null when
   /// none changes (see seriesAcross). Asked for each book whose series comes
   /// from its title ([_fromTitle]), among the books shown; the rest lend the
-  /// series they are in. While a secret shelf is shut its books are left
-  /// out altogether, theirs kept as they are, so no series shown can tell
-  /// of them.
+  /// series they are in. An ordinary book's is found among the ordinary
+  /// books alone, a secret book's (its shelf open) among them all: found
+  /// with a secret title, an ordinary book kept that series, on show, once
+  /// the shelf shut. While a secret shelf is shut its books are left out
+  /// altogether, theirs kept as they are, so no series shown can tell of
+  /// them.
   List<LibraryEntry>? _withSeries(List<LibraryEntry> entries) {
-    final shut = secretOpen.value ? const <String>{} : {for (final c in _categories) if (c.secret) c.id};
-    final asked = <int>[];
-    final named = <String>[];
+    final secret = {for (final c in _categories) if (c.secret) c.id};
+    final ordinary = <int>[], hidden = <int>[];
+    final named = <String>[], namedHidden = <String>[];
     for (var i = 0; i < entries.length; i++) {
       final e = entries[i];
-      if (shut.isNotEmpty && shut.contains(e.categoryIn(_categories, _defaultCategory))) continue;
+      final isSecret = secret.isNotEmpty && secret.contains(e.categoryIn(_categories, _defaultCategory));
+      if (isSecret && !secretOpen.value) continue;
       if (_fromTitle(e)) {
-        asked.add(i);
+        (isSecret ? hidden : ordinary).add(i);
       } else if (e.seriesName case final name?) {
-        named.add(name);
+        (isSecret ? namedHidden : named).add(name);
       }
     }
+    final asked = [...ordinary, ...hidden];
     if (asked.isEmpty) return null;
-    final found = seriesAcross([for (final i in asked) entries[i].title], named: named);
+    final found = [
+      ...seriesAcross([for (final i in ordinary) entries[i].title], named: named),
+      // Of every title asked together, only the secret books' answers.
+      if (hidden.isNotEmpty)
+        ...seriesAcross([for (final i in asked) entries[i].title], named: [...named, ...namedHidden])
+            .skip(ordinary.length),
+    ];
     List<LibraryEntry>? out;
     for (var j = 0; j < asked.length; j++) {
       final e = entries[asked[j]];
@@ -433,14 +448,25 @@ class LibraryStore {
     categories = [...categories, for (final c in _categories) if (c.secret && !given.contains(c.id)) c];
     if (categories.every((c) => c.secret)) categories = [categories.first.withSecret(false), ...categories.skip(1)];
     await _change((entries) {
+      final was = _defaultCategory;
       _categories = List.unmodifiable(categories);
       final d = defaultCategory ?? _defaultCategory;
       final open = [for (final c in categories) if (!c.secret) c.id];
       _defaultCategory = open.contains(d) ? d : open.first;
       final ids = {for (final c in categories) c.id};
+      // A book on no shelf of its own is on the default one. Another shelf
+      // the default now (the old one made secret, or new books sent
+      // elsewhere), it stays on the shelf it was on, named: following the
+      // default out of a shelf made secret left it on show.
+      final stay = _defaultCategory != was && ids.contains(was) ? was : null;
       return [
         for (final e in entries)
-          e.category == null || ids.contains(e.category) ? e : e.copyWith(category: categories.first.id),
+          if (e.category == null)
+            stay == null ? e : e.copyWith(category: stay)
+          else if (ids.contains(e.category))
+            e
+          else
+            e.copyWith(category: categories.first.id),
       ];
     });
   }
@@ -827,6 +853,8 @@ class LibraryStore {
   Future<bool> putBackMove(String id) async {
     final note = _moveNote(id);
     if (!await note.exists()) return true;
+    // Not while a restore swaps the books beneath: put back the next time.
+    if (_held) return false;
     final String to;
     final bool made;
     final List<(String, String)> moves;
@@ -1372,16 +1400,27 @@ class LibraryStore {
   /// each save wrote the whole index again on the UI thread. A run stopped
   /// before the index took a place loses nothing: the next one finds it in
   /// cursor.json (see [_recoverPlaces]).
+  ///
+  /// A place taken in from another phone (sync) comes with the time it was
+  /// saved there, [at], and keeps it: stamped with the time it came, it beat
+  /// a later place on that phone, which then went back to it. It moves the
+  /// book up History only as far as that time, and only if it is later than
+  /// the book was last opened here.
   Future<void> saveCursor(
     String id,
     ReadingCursor cursor,
     double progress, {
     String? where,
+    DateTime? at,
   }) async {
+    // Not even its cursor.json, nor its folder, while a restore is under way:
+    // the books are being swapped beneath.
+    if (_held) return;
     final dir = Directory(bookDir(id));
     // Made once a run, not once a sentence.
     if (_madeDirs.add(id)) await dir.create(recursive: true);
-    final place = _Place(cursor, progress, where, DateTime.now());
+    if (_held) return;
+    final place = _Place(cursor, progress, where, at ?? DateTime.now(), taken: at != null);
     await writeSafely(File('${dir.path}/cursor.json'), jsonEncode(place.toJson()));
     await index();
     if (_held || !_keepPlace(id, place)) return;
@@ -2455,7 +2494,7 @@ bool _samePlace(ReadingCursor a, ReadingCursor b) =>
 /// A reading place as it is saved: where, how far, the chapter it is in,
 /// and when (cursor.json holds all four).
 class _Place {
-  const _Place(this.cursor, this.progress, this.where, this.at, {this.opened = true});
+  const _Place(this.cursor, this.progress, this.where, this.at, {this.opened = true, this.taken = false});
 
   final ReadingCursor cursor;
   final double progress;
@@ -2466,6 +2505,9 @@ class _Place {
   /// build, recovered, says nothing of when).
   final bool opened;
 
+  /// Whether it was taken in from another phone, at the time saved there.
+  final bool taken;
+
   Map<String, Object?> toJson() => {
         'cursor': cursor.toJson(),
         'progress': progress,
@@ -2473,8 +2515,13 @@ class _Place {
         'at': at.toIso8601String(),
       };
 
-  LibraryEntry onto(LibraryEntry e) =>
-      e.copyWith(cursor: cursor, progress: progress, where: where, openedAt: opened ? at : null);
+  /// [e] at this place. A place taken in moves when the book was opened
+  /// only on, never back (see LibraryStore.saveCursor).
+  LibraryEntry onto(LibraryEntry e) {
+    final was = e.openedAt;
+    final opens = opened && !(taken && was != null && !at.isAfter(was));
+    return e.copyWith(cursor: cursor, progress: progress, where: where, openedAt: opens ? at : null);
+  }
 
   /// A cursor.json's place, [raw], when it is later than [e]'s own: saved
   /// after the place [e] has, or (with no time, as older builds wrote it)
