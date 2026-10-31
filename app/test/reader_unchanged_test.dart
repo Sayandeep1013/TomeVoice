@@ -1244,8 +1244,13 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(PdfPagesView), findsNothing);
       expect(ListeningPrefs.memory.pdfPages, isFalse, reason: 'the text, where a sentence can be held');
-      expect(washed(tester), startsWith('Second page'), reason: "the place is that page's first sentence");
-      expect(find.byTooltip('Play'), findsOneWidget, reason: 'and nothing is read');
+      expect(find.byTooltip('Play'), findsOneWidget, reason: 'nothing is read');
+      // The place moved to that page: Play reads from its first sentence.
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(washed(tester), startsWith('Second page'));
       await finish(tester);
     });
   });

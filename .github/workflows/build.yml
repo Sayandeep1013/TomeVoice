@@ -26,6 +26,11 @@ on:
         type: boolean
         required: false
         default: false
+      emulator:
+        description: "Run the emulator tests too (they always run for a pull request and for a release)"
+        type: boolean
+        required: false
+        default: false
 
 # Read-only unless a job says otherwise. Only "Attach to the release" writes.
 permissions:
@@ -443,11 +448,13 @@ jobs:
   # The emulator tests' APK: built exactly as the release one (same pinned
   # Flutter, scaffolding, overlay and lockfile) but for an x86_64 emulator,
   # and signed with the throwaway debug key. It never leaves CI and this job
-  # never sees a secret. Not on pushes to main nor test-app builds, and
-  # nothing waits for it.
+  # never sees a secret. They take most of a run's time, so they run when a
+  # release is near: for a pull request, a release run, or a manual run that
+  # asks (emulator). Not on pushes to main nor test-app builds, and nothing
+  # waits for it.
   emulator-apk:
     name: Emulator APK (x86_64)
-    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && !inputs.relock && inputs.variant != 'test')
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && !inputs.relock && inputs.variant != 'test' && (inputs.release_tag != '' || inputs.emulator))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
