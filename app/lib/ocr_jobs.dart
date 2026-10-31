@@ -176,15 +176,32 @@ class OcrJobs extends ChangeNotifier {
 
   /// Take up [store]'s scans: one read to the end while the app was away is
   /// made into a book now; one that stopped waits for Go on. Asked again
-  /// while it is under way (the shelf asks as it opens, a scan's offer
-  /// too), the same work is waited for.
+  /// (the shelf asks as it opens, a scan's offer too), what the phone has
+  /// done since is asked once the work before is done.
   Future<void> attach(LibraryStore store) {
-    if (identical(_store, store)) return _attaching ?? Future<void>.value();
+    if (identical(_store, store)) return _again();
     _store = store;
     return _attaching = _attach(store);
   }
 
   Future<void>? _attaching;
+
+  /// What the phone did meanwhile, asked after any taking up under way.
+  Future<void> _again() => _attaching = (_attaching ?? Future<void>.value()).then((_) => _resync());
+
+  /// How far each scan got, counted again from its files and asked of the
+  /// service, and one read to its end meanwhile made into a book: the
+  /// events of a window that went (or that came before this one, over the
+  /// same running app) may never have come. One that could not be made into
+  /// a book is tried again when the app next opens, not each time.
+  Future<void> _resync() async {
+    if (_store == null) return;
+    for (final job in [...jobs]) {
+      if (job.id != making) await job._count();
+    }
+    await _sync(retry: false);
+    notifyListeners();
+  }
 
   Future<void> _attach(LibraryStore store) async {
     OcrData.instance.attach(store.root);
@@ -209,8 +226,9 @@ class OcrJobs extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// What the phone is reading now, as the service says.
-  Future<void> _sync() async {
+  /// What the phone is reading now, as the service says. Without [retry], a
+  /// scan that could not be made into a book is left as it is.
+  Future<void> _sync({bool retry = true}) async {
     Map<String, Object?>? now;
     try {
       now = await _channel.invokeMapMethod<String, Object?>('ocrStatus');
@@ -228,7 +246,9 @@ class OcrJobs extends ChangeNotifier {
           if (_byDir(d as String?)?.id case final id?) id,
       ]);
     for (final j in [...jobs]) {
-      if (j.finished && j.id != running && !waiting.contains(j.id)) _make(j);
+      if (j.finished && j.id != running && j.id != making && !waiting.contains(j.id) && (retry || j.error == null)) {
+        _make(j);
+      }
     }
   }
 
@@ -330,6 +350,12 @@ class OcrJobs extends ChangeNotifier {
 
   void _onEvent(Map<String, Object?> e) {
     final type = e['type'];
+    // A new window over the running app: what was said while none showed
+    // it is asked again.
+    if (type == 'shown') {
+      unawaited(_again());
+      return;
+    }
     if (type is! String || !type.startsWith('ocr')) return;
     final job = _byDir(e['job'] as String?);
     final done = e['done'];
@@ -429,9 +455,12 @@ class OcrJobs extends ChangeNotifier {
     _making = Future<void>.value();
   }
 
-  /// Done with every book being made (tests).
+  /// Done with taking up the scans and every book being made (tests).
   @visibleForTesting
-  Future<void> get settled => _making;
+  Future<void> get settled async {
+    await _attaching;
+    await _making;
+  }
 }
 
 /// [offer] declined: a refused scan's copy, kept for OCR, goes now with the

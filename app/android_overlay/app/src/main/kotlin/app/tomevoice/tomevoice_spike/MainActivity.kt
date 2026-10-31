@@ -629,8 +629,11 @@ class MainActivity : FlutterActivity() {
         // Web novels: their own channel (SourcesBridge.kt), also registered
         // on the background check's engine, where this activity is not.
         SourcesBridge.attach(this, flutterEngine.dartExecutor.binaryMessenger, this)
-        // A scan being read says how far it has got (ocr_jobs.dart).
-        OcrService.onEvent = { e -> event(e) }
+        // A scan being read says how far it has got (ocr_jobs.dart), to the
+        // engine rather than to this activity: what it does while no window
+        // shows the app still reaches Dart, and an activity that goes takes
+        // nothing from one that came after it.
+        OcrService.onEvent = { e -> ReadingCore.event(e) }
         cleanSynthDir()
         handleViewIntent(intent)
         dumpPdfIfAsked(intent)
@@ -1381,12 +1384,10 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         stopSample()
-        // A scan being read goes on without the app; its book is made when
-        // the app is next opened (ocr_jobs.dart).
-        OcrService.onEvent = null
         // The reading, the voice, the player and a save as audio are the
         // engine's and carry on (ReadingCore): leaving the app, by a swipe
-        // from Recents too, does not stop a book being read or saved.
+        // from Recents too, does not stop a book being read or saved. A scan
+        // being read goes on too, telling the engine (configureFlutterEngine).
         io.shutdown()
         pages.execute { PdfPages.close() }
         pages.shutdown()

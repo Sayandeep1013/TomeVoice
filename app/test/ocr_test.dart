@@ -623,6 +623,54 @@ void main() {
       expect((await again.list()).single.ocr, 'eng');
     });
 
+    test('a new window over the running app takes up what the phone did while none showed it', () async {
+      // The scan was read to its end while no window showed the app: the
+      // event saying so went with the window, and the shelf showed it being
+      // read for good.
+      final f = picked('scan.pdf', utf8.encode('%PDF-1.4 read with no window'));
+      final job = await OcrJobs.instance.start(
+        OcrOffer(path: f.path, name: 'Away.pdf', pdf: scanText(12)),
+        [ocrLanguageByCode('eng')!],
+      );
+      expect(OcrJobs.instance.running, job.id);
+      for (var p = 0; p < 12; p++) {
+        File('${job.dir.path}/pages/$p.txt')
+          ..createSync(recursive: true)
+          ..writeAsStringSync(ocrPage(p));
+      }
+      final news = OcrJobs.instance.news.first;
+      OcrJobs.instance.handle({'type': 'shown'});
+      await OcrJobs.instance.settled;
+      expect(await news, contains('is read and on your shelf'));
+      expect(OcrJobs.instance.running, isNull, reason: 'the service is reading nothing now');
+      expect(OcrJobs.instance.jobs, isEmpty);
+    });
+
+    test('the shelf opened again asks how far the phone has got', () async {
+      final f = picked('scan.pdf', utf8.encode('%PDF-1.4 the shelf again'));
+      final job = await OcrJobs.instance.start(OcrOffer(path: f.path, name: 'scan.pdf', pdf: scanText(6)), [
+        ocrLanguageByCode('eng')!,
+      ]);
+      for (var p = 0; p < 4; p++) {
+        File('${job.dir.path}/pages/$p.txt')
+          ..createSync(recursive: true)
+          ..writeAsStringSync(ocrPage(p));
+      }
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(_channel, (call) async {
+        calls.add(call);
+        return call.method == 'ocrStatus'
+            ? {'job': job.dir.path, 'done': 4, 'total': 6, 'stopping': false, 'queued': const []}
+            : null;
+      });
+      // The library opened again over the same store (Dart read on alone,
+      // and the shelf was built when a window came).
+      calls.clear();
+      await OcrJobs.instance.attach(store);
+      expect(calls.map((c) => c.method), contains('ocrStatus'));
+      expect(job.done, 4);
+      expect(OcrJobs.instance.running, job.id);
+    });
+
     test('language data that would not load goes, to be fetched again', () async {
       final eng = ocrLanguageByCode('eng')!;
       OcrData.instance.fileOf(eng)
