@@ -116,13 +116,16 @@ bool sameQuotes(Map<int, Mark> a, Map<int, Mark> b) {
   return true;
 }
 
-/// One piece of a paragraph and what lies behind it.
-typedef WashRun = ({int start, int end, Color? wash, bool spoken});
+/// One piece of a paragraph and what lies behind it; [spoken] in the
+/// sentence being read, [word] its word.
+typedef WashRun = ({int start, int end, Color? wash, bool spoken, bool word});
 
 /// Paragraph [item] of [layout] cut where its washes change: [quotes]' colours
-/// first, and over them the sentence being read ([spoken], -1 for none) and
-/// its word ([wordStart] to [wordEnd] in that sentence, -1 for none). A quote
-/// of several sentences is washed across the gaps between them too.
+/// first, and over them the sentence being read ([spoken], -1 for none). Its
+/// word ([wordStart] to [wordEnd] in that sentence, -1 for none) lies on its
+/// own wash alone, as the guard reads it (see readAloudOf): laid over a
+/// quote's, it no longer read by night. A quote of several sentences is
+/// washed across the gaps between them too.
 List<WashRun> washRuns({
   required ReadingLayout layout,
   required LayoutItem item,
@@ -182,13 +185,16 @@ List<WashRun> washRuns({
       if (a >= s && a < e) base = c;
     }
     final inSentence = a >= ss && a < se;
-    final over = a >= ws && a < we ? wordWash : (inSentence ? sentenceWash : null);
-    final wash = over == null ? base : (base == null ? over : Color.alphaBlend(over, base));
-    if (out.isNotEmpty && out.last.wash == wash && out.last.spoken == inSentence && out.last.end == a) {
-      final last = out.removeLast();
-      out.add((start: last.start, end: b, wash: wash, spoken: inSentence));
+    final inWord = a >= ws && a < we;
+    final over = inSentence ? sentenceWash : null;
+    final wash = inWord ? wordWash : (over == null ? base : (base == null ? over : Color.alphaBlend(over, base)));
+    final last = out.lastOrNull;
+    if (last != null && last.wash == wash && last.spoken == inSentence && last.word == inWord && last.end == a) {
+      out
+        ..removeLast()
+        ..add((start: last.start, end: b, wash: wash, spoken: inSentence, word: inWord));
     } else {
-      out.add((start: a, end: b, wash: wash, spoken: inSentence));
+      out.add((start: a, end: b, wash: wash, spoken: inSentence, word: inWord));
     }
   }
   return out;

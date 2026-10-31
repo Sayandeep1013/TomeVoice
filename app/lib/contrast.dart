@@ -141,6 +141,28 @@ List<Color> readAloudOf(Palette p, Brightness b) => [
       ],
     ];
 
+/// What is read aloud on a page whose [shades] are its paper (or the app's
+/// ground), set in [ink] with its chapters in [accent]: the inks of the
+/// word being read, on [wordWash] alone, and of a heading being read, on
+/// [sentenceWash]. Each is [ink] or [accent] moved as little as it takes
+/// to read there at 4.5:1 ([ink] itself in the palettes here, which are
+/// fitted to their washes; the word on Dusk was 2.6:1, a heading in the
+/// accent by night 2.7:1).
+({Color word, Color heading}) readAloudInks({
+  required List<Color> shades,
+  required Color ink,
+  required Color accent,
+  required Color sentenceWash,
+  required Color wordWash,
+  required bool dark,
+}) {
+  List<Color> under(Color wash) => [for (final s in shades) Color.alphaBlend(wash, s)];
+  return (
+    word: readableOn(ink, under(wordWash), smallText, darker: !dark),
+    heading: readableOn(accent, under(sentenceWash), smallText, darker: !dark),
+  );
+}
+
 /// Everything [p] draws text, icons and a control's marks with in [b], on
 /// every surface each is drawn on, with the contrast each needs there.
 List<ContrastNeed> needsOf(Palette p, Brightness b) {

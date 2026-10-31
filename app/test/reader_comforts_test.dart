@@ -19,6 +19,7 @@ import 'package:tomevoice_spike/auto_scroll.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/marks.dart';
 import 'package:tomevoice_spike/neural_voices.dart' show wavBytes;
+import 'package:tomevoice_spike/now_playing.dart';
 import 'package:tomevoice_spike/page_light.dart';
 import 'package:tomevoice_spike/page_tone.dart';
 import 'package:tomevoice_spike/paged_view.dart';
@@ -570,6 +571,35 @@ void main() {
       expect(find.text(said), findsOneWidget);
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.byType(AutoScrollPill), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('Now Playing does not offer it: the page it moves is behind it', (tester) async {
+      // Started from Now Playing's sheet, it stopped the voice and moved
+      // nothing: the page stayed held behind Now Playing.
+      Object? offered() => (tester.widget(find.byWidgetPredicate(
+            (w) => w.runtimeType.toString() == '_ReaderSettingsSheet',
+          )) as dynamic)
+              .controller
+              .autoScroll;
+      await open(tester, short(paragraphs: 40));
+      await tester.tap(find.byTooltip('Reading settings'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(offered(), isNotNull, reason: "from the page's own settings, it is");
+      Navigator.of(tester.element(find.text('Read').last)).pop();
+      await tester.pumpAndSettle();
+
+      await tester.fling(find.byTooltip('Speed'), const Offset(0, -300), 1500);
+      await tester.pumpAndSettle();
+      final now = find.byType(NowPlayingScreen);
+      expect(now, findsOneWidget);
+      await tester.tap(find.descendant(of: now, matching: find.text('Sleep')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Read').last);
+      await tester.pumpAndSettle();
+      expect(offered(), isNull);
+      expect(find.text('Start auto-scroll'), findsNothing);
       await finish(tester);
     });
 

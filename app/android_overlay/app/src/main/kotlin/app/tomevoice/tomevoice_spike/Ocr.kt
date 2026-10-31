@@ -343,20 +343,32 @@ class OcrService : Service() {
                     if (stopping) return Outcome("ocrStopped")
                     keepAwake(true)
                     var text = ""
-                    if (index >= 0 && index < renderer.pageCount) {
-                        val page = try {
-                            draw(renderer, index, MAX_PIXELS, grey)
-                        } catch (e: OutOfMemoryError) {
-                            // Once more, at half the width and height, the
-                            // last page's grey let go first.
-                            grey = null
-                            draw(renderer, index, MAX_PIXELS / 4, null)
+                    // A page Android cannot draw (damaged, or too big for
+                    // the memory left even at half the size) is left without
+                    // text, as one the engine cannot read: the rest of the
+                    // book is still read, and Go on does not stop at it again.
+                    val page = if (index >= 0 && index < renderer.pageCount) {
+                        try {
+                            try {
+                                draw(renderer, index, MAX_PIXELS, grey)
+                            } catch (e: OutOfMemoryError) {
+                                // Once more, at half the width and height, the
+                                // last page's grey let go first.
+                                grey = null
+                                draw(renderer, index, MAX_PIXELS / 4, null)
+                            }
+                        } catch (e: Throwable) {
+                            null
                         }
+                    } else {
+                        null
+                    }
+                    if (page != null) {
                         grey = page.pixels
                         try {
                             api.setImage(page.pixels, page.width, page.height, 1, page.width)
                             text = api.getUTF8Text() ?: ""
-                        } catch (e: RuntimeException) {
+                        } catch (e: Throwable) {
                             // A page the engine cannot read is left without
                             // text; the rest of the book is still read.
                             text = ""

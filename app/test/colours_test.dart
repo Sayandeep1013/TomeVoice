@@ -26,9 +26,12 @@ import 'package:material_color_utilities/material_color_utilities.dart'
 import 'package:tomevoice_spike/backup.dart';
 import 'package:tomevoice_spike/chapter_finder.dart';
 import 'package:tomevoice_spike/contrast.dart';
+import 'package:tomevoice_spike/highlights.dart' show darkPage, highlightWash;
 import 'package:tomevoice_spike/library_store.dart';
+import 'package:tomevoice_spike/marks.dart' show MarkColour;
 import 'package:tomevoice_spike/own_colours.dart';
 import 'package:tomevoice_spike/own_colours_sheet.dart';
+import 'package:tomevoice_spike/page_style.dart';
 import 'package:tomevoice_spike/page_tone.dart';
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/reader_chrome.dart';
@@ -438,6 +441,56 @@ void main() {
       const OwnColours(page: Color(0xFF141B2B), accent: Color(0xFFF2D541)).made.palette,
     ];
 
+    testWidgets('what is read aloud reads on its washes, in every palette and page tone, by day and by night',
+        (tester) async {
+      // Unguarded before: in pages the word being read lay over the
+      // sentence's wash (3.9:1 in Lavender by night, a quote under both
+      // 3.35:1), on Dusk it was 2.6:1, and a heading read in the accent was
+      // 2.7:1 by night.
+      for (final p in [...palettes, Palette.forest.withTint(0xFF3A8FDB)]) {
+        for (final b in Brightness.values) {
+          if (p.only != null && p.only != b) continue;
+          for (final tone in PageTone.all) {
+            Skin.palette = p;
+            late BuildContext page;
+            await tester.pumpWidget(MaterialApp(
+              key: ValueKey((p.id, b, tone.id)),
+              theme: Skin.themeFor(p, b),
+              home: Builder(builder: (c) {
+                page = c;
+                return const SizedBox.expand();
+              }),
+            ));
+            final look = PageStyle.of(page, ListeningPrefs(pageTone: tone.id)).look;
+            final shades = tone.shadesOf(page);
+            List<Color> on(Color wash, [List<Color>? under]) => [
+                  for (final s in under ?? shades) Color.alphaBlend(wash, s),
+                ];
+            final why = '${p.label}, ${b.name}, ${tone.label}';
+            void reads(String what, Color c, List<Color> grounds) {
+              for (final g in grounds) {
+                expect(contrast(c, g), greaterThanOrEqualTo(smallText), reason: '$what in $why');
+              }
+            }
+
+            reads('the text read aloud', look.text.color!, [...shades, ...on(look.sentenceWash)]);
+            reads('the word read aloud', look.wordInk!, on(look.wordWash));
+            reads("a chapter's heading, read aloud", look.chapterHeading.color!, [...shades, ...on(look.sentenceWash)]);
+            if (!tone.isApp) continue;
+            // Saved quotes, and the sentence read over one (the word lies on
+            // its own wash). Dusk's quotes are not yet held to this.
+            final dark = darkPage(look.text.color);
+            for (final c in MarkColour.values) {
+              for (final accent in [look.accent, look.sentenceWash.withValues(alpha: 1)]) {
+                final quote = on(highlightWash(c, accent: accent, dark: dark));
+                reads('the text on a ${c.name} quote', look.text.color!, [...quote, ...on(look.sentenceWash, quote)]);
+              }
+            }
+          }
+        }
+      }
+    });
+
     testWidgets("the way back to the voice, and to where the reader was, reads on its dark pill", (tester) async {
       for (final p in palettes) {
         for (final b in Brightness.values) {
@@ -606,6 +659,43 @@ void main() {
       bars[0].onChanged!(250);
       expect(Hct.fromInt(picked!.toARGB32()).hue, closeTo(250, 4));
       expect(_tone(picked!), closeTo(start.tone, 1));
+    });
+
+    testWidgets('the shade taken to black or white and back keeps the hue and its colour', (tester) async {
+      // Read from the colour each time, they went at either end (black and
+      // white have neither), and the colour came back grey.
+      var colour = const Color(0xFFE07B39);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) => HueShadePicker(colour: colour, onChanged: (c) => setState(() => colour = c)),
+          ),
+        ),
+      ));
+      final start = Hct.fromInt(0xFFE07B39);
+      Slider shade() => tester.widgetList<Slider>(find.byType(Slider)).toList()[1];
+      for (final end in [0.0, 100.0]) {
+        shade().onChanged!(end);
+        await tester.pump();
+        expect(_tone(colour), closeTo(end, 1));
+        shade().onChanged!(start.tone);
+        await tester.pump();
+        final back = Hct.fromInt(colour.toARGB32());
+        expect((back.hue - start.hue).abs(), lessThan(4), reason: 'from $end');
+        expect(back.chroma, closeTo(start.chroma, 4), reason: 'from $end');
+      }
+      // A colour from outside (a swatch) is taken as it is.
+      colour = const Color(0xFF3A8FDB);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) => HueShadePicker(colour: colour, onChanged: (c) => setState(() => colour = c)),
+          ),
+        ),
+      ));
+      shade().onChanged!(40);
+      await tester.pump();
+      expect((Hct.fromInt(colour.toARGB32()).hue - Hct.fromInt(0xFF3A8FDB).hue).abs(), lessThan(4));
     });
   });
 }

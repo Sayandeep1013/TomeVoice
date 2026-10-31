@@ -1550,7 +1550,9 @@ class _CategoryTabsState extends State<_CategoryTabs> {
                     size: 12.5,
                     weight: FontWeight.w600,
                     tabular: true,
-                    color: Color.lerp(Skin.inkFaintOn(context), Skin.onAmber.withValues(alpha: 0.7), t),
+                    // At full strength on the accent: at 70% it was 3.1
+                    // to 3.8:1.
+                    color: Color.lerp(Skin.inkFaintOn(context), Skin.onAmber, t),
                   ),
                 ),
               ],

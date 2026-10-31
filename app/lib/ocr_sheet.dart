@@ -349,16 +349,33 @@ class _LanguageListState extends State<_LanguageList> {
 /// with Stop; one that stopped, with Go on and Discard; nothing when there
 /// are none. Says when a book is ready (with a snack [lift] above the
 /// shelf's foot).
-class OcrProgressCard extends StatefulWidget {
+///
+/// It sits over the shelf in a column that gives it all the height it asks
+/// for, so it is held to a third of the screen: a long message scrolls in
+/// it, its buttons stay on it, and a card that could not be drawn (once a
+/// 100,000 px error box) leaves the shelf below it.
+class OcrProgressCard extends StatelessWidget {
   const OcrProgressCard({super.key, this.lift = 0});
 
   final double lift;
 
   @override
-  State<OcrProgressCard> createState() => _OcrProgressCardState();
+  Widget build(BuildContext context) => ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height / 3),
+        child: _OcrCard(lift: lift),
+      );
 }
 
-class _OcrProgressCardState extends State<OcrProgressCard> {
+class _OcrCard extends StatefulWidget {
+  const _OcrCard({required this.lift});
+
+  final double lift;
+
+  @override
+  State<_OcrCard> createState() => _OcrCardState();
+}
+
+class _OcrCardState extends State<_OcrCard> {
   final _jobs = OcrJobs.instance;
   StreamSubscription<String>? _news;
 
@@ -405,20 +422,6 @@ class _OcrProgressCardState extends State<OcrProgressCard> {
     final reading = _jobs.running == job.id;
     final making = _jobs.making == job.id;
     final waiting = _jobs.waiting.contains(job.id);
-    final total = job.pages.length;
-    final others = _jobs.jobs.length - 1;
-    final String status;
-    if (making) {
-      status = 'Making it into a book…';
-    } else if (reading) {
-      status = _jobs.stopping
-          ? 'Stopping after this page…'
-          : 'Reading page ${(job.done + 1).clamp(1, total)} of $total';
-    } else if (waiting) {
-      status = 'Waiting its turn';
-    } else {
-      status = 'Stopped at page ${(job.done + 1).clamp(1, total)} of $total';
-    }
     final quiet = Skin.inkSoftOn(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.m),
@@ -430,32 +433,22 @@ class _OcrProgressCardState extends State<OcrProgressCard> {
           border: Border.all(color: Skin.outlineOn(context)),
         ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: const EdgeInsets.only(right: Gap.s),
-              child: Text(
-                'OCR: ${job.title}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Skin.title(context, size: 17),
+            // What it says scrolls, and is drawn on its own: whatever it
+            // comes to, the buttons under it stay.
+            Flexible(
+              child: SingleChildScrollView(
+                child: _ScanLines(
+                  job: job,
+                  reading: reading,
+                  making: making,
+                  waiting: waiting,
+                  stopping: _jobs.stopping,
+                  others: _jobs.jobs.length - 1,
+                ),
               ),
-            ),
-            const SizedBox(height: Gap.xs),
-            Eyebrow([status, if (others > 0) '$others more ${others == 1 ? 'scan' : 'scans'}'].join(' · ')),
-            if (job.error != null && !reading && !making) ...[
-              const SizedBox(height: Gap.xs),
-              Text(job.error!, style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkFaintOn(context))),
-            ],
-            const SizedBox(height: 10),
-            Padding(
-              padding: const EdgeInsets.only(right: Gap.s),
-              child: making
-                  ? ClipRRect(
-                      borderRadius: BorderRadius.circular(3),
-                      child: const LinearProgressIndicator(minHeight: 4),
-                    )
-                  : Progress(total == 0 ? 1 : job.done / total, height: 4),
             ),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
@@ -474,6 +467,72 @@ class _OcrProgressCardState extends State<OcrProgressCard> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// A scan's name, how far it is, why it stopped, and its bar.
+class _ScanLines extends StatelessWidget {
+  const _ScanLines({
+    required this.job,
+    required this.reading,
+    required this.making,
+    required this.waiting,
+    required this.stopping,
+    required this.others,
+  });
+
+  final OcrJob job;
+  final bool reading;
+  final bool making;
+  final bool waiting;
+  final bool stopping;
+  final int others;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = job.pages.length;
+    // A scan with no page to read (an older build made some) is at none.
+    final page = total == 0 ? '' : ' page ${(job.done + 1).clamp(1, total)} of $total';
+    final String status;
+    if (making) {
+      status = 'Making it into a book…';
+    } else if (reading) {
+      status = stopping ? 'Stopping after this page…' : 'Reading$page';
+    } else if (waiting) {
+      status = 'Waiting its turn';
+    } else {
+      status = total == 0 ? 'Stopped' : 'Stopped at$page';
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(right: Gap.s),
+          child: Text(
+            'OCR: ${job.title}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Skin.title(context, size: 17),
+          ),
+        ),
+        const SizedBox(height: Gap.xs),
+        Eyebrow([status, if (others > 0) '$others more ${others == 1 ? 'scan' : 'scans'}'].join(' · ')),
+        if (job.error != null && !reading && !making) ...[
+          const SizedBox(height: Gap.xs),
+          Text(job.error!, style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkFaintOn(context))),
+        ],
+        const SizedBox(height: 10),
+        Padding(
+          padding: const EdgeInsets.only(right: Gap.s),
+          child: making
+              ? ClipRRect(
+                  borderRadius: BorderRadius.circular(3),
+                  child: const LinearProgressIndicator(minHeight: 4),
+                )
+              : Progress(total == 0 ? 1 : job.done / total, height: 4),
+        ),
+      ],
     );
   }
 }

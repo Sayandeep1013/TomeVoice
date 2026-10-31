@@ -917,7 +917,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (mounted) setState(() {});
   }
 
-  ListenController get _listen => ListenController(
+  ListenController get _listen => _listenFor();
+
+  /// The sheet's controller. Over Now Playing [autoScroll] is not offered:
+  /// the page it moves is behind it, so Start stopped the voice and moved
+  /// nothing.
+  ListenController _listenFor({bool autoScroll = true}) => ListenController(
         prefs: _prefs,
         language: _reader.language,
         bookId: _book.id,
@@ -932,7 +937,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         isPdf: _isPdf,
         narration: _l.book.narration != null,
         light: _light,
-        autoScroll: _l.isEmpty ? null : _auto,
+        autoScroll: _l.isEmpty || !autoScroll ? null : _auto,
         characters: _people.isEmpty ? null : _peopleNote,
         onCharacters: _people.isEmpty ? null : _openPeople,
       );
@@ -2316,14 +2321,15 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             speed: () => _speed,
             voiceLabel: _voiceLabel,
             sleepNote: () => _reader.sleepNote,
+            sleepChanges: _reader.sleepChanges,
             onPlay: _reader.togglePlay,
             onGoTo: (u) => _reader.goTo(u),
             onPrevChapter: () => _reader.goChapter(-1),
             onNextChapter: () => _reader.goChapter(1),
             moreAfter: widget.onReachedEnd != null,
-            onSpeed: () => showListenSheet(ctx, _listen, focus: ListenFocus.speed),
-            onVoice: () => showListenSheet(ctx, _listen),
-            onSleep: () => showListenSheet(ctx, _listen),
+            onSpeed: () => showListenSheet(ctx, _listenFor(autoScroll: false), focus: ListenFocus.speed),
+            onVoice: () => showListenSheet(ctx, _listenFor(autoScroll: false)),
+            onSleep: () => showListenSheet(ctx, _listenFor(autoScroll: false)),
             onSave: () => _save(MarkKind.quote),
             onHold: (unit, word) => unawaited(_onLongPress(unit, word)),
           ),
@@ -2344,6 +2350,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   String _voiceLabel() {
+    // Read in the recording it came with: no voice of the phone's says it.
+    if (_l.book.narration != null && _prefs.narratedBooks.contains(_book.id)) return 'Narration';
     final v = _catalog.byName(_listen.voiceName);
     if (v != null) return v.region.isEmpty ? languageName(v.language) : '${v.language.toUpperCase()} · ${regionLabel(v.region)}';
     if (!_catalog.loaded) return 'Voice…';
@@ -2557,6 +2565,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             style: style,
             wash: look.sentenceWash,
             wordWash: look.wordWash,
+            wordInk: look.wordInk,
+            // A heading being read turns to the chapter's colour, which reads
+            // on the washes (see PageStyle).
+            headingInk: look.chapterHeading.color,
             heading: heading && !chapterStart,
             justify: _prefs.justify && !heading,
             onTapUnit: (u) => _reader.goTo(u, play: true),

@@ -203,6 +203,11 @@ class ReaderController {
   /// Redraws the sleep countdown in the player bar.
   Timer? _sleepTick;
 
+  /// Ticks as the sleep timer is set, runs down, pauses the book or goes:
+  /// what shows it over the page follows it (Now Playing kept "Sleep on"
+  /// after it had paused the book).
+  final sleepChanges = ValueNotifier<int>(0);
+
   /// The page is being left by Back (not replaced by another chapter's).
   bool leaving = false;
 
@@ -225,7 +230,14 @@ class ReaderController {
   bool get _readsOn =>
       leaving && prefs.keepReading && player.state.value != PlayState.idle && !layout.isEmpty && store != null;
 
-  void _onPlayerUnit() => cursor.value = player.unit.value;
+  void _onPlayerUnit() {
+    _byVoice = true;
+    cursor.value = player.unit.value;
+    _byVoice = false;
+  }
+
+  /// Set while the voice moves the place on by itself, reading.
+  bool _byVoice = false;
 
   /// A line from the player while it reads on (a natural voice that failed,
   /// and the phone's reading instead).
@@ -247,8 +259,10 @@ class ReaderController {
       _sleepTimer = Timer(at.difference(DateTime.now()), () => _sleepNow('Sleep timer: paused.'));
       _sleepTick = Timer.periodic(const Duration(seconds: 30), (_) {
         if (view.mounted && _sleepAt != null) view.changed();
+        sleepChanges.value++;
       });
     }
+    sleepChanges.value++;
   }
 
   /// The book's entry in the library, for its cover on the card (and the
@@ -324,6 +338,7 @@ class ReaderController {
     cursor.dispose();
     detached.dispose();
     marked.dispose();
+    sleepChanges.dispose();
   }
 
   /// Read on past the chapters here (a web novel's, the rest still on the
@@ -423,6 +438,7 @@ class ReaderController {
       // The countdown in the player bar is redrawn as it runs.
       _sleepTick = Timer.periodic(const Duration(seconds: 30), (_) {
         if (view.mounted && _sleepAt != null) view.changed();
+        sleepChanges.value++;
       });
     } else {
       player.endFade();
@@ -430,6 +446,7 @@ class ReaderController {
     }
     _sleep = choice;
     view.changed();
+    sleepChanges.value++;
   }
 
   void _sleepNow(String message) {
@@ -446,6 +463,7 @@ class ReaderController {
       view.changed();
       view.say(message);
     }
+    sleepChanges.value++;
   }
 
   /// "SLEEP 25M" or "SLEEP AT CHAPTER END" while a sleep timer is set.
@@ -757,10 +775,18 @@ class ReaderController {
         changed(section);
       }
     }
-    if (_sleep == SleepChoice.chapterEnd &&
-        _sleepChapter >= 0 &&
-        layout.chapterOfUnit(cursor.value) != _sleepChapter) {
-      _sleepNow('End of chapter: paused.');
+    if (_sleep == SleepChoice.chapterEnd && _sleepChapter >= 0) {
+      final chapter = layout.chapterOfUnit(cursor.value);
+      if (chapter != _sleepChapter) {
+        if (_byVoice && player.isPlaying) {
+          _sleepNow('End of chapter: paused.');
+        } else {
+          // Moved there another way (Next chapter, a jump, the page read on
+          // by hand), it waits for the end of the chapter now being read: it
+          // paused at any move, the voice silent and far from an end.
+          _sleepChapter = chapter;
+        }
+      }
     }
     _schedulePersist();
     _updateSession();
@@ -811,6 +837,7 @@ class ReaderController {
         cursorOf(layout.units[u]),
         view.progressOf?.call(u) ?? progressFraction(layout.units, u),
         where: layout.chapterTitle(layout.unitChapter[u]),
+        layout: layout,
       );
     } on Object {
       // Losing a position save is not worth an error on screen.

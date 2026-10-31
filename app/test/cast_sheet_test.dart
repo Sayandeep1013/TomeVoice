@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_spike/book_screen.dart';
+import 'package:tomevoice_spike/contrast.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/marks.dart';
 import 'package:tomevoice_document/tomevoice_document.dart' show ReadingLayout;
@@ -21,6 +22,7 @@ import 'package:tomevoice_spike/reader_screen.dart';
 import 'package:tomevoice_spike/scheduler.dart';
 import 'package:tomevoice_spike/speakers.dart' show BookCast;
 import 'package:tomevoice_spike/speech_service.dart';
+import 'package:tomevoice_spike/theme.dart';
 
 late Directory _dir;
 
@@ -164,6 +166,49 @@ void main() {
     await tester.tapAt(const Offset(20, 40));
     await tester.pumpAndSettle();
     expect(find.text('Zorian has a voice of their own'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 1));
+  });
+
+  testWidgets("the voice one is given is marked in the accent's mark, which shows on the sheet", (tester) async {
+    // Its fill was under 3:1 on a light sheet. A book of its own: who speaks
+    // is found once a run, and an earlier test's finding waits in its time.
+    await pumpBook(tester, talk.replaceAll('Zorian', 'Maelis'));
+    await settle(tester, until: () => find.text('CHARACTERS').evaluate().isNotEmpty && quiet());
+    // On the book's page, the accent as text and as an icon is its ink, as
+    // the voice's own row has it (the soft one was 1.9:1 by day).
+    final ink = Skin.accentInkOf(tester.element(find.text('CHARACTERS')));
+    for (final change in tester.widgetList<Text>(find.text('Change'))) {
+      expect(change.style!.color, ink);
+    }
+    expect(tester.widget<Icon>(find.byIcon(Icons.groups_outlined)).color, ink);
+    await tester.tap(find.text('CHARACTERS'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Maelis'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.radio_button_off_rounded).first);
+    // The voice given, and its sample said: the picker gone.
+    Future<void> wait(bool Function() until) async {
+      for (var i = 0; i < 160 && !until(); i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 25)));
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(until(), isTrue, reason: 'waited too long');
+    }
+
+    await wait(() => said.isNotEmpty && quiet() && find.text('Maelis').evaluate().length == 1);
+    // Their voice, and the way to hear it, in the accent's ink.
+    final row = find.ancestor(of: find.text('Maelis'), matching: find.byType(InkWell)).first;
+    final given = tester.widgetList<Text>(find.descendant(of: row, matching: find.byType(Text))).last;
+    expect(given.style!.color, ink);
+    expect(contrast(given.style!.color!, Palette.forest.daySheet), greaterThanOrEqualTo(smallText));
+    expect(tester.widget<Icon>(find.descendant(of: row, matching: find.byIcon(Icons.play_circle_outline_rounded))).color, ink);
+    await tester.tap(find.text('Maelis'));
+    await wait(() => find.byIcon(Icons.radio_button_checked_rounded).evaluate().isNotEmpty);
+    final chosen = find.byIcon(Icons.radio_button_checked_rounded);
+    final mark = tester.widget<Icon>(chosen).color!;
+    expect(mark, Skin.accentMarkOf(tester.element(chosen)));
+    expect(contrast(mark, Palette.forest.daySheet), greaterThanOrEqualTo(largeText));
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(seconds: 1));
   });

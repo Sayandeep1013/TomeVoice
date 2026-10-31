@@ -323,7 +323,11 @@ class _Swatches extends StatelessWidget {
 /// A colour picked on two bars: its hue round the colour wheel, and its
 /// shade from black to white. Its colourfulness stays, but for a grey given
 /// a hue, which takes [minChroma] to show it.
-class HueShadePicker extends StatelessWidget {
+///
+/// The hue and colourfulness are kept here, not read from the colour: at
+/// either end of the Shade bar the colour is black or white, which has
+/// neither, and brought back it came back grey.
+class HueShadePicker extends StatefulWidget {
   const HueShadePicker({super.key, required this.colour, required this.onChanged, this.minChroma = 16});
 
   final Color colour;
@@ -331,34 +335,76 @@ class HueShadePicker extends StatelessWidget {
   final double minChroma;
 
   @override
+  State<HueShadePicker> createState() => _HueShadePickerState();
+}
+
+class _HueShadePickerState extends State<HueShadePicker> {
+  late double _hue;
+  late double _chroma;
+
+  /// The colour last given out: given back, it is no new colour.
+  Color? _sent;
+
+  @override
+  void initState() {
+    super.initState();
+    final hct = Hct.fromInt(widget.colour.toARGB32());
+    _hue = hct.hue;
+    _chroma = hct.chroma;
+  }
+
+  @override
+  void didUpdateWidget(HueShadePicker old) {
+    super.didUpdateWidget(old);
+    // Another colour from outside (a swatch, another part): its own hue and
+    // colourfulness, a grey's hue kept from before.
+    if (widget.colour == old.colour || widget.colour == _sent) return;
+    final hct = Hct.fromInt(widget.colour.toARGB32());
+    if (hct.chroma >= 1) _hue = hct.hue;
+    _chroma = hct.chroma;
+  }
+
+  Color _at(double hue, double chroma, double tone) => Color(Hct.from(hue, chroma, tone).toInt());
+
+  void _send(Color c) {
+    _sent = c;
+    widget.onChanged(c);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final hct = Hct.fromInt(colour.toARGB32());
+    final tone = Hct.fromInt(widget.colour.toARGB32()).tone;
     // Pure black and white have no hue to show: the bar shows the hues at a
     // middle shade instead.
-    final shownTone = hct.tone.clamp(25.0, 85.0);
-    final chroma = hct.chroma < minChroma ? minChroma : hct.chroma;
-    Color at(double hue, double chroma, double tone) => Color(Hct.from(hue, chroma, tone).toInt());
+    final shownTone = tone.clamp(25.0, 85.0);
+    final shown = _chroma < widget.minChroma ? widget.minChroma : _chroma;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _bar(
           context,
           label: 'Hue',
-          value: hct.hue.clamp(0.0, 359.9),
+          value: _hue.clamp(0.0, 359.9),
           max: 359.9,
-          colours: [for (var h = 0.0; h <= 360; h += 30) at(h, chroma, shownTone)],
+          colours: [for (var h = 0.0; h <= 360; h += 30) _at(h, shown, shownTone)],
           say: (v) => 'Hue, ${v.round()} degrees',
-          onChanged: (h) => onChanged(at(h, chroma, hct.tone)),
+          onChanged: (h) {
+            setState(() {
+              _hue = h;
+              _chroma = shown;
+            });
+            _send(_at(h, shown, tone));
+          },
         ),
         const SizedBox(height: Gap.s),
         _bar(
           context,
           label: 'Shade',
-          value: hct.tone,
+          value: tone,
           max: 100,
-          colours: [for (var t = 0.0; t <= 100; t += 10) at(hct.hue, hct.chroma, t)],
+          colours: [for (var t = 0.0; t <= 100; t += 10) _at(_hue, _chroma, t)],
           say: (v) => 'Shade, ${v.round()}% light',
-          onChanged: (t) => onChanged(at(hct.hue, hct.chroma, t)),
+          onChanged: (t) => _send(_at(_hue, _chroma, t)),
         ),
       ],
     );
@@ -384,7 +430,7 @@ class HueShadePicker extends StatelessWidget {
               data: SliderTheme.of(context).copyWith(
                 trackHeight: 14,
                 trackShape: _GradientTrack(colours),
-                thumbShape: _RingThumb(fill: colour, ring: Skin.inkOn(context)),
+                thumbShape: _RingThumb(fill: widget.colour, ring: Skin.inkOn(context)),
                 overlayColor: Skin.inkOn(context).withValues(alpha: 0.08),
               ),
               child: Slider(

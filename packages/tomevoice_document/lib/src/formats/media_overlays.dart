@@ -7,28 +7,39 @@ import 'html_blocks.dart' show textsOfIds;
 /// A SMIL clock value in milliseconds: a full clock ("0:00:24.500",
 /// "1:02:03"), a partial one ("02:33", "00:10.5") or a timecount ("12.5s",
 /// "500ms", "1.5h", "3min", or "12.467", seconds); SMIL 2's "npt=" before
-/// it is let be. Null for anything else.
+/// it is let be. Null for anything else, and for a time no recording runs
+/// to (a damaged file's "99999999999999999999:00:00", or one of a thousand
+/// digits): it overflowed, or came to Infinity, and the whole book failed.
 double? parseClockValue(String raw) {
   var s = raw.trim();
   if (s.startsWith('npt=')) s = s.substring(4).trim();
   if (s.isEmpty) return null;
+  final double? ms;
   final clock = _clock.firstMatch(s);
   if (clock != null) {
-    final hours = clock.group(1) == null ? 0 : int.parse(clock.group(1)!);
-    final minutes = int.parse(clock.group(2)!);
-    final seconds = double.parse(clock.group(3)!);
-    return ((hours * 60 + minutes) * 60 + seconds) * 1000;
+    final hours = double.tryParse(clock.group(1) ?? '0');
+    final minutes = double.tryParse(clock.group(2)!);
+    final seconds = double.tryParse(clock.group(3)!);
+    ms = hours == null || minutes == null || seconds == null ? null : ((hours * 60 + minutes) * 60 + seconds) * 1000;
+  } else {
+    final count = _timecount.firstMatch(s);
+    if (count == null) return null;
+    final n = double.tryParse(count.group(1)!);
+    ms = n == null
+        ? null
+        : switch (count.group(2)) {
+            'h' => n * 3600000,
+            'min' => n * 60000,
+            'ms' => n,
+            _ => n * 1000,
+          };
   }
-  final count = _timecount.firstMatch(s);
-  if (count == null) return null;
-  final n = double.parse(count.group(1)!);
-  return switch (count.group(2)) {
-    'h' => n * 3600000,
-    'min' => n * 60000,
-    'ms' => n,
-    _ => n * 1000,
-  };
+  return ms != null && ms.isFinite && ms <= _longestClockMs ? ms : null;
 }
+
+/// No recording runs longer than this (a year): a time past it is a damaged
+/// file's.
+const _longestClockMs = 366 * 24 * 3600000.0;
 
 final _clock = RegExp(r'^(?:(\d+):)?(\d+):(\d+(?:\.\d+)?)$');
 final _timecount = RegExp(r'^(\d+(?:\.\d+)?|\.\d+)\s*(h|min|s|ms)?$');

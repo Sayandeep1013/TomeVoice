@@ -803,6 +803,45 @@ void main() {
       expect(said(read(null)), contains('before Michaelmas,1 and some'));
     });
 
+    test('a number raised after one letter, or in a sum, is said; a mark the page has a note for is not', () {
+      // Powers, all once taken for notes' marks and not said: "E = m c",
+      // "50 m", "x plus y".
+      const lines = [
+        'The famous result E = mc2 changed how we think about light and mass.',
+        'The room measured 50 m2 and the hall a little more than that, it said.',
+        'The circle is where x2 + y2 = 1 holds, for every point along its edge.',
+        'A lake of 400 km2 lies to the north of the town, among the hills there.',
+        'Darwin3 wrote of it at length, and his letters say as much more than once.',
+        'Plan B4 was never tried by the council, as the minutes of the day show.',
+      ];
+      final laid = _laid([
+        for (var i = 0; i < lines.length; i++) _at(lines[i], 72, 100 + 14 * i, para: i == 0),
+        _at('4 See the minutes of the council for the spring of that year.', 72, 300, size: 8, para: true),
+      ]);
+      int at(int line, String s) => lines[line].indexOf(s);
+      final raised = [
+        [
+          0, at(0, 'mc2') + 2, 1, //
+          1, at(1, 'm2') + 1, 1,
+          2, at(2, 'x2') + 1, 1, 2, at(2, 'y2') + 1, 1,
+          3, at(3, 'km2') + 2, 1,
+          4, at(4, 'Darwin3') + 6, 1,
+          5, at(5, 'B4') + 1, 1,
+        ],
+      ];
+      final book = ingestPdfText(id: 'x', pages: [laid.text], layout: [laid.layout], raised: raised);
+      final said = [
+        for (final bl in book.sections.expand((s) => s.blocks))
+          spokenText(bl.text, [for (final s in bl.sentences) ...s.silent]).text,
+      ].join(' ');
+      expect(said, contains('E = mc2 changed'));
+      expect(said, contains('measured 50 m2 and'));
+      expect(said, contains('where x2 + y2 = 1 holds'));
+      expect(said, contains('400 km2 lies'));
+      expect(said, contains('Darwin wrote'), reason: 'a note after a word');
+      expect(said, contains('Plan B was never'), reason: 'note 4 is at the foot of the page');
+    });
+
     test('a layout that does not match the text is ignored', () {
       final good = _laid([
         _at('He read the letter aloud to the room, slowly, as if every', 72, 100, para: true),
@@ -891,6 +930,40 @@ void main() {
       expect(withText, hasLength(12));
       expect([for (var p = 0; p < withText.length; p++) if (withText[p]) p], [0, 7]);
       expect(pdfTextCoverage(pages), (pages: 12, pagesWithText: 2, mostlyPictures: true));
+    });
+
+    test('a PDF each of whose pages has a line to read is no scan, however little it has', () {
+      // Refused as a scan, OCR found no page in it to read: its job never
+      // ended, and its card took the shelf down.
+      final notice = [
+        _page([
+          ['Notice of the harbour meeting'],
+        ]),
+        _page([
+          ['Bring the minutes of the last one'],
+        ]),
+        '',
+      ];
+      expect(pdfPagesWithText(notice), [true, true]);
+      expect(_texts(ingestPdfText(id: 'x', pages: notice)).join(' '), contains('harbour meeting'));
+    });
+
+    test('a PDF refused as a scan always has a page for OCR to read', () {
+      final shapes = <List<String>>[
+        ['', '', ''],
+        [_page([['Digitized by Google']]), _page([['Digitized by Google']]), _page([['Digitized by Google']]), ''],
+        [_page([['Notice of the harbour meeting']]), '', ''],
+        [_page([['Notice of the harbour meeting']]), _page([['A second line to read here']]), ''],
+        [_page([['Notice of the harbour meeting']]), _page([['A second line to read here']]), '', ''],
+        [for (var p = 0; p < 30; p++) p < 3 ? _page([_prose(p)]) : '', ''],
+      ];
+      for (final pages in shapes) {
+        try {
+          ingestPdfText(id: 'x', pages: pages);
+        } on UnsupportedDocumentException {
+          expect(pdfPagesWithText(pages), contains(false), reason: '$pages');
+        }
+      }
     });
 
     test('the layout from the platform is read as lists of numbers', () {

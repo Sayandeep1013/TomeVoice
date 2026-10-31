@@ -10,12 +10,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_spike/book_card.dart';
 import 'package:tomevoice_spike/book_screen.dart';
+import 'package:tomevoice_spike/contrast.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/main.dart';
 import 'package:tomevoice_spike/marks.dart';
 import 'package:tomevoice_spike/organise_sheets.dart';
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/speech_service.dart';
+import 'package:tomevoice_spike/theme.dart';
 
 const _channel = MethodChannel('tomevoice/tts');
 
@@ -249,6 +251,36 @@ void main() {
     await tester.tap(find.text('Save'));
     await io(tester, until: () => find.text('Classic · Fantasy · Lent to Sam').evaluate().isNotEmpty);
     expect(find.text('Classic · Fantasy · Lent to Sam'), findsOneWidget);
+    await finish(tester);
+  });
+
+  testWidgets("a chosen pill's count, and the book in a series' list, are in colours that read", (tester) async {
+    // A chosen pill's count at 70% on the accent was 3.1 to 3.8:1, and the
+    // accent's fill as a series' book's title 2.4 to 2.7:1 by day.
+    await pumpShelf(tester, books);
+    final shelfPill = find.ancestor(of: find.text('Reading'), matching: find.byType(Row)).first;
+    final shelfCount = tester.widget<Text>(find.descendant(of: shelfPill, matching: find.text('5'))).style!.color!;
+    expect(contrast(shelfCount, Skin.amber), greaterThanOrEqualTo(smallText));
+
+    await view(tester, 'Filter…');
+    await tester.tap(find.widgetWithText(ChoicePill, 'Fantasy'));
+    await tester.pumpAndSettle();
+    final texts = tester.widgetList<Text>(find.descendant(of: find.widgetWithText(ChoicePill, 'Fantasy'), matching: find.byType(Text)));
+    expect(texts, hasLength(2), reason: 'its name and its count');
+    expect(contrast(texts.last.style!.color!, Skin.amber), greaterThanOrEqualTo(smallText));
+    await tester.tap(find.text('Done'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(BookRow, 'A Clash of Kings').first);
+    await io(tester,
+        until: () =>
+            find.byType(BookScreen).evaluate().isNotEmpty && find.byType(CircularProgressIndicator).evaluate().isEmpty);
+    await tester.tap(find.text('Book 2 of A Song of Ice and Fire'));
+    await io(tester, until: () => find.text('2 BOOKS ON YOUR SHELVES').evaluate().isNotEmpty);
+    for (final t in ['A Clash of Kings', '2']) {
+      final c = tester.widget<Text>(find.text(t).last).style!.color!;
+      expect(contrast(c, Palette.forest.daySheet), greaterThanOrEqualTo(smallText), reason: t);
+    }
     await finish(tester);
   });
 

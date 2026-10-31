@@ -1481,13 +1481,23 @@ class _VoicePickerState extends State<_VoicePicker> {
               trigger: '${_catalog.loaded}/$_language/$finding',
               child: finding
                   ? _found(context, found, selected)
-                  : !_catalog.loaded
-                  ? const Padding(
-                      padding: EdgeInsets.all(Gap.xl),
-                      child: Center(child: CircularProgressIndicator()),
-                    )
-                  : voices.isEmpty
-                      ? _noVoices(context)
+                  : !_catalog.loaded || voices.isEmpty
+                      // The book's own narration is offered all the same:
+                      // with no voice of its language on the phone, it was
+                      // not offered at all.
+                      ? ListView(
+                          shrinkWrap: true,
+                          children: [
+                            if (widget.controller.narration) _narrationRow(context, selected: narrated),
+                            if (!_catalog.loaded)
+                              const Padding(
+                                padding: EdgeInsets.all(Gap.xl),
+                                child: Center(child: CircularProgressIndicator()),
+                              )
+                            else
+                              _noVoices(context),
+                          ],
+                        )
                       : ListView(
                           shrinkWrap: true,
                           padding: const EdgeInsets.only(bottom: Gap.xl),

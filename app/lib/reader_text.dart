@@ -33,6 +33,8 @@ class BlockText extends StatefulWidget {
     this.indent = 0,
     this.highlights,
     this.onTapAt,
+    this.wordInk,
+    this.headingInk,
   });
 
   final LayoutItem item;
@@ -44,6 +46,14 @@ class BlockText extends StatefulWidget {
   /// Behind the sentence being read, and behind its word: the page tone's.
   final Color wash;
   final Color wordWash;
+
+  /// The word being read, on [wordWash]: an ink that reads there; null for
+  /// the text's own.
+  final Color? wordInk;
+
+  /// What a [heading] being read turns to: the accent, in an ink that reads
+  /// on its wash; null for the accent's ink.
+  final Color? headingInk;
   final ValueChanged<int> onTapUnit;
 
   /// Press and hold: the sentence, and the word under the finger.
@@ -200,7 +210,7 @@ class _BlockTextState extends State<BlockText> {
     // them.
     final accent = widget.wash.withValues(alpha: 1);
     final dark = darkPage(widget.style.color);
-    final spoken = widget.heading ? Skin.accentInkOf(context) : null;
+    final spoken = widget.heading ? widget.headingInk ?? Skin.accentInkOf(context) : null;
     final runs = washRuns(
       layout: widget.layout,
       item: widget.item,
@@ -219,7 +229,10 @@ class _BlockTextState extends State<BlockText> {
           text: text.substring(r.start, r.end),
           style: r.wash == null && !(r.spoken && spoken != null)
               ? null
-              : TextStyle(backgroundColor: r.wash, color: r.spoken ? spoken : null),
+              : TextStyle(
+                  backgroundColor: r.wash,
+                  color: r.word ? widget.wordInk ?? spoken : (r.spoken ? spoken : null),
+                ),
         ),
     ];
     return Text.rich(TextSpan(children: spans), key: _key, style: widget.style, textAlign: align);

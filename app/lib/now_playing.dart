@@ -35,6 +35,7 @@ class NowPlayingScreen extends StatelessWidget {
     required this.speed,
     required this.voiceLabel,
     required this.sleepNote,
+    required this.sleepChanges,
     required this.onPlay,
     required this.onGoTo,
     required this.onPrevChapter,
@@ -59,6 +60,9 @@ class NowPlayingScreen extends StatelessWidget {
   final double Function() speed;
   final String Function() voiceLabel;
   final String? Function() sleepNote;
+
+  /// Ticks as the sleep timer changes, runs down or pauses the book.
+  final Listenable sleepChanges;
   final VoidCallback onPlay;
   final ValueChanged<int> onGoTo;
   final VoidCallback onPrevChapter;
@@ -180,7 +184,7 @@ class NowPlayingScreen extends StatelessWidget {
   Widget _panel(BuildContext context, {required bool compact}) => Padding(
         padding: EdgeInsets.fromLTRB(Gap.xl, compact ? Gap.l : 0, Gap.xl, Gap.l),
         child: ListenableBuilder(
-          listenable: Listenable.merge([cursor, ListeningPrefs.revision]),
+          listenable: Listenable.merge([cursor, ListeningPrefs.revision, sleepChanges]),
           builder: (context, _) {
             final u = cursor.value.clamp(0, layout.units.isEmpty ? 0 : layout.units.length - 1);
             final empty = layout.isEmpty;

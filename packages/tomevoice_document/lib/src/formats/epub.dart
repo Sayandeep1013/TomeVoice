@@ -7,6 +7,7 @@ import '../build.dart';
 import '../encoding.dart';
 import '../image_size.dart';
 import '../model.dart';
+import '../narration.dart' show Narration;
 import '../segment.dart';
 import 'html_blocks.dart';
 import 'media_overlays.dart';
@@ -109,15 +110,22 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename, LegacyDec
   final toc = _tocEntries(contents, parts, anchorsOf, withImages);
   // The book's own recorded narration (EPUB 3 media overlays): where in the
   // text each of its clips is said. Looked for only when the manifest names
-  // one, so every other book is read as it was.
-  final narration = readMediaOverlays(
-    opf: opf,
-    manifest: manifest,
-    resolve: (dir, href) => _resolvePath(dir, href, names),
-    read: (path) => _read(archive, path, legacy),
-    sections: withImages,
-    sectionPaths: [for (final p in parts) p.path],
-  );
+  // one, so every other book is read as it was. One that cannot be read is
+  // none, and the book is read all the same (one damaged clock value in its
+  // SMIL once refused the whole book).
+  Narration? narration;
+  try {
+    narration = readMediaOverlays(
+      opf: opf,
+      manifest: manifest,
+      resolve: (dir, href) => _resolvePath(dir, href, names),
+      read: (path) => _read(archive, path, legacy),
+      sections: withImages,
+      sectionPaths: [for (final p in parts) p.path],
+    );
+  } on Object {
+    narration = null;
+  }
   // Many EPUBs never declare a cover, or declare one that is not in the
   // archive; their first picture is the cover.
   final declared = _coverPath(opf, manifest);

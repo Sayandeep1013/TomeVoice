@@ -23,8 +23,12 @@ const pdfParagraphMark = '\u2029';
 /// after the other, and a line ending in a colon over one set in, are two
 /// paragraphs; a note's mark set raised after a word is not said; 6: a
 /// speech that fills its line still ends where the next one is set in, on
-/// a page that sets first lines in and runs them on at the edge).
-const pdfParserVersion = 6;
+/// a page that sets first lines in and runs them on at the edge; 7: a page
+/// with nothing drawn on it is a page of its own, where the platform left it
+/// out and every page after it came one early; 8: a number raised after a
+/// single letter or in a sum, "mc²", "50 m²", is said: only a note's mark
+/// is not).
+const pdfParserVersion = 8;
 
 /// One outline (bookmark) entry: a title and the 0-based page it points at.
 typedef PdfOutlineEntry = ({String title, int page});
@@ -217,8 +221,7 @@ Book bookFromPdfText({
     'TomeVoice can only read PDFs that contain real text.',
   );
   final textChars = pages.fold<int>(0, (n, p) => n + p.trim().length);
-  if (pages.isEmpty || textChars < 40 * pages.length.clamp(1, 20)) throw scanned;
-  resetBlockIds();
+  if (pages.isEmpty || textChars == 0) throw scanned;
 
   final lines = [
     for (var p = 0; p < pages.length; p++)
@@ -231,19 +234,30 @@ Book bookFromPdfText({
   final body = _bodySize(lines);
   final furniture = _furniture(lines, body);
   final coverage = _coverage(lines, furniture, pages);
-  // No page with words of its own, or a scan whose few typed lines come to
-  // less than a short paragraph: nothing worth listening to.
+  // No page with words of its own, a scan whose few typed lines come to
+  // less than a short paragraph, or too little text for its pages: nothing
+  // worth listening to. A PDF each of whose pages has something to read
+  // (see pdfPagesWithText) is never taken for a scan, however little that
+  // is: OCR would find no page in it to read.
   if (coverage.pagesWithText == 0 ||
-      (coverage.mostlyPictures && _letterCount(lines, furniture) < 400)) {
+      (coverage.mostlyPictures && _letterCount(lines, furniture) < 400) ||
+      (coverage.pagesWithText < coverage.pages && textChars < 40 * pages.length.clamp(1, 20))) {
     throw scanned;
   }
+  resetBlockIds();
   final notes = <List<String>>[];
   for (var p = 0; p < lines.length; p++) {
     final foot = _footnotes([
       for (var i = 0; i < lines[p].length; i++)
         if (!furniture[p].contains(i)) lines[p][i],
     ], body);
-    lines[p] = foot.text;
+    // A number raised in the text is a note's mark for certain where the
+    // page has the note it numbers.
+    final numbers = {
+      for (final n in foot.notes)
+        if (_noteNumber(n) case final k?) k,
+    };
+    lines[p] = [for (final l in foot.text) l.withNotes(numbers)];
     notes.add(foot.notes);
   }
 
@@ -364,23 +378,24 @@ typedef PdfTextCoverage = ({int pages, int pagesWithText, bool mostlyPictures});
 /// read. Running heads, page numbers and a scanner's stamp on every page
 /// ("Digitized by Google") do not count.
 PdfTextCoverage pdfTextCoverage(List<String> pages, {List<List<int>>? layout}) {
-  final lines = [
-    for (var p = 0; p < pages.length; p++)
-      _linesOf(pages[p], layout != null && p < layout.length ? layout[p] : null),
-  ];
+  final lines = _pageLines(pages, layout);
   return _coverage(lines, _furniture(lines, _bodySize(lines)), pages);
 }
 
 /// Which of [pages] have something to read, one answer a page, as
 /// [pdfTextCoverage] counts them: the pages a scan's OCR can leave as they
-/// are, and the ones it has to read.
+/// are, and the ones it has to read. A PDF refused as a scan always has one
+/// to read (see [bookFromPdfText]).
 List<bool> pdfPagesWithText(List<String> pages, {List<List<int>>? layout}) {
-  final lines = [
-    for (var p = 0; p < pages.length; p++)
-      _linesOf(pages[p], layout != null && p < layout.length ? layout[p] : null),
-  ];
+  final lines = _pageLines(pages, layout);
   return _withText(lines, _furniture(lines, _bodySize(lines)), pages);
 }
+
+/// The lines of [pages] in reading order, as [bookFromPdfText] reads them.
+List<List<_Line>> _pageLines(List<String> pages, List<List<int>>? layout) => [
+      for (var p = 0; p < pages.length; p++)
+        _readingOrder(_linesOf(pages[p], layout != null && p < layout.length ? layout[p] : null)),
+    ];
 
 PdfTextCoverage _coverage(List<List<_Line>> lines, List<Set<int>> furniture, List<String> pages) {
   final withText = _withText(lines, furniture, pages);
@@ -430,15 +445,29 @@ typedef _Box = ({double x, double y, double w, double size});
 /// One line of a page, which of the extractor's paragraphs it is in, and
 /// where it sits when the platform said.
 class _Line {
-  const _Line(this.text, this.para, [this.box, String? marked]) : marked = marked ?? text;
+  const _Line(this.text, this.para, [this.box, this.raised = const [], String? raw, String? marked])
+      : raw = raw ?? text,
+        marked = marked ?? text;
   final String text;
   final int para;
   final _Box? box;
 
+  /// The line as the extractor wrote it, and the runs of it set smaller and
+  /// raised: notes' marks among them, and powers.
+  final String raw;
+  final List<({int start, int end})> raised;
+
   /// [text] with the marks of notes in it set silent ("Michaelmas,¹"): what
-  /// the paragraph is made of. Everything that looks at lines (running
-  /// heads, page numbers, sentence ends) looks at [text].
+  /// the paragraph is made of, once [withNotes] has told the marks.
+  /// Everything that looks at lines (running heads, page numbers, sentence
+  /// ends) looks at [text].
   final String marked;
+
+  /// This line with its raised runs that are notes' marks set silent, on a
+  /// page with the notes numbered [notes] at its foot.
+  _Line withNotes(Set<int> notes) => raised.isEmpty
+      ? this
+      : _Line(text, para, box, raised, raw, _readable(_withSilentMarks(raw, raised, notes)));
 }
 
 /// A paragraph of the reflowed text and the page it starts on.
@@ -487,7 +516,6 @@ List<_Line> _linesOf(String page, List<int>? layout, [List<int>? raised]) {
     final t = _readable(raw[i].text);
     if (t.isEmpty) continue;
     final k = i * _perLine;
-    final marks = runs[i];
     out.add(_Line(
       t,
       raw[i].para,
@@ -499,7 +527,8 @@ List<_Line> _linesOf(String page, List<int>? layout, [List<int>? raised]) {
               size: at[k + 3] / 10,
             )
           : null,
-      marks == null ? null : _readable(_withSilentMarks(raw[i].text, marks)),
+      runs[i] ?? const [],
+      raw[i].text,
     ));
   }
   return out;
@@ -511,28 +540,87 @@ List<_Line> _linesOf(String page, List<int>? layout, [List<int>? raised]) {
 String _readable(String line) => line.replaceAll(_unreadable, '').trim();
 
 /// [line] with the [runs] set raised in it that are notes' marks shown and
-/// not said ("before Michaelmas,¹ and"): a number or a symbol right after a
-/// word or a stop. One after a digit is a power ("10⁶"); one after a space,
-/// or at the line's start, is not a mark on the word before.
-String _withSilentMarks(String line, List<({int start, int end})> runs) {
+/// not said ("before Michaelmas,¹ and"), on a page with the notes numbered
+/// [notes] at its foot (see [_isNoteMark]).
+String _withSilentMarks(String line, List<({int start, int end})> runs, Set<int> notes) {
   final out = StringBuffer();
   var at = 0;
   for (final r in [...runs]..sort((a, b) => a.start.compareTo(b.start))) {
     if (r.start <= 0 || r.start < at || r.end > line.length || r.end <= r.start) continue;
-    final mark = line.substring(r.start, r.end);
-    if (!_raisedMark.hasMatch(mark) || _spaceOrDigit.hasMatch(line[r.start - 1])) continue;
+    if (!_isNoteMark(line, r.start, r.end, notes)) continue;
     out
       ..write(line.substring(at, r.start))
-      ..write(silentMark(mark));
+      ..write(silentMark(line.substring(r.start, r.end)));
     at = r.end;
   }
   out.write(line.substring(at));
   return out.toString();
 }
 
+/// Whether the run raised at [start] to [end] of [line] is a note's mark.
+/// A symbol ("*", "†") right after a word or a stop is one. So is a number
+/// the page has a note for, and a number after a stop or a word of two
+/// letters or more with no sum about it; one after a single letter is a
+/// power ("x²", "50 m²"), as one in a sum is ("E = mc²", "(a+b)²", "400
+/// km²"), and said. One after a digit is a power too ("10⁶"); one after a
+/// space, or at the line's start, is not a mark on the word before.
+bool _isNoteMark(String line, int start, int end, Set<int> notes) {
+  final mark = line.substring(start, end);
+  final before = line[start - 1];
+  if (!_raisedMark.hasMatch(mark) || _spaceOrDigit.hasMatch(before)) return false;
+  final number = _digitsValue(mark);
+  if (number == null) return true;
+  if (notes.contains(number)) return true;
+  var word = start;
+  while (word > 0 && _letter.hasMatch(line[word - 1])) {
+    word--;
+  }
+  final letters = start - word;
+  if (letters == 1 || (letters == 0 && !_closing.hasMatch(before))) return false;
+  return !_inSum(line, word, end, unit: letters <= 3);
+}
+
+/// Whether a number raised at [end] over the word from [word] is in a sum:
+/// an operator in the word or beside it either side, or, for a [unit]'s
+/// short word, a number before it ("400 km²").
+bool _inSum(String line, int word, int end, {required bool unit}) {
+  var from = word;
+  while (from > 0 && !_space.hasMatch(line[from - 1])) {
+    from--;
+  }
+  if (_operator.hasMatch(line.substring(from, end))) return true;
+  var b = from;
+  while (b > 0 && _space.hasMatch(line[b - 1])) {
+    b--;
+  }
+  if (b > 0 && (_operator.hasMatch(line[b - 1]) || (unit && _digit.hasMatch(line[b - 1])))) return true;
+  var a = end;
+  while (a < line.length && _space.hasMatch(line[a])) {
+    a++;
+  }
+  return a < line.length && _operator.hasMatch(line[a]);
+}
+
 /// What a note's mark says: "1", "12", "*", "†".
 final _raisedMark = RegExp(r'^(\p{Nd}{1,3}|[*†‡§¶]{1,3})$', unicode: true);
 final _spaceOrDigit = RegExp(r'[\s\p{Nd}]', unicode: true);
+final _letter = RegExp(r'[\p{L}\p{M}]', unicode: true);
+final _space = RegExp(r'\s');
+
+/// What a note's mark may follow besides a word: a stop or a closing quote
+/// or bracket.
+final _closing = RegExp('[.,;:!?)\\]’”"\']');
+
+/// The signs of a sum ("-" and "·" are left out: prose has them too).
+final _operator = RegExp('[=+−×÷/^<>≤≥±∙]');
+
+/// The number a note at a page's foot opens with ("12. See…" is 12), or
+/// null for one marked with a symbol.
+int? _noteNumber(String note) {
+  final mark = _noteMark.firstMatch(note)?.group(1);
+  final digits = mark == null ? null : RegExp(r'\d+').firstMatch(mark)?.group(0);
+  return digits == null ? null : int.parse(digits);
+}
 
 /// The text's font size: the one most of the book's characters are set in.
 /// 0 when nothing says.
