@@ -11,6 +11,7 @@
 // stood before, copied here so it cannot drift with the code it pins.
 
 import 'dart:async';
+import 'dart:developer' show reachabilityBarrier;
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -1576,6 +1577,46 @@ void main() {
       expect(s['speed'], 1.25);
       await bg.stop();
       expect(sessions().last['active'], isFalse);
+      await finish(tester);
+    });
+
+    testWidgets('the page left to read on is let go: its voice holds nothing of it', (tester) async {
+      final layout = numbered();
+      final store = LibraryStore(_tmp);
+      final nav = await shelf(tester);
+      unawaited(nav.push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(layout: layout, store: store))));
+      await tester.pumpAndSettle();
+      await playing(tester);
+      final page = WeakReference(tester.state(find.byType(ReaderScreen)));
+      await nav.maybePop();
+      await tester.pumpAndSettle();
+      final bg = BackgroundReading.current.value!;
+      expect(bg.playing, isTrue, reason: 'it reads on without the page');
+      await tester.pumpWidget(const SizedBox());
+      // Its place written as it went, and whatever else was under way.
+      for (var i = 0; i < 20; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await tester.pump();
+      }
+      // Collected twice over (enough kept alive meanwhile for the old
+      // objects to be collected too): whatever nothing held is gone.
+      var cycles = 0;
+      await tester.runAsync(() async {
+        final from = reachabilityBarrier;
+        final heap = <List<int>>[];
+        final watch = Stopwatch()..start();
+        while (reachabilityBarrier < from + 2 && watch.elapsed < const Duration(seconds: 30)) {
+          await Future<void>.delayed(Duration.zero);
+          heap.add(List.generate(30000, (n) => n));
+          if (heap.length > 100) heap.removeAt(0);
+        }
+        cycles = reachabilityBarrier - from;
+      });
+      expect(cycles, greaterThanOrEqualTo(2), reason: 'the heap was not collected');
+      expect(page.target, isNull, reason: "the closed page's state is held while its voice reads on");
+      expect(identical(BackgroundReading.current.value, bg), isTrue);
+      expect(bg.playing, isTrue);
+      await bg.stop();
       await finish(tester);
     });
 

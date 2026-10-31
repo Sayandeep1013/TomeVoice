@@ -13,6 +13,12 @@ import 'stats.dart';
 
 const _svc = SpeechService();
 
+/// The shared reading and listening settings, as the reading in the
+/// background reads them: what a page's voice is given. This holds nothing
+/// of the page; reading the page's own field held the whole closed page for
+/// as long as its voice read on without it.
+ListeningPrefs _shared() => ListeningPrefs.loaded ?? ListeningPrefs.memory;
+
 /// What a book's page does for the reading behind it (its
 /// [ReaderController]): shows the place, says what happened, and turns its
 /// pages. ReaderScreen's state is the one.
@@ -84,7 +90,7 @@ class ReaderController {
       unawaited(bg.stop());
     }
     player = back?.player ??
-        readingScheduler(layout: layout, prefs: () => prefs, language: language, bookId: _book.id, service: _svc);
+        readingScheduler(layout: layout, prefs: _shared, language: language, bookId: _book.id, service: _svc);
     player.onFinished = _onFinished;
     tookBack = back != null;
     if (back != null) {
@@ -111,7 +117,9 @@ class ReaderController {
   late final String language = primaryLanguage(_book.metadata.language);
 
   /// The reading and listening settings: the shared ones, once the page has
-  /// loaded them.
+  /// loaded them. It is only ever the one shared instance (memory makes it
+  /// if nothing has loaded it yet, and load gives that same one back), and
+  /// it is changed in place, so the voice reads it from there ([_shared]).
   ListeningPrefs prefs = ListeningPrefs.memory;
 
   /// The place: the sentence being read, or to be read from.
@@ -317,7 +325,7 @@ class ReaderController {
     player.endFade();
     if (!view.mounted) return false;
     final bg = BackgroundReading.adopt(
-      player: readingScheduler(layout: layout, prefs: () => prefs, language: language, bookId: _book.id, service: _svc),
+      player: readingScheduler(layout: layout, prefs: _shared, language: language, bookId: _book.id, service: _svc),
       layout: layout,
       store: store,
       bookId: _book.id,
