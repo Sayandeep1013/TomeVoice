@@ -68,6 +68,111 @@ void main() {
     });
   });
 
+  group('a series found across the library', () {
+    test('in the words titles share before their numbers, at the end or within', () {
+      expect(seriesAcross([..._ice, ..._law]), [
+        (name: 'A Song of Ice and Fire', index: 1.0),
+        (name: 'A Song of Ice and Fire', index: 3.0),
+        (name: 'A Song of Ice and Fire', index: 4.0),
+        (name: 'A Song of Ice and Fire', index: 5.0),
+        (name: 'The First Law', index: 1.0),
+        (name: 'The First Law', index: 2.0),
+        (name: 'The First Law', index: 3.0),
+      ]);
+      // Each alone names a series of its own, or none.
+      expect(seriesFromTitle(_ice[1]), (name: 'A Storm of Swords A Song of Ice and Fire', index: 3.0));
+      expect(seriesFromTitle(_law.first), isNull);
+      // Case and separators aside; two copies of a book are not a series
+      // of their own, and are in the one their title shares.
+      final copies = seriesAcross([
+        'A Game of Thrones: A Song of Ice and Fire, 1',
+        'A GAME OF THRONES - a song of ice and fire 1',
+        'A Storm of Swords (A Song of Ice and Fire #3)',
+      ]);
+      expect(copies, [
+        (name: 'A Song of Ice and Fire', index: 1.0),
+        (name: 'A Song of Ice and Fire', index: 1.0),
+        (name: 'A Song of Ice and Fire', index: 3.0),
+      ]);
+    });
+
+    test('a title joins a series the library has already, spelled as it is', () {
+      expect(seriesAcross(['A Clash of Kings A Song of Ice and Fire 2'], named: ['A Song of Ice and Fire']),
+          [(name: 'A Song of Ice and Fire', index: 2.0)]);
+      expect(seriesAcross(['The First Law 4 Best Served Cold', 'The First Law, Book Five'], named: ['The first law']),
+          [(name: 'The first law', index: 4.0), (name: 'The first law', index: 5.0)]);
+    });
+
+    test('a title that shares none names what it names alone', () {
+      final alone = [
+        'A Song of Ice and Fire 3',
+        'Mistborn, Book Two',
+        'Berserk Vol. 41',
+        'Leviathan Wakes (The Expanse #1)',
+        'Fahrenheit 451',
+        'Apollo 13',
+        'Catch-22',
+        'Blade Runner 2049',
+        'Pride and Prejudice',
+      ];
+      expect(seriesAcross(alone), [for (final t in alone) seriesFromTitle(t)]);
+      expect(seriesAcross(alone, named: ['Mistborn', 'The Expanse']), [for (final t in alone) seriesFromTitle(t)]);
+      // Nor do numbers that are only part of a title, beside another book.
+      final beside = ['Fahrenheit 451', 'Fahrenheit 9/11', 'Apollo 13', 'Apollo 11', 'Catch-22', 'Catch-22 Again',
+        'Blade Runner 2049', 'Blade Runner 2'];
+      expect(seriesAcross(beside), [null, null, null, null, null, null, null, (name: 'Blade Runner', index: 2.0)]);
+    });
+
+    test('and not two books that only share a word, little words, or one place', () {
+      // One word.
+      expect(seriesAcross(['Ocean Dreams 2', 'Desert Dreams 3']),
+          [(name: 'Ocean Dreams', index: 2.0), (name: 'Desert Dreams', index: 3.0)]);
+      // One word and little ones: "of the King", "the King".
+      expect(seriesAcross(['Rise of the King 2', 'Return of the King 3']),
+          [(name: 'Rise of the King', index: 2.0), (name: 'Return of the King', index: 3.0)]);
+      expect(seriesAcross(['Songs of the 2', 'Tales of the 3']),
+          [(name: 'Songs of the', index: 2.0), (name: 'Tales of the', index: 3.0)]);
+      // The same words before the same number: one place, not a series.
+      expect(seriesAcross(['Learn Python 3 the Hard Way', 'Learn Python 3 in a Day']), [null, null]);
+      expect(seriesAcross(['Harry Potter and the Order of the Phoenix 5', 'Song of the Phoenix 3']).map((s) => s?.name),
+          ['Harry Potter and the Order of the Phoenix', 'Song of the Phoenix']);
+    });
+
+    test('thousands of books are looked through in moments', () {
+      // 5,000 titles: 600 series of five, half with the series before the
+      // number at the end and half with it before one within; and books in
+      // none, some with a number that is only theirs.
+      const first = ['Iron', 'Silver', 'Winter', 'Broken', 'Hidden', 'Burning', 'Silent', 'Golden', 'Shadow', 'Storm',
+        'Glass', 'Ember', 'Frost', 'Crimson', 'Hollow', 'Wild', 'Black', 'Pale', 'Dust', 'Salt'];
+      const second = ['Crown', 'Throne', 'Sea', 'Road', 'Tower', 'Empire', 'Song', 'Blade', 'Kingdom', 'River',
+        'Gate', 'Forest', 'Star', 'Harbour', 'Wolf', 'Dawn', 'Archive', 'Saga', 'Covenant', 'Legacy', 'Accord',
+        'Mountain', 'Lantern', 'Orchard', 'Circle', 'Tide', 'Compass', 'Garden', 'Engine', 'Library'];
+      const books = ['The Long Night', 'A Cold Fire', 'Ashes and Dust', 'The Last Gate', 'Into the Dark'];
+      final series = [for (final a in first) for (final b in second) 'The $a $b'];
+      final titles = [
+        for (var s = 0; s < series.length; s++)
+          for (var b = 1; b <= 5; b++)
+            s.isEven ? '${books[b - 1]} ${series[s]} $b' : '${series[s]} $b ${books[b - 1]} - Some Author',
+        for (var i = 0; i < 1500; i++) '${books[i % 5]} and Other Stories of the ${first[i % 20]} ${second[i % 30]}',
+        for (var i = 0; i < 500; i++) '${first[i % 20]} Poems of ${1500 + i}',
+      ];
+      expect(titles, hasLength(5000));
+      final clock = Stopwatch()..start();
+      final found = seriesAcross(titles);
+      clock.stop();
+      for (var s = 0; s < series.length; s++) {
+        for (var b = 1; b <= 5; b++) {
+          expect(found[s * 5 + b - 1], (name: series[s], index: b.toDouble()), reason: titles[s * 5 + b - 1]);
+        }
+      }
+      expect(found.skip(3000).where((s) => s != null), isEmpty);
+      // ignore: avoid_print
+      print('Series found across 5,000 titles in ${clock.elapsedMilliseconds} ms');
+      // Every title against every other would take many seconds.
+      expect(clock.elapsed, lessThan(const Duration(seconds: 2)));
+    });
+  });
+
   group('the store', () {
     late Directory tmp;
     late LibraryStore store;
@@ -135,6 +240,163 @@ void main() {
       final again = await LibraryStore(tmp).list();
       expect(again.firstWhere((e) => e.id == three.id).seriesName, isNull);
       expect(seriesIn(again), [(name: 'A Song of Ice and Fire', count: 2)]);
+    });
+
+    // library.json as an earlier build left it: each book with the series
+    // it kept, the reader's, or none at all (no key).
+    var kept = 0;
+    Map<String, Object?> entry(String title, {Object? series = _absent, double? index, String source = 'epub'}) => {
+          'id': (++kept).toRadixString(16).padLeft(16, '0'),
+          'title': title,
+          'authors': const <String>[],
+          'source': source,
+          'wordCount': 1000,
+          'sourcePath': '',
+          'addedAt': DateTime(2026, 1, 1).add(Duration(days: kept)).toIso8601String(),
+          'category': 'reading',
+          if (series != _absent) 'series': series,
+          if (index != null) 'seriesIndex': index,
+        };
+    void keep(List<Map<String, Object?>> books) => File('${tmp.path}/library.json').writeAsStringSync(jsonEncode({
+          'categories': [for (final c in Category.defaults) c.toJson()],
+          'defaultCategory': 'reading',
+          'books': books,
+        }));
+
+    /// Each book's series and number, by title.
+    Map<String, (String?, double?)> seriesOf(Iterable<LibraryEntry> books) =>
+        {for (final e in books) e.title: (e.seriesName, e.seriesIndex)};
+
+    /// The same, as library.json has them.
+    Map<String, (Object?, Object?)> onDisk() => {
+          for (final b in (jsonDecode(File('${tmp.path}/library.json').readAsStringSync()) as Map)['books'] as List)
+            (b as Map)['title'] as String: (b['series'], b['seriesIndex']),
+        };
+
+    test("books kept before series were get the series their titles share with the library's", () async {
+      keep([
+        for (final t in [..._ice, ..._law, 'Mistborn, Book Two', 'Fahrenheit 451']) entry(t),
+        entry('Solo Leveling 2', source: 'web'),
+        entry('Solo Leveling 3', source: 'web'),
+      ]);
+      final expected = {
+        _ice[0]: ('A Song of Ice and Fire', 1.0),
+        _ice[1]: ('A Song of Ice and Fire', 3.0),
+        _ice[2]: ('A Song of Ice and Fire', 4.0),
+        _ice[3]: ('A Song of Ice and Fire', 5.0),
+        _law[0]: ('The First Law', 1.0),
+        _law[1]: ('The First Law', 2.0),
+        _law[2]: ('The First Law', 3.0),
+        'Mistborn, Book Two': ('Mistborn', 2.0),
+        'Fahrenheit 451': (null, null),
+        'Solo Leveling 2': (null, null),
+        'Solo Leveling 3': (null, null),
+      };
+      expect(seriesOf(await store.list()), expected);
+      // Written as any change is, and read again as found.
+      expect(onDisk()[_ice[1]], ('A Song of Ice and Fire', 3.0));
+      expect(onDisk()[_law.first], ('The First Law', 1.0));
+      final again = LibraryStore(tmp);
+      expect(seriesOf(await again.list()), expected);
+      again.hold();
+    });
+
+    test('titles that write a series two ways put it on the shelf once', () async {
+      keep([entry('Star Wars: Thrawn 1'), entry('Star Wars Thrawn 2'), entry('Star Wars - Thrawn 3')]);
+      final shown = await store.list();
+      expect(seriesIn(shown), hasLength(1));
+      expect([for (final e in booksInSeries(shown, seriesIn(shown).single.name)) e.seriesIndex], [1.0, 2.0, 3.0]);
+    });
+
+    test("a series an earlier build found in each title alone is found again; the reader's stays", () async {
+      keep([
+        // As builds that asked each title alone kept them.
+        entry(_ice[0], series: 'A Game of Thrones A Song of Ice and Fire', index: 1),
+        entry(_ice[1], series: 'A Storm of Swords A Song of Ice and Fire', index: 3),
+        entry(_ice[2], series: 'A Feast for Crows A Song of Ice and Fire', index: 4),
+        entry(_ice[3], series: 'A Dance with Dragons A Song of Ice and Fire', index: 5),
+        // The reader's: a series, a number of their own, and none.
+        entry('A Clash of Kings A Song of Ice and Fire 2', series: 'Westeros', index: 2),
+        entry('The Hedge Knight A Song of Ice and Fire 7',
+            series: 'The Hedge Knight A Song of Ice and Fire', index: 0.5),
+        entry('The Sworn Sword A Song of Ice and Fire 8', series: ''),
+      ]);
+      final shown = await store.list();
+      expect(seriesOf(shown), {
+        _ice[0]: ('A Song of Ice and Fire', 1.0),
+        _ice[1]: ('A Song of Ice and Fire', 3.0),
+        _ice[2]: ('A Song of Ice and Fire', 4.0),
+        _ice[3]: ('A Song of Ice and Fire', 5.0),
+        'A Clash of Kings A Song of Ice and Fire 2': ('Westeros', 2.0),
+        'The Hedge Knight A Song of Ice and Fire 7': ('The Hedge Knight A Song of Ice and Fire', 0.5),
+        'The Sworn Sword A Song of Ice and Fire 8': (null, null),
+      });
+      expect(seriesLine(shown.firstWhere((e) => e.title == _ice[1])), 'Book 3 of A Song of Ice and Fire');
+      final disk = onDisk();
+      expect(disk[_ice[1]], ('A Song of Ice and Fire', 3.0));
+      expect(disk['The Sworn Sword A Song of Ice and Fire 8'], ('', null), reason: 'still taken out of any');
+      // Sort: Series has the four together, in their order.
+      expect([for (final e in sortBooks(shown, LibrarySort.series)) e.title].where(_ice.contains), _ice);
+    });
+
+    test('a book added joins the series its title shares, and Sort: Series has them in order', () async {
+      for (final t in _ice) {
+        await add('$t.txt', story(t));
+      }
+      expect([for (final e in sortBooks(await store.list(), LibrarySort.series)) (e.seriesName, e.seriesIndex)], [
+        ('A Song of Ice and Fire', 1.0),
+        ('A Song of Ice and Fire', 3.0),
+        ('A Song of Ice and Fire', 4.0),
+        ('A Song of Ice and Fire', 5.0),
+      ]);
+      final clash = await add('A Clash of Kings A Song of Ice and Fire 2.txt', story('A clash of kings'));
+      expect((clash.seriesName, clash.seriesIndex), ('A Song of Ice and Fire', 2.0));
+      expect([for (final e in booksInSeries(await store.list(), 'A Song of Ice and Fire')) e.seriesIndex],
+          [1.0, 2.0, 3.0, 4.0, 5.0]);
+      expect(seriesIn(await store.list()), [(name: 'A Song of Ice and Fire', count: 5)]);
+    });
+
+    test('a series the book names, or the reader gives, stays whatever its title shares', () async {
+      await add('${_ice[0]}.txt', story('Winter is coming'));
+      final storm = await add('${_ice[1]}.txt', story('The day was grey and bitter cold'));
+      final f = File('${tmp.path}/incoming/feast/feast.fb2')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('<?xml version="1.0" encoding="utf-8"?>'
+            '<FictionBook><description><title-info><book-title>${_ice[2]}</book-title>'
+            '<sequence name="Song of Ice and Fire" number="4"/></title-info></description>'
+            '<body><section><title><p>Prologue</p></title><p>${'The feast was long, and the night was cold. ' * 40}</p>'
+            '</section></body></FictionBook>');
+      final feast = await store.importFile(PickedFile(path: f.path, name: 'feast.fb2'));
+      expect((feast.title, feast.seriesName, feast.seriesIndex), (_ice[2], 'Song of Ice and Fire', 4.0));
+      await store.setSeries(storm.id, 'Westeros', 3);
+      await add('${_ice[3]}.txt', story('A dance with dragons'));
+      expect(seriesOf(await store.list()), {
+        _ice[0]: ('A Song of Ice and Fire', 1.0),
+        _ice[1]: ('Westeros', 3.0),
+        _ice[2]: ('Song of Ice and Fire', 4.0),
+        _ice[3]: ('A Song of Ice and Fire', 5.0),
+      });
+    });
+
+    test("a shut secret shelf's books neither join a series shown nor change one", () async {
+      final storm = await add('${_ice[1]}.txt', story('The day was grey and bitter cold'));
+      final secret = await store.addCategory('Secret', secret: true);
+      await store.moveBooks({storm.id}, secret.id);
+      // Added with the shelf shut, a title shares nothing with its books.
+      final game = await add('${_ice[0]}.txt', story('Winter is coming'));
+      expect((game.seriesName, game.seriesIndex), ('A Game of Thrones A Song of Ice and Fire', 1.0));
+      expect(seriesIn((await store.index()).entries), [(name: 'A Game of Thrones A Song of Ice and Fire', count: 1)]);
+      // Read again with it shut, nothing changes, on the shelf or off it.
+      final again = LibraryStore(tmp);
+      final all = seriesOf(await again.list(all: true));
+      again.hold();
+      expect(all[_ice[0]], ('A Game of Thrones A Song of Ice and Fire', 1.0));
+      expect(all[_ice[1]], ('A Storm of Swords A Song of Ice and Fire', 3.0));
+      // Open, the two are one series.
+      LibraryStore.secretOpen.value = true;
+      final open = seriesOf(await store.list());
+      expect(open[_ice[0]], ('A Song of Ice and Fire', 1.0));
+      expect(open[_ice[1]], ('A Song of Ice and Fire', 3.0));
     });
 
     test('a book imported again keeps its tags and its series', () async {
@@ -346,3 +608,16 @@ void main() {
 }
 
 const _absent = Object();
+
+// As a real library has them, with nothing in their files to say.
+const _ice = [
+  'A Game of Thrones A Song of Ice and Fire 1',
+  'A Storm of Swords A Song of Ice and Fire 3',
+  'A Feast for Crows A Song of Ice and Fire 4',
+  'A Dance with Dragons A Song of Ice and Fire 5',
+];
+const _law = [
+  'The First Law 1 The Blade Itself - Joe Abercrombie',
+  'The First Law 2 Before They Are Hanged - Joe Abercrombie',
+  'The First Law 3 Last Argument of Kings - Joe Abercrombie',
+];
