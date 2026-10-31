@@ -110,6 +110,8 @@ void main() {
           '<div class="mw-collapsible"><div class="mw-collapsible-content">${para('A long quotation in a box.') * 4}</div></div></section>'
           '<section data-mw-section-id="2"><div class="mw-heading mw-heading2"><h2>Works</h2></div>${para('Works open here.')}'
           '<section data-mw-section-id="3"><div class="mw-heading mw-heading3"><h3>Poetry</h3></div>${para('Poetry opens here.')}</section></section>'
+          '<section data-mw-section-id="7"><div class="mw-heading mw-heading2"><h2>Explanatory notes</h2></div>'
+          '<ol><li>↑ His tutor and his teacher were not related.</li></ol></section>'
           '<section data-mw-section-id="4"><div class="mw-heading mw-heading2"><h2>References</h2></div>'
           '<ol class="references"><li id="cite_note-1">Dutta, K. (1995). Retrieved 12 April 2020.</li></ol></section>'
           '<section data-mw-section-id="5"><div class="mw-heading mw-heading2"><h2>Bibliography</h2></div>'
@@ -126,7 +128,7 @@ void main() {
         'Poetry opens here.',
       ], [
         'ˈrobind', 'ⓘ', 'Retrieved 12 April 2020', 'Collected Poems and Plays', 'Project Gutenberg',
-        'References', 'Bibliography', 'External links',
+        'References', 'Bibliography', 'External links', 'Explanatory notes', 'were not related',
       ]);
     });
 
