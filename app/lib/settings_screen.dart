@@ -60,6 +60,10 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   LibraryIndex? _index;
   bool _tellUpdates = true;
 
+  /// Whether there is a secret shelf, open or shut: automatic backups leave
+  /// it out unless the reader lets it in.
+  bool _secretShelf = false;
+
   /// The screen as it looked before a theme change, fading out over the
   /// screen as it looks now: a true cross-fade, where a theme animation
   /// alone would snap every colour the app draws itself.
@@ -100,7 +104,13 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
 
   Future<void> _loadIndex() async {
     final idx = await widget.store.index();
-    if (mounted) setState(() => _index = idx);
+    final secret = (await widget.store.index(all: true)).categories.any((c) => c.secret);
+    if (mounted) {
+      setState(() {
+        _index = idx;
+        _secretShelf = secret;
+      });
+    }
   }
 
   void _change(void Function() f) {
@@ -157,6 +167,22 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     if (every != BackupEvery.off) unawaited(AutoBackup.runIfDue(widget.store));
   }
 
+  /// The secret shelf in automatic backups, or out of them. In only once the
+  /// reader has been told what that means, and said yes.
+  Future<void> _setBackupSecret(bool on) async {
+    if (on &&
+        !await confirm(
+          context,
+          title: 'Back up the secret shelf too?',
+          body: 'Automatic backups are plain files. Anyone who has one can open the books on your secret shelf, '
+              'and read what you saved from them.',
+          action: 'Back it up',
+        )) {
+      return;
+    }
+    if (mounted) _change(() => _prefs.backupSecret = on);
+  }
+
   /// The folder backups go to. True if one was picked.
   Future<bool> _pickBackupFolder() async {
     PickedFolder? folder;
@@ -169,9 +195,9 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     final picked = folder;
     _change(() => _prefs.backupFolder = picked);
     AutoBackup.problem.value = null;
-    // A backup is a plain file, as one saved by hand: it carries the secret
-    // shelf's books too.
-    if ((await widget.store.index(all: true)).categories.any((c) => c.secret) && mounted) {
+    // A backup is a plain file, as one saved by hand: let in, the secret
+    // shelf's books are in each one (they are left out otherwise).
+    if (_prefs.backupSecret && _secretShelf && mounted) {
       showSnack(context, 'Backups include your secret shelf. Anyone who has one can open its books.', long: true);
     }
     return true;
@@ -437,7 +463,11 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           icon: Icons.lock_outline_rounded,
                           title: 'Secret shelf',
                           subtitle: 'Books that only your fingerprint, face or phone PIN opens',
-                          onTap: () => showSecretShelfSheet(context, widget.store),
+                          onTap: () async {
+                            await showSecretShelfSheet(context, widget.store);
+                            // Made, or turned back into an ordinary shelf.
+                            await _loadIndex();
+                          },
                         ),
                         _Link(
                           icon: Icons.backup_outlined,
@@ -475,6 +505,16 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                             padding: EdgeInsets.zero,
                             onChanged: (v) => _change(() => _prefs.backupChapters = v),
                           ),
+                          if (_secretShelf)
+                            SwitchRow(
+                              title: 'With the secret shelf',
+                              subtitle: _prefs.backupSecret
+                                  ? 'Anyone who has a backup file can open its books'
+                                  : 'Left out: its books, quotes and places are not in these backups',
+                              value: _prefs.backupSecret,
+                              padding: EdgeInsets.zero,
+                              onChanged: (v) => unawaited(_setBackupSecret(v)),
+                            ),
                           _AutoBackupStatus(store: widget.store, prefs: _prefs),
                         ],
                         const SizedBox(height: Gap.s),

@@ -221,4 +221,116 @@ void main() {
     expect(restored.backupFolder?.uri, folder.uri);
     expect(restored.notesAloud, isTrue);
   });
+
+  group('with a secret shelf', () {
+    const open = 'aaaaaaaaaaaaaaa1', hidden = 'bbbbbbbbbbbbbbb2', gone = 'ccccccccccccccc3';
+    late LibraryStore store;
+
+    void put(String rel, Object json) => File('${tmp.path}/$rel')
+      ..createSync(recursive: true)
+      ..writeAsStringSync(jsonEncode(json));
+
+    setUp(() {
+      Map<String, Object?> book(String id, String title, String category) => {
+            'id': id,
+            'title': title,
+            'source': 'epub',
+            'addedAt': '2026-01-01T00:00:00.000',
+            'cover': '${tmp.path}/books/$id/img/cover.jpg',
+            'category': category,
+          };
+      put('library.json', {
+        'categories': [
+          {'id': 'reading', 'name': 'Reading'},
+          {'id': 'vault', 'name': 'Vault', 'secret': true},
+        ],
+        'defaultCategory': 'reading',
+        'books': [book(open, 'Open Book', 'reading'), book(hidden, 'Hidden Book', 'vault')],
+      });
+      put('books/$open/parsed.json', {'title': 'Open Book'});
+      put('books/$hidden/parsed.json', {'title': 'Hidden Book'});
+      Map<String, Object?> mark(String id, String book, {bool left = false}) => {
+            'id': id,
+            'book': book,
+            'bookTitle': 'Of $book',
+            'kind': 'quote',
+            'at': {'sectionIndex': 0},
+            'text': 'Words.',
+            'created': '2026-10-01T00:00:00.000Z',
+            if (left) 'left': '2026-10-02T00:00:00.000Z',
+          };
+      // A book gone from an open shelf says so; one gone before 1.4 may
+      // have been a secret one.
+      put('marks.json', [mark('m1', open), mark('m2', hidden), mark('m3', gone), mark('m4', gone, left: true)]);
+      put('stats.json', {
+        'days': {
+          '2026-10-30': {
+            'listen': 9,
+            'books': {open: 4, hidden: 5},
+          },
+        },
+      });
+      put('prefs.json', {
+        'voiceByBook': {open: 'a', hidden: 'b'},
+        'castByBook': {
+          hidden: {'Mira': 'x'},
+        },
+      });
+      put('tints.json', {
+        'covers': {'${tmp.path}/books/$hidden/img/cover.jpg': 1, '${tmp.path}/books/$open/img/cover.jpg': 2},
+        'books': {hidden: 1, open: 2},
+      });
+      put('updates.json', {
+        'new': [
+          {'book': hidden, 'title': 'Hidden Book', 'name': 'Chapter 2', 'index': 1, 'found': '2026-10-30T00:00:00.000'},
+        ],
+      });
+      File('${tmp.path}/library.json.broken').writeAsStringSync('{"books": [{"title": "Hidden Book"');
+      store = LibraryStore(tmp);
+      ListeningPrefs.memory
+        ..backupEvery = 'daily'
+        ..backupFolder = folder;
+    });
+
+    tearDown(() => store.hold());
+
+    Map<String, Object?> written() =>
+        Map<String, Object?>.from(calls.singleWhere((c) => c.method == 'backupToFolder').arguments as Map);
+
+    test('automatic backups leave it out: its books, and all of them in every file', () async {
+      expect(await AutoBackup.backUpNow(store), isTrue);
+      final args = written();
+      final leaveOut = (args['leaveOut'] as List).cast<String>();
+      expect(leaveOut, containsAll(['books/$hidden/', 'library.json.broken']));
+      expect(leaveOut, isNot(contains('books/$open/')));
+      final swapped = Map<String, String>.from(args['swapped'] as Map);
+      for (final text in swapped.values) {
+        for (final secret in [hidden, 'Hidden Book', 'Vault', 'Mira']) {
+          expect(text, isNot(contains(secret)));
+        }
+      }
+      expect([for (final b in (jsonDecode(swapped['library.json']!) as Map)['books'] as List) (b as Map)['id']], [open]);
+      expect([for (final m in jsonDecode(swapped['marks.json']!) as List) (m as Map)['id']], ['m1', 'm4']);
+      expect(jsonDecode(swapped['stats.json']!), {
+        'days': {
+          '2026-10-30': {
+            'listen': 9,
+            'books': {open: 4},
+          },
+        },
+      });
+      expect((jsonDecode(swapped['prefs.json']!) as Map)['voiceByBook'], {open: 'a'});
+      expect(jsonDecode(swapped['updates.json']!), {'new': []});
+      expect((jsonDecode(args['manifest'] as String) as Map)['books'], 1);
+    });
+
+    test('let in, it goes, as in a backup saved by hand', () async {
+      ListeningPrefs.memory.backupSecret = true;
+      expect(await AutoBackup.backUpNow(store), isTrue);
+      final args = written();
+      expect(args.containsKey('leaveOut'), isFalse);
+      expect(args.containsKey('swapped'), isFalse);
+      expect(ListeningPrefs.fromJson(ListeningPrefs.memory.toJson()).backupSecret, isTrue);
+    });
+  });
 }

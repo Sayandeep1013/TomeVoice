@@ -67,6 +67,7 @@ class ListeningPrefs {
     this.backupEvery = 'off',
     this.backupFolder,
     this.backupChapters = false,
+    this.backupSecret = false,
     this.lastBackup,
     this.webdavOn = false,
     this.webdavUrl,
@@ -332,6 +333,11 @@ class ListeningPrefs {
   PickedFolder? backupFolder;
   bool backupChapters;
 
+  /// Whether automatic backups take the secret shelves too: off unless the
+  /// reader turns it on, told that whoever has a backup file can open their
+  /// books (see secretLeftOut).
+  bool backupSecret;
+
   /// When the last automatic backup was made.
   DateTime? lastBackup;
 
@@ -469,6 +475,7 @@ class ListeningPrefs {
         if (backupEvery != 'off') 'backupEvery': backupEvery,
         if (backupFolder != null) 'backupFolder': backupFolder!.toJson(),
         if (backupChapters) 'backupChapters': true,
+        if (backupSecret) 'backupSecret': true,
         if (lastBackup != null) 'lastBackup': lastBackup!.toIso8601String(),
         if (webdavOn) 'webdavOn': true,
         if (webdavUrl != null) 'webdavUrl': webdavUrl,
@@ -568,6 +575,7 @@ class ListeningPrefs {
         backupEvery: json['backupEvery'] as String? ?? 'off',
         backupFolder: PickedFolder.fromJson(json['backupFolder']),
         backupChapters: json['backupChapters'] == true,
+        backupSecret: json['backupSecret'] == true,
         lastBackup: DateTime.tryParse(json['lastBackup'] as String? ?? ''),
         webdavOn: json['webdavOn'] == true,
         webdavUrl: json['webdavUrl'] as String?,

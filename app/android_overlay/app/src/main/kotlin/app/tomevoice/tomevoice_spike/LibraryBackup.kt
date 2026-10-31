@@ -24,8 +24,12 @@ object LibraryBackup {
     private const val MAX_BYTES = 16L shl 30
     private const val MAX_FILES = 500_000
 
-    /** What is never backed up: imports in flight, caches, site cookies. */
-    private fun skip(rel: String, includeChapters: Boolean): Boolean {
+    /**
+     * What is never backed up: imports in flight, caches, site cookies; and
+     * what this backup leaves out, [leaveOut] (each a file, or a folder ending
+     * in "/", from the library's top: a secret shelf's books, see AutoBackup).
+     */
+    private fun skip(rel: String, includeChapters: Boolean, leaveOut: Collection<String> = emptyList()): Boolean {
         val top = rel.substringBefore('/')
         if (top.startsWith(".")) return true // .restore, .before-restore
         if (top == "incoming") return true
@@ -46,16 +50,22 @@ object LibraryBackup {
         // is this phone's: its text is backed up with its book once made.
         if (top == "ocr") return true
         if (!includeChapters && rel.startsWith("books/") && rel.split('/').getOrNull(2) == "ch") return true
+        if (leaveOut.any { if (it.endsWith("/")) rel.startsWith(it) else rel == it }) return true
         return false
     }
 
-    private fun files(root: File, includeChapters: Boolean, sources: File?): List<Pair<File, String>> {
+    private fun files(
+        root: File,
+        includeChapters: Boolean,
+        sources: File?,
+        leaveOut: Collection<String> = emptyList(),
+    ): List<Pair<File, String>> {
         val out = mutableListOf<Pair<File, String>>()
         val base = root.absolutePath.trimEnd('/') + "/"
         root.walkTopDown().forEach { f ->
             if (!f.isFile) return@forEach
             val rel = f.absolutePath.removePrefix(base)
-            if (!skip(rel, includeChapters)) out.add(f to rel)
+            if (!skip(rel, includeChapters, leaveOut)) out.add(f to rel)
         }
         // Web novels' sources moved to internal storage (SourceStore.open), out
         // of the library's folder: their lists, what is installed and each
@@ -79,8 +89,10 @@ object LibraryBackup {
 
     /**
      * Zip [root] into [out], [manifest] first, with what of [sources] (the
-     * web novels' sources, in internal storage) is carried. [progress] gets
-     * bytes done and the total. Returns the number of files written.
+     * web novels' sources, in internal storage) is carried. [leaveOut] is
+     * left out too, and each file in [swapped] goes in with the text given
+     * in place of its own. [progress] gets bytes done and the total. Returns
+     * the number of files written.
      */
     fun write(
         root: File,
@@ -88,9 +100,11 @@ object LibraryBackup {
         manifest: String,
         includeChapters: Boolean,
         sources: File? = null,
+        leaveOut: Collection<String> = emptyList(),
+        swapped: Map<String, String> = emptyMap(),
         progress: (Long, Long) -> Unit,
     ): Int {
-        val list = files(root, includeChapters, sources)
+        val list = files(root, includeChapters, sources, leaveOut + swapped.keys)
         val total = list.sumOf { it.first.length() }
         var done = 0L
         var lastReport = 0L
@@ -98,6 +112,11 @@ object LibraryBackup {
             zip.putNextEntry(ZipEntry(MANIFEST))
             zip.write(manifest.toByteArray(Charsets.UTF_8))
             zip.closeEntry()
+            for ((rel, text) in swapped) {
+                zip.putNextEntry(ZipEntry(rel))
+                zip.write(text.toByteArray(Charsets.UTF_8))
+                zip.closeEntry()
+            }
             val buf = ByteArray(1 shl 16)
             for ((file, rel) in list) {
                 zip.putNextEntry(ZipEntry(rel).apply { time = file.lastModified() })
@@ -117,7 +136,7 @@ object LibraryBackup {
             }
         }
         progress(total, total)
-        return list.size
+        return list.size + swapped.size
     }
 
     /**
