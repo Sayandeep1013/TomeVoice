@@ -2331,6 +2331,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             speed: () => _speed,
             voiceLabel: _voiceLabel,
             sleepNote: () => _reader.sleepNote,
+            sleepChanges: _reader.sleepChanges,
             onPlay: _reader.togglePlay,
             onGoTo: (u) => _reader.goTo(u),
             onPrevChapter: () => _reader.goChapter(-1),

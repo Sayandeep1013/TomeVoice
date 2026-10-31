@@ -846,7 +846,9 @@ void main() {
       await finish(tester);
     });
 
-    testWidgets("set to the chapter's end, it pauses as the next chapter begins", (tester) async {
+    testWidgets("set to the chapter's end, Next chapter moves it on to that chapter's end", (tester) async {
+      // Changed on purpose: any change of chapter paused it ("End of
+      // chapter: paused."), Next chapter and a scroll by hand among them.
       await open(tester, numbered());
       await sleepChoice(tester, 'Chapter');
       expect(find.textContaining('SLEEP AT CHAPTER END'), findsOneWidget);
@@ -855,8 +857,53 @@ void main() {
       expect(find.textContaining('SLEEP AT CHAPTER END'), findsOneWidget, reason: 'still in the chapter');
       await tester.tap(find.byTooltip('Next chapter'));
       await tester.pumpAndSettle();
-      expect(find.text('End of chapter: paused.'), findsOneWidget);
+      expect(find.text('End of chapter: paused.'), findsNothing);
+      expect(find.textContaining('SLEEP AT CHAPTER END'), findsOneWidget, reason: "now the end of this one");
+      await finish(tester);
+    });
+
+    testWidgets("set to the chapter's end, it pauses as the voice reads into the next", (tester) async {
+      final layout = ReadingLayout.build(ingestString(
+        [
+          '# One',
+          'The first sentence is here. The second follows it.',
+          '# Two',
+          'The third sentence is here. The last one ends it.',
+        ].join(blank),
+        filename: 'short.md',
+        title: 'Short',
+      ));
+      await open(tester, layout);
+      await sleepChoice(tester, 'Chapter');
+      await playing(tester);
+      const paused = 'End of chapter: paused.';
+      for (var i = 0; i < 600 && find.text(paused).evaluate().isEmpty; i++) {
+        _head += 1500;
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 5)));
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(find.text(paused), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byTooltip('Play'), findsOneWidget, reason: 'paused');
+      expect(washed(tester), startsWith('Two'), reason: 'at the next chapter');
       expect(find.textContaining('SLEEP'), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('Now Playing follows the sleep timer: it goes when it has paused the book', (tester) async {
+      // It said "SLEEP 1M" and "Sleep on" after the book had paused.
+      await open(tester, numbered());
+      await sleepChoice(tester, '15 min');
+      await tester.fling(find.byTooltip('Speed'), const Offset(0, -300), 1500);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      final now = find.byType(NowPlayingScreen);
+      expect(find.descendant(of: now, matching: find.textContaining('SLEEP 15M')), findsOneWidget);
+      expect(find.descendant(of: now, matching: find.text('Sleep on')), findsOneWidget);
+      await tester.pump(const Duration(minutes: 15));
+      await tester.pump();
+      expect(find.descendant(of: now, matching: find.textContaining('SLEEP')), findsNothing);
+      expect(find.descendant(of: now, matching: find.text('Sleep')), findsOneWidget);
       await finish(tester);
     });
 

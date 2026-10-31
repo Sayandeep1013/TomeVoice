@@ -895,6 +895,9 @@ class BackgroundReading {
   void _moveTo(int u) {
     if (layout.isEmpty) return;
     final to = u.clamp(0, layout.units.length - 1);
+    // Set to stop at the chapter's end, it is the end of the chapter moved
+    // to: it paused at once on the card's Next chapter.
+    if (_sleep == SleepChoice.chapterEnd && _sleepChapter >= 0) _sleepChapter = layout.chapterOfUnit(to);
     if (playing) {
       unawaited(player.play(to));
     } else {
