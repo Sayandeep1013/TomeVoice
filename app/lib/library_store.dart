@@ -37,9 +37,10 @@ import 'text_print.dart';
 /// after "!" or "?" before who spoke, an AZW3 book's notes shown and not
 /// read, transcribers' notes not read, a Gutenberg text named by its
 /// header, an RTF file's notes shown and its \info title, a Word or ODT
-/// table of data read a row at a time). PDFs keep their own version, on the
-/// entry (pdfParser).
-const _parsedVersion = 8;
+/// table of data read a row at a time; v9: transcribers' notes passed over
+/// only to the next heading of any level, and no further than notes run).
+/// PDFs keep their own version, on the entry (pdfParser).
+const _parsedVersion = 9;
 
 /// Bumped when EPUBs are to be read again for their own narration (media
 /// overlays), which books stored before it were never looked at for: an
