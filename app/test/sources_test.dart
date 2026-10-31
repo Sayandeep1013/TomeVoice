@@ -403,6 +403,17 @@ void main() {
     expect(await browserResponse(url, null), isNull);
   });
 
+  test('a source handed a web page where it reads data says so in words; other errors stay as they are', () {
+    // Novel Bin 3.0.0, Oct 2026: its API address answered with the site's
+    // own page, and JSON.parse failed at the "<" it opens with.
+    const page = "SyntaxError: unexpected token: '<'";
+    expect(sourceErrorInWords(page), startsWith('The site sent a web page where the source expects data'));
+    expect(friendlyError(SourceException(page)), sourceErrorInWords(page));
+    expect(sourceErrorInWords('SyntaxError: Unexpected token < in JSON at position 0'), startsWith('The site sent'));
+    expect(sourceErrorInWords('TypeError: not a function'), 'TypeError: not a function');
+    expect(sourceErrorInWords("SyntaxError: expecting ';'"), "SyntaxError: expecting ';'", reason: 'bad code, not a page');
+  });
+
   test("a browser check is told by its markup, in any language, not by Cloudflare's name alone", () {
     NetResponse page(int status, Map<String, String> headers, String body) =>
         NetResponse(status: status, url: 'u', headers: headers, bytes: utf8.encode(body));
@@ -905,7 +916,7 @@ void main() {
     final out = {for (final o in await updateSources(store, engine, updates.values)) o.plugin.id: o};
     final now = {for (final p in await store.installed()) p.id: p.version};
     expect(now, {'good': '2.0.0', 'broken': '1.0.0', 'down': '2.0.0'});
-    expect(out['broken']!.note, contains('1.0.0 was kept'));
+    expect(out['broken']!.note, 'Version 2.0.0 did not work, so 1.0.0 was kept. It listed no novels.');
     expect(await store.code('broken'), contains('broken-1.0.0.js'), reason: 'the old code is untouched');
     expect(store.pending.value.keys, ['broken'], reason: 'still waiting, and still offered');
     expect(Directory('${store.dir.path}/plugins').listSync().where((f) => f.path.endsWith('.next.js')), isEmpty);

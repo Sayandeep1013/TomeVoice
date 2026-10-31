@@ -15,8 +15,20 @@ String friendlyError(Object e) {
   if (e is TimeoutException) return 'The site took too long to answer.';
   if (e is HttpException) return 'The site answered with an error (${e.message}).';
   final s = '$e';
-  return s.startsWith('FormatException: ') ? s.substring(17) : s;
+  return sourceErrorInWords(s.startsWith('FormatException: ') ? s.substring(17) : s);
 }
+
+/// A source's JavaScript error in words the reader can act on; any other
+/// message as it is. A source that reads a site's data as JSON is handed a
+/// web page instead when the site has moved that data or put a check in the
+/// way, and parsing it fails at the page's opening "<": QuickJS says
+/// "SyntaxError: unexpected token: '<'".
+String sourceErrorInWords(String message) => _pageForData.hasMatch(message)
+    ? 'The site sent a web page where the source expects data: the site has changed, '
+        'or wants a browser check first.'
+    : message;
+
+final _pageForData = RegExp(r"SyntaxError\b.*(unexpected token:? '?<|JSON)", caseSensitive: false);
 
 /// An address the app will not ask: not a web page (http or https), or one
 /// on the phone itself or the network it is on (a source plugin reaching

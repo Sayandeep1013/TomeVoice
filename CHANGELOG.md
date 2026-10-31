@@ -3,6 +3,14 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## Unreleased
+
+#### Fixes
+- Back with the menu open closes the menu. On Android 16 it took TomeVoice to the background with the menu still open.
+- The forms for a catalogue (a Calibre library, Add a catalogue, signing in) and for sync have room between their fields.
+- Standard Ebooks' whole catalogue says what its Patrons Circle is before it asks for an email.
+- A source update that fails because the site sent a web page instead of its data says so in words, not as a "SyntaxError".
+
 ## 1.4.0 (2026-10-31)
 
 The biggest TomeVoice yet: save a book as an audiobook, a voice for each character, an EPUB's own narration, reading that goes on when you leave the app, web novels that look after themselves, a library you can organise, and your own colours.

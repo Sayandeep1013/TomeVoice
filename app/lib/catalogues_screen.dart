@@ -90,7 +90,7 @@ class Catalogue {
     id: 'standard-ebooks',
     title: 'Standard Ebooks: the whole catalogue',
     url: 'https://standardebooks.org/feeds/opds',
-    subtitle: 'For Patrons Circle members: sign in with your email address',
+    subtitle: 'For members of its Patrons Circle, who support it: sign in with your email',
     preset: true,
     emailOnly: true,
   );
@@ -243,8 +243,13 @@ class _CataloguesScreenState extends State<CataloguesScreen> {
       final email = await askText(
         context,
         title: 'Your Patrons Circle email',
+        message: 'Standard Ebooks is run by volunteers, and gives its whole catalogue as a feed to the members '
+            'of its Patrons Circle, who support it with donations. Members sign in with the email address '
+            'they joined with; there is no password. Not a member? Its new releases, and Project Gutenberg, '
+            'are free to everyone.',
         hint: 'name@example.com',
         action: 'Sign in',
+        email: true,
       );
       if (email == null || !mounted) return;
       cat = c.withUser(email);
@@ -492,7 +497,7 @@ class _CatalogueFormState extends State<_CatalogueForm> {
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(Gap.xl, 0, Gap.xl, Gap.l),
+          padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.s, Gap.xl, Gap.xl),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -507,48 +512,55 @@ class _CatalogueFormState extends State<_CatalogueForm> {
                             : 'Add a catalogue',
                 style: Skin.title(context, size: 22),
               ),
-              const SizedBox(height: Gap.s),
-              if (widget.calibre)
+              if (widget.calibre || _email) ...[
+                const SizedBox(height: Gap.s),
                 Text(
-                  'In Calibre, turn on Connect/share > Start Content server, then give the address it shows '
-                  '(such as 192.168.1.20:8080), and a user name and password if you set one.',
-                  style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkSoftOn(context)),
-                ),
-              if (!preset) ...[
-                TextField(controller: _title, decoration: const InputDecoration(labelText: 'Name')),
-                TextField(
-                  controller: _url,
-                  keyboardType: TextInputType.url,
-                  autocorrect: false,
-                  decoration: InputDecoration(
-                    labelText: 'Address',
-                    hintText: widget.calibre ? '192.168.1.20:8080' : 'https://example.org/opds',
-                    errorText: _problem,
-                  ),
+                  widget.calibre
+                      ? 'In Calibre, turn on Connect/share > Start Content server, then give the address it shows '
+                          '(such as 192.168.1.20:8080), and a user name and password if you set one.'
+                      : 'The email address you joined the Patrons Circle with. There is no password.',
+                  style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkSoftOn(context))
+                      .copyWith(height: 1.45),
                 ),
               ],
-              TextField(
-                controller: _user,
-                autocorrect: false,
-                keyboardType: _email ? TextInputType.emailAddress : TextInputType.text,
-                decoration: InputDecoration(labelText: _email ? 'Email address' : 'User name (if it asks)'),
-              ),
-              if (!_email)
-                TextField(
-                  controller: _password,
-                  obscureText: !_passwordShown,
-                  autocorrect: false,
-                  enableSuggestions: false,
-                  decoration: InputDecoration(
-                    labelText: 'Password (if it asks)',
-                    suffixIcon: IconButton(
-                      tooltip: _passwordShown ? 'Hide the password' : 'Show the password',
-                      icon: Icon(_passwordShown ? Icons.visibility_off_outlined : Icons.visibility_outlined),
-                      onPressed: () => setState(() => _passwordShown = !_passwordShown),
+              const SizedBox(height: Gap.xl),
+              FormFields(children: [
+                if (!preset) ...[
+                  TextField(controller: _title, decoration: const InputDecoration(labelText: 'Name')),
+                  TextField(
+                    controller: _url,
+                    keyboardType: TextInputType.url,
+                    autocorrect: false,
+                    decoration: InputDecoration(
+                      labelText: 'Address',
+                      hintText: widget.calibre ? '192.168.1.20:8080' : 'https://example.org/opds',
+                      errorText: _problem,
                     ),
                   ),
+                ],
+                TextField(
+                  controller: _user,
+                  autocorrect: false,
+                  keyboardType: _email ? TextInputType.emailAddress : TextInputType.text,
+                  decoration: InputDecoration(labelText: _email ? 'Email address' : 'User name (if it asks)'),
                 ),
-              const SizedBox(height: Gap.l),
+                if (!_email)
+                  TextField(
+                    controller: _password,
+                    obscureText: !_passwordShown,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    decoration: InputDecoration(
+                      labelText: 'Password (if it asks)',
+                      suffixIcon: IconButton(
+                        tooltip: _passwordShown ? 'Hide the password' : 'Show the password',
+                        icon: Icon(_passwordShown ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+                        onPressed: () => setState(() => _passwordShown = !_passwordShown),
+                      ),
+                    ),
+                  ),
+              ]),
+              const SizedBox(height: Gap.xl),
               FilledButton(onPressed: _save, child: Text(preset ? 'Sign in' : 'Save')),
             ],
           ),

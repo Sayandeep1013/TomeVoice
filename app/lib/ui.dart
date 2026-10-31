@@ -755,13 +755,103 @@ class GroundFade extends StatelessWidget {
       );
 }
 
+/// The fields of a form, one under another with room between them: each a
+/// little taller than a search field and rounded like a row, so the label
+/// that floats up out of one sits clear of the one above.
+class FormFields extends StatelessWidget {
+  const FormFields({super.key, required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final fields = theme.inputDecorationTheme;
+    OutlineInputBorder? rounded(InputBorder? border) =>
+        border is OutlineInputBorder ? border.copyWith(borderRadius: BorderRadius.circular(Radii.row)) : null;
+    return Theme(
+      data: theme.copyWith(
+        inputDecorationTheme: fields.copyWith(
+          isDense: false,
+          contentPadding: const EdgeInsets.symmetric(horizontal: Gap.l, vertical: 18),
+          border: rounded(fields.border),
+          enabledBorder: rounded(fields.enabledBorder),
+          focusedBorder: rounded(fields.focusedBorder),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < children.length; i++) ...[
+            if (i > 0) const SizedBox(height: Gap.l),
+            children[i],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// A Scaffold with a drawer that Back closes before anything else. While
+/// the drawer is open the app takes Back itself: otherwise, on a page that
+/// lets Back leave the app ([canPop]), Android took the whole app to the
+/// background with its drawer still open. With the drawer shut and
+/// [canPop] false, Back calls [onBack].
+class DrawerBackScaffold extends StatefulWidget {
+  const DrawerBackScaffold({
+    super.key,
+    required this.canPop,
+    required this.onBack,
+    required this.drawer,
+    required this.body,
+  });
+
+  final bool canPop;
+  final VoidCallback onBack;
+  final Widget drawer;
+  final Widget body;
+
+  @override
+  State<DrawerBackScaffold> createState() => _DrawerBackScaffoldState();
+}
+
+class _DrawerBackScaffoldState extends State<DrawerBackScaffold> {
+  final _scaffold = GlobalKey<ScaffoldState>();
+  bool _drawerOpen = false;
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+        canPop: widget.canPop && !_drawerOpen,
+        onPopInvokedWithResult: (didPop, _) {
+          if (didPop) return;
+          if (_drawerOpen) {
+            _scaffold.currentState?.closeDrawer();
+          } else {
+            widget.onBack();
+          }
+        },
+        child: Scaffold(
+          key: _scaffold,
+          drawer: widget.drawer,
+          onDrawerChanged: (open) {
+            if (open != _drawerOpen) setState(() => _drawerOpen = open);
+          },
+          body: widget.body,
+        ),
+      );
+}
+
 /// Ask for a short piece of text (a category name). Null if cancelled.
+/// [message] says what it is for, above the field; [email] asks for an
+/// email address (its keyboard, and no capital put on its first letter).
 Future<String?> askText(
   BuildContext context, {
   required String title,
+  String? message,
   String initial = '',
   String hint = '',
   String action = 'Save',
+  bool email = false,
 }) async {
   final controller = TextEditingController(text: initial);
   final result = await showDialog<String>(
@@ -769,13 +859,26 @@ Future<String?> askText(
     animationStyle: sheetMotion(context),
     builder: (ctx) => AlertDialog(
       title: Text(title),
-      content: TextField(
-        controller: controller,
-        autofocus: true,
-        textCapitalization: TextCapitalization.sentences,
-        style: Skin.ui(size: 16, weight: FontWeight.w500, color: Skin.inkOn(ctx)),
-        decoration: InputDecoration(hintText: hint),
-        onSubmitted: (v) => Navigator.pop(ctx, v),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (message != null) ...[
+            Text(message,
+                style: Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkSoftOn(ctx)).copyWith(height: 1.45)),
+            const SizedBox(height: Gap.l),
+          ],
+          TextField(
+            controller: controller,
+            autofocus: true,
+            keyboardType: email ? TextInputType.emailAddress : null,
+            autocorrect: !email,
+            textCapitalization: email ? TextCapitalization.none : TextCapitalization.sentences,
+            style: Skin.ui(size: 16, weight: FontWeight.w500, color: Skin.inkOn(ctx)),
+            decoration: InputDecoration(hintText: hint),
+            onSubmitted: (v) => Navigator.pop(ctx, v),
+          ),
+        ],
       ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
