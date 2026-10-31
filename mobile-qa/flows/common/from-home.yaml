@@ -13,6 +13,7 @@ appId: ${APP_ID || 'app.tomevoice'}
     element: "${APP_ID == 'app.tomevoice.test' ? 'TomeVoice Test' : 'TomeVoice'}"
     timeout: 30000
 - tapOn: "${APP_ID == 'app.tomevoice.test' ? 'TomeVoice Test' : 'TomeVoice'}"
+- runFlow: skip-guide.yaml
 - extendedWaitUntil:
     visible: ".*Pride and Prejudice.*"
     timeout: 120000

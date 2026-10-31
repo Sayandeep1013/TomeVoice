@@ -1,0 +1,13 @@
+# Subflow: a new install opens on the first-run guide (guide.dart) before
+# its shelf. Wait for the guide or the shelf, and Skip the guide when it is
+# there; an install that has been opened before goes straight to the shelf.
+appId: ${APP_ID || 'app.tomevoice'}
+---
+- extendedWaitUntil:
+    visible: "Skip|.*Pride and Prejudice.*"
+    timeout: 120000
+- runFlow:
+    when:
+      visible: "Skip"
+    commands:
+      - tapOn: "Skip"
