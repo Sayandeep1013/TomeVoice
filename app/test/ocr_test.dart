@@ -111,6 +111,25 @@ void main() {
         ..createSync(recursive: true)
         ..writeAsBytesSync(bytes);
 
+  /// A job as an older build left one: [pages] to read, the PDF's own text
+  /// [pdf], and why it stopped.
+  Directory olderJob(String name, Map<String, Object?> pdf, {List<int> pages = const [], String? error}) {
+    final f = picked(name, utf8.encode('%PDF-1.4 $name'));
+    final id = bookIdOf(f.readAsBytesSync());
+    final dir = Directory('${tmp.path}/ocr/jobs/$id')..createSync(recursive: true);
+    final source = f.renameSync('${dir.path}/source.pdf');
+    File('${dir.path}/pdf.json').writeAsStringSync(jsonEncode(pdf));
+    File('${dir.path}/job.json').writeAsStringSync(jsonEncode({
+      'id': id,
+      'name': name,
+      'source': source.path,
+      'pages': pages,
+      'languages': 'eng',
+      if (error != null) 'error': error,
+    }));
+    return dir;
+  }
+
   group('languages', () {
     test('the catalogue is tessdata_fast, with Bengali and Hindi to the byte', () {
       expect({for (final l in ocrLanguages) l.code}, hasLength(ocrLanguages.length));
@@ -569,6 +588,33 @@ void main() {
       expect(OcrJobs.instance.running, isNull);
     });
 
+    test('a scan with no page for OCR to read ends, and says why', () async {
+      // An older build refused a PDF each of whose pages had a line of its
+      // own as a scan, and OCR found no page in it to read: the job stayed,
+      // made again and refused again at every start.
+      final dir = olderJob('blank.pdf', scanText(3));
+      OcrJobs.instance.reset();
+      final news = OcrJobs.instance.news.first;
+      await OcrJobs.instance.attach(LibraryStore(tmp));
+      await OcrJobs.instance.settled;
+      expect(await news, contains('no selectable text'));
+      expect(OcrJobs.instance.jobs, isEmpty);
+      expect(dir.existsSync(), isFalse, reason: 'it ends as Discard ends one');
+    });
+
+    test("an older build's scan whose every page had a line is made into a book", () async {
+      olderJob('notice.pdf', scanText(2, typed: {
+        0: '${_mark}Notice of the harbour meeting',
+        1: '${_mark}Bring the minutes of the last one',
+      }));
+      OcrJobs.instance.reset();
+      final again = LibraryStore(tmp);
+      await OcrJobs.instance.attach(again);
+      await OcrJobs.instance.settled;
+      expect(OcrJobs.instance.jobs, isEmpty);
+      expect((await again.list()).single.title, 'notice');
+    });
+
     test('a scan discarded takes its file and what was read with it', () async {
       final f = picked('scan.pdf', utf8.encode('%PDF-1.4 discarded'));
       final job = await OcrJobs.instance.start(OcrOffer(path: f.path, name: 'scan.pdf', pdf: scanText(3)), [
@@ -683,6 +729,50 @@ void main() {
       await settle(tester);
       expect(find.text('OCR: Sonar Tori'), findsNothing);
       expect(job.dir.existsSync(), isFalse);
+    });
+
+    testWidgets('a scan with no page to read is shown with none, and the shelf stays', (tester) async {
+      // The phone reading a scan an older build left with no page to read:
+      // "page 1 of 0" threw as the card was built, and the shelf under it
+      // went for good.
+      late Directory dir;
+      await tester.runAsync(() async {
+        dir = olderJob('blank.pdf', scanText(3));
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(_channel, (call) async {
+          calls.add(call);
+          return call.method == 'ocrStatus'
+              ? {'job': dir.path, 'done': 0, 'total': 0, 'stopping': false, 'queued': const []}
+              : null;
+        });
+        await OcrJobs.instance.attach(LibraryStore(tmp));
+      });
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: Column(children: [OcrProgressCard(), Expanded(child: Center(child: Text('Shelf')))])),
+      ));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('READING'), findsOneWidget);
+      expect(find.text('Shelf').hitTestable(), findsOneWidget);
+    });
+
+    testWidgets("a scan's card is held to a third of the screen: its message scrolls, Discard stays", (tester) async {
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 2.75;
+      addTearDown(tester.view.reset);
+      await tester.runAsync(() async {
+        olderJob('long.pdf', scanText(3), pages: [0, 1, 2], error: 'The page could not be drawn. ' * 80);
+        await OcrJobs.instance.attach(LibraryStore(tmp));
+      });
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: Column(children: [OcrProgressCard(), Expanded(child: Center(child: Text('Shelf')))])),
+      ));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'nothing overflows');
+      expect(find.textContaining('could not be drawn'), findsOneWidget);
+      expect(tester.getSize(find.byType(OcrProgressCard)).height, lessThanOrEqualTo(2340 / 2.75 / 3));
+      expect(find.text('Discard').hitTestable(), findsOneWidget);
+      expect(find.text('Go on').hitTestable(), findsOneWidget);
+      expect(find.text('Shelf').hitTestable(), findsOneWidget);
     });
 
     testWidgets("a book OCR read says so on its page", (tester) async {

@@ -1964,6 +1964,8 @@ LibraryEntry _ocrImport(_OcrImportJob job) {
   } on Exception catch (e) {
     // Refused as a scan again: what OCR read was too little to be a book.
     if (e is! UnsupportedDocumentException && e is! ParseException) rethrow;
+    // With no page read, OCR was never the reason: the refusal says why.
+    if (read.isEmpty) throw ParseException(e is ParseException ? e.message : (e as UnsupportedDocumentException).message);
     final said = ocrLanguagesOf(languages).map((l) => l.name).join(' and ');
     throw ParseException('OCR found nothing to read in “$name”${said.isEmpty ? '' : ' in $said'}. '
         'If its pages are in another language, import it again and pick that one.');

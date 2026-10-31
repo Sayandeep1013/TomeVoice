@@ -388,10 +388,22 @@ class OcrJobs extends ChangeNotifier {
       _news.add('“${entry.title}” is read and on your shelf. The words may have mistakes.');
     } on Object catch (e) {
       job.error = e is ParseException ? e.message : '$e';
-      try {
-        await job.save();
-      } on FileSystemException {
-        // Its folder went.
+      if (job.pages.isEmpty) {
+        // No page for OCR to read, and its own text refused: Go on cannot
+        // change that. It ends here, as Discard ends one (kept, it was made
+        // again, and refused again, every time the app opened).
+        jobs.remove(job);
+        try {
+          await job.dir.delete(recursive: true);
+        } on FileSystemException {
+          // Gone already.
+        }
+      } else {
+        try {
+          await job.save();
+        } on FileSystemException {
+          // Its folder went.
+        }
       }
       _news.add('“${job.title}” could not be made into a book. ${job.error}');
     } finally {

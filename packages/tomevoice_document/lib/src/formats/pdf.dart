@@ -217,8 +217,7 @@ Book bookFromPdfText({
     'TomeVoice can only read PDFs that contain real text.',
   );
   final textChars = pages.fold<int>(0, (n, p) => n + p.trim().length);
-  if (pages.isEmpty || textChars < 40 * pages.length.clamp(1, 20)) throw scanned;
-  resetBlockIds();
+  if (pages.isEmpty || textChars == 0) throw scanned;
 
   final lines = [
     for (var p = 0; p < pages.length; p++)
@@ -231,12 +230,17 @@ Book bookFromPdfText({
   final body = _bodySize(lines);
   final furniture = _furniture(lines, body);
   final coverage = _coverage(lines, furniture, pages);
-  // No page with words of its own, or a scan whose few typed lines come to
-  // less than a short paragraph: nothing worth listening to.
+  // No page with words of its own, a scan whose few typed lines come to
+  // less than a short paragraph, or too little text for its pages: nothing
+  // worth listening to. A PDF each of whose pages has something to read
+  // (see pdfPagesWithText) is never taken for a scan, however little that
+  // is: OCR would find no page in it to read.
   if (coverage.pagesWithText == 0 ||
-      (coverage.mostlyPictures && _letterCount(lines, furniture) < 400)) {
+      (coverage.mostlyPictures && _letterCount(lines, furniture) < 400) ||
+      (coverage.pagesWithText < coverage.pages && textChars < 40 * pages.length.clamp(1, 20))) {
     throw scanned;
   }
+  resetBlockIds();
   final notes = <List<String>>[];
   for (var p = 0; p < lines.length; p++) {
     final foot = _footnotes([
@@ -364,23 +368,24 @@ typedef PdfTextCoverage = ({int pages, int pagesWithText, bool mostlyPictures});
 /// read. Running heads, page numbers and a scanner's stamp on every page
 /// ("Digitized by Google") do not count.
 PdfTextCoverage pdfTextCoverage(List<String> pages, {List<List<int>>? layout}) {
-  final lines = [
-    for (var p = 0; p < pages.length; p++)
-      _linesOf(pages[p], layout != null && p < layout.length ? layout[p] : null),
-  ];
+  final lines = _pageLines(pages, layout);
   return _coverage(lines, _furniture(lines, _bodySize(lines)), pages);
 }
 
 /// Which of [pages] have something to read, one answer a page, as
 /// [pdfTextCoverage] counts them: the pages a scan's OCR can leave as they
-/// are, and the ones it has to read.
+/// are, and the ones it has to read. A PDF refused as a scan always has one
+/// to read (see [bookFromPdfText]).
 List<bool> pdfPagesWithText(List<String> pages, {List<List<int>>? layout}) {
-  final lines = [
-    for (var p = 0; p < pages.length; p++)
-      _linesOf(pages[p], layout != null && p < layout.length ? layout[p] : null),
-  ];
+  final lines = _pageLines(pages, layout);
   return _withText(lines, _furniture(lines, _bodySize(lines)), pages);
 }
+
+/// The lines of [pages] in reading order, as [bookFromPdfText] reads them.
+List<List<_Line>> _pageLines(List<String> pages, List<List<int>>? layout) => [
+      for (var p = 0; p < pages.length; p++)
+        _readingOrder(_linesOf(pages[p], layout != null && p < layout.length ? layout[p] : null)),
+    ];
 
 PdfTextCoverage _coverage(List<List<_Line>> lines, List<Set<int>> furniture, List<String> pages) {
   final withText = _withText(lines, furniture, pages);

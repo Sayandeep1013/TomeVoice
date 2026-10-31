@@ -893,6 +893,40 @@ void main() {
       expect(pdfTextCoverage(pages), (pages: 12, pagesWithText: 2, mostlyPictures: true));
     });
 
+    test('a PDF each of whose pages has a line to read is no scan, however little it has', () {
+      // Refused as a scan, OCR found no page in it to read: its job never
+      // ended, and its card took the shelf down.
+      final notice = [
+        _page([
+          ['Notice of the harbour meeting'],
+        ]),
+        _page([
+          ['Bring the minutes of the last one'],
+        ]),
+        '',
+      ];
+      expect(pdfPagesWithText(notice), [true, true]);
+      expect(_texts(ingestPdfText(id: 'x', pages: notice)).join(' '), contains('harbour meeting'));
+    });
+
+    test('a PDF refused as a scan always has a page for OCR to read', () {
+      final shapes = <List<String>>[
+        ['', '', ''],
+        [_page([['Digitized by Google']]), _page([['Digitized by Google']]), _page([['Digitized by Google']]), ''],
+        [_page([['Notice of the harbour meeting']]), '', ''],
+        [_page([['Notice of the harbour meeting']]), _page([['A second line to read here']]), ''],
+        [_page([['Notice of the harbour meeting']]), _page([['A second line to read here']]), '', ''],
+        [for (var p = 0; p < 30; p++) p < 3 ? _page([_prose(p)]) : '', ''],
+      ];
+      for (final pages in shapes) {
+        try {
+          ingestPdfText(id: 'x', pages: pages);
+        } on UnsupportedDocumentException {
+          expect(pdfPagesWithText(pages), contains(false), reason: '$pages');
+        }
+      }
+    });
+
     test('the layout from the platform is read as lists of numbers', () {
       expect(pdfLayoutFromPlatform(null), isNull);
       expect(pdfLayoutFromPlatform([
