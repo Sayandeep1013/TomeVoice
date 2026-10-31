@@ -13,6 +13,7 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
@@ -22,6 +23,7 @@ import 'package:tomevoice_spike/listen_sheet.dart';
 import 'package:tomevoice_spike/narration.dart';
 import 'package:tomevoice_spike/neural_voices.dart' show wavBytes;
 import 'package:tomevoice_spike/prefs.dart';
+import 'package:tomevoice_spike/reader_screen.dart';
 import 'package:tomevoice_spike/scheduler.dart';
 import 'package:tomevoice_spike/speech_service.dart';
 import 'package:tomevoice_spike/voices.dart';
@@ -367,6 +369,61 @@ void main() {
       expect(restarts, 1, reason: 'a book being read goes on in the narration at once');
       expect(find.text('READS WHAT THE NARRATION LEAVES OUT'), findsOneWidget);
       expect(find.text('IN USE'), findsNothing);
+    });
+
+    testWidgets('offered with no voice of the book\'s language on the phone too', (tester) async {
+      // With none, the picker said only that there was none.
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 2.75;
+      addTearDown(tester.view.reset);
+      final catalog = VoiceCatalog.instance;
+      catalog.voices = const [
+        VoiceInfo(name: 'bn-in-x-bnm-local', locale: 'bn-IN', quality: 400, networkRequired: false, installed: true),
+      ];
+      catalog.loaded = true;
+      addTearDown(() => catalog.voices = const []);
+      final c = ListenController(
+        prefs: ListeningPrefs.memory,
+        language: 'en',
+        bookId: 'tin',
+        narration: true,
+        onChanged: ({required bool restart}) {},
+      );
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(onPressed: () => showVoicePicker(context, c), child: const Text('Voices')),
+        ),
+      ));
+      await tester.tap(find.text('Voices'));
+      await tester.pumpAndSettle();
+      expect(find.text('No English voice on this phone yet.'), findsOneWidget);
+      await tester.tap(find.text("Book's own narration"));
+      await tester.pumpAndSettle();
+      expect(c.narrated, isTrue);
+    });
+
+    testWidgets('the player names it as the voice, not the one it stands in for', (tester) async {
+      // The player bar and Now Playing said "EN · US" over the narration.
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 2.75;
+      addTearDown(tester.view.reset);
+      final catalog = VoiceCatalog.instance;
+      catalog.voices = const [
+        VoiceInfo(name: 'en-us-x-sfg-local', locale: 'en-US', quality: 400, networkRequired: false, installed: true),
+      ];
+      catalog.loaded = true;
+      addTearDown(() => catalog.voices = const []);
+      const tts = MethodChannel('tomevoice/tts');
+      final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(tts, (call) async => call.method == 'launchArgs' ? <String, Object?>{} : null);
+      addTearDown(() => messenger.setMockMethodCallHandler(tts, null));
+      ListeningPrefs.memory.narratedBooks.add(layout.book.id);
+      await tester.pumpWidget(MaterialApp(home: ReaderScreen(layout: layout)));
+      await tester.pumpAndSettle();
+      expect(find.text('Narration'), findsOneWidget);
+      expect(find.text('EN · US'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 10));
     });
   });
 

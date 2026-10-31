@@ -2360,6 +2360,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   String _voiceLabel() {
+    // Read in the recording it came with: no voice of the phone's says it.
+    if (_l.book.narration != null && _prefs.narratedBooks.contains(_book.id)) return 'Narration';
     final v = _catalog.byName(_listen.voiceName);
     if (v != null) return v.region.isEmpty ? languageName(v.language) : '${v.language.toUpperCase()} · ${regionLabel(v.region)}';
     if (!_catalog.loaded) return 'Voice…';
