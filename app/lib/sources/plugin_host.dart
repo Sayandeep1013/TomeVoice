@@ -56,6 +56,34 @@ class SourceException implements Exception {
 /// meanwhile (see Net.viaWebView).
 typedef BrowserFetch = Future<BrowserPage?> Function(String url, {String method, String? body, String partition});
 
+/// What a plugin's fetch of [url] gets from the phone's web view: [page], as
+/// a response from where it ended, only when that is the host asked for or
+/// another of its site, on the open internet. The web view follows
+/// redirects, refreshes and scripts, which may lead anywhere (the router's
+/// page, a site that is not the plugin's): anything else is no page (null),
+/// a failed fetch.
+Future<String?> browserResponse(String url, BrowserPage? page) async {
+  if (page == null || !Net.isWebAddress(page.url)) return null;
+  final asked = Uri.parse(url).host.toLowerCase();
+  final ended = Uri.parse(page.url).host.toLowerCase();
+  if (ended != asked) {
+    if (!sameSite(ended, url)) return null;
+    try {
+      await Net.vet(ended);
+    } on Object {
+      return null;
+    }
+  }
+  return jsonEncode({
+    'status': 200,
+    'statusText': '',
+    'url': page.url,
+    'redirected': page.url != url,
+    'headers': const {'content-type': 'text/html; charset=utf-8'},
+    'body': page.html,
+  });
+}
+
 /// The site answered with a browser check (Cloudflare) instead of itself.
 /// Passing it once in a web view ([url]) lets the requests through.
 /// [pluginId]: the source that met it, whose cookies the check's go with.
@@ -360,14 +388,15 @@ class PluginHost {
     final contentType = headers.entries.where((e) => e.key.toLowerCase() == 'content-type').firstOrNull?.value;
     final form = method == 'POST' && bytes == null && (contentType == null || contentType.contains('x-www-form-urlencoded'));
     final browser = (method == 'GET' || form) && sameSite(host, p.site) ? viaBrowser : null;
-    Future<String?> viaWebView() async => (await browser!(url, method: method, body: body, partition: p.id))?.html;
+    Future<String?> viaWebView() async =>
+        browserResponse(url, await browser!(url, method: method, body: body, partition: p.id));
     try {
       if (browser != null && _browserHosts.contains(host)) {
         // The web view is held to the open internet as the app's own
         // requests are.
         await Net.vet(host);
-        final html = await viaWebView();
-        if (html != null) return _page(url, html);
+        final page = await viaWebView();
+        if (page != null) return page;
       }
       final r = await Net.instance.request(
         url,
@@ -377,10 +406,10 @@ class PluginHost {
         partition: p.id,
       );
       if (r.isChallenge && browser != null) {
-        final html = await viaWebView();
-        if (html != null) {
+        final page = await viaWebView();
+        if (page != null) {
           if (_browserHosts.add(host)) onBrowserHost?.call(host);
-          return _page(url, html);
+          return page;
         }
       }
       if (r.isChallenge) {
@@ -435,15 +464,6 @@ class PluginHost {
         'redirected': false,
         'headers': const <String, String>{},
         'body': '',
-      });
-
-  static String _page(String url, String html) => jsonEncode({
-        'status': 200,
-        'statusText': '',
-        'url': url,
-        'redirected': false,
-        'headers': const {'content-type': 'text/html; charset=utf-8'},
-        'body': html,
       });
 
   final _stores = <String, Map<String, String>>{};

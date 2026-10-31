@@ -13,12 +13,16 @@ import android.view.KeyEvent
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import java.io.ByteArrayInputStream
+import java.net.InetAddress
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * A site's "checking your browser" page (Cloudflare), shown in a real
@@ -34,6 +38,10 @@ import android.widget.TextView
  * the site keeps is handed back for that source alone ([harvest]), and the
  * store is cleared again ([wipe]). No source's sign-in or clearance is ever
  * there for another's page.
+ *
+ * The web view is held to the open internet as the app's own requests are
+ * ([Guard]): it follows redirects, refreshes and scripts, and none of them
+ * may take it to the phone itself or the network it is on.
  */
 object BrowserCheck {
     /** The WebView's own User-Agent without the "wv" mark, for every request. */
@@ -56,6 +64,140 @@ object BrowserCheck {
     private fun lockDown(settings: WebSettings) {
         settings.allowFileAccess = false
         settings.allowContentAccess = false
+    }
+
+    // ------------------------------------------------- the open internet
+
+    /**
+     * Whether [b] (an address's bytes, 4 or 16) is on the open internet: not
+     * this phone (loopback), not its own network (private, link-local,
+     * carrier-grade NAT, unique local), not multicast, broadcast, reserved
+     * or documentation ranges, in IPv4 or IPv6, IPv4 inside IPv6 too. As
+     * net.dart's isPublicAddress has it, line for line.
+     */
+    fun isPublicAddress(b: ByteArray): Boolean {
+        fun u(i: Int): Int = b[i].toInt() and 0xff
+        if (b.size == 4) return publicV4(u(0), u(1), u(2))
+        if (b.size != 16) return false
+        fun zeros(from: Int, to: Int): Boolean = (from until to).all { b[it].toInt() == 0 }
+        // ::ffff:a.b.c.d (mapped) and ::a.b.c.d (compatible), the latter also
+        // covering :: and ::1.
+        if (zeros(0, 10) && u(10) == 0xff && u(11) == 0xff) return publicV4(u(12), u(13), u(14))
+        if (zeros(0, 12)) return false
+        // 64:ff9b::/96, NAT64: the IPv4 address it translates to.
+        if (u(0) == 0 && u(1) == 0x64 && u(2) == 0xff && u(3) == 0x9b && zeros(4, 12)) return publicV4(u(12), u(13), u(14))
+        // 2002::/16, 6to4: the IPv4 address it tunnels to.
+        if (u(0) == 0x20 && u(1) == 0x02) return publicV4(u(2), u(3), u(4))
+        if (u(0) == 0xff) return false // multicast
+        if (u(0) == 0xfe && (u(1) and 0xc0) == 0x80) return false // link-local fe80::/10
+        if (u(0) == 0xfe && (u(1) and 0xc0) == 0xc0) return false // site-local fec0::/10
+        if ((u(0) and 0xfe) == 0xfc) return false // unique local fc00::/7
+        if (u(0) == 0x20 && u(1) == 0x01 && u(2) == 0x0d && u(3) == 0xb8) return false // documentation
+        if (u(0) == 0x01 && u(1) == 0x00 && zeros(2, 8)) return false // discard 100::/64
+        return true
+    }
+
+    /** Whether IPv4 address [x].[y].[z].* is on the open internet. */
+    private fun publicV4(x: Int, y: Int, z: Int): Boolean {
+        if (x == 0 || x == 10 || x == 127) return false
+        if (x == 100 && (y and 0xc0) == 64) return false // 100.64/10, carrier-grade NAT
+        if (x == 169 && y == 254) return false // link-local
+        if (x == 172 && (y and 0xf0) == 16) return false // 172.16/12
+        if (x == 192 && y == 168) return false
+        if (x == 192 && y == 0 && (z == 0 || z == 2)) return false // 192.0.0/24, 192.0.2/24
+        if (x == 198 && (y == 18 || y == 19)) return false // benchmarking
+        if (x == 198 && y == 51 && z == 100) return false // documentation
+        if (x == 203 && y == 0 && z == 113) return false // documentation
+        if (x >= 224) return false // multicast, reserved, broadcast
+        return true
+    }
+
+    /**
+     * [host] as an address's bytes when it is one written out (1.2.3.4,
+     * [::1]), read without looking anything up; null for a name.
+     */
+    private fun literal(host: String): ByteArray? {
+        val h = host.removePrefix("[").removeSuffix("]")
+        val parts = h.split('.')
+        if (parts.size == 4 && parts.all { p -> p.isNotEmpty() && p.length <= 3 && p.all { it in '0'..'9' } }) {
+            val n = parts.map { it.toInt() }
+            return if (n.all { it <= 255 }) ByteArray(4) { n[it].toByte() } else null
+        }
+        // An IPv6 address, as the web view writes one: read, not looked up.
+        if (!h.contains(':')) return null
+        return try {
+            InetAddress.getByName(h).address
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Whether every address [host] stands for is on the open internet: a
+     * name is looked up (so off the main thread only), and one that cannot
+     * be is not.
+     */
+    private fun onOpenInternet(host: String): Boolean {
+        literal(host)?.let { return isPublicAddress(it) }
+        return try {
+            val all = InetAddress.getAllByName(host)
+            all.isNotEmpty() && all.all { isPublicAddress(it.address) }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** What a request turned away gets: an empty 403. */
+    private fun refusal(): WebResourceResponse =
+        WebResourceResponse("text/plain", "utf-8", 403, "Forbidden", emptyMap(), ByteArrayInputStream(ByteArray(0)))
+
+    /**
+     * Holds a web view to the open internet: nothing but web pages, and no
+     * page or part of one from the phone itself or its network, by its
+     * address or by a name that leads there (looked up as it is asked for,
+     * off the main thread). A page's redirect is never shown to
+     * shouldInterceptRequest, so a redirect to a name not looked up yet is
+     * loaded afresh ([reload]), which is. [blocked] hears that a page (not a
+     * part of one) was turned away.
+     */
+    private class Guard(
+        private val reload: (String) -> Unit,
+        private val blocked: () -> Unit = {},
+    ) : WebViewClient() {
+        /** Hosts looked up: whether each is on the open internet. */
+        private val vetted = ConcurrentHashMap<String, Boolean>()
+
+        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+            if (request == null) return true
+            val uri = request.url
+            if (!BrowserCheck.isWebPage(uri.toString())) return true
+            val host = uri.host.orEmpty().lowercase()
+            val known = BrowserCheck.literal(host)?.let { BrowserCheck.isPublicAddress(it) } ?: vetted[host]
+            if (known == false) {
+                if (request.isForMainFrame) blocked()
+                return true
+            }
+            if (known == null && request.isRedirect && request.isForMainFrame) {
+                reload(uri.toString())
+                return true
+            }
+            return false
+        }
+
+        override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+            if (request == null) return null
+            val uri = request.url
+            val scheme = uri.scheme?.lowercase()
+            // A page's own data and blobs are not asked of any network.
+            if (scheme == "data" || scheme == "blob") return null
+            if (scheme == "http" || scheme == "https") {
+                val host = uri.host.orEmpty().lowercase()
+                val open = vetted[host] ?: BrowserCheck.onOpenInternet(host).also { vetted[host] = it }
+                if (open) return null
+            }
+            if (request.isForMainFrame) blocked()
+            return BrowserCheck.refusal()
+        }
     }
 
     // ------------------------------------------------ one source at a time
@@ -321,7 +463,7 @@ object BrowserCheck {
                         }
                     }
                 }
-                page.webViewClient = object : WebViewClient() {}
+                page.webViewClient = Guard({ to -> main.post { if (!finished) page.loadUrl(to) } })
                 close.setOnClickListener { finish(false) }
                 d.setOnCancelListener { finish(false) }
                 d.show()
@@ -415,10 +557,7 @@ object BrowserCheck {
                 dialog = d
                 d.setContentView(root)
 
-                page.webViewClient = object : WebViewClient() {
-                    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean =
-                        !isWebPage(request?.url?.toString() ?: "")
-                }
+                page.webViewClient = Guard({ to -> main.post { if (!finished) page.loadUrl(to) } })
                 ok.setOnClickListener { finish(true) }
                 cancel.setOnClickListener { finish(false) }
                 d.setOnCancelListener { finish(false) }
@@ -604,7 +743,11 @@ object BrowserCheck {
                     }
                 }
             }
-            page.webViewClient = object : WebViewClient() {}
+            // A page turned away (the phone's network, or no web page) is no
+            // page: the fetch fails at once.
+            page.webViewClient = Guard({ to -> main.post { if (!finished) page.loadUrl(to) } }) {
+                main.post { finish(null) }
+            }
             if (method == "POST") {
                 page.postUrl(url, (body ?: "").toByteArray(Charsets.UTF_8))
             } else {

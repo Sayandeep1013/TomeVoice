@@ -266,12 +266,15 @@ void main() {
     });
     final site = 'http://127.0.0.1:${server.port}/';
     final code = File('${dir.path}/fake.js')..writeAsStringSync(_plugin.replaceAll('SITE', jsonEncode(site)));
-    // The phone's web view, once the test hands one over.
+    // The phone's web view, once the test hands one over, and where its
+    // page ends (redirects and scripts may take it elsewhere).
     var browserOn = false;
+    String? endsAt;
     host = _host(
       dir,
-      viaBrowser: (url, {method = 'GET', body, partition = ''}) async =>
-          browserOn ? (html: '<ul><li class="novel"><a href="novel/7">Seen by the browser</a></li></ul>', url: url) : null,
+      viaBrowser: (url, {method = 'GET', body, partition = ''}) async => browserOn
+          ? (html: '<ul><li class="novel"><a href="novel/7">Seen by the browser</a></li></ul>', url: endsAt ?? url)
+          : null,
     );
     host.ensure('fake', '1.0.0', code.path, site: site);
 
@@ -307,6 +310,11 @@ void main() {
     browserOn = true;
     final browsed = await host.call('fake', 'searchNovels', ['blocked', 1]) as List;
     expect(NovelItem.fromJs(browsed.single)!.name, 'Seen by the browser');
+
+    // A web view sent on to another site (the router's page) brings no page.
+    endsAt = 'http://192.168.1.1/';
+    await expectLater(host.call('fake', 'searchNovels', ['blocked', 1]), throwsA(isA<ChallengeException>()));
+    endsAt = null;
 
     // Storage persisted to the plugin's file.
     final stored = jsonDecode(File('${dir.path}/storage-fake.json').readAsStringSync()) as Map;
@@ -369,6 +377,30 @@ void main() {
     expect(await ask('c', 'file:///etc/hosts'), startsWith('0:'));
     Net.allowPrivateAddresses = false;
     expect(await ask('c', 'echo-cookie'), startsWith('0:'));
+  });
+
+  test("the web view's page counts only when it ended on the site asked for, on the open internet", () async {
+    const url = 'https://www.site.test/novel/1?x=1';
+    Future<Map<String, Object?>?> got(String ended) async {
+      final r = await browserResponse(url, (html: '<p>Read</p>', url: ended));
+      return r == null ? null : jsonDecode(r) as Map<String, Object?>;
+    }
+
+    final there = (await got(url))!;
+    expect((there['status'], there['url'], there['redirected'], there['body']), (200, url, false, '<p>Read</p>'));
+    final moved = (await got('https://www.site.test/novel/1/'))!;
+    expect((moved['url'], moved['redirected']), ('https://www.site.test/novel/1/', true), reason: 'where it ended');
+    for (final elsewhere in [
+      'http://192.168.1.1/',
+      'http://127.0.0.1:8080/',
+      'http://[::1]/',
+      'https://another.test/novel/1',
+      'about:blank',
+      'file:///etc/hosts',
+    ]) {
+      expect(await got(elsewhere), isNull, reason: elsewhere);
+    }
+    expect(await browserResponse(url, null), isNull);
   });
 
   test("a browser check is told by its markup, in any language, not by Cloudflare's name alone", () {
