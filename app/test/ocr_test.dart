@@ -229,6 +229,14 @@ void main() {
       expect(ocrPagesToRead(scanText(3)), [0, 1, 2]);
     });
 
+    test("an extraction that left a page out is read whole: which page has which text is not known", () {
+      // Six pages, the third with nothing drawn on it: PDFBox wrote no page
+      // break for it, and the typed page that was the fourth came third.
+      final typed = '$_mark${'The keeper climbed the stairs every evening at six. ' * 3}';
+      final pdf = {...scanText(5, typed: {2: typed}), 'pages': 6};
+      expect(ocrPagesToRead(pdf), [0, 1, 2, 3, 4, 5]);
+    });
+
     test('a scan read by OCR is a book as any PDF: heads, numbers and broken words mended, chapters found', () {
       final read = {for (var p = 0; p < 12; p++) p: ocrPage(p)};
       final merged = ocrPdfText(scanText(12), read, languages: 'eng');

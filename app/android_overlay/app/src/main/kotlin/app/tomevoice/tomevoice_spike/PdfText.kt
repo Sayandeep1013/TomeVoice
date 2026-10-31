@@ -19,14 +19,15 @@ import java.io.File
  * the listening clean-up: running headers, page numbers, hyphenation,
  * paragraphs that cross a page break, footnotes and columns.
  *
- * Output contract: pages separated by form feed (0x0C), paragraphs within a
- * page started by U+2029, lines separated by "\n". "layout" is one IntArray
- * per page, five numbers for each line in the order the lines are written:
- * x, baseline y from the top, width (points), font size (tenths of a point)
- * and the length of the line's text, by which the Dart side checks that the
- * two agree. "raised" (added later; an older extraction has none) is one
- * IntArray per page, three numbers for each run of glyphs set smaller than
- * their line and raised above it, a note's mark ("Michaelmas,¹"): the
+ * Output contract: every page ended by a form feed (0x0C), a page with
+ * nothing drawn on it too, paragraphs within a page started by U+2029, lines
+ * separated by "\n". "layout" is one IntArray per page (empty for a page
+ * with no text), five numbers for each line in the order the lines are
+ * written: x, baseline y from the top, width (points), font size (tenths of
+ * a point) and the length of the line's text, by which the Dart side checks
+ * that the two agree. "raised" (added later; an older extraction has none)
+ * is one IntArray per page, three numbers for each run of glyphs set smaller
+ * than their line and raised above it, a note's mark ("Michaelmas,¹"): the
  * line's place among the page's lines, and the run's start and length in
  * the line's text.
  */
@@ -183,7 +184,14 @@ private class LineStripper(private val onPage: (Int) -> Unit) : PDFTextStripper(
     private val glyphSize = ArrayList<Int>()
     private val glyphBase = ArrayList<Float>()
 
+    /** Pages written so far, those PDFBox passed over among them. */
+    private var pagesWritten = 0
+
     override fun startPage(page: PDPage?) {
+        // PDFBox passes over a page with nothing drawn on it (no content
+        // stream): no page break, no layout, and every page after it came a
+        // page early. Each is written as an empty page instead.
+        blankPagesTo(currentPageNo - 1)
         super.startPage(page)
         pageLines.clear()
         pageRaised.clear()
@@ -195,7 +203,24 @@ private class LineStripper(private val onPage: (Int) -> Unit) : PDFTextStripper(
         endLine()
         layout.add(pageLines.toIntArray())
         raised.add(pageRaised.toIntArray())
+        pagesWritten = currentPageNo
         super.endPage(page)
+    }
+
+    override fun endDocument(document: PDDocument?) {
+        // And those after the last page drawn on: PDFBox counted every page.
+        blankPagesTo(currentPageNo)
+        super.endDocument(document)
+    }
+
+    /** Empty pages, each with its page break, until [count] are written. */
+    private fun blankPagesTo(count: Int) {
+        while (pagesWritten < count) {
+            output.write(pageEnd)
+            layout.add(IntArray(0))
+            raised.add(IntArray(0))
+            pagesWritten++
+        }
     }
 
     override fun writeString(text: String?, textPositions: MutableList<TextPosition>?) {

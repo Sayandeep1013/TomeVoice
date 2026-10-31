@@ -23,8 +23,10 @@ const pdfParagraphMark = '\u2029';
 /// after the other, and a line ending in a colon over one set in, are two
 /// paragraphs; a note's mark set raised after a word is not said; 6: a
 /// speech that fills its line still ends where the next one is set in, on
-/// a page that sets first lines in and runs them on at the edge).
-const pdfParserVersion = 6;
+/// a page that sets first lines in and runs them on at the edge; 7: a page
+/// with nothing drawn on it is a page of its own, where the platform left it
+/// out and every page after it came one early).
+const pdfParserVersion = 7;
 
 /// One outline (bookmark) entry: a title and the 0-based page it points at.
 typedef PdfOutlineEntry = ({String title, int page});

@@ -522,9 +522,14 @@ List<int> ocrPagesToRead(Map<String, Object?> pdf) {
   final pages = (pdf['text'] as String? ?? '').split(String.fromCharCode(0x0C));
   final withText = pdfPagesWithText(pages, layout: pdfLayoutFromPlatform(pdf['layout']));
   final count = math.max(pdf['pages'] as int? ?? 0, withText.length);
+  // Fewer pages in the text than the PDF has: the extraction left a page
+  // out (one with nothing drawn on it, before PdfText.kt wrote those), and
+  // which page holds which text is not known. The count is the platform's,
+  // and OCR reads every page.
+  if (withText.length < count) return [for (var p = 0; p < count; p++) p];
   return [
     for (var p = 0; p < count; p++)
-      if (p >= withText.length || !withText[p]) p,
+      if (!withText[p]) p,
   ];
 }
 
