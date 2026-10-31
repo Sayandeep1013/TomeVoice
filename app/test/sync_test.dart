@@ -338,6 +338,25 @@ void main() {
       expect(onServer().removed.keys, [q.id]);
     });
 
+    test("a book's file is read again only when it changed there, or quotes it has are missing here", () async {
+      await turnOn();
+      await quote(3);
+      await BookSync.instance.syncNow(store: store);
+      // Another phone's name for the book, and a removal from long ago,
+      // kept there and let go here.
+      server.files[bookFile()] = BookRecord(
+        id: book.id,
+        title: 'Their Name',
+        marks: onServer().marks,
+        removed: {'long-gone': DateTime.now().toUtc().subtract(const Duration(days: 400))},
+      ).encode();
+      await BookSync.instance.syncNow(store: store);
+      final reads = server.requests.where((r) => r == 'GET ${bookFile()}').length;
+      await BookSync.instance.syncNow(store: store);
+      await BookSync.instance.syncNow(store: store);
+      expect(server.requests.where((r) => r == 'GET ${bookFile()}').length, reads);
+    });
+
     test('a quote saved while sync is out with its book is kept', () async {
       await turnOn();
       await quote(2);

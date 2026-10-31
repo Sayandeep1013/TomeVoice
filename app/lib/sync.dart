@@ -408,9 +408,9 @@ class WebDav {
 // ----------------------------------------------------------------- state
 
 /// What was synced, and when: the tags of the files as last seen, what was
-/// in them, and the removals last merged. In `sync_state.json` at the
-/// library root, so a backup carries it with the marks it describes;
-/// started afresh for a new server.
+/// in them, the marks known to the server, and the removals last merged.
+/// In `sync_state.json` at the library root, so a backup carries it with
+/// the marks it describes; started afresh for a new server.
 class SyncState {
   SyncState(this._file, this._j);
 
@@ -665,11 +665,14 @@ Future<({int sent, int taken})> syncWebDav(
       final local = localRecord(e, removed: removed);
       var onServer = listing.containsKey(name);
       final tag = listing[name];
-      // Read only what changed there, or here, since: the rest is what was
-      // merged last time. What is written is always merged with the copy
-      // there, never this phone's alone over it: quotes only missing here
-      // went from the server too.
-      var read = onServer && (tag == null || tag != mine['etag'] || _hash(local.encode()) != mine['hash']);
+      // Quotes the server had at the last merge, missing here and not
+      // removed: its copy is read and merged, never written over without
+      // them (they went from the server too).
+      final here = {for (final m in local.marks) m.id};
+      final missing = (mine['known'] as List? ?? const []).any((id) => !here.contains(id) && !removed.containsKey(id));
+      // Read only what changed there since: the rest is what was merged
+      // last time, which the phone already holds.
+      var read = onServer && (tag == null || tag != mine['etag'] || missing);
       var merged = local;
       var etag = mine['etag'] as String?;
       var unreadable = false;
@@ -708,6 +711,9 @@ Future<({int sent, int taken})> syncWebDav(
       known[e.id] = {
         if (etag != null) 'etag': etag,
         'hash': _hash(merged.encode()),
+        // What the server has, to know one missing here (never taken for
+        // removed: see MarkStore.removedOf).
+        'known': [for (final m in merged.marks) m.id]..sort(),
         // Removals are remembered for half a year, then let go.
         'removed': {
           for (final r in merged.removed.entries)
