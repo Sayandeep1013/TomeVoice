@@ -95,61 +95,35 @@ void main() {
   }
 
   group('the text fades into the ground', () {
-    testWidgets('at its two edges only, over the page tone, its glow and all', (tester) async {
+    // A mask over the text, as in 1.3.0: the ground drawn again over its
+    // edges through a layer following the page's took Android's emulators
+    // down when a book opened.
+    testWidgets('a mask over the text fades its two edges, the ground and the glow under it', (tester) async {
       ListeningPrefs.memory.pageTone = 'papyrus';
       phone(tester);
       await openReader(tester, longBook());
       final text = find.byType(ScrollablePositionedList);
-      final area = tester.getRect(text);
-      expect(find.ancestor(of: text, matching: find.byType(ShaderMask)), findsNothing,
-          reason: 'no mask over the whole text');
-      final fades = find.byType(GroundFade);
-      expect(fades, findsNWidgets(2));
-      expect(tester.getRect(fades.at(0)), Rect.fromLTWH(area.left, area.top, area.width, 18));
-      expect(tester.getRect(fades.at(1)), Rect.fromLTWH(area.left, area.bottom - 28, area.width, 28));
-      expect(tester.widget<GroundFade>(fades.at(0)).top, isTrue);
-      expect(tester.widget<GroundFade>(fades.at(1)).top, isFalse);
-      // Every mask on the screen is one of the strips.
-      for (final m in find.byType(ShaderMask).evaluate()) {
-        expect((m.renderObject! as RenderBox).size.height, lessThanOrEqualTo(28));
-      }
-
-      // Each draws the page's own ground (its tone and vignette) where the
-      // real one is, at its size.
-      final ground = find.byType(PageGround).first;
-      final origin = tester.getTopLeft(ground);
-      for (var i = 0; i < 2; i++) {
-        final copy = find.descendant(of: fades.at(i), matching: find.byType(PageGround));
-        expect(tester.widget<PageGround>(copy).tone, PageTone.papyrus);
-        expect(tester.widget<PageGround>(copy).vignette, isTrue);
-        final box = tester.renderObject<RenderBox>(copy);
-        expect(box.size, tester.getSize(ground));
-        expect(box.localToGlobal(Offset.zero), origin, reason: 'lined up with the ground it draws again');
-      }
-      // The voice's glow shows through the fade at the foot, as it did under
-      // the mask: drawn there too, in its place on the ground.
-      expect(find.descendant(of: fades.at(1), matching: find.byType(VoiceGlow)), findsOneWidget);
-      expect(find.descendant(of: fades.at(0), matching: find.byType(VoiceGlow)), findsNothing);
-      // They are pictures: a tap goes through to the text.
-      expect(tester.widget<IgnorePointer>(find.descendant(of: fades.at(1), matching: find.byType(IgnorePointer)).first).ignoring,
-          isTrue);
-
-      // A new tone follows into the fades.
-      ListeningPrefs.memory
-        ..pageTone = 'dusk'
-        ..save();
-      await tester.pumpAndSettle();
-      expect(tester.widget<PageGround>(find.descendant(of: fades.at(0), matching: find.byType(PageGround))).tone,
-          PageTone.dusk);
+      final masks = find.ancestor(of: text, matching: find.byType(ShaderMask));
+      expect(masks, findsOneWidget, reason: 'one mask over the scrolling text');
+      final mask = tester.widget<ShaderMask>(masks);
+      expect(mask.blendMode, BlendMode.dstIn);
+      // Transparent at the two edges, whole between: 18 at the top, 28 at the foot.
+      final rect = Offset.zero & tester.getSize(masks);
+      final shader = mask.shaderCallback(rect);
+      expect(shader, isNotNull);
+      expect(find.byType(GroundFade), findsNothing, reason: 'no copies of the ground over the edges');
+      // The ground and the voice's glow lie under the text, not under the mask.
+      expect(find.ancestor(of: find.byType(PageGround).first, matching: find.byType(ShaderMask)), findsNothing);
+      expect(find.ancestor(of: find.byType(VoiceGlow), matching: find.byType(ShaderMask)), findsNothing);
       await finish(tester);
     });
 
-    testWidgets('on its side, the foot fades under the glow, which is over the text there', (tester) async {
+    testWidgets('on its side the text has the same mask, the glow over it', (tester) async {
       phone(tester, onItsSide: true);
       await openReader(tester, longBook());
-      final fades = find.byType(GroundFade);
-      expect(fades, findsNWidgets(2));
-      expect(find.descendant(of: fades.at(1), matching: find.byType(VoiceGlow)), findsNothing);
+      final text = find.byType(ScrollablePositionedList);
+      expect(find.ancestor(of: text, matching: find.byType(ShaderMask)), findsOneWidget);
+      expect(find.byType(GroundFade), findsNothing);
       await finish(tester);
     });
   });
