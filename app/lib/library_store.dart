@@ -12,6 +12,7 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 import 'book_search.dart' show foldForSearch;
 import 'index_file.dart';
 import 'marks.dart';
+import 'narration.dart' show BookNarrationReader, epubHasNarration;
 import 'ocr.dart';
 import 'organise.dart' show distinctTags, seriesNamed, tagKey, tagNamed;
 import 'prefs.dart';
@@ -39,6 +40,12 @@ import 'text_print.dart';
 /// table of data read a row at a time). PDFs keep their own version, on the
 /// entry (pdfParser).
 const _parsedVersion = 8;
+
+/// Bumped when EPUBs are to be read again for their own narration (media
+/// overlays), which books stored before it were never looked at for: an
+/// EPUB whose package names one is parsed again, once; the rest are marked
+/// as looked at. Other books are not touched.
+const _narrationVersion = 1;
 
 /// On-device library: copied files, parsed books, reading positions.
 ///
@@ -1093,6 +1100,8 @@ class LibraryStore {
       notes: notes,
     );
     final layout = await _runLoad(job);
+    // A book with its own narration plays its audio from its EPUB.
+    if (layout.book.narration != null && entry != null) BookNarrationReader.files[id] = entry.sourcePath;
     // A book read again carried its place across in cursor.json (see
     // _carryCursor); the index's copy of the place follows it, for what reads
     // the place from there (Undo after Start over, the shelf).
@@ -2049,7 +2058,28 @@ Book _withDetails(Book book, BookMetadata d) {
 }
 
 void _writeParsed(String dir, Book book) {
-  _writeWholeSync(File('$dir/parsed.json'), jsonEncode({'v': _parsedVersion, 'book': book.toJson()}));
+  _writeWholeSync(
+    File('$dir/parsed.json'),
+    jsonEncode({'v': _parsedVersion, 'n': _narrationVersion, 'book': book.toJson()}),
+  );
+}
+
+/// Whether [raw], an EPUB stored before its narration was looked for, has
+/// one in its file [source] (its package says so), and so is to be parsed
+/// again. One without is marked as looked at in [dir], and not looked at
+/// again.
+bool _narrationUnread(Map<Object?, Object?> raw, String? source, String dir) {
+  final looked = raw['n'];
+  if (looked is num && looked >= _narrationVersion) return false;
+  final book = raw['book'];
+  if (book is! Map || book['source'] != SourceKind.epub.name) return false;
+  if (source != null && epubHasNarration(source)) return true;
+  try {
+    _writeWholeSync(File('$dir/parsed.json'), jsonEncode({...raw, 'n': _narrationVersion}));
+  } on Object {
+    // Looked at again next time.
+  }
+  return false;
 }
 
 /// Write [text] beside [file] and rename it over: a crash leaves the old
@@ -2170,7 +2200,7 @@ Future<ReadingLayout> _loadLayout(_LoadJob job) async {
     }
   }
   if (raw != null) {
-    if (raw is Map && raw['v'] == _parsedVersion && raw['book'] is Map) {
+    if (raw is Map && raw['v'] == _parsedVersion && raw['book'] is Map && !_narrationUnread(raw, job.sourcePath, dir)) {
       book = Book.fromJson(Map<String, Object?>.from(raw['book'] as Map));
     } else if (raw is Map) {
       // Written by an older build. Parse the source again so the book gets

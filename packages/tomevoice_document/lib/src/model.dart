@@ -5,6 +5,8 @@
 /// what an EPUB is. See docs/02 §2.4.
 library;
 
+import 'narration.dart';
+
 enum SourceKind {
   epub,
   text,
@@ -446,6 +448,7 @@ class Book {
     required this.source,
     this.sourceName,
     this.wordCount = 0,
+    this.narration,
   });
 
   final String id;
@@ -455,6 +458,10 @@ class Book {
   final SourceKind source;
   final String? sourceName;
   final int wordCount;
+
+  /// The book's own recorded narration (an EPUB 3's media overlays), when
+  /// it brings one.
+  final Narration? narration;
 
   bool get isEmpty =>
       sections.every((s) => s.blocks.every((b) => b.text.isEmpty));
@@ -473,6 +480,7 @@ class Book {
         source: source,
         sourceName: sourceName,
         wordCount: wordCount ?? this.wordCount,
+        narration: narration,
       );
 
   Map<String, Object?> toJson() => {
@@ -483,6 +491,7 @@ class Book {
         'source': source.name,
         if (sourceName != null) 'sourceName': sourceName,
         'wordCount': wordCount,
+        if (narration != null) 'narration': narration!.toJson(),
       };
 
   static Book fromJson(Map<String, Object?> json) => Book(
@@ -504,6 +513,7 @@ class Book {
         ),
         sourceName: json['sourceName'] as String?,
         wordCount: json['wordCount'] as int? ?? 0,
+        narration: Narration.fromJson(json['narration']),
       );
 }
 

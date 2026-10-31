@@ -240,6 +240,8 @@ object ReadingCore {
             "listEngines" -> listEngines(result)
             "listVoices" -> listVoices(call.argument<String>("engineId"), result)
             "synthesise" -> synthesise(call.arguments as Map<*, *>, result)
+            // A stretch of a book's own narration, decoded (NarrationAudio).
+            "narrationClip" -> NarrationAudio.decode(call.arguments as Map<*, *>, result)
             "cancelSynthesis" -> {
                 // Seeking should not wait for a sentence nobody will hear.
                 try {

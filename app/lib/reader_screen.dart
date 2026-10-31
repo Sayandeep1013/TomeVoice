@@ -751,6 +751,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         isPlaying: () =>
             _player.state.value == PlayState.playing || _player.state.value == PlayState.loading,
         isPdf: _isPdf,
+        narration: _l.book.narration != null,
       );
 
   /// Say the sentence under the cursor in [voiceName], so a voice is judged
