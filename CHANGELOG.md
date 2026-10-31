@@ -3,25 +3,53 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
-## Not yet released
+## 1.4.0 (2026-10-31)
 
-On the `next` branch, waiting for a phone check:
+The biggest TomeVoice yet: save a book as an audiobook, a voice for each character, an EPUB's own narration, reading that goes on when you leave the app, web novels that look after themselves, a library you can organise, and your own colours.
 
-- **Save as audio:** a chapter, or a whole book as an M4B audiobook with its chapters marked, or as an MP3 with its chapters too. Swiped away from Recents, it goes on saving.
-- **A voice for each character** (experimental): a book's page lists who speaks in it, found from its speech tags, and each one's lines can have a voice of their own, aloud and in Save as audio. English books; a line it cannot place stays in the dialogue voice.
-- **Reading from outside the app:** swiped away from Recents, the book reads on; the media card and a headset's Play pick it up with the app closed; Android Auto lists your books. Battery help in Settings → Listening.
-- **Web novels that look after themselves:** new chapters checked with the app closed, a download queue that keeps going, each site in its own sandbox off your home network with its code checked, and a changed chapter list never deletes downloads.
-- **More for web novels:** move a novel to another source with its place, downloads, quotes and read marks; mark chapters read or unread, or all above one; export the downloaded chapters as an EPUB; sign in to a source's site; new chapters that download by themselves for the novels you choose (on Wi-Fi only, unless you say otherwise); and new-chapter notifications with TomeVoice left in the background too. NovelUpdates has no API for apps, so it gets a link to find each novel there, not tracking.
-- **Reads anything you share:** links read as articles, shared words as books, Paste a link or text.
-- **Highlights** in four colours with Markdown export, **Read notes aloud**, **OPDS catalogues**, **automatic backups**, and opt-in **sync** through WebDAV or a KOReader server.
-- **OCR** for scanned PDFs, on the phone, Bengali included.
+#### Listening
+- **Save as audio:** a chapter, or a whole book as an M4B audiobook or an MP3, its chapters marked. Swiped away from Recents, it goes on saving. A book on a secret shelf is never named in its notifications.
+- **A voice for each character** (experimental): a book's page, and the reader's voice sheet, list who speaks in it, found from its speech tags, and each one's lines can have a voice of their own, aloud and in Save as audio. English books; a line it can't place stays in the dialogue voice.
+- **An EPUB's own narration:** a book that comes with a recorded narration (EPUB 3 Media Overlays) can play it, its words lit as they are said, at any speed without the pitch changing.
+- **Reading from outside the app:** swiped away from Recents, the book reads on, into a web novel's next chapters too with the screen off; the media card and a headset's Play pick it up with the app closed; Android Auto lists your books. Battery help in Settings → Listening.
 - **Natural voices in 42 languages**, about 180 of them, with Kokoro and Kitten for fast phones.
-- A PDF's real pages zoom and go dark at night; accessibility and contrast fixes; an error log and Report a problem; quicker jumps with natural voices; nothing running while paused; a settable streak goal.
-- Thirteen reading fixes found by a new set of real books in the tests: front and back matter, Gutenberg licences, Markdown, ODT and FB2.
-- **Tags and series:** give a book as many tags as you like, and a series with its number (found in an EPUB's or FB2's own details, or a title like "A Song of Ice and Fire 3"). Sort by author or by series, each series in order, and filter the shelves by progress, format, language, tag or series. Nothing of a locked secret shelf shows in any of them.
+- **Pronunciation lists** shared as a file and taken in, and **what the voice skips**: authors' and translators' notes, rows of symbols and chapter titles said twice, for every book or one (Settings → Reading rules). Off unless you turn them on.
+- **Read notes aloud**, a sleep timer that fades out, quicker jumps with natural voices, and nothing running while paused.
+
+#### Reading
+- **Light:** the page dims below the phone's lowest brightness, and warms for the night (Reading settings → Read).
+- **Auto-scroll** for reading without the voice, in scroll or in pages.
+- **Reads anything you share:** links read as articles (a Wikipedia page whole, without its lists of sources), shared words as books, or Paste a link or text.
+- **Highlights** in four colours, exported with your quotes as Markdown.
+- **A PDF's real pages** zoom, go dark at night, and can crop their margins so the print fills the phone.
+- **A short guide** on a new install's first launch.
+- The player's chips and scrubber, and choice rows, answer taps in a band around them; a long web novel reads straight on across its chapters with no pause or flash.
+
+#### Your library
+- **Tags and series:** give a book as many tags as you like, and a series with its number (from an EPUB's or FB2's own details, or the words several of your books' titles share, so "A Game of Thrones A Song of Ice and Fire 1" and its fellows are one series, in order). Sort by author or by series, and filter the shelves by progress, format, language, tag or series. Nothing of a locked secret shelf shows in any of them.
 - **Find duplicates:** a book you add that looks like one you have, in another file or format, is offered to you, never merged.
-- **Saved** clears the quotes of books no longer in your library together. With a secret shelf locked, those that might have been a secret book's wait until it is open.
-- Listening no longer rewrites the whole library list every sentence: the place is kept at once in the book's own file and written into the list every few seconds. With 1,000 books in the tests, each saved place costs the main thread about a tenth of what it did.
+- **Your own colours** beside the themes, kept readable, and a theme in your wallpaper's colours on Android 12 and later. Small type, icons and controls meet the WCAG AA contrast standard in every theme, the word being read too.
+- **OPDS catalogues**, **automatic backups** to a folder (a secret shelf left out unless you say otherwise), and opt-in **sync** through your own WebDAV server or a KOReader server.
+- **OCR** for scanned PDFs, on the phone, Bengali included.
+- **Report a problem** from an error log you read before sending, and a settable streak goal.
+- **Saved** clears the quotes of books no longer in your library together.
+- The place is kept at once in the book's own file and written into the library list every few seconds: on 1,000 books, each saved place costs about a tenth of what it did.
+
+#### Web novels
+- **Look after themselves:** new chapters checked with the app closed, or in the background; a download queue that keeps going; new chapters that download by themselves for the novels you choose (on Wi-Fi only, unless you say otherwise).
+- **Move a novel to another source** with its place, downloads, quotes, read marks and voices; **mark chapters read or unread**; **export the downloaded chapters as an EPUB**; **sign in to a source's site**, the sign-in kept for that source only.
+- Each site runs in its own sandbox, off your home network, its code checked before it runs. NovelUpdates has no API for apps, so it gets a link to find each novel there, not tracking.
+
+#### Documents
+- A scanned PDF's bookmarks named after its pictures are no longer its chapters. Two speakers' lines in a PDF are two paragraphs. A note's raised number is shown, not said (a power like m² still is). Kindle AZW3 notes are shown, not read. Russian and Ukrainian dialogue isn't cut after "!" or "?". Transcribers' notes aren't read; an RTF file's notes are shown; a Word or ODT table of data is read a row at a time; a Gutenberg text is named by its header.
+- Thirteen fixes found by a new set of real books in the tests.
+- Your books are read once more when you open them, to take these fixes, and keep their places.
+
+#### Fixes
+- A backup made to look like TomeVoice's can no longer delete your library on Replace.
+- Moving your default shelf into a secret one takes all its books with it.
+- A sleep timer set to the chapter's end pauses only when the voice gets there, not when you move to another chapter, and Now Playing shows when it has paused.
+- Before release, a fresh review of all the new code found 47 problems, in sync, backups, the sources' sandbox, OCR and the reader. All are fixed.
 
 ## 1.3.0 (2026-10-30)
 

@@ -67,6 +67,13 @@ No account. No cloud. Your books never leave the phone.
   (Bengali has no natural voice yet; a Bengali book uses the phone's.)
 - **Dialogue in a second voice.** Pick one, and words inside quotation marks are read
   by it while the narrator reads the rest.
+- **A voice for each character** (experimental). A book's page lists who speaks in it,
+  found from its speech tags ("said Elizabeth"), and each one's lines can have a voice of
+  their own, aloud and in Save as audio. English books; a line it can't place stays in
+  the dialogue voice.
+- **An EPUB's own narration.** A book that comes with a recorded narration (EPUB 3 Media
+  Overlays) can play it instead of a voice, its words lit as they are said, at any speed
+  without the pitch changing.
 - **Follows along.** The sentence being read is marked and the word under the voice is
   highlighted, timed from the audio itself.
 - **Keeps going with the screen off.** Pause and resume from the lock screen,
@@ -87,7 +94,10 @@ No account. No cloud. Your books never leave the phone.
   sets the page. A tap on the text puts the top bar and the player away to read alone,
   and another brings them back. Listening on pages, the page turns as the voice reads
   onto the next one, not before. A long book or chapter list has a thumb at the edge:
-  drag it to go straight through, a bubble naming the chapter.
+  drag it to go straight through, a bubble naming the chapter. **Light** dims the page
+  below the phone's lowest brightness and warms it for the night; **auto-scroll** moves
+  the page on by itself when you read without the voice; a PDF's real pages can crop
+  their margins so the print fills the phone.
 - **Keeps reading when you leave the book.** Back goes to your library while the voice
   reads on; pause it from the library's player or the notification, and open the book
   again to find it still reading (Settings → Listening, on by default). Swipe TomeVoice
@@ -114,7 +124,10 @@ No account. No cloud. Your books never leave the phone.
   (with Undo if you saved by mistake); they wait in **Saved**, and show in the text as
   highlights in four colours, with your notes, ready to export as Markdown. Press and
   hold a word to look it up or translate its sentence. Fix how a name is said, for one
-  book or all, and in web novels leave out site notices and credits.
+  book or all, and share the list as a file (or take in someone else's); in web novels
+  leave out site notices and credits, and, if you like, the authors' and translators'
+  notes, rows of symbols and chapter titles said twice: the page still shows them, the
+  voice passes over (Settings → Reading rules).
 - **Listening stats and streaks.** Your week, the last twenty weeks as dots, and a streak
   for every day you reach your daily goal (five minutes, or whatever you set).
 - **Books from catalogues.** Browse and download from Project Gutenberg, Standard Ebooks
@@ -127,7 +140,8 @@ No account. No cloud. Your books never leave the phone.
 - **Your library in one file.** Back it up to Downloads or Drive, or let it back itself
   up daily or weekly into a folder you pick, and restore it on a new phone, adding to
   what is there or replacing it. Backups leave out the natural voices (a download away)
-  and warn when they hold a secret shelf. TomeVoice also tells you when a new version is
+  and warn when they hold a secret shelf; automatic ones leave a secret shelf out unless
+  you say otherwise. TomeVoice also tells you when a new version is
   out, and installs it for you (Android asks you to confirm).
 - **Sync, if you want it, to your own server.** Your places, quotes and listening time
   go to a WebDAV folder you choose, or your place to a KOReader sync server; the books
@@ -138,7 +152,10 @@ No account. No cloud. Your books never leave the phone.
   on its own.
 - **A shelf you can organise.** Cover tiles with format, length and progress on each;
   your own categories (Reading, Later, or any you make), swiped between; the books you are
-  in the middle of waiting at the bottom with a play button. **Secret shelves** open only
+  in the middle of waiting at the bottom with a play button. **Tags and series**: sort
+  by author or series (a series found in the book itself, or in the words several of
+  your books' titles share), filter by progress, format, language, tag or series, and
+  find copies of a book you already have. **Secret shelves** open only
   with your fingerprint, face or phone PIN and lock again when you leave; while locked
   their books are nowhere in the app, its widgets or the lock-screen player (Settings →
   Secret shelf, or press and hold the word Library).
@@ -152,13 +169,18 @@ No account. No cloud. Your books never leave the phone.
   read through the phone's own browser engine. Download single chapters or whole novels
   to listen offline; downloads queue, carry on without the novel's page and try again.
   Each site runs in its own sandbox, off your home network, its code checked before it
-  runs, and a site's changed chapter list never deletes what you downloaded. Your
+  runs, and a site's changed chapter list never deletes what you downloaded. Move a
+  novel to another site with its place and downloads, mark chapters read or unread,
+  export what you downloaded as an EPUB, sign in to a site (kept for that source only),
+  and let new chapters download by themselves. Your
   NovelDokusha library can be imported from its backup
   ([ADR-019](docs/10-decisions-adr.md#adr-019)).
 - **Never an empty shelf.** A new install starts with *Pride and Prejudice* (public
   domain, with its 1894 peacock cover) and two popular web novels, *Shadow Slave* and
   *Lord of the Mysteries*, ready to play. Remove them like any other book.
-- **Five colour themes:** Forest, Lavender, Ocean, Black for OLED screens, and Paper.
+- **Colour themes:** Forest, Lavender, Ocean, Black for OLED screens and Paper, your own
+  colours (kept readable), or your wallpaper's on Android 12 and later. Text meets the
+  WCAG AA contrast standard in every one. A short guide shows the way on a new install.
 - **Gives you the voice controls readers don't:** speed, pitch, the gap between words,
   and pauses at commas, sentences and paragraphs.
 

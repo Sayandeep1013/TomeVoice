@@ -6,55 +6,28 @@ what actually shipped is in the [changelog](../CHANGELOG.md).
 
 ## Shipped
 
-0.2 to 1.3.0, between 22 and 30 October 2026: the reader, the owned audio pipeline,
-system and natural voices, ten formats, web novels, widgets, stats, secret shelves,
-backups, and with 1.3.0 the fixes from the full review of 30 October
-([docs/review-2026-10-30.html](review-2026-10-30.html)).
+0.2 to 1.4.0, between 22 and 31 October 2026: the reader, the owned audio pipeline,
+system and natural voices, ten formats, web novels, widgets, stats, secret shelves and
+backups; with 1.3.0 the fixes from the full review of 30 October
+([docs/review-2026-10-30.html](review-2026-10-30.html)); and with 1.4.0 everything that
+review asked for and every idea it listed that was chosen, from saving as audio, a voice
+for each character and an EPUB's own narration to sync, OCR, organising the library,
+reader comforts and your own colours. The [changelog](../CHANGELOG.md) has each release.
 
-## Next release (on the `next` branch, waiting for a phone check)
+Before 1.4.0 went out, a second review of all its new code found 47 problems; all were
+fixed, and an emulator crash in the reader (a fade drawn through a following layer) was
+found on CI and fixed.
 
-Save as audio (M4B or MP3, going on after a swipe-away), reading from outside the app
-(swipe-away, the media card, a headset, Android Auto), battery help, web novels that
-look after themselves (checks with the app closed, a download queue, sandboxed plugins
-checked by SHA-256), reading a shared link or text, highlights with Markdown export,
-Read notes aloud, OPDS catalogues, automatic backups, WebDAV and KOReader sync, OCR for
-scanned PDFs, natural voices in 42 languages, PDF pages that zoom and go dark,
-accessibility and contrast, an error log with Report a problem, and thirteen reading
-fixes found by a corpus of real books.
+## Next
 
-## The pass after it
-
-1. **Split `reader_screen.dart`** (3,500 lines; scroll and pages copy each other, which
-   caused the tone bug): a reader controller for the place, playback and media card,
-   one page style for every view. On its own, before anything else touches the file,
-   with the full checks and a phone check, since it can break the reader.
-2. **Fixes found along the way:**
-   - PDF dialogue that still runs together, which needs the extractor's raw output from
-     a phone;
-   - footnotes in KF8 files being read;
-   - a PDF footnote's number being said;
-   - Russian dialogue dashes splitting a sentence;
-   - chips and the chapter scrubber under 48 dp;
-   - small type in the app's light palettes below AA;
-   - no margin crop for a PDF's pages;
-   - the closed-app chapter check skipping while the app sits in the background;
-   - a gap at the reader page's window edge;
-   - small document leftovers (transcriber's notes, RTF footnotes, Word tables, a
-     Gutenberg text's title);
-   - quotes left by secret books removed before 1.4.
-3. **`library.json` written about once a sentence:** measured on a phone with a large
-   library first, then places kept in `cursor.json` with the index written on a debounce,
-   off the UI thread.
-4. **Reader comforts:** brightness and warmth in the reader, auto-scroll, Material You
-   colours, a first-run guide, an EPUB's own narration (Media Overlays), and colours the
-   reader picks alongside the themes.
-5. **A second full review** of the whole app.
-
-## Undecided (ask first)
-
-Shareable pronunciation lists and skip presets; character voices; organising the
-library (tags, series, filters, sort by author); web-novel comforts (moving a novel
-between sources, logins, EPUB export, NovelUpdates, auto-download, read marks).
+1. **A second full review** of the whole app, as the first one was done.
+2. **Dusk's saved quotes:** a quote's colour under the Dusk page tone reads at about
+   4.2:1 (3:1 under the sentence being read), short of AA; it needs a design call on
+   Dusk's ink or the quote colours.
+3. **Smaller things left from 1.4.0:** the upright player's scrubber reaches 39 dp, not
+   48 (more would mean a taller player); Pause pressed in the moment a web novel rolls
+   into its next chapters is ignored; a shared Wikipedia page's notes in other sections'
+   names may still be read.
 
 ## Not planned
 
