@@ -453,8 +453,20 @@ class SourceStore {
 
   /// Put [code] (already downloaded and checked, its hash [hash]) in place
   /// as [plugin].
+  ///
+  /// What is kept under its id (its settings, its sign-in and the site's
+  /// other cookies) belongs to the source of the list it came from: a
+  /// source of the same id from another list starts clean, as does one
+  /// when that list is not known (left by a build before 1.4's uninstall).
+  /// An update from its own list, or a restored backup's source installed
+  /// again from the list it had, keeps it.
   Future<PluginInfo> installCode(PluginInfo plugin, Uint8List code, String hash) async {
     await ensure();
+    final had = await installedById(plugin.id);
+    final keep = had != null
+        ? had.repo == null || had.repo == plugin.repo
+        : plugin.repo != null && (await restored()).any((p) => p.id == plugin.id && p.repo == plugin.repo);
+    if (!keep) await forgetData(plugin.id);
     final f = File(codePath(plugin.id));
     final tmp = File('${f.path}.tmp');
     await tmp.writeAsBytes(code, flush: true);
@@ -468,6 +480,9 @@ class SourceStore {
     return record;
   }
 
+  /// Take source [id] off the phone, with what was kept for it: its
+  /// settings and its cookies (a sign-in among them). Its workers' copies
+  /// go with SourceEngine.forget.
   Future<void> uninstall(String id) async {
     try {
       await File(codePath(id)).delete();
@@ -477,6 +492,20 @@ class SourceStore {
     final list = await installed();
     await _saveInstalled([for (final p in list) if (p.id != id) p]);
     if (pending.value.containsKey(id)) pending.value = {...pending.value}..remove(id);
+    await forgetData(id);
+  }
+
+  /// Forget what is kept for source [id] and for its trial copy (an update
+  /// tried before it is installed): their storage and their cookies.
+  Future<void> forgetData(String id) async {
+    for (final key in [id, '$id#trial']) {
+      try {
+        await storageFile(key).delete();
+      } on FileSystemException {
+        // None kept.
+      }
+      await Net.instance.clearCookies(partition: key);
+    }
   }
 
   /// Installed sources that the list each was installed from has a newer

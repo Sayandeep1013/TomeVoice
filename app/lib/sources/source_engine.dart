@@ -73,6 +73,14 @@ class SourceEngine {
     return s;
   }
 
+  /// Source [id] was uninstalled (SourceStore.uninstall): every worker lets
+  /// go of its context and the storage it kept for it in memory.
+  void forget(String id) {
+    for (final w in _workers) {
+      w.forget(id);
+    }
+  }
+
   /// Which worker each plugin runs in.
   final _assigned = <String, _Worker>{};
   Future<_Worker>? _spawning;
@@ -351,6 +359,9 @@ class _Worker {
     return c.future;
   }
 
+  /// Let go of plugin [id] (see PluginHost.forget).
+  void forget(String id) => _send.send({'forget': id});
+
   /// End the isolate: its engines are disposed, and what still ran in them
   /// stops with it.
   void close() {
@@ -392,6 +403,10 @@ class _Worker {
       if (m['exit'] == true) {
         host.dispose();
         Isolate.exit();
+      }
+      if (m['forget'] case final String id) {
+        host.forget(id);
+        continue;
       }
       final id = m['id'];
       final plugin = m['plugin'] as String;

@@ -249,6 +249,9 @@ class PluginHost {
       return;
     }
     if (have != null) _retire(have);
+    // Its storage as it is on the disk now (another list's source of this
+    // id, installed in its place, starts with none).
+    _stores.remove(id);
     final bytes = File(codePath).readAsBytesSync();
     if (sha256 != null && sha256Hex(bytes) != sha256) throw TamperedSourceException(id, name ?? id);
     final code = utf8.decode(bytes, allowMalformed: true);
@@ -268,6 +271,18 @@ class PluginHost {
       rethrow;
     }
     _live[id] = p;
+    _evict();
+  }
+
+  /// Plugin [id] was uninstalled: its context (and its trial copy's) and
+  /// the storage kept for them here go, so a source later installed under
+  /// its id starts from the disk, where nothing is left of it.
+  void forget(String id) {
+    for (final key in [id, '$id#trial']) {
+      _stores.remove(key);
+      final p = _live.remove(key);
+      if (p != null) _retire(p);
+    }
     _evict();
   }
 

@@ -682,6 +682,77 @@ void main() {
     expect((update.version, update.repo, update.url), ('1.1.0', '$base/a.json', '$base/a.json.js'));
   });
 
+  test("a source's settings and sign-in go when it is uninstalled, and never pass to another list's source", () async {
+    var version = '1.0.0';
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final base = 'http://127.0.0.1:${server.port}';
+    server.listen((req) async {
+      final p = req.uri.path;
+      if (p == '/a.json' || p == '/b.json') {
+        req.response.write(jsonEncode([
+          {'id': 'fake', 'name': 'Fake', 'site': '$base/', 'lang': 'English', 'version': p == '/a.json' ? version : '1.0.0',
+            'url': '$base$p.js'},
+        ]));
+      } else {
+        req.response.write('exports.default = {}; // from $p');
+      }
+      await req.response.close();
+    });
+    final dir = Directory.systemTemp.createTempSync('tv_owner');
+    addTearDown(() async {
+      await server.close(force: true);
+      await Net.instance.clearCookies();
+      dir.deleteSync(recursive: true);
+    });
+    final store = SourceStore(dir, defaults: const [], allowInsecure: true);
+    await store.addRepo('$base/a.json');
+    await store.addRepo('$base/b.json');
+    Future<PluginInfo> listedIn(String list) async => (await store.fromItsList(
+        PluginInfo(id: 'fake', name: 'Fake', site: '', lang: '', version: '0', url: '', repo: '$base/$list')))!;
+    void signIn() {
+      store.storageFile('fake').writeAsStringSync(jsonEncode({'token': 'secret'}));
+      Net.instance.jar.merge([StoredCookie(name: 'session', value: 'abc', domain: '127.0.0.1')], partition: 'fake');
+    }
+
+    bool kept() => store.storageFile('fake').existsSync() || Net.instance.cookieHeader('$base/', partition: 'fake') != null;
+
+    await store.install(await listedIn('a.json'));
+    signIn();
+    version = '1.1.0';
+    await store.install((await store.updates(refresh: true))['fake']!);
+    expect(kept(), isTrue, reason: 'an update from its own list keeps them');
+
+    // List b's source of the same id, installed in its place: starts clean.
+    await store.install(await listedIn('b.json'));
+    expect(kept(), isFalse);
+
+    // Uninstalled: nothing of it is left, its trial copy's neither.
+    signIn();
+    store.storageFile('fake#trial').writeAsStringSync('{}');
+    await store.uninstall('fake');
+    expect(kept(), isFalse);
+    expect(store.storageFile('fake#trial').existsSync(), isFalse);
+
+    // Left by an older build's uninstall, its list unknown: a new install starts clean.
+    signIn();
+    await store.install(await listedIn('a.json'));
+    expect(kept(), isFalse);
+  });
+
+  test("a worker lets go of an uninstalled plugin's storage: one installed under its id starts with none", () {
+    final dir = Directory.systemTemp.createTempSync('tv_forget');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final host = PluginHost(() => throw UnsupportedError('no engine needed'), libs: '', shim: '', sourcesDir: dir.path);
+    final file = File('${dir.path}/storage-fake.json');
+    host.setSetting('fake', 'token', 'secret');
+    expect(file.readAsStringSync(), contains('secret'));
+    // Uninstalled: its file is deleted, and the worker told.
+    file.deleteSync();
+    host.forget('fake');
+    host.setSetting('fake', 'mirror', 'b');
+    expect(file.readAsStringSync(), allOf(contains('mirror'), isNot(contains('secret'))));
+  });
+
   test("a plugin whose code is not what was installed is not run", () {
     final dir = Directory.systemTemp.createTempSync('tv_tamper');
     addTearDown(() => dir.deleteSync(recursive: true));

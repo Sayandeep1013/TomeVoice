@@ -180,8 +180,11 @@ class _SourcesScreenState extends State<SourcesScreen> {
     }
   }
 
+  /// Uninstall [p], with its settings and cookies (a sign-in among them):
+  /// nothing of it is left for a source installed under its id later.
   Future<void> _uninstall(PluginInfo p) async {
     await _store.uninstall(p.id);
+    SourceEngine.instance.forget(p.id);
     await _load();
   }
 
