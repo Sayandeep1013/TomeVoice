@@ -428,14 +428,25 @@ class LibraryStore {
     categories = [...categories, for (final c in _categories) if (c.secret && !given.contains(c.id)) c];
     if (categories.every((c) => c.secret)) categories = [categories.first.withSecret(false), ...categories.skip(1)];
     await _change((entries) {
+      final was = _defaultCategory;
       _categories = List.unmodifiable(categories);
       final d = defaultCategory ?? _defaultCategory;
       final open = [for (final c in categories) if (!c.secret) c.id];
       _defaultCategory = open.contains(d) ? d : open.first;
       final ids = {for (final c in categories) c.id};
+      // A book on no shelf of its own is on the default one. Another shelf
+      // the default now (the old one made secret, or new books sent
+      // elsewhere), it stays on the shelf it was on, named: following the
+      // default out of a shelf made secret left it on show.
+      final stay = _defaultCategory != was && ids.contains(was) ? was : null;
       return [
         for (final e in entries)
-          e.category == null || ids.contains(e.category) ? e : e.copyWith(category: categories.first.id),
+          if (e.category == null)
+            stay == null ? e : e.copyWith(category: stay)
+          else if (ids.contains(e.category))
+            e
+          else
+            e.copyWith(category: categories.first.id),
       ];
     });
   }
