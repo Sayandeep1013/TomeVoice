@@ -52,7 +52,37 @@ class SourceException implements Exception {
 /// A page as the phone's web view gets it, or null: for sites whose
 /// Cloudflare turns away the app's own requests but lets a browser in. A
 /// POST ([method]) sends [body] as a form, the one kind the web view posts.
-typedef BrowserFetch = Future<String?> Function(String url, {String method, String? body});
+/// [partition]: the source asking, whose cookies alone the web view holds
+/// meanwhile (see Net.viaWebView).
+typedef BrowserFetch = Future<BrowserPage?> Function(String url, {String method, String? body, String partition});
+
+/// What a plugin's fetch of [url] gets from the phone's web view: [page], as
+/// a response from where it ended, only when that is the host asked for or
+/// another of its site, on the open internet. The web view follows
+/// redirects, refreshes and scripts, which may lead anywhere (the router's
+/// page, a site that is not the plugin's): anything else is no page (null),
+/// a failed fetch.
+Future<String?> browserResponse(String url, BrowserPage? page) async {
+  if (page == null || !Net.isWebAddress(page.url)) return null;
+  final asked = Uri.parse(url).host.toLowerCase();
+  final ended = Uri.parse(page.url).host.toLowerCase();
+  if (ended != asked) {
+    if (!sameSite(ended, url)) return null;
+    try {
+      await Net.vet(ended);
+    } on Object {
+      return null;
+    }
+  }
+  return jsonEncode({
+    'status': 200,
+    'statusText': '',
+    'url': page.url,
+    'redirected': page.url != url,
+    'headers': const {'content-type': 'text/html; charset=utf-8'},
+    'body': page.html,
+  });
+}
 
 /// The site answered with a browser check (Cloudflare) instead of itself.
 /// Passing it once in a web view ([url]) lets the requests through.
@@ -219,6 +249,9 @@ class PluginHost {
       return;
     }
     if (have != null) _retire(have);
+    // Its storage as it is on the disk now (another list's source of this
+    // id, installed in its place, starts with none).
+    _stores.remove(id);
     final bytes = File(codePath).readAsBytesSync();
     if (sha256 != null && sha256Hex(bytes) != sha256) throw TamperedSourceException(id, name ?? id);
     final code = utf8.decode(bytes, allowMalformed: true);
@@ -238,6 +271,18 @@ class PluginHost {
       rethrow;
     }
     _live[id] = p;
+    _evict();
+  }
+
+  /// Plugin [id] was uninstalled: its context (and its trial copy's) and
+  /// the storage kept for them here go, so a source later installed under
+  /// its id starts from the disk, where nothing is left of it.
+  void forget(String id) {
+    for (final key in [id, '$id#trial']) {
+      _stores.remove(key);
+      final p = _live.remove(key);
+      if (p != null) _retire(p);
+    }
     _evict();
   }
 
@@ -353,19 +398,20 @@ class PluginHost {
     // Bytes (a protobuf message) come as base64.
     final bytes = req['bodyBase64'] is String ? base64Decode(req['bodyBase64'] as String) : null;
     // A POST goes through the web view only as a form, the one kind it can
-    // send. Only the plugin's own site may be fetched there, which keeps
-    // every site's cookies (logins too) in one place.
+    // send. Only the plugin's own site may be fetched there, with the
+    // plugin's own cookies (logins too) and no other's.
     final contentType = headers.entries.where((e) => e.key.toLowerCase() == 'content-type').firstOrNull?.value;
     final form = method == 'POST' && bytes == null && (contentType == null || contentType.contains('x-www-form-urlencoded'));
     final browser = (method == 'GET' || form) && sameSite(host, p.site) ? viaBrowser : null;
-    Future<String?> viaWebView() => browser!(url, method: method, body: body);
+    Future<String?> viaWebView() async =>
+        browserResponse(url, await browser!(url, method: method, body: body, partition: p.id));
     try {
       if (browser != null && _browserHosts.contains(host)) {
         // The web view is held to the open internet as the app's own
         // requests are.
         await Net.vet(host);
-        final html = await viaWebView();
-        if (html != null) return _page(url, html);
+        final page = await viaWebView();
+        if (page != null) return page;
       }
       final r = await Net.instance.request(
         url,
@@ -375,10 +421,10 @@ class PluginHost {
         partition: p.id,
       );
       if (r.isChallenge && browser != null) {
-        final html = await viaWebView();
-        if (html != null) {
+        final page = await viaWebView();
+        if (page != null) {
           if (_browserHosts.add(host)) onBrowserHost?.call(host);
-          return _page(url, html);
+          return page;
         }
       }
       if (r.isChallenge) {
@@ -433,15 +479,6 @@ class PluginHost {
         'redirected': false,
         'headers': const <String, String>{},
         'body': '',
-      });
-
-  static String _page(String url, String html) => jsonEncode({
-        'status': 200,
-        'statusText': '',
-        'url': url,
-        'redirected': false,
-        'headers': const {'content-type': 'text/html; charset=utf-8'},
-        'body': html,
       });
 
   final _stores = <String, Map<String, String>>{};

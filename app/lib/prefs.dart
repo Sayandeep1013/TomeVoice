@@ -67,6 +67,7 @@ class ListeningPrefs {
     this.backupEvery = 'off',
     this.backupFolder,
     this.backupChapters = false,
+    this.backupSecret = false,
     this.lastBackup,
     this.webdavOn = false,
     this.webdavUrl,
@@ -74,9 +75,11 @@ class ListeningPrefs {
     this.kosyncOn = false,
     this.kosyncUrl,
     this.kosyncUser,
+    List<String>? plainHttpOk,
     List<Map<String, Object?>>? catalogues,
     Map<String, String>? catalogueUsers,
-  })  : catalogues = catalogues ?? [],
+  })  : plainHttpOk = plainHttpOk ?? [],
+        catalogues = catalogues ?? [],
         catalogueUsers = catalogueUsers ?? {},
         voiceByLanguage = voiceByLanguage ?? {},
         voiceByBook = voiceByBook ?? {},
@@ -330,6 +333,11 @@ class ListeningPrefs {
   PickedFolder? backupFolder;
   bool backupChapters;
 
+  /// Whether automatic backups take the secret shelves too: off unless the
+  /// reader turns it on, told that whoever has a backup file can open their
+  /// books (see secretLeftOut).
+  bool backupSecret;
+
   /// When the last automatic backup was made.
   DateTime? lastBackup;
 
@@ -345,6 +353,12 @@ class ListeningPrefs {
   bool kosyncOn;
   String? kosyncUrl;
   String? kosyncUser;
+
+  /// Sync addresses on plain http:// out on the internet that the reader
+  /// was warned of and chose anyway, as typed: a password goes to those,
+  /// and over http otherwise only to this phone or their own network (see
+  /// passwordMayGo).
+  final List<String> plainHttpOk;
 
   /// OPDS catalogues the reader added (see Catalogue), and the user names
   /// they sign in to the built-in ones with: kept with the settings, so a
@@ -398,7 +412,8 @@ class ListeningPrefs {
     _saveTimer?.cancel();
     _saveTimer = Timer(const Duration(milliseconds: 400), () async {
       final file = _file;
-      if (file == null) return;
+      // Not over a backup's settings being restored (see RestoreGate).
+      if (file == null || RestoreGate.shut) return;
       try {
         await writeSafely(file, jsonEncode(toJson()));
       } on Object {
@@ -460,6 +475,7 @@ class ListeningPrefs {
         if (backupEvery != 'off') 'backupEvery': backupEvery,
         if (backupFolder != null) 'backupFolder': backupFolder!.toJson(),
         if (backupChapters) 'backupChapters': true,
+        if (backupSecret) 'backupSecret': true,
         if (lastBackup != null) 'lastBackup': lastBackup!.toIso8601String(),
         if (webdavOn) 'webdavOn': true,
         if (webdavUrl != null) 'webdavUrl': webdavUrl,
@@ -467,6 +483,7 @@ class ListeningPrefs {
         if (kosyncOn) 'kosyncOn': true,
         if (kosyncUrl != null) 'kosyncUrl': kosyncUrl,
         if (kosyncUser != null) 'kosyncUser': kosyncUser,
+        if (plainHttpOk.isNotEmpty) 'plainHttpOk': plainHttpOk,
         if (catalogues.isNotEmpty) 'catalogues': catalogues,
         if (catalogueUsers.isNotEmpty) 'catalogueUsers': catalogueUsers,
       };
@@ -558,6 +575,7 @@ class ListeningPrefs {
         backupEvery: json['backupEvery'] as String? ?? 'off',
         backupFolder: PickedFolder.fromJson(json['backupFolder']),
         backupChapters: json['backupChapters'] == true,
+        backupSecret: json['backupSecret'] == true,
         lastBackup: DateTime.tryParse(json['lastBackup'] as String? ?? ''),
         webdavOn: json['webdavOn'] == true,
         webdavUrl: json['webdavUrl'] as String?,
@@ -565,6 +583,10 @@ class ListeningPrefs {
         kosyncOn: json['kosyncOn'] == true,
         kosyncUrl: json['kosyncUrl'] as String?,
         kosyncUser: json['kosyncUser'] as String?,
+        plainHttpOk: [
+          for (final u in json['plainHttpOk'] is List ? json['plainHttpOk'] as List : const [])
+            if (u is String) u,
+        ],
         catalogues: [
           for (final c in json['catalogues'] is List ? json['catalogues'] as List : const [])
             if (c is Map) Map<String, Object?>.from(c),

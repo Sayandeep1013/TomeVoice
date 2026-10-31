@@ -464,6 +464,65 @@ void main() {
       PlaybackScheduler.beforePlay = null;
     });
 
+    test('a book on a secret shelf: its notifications say "a book" and show on no lock screen, its tags leave it out',
+        () async {
+      platform(answer: (call) {
+        if (call.method != 'finish') return null;
+        File(made).writeAsBytesSync(fakeMp3(room: args['begin']!['room']! as int).bytes);
+        return {'path': made, 'bytes': File(made).lengthSync(), 'durationMs': 1000};
+      });
+      final job = AudioExport.start(
+        plan: ExportPlan.chapter(layout, 1),
+        voice: _recipe(_Voices('h'), layout, dialogue: null),
+        bookTitle: 'Save',
+        author: 'A. Writer',
+        cover: Uint8List.fromList(const [0xFF, 0xD8, 0xFF, 0xE0, 0, 0, 0, 0]),
+        format: ExportFormat.mp3,
+        secret: true,
+        named: false,
+      );
+      // Named after the book all the same, as the sheet says.
+      expect(job.fileName, 'Save - Chapter 2.mp3');
+      await ended(job);
+      expect(job.status.value.phase, ExportPhase.saved);
+      expect(args['start']?['title'], 'Saving a book as audio');
+      expect(args['progress']?['title'], 'Saving a book as audio');
+      expect(args['done']?['title'], 'Saved as audio: a book');
+      expect(args['done']?['text'], isNot(contains('Save')), reason: 'where it went is named after the book');
+      for (final call in ['start', 'progress', 'done']) {
+        expect(args[call]?['secret'], isTrue, reason: 'its $call notification shows on the lock screen');
+      }
+      // Its tag: an audiobook, and nothing that says which.
+      final b = File(made).readAsBytesSync();
+      expect(id3FramesIn(b).map((f) => f.id), ['TCON']);
+
+      // Stopped: not named either.
+      platform();
+      final v = _Voices('i')..holdAt = 1;
+      final stopped = AudioExport.start(plan: ExportPlan.book(layout), voice: _recipe(v, layout), bookTitle: 'Save', secret: true);
+      await _until(() => v.holding);
+      stopped.cancel(because: AudioExport.readingBegan);
+      await ended(stopped);
+      expect(args['abort']?['title'], 'Not saved: a book');
+      expect(args['abort']?['secret'], isTrue);
+      PlaybackScheduler.beforePlay = null;
+    });
+
+    test('a book on no secret shelf names itself, as it always did', () async {
+      platform();
+      final job = AudioExport.start(plan: ExportPlan.book(layout), voice: _recipe(_Voices('n'), layout, dialogue: null), bookTitle: 'Save');
+      await ended(job);
+      expect(args['start']?['title'], 'Saving Save as audio');
+      expect(args['done']?['title'], 'Saved as audio: Save');
+      expect(args['done']?['text'], startsWith('Audiobooks/Save/Save.m4b · '));
+      for (final call in ['start', 'done']) {
+        expect(args[call]?.containsKey('secret'), isFalse);
+      }
+      expect(job.tags.title, 'Save');
+      expect(job.tags.album, 'Save');
+      PlaybackScheduler.beforePlay = null;
+    });
+
     test('a chapter as MP3: no chapters in its tag, and no room kept for them', () async {
       platform(answer: (call) {
         if (call.method != 'finish') return null;

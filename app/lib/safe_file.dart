@@ -46,6 +46,38 @@ Future<void> _writeVia(File? file, Future<Object?> Function(File tmp) put) {
   });
 }
 
+/// Every write under way (see [writeSafely]) landed, or failed.
+Future<void> writesLanded() async {
+  while (_pending.isNotEmpty) {
+    await Future.wait([for (final w in _pending.values) w.catchError((Object _) {})]);
+  }
+}
+
+/// Shut while a restore replaces the library's files or adds a backup to
+/// them (backup_flow.dart): what the app holds in memory must not be
+/// written over them, nor into the library half swapped. The stores that
+/// write there ask here first (the places and the index, quotes, the day's
+/// stats, the settings, the reading rules, a sync's state), and no sync or
+/// automatic backup starts. Never opened again: the app starts afresh once
+/// the restore is done or has failed, and every store reads its files anew.
+class RestoreGate {
+  RestoreGate._();
+
+  static bool _shut = false;
+
+  /// Whether a restore is under way.
+  static bool get shut => _shut;
+
+  /// Shut it, and wait for the writes already under way to land.
+  static Future<void> close() async {
+    _shut = true;
+    await writesLanded();
+  }
+
+  /// Open it again: between tests.
+  static void open() => _shut = false;
+}
+
 /// [file] could not be read: keep it beside, as `<name>.broken`, so the next
 /// save does not write over what may still be recovered from it.
 Future<void> setAside(File? file) async {

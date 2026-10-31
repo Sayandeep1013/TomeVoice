@@ -1,4 +1,4 @@
-import 'dart:io' show Cookie;
+import 'dart:io' show Cookie, HttpDate;
 import 'dart:math' as math;
 
 /// One cookie as a site set it (RFC 6265): kept with its domain, path,
@@ -48,6 +48,19 @@ class StoredCookie {
     if (hostOnly ? host != domain : !domainMatches(host, domain)) return false;
     return pathMatches(uri.path.isEmpty ? '/' : uri.path, path);
   }
+
+  /// This cookie as the phone's web view is to hold it: a Set-Cookie line,
+  /// and the address it is set at.
+  Map<String, String> forBrowser() => {
+        'url': 'https://${domain.contains(':') ? '[$domain]' : domain}$path',
+        'cookie': [
+          '$name=$value',
+          if (!hostOnly) 'Domain=$domain',
+          'Path=$path',
+          if (expires != null) 'Expires=${HttpDate.format(expires!)}',
+          if (secure) 'Secure',
+        ].join('; '),
+      };
 
   Map<String, Object?> toJson() => {
         'n': name,
@@ -166,14 +179,55 @@ class CookieJar {
     return changed;
   }
 
-  /// Cookies a browser view collected on [host] (name to value), for
-  /// [partition]: kept for the site and its subdomains, as a browser's
-  /// cookie for that site would be.
-  List<StoredCookie> takeFromBrowser(String host, Map<String, String> cookies, {String partition = ''}) {
-    final domain = siteDomain(host);
-    final changed = [
-      for (final e in cookies.entries) StoredCookie(name: e.key, value: e.value, domain: domain, hostOnly: false),
+  /// [partition]'s cookies for [host]'s site, for the phone's web view to
+  /// hold while it shows a page there for that source, and no other's: each
+  /// a Set-Cookie line with the address it is set at (see
+  /// [StoredCookie.forBrowser]).
+  List<Map<String, String>> forBrowser(String host, {String partition = ''}) {
+    final site = siteDomain(host);
+    final now = DateTime.now();
+    return [
+      for (final c in (_parts[partition] ?? const <String, StoredCookie>{}).values)
+        if (!c.expiredAt(now) && siteDomain(c.domain) == site) c.forBrowser(),
     ];
+  }
+
+  /// Cookies the phone's web view had for [page] (name to value) at the end
+  /// of a visit made for [partition], for it alone. The web view gives no
+  /// more than names and values: one the partition sends [page] already
+  /// keeps its domain, path and flags, with its new value; a new one is
+  /// kept for [page]'s host alone, or for its whole site when it is in
+  /// [wide] (the web view sends it anywhere there, so the site set it so),
+  /// and only over https when [page] is https. Returns those that changed.
+  List<StoredCookie> takeFromBrowser(Uri page, Map<String, String> cookies,
+      {Set<String> wide = const {}, String partition = ''}) {
+    final host = page.host.toLowerCase();
+    final now = DateTime.now();
+    final sent = {
+      for (final c in (_parts[partition] ?? const <String, StoredCookie>{}).values)
+        if (c.matches(page, now)) c.name: c,
+    };
+    final changed = <StoredCookie>[];
+    for (final MapEntry(key: name, :value) in cookies.entries) {
+      final had = sent[name];
+      if (had != null) {
+        // Its expiry is not known now: kept until the site or the reader
+        // clears it, as a session's would be.
+        if (had.value != value) {
+          changed.add(StoredCookie(
+              name: name, value: value, domain: had.domain, hostOnly: had.hostOnly, path: had.path, secure: had.secure));
+        }
+        continue;
+      }
+      final whole = wide.contains(name) && InternetAddressCheck.notIp(host);
+      changed.add(StoredCookie(
+        name: name,
+        value: value,
+        domain: whole ? siteDomain(host) : host,
+        hostOnly: !whole,
+        secure: page.scheme == 'https',
+      ));
+    }
     merge(changed, partition: partition);
     return changed;
   }
@@ -277,12 +331,30 @@ class CookieJar {
   static const legacyPartition = '';
 }
 
+/// Hosts where everyone has a site of their own ("a.wordpress.com" and
+/// "b.wordpress.com" are two sites, two owners): each taken as a public
+/// suffix, as the public suffix list would.
+const sharedHosts = {
+  'wordpress.com', 'blogspot.com', 'github.io', 'gitlab.io', 'netlify.app', 'vercel.app', 'pages.dev',
+  'workers.dev', 'neocities.org', 'wixsite.com', 'weebly.com', 'tumblr.com', 'substack.com', 'livejournal.com',
+  'dreamwidth.org', 'herokuapp.com', 'firebaseapp.com', 'web.app', 'appspot.com', 'glitch.me', 'carrd.co',
+  'notion.site', 'gitbook.io', 'readthedocs.io', 'surge.sh', '000webhostapp.com', 'webflow.io', 'squarespace.com',
+};
+
 /// The domain a site's cookies are shared under: its host without "www.",
 /// and for a deeper subdomain its registrable part as far as can be told
-/// without the public suffix list ("m.site.co.uk" -> "site.co.uk").
+/// without the public suffix list ("m.site.co.uk" -> "site.co.uk"). On a
+/// shared host ([sharedHosts]) that is the reader's or writer's own part
+/// ("x.a.wordpress.com" -> "a.wordpress.com").
 String siteDomain(String host) {
   final h = host.toLowerCase();
   if (!InternetAddressCheck.notIp(h)) return h;
+  for (final shared in sharedHosts) {
+    if (h.endsWith('.$shared')) {
+      final own = h.substring(0, h.length - shared.length - 1).split('.').last;
+      return '$own.$shared';
+    }
+  }
   final labels = h.split('.');
   if (labels.length <= 2) return h;
   // Second-level suffixes such as co.uk, com.br, or.jp: keep three labels.
@@ -291,8 +363,15 @@ String siteDomain(String host) {
   return labels.sublist(labels.length - (short ? 3 : 2)).join('.');
 }
 
+/// A web view's cookies for a page ("a=1; b=2") by name.
+Map<String, String> cookiesOf(String jar) => {
+      for (final part in jar.split(';'))
+        if (part.indexOf('=') case final at when at > 0) part.substring(0, at).trim(): part.substring(at + 1).trim(),
+    };
+
 /// Whether [host] belongs to the site whose home page is [site]: the same
-/// registrable domain ("www.royalroad.com" and "royalroad.com").
+/// registrable domain ("www.royalroad.com" and "royalroad.com"; not
+/// "a.wordpress.com" and "b.wordpress.com", see [sharedHosts]).
 bool sameSite(String host, String site) {
   final siteHost = Uri.tryParse(site)?.host ?? '';
   if (host.isEmpty || siteHost.isEmpty) return false;

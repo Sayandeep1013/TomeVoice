@@ -231,7 +231,7 @@ void main() {
     final asked = <MethodCall>[];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(_channel, (call) async {
       asked.add(call);
-      return call.method == 'browserCheck' ? 'cf_clearance=abc; theme=dark' : null;
+      return call.method == 'browserCheck' ? {'cookies': 'cf_clearance=abc; theme=dark', 'wide': 'cf_clearance=abc'} : null;
     });
     var retried = 0;
     await tester.pumpWidget(MaterialApp(
@@ -249,9 +249,16 @@ void main() {
     await settle(tester, () => retried > 0);
     final check = asked.singleWhere((c) => c.method == 'browserCheck');
     expect((check.arguments as Map)['userAgent'], Net.userAgent);
+    expect((check.arguments as Map)['cookies'], isEmpty,
+        reason: "the web view holds that source's cookies alone, and it has none yet");
+    expect((check.arguments as Map)['domain'], 'royalroad.com');
     expect(retried, 1);
     expect(Net.instance.cookieHeader('https://www.royalroad.com/fictions', partition: 'royalroad'),
         contains('cf_clearance=abc'));
+    expect(Net.instance.cookieHeader('https://royalroad.com/fictions', partition: 'royalroad'), 'cf_clearance=abc',
+        reason: "the clearance is the whole site's; the other cookie its host's alone");
+    expect(Net.instance.cookieHeader('http://www.royalroad.com/fictions', partition: 'royalroad'), isNull,
+        reason: 'from an https page: over https only');
     expect(Net.instance.cookieHeader('https://www.royalroad.com/fictions', partition: 'another'), isNull,
         reason: 'kept for the source that met the check, not every source');
     await Net.instance.clearCookies();
@@ -267,7 +274,8 @@ void main() {
     });
     addTearDown(
         () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(sources, null));
-    await tester.runAsync(() => Net.instance.setCookies('www.site.test', {'sid': '1'}, partition: 'site'));
+    await tester.runAsync(
+        () => Net.instance.keepFromBrowser(Uri.parse('https://www.site.test/'), {'cookies': 'sid=1'}, partition: 'site'));
     await tester.pumpWidget(MaterialApp(home: SourcesScreen(store: SourceStore(tmp, defaults: const []))));
     await settle(tester, () => find.byType(CircularProgressIndicator).evaluate().isEmpty);
     await tester.tap(find.byTooltip('More'));

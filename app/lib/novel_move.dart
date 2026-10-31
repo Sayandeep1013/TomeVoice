@@ -9,6 +9,7 @@ import 'library_store.dart';
 import 'marks.dart';
 import 'prefs.dart';
 import 'read_marks.dart';
+import 'reading_rules.dart';
 import 'safe_file.dart';
 import 'sources/models.dart';
 
@@ -329,120 +330,169 @@ Future<MovePlan> planMove(LibraryStore store, LibraryEntry entry, PluginInfo to,
 /// shelf, with what was kept for it carried to the same chapters there (by
 /// [MovePlan.match]): the place, the downloads (one that matches nothing is
 /// kept aside under ch/orphaned, never deleted), quotes and bookmarks, read
-/// marks, its cover and its own settings (voice, speed, order). Chapters
-/// waiting to download wait there instead. The new entry.
+/// marks, its cover and its own settings (voice, its characters' voices,
+/// speed, order, pronunciations and skips). Chapters waiting to download
+/// wait there instead. The new entry.
 ///
 /// The new folder is made whole first and the library's entry swapped in
-/// one step; the old folder goes last.
+/// one step; the old folder goes last. Each file to move is noted before
+/// the first moves (LibraryStore.noteMove): should the move stop before the
+/// library has the new novel (an error, or the app closed), what moved is
+/// put back, there and then or the next time the novel opens, and the
+/// chapters taken out of the download queue wait again. The novel's files
+/// are the move's alone meanwhile (LibraryStore.withNovelLock): a chapter
+/// on its way down is saved before the move begins, or not at all.
 Future<LibraryEntry> moveNovel(LibraryStore store, LibraryEntry entry, MovePlan plan, {DownloadQueue? queue}) async {
   final from = entry.id;
   final to = LibraryStore.webId(plan.to.id, plan.novel.path);
   final info = await store.settleWebChapters(from);
   if (info == null) throw MoveRefused('This novel is not in the library.');
-  final match = plan.match;
   final q = queue ?? DownloadQueue.instance;
-  // Nothing comes down into the old folder while it moves.
+  // Nothing waits to come down into the old folder while it moves.
   final waiting = await q.takeOut(from);
+  return store.withNovelLock(from, () async {
+    final LibraryEntry moved;
+    try {
+      moved = await _swapIn(store, entry, plan, info, to);
+    } on Object {
+      // Not moved: those chapters wait here again.
+      await q.putBack(waiting);
+      rethrow;
+    }
+    // The library has the new novel: the move is done, whatever follows.
+    await store.endMove(from);
 
+    // Chapters that were waiting to download, at their places there.
+    final oldAt = {for (var i = 0; i < info.chapters.length; i++) info.chapters[i].path: i};
+    final again = [
+      for (final j in waiting)
+        if (oldAt[j.path] case final i?)
+          if (plan.match.to[i] case final k?) plan.novel.chapters[k],
+    ];
+    if (again.isNotEmpty) await q.add(to, again);
+
+    // What else is kept by the book: its quotes and bookmarks, its own
+    // voices (its characters' too), speed and order, its pronunciations
+    // and what its voice passes over.
+    await MarkStore.instance.moveBook(from, to, plan.match.follow);
+    final prefs = ListeningPrefs.loaded;
+    if (prefs != null && movePrefs(prefs, from, to)) prefs.save();
+    await ReadingRules.instance.moveBook(from, to);
+
+    try {
+      await Directory(store.bookDir(from)).delete(recursive: true);
+    } on FileSystemException {
+      // Left behind; nothing reads it.
+    }
+    return moved;
+  });
+}
+
+/// [moveNovel] up to the library taking the new novel, the old one's lock
+/// held; should it stop, what moved is put back. The new novel.
+Future<LibraryEntry> _swapIn(LibraryStore store, LibraryEntry entry, MovePlan plan, WebNovelInfo info, String to) async {
+  final from = entry.id;
+  final match = plan.match;
   final oldDir = store.bookDir(from);
   final newDir = store.bookDir(to);
   final there = Directory(newDir);
-  // Left by a move that stopped part way: not in the library.
-  if (await there.exists()) await there.delete(recursive: true);
-  await there.create(recursive: true);
-  final novel = WebNovelInfo(
-    plugin: plan.to,
-    novel: plan.novel,
-    chapters: plan.novel.chapters,
-    checkedAt: DateTime.now(),
-    filed: true,
-  );
-  await writeSafely(File('$newDir/novel.json'), jsonEncode(novel.toJson()));
-  final downloaded = store.downloadedChapters(from);
-  await _runMoveFiles(oldDir, newDir, {...match.to});
-
-  // The place, in the same chapter there: at its sentence when that
-  // chapter's text came along, else at its start.
-  final cursor = await store.cursorFor(from);
-  final begun = entry.openedAt != null;
-  final c = cursor.sectionIndex;
-  final carried = match.to.containsKey(c) && downloaded.contains(c);
-  final place = !begun
-      ? cursor
-      : ReadingCursor(
-          sectionIndex: match.follow(c),
-          blockIndex: carried ? cursor.blockIndex : 0,
-          sentenceIndex: carried ? cursor.sentenceIndex : 0,
-        );
-  final count = plan.novel.chapters.length;
-  final within = (entry.progress * info.chapters.length - c).clamp(0.0, 1.0);
-  final progress = !begun ? entry.progress : ((place.sectionIndex + within) / count).clamp(0.0, 1.0);
-  await writeSafely(File('$newDir/cursor.json'), jsonEncode({'cursor': place.toJson(), 'progress': progress}));
-
-  // Read marks, by the chapters' addresses there.
-  final oldAt = {for (var i = 0; i < info.chapters.length; i++) info.chapters[i].path: i};
-  ChapterItem? chapterThere(String path) {
-    final i = oldAt[path];
-    final j = i == null ? null : match.to[i];
-    return j == null ? null : plan.novel.chapters[j];
-  }
-
-  final marks = await ReadMarkStore.instance.of(store, from);
-  if (!marks.isEmpty) await ReadMarkStore.instance.replace(store, to, marks.mapped((p) => chapterThere(p)?.path));
-
-  String? rebased(String? path) =>
-      path != null && path.startsWith('$oldDir/') ? '$newDir/${path.substring(oldDir.length + 1)}' : path;
-  final moved = LibraryEntry(
-    id: to,
-    title: plan.novel.name.isEmpty ? entry.title : plan.novel.name,
-    authors: plan.novel.author == null ? entry.authors : [plan.novel.author!],
-    source: SourceKind.web,
-    wordCount: 0,
-    sourcePath: '',
-    addedAt: entry.addedAt,
-    openedAt: entry.openedAt,
-    cursor: place,
-    progress: progress,
-    where: entry.where,
-    language: entry.language,
-    cover: rebased(entry.cover),
-    coverMode: entry.coverMode,
-    customCover: rebased(entry.customCover),
-    category: entry.category,
-    plugin: plan.to.id,
-    novelPath: plan.novel.path,
-    chapterCount: count,
-    // How the reader organised it goes with it.
-    tags: entry.tags,
-    series: entry.series,
-    seriesIndex: entry.seriesIndex,
-  );
-  await store.swapWebNovel(from, moved);
-
-  // What else is kept by the book: its quotes and bookmarks, and its own
-  // voice, speed and order.
-  await MarkStore.instance.moveBook(from, to, match.follow);
-  final prefs = ListeningPrefs.loaded;
-  if (prefs != null && movePrefs(prefs, from, to)) prefs.save();
-
-  // Chapters that were waiting to download, at their places there.
-  final again = [
-    for (final j in waiting)
-      if (chapterThere(j.path) case final c?) c,
-  ];
-  if (again.isNotEmpty) await q.add(to, again);
-
+  // A folder there already is one a move that stopped part way left (a
+  // build before 1.4 noted none): its downloads may be the only copies, so
+  // nothing in it is deleted or written over, and this move goes on into it.
+  final made = !await there.exists();
   try {
-    await Directory(oldDir).delete(recursive: true);
-  } on FileSystemException {
-    // Left behind; nothing reads it.
+    await there.create(recursive: true);
+    await store.endMove(to);
+    final novel = WebNovelInfo(
+      plugin: plan.to,
+      novel: plan.novel,
+      chapters: plan.novel.chapters,
+      checkedAt: DateTime.now(),
+      filed: true,
+    );
+    await writeSafely(File('$newDir/novel.json'), jsonEncode(novel.toJson()));
+    final downloaded = store.downloadedChapters(from);
+    final moves = await _runPlanMove(oldDir, newDir, {...match.to});
+    await store.noteMove(from, to, moves, made: made);
+    await _runMoveFiles(oldDir, newDir, moves);
+
+    // The place, in the same chapter there: at its sentence when that
+    // chapter's text came along, else at its start.
+    final cursor = await store.cursorFor(from);
+    final begun = entry.openedAt != null;
+    final c = cursor.sectionIndex;
+    final carried = match.to.containsKey(c) && downloaded.contains(c);
+    final place = !begun
+        ? cursor
+        : ReadingCursor(
+            sectionIndex: match.follow(c),
+            blockIndex: carried ? cursor.blockIndex : 0,
+            sentenceIndex: carried ? cursor.sentenceIndex : 0,
+          );
+    final count = plan.novel.chapters.length;
+    final within = (entry.progress * info.chapters.length - c).clamp(0.0, 1.0);
+    final progress = !begun ? entry.progress : ((place.sectionIndex + within) / count).clamp(0.0, 1.0);
+    await writeSafely(File('$newDir/cursor.json'), jsonEncode({'cursor': place.toJson(), 'progress': progress}));
+
+    // Read marks, by the chapters' addresses there.
+    final oldAt = {for (var i = 0; i < info.chapters.length; i++) info.chapters[i].path: i};
+    String? pathThere(String path) {
+      final i = oldAt[path];
+      final j = i == null ? null : match.to[i];
+      return j == null ? null : plan.novel.chapters[j].path;
+    }
+
+    final marks = await ReadMarkStore.instance.of(store, from);
+    if (!marks.isEmpty) await ReadMarkStore.instance.replace(store, to, marks.mapped(pathThere));
+
+    String? rebased(String? path) =>
+        path != null && path.startsWith('$oldDir/') ? '$newDir/${path.substring(oldDir.length + 1)}' : path;
+    final moved = LibraryEntry(
+      id: to,
+      title: plan.novel.name.isEmpty ? entry.title : plan.novel.name,
+      authors: plan.novel.author == null ? entry.authors : [plan.novel.author!],
+      source: SourceKind.web,
+      wordCount: 0,
+      sourcePath: '',
+      addedAt: entry.addedAt,
+      openedAt: entry.openedAt,
+      cursor: place,
+      progress: progress,
+      where: entry.where,
+      language: entry.language,
+      cover: rebased(entry.cover),
+      coverMode: entry.coverMode,
+      customCover: rebased(entry.customCover),
+      category: entry.category,
+      plugin: plan.to.id,
+      novelPath: plan.novel.path,
+      chapterCount: count,
+      // How the reader organised it goes with it.
+      tags: entry.tags,
+      series: entry.series,
+      seriesIndex: entry.seriesIndex,
+    );
+    await store.swapWebNovel(from, moved);
+    return moved;
+  } on Object {
+    // What moved goes back; a folder made for it, with nothing of the old
+    // novel's left in it, goes too. (Unless the library took the new novel
+    // after all, its index not written yet: then the move stands.)
+    final taken = (await store.list(all: true)).any((e) => e.id == to);
+    if (!taken && await store.putBackMove(from) && made) {
+      try {
+        if (await there.exists()) await there.delete(recursive: true);
+      } on FileSystemException {
+        // Nothing of the novel's is in it.
+      }
+    }
+    rethrow;
   }
-  return moved;
 }
 
-/// [prefs]' settings of book [from] (voice, dialogue voice, speed, order of
-/// chapters, new chapters downloading by themselves) as book [to]'s.
-/// Whether any were.
+/// [prefs]' settings of book [from] (voice, dialogue voice, its characters'
+/// voices, speed, order of chapters, new chapters downloading by
+/// themselves) as book [to]'s. Whether any were.
 bool movePrefs(ListeningPrefs prefs, String from, String to) {
   var any = false;
   void move<T>(Map<String, T> m) {
@@ -453,6 +503,7 @@ bool movePrefs(ListeningPrefs prefs, String from, String to) {
 
   move(prefs.voiceByBook);
   move(prefs.dialogueByBook);
+  move(prefs.castByBook);
   move(prefs.speedByBook);
   move(prefs.newestFirstByNovel);
   move(prefs.autoDownloadByNovel);
@@ -460,31 +511,51 @@ bool movePrefs(ListeningPrefs prefs, String from, String to) {
 }
 
 // Top-level, so the closures handed to Isolate.run capture only these.
-Future<void> _runMoveFiles(String from, String to, Map<int, int> places) =>
-    Isolate.run(() => _moveFilesSync(from, to, places));
+Future<List<(String, String)>> _runPlanMove(String from, String to, Map<int, int> places) =>
+    Isolate.run(() => _planMoveSync(from, to, places));
+
+Future<void> _runMoveFiles(String from, String to, List<(String, String)> moves) =>
+    Isolate.run(() => _moveFilesSync(from, to, moves));
 
 Future<ChapterMatch> _runMatch(List<ChapterItem> from, List<ChapterItem> to) =>
     Isolate.run(() => matchChapters(from, to));
 
-/// Move what [from] (an old book folder) keeps to [to]: its pictures, its
-/// downloads to their chapters' places by [places] (one with no place, or
-/// whose place holds one already, kept aside under ch/orphaned), and those
-/// set aside before.
-void _moveFilesSync(String from, String to, Map<int, int> places) {
+/// Where what [from] (an old book folder) keeps goes in [to], each a path
+/// within the one and the other: its pictures, its downloads to their
+/// chapters' places by [places] (one with no place, or whose place holds
+/// one already, kept aside under ch/orphaned), and those set aside before.
+/// Nothing in [to] already is written over.
+List<(String, String)> _planMoveSync(String from, String to, Map<int, int> places) {
+  final moves = <(String, String)>[];
+  final taken = <String>{};
+  bool free(String path) =>
+      !taken.contains(path) && FileSystemEntity.typeSync('$to/$path', followLinks: false) == FileSystemEntityType.notFound;
+  void move(String src, String dst) {
+    moves.add((src, dst));
+    taken.add(dst);
+  }
+
   final img = Directory('$from/img');
-  if (img.existsSync()) img.renameSync('$to/img');
+  if (img.existsSync()) {
+    if (free('img')) {
+      move('img', 'img');
+    } else {
+      for (final f in img.listSync().whereType<File>()) {
+        final name = f.uri.pathSegments.last;
+        if (free('img/$name')) move('img/$name', 'img/$name');
+      }
+    }
+  }
   final ch = Directory('$from/ch');
-  if (!ch.existsSync()) return;
-  final into = Directory('$to/ch')..createSync(recursive: true);
-  void aside(File f, String name) {
-    final dir = Directory('${into.path}/orphaned')..createSync(recursive: true);
+  if (!ch.existsSync()) return moves;
+  void aside(String src, String name) {
     final dot = name.lastIndexOf('.');
     final stem = dot < 0 ? name : name.substring(0, dot);
-    var target = '${dir.path}/$name';
-    for (var k = 1; File(target).existsSync(); k++) {
-      target = '${dir.path}/$stem-$k.json';
+    var dst = 'ch/orphaned/$name';
+    for (var k = 1; !free(dst); k++) {
+      dst = 'ch/orphaned/$stem-$k.json';
     }
-    f.renameSync(target);
+    move(src, dst);
   }
 
   for (final f in ch.listSync().whereType<File>()) {
@@ -492,16 +563,33 @@ void _moveFilesSync(String from, String to, Map<int, int> places) {
     if (!name.endsWith('.json')) continue;
     final n = int.tryParse(name.substring(0, name.length - 5));
     final j = n == null ? null : places[n];
-    if (j != null && !File('${into.path}/$j.json').existsSync()) {
-      f.renameSync('${into.path}/$j.json');
+    if (j != null && free('ch/$j.json')) {
+      move('ch/$name', 'ch/$j.json');
     } else {
-      aside(f, name);
+      aside('ch/$name', name);
     }
   }
   final orphans = Directory('${ch.path}/orphaned');
   if (orphans.existsSync()) {
     for (final f in orphans.listSync().whereType<File>()) {
-      aside(f, f.uri.pathSegments.last);
+      final name = f.uri.pathSegments.last;
+      aside('ch/orphaned/$name', name);
+    }
+  }
+  return moves;
+}
+
+/// Make [moves] ([_planMoveSync]'s), [from] to [to]. One gone already is
+/// passed over.
+void _moveFilesSync(String from, String to, List<(String, String)> moves) {
+  for (final (src, dst) in moves) {
+    final kind = FileSystemEntity.typeSync('$from/$src', followLinks: false);
+    if (kind == FileSystemEntityType.notFound) continue;
+    Directory('$to/$dst').parent.createSync(recursive: true);
+    if (kind == FileSystemEntityType.directory) {
+      Directory('$from/$src').renameSync('$to/$dst');
+    } else {
+      File('$from/$src').renameSync('$to/$dst');
     }
   }
 }

@@ -538,6 +538,9 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                 }
+                // The check in a web view holding the cookies of the source
+                // that met it alone (SourcesBridge's "browserFetch" is the
+                // page through it nobody sees).
                 "browserCheck" -> {
                     val url = call.argument<String>("url")
                     val agent = call.argument<String>("userAgent")
@@ -545,22 +548,14 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     } else {
                         try {
-                            BrowserCheck.open(this, url, agent) { jar -> result.success(jar) }
+                            BrowserCheck.open(
+                                { SourcesBridge.currentActivity() },
+                                url,
+                                agent,
+                                BrowserCheck.Seed.of(call.argument<Any>("cookies"), call.argument<Any>("domain")),
+                            ) { got -> result.success(got) }
                         } catch (e: Exception) {
                             result.error("BROWSER_CHECK", e.message ?: "No web view on this phone", null)
-                        }
-                    }
-                }
-                "browserFetch" -> {
-                    val url = call.argument<String>("url")
-                    val agent = call.argument<String>("userAgent")
-                    if (url == null || agent == null) {
-                        result.success(null)
-                    } else {
-                        try {
-                            BrowserCheck.fetch(this, url, agent) { html -> result.success(html) }
-                        } catch (e: Exception) {
-                            result.success(null)
                         }
                     }
                 }
@@ -950,7 +945,10 @@ class MainActivity : FlutterActivity() {
                                     it,
                                     call.argument<String>("manifest").orEmpty(),
                                     call.argument<Boolean>("includeChapters") == true,
-                                    File(filesDir, "sources")
+                                    File(filesDir, "sources"),
+                                    // A secret shelf left out (AutoBackup).
+                                    call.argument<List<String>>("leaveOut") ?: emptyList(),
+                                    call.argument<Map<String, String>>("swapped") ?: emptyMap()
                                 ) { _, all -> total = all }
                             }
                             mapOf("files" to files, "bytes" to total, "name" to queryDisplayName(doc))

@@ -104,6 +104,22 @@ void main() {
       expect(book.summary, 'The complete short fiction of Joseph Conrad.');
     });
 
+    test('a summary with a character reference that stands for none still reads, and the page with it', () {
+      const feed = '''<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>New</title>
+  <entry>
+    <id>1</id><title>Odd</title>
+    <summary type="html">&lt;p&gt;A &amp;#x110000; B &amp;#99999999999999999999; C &amp;#xD800; D&lt;/p&gt;&lt;p&gt;&amp;#x1F600; &amp;amp; &amp;#233;&lt;/p&gt;</summary>
+  </entry>
+  <entry><id>2</id><title>Fine</title><summary>Plain.</summary></entry>
+</feed>''';
+      final entries = parseOpdsFeed(feed, Uri.parse('https://x/opds')).entries;
+      final bad = String.fromCharCode(0xFFFD);
+      expect(entries.first.summary, 'A $bad B $bad C $bad D\n\n${String.fromCharCode(0x1F600)} & ${String.fromCharCode(0xE9)}');
+      expect(entries.last.summary, 'Plain.');
+    });
+
     test('a web page or something else is said to be no catalogue', () {
       expect(() => parseOpdsFeed('<html><body>Hi</body></html>', Uri.parse('http://x/')),
           throwsA(isA<OpdsFormatException>().having((e) => e.message, 'message', contains('web page'))));

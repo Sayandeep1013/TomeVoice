@@ -41,7 +41,8 @@ Future<void> fetchChapters(
     onProgress?.call(i);
     final c = info.chapters[i];
     final html = await SourceEngine.instance.chapter(plugin, c.path);
-    await store.saveChapter(id, i, c.name, html, language: languageCodeOf(info.plugin.lang));
+    // By its address: the list may have been re-filed while it came.
+    await store.saveChapterAt(id, c.path, html, language: languageCodeOf(info.plugin.lang));
   }
 }
 

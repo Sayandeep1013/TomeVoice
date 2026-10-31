@@ -1369,9 +1369,11 @@ void main() {
   });
 
   group('the edges', () {
-    testWidgets('pages have no fades over the text, and no darkened edge; the scroll has its two', (tester) async {
+    testWidgets('pages have no fades over the text, and no darkened edge; the scroll has its mask', (tester) async {
       await open(tester, numbered());
-      expect(find.byType(GroundFade), findsNWidgets(2));
+      // The scroll's text fades at both edges under one mask (see _text).
+      expect(find.ancestor(of: find.byType(ScrollablePositionedList), matching: find.byType(ShaderMask)), findsOneWidget);
+      expect(find.byType(GroundFade), findsNothing);
       await finish(tester);
       ListeningPrefs.memory.pages = true;
       await open(tester, numbered());

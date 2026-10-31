@@ -211,6 +211,21 @@ void main() {
       expect(decoder.calls.last.offset, 0);
     });
 
+    test("a stretch decoded short of where the file says it goes on is not taken for the file's end", () async {
+      final plain = reader(WavDecoder());
+      final box = await make(plain, 'The box');
+      final nobody = await make(plain, 'Nobody');
+      // As an MP3 whose bit rate varies was decoded: its seek landed later
+      // than it said, and the stretch came back short, the file going on.
+      final decoder = _ShortOnce();
+      final r = reader(decoder);
+      expect(ms(await make(r, 'The box')), ms(box));
+      expect(ms(await make(r, 'Nobody')), ms(nobody),
+          reason: 'a line after it was cut off, as if the file ended where the stretch did');
+      expect(decoder.calls, hasLength(2), reason: 'not decoded once more from further back');
+      expect(decoder.calls.last.beginUs, lessThan(decoder.calls.first.beginUs));
+    });
+
     test('faster with its pitch kept, and levelled moving on from the sentence before', () async {
       final r = reader(WavDecoder());
       final plain = await make(r, 'It sat');
@@ -574,6 +589,34 @@ class _Failing extends WavDecoder {
   }) async {
     if (broken(path)) throw Exception('No decoder for $path');
     return super.call(path: path, offset: offset, length: length, beginUs: beginUs, endUs: endUs);
+  }
+}
+
+/// A decoder whose first stretch comes back two seconds long, whatever was
+/// asked, though the file says it goes on: as MediaExtractor's estimated
+/// seek in an MP3 whose bit rate varies left it, near the file's end.
+class _ShortOnce extends WavDecoder {
+  var _short = true;
+
+  @override
+  Future<DecodedAudio> call({
+    required String path,
+    required int offset,
+    required int length,
+    required int beginUs,
+    required int endUs,
+  }) async {
+    final d = await super.call(path: path, offset: offset, length: length, beginUs: beginUs, endUs: endUs);
+    if (!_short) return d;
+    _short = false;
+    final keep = math.min(d.pcm.length, 2 * d.sampleRate * d.channels * 2);
+    return (
+      pcm: Uint8List.sublistView(d.pcm, 0, keep),
+      channels: d.channels,
+      sampleRate: d.sampleRate,
+      firstUs: d.firstUs,
+      durationUs: d.durationUs,
+    );
   }
 }
 

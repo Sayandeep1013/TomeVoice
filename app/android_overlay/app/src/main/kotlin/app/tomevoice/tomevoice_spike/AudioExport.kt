@@ -175,6 +175,7 @@ class AudioExport(private val app: Context, messenger: BinaryMessenger) {
                         call.argument<String>("title") ?: "Saving as audio",
                         call.argument<String>("text").orEmpty(),
                         call.argument<Int>("percent") ?: -1,
+                        call.argument<Boolean>("secret") == true,
                     )
                     result.success(null)
                 } catch (e: Exception) {
@@ -249,6 +250,7 @@ class AudioExport(private val app: Context, messenger: BinaryMessenger) {
             "abort" -> {
                 val title = call.argument<String>("title") ?: "Not saved"
                 val notice = call.argument<String>("notice")
+                val secret = call.argument<Boolean>("secret") == true
                 work.execute {
                     writer?.release()
                     writer = null
@@ -256,7 +258,7 @@ class AudioExport(private val app: Context, messenger: BinaryMessenger) {
                     temp = null
                     main.post {
                         AudioExportService.end(app)
-                        if (notice != null) AudioExportService.notice(app, title, notice, null, null)
+                        if (notice != null) AudioExportService.notice(app, title, notice, null, null, secret)
                         ended()
                         result.success(null)
                     }
@@ -298,6 +300,7 @@ class AudioExport(private val app: Context, messenger: BinaryMessenger) {
                     call.argument<String>("text").orEmpty(),
                     uri?.let { Uri.parse(it) },
                     call.argument<String>("mime"),
+                    call.argument<Boolean>("secret") == true,
                 )
                 ended()
                 result.success(null)
@@ -865,12 +868,18 @@ class AudioExportService : Service() {
         private var title = "Saving as audio"
         private var text = ""
         private var percent = -1
+        private var secret = false
 
-        /** Start the service, or show [text] and [percent] (-1: not known) on its notification. */
-        fun show(ctx: Context, title: String, text: String, percent: Int) {
+        /**
+         * Start the service, or show [text] and [percent] (-1: not known) on
+         * its notification. [secret]: a book on a secret shelf, whose
+         * notification shows on no lock screen.
+         */
+        fun show(ctx: Context, title: String, text: String, percent: Int, secret: Boolean = false) {
             this.title = title
             this.text = text
             this.percent = percent
+            this.secret = secret
             val running = instance
             if (running != null) {
                 running.refresh()
@@ -927,9 +936,10 @@ class AudioExportService : Service() {
 
         /**
          * The end of a save, once its service has gone: saved (tap to play it,
-         * Share), or not, and why. Stays until dismissed.
+         * Share), or not, and why. Stays until dismissed; one of a book on a
+         * secret shelf ([secret]) shows on no lock screen.
          */
-        fun notice(ctx: Context, title: String, text: String, uri: Uri?, mime: String?) {
+        fun notice(ctx: Context, title: String, text: String, uri: Uri?, mime: String?, secret: Boolean = false) {
             val b = builder(ctx)
                 .setSmallIcon(R.drawable.ic_stat_tomevoice)
                 .setContentTitle(title)
@@ -937,6 +947,7 @@ class AudioExportService : Service() {
                 .setStyle(Notification.BigTextStyle().bigText(text))
                 .setAutoCancel(true)
                 .setContentIntent(openApp(ctx))
+            if (secret) b.setVisibility(Notification.VISIBILITY_SECRET)
             if (uri != null) {
                 val play = Intent(Intent.ACTION_VIEW)
                     .setDataAndType(uri, mime ?: "audio/*")
@@ -1056,7 +1067,7 @@ class AudioExportService : Service() {
             Intent(this, AudioExportService::class.java).setAction(ACTION_CANCEL),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        return builder(this)
+        val b = builder(this)
             .setSmallIcon(R.drawable.ic_stat_tomevoice)
             .setContentTitle(title)
             .setContentText(text)
@@ -1074,6 +1085,8 @@ class AudioExportService : Service() {
                     cancel
                 ).build()
             )
-            .build()
+        // A book on a secret shelf: not on the lock screen at all.
+        if (secret) b.setVisibility(Notification.VISIBILITY_SECRET)
+        return b.build()
     }
 }

@@ -4,10 +4,16 @@
 # dock's reader.
 appId: ${APP_ID || 'app.tomevoice'}
 ---
-- tapOn: ".*Pride and Prejudice.*Jane Austen.*"
-# Listen and Read stay disabled until the book's layout has loaded.
-- extendedWaitUntil:
-    visible:
-      text: "Read"
-      enabled: true
-    timeout: 60000
+# A new install's shelf can move under the tap: the starter's two web
+# novels arrive when the network allows and take the first places, so a
+# tap that found nothing to open is tried once more where the book now is.
+- retry:
+    maxRetries: 1
+    commands:
+      - tapOn: ".*Pride and Prejudice.*Jane Austen.*"
+      # Listen and Read stay disabled until the book's layout has loaded.
+      - extendedWaitUntil:
+          visible:
+            text: "Read"
+            enabled: true
+          timeout: 60000

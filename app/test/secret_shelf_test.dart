@@ -3,6 +3,7 @@
 // them (a rename, a reorder) loses them. A secret book removed leaves
 // nothing saved from it behind.
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -69,6 +70,32 @@ void main() {
     expect((await store.index(all: true)).defaultCategory, isNot(secret.id));
     await store.saveCategories([for (final c in all.categories) c.withSecret(true)]);
     expect((await store.index(all: true)).categories.where((c) => !c.secret), isNotEmpty);
+  });
+
+  test('the shelf new books go to, made secret, hides every book on it, those that never named it too', () async {
+    // An older library: a book on no shelf of its own is on the default one.
+    final older = Directory('${tmp.path}/older')..createSync();
+    Map<String, Object?> book(String id, {String? category}) => {
+          'id': id,
+          'title': 'Book $id',
+          'source': 'epub',
+          'addedAt': '2026-01-01T00:00:00.000',
+          if (category != null) 'category': category,
+        };
+    File('${older.path}/library.json').writeAsStringSync(jsonEncode({
+      'categories': [for (final c in Category.defaults) c.toJson()],
+      'defaultCategory': 'reading',
+      'books': [book('00000000000000a1'), book('00000000000000a2', category: 'later')],
+    }));
+    final store = LibraryStore(older);
+    final all = await store.index(all: true);
+    // Settings > Secret shelf > Move shelves into secret: Reading.
+    await store.saveCategories([for (final c in all.categories) c.id == 'reading' ? c.withSecret(true) : c]);
+    final shown = await store.index();
+    expect(shown.defaultCategory, 'later', reason: 'new books never go to a secret shelf');
+    expect([for (final e in shown.entries) e.id], ['00000000000000a2'], reason: 'not left behind on Later');
+    expect(await store.secretIds(), {'00000000000000a1'});
+    store.hold();
   });
 
   test('the flag survives being written and read back', () async {

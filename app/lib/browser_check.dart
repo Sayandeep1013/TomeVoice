@@ -13,27 +13,28 @@ import 'ui.dart';
 /// Show the site's browser check (Cloudflare) in a web view, and keep the
 /// cookies it hands out for the app's own requests. True when the site let
 /// the reader in, so the caller can try again.
+///
+/// The web view holds the cookies of the source that met the check and no
+/// other's while it shows it, and what the site sets there is kept for that
+/// source alone: another source's sign-in on the same site neither passes
+/// this check nor is copied to it.
 Future<bool> passBrowserCheck(BuildContext context, ChallengeException e) async {
   if (!Net.isWebAddress(e.url)) return false;
-  final jar = await const SpeechService().browserCheck(e.url, Net.userAgent);
-  if (jar == null) {
+  final page = Uri.parse(e.url);
+  final got = await const SpeechService()
+      .browserCheck(e.url, Net.userAgent, Net.instance.browserSeed(page, partition: e.pluginId));
+  if (got == null) {
     if (context.mounted) showSnack(context, 'The check did not finish. Try again in a moment.');
     return false;
   }
-  // Kept for the source that met the check, not for every source.
-  await Net.instance.setCookies(Uri.parse(e.url).host, cookiesOf(jar), partition: e.pluginId);
+  await Net.instance.keepFromBrowser(page, got, partition: e.pluginId);
   return true;
 }
 
-/// A web view's cookies for a page ("a=1; b=2") by name.
-Map<String, String> cookiesOf(String jar) => {
-      for (final part in jar.split(';'))
-        if (part.indexOf('=') case final at when at > 0) part.substring(0, at).trim(): part.substring(at + 1).trim(),
-    };
-
 /// Sign in to [plugin]'s site in a web view, for a site that wants an
 /// account: what it sets for the site is kept in that source's own cookies
-/// (and no other source's), so its requests go signed in from then on.
+/// (and no other source's), so its requests go signed in from then on. The
+/// web view holds that source's cookies alone meanwhile, and none after.
 /// True once the reader tapped Done.
 Future<bool> signInToSite(BuildContext context, PluginInfo plugin) async {
   final site = plugin.site;
@@ -41,17 +42,17 @@ Future<bool> signInToSite(BuildContext context, PluginInfo plugin) async {
     showSnack(context, '${plugin.name} names no web page to sign in on.');
     return false;
   }
-  final jar = await SourcesBridge.browserLogin(site, Net.userAgent);
-  if (jar == null) return false;
-  final cookies = cookiesOf(jar);
-  await Net.instance.setCookies(Uri.parse(site).host, cookies, partition: plugin.id);
+  final page = Uri.parse(site);
+  final got = await SourcesBridge.browserLogin(site, Net.userAgent, Net.instance.browserSeed(page, partition: plugin.id));
+  if (got == null) return false;
+  final kept = await Net.instance.keepFromBrowser(page, got, partition: plugin.id);
   if (context.mounted) {
     showSnack(
       context,
-      cookies.isEmpty
+      kept == 0
           ? 'Nothing was kept: ${plugin.name} set no cookies there.'
           : 'Signed in to ${plugin.name}. Clear its cookies in Sources to sign out.',
-      long: cookies.isEmpty,
+      long: kept == 0,
     );
   }
   return true;
