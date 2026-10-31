@@ -30,6 +30,7 @@ class PageLook {
     required this.justify,
     required this.indent,
     required this.margin,
+    this.wordInk,
   });
 
   final TextStyle text;
@@ -45,6 +46,10 @@ class PageLook {
   final Color accent;
   final Color sentenceWash;
   final Color wordWash;
+
+  /// The word being read, on [wordWash]: an ink that reads there (see
+  /// readAloudInks); null for the text's own.
+  final Color? wordInk;
   final TextScaler textScaler;
   final bool justify;
   final bool indent;
@@ -1043,6 +1048,7 @@ class _PagedBookState extends State<PagedBook> {
                 word: widget.word,
                 sentenceWash: look.sentenceWash,
                 wordWash: look.wordWash,
+                wordInk: look.wordInk,
                 highlights: widget.highlights,
                 accent: look.accent,
               ),
@@ -1055,7 +1061,9 @@ class _PagedBookState extends State<PagedBook> {
 }
 
 /// A window onto one laid-out paragraph, with its saved quotes washed in
-/// their colours, and over them the sentence being read and its word.
+/// their colours, and over them the sentence being read. Its word lies on
+/// its own wash alone, as on the scroll, in the ink that reads on it: laid
+/// over the sentence's wash (and a quote's), it no longer read by night.
 class _SlicePainter extends CustomPainter {
   _SlicePainter({
     required this.laid,
@@ -1066,6 +1074,7 @@ class _SlicePainter extends CustomPainter {
     required this.word,
     required this.sentenceWash,
     required this.wordWash,
+    this.wordInk,
     this.highlights,
     this.accent = const Color(0x00000000),
   }) : super(repaint: Listenable.merge([marked, word, if (highlights != null) highlights]));
@@ -1078,6 +1087,7 @@ class _SlicePainter extends CustomPainter {
   final ValueListenable<WordMark> word;
   final Color sentenceWash;
   final Color wordWash;
+  final Color? wordInk;
   final ValueListenable<Map<int, Mark>>? highlights;
   final Color accent;
 
@@ -1088,6 +1098,30 @@ class _SlicePainter extends CustomPainter {
     canvas.translate(0, -top);
     final u = marked.value;
     final text = item.block?.text ?? '';
+    // The sentence being read, and its word.
+    var ss = -1, se = -1, ws = -1, we = -1;
+    if (u >= 0 && item.containsUnit(u)) {
+      ss = layout.unitOffset[u].clamp(0, text.length);
+      se = (ss + layout.units[u].text.length).clamp(ss, text.length);
+      final w = word.value;
+      if (w.unit == u && w.start >= 0) {
+        ws = (ss + w.start).clamp(ss, se);
+        we = (ss + w.end).clamp(ws, se);
+      }
+    }
+    final spoken = we > ws ? _shape(ws, we) : null;
+    // Everything but the word, where the washes under it go.
+    final around = spoken == null
+        ? null
+        : Path.combine(
+            PathOperation.difference,
+            Path()..addRect(Rect.fromLTWH(-8, top - 8, size.width + 16, size.height + 16)),
+            spoken,
+          );
+    if (around != null) {
+      canvas.save();
+      canvas.clipPath(around);
+    }
     final quotes = highlights?.value ?? const <int, Mark>{};
     if (quotes.isNotEmpty) {
       final dark = darkPage(laid.painter.text?.style?.color);
@@ -1105,28 +1139,52 @@ class _SlicePainter extends CustomPainter {
         _wash(canvas, s, e, highlightWash(m.colour, accent: accent, dark: dark));
       }
     }
-    if (u >= 0 && item.containsUnit(u)) {
-      final s = layout.unitOffset[u].clamp(0, text.length);
-      final e = (s + layout.units[u].text.length).clamp(s, text.length);
-      _wash(canvas, s, e, sentenceWash);
-      final w = word.value;
-      if (w.unit == u && w.start >= 0) {
-        final ws = (s + w.start).clamp(s, e);
-        final we = (s + w.end).clamp(ws, e);
-        if (we > ws) _wash(canvas, ws, we, wordWash);
-      }
+    if (se > ss) _wash(canvas, ss, se, sentenceWash);
+    final ink = wordInk;
+    if (around != null) {
+      canvas.restore();
+      _wash(canvas, ws, we, wordWash);
     }
-    laid.painter.paint(canvas, Offset.zero);
+    if (spoken != null && around != null && ink != null && ink != laid.painter.text?.style?.color) {
+      // The paragraph but the word, then the word in its own ink.
+      canvas.save();
+      canvas.clipPath(around);
+      laid.painter.paint(canvas, Offset.zero);
+      canvas.restore();
+      canvas.save();
+      canvas.clipPath(spoken);
+      canvas.saveLayer(null, Paint()..colorFilter = ColorFilter.mode(ink, BlendMode.srcIn));
+      laid.painter.paint(canvas, Offset.zero);
+      canvas.restore();
+      canvas.restore();
+    } else {
+      laid.painter.paint(canvas, Offset.zero);
+    }
     canvas.restore();
   }
 
-  void _wash(Canvas canvas, int from, int to, Color color) {
-    final paint = Paint()..color = color;
+  /// The boxes of [from] to [to] as [_wash] rounds them, as one shape.
+  Path _shape(int from, int to) {
+    final path = Path();
+    for (final b in _boxes(from, to)) {
+      path.addRRect(b);
+    }
+    return path;
+  }
+
+  Iterable<RRect> _boxes(int from, int to) sync* {
     for (final b in laid.painter.getBoxesForSelection(
       TextSelection(baseOffset: from + laid.shift, extentOffset: to + laid.shift),
     )) {
       if (b.bottom < top || b.top > top + 10000) continue;
-      canvas.drawRRect(RRect.fromRectAndRadius(b.toRect().inflate(1.5), const Radius.circular(3)), paint);
+      yield RRect.fromRectAndRadius(b.toRect().inflate(1.5), const Radius.circular(3));
+    }
+  }
+
+  void _wash(Canvas canvas, int from, int to, Color color) {
+    final paint = Paint()..color = color;
+    for (final b in _boxes(from, to)) {
+      canvas.drawRRect(b, paint);
     }
   }
 
@@ -1136,6 +1194,7 @@ class _SlicePainter extends CustomPainter {
       old.top != top ||
       old.sentenceWash != sentenceWash ||
       old.wordWash != wordWash ||
+      old.wordInk != wordInk ||
       old.marked != marked ||
       old.word != word ||
       old.highlights != highlights ||

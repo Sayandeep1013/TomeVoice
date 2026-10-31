@@ -2581,6 +2581,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             style: style,
             wash: look.sentenceWash,
             wordWash: look.wordWash,
+            wordInk: look.wordInk,
+            // A heading being read turns to the chapter's colour, which reads
+            // on the washes (see PageStyle).
+            headingInk: look.chapterHeading.color,
             heading: heading && !chapterStart,
             justify: _prefs.justify && !heading,
             onTapUnit: (u) => _reader.goTo(u, play: true),

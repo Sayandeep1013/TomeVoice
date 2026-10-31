@@ -26,9 +26,12 @@ import 'package:material_color_utilities/material_color_utilities.dart'
 import 'package:tomevoice_spike/backup.dart';
 import 'package:tomevoice_spike/chapter_finder.dart';
 import 'package:tomevoice_spike/contrast.dart';
+import 'package:tomevoice_spike/highlights.dart' show darkPage, highlightWash;
 import 'package:tomevoice_spike/library_store.dart';
+import 'package:tomevoice_spike/marks.dart' show MarkColour;
 import 'package:tomevoice_spike/own_colours.dart';
 import 'package:tomevoice_spike/own_colours_sheet.dart';
+import 'package:tomevoice_spike/page_style.dart';
 import 'package:tomevoice_spike/page_tone.dart';
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/reader_chrome.dart';
@@ -437,6 +440,56 @@ void main() {
       const OwnColours(page: Color(0xFFF3EBDD), accent: Color(0xFF1D2A6B)).made.palette,
       const OwnColours(page: Color(0xFF141B2B), accent: Color(0xFFF2D541)).made.palette,
     ];
+
+    testWidgets('what is read aloud reads on its washes, in every palette and page tone, by day and by night',
+        (tester) async {
+      // Unguarded before: in pages the word being read lay over the
+      // sentence's wash (3.9:1 in Lavender by night, a quote under both
+      // 3.35:1), on Dusk it was 2.6:1, and a heading read in the accent was
+      // 2.7:1 by night.
+      for (final p in [...palettes, Palette.forest.withTint(0xFF3A8FDB)]) {
+        for (final b in Brightness.values) {
+          if (p.only != null && p.only != b) continue;
+          for (final tone in PageTone.all) {
+            Skin.palette = p;
+            late BuildContext page;
+            await tester.pumpWidget(MaterialApp(
+              key: ValueKey((p.id, b, tone.id)),
+              theme: Skin.themeFor(p, b),
+              home: Builder(builder: (c) {
+                page = c;
+                return const SizedBox.expand();
+              }),
+            ));
+            final look = PageStyle.of(page, ListeningPrefs(pageTone: tone.id)).look;
+            final shades = tone.shadesOf(page);
+            List<Color> on(Color wash, [List<Color>? under]) => [
+                  for (final s in under ?? shades) Color.alphaBlend(wash, s),
+                ];
+            final why = '${p.label}, ${b.name}, ${tone.label}';
+            void reads(String what, Color c, List<Color> grounds) {
+              for (final g in grounds) {
+                expect(contrast(c, g), greaterThanOrEqualTo(smallText), reason: '$what in $why');
+              }
+            }
+
+            reads('the text read aloud', look.text.color!, [...shades, ...on(look.sentenceWash)]);
+            reads('the word read aloud', look.wordInk!, on(look.wordWash));
+            reads("a chapter's heading, read aloud", look.chapterHeading.color!, [...shades, ...on(look.sentenceWash)]);
+            if (!tone.isApp) continue;
+            // Saved quotes, and the sentence read over one (the word lies on
+            // its own wash). Dusk's quotes are not yet held to this.
+            final dark = darkPage(look.text.color);
+            for (final c in MarkColour.values) {
+              for (final accent in [look.accent, look.sentenceWash.withValues(alpha: 1)]) {
+                final quote = on(highlightWash(c, accent: accent, dark: dark));
+                reads('the text on a ${c.name} quote', look.text.color!, [...quote, ...on(look.sentenceWash, quote)]);
+              }
+            }
+          }
+        }
+      }
+    });
 
     testWidgets("the way back to the voice, and to where the reader was, reads on its dark pill", (tester) async {
       for (final p in palettes) {

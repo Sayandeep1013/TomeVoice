@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'contrast.dart' show readAloudInks;
 import 'page_tone.dart';
 import 'paged_view.dart' show PageLook;
 import 'prefs.dart';
@@ -32,21 +33,37 @@ class PageStyle {
     final tone = PageTone.byId(prefs.pageTone);
     final ink = tone.inkOf(context);
     final accent = tone.accentOf(context);
+    final dark = tone.dark || (tone.isApp && Skin.isDark(context));
+    // Dusk's word was washed at half strength, where only a near-white ink
+    // read on it: there, as on the light papers, at a little over a third.
+    final sentenceWash = tone.isApp ? Skin.sentenceWash(context) : accent.withValues(alpha: tone.dark ? 0.22 : 0.16);
+    final wordWash = tone.isApp ? Skin.wordWash(context) : accent.withValues(alpha: 0.36);
+    // The word being read, and a chapter's heading (read on the sentence's
+    // wash), in inks that read on what lies under them.
+    final inks = readAloudInks(
+      shades: tone.shadesOf(context),
+      ink: ink,
+      accent: accent,
+      sentenceWash: sentenceWash,
+      wordWash: wordWash,
+      dark: dark,
+    );
     return PageStyle._(
       tone: tone,
-      dark: tone.dark || (tone.isApp && Skin.isDark(context)),
+      dark: dark,
       look: PageLook(
         text: Skin.page(context, size: prefs.textSize, font: prefs.bookFont, height: prefs.lineHeight)
             .copyWith(color: ink),
         heading: Skin.title(context, size: 22 * scale, weight: FontWeight.w500).copyWith(height: 1.2, color: ink),
         chapterHeading:
-            Skin.title(context, size: 30 * scale, weight: FontWeight.w500).copyWith(height: 1.2, color: accent),
+            Skin.title(context, size: 30 * scale, weight: FontWeight.w500).copyWith(height: 1.2, color: inks.heading),
         title: Skin.title(context, size: 30 * scale, weight: FontWeight.w500).copyWith(color: accent),
         label: Skin.meta(context, size: 11, color: accent).copyWith(fontWeight: FontWeight.w600),
         status: Skin.meta(context, size: 10, color: tone.inkSoft),
         accent: accent,
-        sentenceWash: tone.isApp ? Skin.sentenceWash(context) : accent.withValues(alpha: tone.dark ? 0.22 : 0.16),
-        wordWash: tone.isApp ? Skin.wordWash(context) : accent.withValues(alpha: tone.dark ? 0.5 : 0.36),
+        sentenceWash: sentenceWash,
+        wordWash: wordWash,
+        wordInk: inks.word,
         textScaler: MediaQuery.textScalerOf(context),
         justify: prefs.justify,
         indent: prefs.indent,

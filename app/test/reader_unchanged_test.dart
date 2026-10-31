@@ -21,6 +21,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
+import 'package:tomevoice_spike/contrast.dart' show readAloudInks;
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/listening_session.dart';
 import 'package:tomevoice_spike/marks.dart';
@@ -458,17 +459,31 @@ void main() {
       final tone = PageTone.byId(p.pageTone);
       final ink = tone.inkOf(context);
       final accent = tone.accentOf(context);
+      // Changed on purpose: Dusk's word was washed at half strength, and the
+      // word being read and a chapter's heading were in inks that did not
+      // read on their washes (see readAloudInks).
+      final sentenceWash = tone.isApp ? Skin.sentenceWash(context) : accent.withValues(alpha: tone.dark ? 0.22 : 0.16);
+      final wordWash = tone.isApp ? Skin.wordWash(context) : accent.withValues(alpha: 0.36);
+      final inks = readAloudInks(
+        shades: tone.shadesOf(context),
+        ink: ink,
+        accent: accent,
+        sentenceWash: sentenceWash,
+        wordWash: wordWash,
+        dark: tone.dark || (tone.isApp && Skin.isDark(context)),
+      );
       return PageLook(
         text: Skin.page(context, size: p.textSize, font: p.bookFont, height: p.lineHeight).copyWith(color: ink),
         heading: Skin.title(context, size: 22 * scale, weight: FontWeight.w500).copyWith(height: 1.2, color: ink),
         chapterHeading:
-            Skin.title(context, size: 30 * scale, weight: FontWeight.w500).copyWith(height: 1.2, color: accent),
+            Skin.title(context, size: 30 * scale, weight: FontWeight.w500).copyWith(height: 1.2, color: inks.heading),
         title: Skin.title(context, size: 30 * scale, weight: FontWeight.w500).copyWith(color: accent),
         label: Skin.meta(context, size: 11, color: accent).copyWith(fontWeight: FontWeight.w600),
         status: Skin.meta(context, size: 10, color: tone.inkSoft),
         accent: accent,
-        sentenceWash: tone.isApp ? Skin.sentenceWash(context) : accent.withValues(alpha: tone.dark ? 0.22 : 0.16),
-        wordWash: tone.isApp ? Skin.wordWash(context) : accent.withValues(alpha: tone.dark ? 0.5 : 0.36),
+        sentenceWash: sentenceWash,
+        wordWash: wordWash,
+        wordInk: inks.word,
         textScaler: MediaQuery.textScalerOf(context),
         justify: p.justify,
         indent: p.indent,
@@ -567,6 +582,7 @@ void main() {
         expect(paged.look.accent, look.accent, reason: why);
         expect(paged.look.sentenceWash, look.sentenceWash, reason: why);
         expect(paged.look.wordWash, look.wordWash, reason: why);
+        expect(paged.look.wordInk, look.wordInk, reason: why);
         expect(paged.look.textScaler, look.textScaler, reason: why);
         expect(paged.look.justify, look.justify, reason: why);
         expect(paged.look.indent, look.indent, reason: why);

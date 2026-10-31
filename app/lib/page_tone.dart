@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'contrast.dart' show groundOf;
 import 'theme.dart';
 
 /// The page under the text: the app's own colours, or a reader's paper —
@@ -82,6 +83,12 @@ class PageTone {
   static const all = [app, eink, papyrus, dusk];
 
   static PageTone byId(String? id) => all.where((t) => t.id == id).firstOrNull ?? app;
+
+  /// The page's shades top to foot, what its type is read against: the
+  /// tone's paper, or the app's ground as its gradient draws it.
+  List<Color> shadesOf(BuildContext context) => paper == null
+      ? groundOf(Skin.paletteOf(context), Theme.of(context).brightness)
+      : [for (var t = 0.0; t <= 1; t += 0.25) Color.lerp(paper!.first, paper!.last, t)!];
 
   /// The paper as a decoration: the tone's, or the app's diagonal ground.
   BoxDecoration paperOf(BuildContext context) => paper == null

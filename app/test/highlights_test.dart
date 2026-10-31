@@ -26,11 +26,34 @@ const _channel = MethodChannel('tomevoice/tts');
 class _Recorder implements Canvas {
   final calls = <Object>[];
 
+  /// The washes laid, by colour, and the shapes clipped to.
+  final washes = <(int, RRect)>[];
+  final clips = <Path>[];
+  final layers = <Paint>[];
+
   @override
-  void drawRRect(RRect rrect, Paint paint) => calls.add(paint.color.toARGB32());
+  void drawRRect(RRect rrect, Paint paint) {
+    calls.add(paint.color.toARGB32());
+    washes.add((paint.color.toARGB32(), rrect));
+  }
 
   @override
   void drawParagraph(ui.Paragraph paragraph, Offset offset) => calls.add('text');
+
+  @override
+  void clipPath(Path path, {bool doAntiAlias = true}) {
+    calls.add('clip');
+    clips.add(path);
+  }
+
+  @override
+  void saveLayer(Rect? bounds, Paint paint) {
+    calls.add('layer');
+    layers.add(paint);
+  }
+
+  @override
+  void restore() => calls.add('restore');
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
@@ -153,7 +176,9 @@ void main() {
     const word = Color(0x80FF0000);
     const hl = Color(0x5500FF00);
 
-    test("the voice's sentence and word lie over a quote", () {
+    test("the voice's sentence lies over a quote; its word on its own wash alone", () {
+      // Changed on purpose: the word lay over the quote too, and by night no
+      // ink read on the two (see contrast.dart).
       final quotes = {0: _quote(l, 0), 1: _quote(l, 1, id: 'two')};
       final runs = washRuns(
         layout: l,
@@ -168,7 +193,8 @@ void main() {
       );
       final text = item.block!.text;
       String of(Color c) => [for (final r in runs) if (r.wash == c) text.substring(r.start, r.end)].join('|');
-      expect(of(Color.alphaBlend(word, hl)), 'quick');
+      expect(of(word), 'quick');
+      expect([for (final r in runs) if (r.word) text.substring(r.start, r.end)], ['quick']);
       expect(of(Color.alphaBlend(sentence, hl)), 'The | brown fox jumps over the lazy dog.');
       expect(of(hl), 'Pack my box with five dozen liquor jugs.');
       // Every character once, in order.
@@ -364,7 +390,7 @@ void main() {
       final firstWord = painted.indexOf(look.wordWash.toARGB32());
       expect(firstSentence, greaterThan(lastBlue), reason: "the voice's sentence over the quote");
       expect(firstWord, greaterThan(firstSentence), reason: 'and its word over that');
-      expect(painted.last, 'text');
+      expect(painted.lastWhere((c) => c != 'restore'), 'text');
 
       // Painted only: the same laid-out paragraphs and the same page.
       final laidAfter = [for (final p in slices()) (p as dynamic).laid];
@@ -373,6 +399,83 @@ void main() {
         expect(laidBefore.any((b) => identical(b, laid)), isTrue);
       }
       expect(controller.range, range);
+    });
+
+    testWidgets("the voice's word lies on its own wash, nothing under it, in the ink that reads there",
+        (tester) async {
+      // Laid over the sentence's wash (and a quote's), the word being read
+      // was 3.9:1 in Lavender by night, as the scroll never drew it.
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 2.75;
+      addTearDown(tester.view.reset);
+      final first = layout.items.indexWhere((i) => i.unitCount > 1);
+      final unit = layout.items[first].firstUnit;
+      final q = _quote(layout, unit, colour: MarkColour.blue);
+      Future<_Recorder> paint(PageLook look) async {
+        await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+            body: PagedBook(
+              layout: layout,
+              look: look,
+              controller: PagedController(),
+              startUnit: 0,
+              marked: ValueNotifier<int>(unit),
+              word: ValueNotifier<WordMark>(WordMark(unit, 0, 8)),
+              chapterName: (c) => 'One',
+              onPage: (unit, {required byHand}) {},
+              onTapMiddle: () {},
+              onHold: (item, offset) {},
+              pictureOf: (block, size) => SizedBox.fromSize(size: size),
+              turn: PageTurn.none,
+              highlights: ValueNotifier({unit: q}),
+            ),
+          ),
+        ));
+        await tester.pumpAndSettle();
+        final blue = highlightWash(MarkColour.blue, accent: look.accent, dark: false).toARGB32();
+        for (final c in tester.widgetList<CustomPaint>(find.byType(CustomPaint))) {
+          if (c.painter?.runtimeType.toString() != '_SlicePainter') continue;
+          final r = _Recorder();
+          c.painter!.paint(r, const Size(400, 4000));
+          if (r.calls.contains(blue)) return r;
+        }
+        throw StateError('no page with the quote');
+      }
+
+      final r = await paint(look);
+      final word = r.washes.where((w) => w.$1 == look.wordWash.toARGB32()).single.$2;
+      final sentence = [for (final w in r.washes) if (w.$1 == look.sentenceWash.toARGB32()) w.$2];
+      final around = r.clips.single;
+      expect(around.contains(word.center), isFalse, reason: 'no wash under the word');
+      expect(sentence.any((s) => around.contains(s.center)), isTrue, reason: 'the rest of the sentence washed');
+      final blue = highlightWash(MarkColour.blue, accent: look.accent, dark: false).toARGB32();
+      final c = r.calls;
+      expect(c.indexOf('clip'), lessThan(c.indexOf(blue)), reason: "the quote's wash left out of it too");
+      expect(c.indexOf('restore', c.lastIndexOf(look.sentenceWash.toARGB32())),
+          lessThan(c.indexOf(look.wordWash.toARGB32())));
+      expect(r.layers, isEmpty, reason: 'the text in its own ink: nothing to set apart');
+
+      // Where the page's ink would not read on the word's wash, the word is
+      // drawn in one that does.
+      final inked = PageLook(
+        text: look.text,
+        heading: look.heading,
+        chapterHeading: look.chapterHeading,
+        title: look.title,
+        label: look.label,
+        status: look.status,
+        accent: look.accent,
+        sentenceWash: look.sentenceWash,
+        wordWash: look.wordWash,
+        textScaler: look.textScaler,
+        justify: look.justify,
+        indent: look.indent,
+        margin: look.margin,
+        wordInk: Colors.red,
+      );
+      final ri = await paint(inked);
+      expect(ri.layers.single.colorFilter, const ColorFilter.mode(Colors.red, BlendMode.srcIn));
+      expect(ri.calls.where((c) => c == 'text'), hasLength(2), reason: 'the paragraph but the word, then the word');
     });
   });
 }
