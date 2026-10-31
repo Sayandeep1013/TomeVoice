@@ -305,7 +305,18 @@ class _PagedBookState extends State<PagedBook> {
       old.controller._state = null;
       widget.controller._state = this;
     }
-    if (old.layout != widget.layout) _forget();
+    if (old.layout != widget.layout) {
+      _forget();
+      // A sentence asked for past the chapters it had: shown now it has
+      // them (see _showUnit).
+      final pending = _pendingUnit;
+      if (pending != null && _pages != null) {
+        _pendingUnit = null;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _showUnit(pending);
+        });
+      }
+    }
   }
 
   @override
@@ -617,7 +628,10 @@ class _PagedBookState extends State<PagedBook> {
   }
 
   void _showUnit(int unit, {bool animate = true, int? at}) {
-    if (_size == Size.zero || _pages == null) {
+    // Not laid out yet; or past these chapters (a web novel's next ones,
+    // joined on to the reading before these pages are built with them,
+    // with the screen off): shown once they are.
+    if (_size == Size.zero || _pages == null || unit >= _l.units.length) {
       _pendingUnit = unit;
       return;
     }

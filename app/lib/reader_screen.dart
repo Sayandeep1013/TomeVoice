@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
     show Clipboard, ClipboardData, HapticFeedback, SystemChrome, SystemUiMode, SystemUiOverlayStyle;
@@ -254,9 +255,18 @@ class ReaderScreen extends StatefulWidget {
     this.chapterNumberOf,
     this.viewSection,
     this.openContents,
+    this.window,
   });
 
   final ReadingLayout layout;
+
+  /// The chapters shown as they grow while the page is open: a web novel's
+  /// window, the chapters after it joined on as the reading (or the eyes)
+  /// nears its end (see WebNovelReader). Each is [layout] with more chapters
+  /// after its own; the voice and the page carry on into them as they are,
+  /// with no break.
+  final ValueListenable<ReadingLayout>? window;
+
   final LibraryStore? store;
   final ReadingCursor initialCursor;
   final bool autoplay;
@@ -306,7 +316,9 @@ class ReaderScreen extends StatefulWidget {
 }
 
 class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver implements ReaderView {
-  ReadingLayout get _l => widget.layout;
+  /// The chapters shown: the reading's, which grow with a web novel's
+  /// window (see [ReaderScreen.window]).
+  ReadingLayout get _l => _reader.layout;
   Book get _book => _l.book;
 
   /// The reading this page shows: the place, the voice, the card, the
@@ -422,7 +434,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     WidgetsBinding.instance.addObserver(this);
     // The place and the voice: this book's reading in the background taken
     // back if it reads on there, else a voice of its own.
-    _reader = ReaderController(layout: _l, view: this, initialCursor: widget.initialCursor, store: widget.store);
+    _reader = ReaderController(layout: widget.layout, view: this, initialCursor: widget.initialCursor, store: widget.store);
+    widget.window?.addListener(_onWindow);
     _player.word.addListener(_onWord);
     MarkStore.instance.changes.addListener(_onMarks);
     _onMarks();
@@ -468,6 +481,26 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   @override
   void changed() {
     if (mounted) setState(() {});
+  }
+
+  /// The chapters after the page's joined on (see [ReaderScreen.window]):
+  /// the voice reads on into them with no break, and the page shows them
+  /// after its own, where it is, as it is.
+  void _onWindow() {
+    final longer = widget.window!.value;
+    if (!mounted || !_reader.widen(longer)) return;
+    _highlights.layout = longer;
+    _onMarks();
+    setState(() {});
+  }
+
+  @override
+  void didUpdateWidget(ReaderScreen old) {
+    super.didUpdateWidget(old);
+    if (old.window != widget.window) {
+      old.window?.removeListener(_onWindow);
+      widget.window?.addListener(_onWindow);
+    }
   }
 
   @override
@@ -705,6 +738,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (_screenOn) unawaited(_svc.keepScreenOn(false));
     _catalog.removeListener(_onCatalog);
     _player.word.removeListener(_onWord);
+    widget.window?.removeListener(_onWindow);
     // The place saved and the time counted; the voice ended, or reading on
     // without the page.
     _reader.dispose();
@@ -1017,6 +1051,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _reader.lastScroll = DateTime.now();
     if (_listening) {
       _detached.value = true;
+      // Fetch ahead of where the reader is looking, as on the scroll.
+      widget.onChapterChanged?.call(_l.units[unit].sectionIndex);
     } else {
       _reader.moveQuietly(unit);
     }
@@ -1778,26 +1814,30 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       reverseTransitionDuration: Motion.of(context, Motion.standard),
       pageBuilder: (ctx, _, __) => carryTint(
         from,
-        NowPlayingScreen(
-          key: key,
-          title: _book.metadata.title,
-          cover: _cover,
-          layout: _l,
-          cursor: _cursor,
-          player: _player,
-          speed: () => _speed,
-          voiceLabel: _voiceLabel,
-          sleepNote: () => _reader.sleepNote,
-          onPlay: _reader.togglePlay,
-          onGoTo: (u) => _reader.goTo(u),
-          onPrevChapter: () => _reader.goChapter(-1),
-          onNextChapter: () => _reader.goChapter(1),
-          moreAfter: widget.onReachedEnd != null,
-          onSpeed: () => showListenSheet(ctx, _listen, focus: ListenFocus.speed),
-          onVoice: () => showListenSheet(ctx, _listen),
-          onSleep: () => showListenSheet(ctx, _listen),
-          onSave: () => _save(MarkKind.quote),
-          onHold: (unit, word) => unawaited(_onLongPress(unit, word)),
+        // Built again on a web novel's chapters joined on, as the page is.
+        ListenableBuilder(
+          listenable: Listenable.merge([widget.window]),
+          builder: (_, __) => NowPlayingScreen(
+            key: key,
+            title: _book.metadata.title,
+            cover: _cover,
+            layout: _l,
+            cursor: _cursor,
+            player: _player,
+            speed: () => _speed,
+            voiceLabel: _voiceLabel,
+            sleepNote: () => _reader.sleepNote,
+            onPlay: _reader.togglePlay,
+            onGoTo: (u) => _reader.goTo(u),
+            onPrevChapter: () => _reader.goChapter(-1),
+            onNextChapter: () => _reader.goChapter(1),
+            moreAfter: widget.onReachedEnd != null,
+            onSpeed: () => showListenSheet(ctx, _listen, focus: ListenFocus.speed),
+            onVoice: () => showListenSheet(ctx, _listen),
+            onSleep: () => showListenSheet(ctx, _listen),
+            onSave: () => _save(MarkKind.quote),
+            onHold: (unit, word) => unawaited(_onLongPress(unit, word)),
+          ),
         ),
       ),
       transitionsBuilder: (ctx, animation, _, child) => SlideTransition(

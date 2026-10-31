@@ -71,11 +71,12 @@ class ReaderController {
   /// [initialCursor] (a place saved before is restored as it was; a book
   /// opened for the first time skips a title page named like it).
   ReaderController({
-    required this.layout,
+    required ReadingLayout layout,
     required this.view,
     required ReadingCursor initialCursor,
     this.store,
-  }) : cursor = ValueNotifier(layout.isEmpty
+  })  : _layout = layout,
+        cursor = ValueNotifier(layout.isEmpty
             ? 0
             : layout.unitForCursor(initialCursor, saved: initialCursor != ReadingCursor.zero)) {
     // This book reading on in the background: take its voice back, still
@@ -107,7 +108,10 @@ class ReaderController {
     _statsTimer = Timer.periodic(const Duration(seconds: 15), (_) => countTime());
   }
 
-  final ReadingLayout layout;
+  /// The chapters read: the page's, with any joined on after them since
+  /// (see [widen]).
+  ReadingLayout get layout => _layout;
+  ReadingLayout _layout;
   final LibraryStore? store;
   final ReaderView view;
 
@@ -338,6 +342,18 @@ class ReaderController {
       sleep: _sleep,
     );
     unawaited(bg.readOn());
+    return true;
+  }
+
+  /// The chapters after this page's joined on to it (a web novel's window
+  /// rolled on, see WebNovelReader): [longer] begins with the same
+  /// sentences, so the place, the card and the voice carry on into it as
+  /// they are, the voice with no break. False where it cannot: the voice
+  /// went on without this page, or [longer] does not continue its chapters.
+  bool widen(ReadingLayout longer) {
+    if (_handedOn || identical(longer, _layout) || !continuesLayout(longer, _layout)) return false;
+    _layout = longer;
+    readOnInto(player, longer);
     return true;
   }
 

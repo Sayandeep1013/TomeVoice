@@ -740,20 +740,10 @@ class BackgroundReading {
   Future<void> _extend() async {
     final now = layout;
     final reading = player;
-    final last = now.units.last.sectionIndex;
+    bool gone() => !identical(current.value, this);
     try {
-      await fetchChapters(store, bookId, last + 1);
-    } on Object {
-      // Offline: what is on the phone.
-    }
-    try {
-      final info = await store.webNovel(bookId);
-      if (info == null) return;
-      final more = webWindow(last + 1, info.chapters.length, store.downloadedChapters(bookId).contains, before: 0);
-      if (more.isEmpty || !identical(current.value, this)) return;
-      final longer = await store.loadLayout(bookId, chapters: {...now.chapters, ...more});
-      if (!identical(current.value, this) || !identical(layout, now) || !identical(player, reading)) return;
-      if (longer.units.length == now.units.length || !continuesLayout(longer, now)) return;
+      final longer = await joinNextChapters(store, bookId, now, stop: gone);
+      if (longer == null || gone() || !identical(layout, now) || !identical(player, reading)) return;
       _layout.value = longer;
       readOnInto(reading, longer);
     } on Object catch (e) {
