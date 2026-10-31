@@ -2,8 +2,9 @@
 // the background or handed on by its page, with the card in the shade
 // saying "playing" all the way (said "paused" for a moment, Android 12+
 // took the reading out of the foreground for good); the chapters joined on
-// as the voice finished not passed over; and a page that no longer has the
-// card leaving it to the reading that does.
+// as the voice finished not passed over; a page closed as it hands its
+// reading on; and a page that no longer has the card leaving it to the
+// reading that does.
 
 import 'dart:async';
 import 'dart:io';
@@ -283,6 +284,51 @@ void main() {
       final bg = BackgroundReading.current.value!;
       expect(reading(bg), 60, reason: 'the chapters joined on were passed over');
     });
+  });
+
+  group('a page closed as it hands its reading on', () {
+    for (final keep in [true, false]) {
+      test(keep ? 'the reading goes on without it' : 'by Back, reading on turned off: the card goes too', () async {
+        ListeningPrefs.memory.keepReading = keep;
+        final (store, id) = await novel();
+        final layout = await store.loadLayout(id, around: 30);
+        final view = _Page(web: true);
+        final page = ReaderController(
+          layout: layout,
+          view: view,
+          initialCursor: const ReadingCursor(sectionIndex: 59),
+          store: store,
+        );
+        await page.goTo(layout.chapterFirstUnit[layout.chapters.length - 1], play: true);
+        await _until(() => page.player.isPlaying && count('playerEnqueue') > 0);
+        // Next chapter at the last one, while it reads: handed on. The page
+        // closes while its own voice is stopping.
+        final stopping = Completer<void>();
+        final closed = Completer<void>();
+        onCancel = () async {
+          stopping.complete();
+          await closed.future;
+        };
+        page.goChapter(1);
+        await stopping.future.timeout(const Duration(seconds: 5));
+        view.mounted = false;
+        page
+          ..leaving = true
+          ..dispose();
+        closed.complete();
+        if (keep) {
+          await _until(() => BackgroundReading.current.value?.player.isPlaying ?? false);
+          final bg = BackgroundReading.current.value;
+          expect(bg?.bookId, id, reason: 'the reading stopped with the page, and left its card up, playing');
+          expect(reading(bg!), 60);
+          expect(sessions().last['active'], isTrue);
+        } else {
+          await _until(() => sessions().last['active'] == false);
+          expect(BackgroundReading.current.value, isNull);
+          expect(sessions().last['active'], isFalse, reason: 'the card was left up, playing, with nothing reading');
+        }
+      });
+    }
   });
 
   test("a page moved while paused, and another book started from outside: the page leaves that book's card alone",

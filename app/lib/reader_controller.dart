@@ -211,6 +211,12 @@ class ReaderController {
   /// reading's until the page for those chapters takes them back.
   bool _handedOn = false;
 
+  /// Handing it on: this page's voice is stopping, and the background
+  /// reading does not have it yet. A page closed meanwhile leaves the rest,
+  /// and its player, to [_readOn].
+  bool _handing = false;
+  bool _disposed = false;
+
   /// The voice is reading, or paused in the middle of it.
   bool get listening => player.state.value != PlayState.idle;
 
@@ -264,6 +270,7 @@ class ReaderController {
 
   /// Leaving the page: what it held goes, or goes on in the background.
   void dispose() {
+    _disposed = true;
     _sleepTick?.cancel();
     _persistTimer?.cancel();
     _restartTimer?.cancel();
@@ -281,7 +288,15 @@ class ReaderController {
       // left the book with reading on after leaving turned off.
       final bg = BackgroundReading.current.value;
       if (leaving && !prefs.keepReading && bg != null && bg.bookId == _book.id) unawaited(bg.stop());
-      player.dispose();
+      if (_handing) {
+        // Still stopping: _readOn lets it go once it has, and the hand-off
+        // ends there. Nothing of this page hears it stop.
+        player.unit.removeListener(_onPlayerUnit);
+        player.state.removeListener(_onPlayState);
+        player.onFinished = null;
+      } else {
+        player.dispose();
+      }
     } else if (_readsOn) {
       player.unit.removeListener(_onPlayerUnit);
       player.state.removeListener(_onPlayState);
@@ -322,14 +337,29 @@ class ReaderController {
     final store = this.store;
     if (_handedOn || store == null || layout.isEmpty) return false;
     _handedOn = true;
+    _handing = true;
     _sleepTimer?.cancel();
     _sleepTick?.cancel();
     final at = cursor.value;
     // Its own voice stops (it may be mid-chapter: Next chapter at the
     // last one), leaving the card up for the reading that carries on.
-    await player.stop();
+    try {
+      await player.stop();
+    } finally {
+      _handing = false;
+    }
     player.endFade();
-    if (!view.mounted) return false;
+    if (_disposed) {
+      // The page went meanwhile: its player goes now it has stopped, and
+      // the reading carries on without it, as it would have, unless Back
+      // left the book with reading on turned off. Either way the card is
+      // someone's: the reading's, or gone.
+      player.dispose();
+      if (leaving && !prefs.keepReading) {
+        unawaited(_svc.session(active: false, owner: this));
+        return false;
+      }
+    }
     final bg = BackgroundReading.adopt(
       // From where this page's voice got to: the chapters after it are the
       // ones read next (more may have been joined on meanwhile, see
