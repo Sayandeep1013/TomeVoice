@@ -458,9 +458,9 @@ class _Line {
   final List<({int start, int end})> raised;
 
   /// [text] with the marks of notes in it set silent ("Michaelmas,¹"): what
-  /// the paragraph is made of, once [withNotes] has told the marks. Every
-  /// thing that looks at lines (running heads, page numbers, sentence ends)
-  /// looks at [text].
+  /// the paragraph is made of, once [withNotes] has told the marks.
+  /// Everything that looks at lines (running heads, page numbers, sentence
+  /// ends) looks at [text].
   final String marked;
 
   /// This line with its raised runs that are notes' marks set silent, on a
@@ -611,8 +611,8 @@ final _space = RegExp(r'\s');
 /// or bracket.
 final _closing = RegExp('[.,;:!?)\\]’”"\']');
 
-/// The signs of a sum ("-" is left out: prose dashes with it).
-final _operator = RegExp('[=+−×÷/^<>≤≥±·∙]');
+/// The signs of a sum ("-" and "·" are left out: prose has them too).
+final _operator = RegExp('[=+−×÷/^<>≤≥±∙]');
 
 /// The number a note at a page's foot opens with ("12. See…" is 12), or
 /// null for one marked with a symbol.
