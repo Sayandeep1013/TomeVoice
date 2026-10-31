@@ -65,7 +65,9 @@ class ChoicePill extends StatelessWidget {
                         size: 12.5,
                         weight: FontWeight.w600,
                         tabular: true,
-                        color: selected ? Skin.onAmber.withValues(alpha: 0.7) : Skin.inkFaintOn(context),
+                        // At full strength on the accent: at 70% it was
+                        // 3.1 to 3.8:1.
+                        color: selected ? Skin.onAmber : Skin.inkFaintOn(context),
                       ),
                     ),
                   ],
@@ -710,7 +712,7 @@ Future<LibraryEntry?> showSeriesBooks(
                             width: 34,
                             child: Text(
                               e.seriesIndex == null ? '' : seriesNumber(e.seriesIndex!),
-                              style: Skin.meta(ctx, size: 13, color: e.id == current ? Skin.accentOf(ctx) : null),
+                              style: Skin.meta(ctx, size: 13, color: e.id == current ? Skin.accentInkOf(ctx) : null),
                             ),
                           ),
                           BookCover(entry: e, width: 34, shadow: false),
@@ -726,7 +728,9 @@ Future<LibraryEntry?> showSeriesBooks(
                                   style: Skin.ui(
                                     size: 15.5,
                                     weight: e.id == current ? FontWeight.w700 : FontWeight.w500,
-                                    color: e.id == current ? Skin.accentOf(ctx) : Skin.inkOn(ctx),
+                                    // The accent's ink: its fill as text
+                                    // was 2.4 to 2.7:1 by day.
+                                    color: e.id == current ? Skin.accentInkOf(ctx) : Skin.inkOn(ctx),
                                   ),
                                 ),
                                 Text(progressLine(e).toUpperCase(), style: Skin.meta(ctx, size: 10)),

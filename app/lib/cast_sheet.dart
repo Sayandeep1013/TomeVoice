@@ -221,7 +221,7 @@ class _CastSheetState extends State<_CastSheet> {
                     style: Skin.ui(
                       size: 13,
                       weight: FontWeight.w400,
-                      color: chosen == null ? Skin.inkFaintOn(context) : Skin.accentSoftOf(context),
+                      color: chosen == null ? Skin.inkFaintOn(context) : Skin.accentInkOf(context),
                     ),
                   ),
                 ],
@@ -233,7 +233,7 @@ class _CastSheetState extends State<_CastSheet> {
                 onPressed: busy ? null : () => _hear(c, chosen),
                 icon: busy
                     ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                    : Icon(Icons.play_circle_outline_rounded, color: Skin.accentSoftOf(context), size: 28),
+                    : Icon(Icons.play_circle_outline_rounded, color: Skin.accentInkOf(context), size: 28),
               ),
             Icon(Icons.chevron_right_rounded, color: Skin.inkFaintOn(context)),
           ],
@@ -361,7 +361,7 @@ class _VoiceFor extends StatelessWidget {
             Icon(
               selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
               size: 22,
-              color: selected ? Skin.accentOf(context) : Skin.inkFaintOn(context),
+              color: selected ? Skin.accentMarkOf(context) : Skin.inkFaintOn(context),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -379,7 +379,7 @@ class _VoiceFor extends StatelessWidget {
             IconButton(
               tooltip: 'Hear ${catalog.friendlyName(v)}',
               onPressed: () => onHear(v.name),
-              icon: Icon(Icons.play_circle_outline_rounded, color: Skin.accentSoftOf(context), size: 28),
+              icon: Icon(Icons.play_circle_outline_rounded, color: Skin.accentInkOf(context), size: 28),
             ),
           ],
         ),
