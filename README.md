@@ -16,21 +16,28 @@ sentence, the spoken word highlighted, in your phone's voices or natural ones in
 languages, with the screen off if you like.
 
 <p align="center">
-  <img src="docs/images/library.png" width="240" alt="The library's Later shelf as cover tiles, each with its format, language and progress, and the book being read waiting at the bottom with a play button">
+  <img src="docs/images/library.png" width="240" alt="The library's Reading shelf as cover tiles, each with its format, language and progress, and Red Rising, the book being read, waiting at the bottom with a play button">
   &nbsp;
-  <img src="docs/images/book.png" width="240" alt="Alice in Wonderland's page in the colours of its cover: Find a chapter and the book's menu at the top, Continue and Read, the voice chosen for this book, and its chapters with the current one marked">
+  <img src="docs/images/book.png" width="240" alt="A Storm of Swords' page: its shelf, Book 3 of A Song of Ice and Fire, Continue and Read, the voice chosen for this book, the characters with voices of their own, and its chapters with the current one marked">
   &nbsp;
-  <img src="docs/images/reader.png" width="240" alt="Reading Shadow Slave aloud: the spoken sentence and word highlighted, the chapter and 2000/3224 at the top, and the player">
+  <img src="docs/images/reader.png" width="240" alt="Reading Red Rising aloud: the spoken sentence lit and its word marked, the chapter and place at the top, and the player with its speed, time left and voice">
 </p>
 <p align="center">
-  <img src="docs/images/novel.png" width="240" alt="Shadow Slave's page: the web novel's site, status and 3224 chapters, the place reached, Continue and Read, and the chapters with the downloaded ones ticked">
+  <img src="docs/images/novel.png" width="240" alt="Shadow Slave's page: the web novel's site, status and 3231 chapters, the place reached, Continue and Read, its tags and a saved bookmark">
   &nbsp;
-  <img src="docs/images/find-chapter.png" width="240" alt="Find a chapter: typing shadow narrows Shadow Slave's 3224 chapters to those with it in their title">
+  <img src="docs/images/find-chapter.png" width="240" alt="Find a chapter: typing shadow narrows Shadow Slave's 3231 chapters to those with it in their title">
   &nbsp;
-  <img src="docs/images/settings.png" width="240" alt="Settings: five colour themes, colours from book covers, and the reading type, size, spacing and margins">
+  <img src="docs/images/settings.png" width="240" alt="Settings: seven colour themes, Wallpaper and Your own among them, colours from book covers, and the reading page, text size and font">
 </p>
 <p align="center">
-  <img src="docs/images/now-playing.png" width="240" alt="Now Playing: Red Rising's cover above the page around the voice, the sentence being read lit and its word in the cover's red, the paragraphs before and after fading away, and a soft glow behind the controls">
+  <img src="docs/images/characters.png" width="240" alt="Characters in A Storm of Swords: who speaks is found from the speech tags, Tyrion, Jaime, Dany and Jon each read in a voice of their own and the rest in the dialogue voice">
+  &nbsp;
+  <img src="docs/images/own-colours.png" width="240" alt="Your own colours: the page, accent and text picked from swatches or by hue and shade, above a preview of how they will look">
+  &nbsp;
+  <img src="docs/images/papyrus.png" width="240" alt="A Storm of Swords on the Papyrus page: Chapter 1, Jaime, the place marked and the time left in the chapter">
+</p>
+<p align="center">
+  <img src="docs/images/now-playing.png" width="240" alt="Now Playing: Red Rising's cover above the page around the voice, the sentence being read lit, the paragraphs before and after fading away, and a soft glow behind the controls">
   &nbsp;
   <img src="docs/images/now-playing-landscape.png" width="520" alt="Now Playing on its side: the cover beside the page, the sentence being read lit, the chapter bar and the controls">
 </p>
