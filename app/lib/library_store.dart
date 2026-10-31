@@ -53,7 +53,7 @@ const _narrationVersion = 1;
 /// the reading layout) runs on a background isolate: on the UI isolate it was
 /// a 2.5 second freeze when opening a long EPUB.
 class LibraryStore {
-  LibraryStore(this.root) {
+  LibraryStore(this.root, {this.readOnly = false}) {
     // Opening or locking the secret shelves changes what every page shows,
     // and the titles a series is found among.
     secretOpen.addListener(() {
@@ -63,6 +63,14 @@ class LibraryStore {
   }
 
   final Directory root;
+
+  /// Never writes the library's index (library.json): the check made with
+  /// the app closed (background_check.dart), whose engine must leave it to
+  /// the app's, which may hold it. Reading it looks for no places to take
+  /// in nor series to find (each written as found), and any change stays in
+  /// this copy. The novels' own files (their lists, their chapters) it
+  /// writes as ever.
+  final bool readOnly;
 
   /// Whether the secret shelves are open (unlocked with the phone's own
   /// lock; see secret_shelf.dart). While they are shut, [index] and [list]
@@ -155,7 +163,7 @@ class LibraryStore {
         _known = read;
         _seriesSought = false;
         // Places a run stopped before writing them here (see saveCursor).
-        _recoverPlaces();
+        if (!readOnly) _recoverPlaces();
         _warmParts(read.entries);
       }
       full = _known!;
@@ -179,7 +187,7 @@ class LibraryStore {
   Future<void> _seekSeries() async {
     _seriesSought = true;
     final known = _known;
-    if (known == null || _held) return;
+    if (known == null || _held || readOnly) return;
     final found = _withSeries(known.entries);
     if (found == null) return;
     _known = LibraryIndex(entries: found, categories: _categories, defaultCategory: _defaultCategory);
@@ -375,6 +383,7 @@ class LibraryStore {
   }
 
   Future<void> _write(List<LibraryEntry> entries, {bool place = false}) async {
+    if (readOnly) return;
     // What is written now holds every place kept here so far.
     final written = Map.of(_unwritten);
     _unwritten.clear();
@@ -546,21 +555,25 @@ class LibraryStore {
     await ensure();
     final id = webId(plugin.id, novel.path);
     final dir = Directory(bookDir(id))..createSync(recursive: true);
-    // Added again (from Browse): its downloads follow the list as it is now.
-    final before = await settleWebChapters(id);
-    final info = WebNovelInfo(
-        plugin: plugin, novel: novel, chapters: novel.chapters, checkedAt: DateTime.now(), filed: true);
-    if (before == null) {
-      await writeSafely(File('${dir.path}/novel.json'), jsonEncode(info.toJson()));
-    } else {
-      await _replaceChapters(id, before, info);
-      await _discardOffered(id);
-    }
+    await withNovelLock(id, () async {
+      // Added again (from Browse): its downloads follow the list as it is now.
+      final before = await _settle(id);
+      final info = WebNovelInfo(
+          plugin: plugin, novel: novel, chapters: novel.chapters, checkedAt: DateTime.now(), filed: true);
+      if (before == null) {
+        await writeSafely(File('${dir.path}/novel.json'), jsonEncode(info.toJson()));
+      } else {
+        await _replaceChapters(id, before, info);
+        await _discardOffered(id);
+      }
+    });
     String? cover;
     final url = novel.cover;
     if (url != null && url.startsWith('http')) {
       try {
-        final r = await Net.instance.request(url, headers: {'Referer': plugin.site});
+        // With the source's own cookies, as its covers in Browse are
+        // (NetImage), not the app's.
+        final r = await Net.instance.request(url, headers: {'Referer': plugin.site}, partition: plugin.id);
         if (r.ok && r.bytes.length > 200) {
           final img = Directory('${dir.path}/img')..createSync(recursive: true);
           final f = File('${img.path}/cover${_imageExt(r.headers['content-type'], url)}');
@@ -622,13 +635,15 @@ class LibraryStore {
   /// reader chose it). Downloads follow their chapters and are never deleted
   /// (see [_replaceChapters]); a list just fetched goes through
   /// [offerWebChapters] instead, which refuses one that looks wrong.
-  Future<void> saveWebChapters(String id, List<ChapterItem> chapters) async {
-    final info = await settleWebChapters(id);
-    if (info == null) return;
-    await _replaceChapters(id, info, info.copyWith(chapters: chapters, checkedAt: DateTime.now(), clearRefusal: true));
-    await _discardOffered(id);
-    await _change((entries) => [for (final e in entries) e.id == id ? e.copyWith(chapterCount: chapters.length) : e]);
-  }
+  Future<void> saveWebChapters(String id, List<ChapterItem> chapters) => withNovelLock(id, () async {
+        final info = await _settle(id);
+        if (info == null) return;
+        await _replaceChapters(
+            id, info, info.copyWith(chapters: chapters, checkedAt: DateTime.now(), clearRefusal: true));
+        await _discardOffered(id);
+        await _change(
+            (entries) => [for (final e in entries) e.id == id ? e.copyWith(chapterCount: chapters.length) : e]);
+      });
 
   /// A chapter list just fetched for web novel [id]: stored in place of the
   /// one on the phone when that is safe (see [judgeChapterList]). Otherwise
@@ -642,8 +657,11 @@ class LibraryStore {
     List<ChapterItem> fresh, {
     bool complete = true,
     bool force = false,
-  }) async {
-    final info = await settleWebChapters(id);
+  }) =>
+      withNovelLock(id, () => _offer(id, fresh, complete: complete, force: force));
+
+  Future<ListVerdict> _offer(String id, List<ChapterItem> fresh, {required bool complete, required bool force}) async {
+    final info = await _settle(id);
     if (info == null) return const ListVerdict(ListChange.refused, why: 'This novel is not in the library.');
     var verdict = judgeChapterList(info.chapters, fresh, complete: complete);
     if (force && fresh.isNotEmpty && verdict.refused) verdict = const ListVerdict(ListChange.taken);
@@ -723,7 +741,8 @@ class LibraryStore {
   /// download whose chapter is no longer listed is set aside (ch/orphaned)
   /// and comes back if its chapter does. The list is marked unsettled until
   /// they have moved, so a stop half way is put right the next time the
-  /// novel opens.
+  /// novel opens. Under the novel's lock ([withNovelLock]): no chapter is
+  /// saved between the list and its downloads.
   Future<void> _replaceChapters(String id, WebNovelInfo before, WebNovelInfo next) async {
     final file = File('${bookDir(id)}/novel.json');
     final moves = _refileMoves(before.chapters, next.chapters);
@@ -739,13 +758,32 @@ class LibraryStore {
   /// from the app (another engine may hold the index). Only when [fresh]
   /// keeps every stored chapter where it was; false otherwise (left for the
   /// app to take when it next checks).
-  Future<bool> appendWebChapters(String id, WebNovelInfo info, List<ChapterItem> fresh) async {
-    if (!info.filed || _refileMoves(info.chapters, fresh).isNotEmpty) return false;
-    await writeSafely(
-      File('${bookDir(id)}/novel.json'),
-      jsonEncode(info.copyWith(chapters: fresh, checkedAt: DateTime.now(), clearRefusal: true).toJson()),
-    );
-    return true;
+  Future<bool> appendWebChapters(String id, WebNovelInfo info, List<ChapterItem> fresh) => withNovelLock(id, () async {
+        if (!info.filed || _refileMoves(info.chapters, fresh).isNotEmpty) return false;
+        await writeSafely(
+          File('${bookDir(id)}/novel.json'),
+          jsonEncode(info.copyWith(chapters: fresh, checkedAt: DateTime.now(), clearRefusal: true).toJson()),
+        );
+        return true;
+      });
+
+  /// What holds each web novel's chapter files now (see [withNovelLock]).
+  final _novelLocks = <String, Future<void>>{};
+
+  /// Run [body] once nothing else has web novel [id]'s chapter files, and
+  /// keep them its own until it is done: a chapter saved, its list replaced
+  /// and its downloads moved after it, the novel moved to another source.
+  /// Each of those is one step to the others, so a chapter that came down
+  /// while the list was re-filed is never written by a place it no longer
+  /// has. Not to be asked again inside [body]: it would wait for itself.
+  Future<T> withNovelLock<T>(String id, Future<T> Function() body) {
+    final run = (_novelLocks[id] ?? Future<void>.value()).then((_) => body());
+    final done = run.then<void>((_) {}, onError: (Object _) {});
+    _novelLocks[id] = done;
+    unawaited(done.whenComplete(() {
+      if (identical(_novelLocks[id], done)) _novelLocks.remove(id);
+    }));
+    return run;
   }
 
   final _settling = <String, Future<WebNovelInfo?>>{};
@@ -755,21 +793,99 @@ class LibraryStore {
   /// site's list shifted (an entry taken out earlier on), so tapping
   /// chapter 3222 opened 3221: once per novel, each download is matched to
   /// its place again by the title it was saved with.
-  Future<WebNovelInfo?> settleWebChapters(String id) => _settling[id] ??= _settle(id);
+  Future<WebNovelInfo?> settleWebChapters(String id) =>
+      _settling[id] ??= withNovelLock(id, () => _settle(id)).whenComplete(() {
+        _settling.remove(id);
+      });
 
+  /// [settleWebChapters] with the novel's lock held.
   Future<WebNovelInfo?> _settle(String id) async {
+    // A move to another source that stopped part way gives its downloads back.
+    await putBackMove(id);
+    final info = await webNovel(id);
+    if (info == null || info.filed) return info;
+    final moves = await _runSettle(bookDir(id), [for (final c in info.chapters) c.name]);
+    _downloads.remove(id);
+    await _followMoves(id, moves);
+    final next = info.copyWith(filed: true);
+    await writeSafely(File('${bookDir(id)}/novel.json'), jsonEncode(next.toJson()));
+    return next;
+  }
+
+  /// The note of a move to another source under way (novel_move.dart),
+  /// kept in the old novel's folder.
+  File _moveNote(String id) => File('${bookDir(id)}/moving.json');
+
+  /// Note, in web novel [from]'s folder, that its files are moving to
+  /// [to]'s by [moves] (each a path within the one folder, and where it goes
+  /// in the other): written before the first of them moves, and taken away
+  /// ([endMove]) once the library has [to]. One left behind is a move that
+  /// stopped part way, put back by [putBackMove]. [made]: [to]'s folder was
+  /// made for the move (one there before is never taken away).
+  Future<void> noteMove(String from, String to, List<(String, String)> moves, {bool made = true}) => writeSafely(
+        _moveNote(from),
+        jsonEncode({
+          'to': to,
+          'made': made,
+          'moves': [for (final (a, b) in moves) [a, b]],
+        }),
+      );
+
+  /// The move noted for [from] is done: nothing of it is to be put back.
+  Future<void> endMove(String from) async {
     try {
-      final info = await webNovel(id);
-      if (info == null || info.filed) return info;
-      final moves = await _runSettle(bookDir(id), [for (final c in info.chapters) c.name]);
-      _downloads.remove(id);
-      await _followMoves(id, moves);
-      final next = info.copyWith(filed: true);
-      await writeSafely(File('${bookDir(id)}/novel.json'), jsonEncode(next.toJson()));
-      return next;
-    } finally {
-      _settling.remove(id);
+      await _moveNote(from).delete();
+    } on FileSystemException {
+      // None noted, or the old folder gone already.
     }
+  }
+
+  /// A move of web novel [id] to another source that stopped part way (an
+  /// error, or the app closed, between its files moving and the library
+  /// taking the new novel): every file it moved put back, so the downloads
+  /// are [id]'s again, then the new novel's half-made folder taken away (if
+  /// the move made it). A file whose place holds one again (downloaded
+  /// since) is kept aside, never deleted; the note stays for another try
+  /// while anything of [id]'s could not be put back. Only while the library
+  /// has [id] and not the new novel: once it has the new one the move is
+  /// done, and the note goes. With [id]'s lock held ([withNovelLock]).
+  /// Whether nothing of [id]'s is left elsewhere now.
+  Future<bool> putBackMove(String id) async {
+    final note = _moveNote(id);
+    if (!await note.exists()) return true;
+    // Not while a restore swaps the books beneath: put back the next time.
+    if (_held) return false;
+    final String to;
+    final bool made;
+    final List<(String, String)> moves;
+    try {
+      final raw = jsonDecode(await note.readAsString()) as Map;
+      to = raw['to'] as String;
+      made = raw['made'] != false;
+      moves = [for (final m in (raw['moves'] as List).cast<List>()) (m[0] as String, m[1] as String)];
+    } on Object {
+      // Unreadable: nothing to go by. A move tried again keeps the new
+      // folder's downloads (see moveNovel).
+      return false;
+    }
+    final known = {for (final e in (await index(all: true)).entries) e.id};
+    if (!isBookId(to) || to == id || known.contains(to) || !known.contains(id)) {
+      await endMove(id);
+      return true;
+    }
+    final whole = await _runPutBack(bookDir(id), bookDir(to), moves);
+    _downloads.remove(id);
+    _downloads.remove(to);
+    if (!whole) return false;
+    await endMove(id);
+    if (made) {
+      try {
+        await Directory(bookDir(to)).delete(recursive: true);
+      } on FileSystemException {
+        // Nothing of the old novel's is in it now: left as it is.
+      }
+    }
+    return true;
   }
 
   /// Move [id]'s downloads by [moves] (old chapter to new; -1, no longer
@@ -827,8 +943,28 @@ class LibraryStore {
     }
   }
 
-  /// Keep a fetched chapter, parsed, so it opens offline from now on.
-  Future<void> saveChapter(String id, int index, String title, String html, {String? language}) async {
+  /// Keep a fetched chapter, parsed, so it opens offline from now on, as
+  /// chapter [index] (a novel just made, as an import makes one; a chapter
+  /// fetched from its site is saved by its address, [saveChapterAt]).
+  Future<void> saveChapter(String id, int index, String title, String html, {String? language}) =>
+      withNovelLock(id, () => _saveChapter(id, index, title, html, language));
+
+  /// Keep a chapter fetched from its site, parsed, so it opens offline from
+  /// now on: found by its address ([path]) in web novel [id]'s list as it is
+  /// when it is written, under the novel's lock, not by the place it had
+  /// when it was asked for (the site may have put a chapter in before it
+  /// meanwhile, and the downloads moved). False, with nothing written, when
+  /// the list has it no longer, or the novel is gone (moved to another
+  /// source, or taken off).
+  Future<bool> saveChapterAt(String id, String path, String html, {String? language}) => withNovelLock(id, () async {
+        final info = await webNovel(id);
+        final at = info?.chapters.indexWhere((c) => c.path == path) ?? -1;
+        if (at < 0) return false;
+        await _saveChapter(id, at, info!.chapters[at].name, html, language);
+        return true;
+      });
+
+  Future<void> _saveChapter(String id, int index, String title, String html, String? language) async {
     final path = _chapterFile(id, index);
     await _runSaveChapter(path, index, title, html, language);
     final known = _downloads[id];
@@ -839,16 +975,16 @@ class LibraryStore {
 
   /// Take the downloaded text of chapters [indexes] of [id] off the phone.
   /// They stay in the chapter list and are fetched again when read.
-  Future<void> deleteChapters(String id, Iterable<int> indexes) async {
-    for (final i in indexes) {
-      try {
-        await File(_chapterFile(id, i)).delete();
-      } on FileSystemException {
-        // Not downloaded.
-      }
-    }
-    _downloads.remove(id);
-  }
+  Future<void> deleteChapters(String id, Iterable<int> indexes) => withNovelLock(id, () async {
+        for (final i in indexes) {
+          try {
+            await File(_chapterFile(id, i)).delete();
+          } on FileSystemException {
+            // Not downloaded.
+          }
+        }
+        _downloads.remove(id);
+      });
 
   /// Take [id] off the history (and the Continue card) without touching the
   /// place it is saved at.
@@ -1448,9 +1584,12 @@ class LibraryStore {
       // on with a secret shelf shut (see marksShown).
       await MarkStore.instance.leaveBook(id);
     }
-    final dir = Directory(bookDir(id));
-    if (await dir.exists()) await dir.delete(recursive: true);
-    _downloads.remove(id);
+    // A chapter still coming down for it finds no novel, and writes nothing.
+    await withNovelLock(id, () async {
+      final dir = Directory(bookDir(id));
+      if (await dir.exists()) await dir.delete(recursive: true);
+      _downloads.remove(id);
+    });
     _madeDirs.remove(id);
     await _change((entries) => [for (final e in entries) if (e.id != id) e]);
   }
@@ -1499,6 +1638,45 @@ Future<void> _runRefile(String dir, Map<int, int> moves, List<String> names) => 
     });
 
 Future<Map<int, int>> _runSettle(String dir, List<String> names) => Isolate.run(() => _settleSync(dir, names));
+
+Future<bool> _runPutBack(String from, String to, List<(String, String)> moves) =>
+    Isolate.run(() => _putBackSync(from, to, moves));
+
+/// Put back what [moves] moved from folder [from] to [to] (each a path
+/// within the one, and where it went in the other), the last first. One
+/// that never moved is passed over. A chapter whose place in [from] holds
+/// one again (downloaded since) is kept aside there (ch/orphaned), never
+/// deleted; a picture whose place is taken is there already. True when
+/// nothing of [from]'s is left in [to].
+bool _putBackSync(String from, String to, List<(String, String)> moves) {
+  var whole = true;
+  for (final (src, dst) in moves.reversed) {
+    try {
+      final at = '$to/$dst', back = '$from/$src';
+      final kind = FileSystemEntity.typeSync(at, followLinks: false);
+      if (kind == FileSystemEntityType.notFound) continue;
+      if (FileSystemEntity.typeSync(back, followLinks: false) == FileSystemEntityType.notFound) {
+        Directory(back).parent.createSync(recursive: true);
+        if (kind == FileSystemEntityType.directory) {
+          Directory(at).renameSync(back);
+        } else {
+          File(at).renameSync(back);
+        }
+      } else if (kind == FileSystemEntityType.directory) {
+        for (final f in Directory(at).listSync().whereType<File>()) {
+          final there = File('$back/${f.uri.pathSegments.last}');
+          if (!there.existsSync()) f.renameSync(there.path);
+        }
+      } else if (src.startsWith('ch/')) {
+        final name = src.split('/').last;
+        _setAsideSync(File(at), '$from/ch', int.tryParse(name.split(RegExp(r'[-.]')).first) ?? 0);
+      }
+    } on FileSystemException {
+      whole = false;
+    }
+  }
+  return whole;
+}
 
 /// Where each chapter of [before] is in [after], for those that moved (-1:
 /// found nowhere). A chapter is found by its address; failing that (a site

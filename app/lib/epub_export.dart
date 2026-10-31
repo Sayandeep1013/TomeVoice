@@ -55,7 +55,8 @@ Future<EpubJob?> epubJobFor(LibraryStore store, LibraryEntry entry) async {
 }
 
 /// Write [job] as an EPUB 3 at [out], off the UI thread. How many chapters
-/// went in (one whose file cannot be read is left out).
+/// went in (one whose file cannot be read is left out). None: nothing is
+/// left at [out], as a book with no chapter is no EPUB.
 Future<int> writeEpub(EpubJob job, String out) => Isolate.run(() => writeEpubSync(job, out));
 
 /// [writeEpub] on this thread: the zip streamed to [out] a file at a time,
@@ -75,8 +76,13 @@ int writeEpubSync(EpubJob job, String out) {
     if (cover != null) {
       try {
         final bytes = File(cover).readAsBytesSync();
-        coverHref = 'cover${_imageExt(cover)}';
-        zip.addArchiveFile(ArchiveFile.bytes('OEBPS/$coverHref', bytes));
+        // A picture EPUB readers take, named and labelled as what it is,
+        // whatever its file is called; anything else is left out.
+        final ext = _imageExt(bytes);
+        if (ext != null) {
+          coverHref = 'cover$ext';
+          zip.addArchiveFile(ArchiveFile.bytes('OEBPS/$coverHref', bytes));
+        }
       } on FileSystemException {
         coverHref = null;
       }
@@ -97,6 +103,14 @@ int writeEpubSync(EpubJob job, String out) {
     zip.addArchiveFile(ArchiveFile.string('OEBPS/content.opf', _opf(job, pages, coverHref)));
   } finally {
     zip.closeSync();
+  }
+  if (pages.isEmpty) {
+    // An empty spine, contents and NCX: not a book any reader opens.
+    try {
+      File(out).deleteSync();
+    } on FileSystemException {
+      // Never made.
+    }
   }
   return pages.length;
 }
@@ -249,7 +263,15 @@ Future<void> exportNovelEpub(BuildContext context, LibraryStore store, LibraryEn
     unawaited(navigator.push(making));
     tmp = await Directory.systemTemp.createTemp('tv_epub');
     final file = '${tmp.path}/novel.epub';
-    await writeEpub(job, file);
+    if (await writeEpub(job, file) == 0) {
+      // Not one chapter on the phone could be read: no book to save.
+      done();
+      if (context.mounted) {
+        showSnack(context, 'No EPUB was made: none of the chapters on the phone could be read. Download them again.',
+            long: true);
+      }
+      return;
+    }
     final saved = await folders.copyFile(folder, name, file, mime: 'application/epub+zip');
     done();
     if (context.mounted) {
@@ -385,15 +407,26 @@ String _opf(EpubJob job, List<({String title, String href})> pages, String? cove
   return out.toString();
 }
 
-String _imageExt(String path) {
-  final p = path.toLowerCase();
-  for (final e in const ['.png', '.webp', '.gif']) {
-    if (p.endsWith(e)) return e;
+/// The extension of a picture EPUB readers take (JPEG, PNG, GIF or WebP),
+/// by what [bytes] begin with; null for anything else (an HTML error page
+/// saved as the cover, an AVIF, an SVG).
+String? _imageExt(List<int> bytes) {
+  bool at(int offset, List<int> magic) {
+    if (bytes.length < offset + magic.length) return false;
+    for (var i = 0; i < magic.length; i++) {
+      if (bytes[offset + i] != magic[i]) return false;
+    }
+    return true;
   }
-  return '.jpg';
+
+  if (at(0, const [0xFF, 0xD8, 0xFF])) return '.jpg';
+  if (at(0, const [0x89, 0x50, 0x4E, 0x47])) return '.png';
+  if (at(0, ascii.encode('GIF87a')) || at(0, ascii.encode('GIF89a'))) return '.gif';
+  if (at(0, ascii.encode('RIFF')) && at(8, ascii.encode('WEBP'))) return '.webp';
+  return null;
 }
 
-String _imageType(String href) => switch (_imageExt(href)) {
+String _imageType(String href) => switch (href.substring(href.lastIndexOf('.'))) {
       '.png' => 'image/png',
       '.webp' => 'image/webp',
       '.gif' => 'image/gif',

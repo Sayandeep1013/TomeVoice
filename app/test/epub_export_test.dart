@@ -163,6 +163,60 @@ void main() {
     expect(zip.findFile('OEBPS/cover.png')!.content, [0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
   });
 
+  test("a cover goes in as what its bytes are, whatever its file's name; one no reader takes stays out", () async {
+    final e = await novel();
+    final job = (await epubJobFor(store, e))!;
+    final webp = [...ascii.encode('RIFF'), 0, 0, 0, 0, ...ascii.encode('WEBPVP8 '), 1, 2];
+    final cases = {
+      'jpeg.png': ([0xFF, 0xD8, 0xFF, 0xE0, 1, 2], ('cover.jpg', 'image/jpeg')),
+      'webp.jpg': (webp, ('cover.webp', 'image/webp')),
+      'gif.jpg': ([...ascii.encode('GIF89a'), 1, 2], ('cover.gif', 'image/gif')),
+      'page.jpg': (utf8.encode('<html><body>Not found</body></html>'), null),
+      'avif.jpg': ([0, 0, 0, 0x1C, ...ascii.encode('ftypavif')], null),
+    };
+    for (final MapEntry(key: name, value: (bytes, want)) in cases.entries) {
+      final img = File('${tmp.path}/$name')..writeAsBytesSync(bytes);
+      final out = '${tmp.path}/$name.epub';
+      await writeEpub(
+        (
+          identifier: job.identifier,
+          title: job.title,
+          authors: job.authors,
+          language: job.language,
+          description: job.description,
+          publisher: job.publisher,
+          site: job.site,
+          cover: img.path,
+          chapters: job.chapters,
+          made: job.made,
+        ),
+        out,
+      );
+      final zip = unzip(File(out).readAsBytesSync());
+      final opf = XmlDocument.parse(text(zip, 'OEBPS/content.opf'));
+      final cover = opf.findAllElements('item').where((i) => i.getAttribute('properties') == 'cover-image').firstOrNull;
+      if (want == null) {
+        expect(cover, isNull, reason: name);
+        expect(zip.files.where((f) => f.name.startsWith('OEBPS/cover')), isEmpty, reason: name);
+        expect(opf.findAllElements('meta').where((m) => m.getAttribute('name') == 'cover'), isEmpty, reason: name);
+      } else {
+        expect((cover!.getAttribute('href'), cover.getAttribute('media-type')), want, reason: name);
+        expect(zip.findFile('OEBPS/${want.$1}')!.content, bytes, reason: name);
+      }
+    }
+  });
+
+  test('no chapter that can be read: no EPUB is made, and none is said to be saved', () async {
+    final e = await novel();
+    final job = (await epubJobFor(store, e))!;
+    for (final c in job.chapters) {
+      File(c.file).writeAsStringSync('not a chapter');
+    }
+    final out = '${tmp.path}/empty.epub';
+    expect(await writeEpub(job, out), 0);
+    expect(File(out).existsSync(), isFalse, reason: 'an empty spine is no book');
+  });
+
   test("a file's name has nothing a folder refuses", () {
     expect(epubFileName('Re: Zero / Part 2?'), 'Re Zero Part 2.epub');
     expect(epubFileName('   '), 'Novel.epub');

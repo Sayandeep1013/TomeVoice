@@ -68,7 +68,8 @@ Future<Map<String, Object?>> runBackgroundCheck({String? libraryRoot, String? so
   Net.userAgent = await sources.savedUserAgent() ?? Net.userAgent;
   await Net.instance.attach(sources.dir);
   SourceEngine.instance.attach(sources);
-  final store = LibraryStore(Directory(library));
+  // The library's index is the app's engine's alone: never written here.
+  final store = LibraryStore(Directory(library), readOnly: true);
   // The app opening mid-check takes over: this one stops before its next
   // write (the log of what it did is still kept; the app waits for it,
   // see SourcesBridge.backgroundBusy).

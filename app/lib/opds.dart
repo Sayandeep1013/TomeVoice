@@ -320,10 +320,8 @@ String _paragraphs(String html) {
 
 String _entities(String s) => s.replaceAllMapped(RegExp(r'&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);'), (m) {
       final e = m[1]!;
-      if (e.startsWith('#x') || e.startsWith('#X')) {
-        return String.fromCharCode(int.tryParse(e.substring(2), radix: 16) ?? 0x3F);
-      }
-      if (e.startsWith('#')) return String.fromCharCode(int.tryParse(e.substring(1)) ?? 0x3F);
+      if (e.startsWith('#x') || e.startsWith('#X')) return _char(int.tryParse(e.substring(2), radix: 16));
+      if (e.startsWith('#')) return _char(int.tryParse(e.substring(1)));
       return switch (e) {
         'amp' => '&',
         'lt' => '<',
@@ -341,6 +339,13 @@ String _entities(String s) => s.replaceAllMapped(RegExp(r'&(#x[0-9a-fA-F]+|#[0-9
         _ => m[0]!,
       };
     });
+
+/// The character a reference's [code] stands for; U+FFFD for one that
+/// stands for none (past U+10FFFF, or too long to read, a lone surrogate,
+/// NUL): one bad reference in a summary does not fail the catalogue's page.
+String _char(int? code) => code == null || code <= 0 || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF)
+    ? String.fromCharCode(0xFFFD)
+    : String.fromCharCode(code);
 
 /// A file fetched from a catalogue, and what the server said it is.
 typedef Fetched = ({Uint8List bytes, String type, Uri url});

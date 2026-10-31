@@ -218,17 +218,27 @@ class DownloadQueue {
   }
 
   /// Take novel [bookId]'s chapters out of the queue (it is moving to
-  /// another source), once none of them is on its way down: those that
-  /// were waiting, to be queued again at their places there.
+  /// another source): those that were waiting, to be queued again at their
+  /// places there, or put back ([putBack]) if it does not move. One on its
+  /// way down meanwhile is saved by its address under the novel's lock
+  /// (LibraryStore.saveChapterAt), so before the move takes the novel's
+  /// files, or not at all once it has gone; it is not waited for.
   Future<List<DownloadJob>> takeOut(String bookId) async {
     final out = [for (final j in _jobs) if (j.bookId == bookId) j];
     _jobs.removeWhere((j) => j.bookId == bookId);
     await _save();
     _kick();
-    for (var waited = 0; _running.values.any((j) => j.bookId == bookId) && waited < 300; waited++) {
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-    }
     return out;
+  }
+
+  /// [jobs] taken out with [takeOut] waiting again, as they were and ahead
+  /// of the rest: the novel did not move.
+  Future<void> putBack(List<DownloadJob> jobs) async {
+    if (jobs.isEmpty) return;
+    final queued = {for (final j in _jobs) '${j.bookId}|${j.path}'};
+    _jobs.insertAll(0, [for (final j in jobs) if (queued.add('${j.bookId}|${j.path}')) j]);
+    await _save();
+    _kick();
   }
 
   /// Try again the chapters of [bookId] that failed.
@@ -321,7 +331,7 @@ class DownloadQueue {
         _running[site] = job;
       }
       // Found again by its address: the list may have changed since.
-      var at = info.chapters.indexWhere((c) => c.path == job.path);
+      final at = info.chapters.indexWhere((c) => c.path == job.path);
       if (at < 0 || store.hasChapter(job.bookId, at)) {
         _jobs.remove(job);
         return;
@@ -330,10 +340,10 @@ class DownloadQueue {
       if (plugin == null) throw MissingSourceException(info.plugin.id, info.plugin.name);
       _lastAsked[site] = DateTime.now();
       final html = await SourceEngine.instance.chapter(plugin, job.path);
-      // Its place again: the list may have been re-filed while it came.
-      final now = await store.webNovel(job.bookId);
-      at = now?.chapters.indexWhere((c) => c.path == job.path) ?? -1;
-      if (at >= 0) await store.saveChapter(job.bookId, at, job.name, html, language: languageCodeOf(info.plugin.lang));
+      // Saved by its address, at its place as the list has it then: the
+      // list may have been re-filed while it came. A novel moved to another
+      // source meanwhile takes none (its chapter waits there instead).
+      await store.saveChapterAt(job.bookId, job.path, html, language: languageCodeOf(info.plugin.lang));
       _jobs.remove(job);
       _done++;
     } on Object catch (e) {

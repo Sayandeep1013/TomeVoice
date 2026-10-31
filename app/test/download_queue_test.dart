@@ -3,6 +3,7 @@
 // tried again later (as the site asks, when it says), and nothing waits on a
 // chapter whose place in the list moved.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -21,6 +22,9 @@ class _Sites extends SourceEngine {
   _Sites() : super.forTests();
 
   final pages = <String, Object>{};
+
+  /// A chapter that comes once this is done.
+  final gates = <String, Future<void>>{};
   final asked = <String, List<DateTime>>{};
   final inFlight = <String, int>{};
   var mostAtOnceOneSite = 0;
@@ -32,6 +36,8 @@ class _Sites extends SourceEngine {
     if (inFlight[p.id]! > mostAtOnceOneSite) mostAtOnceOneSite = inFlight[p.id]!;
     try {
       await Future<void>.delayed(const Duration(milliseconds: 10));
+      final gate = gates[path];
+      if (gate != null) await gate;
       var page = pages[path] ?? '<p>The words of $path, enough to read.</p>';
       if (page is List && page.isNotEmpty) page = page.removeAt(0);
       if (page is Exception) throw page;
@@ -196,6 +202,28 @@ void main() {
     await q.resume();
     await until(() => store.downloadedChapters(a).isNotEmpty);
     expect(store.downloadedChapters(a), {3});
+  });
+
+  test("a chapter that comes down while its list is re-filed is saved by its address, where it is then", () async {
+    final (a, ac) = await novel('a', 'na', 5);
+    await store.saveChapter(a, 3, 'Chapter 4', '<p>Chapter 4, on the phone before, its words.</p>');
+    final came = Completer<void>();
+    sites.gates['na/3'] = came.future;
+    final q = queue(pace: Duration.zero);
+    await q.attach(store);
+    await q.add(a, [ac[2]]);
+    await until(() => sites.asked['na/3'] != null);
+    // While chapter 3 is on its way, the site puts a prologue first: the list
+    // is re-filed, chapter 4's download moving from 3 to 4. Chapter 3 comes
+    // as that begins.
+    final refiled = store.saveWebChapters(a, [const ChapterItem(name: 'Prologue', path: 'na/0'), ...ac]);
+    came.complete();
+    await refiled;
+    await until(() => q.of(a) == null);
+    await q.whenIdle();
+    expect(store.downloadedChapters(a), {3, 4});
+    String title(int i) => (jsonDecode(File('${store.bookDir(a)}/ch/$i.json').readAsStringSync()) as Map)['title'] as String;
+    expect((title(3), title(4)), ('Chapter 3', 'Chapter 4'), reason: 'each where its chapter is, neither written over');
   });
 
   test('waited for by the closed-app check behind the screen: done, paused, or out of time', () async {

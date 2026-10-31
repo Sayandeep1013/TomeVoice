@@ -5,8 +5,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor;
 import 'package:tomevoice_spike/background_check.dart';
 import 'package:tomevoice_spike/library_store.dart';
+import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/sources/models.dart';
 import 'package:tomevoice_spike/sources/plugin_host.dart';
 import 'package:tomevoice_spike/sources/source_engine.dart';
@@ -160,6 +162,55 @@ void main() {
     expect(jsonDecode(File('${tmp.path}/updates.json').readAsStringSync()), isNot(contains('counts')));
   });
 
+  /// library.json with books kept before series were, whose titles share
+  /// one: found, it would be written in. The index as it is then.
+  String withSeriesToFind() {
+    final file = File('${tmp.path}/library.json');
+    final raw = jsonDecode(file.readAsStringSync()) as Map;
+    var n = 0;
+    for (final title in ['A Game of Thrones A Song of Ice and Fire 1', 'A Storm of Swords A Song of Ice and Fire 3']) {
+      (raw['books'] as List).add({
+        'id': '00000000000000a${n++}',
+        'title': title,
+        'authors': <String>[],
+        'source': 'epub',
+        'wordCount': 1000,
+        'sourcePath': '',
+        'addedAt': DateTime(2026, 1, n).toIso8601String(),
+        'category': 'reading',
+      });
+    }
+    file.writeAsStringSync(jsonEncode(raw));
+    return file.readAsStringSync();
+  }
+
+  test("away from the app, nothing found reading the index (a series, a place to take in) is written to it", () async {
+    final a = await add('a', 'a0', 3);
+    sites.lists['a0'] = _chapters('a0', 4);
+    final index = withSeriesToFind();
+    // A place saved after the index was last written: taken in, it would be
+    // written a moment on.
+    File('${store.bookDir(a)}/cursor.json').writeAsStringSync(jsonEncode({
+      'cursor': const ReadingCursor(sectionIndex: 2).toJson(),
+      'progress': 0.8,
+      'at': DateTime.now().add(const Duration(minutes: 1)).toIso8601String(),
+    }));
+    final away = LibraryStore(tmp, readOnly: true)..placeWindow = const Duration(milliseconds: 20);
+    expect((await Updates(away, background: true).checkAll()).found, 1);
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    expect((await store.webNovel(a))!.chapters, hasLength(4), reason: "the novel's own list is written as ever");
+    expect(File('${tmp.path}/library.json').readAsStringSync(), index, reason: "the app's engine owns the index");
+  });
+
+  test("the check made with the app closed reads the library without writing its index", () async {
+    await add('a', 'a0', 3);
+    final index = withSeriesToFind();
+    final internal = Directory('${tmp.path}/internal')..createSync();
+    addTearDown(ListeningPrefs.reset);
+    await runBackgroundCheck(libraryRoot: tmp.path, sourcesRoot: internal.path);
+    expect(File('${tmp.path}/library.json').readAsStringSync(), index);
+  });
+
   test('away from the app, the check stops before its next write once the app opens, keeping what it did', () async {
     final a = await add('a', 'a0', 3);
     final b = await add('b', 'b0', 3);
@@ -188,6 +239,24 @@ void main() {
     final r = await updates.checkAll();
     expect((r.found, sites.asked), (0, 0));
     expect((await updates.log()).problems.single.kind, CheckProblemKind.challenge);
+  });
+
+  test("away from the app, one blog's browser check on a shared host does not skip another's source", () async {
+    PluginInfo blog(String id, String site) =>
+        PluginInfo(id: id, name: 'Blog $id', site: site, lang: 'English', version: '1', url: 'https://x/$id.js');
+    final mine = blog('mine', 'https://mine.wordpress.com/'), theirs = blog('theirs', 'https://theirs.wordpress.com/');
+    sites.attach(_Installed(tmp, [mine, theirs]));
+    for (final p in [mine, theirs]) {
+      await store.addWebNovel(p, SourceNovel(path: p.id, name: 'Novel ${p.id}', chapters: _chapters(p.id, 3)));
+      sites.lists[p.id] = _chapters(p.id, 4);
+    }
+    File('${tmp.path}/sources/browser-hosts.json')
+      ..createSync(recursive: true)
+      ..writeAsStringSync(jsonEncode(['theirs.wordpress.com']));
+    final updates = Updates(store, background: true);
+    final r = await updates.checkAll();
+    expect((r.found, sites.asked), (1, 1), reason: 'mine.wordpress.com is a site of its own');
+    expect((await updates.log()).problems.single.pluginId, 'theirs');
   });
 
   test('the notification names novels, but not one on a secret shelf', () async {

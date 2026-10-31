@@ -266,12 +266,15 @@ void main() {
     });
     final site = 'http://127.0.0.1:${server.port}/';
     final code = File('${dir.path}/fake.js')..writeAsStringSync(_plugin.replaceAll('SITE', jsonEncode(site)));
-    // The phone's web view, once the test hands one over.
+    // The phone's web view, once the test hands one over, and where its
+    // page ends (redirects and scripts may take it elsewhere).
     var browserOn = false;
+    String? endsAt;
     host = _host(
       dir,
-      viaBrowser: (url, {method = 'GET', body}) async =>
-          browserOn ? '<ul><li class="novel"><a href="novel/7">Seen by the browser</a></li></ul>' : null,
+      viaBrowser: (url, {method = 'GET', body, partition = ''}) async => browserOn
+          ? (html: '<ul><li class="novel"><a href="novel/7">Seen by the browser</a></li></ul>', url: endsAt ?? url)
+          : null,
     );
     host.ensure('fake', '1.0.0', code.path, site: site);
 
@@ -308,6 +311,11 @@ void main() {
     final browsed = await host.call('fake', 'searchNovels', ['blocked', 1]) as List;
     expect(NovelItem.fromJs(browsed.single)!.name, 'Seen by the browser');
 
+    // A web view sent on to another site (the router's page) brings no page.
+    endsAt = 'http://192.168.1.1/';
+    await expectLater(host.call('fake', 'searchNovels', ['blocked', 1]), throwsA(isA<ChallengeException>()));
+    endsAt = null;
+
     // Storage persisted to the plugin's file.
     final stored = jsonDecode(File('${dir.path}/storage-fake.json').readAsStringSync()) as Map;
     expect(jsonDecode(stored['last'] as String)['value'], 'novel/1');
@@ -321,9 +329,11 @@ void main() {
     final server = await _site();
     final dir = Directory.systemTemp.createTempSync('tv_isolation');
     var browserAsked = 0;
-    final host = _host(dir, viaBrowser: (url, {method = 'GET', body}) async {
+    final browserFor = <String>[];
+    final host = _host(dir, viaBrowser: (url, {method = 'GET', body, partition = ''}) async {
       browserAsked++;
-      return method == 'POST' ? '<p>posted $body</p>' : '<p>through the browser</p>';
+      browserFor.add(partition);
+      return (html: method == 'POST' ? '<p>posted $body</p>' : '<p>through the browser</p>', url: url);
     });
     addTearDown(() async {
       await server.close(force: true);
@@ -361,11 +371,36 @@ void main() {
     // A form POST goes through it too; a JSON one cannot (it posts forms only).
     expect(await ask('c', 'form:blocked'), '200:<p>posted q=dragons</p>');
     await expectLater(ask('c', 'json:http://localhost:${server.port}/blocked'), throwsA(isA<ChallengeException>()));
+    expect(browserFor, ['a', 'c'], reason: "each with its own cookies in the web view, no other source's");
 
     // Nothing but web pages, and nothing on the phone or its network.
     expect(await ask('c', 'file:///etc/hosts'), startsWith('0:'));
     Net.allowPrivateAddresses = false;
     expect(await ask('c', 'echo-cookie'), startsWith('0:'));
+  });
+
+  test("the web view's page counts only when it ended on the site asked for, on the open internet", () async {
+    const url = 'https://www.site.test/novel/1?x=1';
+    Future<Map<String, Object?>?> got(String ended) async {
+      final r = await browserResponse(url, (html: '<p>Read</p>', url: ended));
+      return r == null ? null : jsonDecode(r) as Map<String, Object?>;
+    }
+
+    final there = (await got(url))!;
+    expect((there['status'], there['url'], there['redirected'], there['body']), (200, url, false, '<p>Read</p>'));
+    final moved = (await got('https://www.site.test/novel/1/'))!;
+    expect((moved['url'], moved['redirected']), ('https://www.site.test/novel/1/', true), reason: 'where it ended');
+    for (final elsewhere in [
+      'http://192.168.1.1/',
+      'http://127.0.0.1:8080/',
+      'http://[::1]/',
+      'https://another.test/novel/1',
+      'about:blank',
+      'file:///etc/hosts',
+    ]) {
+      expect(await got(elsewhere), isNull, reason: elsewhere);
+    }
+    expect(await browserResponse(url, null), isNull);
   });
 
   test("a browser check is told by its markup, in any language, not by Cloudflare's name alone", () {
@@ -448,6 +483,57 @@ void main() {
     jar.clear();
     jar.mergeJson(jsonDecode(jsonEncode(copy.toJson())));
     expect(jar.isEmpty, isTrue, reason: 'an older copy does not bring cleared cookies back');
+  });
+
+  test("the web view is handed one source's cookies for the site as kept, and what it gives back is that source's", () {
+    final jar = CookieJar();
+    final page = Uri.parse('https://www.site.com/novel/1');
+    jar.take(page, [
+      Cookie('host', '1')..path = '/',
+      Cookie('shared', '2')
+        ..domain = '.site.com'
+        ..path = '/',
+      Cookie('safe', '3')
+        ..secure = true
+        ..path = '/novel'
+        ..expires = DateTime.utc(2040),
+    ], partition: 'a');
+    jar.take(Uri.parse('https://other.org/'), [Cookie('elsewhere', '4')..path = '/'], partition: 'a');
+    jar.take(page, [Cookie('theirs', '5')..path = '/'], partition: 'b');
+
+    // Before a page of the site loads for source a: its cookies there, with
+    // their domain, path, expiry and Secure flag, and nothing of b's.
+    expect({for (final c in jar.forBrowser('m.site.com', partition: 'a')) c['cookie']: c['url']}, {
+      'host=1; Path=/': 'https://www.site.com/',
+      'shared=2; Domain=site.com; Path=/': 'https://site.com/',
+      'safe=3; Path=/novel; Expires=${HttpDate.format(DateTime.utc(2040))}; Secure': 'https://www.site.com/novel',
+    });
+    expect(jar.forBrowser('www.site.com', partition: 'c'), isEmpty);
+
+    // After it: one with a new value keeps its flags; a new one is the
+    // host's alone unless the web view has it for the whole site, and
+    // from an https page goes over https only.
+    jar.takeFromBrowser(Uri.parse('https://www.site.com/'), {'host': '9', 'shared': '2', 'fresh': 'f', 'clear': 'c'},
+        wide: {'shared', 'clear'}, partition: 'a');
+    Set<String>? header(String url, [String part = 'a']) =>
+        jar.headerFor(Uri.parse(url), partition: part)?.split('; ').toSet();
+    expect(header('https://www.site.com/'), {'host=9', 'shared=2', 'fresh=f', 'clear=c'});
+    expect(header('https://m.site.com/'), {'shared=2', 'clear=c'});
+    expect(header('http://www.site.com/'), {'host=9', 'shared=2'});
+    expect(header('https://www.site.com/', 'b'), {'theirs=5'}, reason: "b's are b's alone");
+  });
+
+  test("a shared host is many sites: one blog's cookies and checks are not another's", () {
+    expect(siteDomain('a.wordpress.com'), 'a.wordpress.com');
+    expect(siteDomain('www.a.wordpress.com'), 'a.wordpress.com');
+    expect(siteDomain('wordpress.com'), 'wordpress.com');
+    expect(sameSite('a.wordpress.com', 'https://b.wordpress.com/'), isFalse);
+    expect(sameSite('a.github.io', 'https://b.github.io/novel/'), isFalse);
+    expect(sameSite('x.a.blogspot.com', 'https://a.blogspot.com/'), isTrue);
+    // Ordinary sites as before.
+    expect(sameSite('www.royalroad.com', 'https://royalroad.com/'), isTrue);
+    expect(siteDomain('m.site.co.uk'), 'site.co.uk');
+    expect(siteDomain('127.0.0.1'), '127.0.0.1');
   });
 
   test('tag names a site ran together are split, short ones kept whole', () {
@@ -594,6 +680,77 @@ void main() {
     await store.available(refresh: true);
     final update = (await store.updates())['fake']!;
     expect((update.version, update.repo, update.url), ('1.1.0', '$base/a.json', '$base/a.json.js'));
+  });
+
+  test("a source's settings and sign-in go when it is uninstalled, and never pass to another list's source", () async {
+    var version = '1.0.0';
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final base = 'http://127.0.0.1:${server.port}';
+    server.listen((req) async {
+      final p = req.uri.path;
+      if (p == '/a.json' || p == '/b.json') {
+        req.response.write(jsonEncode([
+          {'id': 'fake', 'name': 'Fake', 'site': '$base/', 'lang': 'English', 'version': p == '/a.json' ? version : '1.0.0',
+            'url': '$base$p.js'},
+        ]));
+      } else {
+        req.response.write('exports.default = {}; // from $p');
+      }
+      await req.response.close();
+    });
+    final dir = Directory.systemTemp.createTempSync('tv_owner');
+    addTearDown(() async {
+      await server.close(force: true);
+      await Net.instance.clearCookies();
+      dir.deleteSync(recursive: true);
+    });
+    final store = SourceStore(dir, defaults: const [], allowInsecure: true);
+    await store.addRepo('$base/a.json');
+    await store.addRepo('$base/b.json');
+    Future<PluginInfo> listedIn(String list) async => (await store.fromItsList(
+        PluginInfo(id: 'fake', name: 'Fake', site: '', lang: '', version: '0', url: '', repo: '$base/$list')))!;
+    void signIn() {
+      store.storageFile('fake').writeAsStringSync(jsonEncode({'token': 'secret'}));
+      Net.instance.jar.merge([StoredCookie(name: 'session', value: 'abc', domain: '127.0.0.1')], partition: 'fake');
+    }
+
+    bool kept() => store.storageFile('fake').existsSync() || Net.instance.cookieHeader('$base/', partition: 'fake') != null;
+
+    await store.install(await listedIn('a.json'));
+    signIn();
+    version = '1.1.0';
+    await store.install((await store.updates(refresh: true))['fake']!);
+    expect(kept(), isTrue, reason: 'an update from its own list keeps them');
+
+    // List b's source of the same id, installed in its place: starts clean.
+    await store.install(await listedIn('b.json'));
+    expect(kept(), isFalse);
+
+    // Uninstalled: nothing of it is left, its trial copy's neither.
+    signIn();
+    store.storageFile('fake#trial').writeAsStringSync('{}');
+    await store.uninstall('fake');
+    expect(kept(), isFalse);
+    expect(store.storageFile('fake#trial').existsSync(), isFalse);
+
+    // Left by an older build's uninstall, its list unknown: a new install starts clean.
+    signIn();
+    await store.install(await listedIn('a.json'));
+    expect(kept(), isFalse);
+  });
+
+  test("a worker lets go of an uninstalled plugin's storage: one installed under its id starts with none", () {
+    final dir = Directory.systemTemp.createTempSync('tv_forget');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final host = PluginHost(() => throw UnsupportedError('no engine needed'), libs: '', shim: '', sourcesDir: dir.path);
+    final file = File('${dir.path}/storage-fake.json');
+    host.setSetting('fake', 'token', 'secret');
+    expect(file.readAsStringSync(), contains('secret'));
+    // Uninstalled: its file is deleted, and the worker told.
+    file.deleteSync();
+    host.forget('fake');
+    host.setSetting('fake', 'mirror', 'b');
+    expect(file.readAsStringSync(), allOf(contains('mirror'), isNot(contains('secret'))));
   });
 
   test("a plugin whose code is not what was installed is not run", () {
@@ -1006,6 +1163,32 @@ exports.default = { id: "f", name: "F", site: "https://f.test/", version: "1",
     await Net.instance.attach(dir);
     await Net.instance.clearCookies(partition: 'another');
     expect(File('${dir.path}/cookies.json').readAsStringSync(), contains('"sid"'));
+  });
+
+  test("a novel's cover is fetched with its source's own cookies, not the app's", () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final sent = <String?>[];
+    server.listen((req) async {
+      sent.add(req.headers.value(HttpHeaders.cookieHeader));
+      req.response.headers.contentType = ContentType('image', 'png');
+      req.response.add(List.filled(400, 7));
+      await req.response.close();
+    });
+    final dir = Directory.systemTemp.createTempSync('tv_cover');
+    addTearDown(() async {
+      await server.close(force: true);
+      await Net.instance.clearCookies();
+      dir.deleteSync(recursive: true);
+    });
+    final site = 'http://127.0.0.1:${server.port}/';
+    Net.instance.jar
+      ..merge([StoredCookie(name: 'mine', value: 'fake', domain: '127.0.0.1')], partition: 'fake')
+      ..merge([StoredCookie(name: 'app', value: 'old', domain: '127.0.0.1')]);
+    final plugin = PluginInfo(id: 'fake', name: 'Fake', site: site, lang: 'English', version: '1', url: 'u');
+    final e = await LibraryStore(dir)
+        .addWebNovel(plugin, SourceNovel(path: 'novel/1', name: 'Shadow', cover: '${site}cover.png', chapters: const []));
+    expect(e.cover, isNotNull);
+    expect(sent, ['mine=fake']);
   });
 
   test('a web novel in the library: fetched chapters are read, the rest wait', () async {

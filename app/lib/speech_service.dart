@@ -403,11 +403,14 @@ class SpeechService {
     }
   }
 
-  /// Show [url]'s browser check in a web view; the site's cookies once it
-  /// lets the reader in ("a=1; cf_clearance=…"), or null if it did not.
-  Future<String?> browserCheck(String url, String userAgent) async {
+  /// Show [url]'s browser check in a web view holding [seed] (the cookies
+  /// of the source that met it, see Net.browserSeed) and nothing else; the
+  /// site's cookies once it lets the reader in ({cookies, wide}, see
+  /// Net.keepFromBrowser), or null if it did not.
+  Future<Map<Object?, Object?>?> browserCheck(String url, String userAgent, Map<String, Object?> seed) async {
     try {
-      return await _channel.invokeMethod<String>('browserCheck', {'url': url, 'userAgent': userAgent});
+      return await _channel
+          .invokeMethod<Map<Object?, Object?>>('browserCheck', {'url': url, 'userAgent': userAgent, ...seed});
     } on Object {
       return null;
     }

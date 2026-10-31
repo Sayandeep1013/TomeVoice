@@ -3,6 +3,7 @@
 // (the place, downloads, quotes and bookmarks, read marks, its settings,
 // its shelf, chapters waiting to download).
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -18,7 +19,9 @@ import 'package:tomevoice_spike/novel_move_screen.dart';
 import 'package:tomevoice_spike/novel_screen.dart';
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/read_marks.dart';
+import 'package:tomevoice_spike/reading_rules.dart';
 import 'package:tomevoice_spike/sources/models.dart';
+import 'package:tomevoice_spike/speakers.dart';
 import 'package:tomevoice_spike/sources/source_engine.dart';
 import 'package:tomevoice_spike/sources/source_store.dart';
 
@@ -37,8 +40,17 @@ class _Sites extends SourceEngine {
 
   final novels = <String, SourceNovel>{};
 
+  /// A chapter that comes once this is done; the chapters asked for.
+  final gates = <String, Future<void>>{};
+  final asked = <String>[];
+
   @override
-  Future<String> chapter(PluginInfo p, String path) async => '<p>The words of $path, enough to read.</p>';
+  Future<String> chapter(PluginInfo p, String path) async {
+    asked.add(path);
+    final gate = gates[path];
+    if (gate != null) await gate;
+    return '<p>The words of $path, enough to read.</p>';
+  }
 
   @override
   Future<SourceNovel> novel(PluginInfo p, String path) async => novels[path] ?? (throw StateError('no $path'));
@@ -225,7 +237,18 @@ void main() {
       await ReadMarkStore.instance.mark(store, from, ['a/4'], read: true);
       final prefs = ListeningPrefs.memory
         ..voiceByBook[from] = 'voice-x'
-        ..speedByBook[from] = 1.4;
+        ..speedByBook[from] = 1.4
+        ..setCast(from, BookCast([Character('Sunny')], {'Sunny': 'voice-y'}));
+      final rules = ReadingRules.instance
+        ..say = [
+          SayRule(from: 'Sunny', to: 'Sonny', book: from),
+          const SayRule(from: 'Nephis', to: 'Neffis'),
+          const SayRule(from: 'Cassie', to: 'Kassie', book: 'another'),
+        ]
+        ..bookPresets = {
+          from: {SkipPreset.authorNotes: false},
+        };
+      addTearDown(rules.reset);
       await queue.add(from, [const ChapterItem(name: 'Chapter 5', path: 'a/5')]);
 
       final plan = await planMove(store, e, b, atB(5));
@@ -253,6 +276,13 @@ void main() {
       expect((quote.bookId, quote.at.sectionIndex, quote.text), (to, 2, 'A line.'));
       expect((await ReadMarkStore.instance.of(store, to)).read, {'b/4'});
       expect((prefs.voiceByBook[to], prefs.speedByBook[to], prefs.voiceByBook.containsKey(from)), ('voice-x', 1.4, false));
+      expect(prefs.castByBook[to]?.voices, {'Sunny': 'voice-y'}, reason: "its characters' voices");
+      expect(prefs.castByBook.containsKey(from), isFalse);
+      expect([for (final r in rules.say) '${r.from}:${r.book}'], ['Sunny:$to', 'Nephis:null', 'Cassie:another'],
+          reason: "its pronunciations; every book's and another's stay as they are");
+      expect((rules.hasOwnPresets(to), rules.hasOwnPresets(from), rules.presetOn(SkipPreset.authorNotes, book: to)),
+          (true, false, false),
+          reason: 'what its voice passes over');
       expect(queue.waitingPaths(to), {'b/5'}, reason: 'what was waiting waits there');
       expect(queue.waitingPaths(from), isEmpty);
     });
@@ -324,6 +354,84 @@ void main() {
       expect(shelf.single.addedAt, e.addedAt);
       await tester.pumpWidget(const SizedBox());
       await tester.pump(const Duration(seconds: 5));
+    });
+
+    test('a move that stops part way puts every download back, and what waited to download waits again', () async {
+      final e = await stored(5, downloaded: 3, at: 2);
+      await queue.add(e.id, [const ChapterItem(name: 'Chapter 5', path: 'a/5')]);
+      final plan = await planMove(store, e, b, atB(5));
+      final to = LibraryStore.webId('b', 'shadow-b');
+      // Something in the way of a file the move writes there, after the
+      // downloads have gone over (as a disk that fails part way).
+      final inTheWay = Directory('${store.bookDir(to)}/cursor.json')..createSync(recursive: true);
+      await expectLater(moveNovel(store, e, plan, queue: queue), throwsA(isA<FileSystemException>()));
+
+      expect((await store.list(all: true)).single.id, e.id, reason: 'still the novel it was');
+      expect(store.downloadedChapters(e.id), {0, 1, 2}, reason: 'its downloads back where they were');
+      expect(jsonDecode(File('${store.bookDir(e.id)}/ch/1.json').readAsStringSync())['title'], 'Chapter 2');
+      expect(queue.waitingPaths(e.id), {'a/5'});
+      expect(File('${store.bookDir(e.id)}/moving.json').existsSync(), isFalse);
+      expect(Directory(store.bookDir(to)).existsSync(), isTrue, reason: 'a folder there before is never taken away');
+
+      // Tried again, it moves.
+      inTheWay.deleteSync();
+      final moved = await moveNovel(store, (await store.list(all: true)).single, plan, queue: queue);
+      expect(store.downloadedChapters(moved.id), {1, 2, 3});
+      expect(queue.waitingPaths(moved.id), {'b/5'});
+    });
+
+    test('a move the app closed in the middle of is put back as the novel next opens; nothing is deleted', () async {
+      final e = await stored(4, downloaded: 2);
+      final to = LibraryStore.webId('b', 'shadow-b');
+      final old = store.bookDir(e.id), there = store.bookDir(to);
+      // As a move leaves it when the app closes part way: every file noted,
+      // two moved, the library not changed yet.
+      Directory('$there/ch').createSync(recursive: true);
+      await store.noteMove(e.id, to, [('ch/0.json', 'ch/1.json'), ('ch/1.json', 'ch/2.json'), ('ch/3.json', 'ch/4.json')]);
+      File('$old/ch/0.json').renameSync('$there/ch/1.json');
+      File('$old/ch/1.json').renameSync('$there/ch/2.json');
+
+      // The app again, before the novel opens: chapter 1 read (and fetched)
+      // once more meanwhile.
+      final app = LibraryStore(tmp);
+      await app.saveChapter(e.id, 0, 'Chapter 1', '<p>Chapter 1 again, fetched while its first copy was away.</p>');
+      await app.settleWebChapters(e.id);
+      expect(app.downloadedChapters(e.id), {0, 1});
+      expect(jsonDecode(File('$old/ch/1.json').readAsStringSync())['title'], 'Chapter 2');
+      expect(Directory('$old/ch/orphaned').listSync(), hasLength(1), reason: 'the copy that was away, kept aside');
+      expect(Directory(there).existsSync(), isFalse, reason: 'the half-made folder goes, nothing of the novel in it');
+      expect(File('$old/moving.json').existsSync(), isFalse);
+    });
+
+    test("a folder an older build's stopped move left there is kept: its downloads may be the only copies", () async {
+      final e = await stored(5, downloaded: 2);
+      final to = LibraryStore.webId('b', 'shadow-b');
+      // Chapter 3's download, moved there by a build before 1.4 that then stopped.
+      Directory('${store.bookDir(to)}/ch').createSync(recursive: true);
+      File('${store.bookDir(to)}/ch/3.json').writeAsStringSync(jsonEncode({'title': 'Chapter 3', 'blocks': []}));
+      final moved = await moveNovel(store, e, await planMove(store, e, b, atB(5)), queue: queue);
+      expect(store.downloadedChapters(moved.id), {1, 2, 3});
+    });
+
+    test('a chapter on its way down as the novel moves is not waited for, and never lands in the old folder', () async {
+      final e = await stored(3, downloaded: 1);
+      final sites = SourceEngine.instance as _Sites;
+      final gate = Completer<void>();
+      sites.gates['a/2'] = gate.future;
+      await queue.resume();
+      await queue.add(e.id, [const ChapterItem(name: 'Chapter 2', path: 'a/2')]);
+      for (var i = 0; i < 100 && !sites.asked.contains('a/2'); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      final moved = await moveNovel(store, e, await planMove(store, e, b, atB(3)), queue: queue);
+      // It comes once the novel has moved: nothing is written for the old one.
+      gate.complete();
+      for (var i = 0; i < 100 && !store.hasChapter(moved.id, 2); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      await queue.whenIdle();
+      expect(Directory(store.bookDir(e.id)).existsSync(), isFalse, reason: 'not made again');
+      expect(store.downloadedChapters(moved.id), {1, 2}, reason: 'it came down again there');
     });
 
     test('refused: one already in the library, or a list that did not come in whole', () async {
