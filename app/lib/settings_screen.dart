@@ -14,6 +14,7 @@ import 'backup_flow.dart';
 import 'brand.dart';
 import 'categories_screen.dart';
 import 'folders.dart';
+import 'guide.dart';
 import 'library_store.dart';
 import 'listen_sheet.dart';
 import 'neural_screen.dart';
@@ -587,6 +588,12 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           },
                         ),
                         const SizedBox(height: Gap.s),
+                        _Link(
+                          icon: Icons.tips_and_updates_outlined,
+                          title: 'Show the guide again',
+                          subtitle: 'Bringing books in, play, the voices and the page',
+                          onTap: () => unawaited(showGuide(context)),
+                        ),
                         _Link(
                           icon: Icons.info_outline_rounded,
                           title: 'About TomeVoice',

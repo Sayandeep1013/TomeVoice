@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
+import 'auto_scroll.dart';
 import 'book_tint.dart';
 import 'neural_screen.dart';
 import 'neural_voices.dart';
+import 'page_light.dart';
 import 'page_tone.dart';
 import 'paged_view.dart' show PageTurn;
 import 'prefs.dart';
@@ -35,6 +37,8 @@ class ListenController {
     this.isPlaying,
     this.isPdf = false,
     this.narration = false,
+    this.light,
+    this.autoScroll,
   });
 
   final ListeningPrefs prefs;
@@ -83,6 +87,10 @@ class ListenController {
     prefs.save();
     onChanged(restart: true);
   }
+  /// The page's light, moved by the Read tab's sliders as they move, and
+  /// auto-scroll, started there: only an open book's page has them.
+  final ValueNotifier<PageLight>? light;
+  final AutoScroll? autoScroll;
 
   Timer? _sampleTimer;
 
@@ -753,17 +761,141 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
   // ------------------------------------------------------------------ read
 
   List<Widget> _read(BuildContext context) => [
+        if (widget.controller.light case final light?) ..._light(context, light),
         ReadingControls(
           prefs: _prefs,
           isPdf: widget.controller.isPdf,
           // The app's light or dark lives in Settings.
           showTheme: false,
+          afterLayout: switch (widget.controller.autoScroll) {
+            final auto? => _autoScroll(context, auto),
+            null => null,
+          },
           onChanged: () {
             setState(() {});
             widget.controller.onChanged(restart: false);
           },
         ),
       ];
+
+  /// The page's light: how bright (at the left end, darker than the phone
+  /// goes) and how warm, and the phone's own again. The page follows the
+  /// sliders as they move; they are kept when let go.
+  List<Widget> _light(BuildContext context, ValueNotifier<PageLight> light) {
+    final now = PageLight.of(_prefs);
+    final brightness = now.brightness;
+    void set({double? to, double? warmth, bool keep = false}) {
+      setState(() {
+        if (to != null) _prefs.pageBrightness = to;
+        if (warmth != null) _prefs.pageWarmth = warmth;
+      });
+      light.value = PageLight.of(_prefs);
+      if (keep) _prefs.save();
+    }
+
+    String bright(double v) => v < PageLight.below
+        ? 'Darker than the phone'
+        : '${((v - PageLight.below) / (1 - PageLight.below) * 100).round()}%';
+    String warm(double v) => v <= 0 ? 'Off' : '${(v * 100).round()}%';
+    return [
+      const SectionTitle('Light'),
+      const SizedBox(height: Gap.m),
+      LabeledSlider(
+        label: 'Brightness',
+        value: brightness ?? PageLight.resting,
+        min: 0,
+        max: 1,
+        display: brightness == null ? 'As the phone is' : bright(brightness),
+        note: 'At its left end, darker than the phone goes.',
+        spoken: (v) => brightness == null && v == PageLight.resting ? 'As the phone is' : bright(v),
+        onChanged: (v) => set(to: v),
+        onChangeEnd: (v) => set(to: v, keep: true),
+      ),
+      LabeledSlider(
+        label: 'Warmth',
+        value: now.warmth,
+        min: 0,
+        max: 1,
+        display: warm(now.warmth),
+        note: 'Amber over the page, for reading at night.',
+        spoken: warm,
+        onChanged: (v) => set(warmth: v),
+        onChangeEnd: (v) => set(warmth: v, keep: true),
+      ),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          onPressed: now.isPhone
+              ? null
+              : () {
+                  setState(() {
+                    _prefs.pageBrightness = null;
+                    _prefs.pageWarmth = 0;
+                  });
+                  light.value = PageLight.phone;
+                  _prefs.save();
+                },
+          icon: const Icon(Icons.restart_alt_rounded, size: 18),
+          label: const Text('As the phone is'),
+        ),
+      ),
+      const SizedBox(height: Gap.xl),
+    ];
+  }
+
+  /// Auto-scroll, under the layout it moves: how fast (in pages, how long
+  /// on each page), and Start, which closes the sheet onto the page moving;
+  /// Stop while it runs.
+  Widget _autoScroll(BuildContext context, AutoScroll auto) => ListenableBuilder(
+        listenable: auto,
+        builder: (context, _) {
+          final pages = _prefs.pages;
+          // A PDF's real pages scroll as pictures; in pages they turn.
+          final can = !(widget.controller.isPdf && _prefs.pdfPages && !pages);
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: Gap.xl),
+              const SectionTitle('Auto-scroll'),
+              const SizedBox(height: Gap.m),
+              StepperControl(
+                value: auto.label(pages: pages),
+                minusTooltip: pages ? 'Longer on each page' : 'Scroll slower',
+                plusTooltip: pages ? 'Shorter on each page' : 'Scroll faster',
+                valueStyle: Skin.ui(size: 17, weight: FontWeight.w700, color: Skin.inkOn(context), tabular: true),
+                onMinus: auto.canSlowDown(pages: pages) ? () => auto.slowDown(pages: pages) : null,
+                onPlus: auto.canSpeedUp(pages: pages) ? () => auto.speedUp(pages: pages) : null,
+              ),
+              const SizedBox(height: Gap.s),
+              Text(
+                !can
+                    ? 'The real pages turn by themselves in pages: choose Pages above.'
+                    : '${pages ? 'A page turns by itself' : 'The page moves on by itself'} until the chapter ends, '
+                        'and a touch holds it a moment. Starting it stops the voice, and Play stops it.',
+                style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
+              ),
+              const SizedBox(height: Gap.m),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.icon(
+                  onPressed: !can
+                      ? null
+                      : () {
+                          if (auto.on) {
+                            auto.stop();
+                            return;
+                          }
+                          auto.start();
+                          Navigator.of(context).maybePop();
+                        },
+                  icon: Icon(auto.on ? Icons.stop_rounded : Icons.play_arrow_rounded),
+                  label: Text(auto.on ? 'Stop auto-scroll' : 'Start auto-scroll'),
+                ),
+              ),
+            ],
+          );
+        },
+      );
 }
 
 /// The common speeds: the speed sheet's row, and the steps of the media
@@ -846,12 +978,16 @@ class ReadingControls extends StatelessWidget {
     required this.onChanged,
     this.isPdf = false,
     this.showTheme = true,
+    this.afterLayout,
   });
 
   final ListeningPrefs prefs;
   final VoidCallback onChanged;
   final bool isPdf;
   final bool showTheme;
+
+  /// Under the layout's choice, where a book's page is open: its auto-scroll.
+  final Widget? afterLayout;
 
   void _apply(void Function() change) {
     change();
@@ -961,6 +1097,7 @@ class ReadingControls extends StatelessWidget {
                     ],
                   ),
           ),
+          if (afterLayout case final after?) after,
           if (showTheme) ...[
             const SizedBox(height: Gap.xl),
             const SectionTitle('Theme'),
@@ -1086,6 +1223,7 @@ class LabeledSlider extends StatelessWidget {
     required this.onChanged,
     required this.onChangeEnd,
     this.note,
+    this.spoken,
   });
 
   final String label;
@@ -1098,6 +1236,10 @@ class LabeledSlider extends StatelessWidget {
 
   /// A line under the slider about what it does.
   final String? note;
+
+  /// The value as a screen reader says it ("40%"), where the number alone
+  /// would not say it.
+  final String Function(double value)? spoken;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -1123,7 +1265,7 @@ class LabeledSlider extends StatelessWidget {
                 value: value.clamp(min, max),
                 min: min,
                 max: max,
-                semanticFormatterCallback: (v) => '$label ${v.toStringAsFixed(2)}',
+                semanticFormatterCallback: (v) => '$label ${spoken?.call(v) ?? v.toStringAsFixed(2)}',
                 onChanged: onChanged,
                 onChangeEnd: onChangeEnd,
               ),
