@@ -109,6 +109,24 @@ void main() {
     });
   });
 
+  test("passwords are kept in the app's own storage, moved there once from the library's folder", () async {
+    final tmp = Directory.systemTemp.createTempSync('tomevoice_secrets');
+    addTearDown(() {
+      Secrets.home = null;
+      tmp.deleteSync(recursive: true);
+    });
+    final private = Directory('${tmp.path}/files')..createSync();
+    final library = Directory('${tmp.path}/external')..createSync();
+    File('${library.path}/.secrets.json').writeAsStringSync(jsonEncode({'webdav': 'old', 'kosync': 'key'}));
+    Secrets.home = private;
+    final s = await Secrets.of(library);
+    expect(s['webdav'], 'old');
+    expect(File('${library.path}/.secrets.json').existsSync(), isFalse, reason: 'other apps can read that folder');
+    await s.set('webdav', 'new');
+    expect(jsonDecode(File('${private.path}/.secrets.json').readAsStringSync()), {'webdav': 'new', 'kosync': 'key'});
+    expect(library.listSync(recursive: true), isEmpty);
+  });
+
   group('addresses', () {
     test('one typed without a scheme is https; plain http only as typed', () {
       expect(withScheme(' cloud.example.org/remote.php/dav/ '), 'https://cloud.example.org/remote.php/dav/');

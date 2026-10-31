@@ -28,6 +28,7 @@ import 'reader_screen.dart';
 import 'reading_rules.dart';
 import 'saved_screen.dart';
 import 'scheduler.dart' show PlaybackScheduler;
+import 'secrets.dart';
 import 'stats.dart';
 import 'stats_screen.dart';
 import 'settings_screen.dart';
@@ -80,6 +81,8 @@ Future<OpenLibrary> _open(String dir) async {
   // Sources live in internal storage, moved there once from the library's
   // folder (which other apps can read on Android 8 to 10).
   final internal = await SourcesBridge.sourcesRoot();
+  // So do the passwords (Secrets), moved the first time they are read.
+  if (internal != null) Secrets.home = Directory(internal);
   final sources = await SourceStore.open(Directory(internal ?? dir), legacyRoot: Directory(dir));
   await Net.instance.attach(sources.dir);
   SourceEngine.instance.attach(sources);
