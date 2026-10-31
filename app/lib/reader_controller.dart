@@ -771,6 +771,7 @@ class ReaderController {
         cursorOf(layout.units[u]),
         view.progressOf?.call(u) ?? progressFraction(layout.units, u),
         where: layout.chapterTitle(layout.unitChapter[u]),
+        layout: layout,
       );
     } on Object {
       // Losing a position save is not worth an error on screen.

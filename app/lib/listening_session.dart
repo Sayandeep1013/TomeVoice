@@ -777,7 +777,8 @@ class BackgroundReading {
     if (layout.isEmpty) return _saved;
     final u = unit.clamp(0, layout.units.length - 1);
     return _saved = store
-        .saveCursor(bookId, cursorOf(layout.units[u]), _progress(u), where: layout.chapterTitle(layout.unitChapter[u]))
+        .saveCursor(bookId, cursorOf(layout.units[u]), _progress(u),
+            where: layout.chapterTitle(layout.unitChapter[u]), layout: layout)
         .catchError((Object _) {});
   }
 

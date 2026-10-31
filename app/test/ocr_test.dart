@@ -359,6 +359,48 @@ void main() {
       expect(entry.ocr, isNull);
     });
 
+    test('made whole by OCR while a reader is open on it, a book keeps the place carried into it', () async {
+      // Typed text on its last two pages only: OCR reads the eight before,
+      // and in the book made of them the typed sentences come later.
+      String typed(int p) => '$_mark${[for (var i = 0; i < 8; i++) 'Line $i of page $p tells of the keeper and the gulls.'].join(' ')}';
+      final f = picked('mostly.pdf', utf8.encode('%PDF-1.4 two typed pages'));
+      final pdf = scanText(10, typed: {8: typed(8), 9: typed(9)});
+      pdfs[f.path] = pdf;
+      final entry = await store.importFile(PickedFile(path: f.path, name: 'mostly.pdf'), onScan: (_) {});
+      final open = await store.loadLayout(entry.id);
+      const u = 3;
+      await store.saveCursor(entry.id, cursorOf(open.units[u]), 0.1, layout: open);
+
+      final dir = Directory('${tmp.path}/ocr/jobs/${entry.id}')..createSync(recursive: true);
+      File('${dir.path}/pdf.json').writeAsStringSync(jsonEncode(pdf));
+      File('${dir.path}/job.json').writeAsStringSync(jsonEncode({
+        'id': entry.id,
+        'name': 'mostly.pdf',
+        'source': entry.sourcePath,
+        'pages': [for (var p = 0; p < 8; p++) p],
+        'languages': 'eng',
+      }));
+      for (var p = 0; p < 8; p++) {
+        File('${dir.path}/pages/$p.txt')
+          ..createSync(recursive: true)
+          ..writeAsStringSync(ocrPage(p));
+      }
+      await store.addOcrBook(dir.path);
+      final carried = await store.cursorFor(entry.id);
+      expect(carried.toJson(), isNot(cursorOf(open.units[u]).toJson()), reason: 'the sentence moved');
+      expect((await store.list()).single.cursor.toJson(), carried.toJson(), reason: 'the index has it too');
+
+      // The reader still open on the book as it was saves where it has got
+      // to, counted the old way: not over the place carried.
+      await store.saveCursor(entry.id, cursorOf(open.units[u + 1]), 0.12, layout: open);
+      expect((await store.cursorFor(entry.id)).toJson(), carried.toJson());
+      final now = await store.loadLayout(entry.id);
+      expect(now.units[now.unitForCursor(carried, saved: true)].text, open.units[u].text);
+      // Open on the new book, it saves as ever.
+      await store.saveCursor(entry.id, cursorOf(now.units[5]), 0.2, layout: now);
+      expect((await store.cursorFor(entry.id)).toJson(), cursorOf(now.units[5]).toJson());
+    });
+
     test('what OCR read is made into a book, marked, and its text kept', () async {
       final pdf = picked('lantern.pdf', utf8.encode('%PDF-1.4 the lantern keeper, scanned'));
       final entry = await made(pdf);

@@ -935,7 +935,27 @@ class LibraryStore {
   /// cover. The job's folder goes once the book is made.
   Future<LibraryEntry> addOcrBook(String jobDir) async {
     await ensure();
-    final made = await _runOcrImport((booksDir: _booksDir.path, jobDir: jobDir));
+    // A book on the shelf already is made again, its place carried into the
+    // new making: a reader still open on the old one is held from saving
+    // over it from the moment that begins (see [saveCursor]). The job's
+    // folder is named for its book.
+    final id = Directory(jobDir).uri.pathSegments.lastWhere((s) => s.isNotEmpty);
+    final was = _remade[id];
+    _remade[id] = (was ?? 0) + 1;
+    final LibraryEntry made;
+    try {
+      made = await _runOcrImport((booksDir: _booksDir.path, jobDir: jobDir));
+    } on Object {
+      // Not made after all: the layouts open on it are its own still.
+      if (was == null) {
+        _remade.remove(id);
+      } else {
+        _remade[id] = was;
+      }
+      rethrow;
+    }
+    // The place as it was carried: the index's is in the old making's numbers.
+    final place = await cursorFor(made.id);
     late LibraryEntry merged;
     await _change((existing) {
       final previous = existing.where((e) => e.id == made.id).firstOrNull;
@@ -943,7 +963,7 @@ class LibraryStore {
           ? made.copyWith(category: _defaultCategory)
           : made
               .copyWith(
-                cursor: previous.cursor,
+                cursor: place,
                 progress: previous.progress,
                 openedAt: previous.openedAt,
                 where: previous.where,
@@ -1073,6 +1093,7 @@ class LibraryStore {
                 if (e.id == id) e.copyWith(language: language) else e,
             ]);
       }
+      _madeAt[layout] = _remade[id] ?? 0;
       return layout;
     }
     // A PDF read by an older PDF reader is read again from its file, once:
@@ -1100,7 +1121,10 @@ class LibraryStore {
       token: RootIsolateToken.instance,
       notes: notes,
     );
-    final layout = await _runLoad(job);
+    final (:layout, :remade) = await _runLoad(job);
+    // Made again as it opened: a layout loaded before is the old making's.
+    if (remade) _remade[id] = (_remade[id] ?? 0) + 1;
+    _madeAt[layout] = _remade[id] ?? 0;
     // A book with its own narration plays its audio from its EPUB.
     if (layout.book.narration != null && entry != null) BookNarrationReader.files[id] = entry.sourcePath;
     // A book read again carried its place across in cursor.json (see
@@ -1239,12 +1263,20 @@ class LibraryStore {
   /// each save wrote the whole index again on the UI thread. A run stopped
   /// before the index took a place loses nothing: the next one finds it in
   /// cursor.json (see [_recoverPlaces]).
+  ///
+  /// [layout] is the one the place was found in: one of the book as it was
+  /// before it was made again (by OCR, or parsed anew) counts sentences the
+  /// old way, and its place is not saved over the one carried into the new
+  /// making. The reader open on it saves again once it has the new one.
   Future<void> saveCursor(
     String id,
     ReadingCursor cursor,
     double progress, {
     String? where,
+    ReadingLayout? layout,
   }) async {
+    final made = layout == null ? null : _madeAt[layout];
+    if (made != null && made != (_remade[id] ?? 0)) return;
     final dir = Directory(bookDir(id));
     // Made once a run, not once a sentence.
     if (_madeDirs.add(id)) await dir.create(recursive: true);
@@ -1316,6 +1348,12 @@ class LibraryStore {
 
   /// Books whose folder a place has been saved into in this run.
   final _madeDirs = <String>{};
+
+  /// How many times each book has been made again in this run (by OCR, or
+  /// parsed anew as it opened), and the count each layout [loadLayout] gave
+  /// was made at (see [saveCursor]).
+  final _remade = <String, int>{};
+  final _madeAt = Expando<int>('made');
 
   /// [place] for book [id] in the copy here, to be written; false if the
   /// book is not in the library (removed meanwhile).
@@ -1441,7 +1479,7 @@ class LibraryStore {
 // variables (callbacks holding widget state), which cannot be sent.
 Future<_Imported> _runImport(_ImportJob job) => Isolate.run(() => _import(job));
 
-Future<ReadingLayout> _runLoad(_LoadJob job) => Isolate.run(() => _loadLayout(job));
+Future<({ReadingLayout layout, bool remade})> _runLoad(_LoadJob job) => Isolate.run(() => _loadLayout(job));
 
 Future<ReadingLayout> _runLoadWeb(String dir, String id, int? around, Set<int>? chapters, bool notes) =>
     Isolate.run(() => _loadWebSync(dir, id, around: around, chapters: chapters, notes: notes));
@@ -2186,7 +2224,9 @@ ReadingLayout _loadWebSync(String dir, String id, {int? around, Set<int>? chapte
   ));
 }
 
-Future<ReadingLayout> _loadLayout(_LoadJob job) async {
+/// The book's layout, and whether the book was made again for it (parsed
+/// anew, its place carried across).
+Future<({ReadingLayout layout, bool remade})> _loadLayout(_LoadJob job) async {
   final dir = '${job.booksDir}/${job.id}';
   final parsed = File('$dir/parsed.json');
   Book? book;
@@ -2272,8 +2312,12 @@ Future<ReadingLayout> _loadLayout(_LoadJob job) async {
   // Footnotes and captions shown on the page, not read aloud; footnotes
   // read too when the reader asked for them.
   final layout = ReadingLayout.build(book, displayOnly: true, spoken: _spoken(job.notes));
-  if (before != null && !identical(before, book)) _carryCursor(dir, before, layout);
-  return layout;
+  var remade = false;
+  if (before != null && !identical(before, book)) {
+    remade = true;
+    _carryCursor(dir, before, layout);
+  }
+  return (layout: layout, remade: remade);
 }
 
 bool _samePlace(ReadingCursor a, ReadingCursor b) =>
