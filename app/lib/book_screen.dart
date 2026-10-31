@@ -410,6 +410,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                       cover: _entry.shownCover,
                       chapter: _currentChapter,
                       preferBook: true,
+                      secret: _store.isSecret(_entry.id),
                     );
                   case 'rules':
                     await Navigator.of(context).push(MaterialPageRoute<void>(

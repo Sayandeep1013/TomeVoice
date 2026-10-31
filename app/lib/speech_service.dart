@@ -217,6 +217,13 @@ class SpeechService {
   static const routeBluetooth = 'bluetooth';
   static const routeOther = 'other';
 
+  /// Who put the card up last: a book's page, or the reading in the
+  /// background (see [session]).
+  static Object? _cardOwner;
+
+  /// Whether [owner] put the card up last, and so may take it away.
+  static bool ownsCard(Object owner) => identical(_cardOwner, owner);
+
   /// The "reading aloud" foreground service that keeps speech going with the
   /// screen off. Inactive ends it.
   ///
@@ -224,8 +231,14 @@ class SpeechService {
   /// picture, [positionMs] of [durationMs] its seek bar through the chapter,
   /// and [speed] its speed button. [book], when given, is the book's id: a
   /// Play from outside the app for that book then carries on with this one.
+  ///
+  /// [owner] is who puts the card up: its end is let through only while the
+  /// card is still its own. Another reading put up since (a book started
+  /// from Android Auto while a page waited) keeps its card, its audio and
+  /// the phone kept awake.
   Future<void> session({
     required bool active,
+    Object? owner,
     String title = '',
     String subtitle = '',
     bool playing = false,
@@ -234,18 +247,25 @@ class SpeechService {
     int durationMs = 0,
     double speed = 1.0,
     String? book,
-  }) =>
-      _quiet('session', {
-        'active': active,
-        'title': title,
-        'subtitle': subtitle,
-        'playing': playing,
-        'cover': cover,
-        'positionMs': positionMs,
-        'durationMs': durationMs,
-        'speed': speed,
-        'book': book,
-      });
+  }) {
+    if (active) {
+      _cardOwner = owner;
+    } else {
+      if (owner != null && !identical(_cardOwner, owner)) return Future<void>.value();
+      _cardOwner = null;
+    }
+    return _quiet('session', {
+      'active': active,
+      'title': title,
+      'subtitle': subtitle,
+      'playing': playing,
+      'cover': cover,
+      'positionMs': positionMs,
+      'durationMs': durationMs,
+      'speed': speed,
+      'book': book,
+    });
+  }
 
   // ------------------------------------------------------ outside the app
 

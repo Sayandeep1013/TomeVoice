@@ -27,6 +27,12 @@ import 'voices.dart';
 /// a book read in the background stop for the save, once the reader agrees.
 /// [wholeBook] false offers the chapter only (a web novel's reader holds
 /// only the chapters fetched). A save already running is shown instead.
+///
+/// [secret]: the book is on a secret shelf. The sheet says plainly that the
+/// file is named after it and other apps can see it, goes to "Choose
+/// where…" rather than the Audiobooks folder every player looks in, and
+/// leaves the book out of the file's tags unless the reader puts it in; its
+/// notifications do not name it.
 Future<void> showSaveAsAudio(
   BuildContext context, {
   required ReadingLayout layout,
@@ -38,6 +44,7 @@ Future<void> showSaveAsAudio(
   PlaybackScheduler? reading,
   bool wholeBook = true,
   bool preferBook = false,
+  bool secret = false,
 }) async {
   final running = AudioExport.current.value;
   if (running != null) return showExportProgress(context, running);
@@ -62,6 +69,7 @@ Future<void> showSaveAsAudio(
         reading: reading,
         wholeBook: wholeBook && layout.chapters.length > 1,
         preferBook: preferBook,
+        secret: secret,
       ),
     ),
   );
@@ -111,6 +119,7 @@ class _SaveSheet extends StatefulWidget {
     required this.reading,
     required this.wholeBook,
     required this.preferBook,
+    required this.secret,
   });
 
   final ReadingLayout layout;
@@ -122,6 +131,7 @@ class _SaveSheet extends StatefulWidget {
   final PlaybackScheduler? reading;
   final bool wholeBook;
   final bool preferBook;
+  final bool secret;
 
   @override
   State<_SaveSheet> createState() => _SaveSheetState();
@@ -147,7 +157,15 @@ class _SaveSheetState extends State<_SaveSheet> {
   bool _timing = false;
   int _free = -1;
   bool? _folder;
-  bool _choose = false;
+
+  /// "Choose where…": first for a book on a secret shelf, whose file in
+  /// Audiobooks every player would list.
+  late bool _choose = widget.secret;
+
+  /// The file's tags name the book: always, but for one on a secret shelf
+  /// only if the reader says so.
+  late bool _named = !widget.secret;
+
   bool _busy = false;
   String? _problem;
 
@@ -242,6 +260,8 @@ class _SaveSheetState extends State<_SaveSheet> {
         cover: await _coverBytes(widget.cover),
         destination: where,
         format: _format,
+        secret: widget.secret,
+        named: _named,
       );
       _handedOver = true;
       if (mounted) Navigator.pop(context, job);
@@ -370,6 +390,21 @@ class _SaveSheetState extends State<_SaveSheet> {
                 ),
               ),
             if (_folder == false) note(Icons.folder_open_rounded, 'You choose where it goes next.'),
+            if (widget.secret) ...[
+              note(
+                Icons.visibility_outlined,
+                'This book is on a secret shelf, but the file is named after it, and other apps '
+                '(a music player, Files) can see it wherever it is saved.',
+                color: Skin.accentInkOf(context),
+              ),
+              SwitchRow(
+                title: 'Name the book inside the file',
+                subtitle: 'Its title, author and cover, for players to show',
+                value: _named,
+                onChanged: (v) => setState(() => _named = v),
+                padding: const EdgeInsets.fromLTRB(Gap.page, Gap.s, Gap.page, 0),
+              ),
+            ],
             if (_reading)
               note(
                 Icons.pause_circle_outline_rounded,

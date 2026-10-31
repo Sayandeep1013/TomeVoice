@@ -410,7 +410,10 @@ class BackgroundReading {
   Future<bool?>? get rolling => _rolling;
 
   /// Take over [player], reading [layout] of [bookId], from a reader whose
-  /// page is closing (or handing its reading on, see [readOn]).
+  /// page is closing (or handing its reading on, see [readOn]). A player
+  /// not yet reading (handed on to read on, or about to start) leaves the
+  /// card as it is until it does: told "paused" on the way, Android 12+
+  /// could take the reading out of the foreground for good.
   static BackgroundReading adopt({
     required PlaybackScheduler player,
     required ReadingLayout layout,
@@ -448,7 +451,7 @@ class BackgroundReading {
       unawaited(store.webNovel(bookId).then((info) => b._webTotal = info?.chapters.length ?? 0));
     }
     current.value = b;
-    b._updateCard();
+    if (player.active) b._updateCard();
     return b;
   }
 
@@ -536,7 +539,7 @@ class BackgroundReading {
     player.unit.addListener(_onUnit);
     player.state.addListener(_onState);
     player.onFinished = () => unawaited(readOn());
-    playingNow.value = playing;
+    playingNow.value = playing || _rollingOn;
   }
 
   void _detach() {
@@ -611,7 +614,7 @@ class BackgroundReading {
     player.endFade();
     await player.stop();
     player.dispose();
-    await _svc.session(active: false);
+    await _svc.session(active: false, owner: this);
   }
 
   /// The last place saved, done once it is written.
@@ -652,24 +655,42 @@ class BackgroundReading {
     }
     _persistTimer?.cancel();
     _persistTimer = Timer(const Duration(milliseconds: 1500), () => unawaited(_persistNow()));
-    _updateCard();
+    // A play sets the sentence just before it starts: the card hears of it
+    // as it does, not first as stopped there.
+    if (player.active || _rollingOn) _updateCard();
   }
 
   void _onState() {
     if (player.state.value != PlayState.idle) _parkedAt = null;
-    playingNow.value = playing || _rolling != null;
+    playingNow.value = playing || _rollingOn;
     _updateCard();
   }
+
+  /// Reading on into the next chapters, or about to: a web novel's voice at
+  /// the end of what is here goes on (see [readOn]) unless it was parked
+  /// there (the card moved it, or the sleep timer stopped it at the
+  /// chapter's end). The player is idle meanwhile, from the moment it
+  /// reaches the end, but the card stays playing, and the phone awake.
+  bool get _rollingOn =>
+      web && _parkedAt == null && (_rolling != null || (player.reachedEnd && player.error.value == null));
 
   /// The end of what is here: a web novel's next chapters are fetched (the
   /// site asked for new ones when its list runs out) and read on into, in a
   /// new player on the longer layout; a book has ended. Needs no frame, so
   /// it carries on with the screen off. The card stays up, playing, while it
   /// does. See [rolling] for the answer.
-  Future<bool?> readOn() => _rolling ??= _readOn().whenComplete(() => _rolling = null);
+  Future<bool?> readOn() {
+    final under = _rolling;
+    if (under != null) return under;
+    final roll = Completer<bool?>();
+    // Under way before anything tells the card: it says playing throughout.
+    _rolling = roll.future;
+    roll.complete(_readOn().whenComplete(() => _rolling = null));
+    return roll.future;
+  }
 
   Future<bool?> _readOn() async {
-    playingNow.value = true;
+    playingNow.value = playing || _rollingOn;
     _updateCard();
     final carried = await _intoNext();
     if (carried == false) await stop();
@@ -678,12 +699,15 @@ class BackgroundReading {
 
   Future<bool?> _intoNext() async {
     if (!web || layout.isEmpty) return false;
-    final last = layout.units.last.sectionIndex;
     try {
       // The next chapters were being joined on as the last sentences were
       // heard: read on there, in this player.
       await _extending;
       if (!identical(current.value, this)) return null;
+      // On from the chapter the voice got to. Chapters joined on as it
+      // finished (here, or on the page that handed it on) are read, not
+      // passed over: the end of what is here may be further on by now.
+      final last = layout.units[unit.clamp(0, layout.units.length - 1)].sectionIndex;
       var start = layout.units.indexWhere((u) => u.sectionIndex > last);
       if (start < 0) {
         await fetchChapters(store, bookId, last + 1);
@@ -713,6 +737,7 @@ class BackgroundReading {
         _sleep = SleepChoice.off;
         _sleepChapter = -1;
         _parkedAt = start;
+        playingNow.value = false;
         unawaited(_persistNow());
         _updateCard();
         return true;
@@ -811,11 +836,12 @@ class BackgroundReading {
     final secret = store.isSecret(bookId);
     unawaited(_svc.session(
       active: true,
+      owner: this,
       title: secret ? 'TomeVoice' : title,
       subtitle: secret ? '' : layout.chapterTitle(chapter),
       // Moving into the next chapters counts as playing: the card (and the
       // phone kept awake) stay with it.
-      playing: s == PlayState.playing || s == PlayState.loading || (_rolling != null && _parkedAt == null),
+      playing: s == PlayState.playing || s == PlayState.loading || _rollingOn,
       cover: secret ? null : cover,
       positionMs: clock.positionMs,
       durationMs: clock.durationMs,
