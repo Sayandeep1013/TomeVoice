@@ -238,6 +238,8 @@ class ReadingRules {
 
   Future<void> _save() async {
     changes.value++;
+    // Not over the rules a restore is adding (see RestoreGate).
+    if (RestoreGate.shut) return;
     try {
       await writeSafely(_file, jsonEncode({
         'say': [for (final r in say) r.toJson()],

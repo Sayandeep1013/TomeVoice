@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show PlatformException;
 
+import 'auto_backup.dart';
 import 'backup.dart';
 import 'library_store.dart';
 import 'listening_session.dart';
+import 'safe_file.dart' show RestoreGate;
 import 'speech_service.dart';
 import 'stats.dart';
 import 'theme.dart';
@@ -193,33 +195,47 @@ Future<void> runRestore(BuildContext context, LibraryStore store) async {
   final reading = BackgroundReading.current.value;
   await reading?.stop();
   await reading?.saved;
-  // The places kept in memory go into library.json, which Add merges by.
+  // What is kept in memory goes to disk, which Add merges by: the places
+  // into library.json, and the day's reading time.
   await store.settlePlaces();
-  // Nothing may write the old book list back over the restored one before
-  // the app starts again.
+  await StatsStore.instance.flush();
+  // From here nothing writes into the library until the app starts again:
+  // no place, quote, stats, settings or sync's state, and no sync or
+  // automatic backup starts (closing the picker brought the app back, which
+  // asks for both). The writes under way land first, and a backup being
+  // written, which reads the library, finishes.
   store.hold();
+  await RestoreGate.close();
+  await AutoBackup.idle();
+  String said;
   try {
     if (adding) {
-      final report = await addToLibrary(store.root, staged, settings: how == 'add+settings');
-      await saveRestoreReport(store.root, addSummary(report));
+      said = addSummary(await addToLibrary(store.root, staged, settings: how == 'add+settings'));
     } else {
       await replaceLibrary(store.root, staged);
-      await saveRestoreReport(store.root, 'Your library is the backup made $made.');
+      said = 'Your library is the backup made $made.';
     }
   } on Object catch (e) {
-    store.release();
-    await staged.discard();
-    if (!context.mounted) return;
-    Navigator.of(context, rootNavigator: true).pop();
-    showSnack(
-      context,
-      e is RestoreUnsettled ? '$e' : 'The restore failed and your library was left as it was: ${_reason(e)}',
-      long: true,
-    );
-    return;
+    try {
+      await staged.discard();
+    } on Object {
+      // Cleared at the next start.
+    }
+    said = switch (e) {
+      // Put back as the app starts again, before anything reads it.
+      RestoreUnsettled() => '$e',
+      _ when adding => 'Adding the backup stopped part way, keeping what it had added: ${_reason(e)}',
+      _ => 'The restore failed and your library was left as it was: ${_reason(e)}',
+    };
   }
-  // Every store reads its files once; start the app again so all of them
-  // read the restored ones.
+  try {
+    await saveRestoreReport(store.root, said);
+  } on Object {
+    // Started again all the same: unsaid, the files are still read anew.
+  }
+  // Every store reads its files once, and what each holds may no longer be
+  // what is on disk: start the app again, so all of them read the files as
+  // they are now, restored or not.
   await _svc.restartApp();
 }
 

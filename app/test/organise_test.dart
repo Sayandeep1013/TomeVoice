@@ -392,11 +392,43 @@ void main() {
       again.hold();
       expect(all[_ice[0]], ('A Game of Thrones A Song of Ice and Fire', 1.0));
       expect(all[_ice[1]], ('A Storm of Swords A Song of Ice and Fire', 3.0));
-      // Open, the two are one series.
+      // Open, the secret book finds its series among every title; the
+      // ordinary one only among the ordinary ones, never by a secret title.
       LibraryStore.secretOpen.value = true;
       final open = seriesOf(await store.list());
-      expect(open[_ice[0]], ('A Song of Ice and Fire', 1.0));
+      expect(open[_ice[0]], ('A Game of Thrones A Song of Ice and Fire', 1.0));
       expect(open[_ice[1]], ('A Song of Ice and Fire', 3.0));
+      // Shut again, the ordinary book shows nothing a secret title gave it.
+      LibraryStore.secretOpen.value = false;
+      expect(seriesOf(await store.list())[_ice[0]], ('A Game of Thrones A Song of Ice and Fire', 1.0));
+      expect(onDisk()[_ice[0]], ('A Game of Thrones A Song of Ice and Fire', 1.0));
+      expect(seriesIn((await store.index()).entries), [(name: 'A Game of Thrones A Song of Ice and Fire', count: 1)]);
+    });
+
+    test("an ordinary book's series is found among ordinary titles alone, the secret shelf open or shut", () async {
+      // One ordinary book, and two secret ones that share a series with it.
+      keep([
+        entry(_ice[0]),
+        {...entry(_ice[1]), 'category': 'hidden'},
+        {...entry(_ice[2]), 'category': 'hidden'},
+      ]);
+      final f = File('${tmp.path}/library.json');
+      final json = jsonDecode(f.readAsStringSync()) as Map;
+      f.writeAsStringSync(jsonEncode({
+        ...json,
+        'categories': [...json['categories'] as List, const Category('hidden', 'Hidden', secret: true).toJson()],
+      }));
+      LibraryStore.secretOpen.value = true;
+      final open = seriesOf(await store.list());
+      expect(open[_ice[0]], ('A Game of Thrones A Song of Ice and Fire', 1.0), reason: 'its title alone');
+      expect(open[_ice[1]], ('A Song of Ice and Fire', 3.0));
+      expect(open[_ice[2]], ('A Song of Ice and Fire', 4.0));
+      LibraryStore.secretOpen.value = false;
+      expect(seriesOf(await store.list()), {_ice[0]: ('A Game of Thrones A Song of Ice and Fire', 1.0)});
+      // Read again by a store that never saw the shelf open.
+      final again = LibraryStore(tmp);
+      expect(seriesOf(await again.list()), {_ice[0]: ('A Game of Thrones A Song of Ice and Fire', 1.0)});
+      again.hold();
     });
 
     test('a book imported again keeps its tags and its series', () async {

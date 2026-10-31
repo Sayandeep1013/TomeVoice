@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Platform;
+import 'dart:io' show File, Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show PlatformException;
@@ -10,6 +10,7 @@ import 'backup.dart';
 import 'folders.dart';
 import 'library_store.dart';
 import 'prefs.dart';
+import 'safe_file.dart' show RestoreGate;
 import 'speech_service.dart';
 
 /// How often the library backs itself up into the folder the reader picked.
@@ -61,6 +62,92 @@ List<FolderFile> backupsToPrune(List<FolderFile> files, {int keep = autoBackupsK
   return ours.length <= keep ? const [] : ours.sublist(keep);
 }
 
+/// What an automatic backup leaves out of a library with a secret shelf the
+/// reader has not let in (ListeningPrefs.backupSecret): the shelf, its
+/// books' folders, and all of its books in each file at the library's top,
+/// which goes in written again without them ([swapped]: the library's list,
+/// the quotes as a shut shelf shows them, the stats, settings and the
+/// rest). The copies kept of files that could not be read stay out whole:
+/// anything may be in them. Null when there is no secret shelf.
+Future<({List<String> leaveOut, Map<String, String> swapped, int books})?> secretLeftOut(LibraryStore store) async {
+  final all = await store.index(all: true);
+  if (!all.categories.any((c) => c.secret)) return null;
+  final shown = all.withoutSecret();
+  final kept = {for (final e in shown.entries) e.id};
+  final ids = {for (final e in all.entries) if (!kept.contains(e.id)) e.id};
+  final leaveOut = [for (final id in ids) 'books/$id/'];
+  final swapped = <String, String>{
+    'library.json': jsonEncode({
+      'categories': [for (final c in shown.categories) c.toJson()],
+      'defaultCategory': shown.defaultCategory,
+      'books': [for (final e in shown.entries) e.toJson()],
+    }),
+  };
+  await for (final f in store.root.list()) {
+    final name = f.uri.pathSegments.lastWhere((s) => s.isNotEmpty);
+    if (f is! File || name.startsWith('.') || swapped.containsKey(name)) continue;
+    if (name.endsWith('.broken')) {
+      leaveOut.add(name);
+      continue;
+    }
+    if (!name.endsWith('.json')) continue;
+    final Object? json;
+    try {
+      json = jsonDecode(await f.readAsString());
+    } on Object {
+      // Not JSON: nothing here writes one that names a book.
+      continue;
+    }
+    final without = name == 'marks.json' && json is List
+        // None of a secret book, nor of a book gone that may have been one
+        // (as Saved shows them while a shelf is shut).
+        ? [
+            for (final m in json)
+              if (m is! Map || kept.contains(m['book']) || (!ids.contains(m['book']) && m['left'] != null)) m,
+          ]
+        : _without(json, ids);
+    if (!identical(without, json)) swapped[name] = jsonEncode(without);
+  }
+  return (leaveOut: leaveOut, swapped: swapped, books: shown.entries.length);
+}
+
+/// [json] with each of [ids] taken out, or [json] itself when it names none:
+/// what is keyed by one, or by a path into its folder (a cover's), and what
+/// is one, or an object naming one in a field of its own (a quote's book,
+/// a download's).
+Object? _without(Object? json, Set<String> ids) {
+  bool names(Object? v) => v is String && (ids.contains(v) || ids.any((id) => v.contains('/books/$id/')));
+  bool tells(Object? v) => names(v) || (v is Map && v.values.any(names));
+  var changed = false;
+  if (json is Map) {
+    final out = <String, Object?>{};
+    json.forEach((k, v) {
+      if (names(k) || tells(v)) {
+        changed = true;
+        return;
+      }
+      final w = _without(v, ids);
+      changed |= !identical(w, v);
+      out['$k'] = w;
+    });
+    return changed ? out : json;
+  }
+  if (json is List) {
+    final out = <Object?>[];
+    for (final v in json) {
+      if (tells(v)) {
+        changed = true;
+        continue;
+      }
+      final w = _without(v, ids);
+      changed |= !identical(w, v);
+      out.add(w);
+    }
+    return changed ? out : json;
+  }
+  return json;
+}
+
 /// Backs the library up when one is due: on opening the app, and on coming
 /// back to it. Uses the backup writer Settings > Back up library uses,
 /// without downloaded chapters unless the reader asked for them.
@@ -77,6 +164,20 @@ class AutoBackup {
 
   static ListeningPrefs get _prefs => ListeningPrefs.loaded ?? ListeningPrefs.memory;
 
+  /// Once the backup being written, if there is one, is done.
+  static Future<void> idle() {
+    if (!running.value) return Future.value();
+    final done = Completer<void>();
+    void heard() {
+      if (running.value) return;
+      running.removeListener(heard);
+      done.complete();
+    }
+
+    running.addListener(heard);
+    return done.future;
+  }
+
   /// Check a moment after the app opens (once the shelf is up and quiet),
   /// and whenever it comes back. Not in widget tests, which have no folder.
   static void start(LibraryStore store, {Duration after = const Duration(seconds: 10)}) {
@@ -87,6 +188,8 @@ class AutoBackup {
 
   /// A backup, if one is due and a folder has been picked.
   static Future<bool> runIfDue(LibraryStore store, {DateTime? now, Folders folders = const Folders()}) async {
+    // Never of a library being restored (see RestoreGate).
+    if (RestoreGate.shut) return false;
     final p = _prefs;
     final at = now ?? DateTime.now();
     if (!backupDue(BackupEvery.byName(p.backupEvery), p.lastBackup, at)) return false;
@@ -96,7 +199,7 @@ class AutoBackup {
   /// Back up into the picked folder now, keeping the newest few. False,
   /// with [problem] saying why, when it could not.
   static Future<bool> backUpNow(LibraryStore store, {DateTime? now, Folders folders = const Folders()}) async {
-    if (running.value) return false;
+    if (running.value || RestoreGate.shut) return false;
     final p = _prefs;
     final folder = p.backupFolder;
     if (folder == null) {
@@ -108,12 +211,15 @@ class AutoBackup {
     try {
       // The places kept in memory go into library.json first (see saveCursor).
       await store.settlePlaces();
+      // A secret shelf stays out unless the reader let it in: these are made
+      // unasked, and whoever has one can open every book in it.
+      final out = p.backupSecret ? null : await secretLeftOut(store);
       final info = BackupInfo(
         format: backupFormat,
         created: at,
         root: store.root.path,
         // Counted as a backup saved by hand counts them.
-        books: (await store.list()).length,
+        books: out?.books ?? (await store.list()).length,
         chapters: p.backupChapters,
         appVersion: await const SpeechService().appVersion(),
       );
@@ -122,6 +228,8 @@ class AutoBackup {
         name: autoBackupName(at),
         manifest: jsonEncode(info.toJson()),
         includeChapters: p.backupChapters,
+        leaveOut: out?.leaveOut ?? const [],
+        swapped: out?.swapped ?? const {},
       );
       // Room for the next: the oldest automatic ones go.
       try {

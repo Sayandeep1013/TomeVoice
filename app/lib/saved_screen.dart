@@ -473,7 +473,9 @@ class _SavedScreenState extends State<SavedScreen> {
     );
   }
 
-  static String _when(DateTime t) {
+  static String _when(DateTime saved) {
+    // Kept in UTC; said on this phone's own calendar.
+    final t = saved.toLocal();
     final days = DateTime.now().difference(t).inDays;
     if (days == 0) return 'today';
     if (days == 1) return 'yesterday';
