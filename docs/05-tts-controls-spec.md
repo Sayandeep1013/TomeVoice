@@ -1,7 +1,11 @@
 # 05 — TTS Controls Spec
 
-The complete control surface. For each control: range, default, where it is applied, and
-what happens on engines that cannot do it natively.
+The complete control surface as first specified (2026-09-01). For each control: range,
+default, where it is applied, and what happens on engines that cannot do it natively.
+Where the app as of 1.4.0 differs, an **As built** note says how; a control the note does
+not mention was not built. The values the app uses are in `PipelineSettings`
+(`packages/tomevoice_audio/lib/src/types.dart`), `SpeechPreset` (`tomevoice_audio.dart`)
+and the listening sheet (`app/lib/listen_sheet.dart`).
 
 Legend for **Applied at**:
 `E` = engine-native · `D` = our DSP pipeline · `T` = text layer (before synthesis) ·
@@ -35,6 +39,14 @@ the crossover if they disagree with our judgement on their device's voices.
 
 **Per-book speed memory.** Speed is stored per book, not globally — people read fiction
 at 1.0x and skim reports at 2.5x. A global default seeds new books.
+
+**As built (1.4.0).** 0.5x to 3.0x in steps of 0.05, with presets 0.75, 1, 1.25, 1.5 and
+2. Speed is **always the voice's own rate** (`setSpeechRate` for the phone's voices, the
+model's `speed` for natural ones), never DSP: the first spike wired the resampling stub to
+the speed slider, and at 2.0x the voice went up nearly an octave (median pitch 226 Hz at
+1.0x, 444 Hz at 2.0x). There is no "prefer natural / prefer smooth" toggle. A book's own
+recorded narration, which has no rate to set, is sped up by a WSOLA stretcher that keeps
+its pitch. The speed is global unless the reader gives a book a speed of its own (1.3.0).
 
 ---
 
@@ -119,6 +131,14 @@ Why the alternatives were rejected:
 **Presets.** `Off (0)`, `Subtle (60 ms)`, `Clear (120 ms)`, `Learning (250 ms)`,
 `Maximum (400 ms)`.
 
+**As built (1.4.0).** "Space between words" in Fine-tune, 0 to 500 ms, on every voice
+(`WordGapStage`): the boundary snapped within 5 ms to the quietest frame, a 4 ms fade
+out and in, and the timings remapped. There is no row of word-gap presets; the style
+presets set it (Study 60 ms, Dyslexia 150 ms, Learning 250 ms). Per-word synthesis was not
+built. Measured on the phone's audio in the spike (2026-09-02, Google's TTS): a 120 ms gap
+measured 115 to 125 ms at every boundary, at 1.0x and at 2.0x, and the splices were
+smoother than the speech around them ([13 §13.13](13-testing-and-qa.md#1313-the-audio-spike)).
+
 ---
 
 ## 5.4 Pause shaping
@@ -151,6 +171,15 @@ Sentence and paragraph pauses are inserted by the **scheduler** as silent frames
 buffers, not baked into either sentence, so changing them takes effect immediately
 without re-synthesis.
 
+**As built (1.4.0).** Fine-tune has three pause sliders: commas (0 to 800 ms, default 150),
+between sentences (0 to 2,000 ms, default 350) and between paragraphs (0 to 3,000 ms,
+default 700). Clause (100), colon (200), dash (180) and ellipsis (300) pauses exist in
+`PunctuationPauses` and are set by the style presets, not by sliders. Between chapters the
+pause is the paragraph pause plus 400 ms; a heading is a paragraph of its own. There is no
+chime, no quote pause in use and no "scale pauses with speed" toggle. The pause after each
+sentence is chosen by the scheduler (`pauseAfter`, `listening_session.dart`) and appended
+as silence when the sentence's PCM is encoded.
+
 ---
 
 ## 5.5 Volume, gain and loudness
@@ -170,6 +199,13 @@ smoothed gain, with a limiter to catch peaks.
 
 Compression helps enormously for listening in a car or on a noisy train, which is a
 primary use case.
+
+**As built (1.4.0).** Volume (0 to 1) and "Even out loudness" (on by default) are in
+Fine-tune. Levelling measures each sentence and moves half way from the last sentence's
+gain toward its own, so the level drifts with the voice rather than jumping, with a
+limiter behind it (`GainStage`). Compression is light by default and strong in the Night
+preset; the per-voice trim is used only by Night (−6 dB). Neither has a control of its
+own.
 
 ---
 
@@ -203,6 +239,15 @@ per-entry overrides. The heuristic: all-caps tokens without vowels are spelled o
 pronounceable ones (NASA, NATO) are said as words; anything ambiguous defers to the
 dictionary.
 
+**As built (1.4.0): "say this as that"** (`reading_rules.dart`). A rule is a word, matched
+whole and in any case, and a plain-text respelling, for one book or every book; there is
+no per-language scope, no phoneme field, no regex and no acronym policy. Press and hold a
+word, "Fix how it's said", type it as it sounds, hear it, save; a book being read starts
+its sentence again, so the fix is heard at once. The page keeps the real spelling and the
+highlight still follows the word. Lists are shared as a small JSON file (plain text, a word
+and its respelling a line, is read too) and taken in on another phone, where its own rules
+win (`pronunciation_list.dart`). All rules are listed in Settings → Reading rules.
+
 ---
 
 ## 5.7 Skip rules — what gets read at all
@@ -231,6 +276,16 @@ Because these are role filters over the model, the reader can *visually* dim ski
 content while reading aloud, which makes the setting self-explanatory instead of
 mysterious.
 
+**As built (1.4.0).** Footnotes, page numbers, running heads, captions and pictures are
+not read (`defaultSkippedRoles`); notes stay on the page in small type, their markers shown
+and silent, and **Read notes aloud** reads footnotes and endnotes where they stand.
+Bracketed citations are skipped, and a web address is said as its site (on by default).
+Reading rules can also skip authors' and translators' notes in web novels, rows of symbols,
+a chapter's title said twice, and lines the reader chose ("Don't read lines like this", for
+one site or every site) ([03 §3.7](03-document-pipeline.md#37-text-normalisation-for-speech)).
+Tables are read a row at a time; front matter is passed over. There are no separate
+toggles for page numbers, captions, alt text, code or bracketed text.
+
 ---
 
 ## 5.8 Playback and navigation controls
@@ -248,6 +303,16 @@ mysterious.
 | Continuous / stop at chapter end | |
 | Sleep timer | 5/10/15/30/45/60 min, "end of chapter", "end of current sentence"; 30-second fade-out |
 | Shake to extend | Optional; extends the sleep timer by 5 minutes without unlocking |
+
+**As built (1.4.0).** Play and pause; pause waits for the word being said to finish if it
+ends within 600 ms; after a pause longer than 3 seconds, Play goes back to the start of the
+sentence. Previous and next chapter on the player, with a scrubber through the chapter (its
+time estimated at the book's speed); on headphones, the lock screen and the notification,
+next and previous go by a sentence (the default), 30 seconds or a chapter (`SkipBy`). Read
+from here: press and hold a line. The sleep timer offers 15, 30 or 60 minutes or the end of
+the chapter, and fades out over the last 30 seconds; at the chapter's end it pauses only
+when the voice gets there. Not built: paragraph skips, repeat sentence, A-B repeat, "stop
+at chapter end", shake to extend.
 
 ---
 
@@ -272,6 +337,15 @@ highlighting is disabled in favour of sentence-level, with a note explaining tha
 precise highlighting needs a different voice. Better an honest coarse highlight than a
 confident wrong one.
 
+**As built (1.4.0).** One style: the sentence washed in the book's colour and the word
+under the voice lit. The word is lit wherever its timing is the engine's or anchored to a
+pause ([04 §4.7](04-tts-engine-contract.md#47-deriving-word-timings-for-neural-engines));
+in a stretch where it is only `estimated`, the sentence alone is marked. The page follows
+the voice, with "Back to reading" after the reader scrolls away, and on pages the page turns
+when the voice reads onto the next one. **Highlight timing**, −200 to +400 ms, is kept for
+each route (Bluetooth, and the speaker and wired headphones). There are no choices of
+granularity or style.
+
 ---
 
 ## 5.10 Multi-voice and language
@@ -286,6 +360,14 @@ confident wrong one.
 
 Per-character voices for dialogue are explicitly a v2 idea; doing it well needs speaker
 attribution, which is a research problem, not a settings toggle.
+
+**As built (1.4.0): voice per language and a dialogue voice.** Each language keeps the
+voice last chosen for it, and a book can have its own voice
+([04 §4.9](04-tts-engine-contract.md#49-engine-selection-and-fallback)). A **dialogue
+voice**, chosen per book, reads the words inside quotation marks (“ ”, " ", « », 「 」, „ “),
+the narrator the rest; a sentence is made in pieces, one per voice, joined with no gap and
+its word timings shifted per piece (`dialogue.dart`). There is no automatic switching by
+language within a book, and no heading voice or pitch offset.
 
 **As built (2026-10-31): a voice per character, experimental** (`speakers.dart`, `cast.dart`).
 Who says each quotation is found from English speech tags on either side of it ("…," said
@@ -324,6 +406,14 @@ have to use it.
 
 Presets are editable and users can save their own.
 
+**As built (1.4.0).** Seven style presets (`SpeechPreset.all`), named Natural, Audiobook,
+Study, Skim, Dyslexia, Learning and Night, with the speed, word gap and pauses above;
+Audiobook adds paragraph 900 ms and light compression, Night strong compression and
+−6 dB. A preset sets only the voice's sound: none of the "Other" column beyond loudness
+was built (footnotes, skipped captions, A-B repeat, per-word synthesis, a sleep timer).
+Changing any value in Fine-tune makes the style custom; presets cannot be saved under a
+name of one's own.
+
 ---
 
 ## 5.12 Settings persistence and scope
@@ -338,3 +428,10 @@ Per-book overrides are the important nuance: a user who reads novels at 1.0x and
 at 2.0x should never have to change the setting twice, and per-device scoping means a
 phone and a PC can have different downloaded voices without fighting each other during
 sync.
+
+**As built (1.4.0).** Everything lives in `prefs.json` ([11](11-data-model-and-storage.md)):
+globally the style and its values, the voice for each language, each phone voice's pitch,
+the highlight timing per route and what the skip buttons do; per book its voice, dialogue
+voice, character voices and (if given) its own speed; the place in the book's own
+`cursor.json`. Downloaded voices are the phone's own and never backed up. Opt-in sync
+carries places, quotes, bookmarks and listening time, not voices.

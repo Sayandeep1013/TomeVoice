@@ -6,8 +6,9 @@
 |---|---|
 | Minimum SDK | 26 (Android 8.0) |
 | Target SDK | **36 (Android 16)** |
-| ABIs | arm64-v8a (primary), armeabi-v7a, x86_64 |
-| Distribution | Google Play (AAB), plus a direct APK for sideloaders |
+| ABIs | arm64-v8a (the main APK), armeabi-v7a (`TomeVoice-<version>-32bit.apk`); x86_64 only for CI's emulator |
+| Distribution | APKs on GitHub Releases, signed with one key so each update installs over the last; the app offers new versions itself. No Play build for now ([18](18-play-store-audit.md)) |
+| Application id | `app.tomevoice` since 0.6 (never to change again); the Kotlin package is still `app.tomevoice.tomevoice_spike` |
 
 **The target-SDK deadline has already passed.** As of 31 August 2026, new apps and
 updates on Google Play must target Android 16 (API 36); existing apps must target at
@@ -16,11 +17,16 @@ app. There is no version of this project that ships targeting anything older, so
 is a starting constraint rather than a migration task — which is a small mercy.
 
 **16 KB page alignment is mandatory.** Android 16 supports devices with a 16 KB memory
-page size, and every native library we ship must be aligned to 16 KB boundaries. We ship
-several: ONNX Runtime, PDFium, miniaudio, our DSP core. Every one must be built with
-16 KB alignment and verified in CI — this is a build-flag problem, not a code problem,
-but it fails at *runtime on real devices* rather than at build time, so it needs an
-explicit automated check. See [C-28](09-challenges-and-solutions.md#c-28).
+page size, and every native library we ship must be aligned to 16 KB boundaries. It is a
+build-flag problem, not a code problem, but it fails at *runtime on real devices* rather
+than at build time, so it needs an explicit automated check. See
+[C-28](09-challenges-and-solutions.md#c-28).
+
+*As built:* the native libraries come in through packages (Flutter's engine, sherpa-onnx
+with ONNX Runtime, QuickJS, Tesseract with Leptonica, libjpeg and libpng); there is no
+native code of TomeVoice's own. CI's "Check the APKs" step runs `tools/check_16kb.py` on
+each APK: OCR's libraries must be aligned (a failure stops the run), and any other 64-bit
+library that is not is warned about. 32-bit phones have 4 KB pages only.
 
 **Memory limits are tightening.** Android 17 introduces explicit per-app memory limits.
 Combined with Kokoro's several-hundred-megabyte runtime footprint, this makes device
@@ -61,7 +67,7 @@ Constraints to respect:
     MediaSession, not from the notification's actions. Its controls are the
     PlaybackState's: play/pause, previous/next (by chapter), a seek bar through the
     chapter (`ACTION_SEEK_TO` plus `METADATA_KEY_DURATION`), and up to two custom actions
-    (here, speed). The picture is `METADATA_KEY_ALBUM_ART`, and the card takes its colours
+    (here, speed and Save). The picture is `METADATA_KEY_ALBUM_ART`, and the card takes its colours
     from it. The notification's small icon is drawn top left, so it must be the app's
     mark, not a state. The notification's own actions (with Stop) still serve Android 12
     and older.
@@ -75,7 +81,7 @@ Metadata should read like an audiobook: book title as album, chapter as track, a
 artist, cover as artwork, and duration/position from the scheduler's estimate so the
 scrubber works.
 
-**As built (branch `feat-auto`): the voice outlives the activity.** Reading is Dart's
+**As built (1.4.0): the voice outlives the activity.** Reading is Dart's
 (the scheduler, `BackgroundReading`), so the Flutter engine must outlive `MainActivity`:
 
 - **One engine.** `ReadingCore.kt` keeps a single `FlutterEngine` in
@@ -118,7 +124,7 @@ scrubber works.
 | Resume card's Play | System UI binds with `EXTRA_RECENT` and calls `prepare`/`play`; nothing reading: the service goes foreground at once with the book (buffering), `ReadingCore.play` starts the engine at `backgroundMain` if none, Dart takes the request (`MediaRequests`) and reads it from its place (`BackgroundReading.playFromOutside`) |
 | Headset Play, app closed | The session's media button receiver (a `getForegroundService` PendingIntent to the service, kept by Android across reboots) starts the service with the key: Play, as above |
 | Android Auto | Binds to the browser: "Continue" (the book read last) and "Recent", playable, with covers and progress; a book picked carries on if it is the one on the card, else Dart switches (a page reading another book stops) |
-| Open with, Share | `OpenActivity` hands the file to MainActivity in TomeVoice's own task (fix-core); with a book reading and no activity, that MainActivity rejoins the engine and imports it (`openFile`, or `pendingOpen` once the shelf is built) |
+| Open with, Share | `OpenActivity` hands the file to MainActivity in TomeVoice's own task (1.3.0); with a book reading and no activity, that MainActivity rejoins the engine and imports it (`openFile`, or `pendingOpen` once the shelf is built) |
 | A widget's play | With a reading on the card, to the service (play or pause); otherwise it opens the app and plays, as before |
 | Restore, in-app update | The process ends (unchanged) |
 
@@ -184,11 +190,11 @@ Mitigation, in order:
 Point 4 is the real defence: we cannot always prevent being killed, but we can make
 being killed nearly harmless.
 
-*As built (branch `feat-auto`):* Settings > Listening > **Keep reading with the screen
+*As built (1.4.0):* Settings > Listening > **Keep reading with the screen
 off** says whether Android's battery optimisation leaves TomeVoice alone
 (`PowerManager.isIgnoringBatteryOptimizations`) and opens Android's own question
 (`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, which needs the
-`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` permission: a Play concern, docs/18), else the
+`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` permission: a Play concern, [18](18-play-store-audit.md)), else the
 list of apps, else the app's settings page. On Xiaomi (Redmi, POCO), Samsung, OPPO,
 realme, OnePlus, vivo (iQOO), Huawei and Honor a line under it links to the maker's
 page on dontkillmyapp.com (Honor's is the Huawei page; there is none for Nothing,
@@ -213,6 +219,15 @@ Android's Storage Access Framework is the only sanctioned route to user files.
 - **Share target.** Register for the relevant MIME types so "Open with TomeVoice" works
   from any file manager, email client or browser download.
 
+*As built (1.4.0):* Add books opens `ACTION_OPEN_DOCUMENT` for any type (`*/*`), several
+files at once, with no MIME filter: Android often labels an `.epub` as a zip or
+octet-stream, and a filtered picker hid them. Every book is **copied** into the library
+folder (`books/<id>/source.<ext>`, [11](11-data-model-and-storage.md)); there is no
+"link without copying" and no watched folder. Open with and Share to TomeVoice go through
+`OpenActivity`, which hands the file (or the shared link or words) to the TomeVoice
+already open. A folder is picked with `ACTION_OPEN_DOCUMENT_TREE` only for automatic
+backups. No `MANAGE_EXTERNAL_STORAGE`.
+
 ## 7.6 Size and delivery
 
 The base AAB must stay small. The large contributors are ONNX Runtime, PDFium, and the
@@ -225,6 +240,13 @@ Flutter engine itself.
   measuring.
 - Play's compressed download limit for an AAB is 200 MB before additional delivery
   mechanisms are needed; our budget of ~120 MB leaves headroom.
+
+*As built (1.4.0):* no AAB. Each release has one APK per CPU, built with only that CPU's
+native code (`TV_ABIS` in CI; `abiFilters` alone was ignored, so `prepare_android.py`
+excludes the rest at packaging) and with native libraries stored compressed
+(`useLegacyPackaging`). The APK was about 27 MB at 1.0.0 and has carried OCR and an MP3
+encoder since; CI prints each APK's size beside the latest release's. No voice is in the
+APK.
 
 ## 7.7 Accessibility
 
@@ -242,7 +264,17 @@ usual.
   own size control).
 - Minimum touch targets 48 dp; the play/pause target should be considerably larger.
 
+*As built (1.4.0):* TalkBack reads the pages and turns them (1.3.0), with the page turns
+and the bars as accessibility actions. Small type, icons and controls meet WCAG AA contrast
+in every theme, the word being read included (`contrast.dart`). The player's chips and
+scrubber take taps in a band around them, though the upright player's scrubber reaches
+39 dp, not 48 ([12](12-roadmap-and-milestones.md)). Not built: ducking or pausing the book
+during TalkBack's own announcements.
+
 ## 7.8 Play Store compliance checklist
+
+No Play build is planned for now. [18 — Play Store Audit](18-play-store-audit.md) lists
+what a Play build would have to leave out; this checklist is kept for that day.
 
 - Target API 36; native libraries 16 KB aligned.
 - Foreground service type declared, with a Play Console justification for

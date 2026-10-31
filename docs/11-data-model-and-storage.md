@@ -45,7 +45,8 @@ app_update.json         the update check's state; names the APK to install, neve
 .restore-report.txt     what the last restore did, shown once
 incoming/<uuid>/<name>  a file picked or opened from another app, while it is imported;
                         swept after an hour if a crash left it
-voices/                 downloaded natural voices (64 to 334 MB each); never backed up
+voices/                 downloaded natural voices (a 25 to 334 MB download each); never
+                        backed up
 ocr/tessdata/           OCR language data, downloaded on request; never backed up
 ```
 

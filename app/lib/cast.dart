@@ -11,8 +11,8 @@ import 'scheduler.dart' show SpeakerVoices;
 import 'speakers.dart';
 import 'voices.dart';
 
-// A voice for each of a book's characters ("Level 2" in
-// docs/road-to-1.0.html): who says each quotation is found from the book's
+// A voice for each of a book's characters ("Level 2" of the 1.0 plan; see
+// docs/05 section 5.10): who says each quotation is found from the book's
 // speech tags (speakers.dart), and the lines of a character given a voice
 // are read in it, aloud and in Save as audio alike. Everyone else's, and
 // every line it cannot place, stay in the dialogue voice.
