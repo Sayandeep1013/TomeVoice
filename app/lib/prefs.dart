@@ -45,6 +45,8 @@ class ListeningPrefs {
     this.keepReading = true,
     this.notesAloud = false,
     this.keepScreenOn = false,
+    this.pageBrightness,
+    this.pageWarmth = 0,
     this.themeMode = ThemeMode.system,
     this.paletteId = 'forest',
     this.updateEvery = 'daily',
@@ -247,6 +249,13 @@ class ListeningPrefs {
   /// Keep the display awake while a book is open.
   bool keepScreenOn;
 
+  /// The screen's brightness while a book is open, 0 (darker than the phone
+  /// goes) to 1 (full); null leaves it as the phone has it (see PageLight).
+  double? pageBrightness;
+
+  /// Amber over the page for reading at night, 0 (none) to 1.
+  double pageWarmth;
+
   /// Light, dark, or the phone's choice.
   ThemeMode themeMode;
 
@@ -391,6 +400,8 @@ class ListeningPrefs {
         'keepReading': keepReading,
         if (notesAloud) 'notesAloud': true,
         'keepScreenOn': keepScreenOn,
+        if (pageBrightness != null) 'pageBrightness': pageBrightness,
+        if (pageWarmth > 0) 'pageWarmth': pageWarmth,
         'themeMode': themeMode.name,
         'palette': paletteId,
         'updateEvery': updateEvery,
@@ -474,6 +485,8 @@ class ListeningPrefs {
         keepReading: json['keepReading'] != false,
         notesAloud: json['notesAloud'] == true,
         keepScreenOn: json['keepScreenOn'] == true,
+        pageBrightness: (json['pageBrightness'] as num?)?.toDouble().clamp(0.0, 1.0).toDouble(),
+        pageWarmth: ((json['pageWarmth'] as num?)?.toDouble() ?? 0).clamp(0.0, 1.0).toDouble(),
         themeMode: ThemeMode.values.where((m) => m.name == json['themeMode']).firstOrNull ??
             ThemeMode.system,
         gridView: json['gridView'] as bool? ?? true,

@@ -6,6 +6,7 @@ import 'package:tomevoice_audio/tomevoice_audio.dart';
 import 'book_tint.dart';
 import 'neural_screen.dart';
 import 'neural_voices.dart';
+import 'page_light.dart';
 import 'page_tone.dart';
 import 'paged_view.dart' show PageTurn;
 import 'prefs.dart';
@@ -34,6 +35,7 @@ class ListenController {
     this.onPreview,
     this.isPlaying,
     this.isPdf = false,
+    this.light,
   });
 
   final ListeningPrefs prefs;
@@ -65,6 +67,10 @@ class ListenController {
 
   /// The book is a PDF, so the page view can be offered.
   final bool isPdf;
+
+  /// The page's light, moved by the Read tab's sliders as they move: only
+  /// an open book's page has it.
+  final ValueNotifier<PageLight>? light;
 
   Timer? _sampleTimer;
 
@@ -729,6 +735,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
   // ------------------------------------------------------------------ read
 
   List<Widget> _read(BuildContext context) => [
+        if (widget.controller.light case final light?) ..._light(context, light),
         ReadingControls(
           prefs: _prefs,
           isPdf: widget.controller.isPdf,
@@ -740,6 +747,71 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
           },
         ),
       ];
+
+  /// The page's light: how bright (at the left end, darker than the phone
+  /// goes) and how warm, and the phone's own again. The page follows the
+  /// sliders as they move; they are kept when let go.
+  List<Widget> _light(BuildContext context, ValueNotifier<PageLight> light) {
+    final now = PageLight.of(_prefs);
+    final brightness = now.brightness;
+    void set({double? to, double? warmth, bool keep = false}) {
+      setState(() {
+        if (to != null) _prefs.pageBrightness = to;
+        if (warmth != null) _prefs.pageWarmth = warmth;
+      });
+      light.value = PageLight.of(_prefs);
+      if (keep) _prefs.save();
+    }
+
+    String bright(double v) => v < PageLight.below
+        ? 'Darker than the phone'
+        : '${((v - PageLight.below) / (1 - PageLight.below) * 100).round()}%';
+    String warm(double v) => v <= 0 ? 'Off' : '${(v * 100).round()}%';
+    return [
+      const SectionTitle('Light'),
+      const SizedBox(height: Gap.m),
+      LabeledSlider(
+        label: 'Brightness',
+        value: brightness ?? PageLight.resting,
+        min: 0,
+        max: 1,
+        display: brightness == null ? 'As the phone is' : bright(brightness),
+        note: 'At its left end, darker than the phone goes.',
+        spoken: (v) => brightness == null && v == PageLight.resting ? 'As the phone is' : bright(v),
+        onChanged: (v) => set(to: v),
+        onChangeEnd: (v) => set(to: v, keep: true),
+      ),
+      LabeledSlider(
+        label: 'Warmth',
+        value: now.warmth,
+        min: 0,
+        max: 1,
+        display: warm(now.warmth),
+        note: 'Amber over the page, for reading at night.',
+        spoken: warm,
+        onChanged: (v) => set(warmth: v),
+        onChangeEnd: (v) => set(warmth: v, keep: true),
+      ),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          onPressed: now.isPhone
+              ? null
+              : () {
+                  setState(() {
+                    _prefs.pageBrightness = null;
+                    _prefs.pageWarmth = 0;
+                  });
+                  light.value = PageLight.phone;
+                  _prefs.save();
+                },
+          icon: const Icon(Icons.restart_alt_rounded, size: 18),
+          label: const Text('As the phone is'),
+        ),
+      ),
+      const SizedBox(height: Gap.xl),
+    ];
+  }
 }
 
 /// The common speeds: the speed sheet's row, and the steps of the media
@@ -1046,6 +1118,7 @@ class LabeledSlider extends StatelessWidget {
     required this.onChanged,
     required this.onChangeEnd,
     this.note,
+    this.spoken,
   });
 
   final String label;
@@ -1058,6 +1131,10 @@ class LabeledSlider extends StatelessWidget {
 
   /// A line under the slider about what it does.
   final String? note;
+
+  /// The value as a screen reader says it ("40%"), where the number alone
+  /// would not say it.
+  final String Function(double value)? spoken;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -1083,7 +1160,7 @@ class LabeledSlider extends StatelessWidget {
                 value: value.clamp(min, max),
                 min: min,
                 max: max,
-                semanticFormatterCallback: (v) => '$label ${v.toStringAsFixed(2)}',
+                semanticFormatterCallback: (v) => '$label ${spoken?.call(v) ?? v.toStringAsFixed(2)}',
                 onChanged: onChanged,
                 onChangeEnd: onChangeEnd,
               ),

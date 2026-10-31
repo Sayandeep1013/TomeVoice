@@ -20,6 +20,7 @@ import 'listen_sheet.dart';
 import 'marks.dart';
 import 'neural_voices.dart';
 import 'now_playing.dart';
+import 'page_light.dart';
 import 'page_style.dart';
 import 'page_tone.dart';
 import 'paged_view.dart';
@@ -413,6 +414,15 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   bool get _isPdf => _book.source == SourceKind.pdf && widget.sourcePath != null;
   bool get _showPages => _isPdf && _prefs.pdfPages;
 
+  /// The page's brightness and warmth (see PageLight): moved by the sheet's
+  /// sliders as they move, and taken from the prefs when they change.
+  late final _light = ValueNotifier<PageLight>(PageLight.of(_prefs));
+
+  /// The brightness the window was last given (null: the phone's own), and
+  /// the wait before a moving slider's newest is sent.
+  double? _window;
+  Timer? _windowTimer;
+
   @override
   void initState() {
     super.initState();
@@ -432,6 +442,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     unawaited(_catalog.ensureLoaded());
     ListeningPrefs.revision.addListener(_onPrefs);
     ReadingRules.instance.changes.addListener(_onRules);
+    _light.addListener(_applyLight);
+    _sendWindow();
     unawaited(_loadPrefs());
     unawaited(_reader.loadCover());
     if (_reader.resumeAt >= 0) {
@@ -497,6 +509,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final p = await ListeningPrefs.load(dir);
     if (!mounted) return;
     setState(() => _reader.prefs = p);
+    _light.value = PageLight.of(p);
     _wasPaged = _inPages;
     _layoutKey = _layoutOf(p);
     _applyScreenOn();
@@ -540,11 +553,50 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     unawaited(_svc.keepScreenOn(_screenOn));
   }
 
+  /// The window's brightness as the page's light asks: sent as a slider
+  /// moves (every 50 ms at most, its newest last), and the phone's own again
+  /// as the book closes (see dispose). Nothing is sent while the light is
+  /// the phone's.
+  void _applyLight() {
+    if (_windowTimer?.isActive ?? false) return;
+    _sendWindow();
+    _windowTimer = Timer(const Duration(milliseconds: 50), _windowLater);
+  }
+
+  /// The slider's newest, once the wait is up, and the wait again after it.
+  void _windowLater() {
+    final before = _window;
+    _sendWindow();
+    if (_window != before) _windowTimer = Timer(const Duration(milliseconds: 50), _windowLater);
+  }
+
+  /// The page whose light the window has. A page opened over another (a
+  /// web novel's next chapter) takes it, and the one that goes gives it
+  /// back only if it is still its own.
+  static _ReaderScreenState? _windowHolder;
+
+  void _sendWindow() {
+    if (!mounted) return;
+    final level = _light.value.window;
+    if (level == null) {
+      if (_window == null) return;
+      _window = null;
+      if (!identical(_windowHolder, this)) return;
+      _windowHolder = null;
+    } else {
+      if (level == _window && identical(_windowHolder, this)) return;
+      _window = level;
+      _windowHolder = this;
+    }
+    unawaited(_svc.screenBrightness(level));
+  }
+
   /// Font, size, spacing or theme changed somewhere (this book's sheet, or
   /// Settings): redraw the page.
   void _onPrefs() {
     if (!mounted) return;
     _applyScreenOn();
+    _light.value = PageLight.of(_prefs);
     final paged = _inPages;
     if (paged != _wasPaged) {
       // Pages open at what is on screen; the scroll comes back at the page.
@@ -638,6 +690,14 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _eyesTimer?.cancel();
     _backTimer?.cancel();
     _insetsTimer?.cancel();
+    // The phone's own brightness again, as the book closes.
+    _windowTimer?.cancel();
+    if (identical(_windowHolder, this)) {
+      _windowHolder = null;
+      unawaited(_svc.screenBrightness(null));
+    }
+    _light.removeListener(_applyLight);
+    _light.dispose();
     if (_fullScreen) unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
     if (_volumeKeys) unawaited(_svc.volumeKeysTurnPages(false));
     WidgetsBinding.instance.removeObserver(this);
@@ -674,6 +734,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       _away = true;
       return;
     }
+    // Back in front, perhaps in a window of its own (TomeVoice closed and
+    // opened again while the book read on): the page's brightness again.
+    if (identical(_windowHolder, this)) unawaited(_svc.screenBrightness(_window));
     // Back in front: the phone's bars a system sheet brought go again in a
     // moment. Insets still changed after that are followed.
     _backTimer = Timer(const Duration(milliseconds: 600), () {
@@ -751,6 +814,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         isPlaying: () =>
             _player.state.value == PlayState.playing || _player.state.value == PlayState.loading,
         isPdf: _isPdf,
+        light: _light,
       );
 
   /// Say the sentence under the cursor in [voiceName], so a voice is judged
@@ -1256,10 +1320,21 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                     // have it over their paper, which hid all but the strip
                     // under the screen's edge: see _pagedReading.)
                     if (!rail && !paged) glow else const SizedBox.shrink(),
+                    // The page's light past the safe area, where there is
+                    // only the ground; inside it, each part of the page
+                    // takes its own (see _overLight), and the bars none.
+                    Positioned(
+                      left: -insets.left,
+                      top: -insets.top,
+                      right: -insets.right,
+                      bottom: -insets.bottom,
+                      child: LightVeil(light: _light, around: insets),
+                    ),
                     KeyedSubtree(key: ValueKey(paged), child: reading),
                     // The text fades out before the dock, instead of showing
                     // in the gap beneath it. Out to the screen's edges like
                     // the glow: stopping at the safe area, its edge showed.
+                    // In the page's light, as the text under it is.
                     if (rail && !paged)
                     Positioned(
                       left: -insets.left,
@@ -1267,13 +1342,19 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                       bottom: -insets.bottom,
                       height: 96 + insets.bottom,
                       child: IgnorePointer(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [Skin.groundFoot(context).withValues(alpha: 0), Skin.groundFoot(context)],
-                              stops: const [0, 0.55],
+                        child: ValueListenableBuilder<PageLight>(
+                          valueListenable: _light,
+                          builder: (context, light, _) => DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  light.lit(Skin.groundFoot(context)).withValues(alpha: 0),
+                                  light.lit(Skin.groundFoot(context)),
+                                ],
+                                stops: const [0, 0.55],
+                              ),
                             ),
                           ),
                         ),
@@ -1338,7 +1419,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     return Column(
       children: [
         // A PDF's real pages keep the bars: a tap there reads from the page.
-        FoldingBar(shown: _scrollBars, keep: _showPages, top: true, child: _topBar(context)),
+        _overLight(FoldingBar(shown: _scrollBars, keep: _showPages, top: true, child: _topBar(context))),
         Expanded(
           child: Stack(
             children: [
@@ -1374,6 +1455,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                         ),
                 ),
               ),
+              // The page's light over the text (or the real pages), under
+              // the pills.
+              Positioned.fill(child: LightVeil(light: _light)),
               ValueListenableBuilder<bool>(
                 valueListenable: _scrollBars,
                 builder: (context, shown, pill) => AnimatedPositioned(
@@ -1396,10 +1480,20 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             ],
           ),
         ),
-        if (!rail) FoldingBar(shown: _scrollBars, keep: _showPages, top: false, child: bar),
+        if (!rail) _overLight(FoldingBar(shown: _scrollBars, keep: _showPages, top: false, child: bar)),
       ],
     );
   }
+
+  /// [bar] over the page's light: the ground under it takes the light as
+  /// the text beside it does, the bar itself none, so the bars and the
+  /// player read as they always do. Folding away, its light goes with it,
+  /// and the text's takes the room.
+  Widget _overLight(Widget bar) => Stack(
+        // The player's shadow reaches out past its room.
+        clipBehavior: Clip.none,
+        children: [Positioned.fill(child: LightVeil(light: _light)), bar],
+      );
 
   /// A tap on the scrolling text puts the bars away or brings them back.
   /// The paragraphs take no tap of their own (pictures do, and keep it);
@@ -1609,6 +1703,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             textDirection: _direction,
           )),
         ),
+        // The page's light over the pages, under the bars; the fades the
+        // bars stand on are drawn in it, so they meet the page with no seam.
+        Positioned.fill(child: LightVeil(light: _light)),
         Positioned(
           top: 0,
           left: 0,
@@ -1616,14 +1713,18 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           child: SlidingBar(
             shown: _chrome,
             top: true,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [ground, ground, ground.withValues(alpha: 0)],
-                  stops: const [0, 0.7, 1],
+            child: ValueListenableBuilder<PageLight>(
+              valueListenable: _light,
+              builder: (context, light, bar) => DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [light.lit(ground), light.lit(ground), light.lit(ground).withValues(alpha: 0)],
+                    stops: const [0, 0.7, 1],
+                  ),
                 ),
+                child: bar,
               ),
               child: Padding(padding: const EdgeInsets.only(bottom: 14), child: _topBar(context)),
             ),
@@ -1677,13 +1778,16 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                   top: 0,
                   bottom: -insets.bottom,
                   child: IgnorePointer(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [foot.withValues(alpha: 0), foot, foot],
-                          stops: const [0, 0.3, 1],
+                    child: ValueListenableBuilder<PageLight>(
+                      valueListenable: _light,
+                      builder: (context, light, _) => DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [light.lit(foot).withValues(alpha: 0), light.lit(foot), light.lit(foot)],
+                            stops: const [0, 0.3, 1],
+                          ),
                         ),
                       ),
                     ),
