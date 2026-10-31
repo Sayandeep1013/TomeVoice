@@ -160,18 +160,37 @@ Future<void> settleSwap(Directory root) async {
   if (j['done'] == true) {
     if (await aside.exists()) await aside.delete(recursive: true);
   } else {
+    final staged = stagingDir(root);
     for (final name in (j['in'] as List? ?? const []).cast<String>()) {
+      // Only what the swap brought in: never a dot-file (its own folders,
+      // this journal, the secrets) or what stays on the phone, nor a name
+      // still in the unpacked backup, whose move never happened. Deleting a
+      // ".before-restore" a crafted backup named deleted the library.
+      if (!_swapped(name) || await _exists('${staged.path}/$name')) continue;
       final path = '${root.path}/$name';
       if (await _exists(path)) await _entity(path).delete(recursive: true);
     }
     for (final name in (j['aside'] as List? ?? const []).cast<String>()) {
+      if (!_swapped(name)) continue;
       final from = '${aside.path}/$name';
       if (await _exists(from)) await _entity(from).rename('${root.path}/$name');
     }
-    if (await aside.exists()) await aside.delete(recursive: true);
+    // Emptied, it goes; anything left in it is kept, under another name.
+    if (await aside.exists()) {
+      if (await aside.list().isEmpty) {
+        await aside.delete();
+      } else {
+        await aside.rename('${aside.path}-${DateTime.now().millisecondsSinceEpoch}');
+      }
+    }
   }
   await journal.delete();
 }
+
+/// Whether [name] is one a swap moves: a plain name at the library's top,
+/// not a dot-file, nor what stays on the phone.
+bool _swapped(String name) =>
+    name.isNotEmpty && !name.startsWith('.') && !name.contains('/') && !name.contains(r'\') && !keptOnPhone.contains(name);
 
 Future<bool> _exists(String path) async => await FileSystemEntity.type(path) != FileSystemEntityType.notFound;
 
@@ -198,6 +217,12 @@ Future<void> checkStaged(StagedBackup staged, Directory root) async {
   final index = File('${staged.dir.path}/library.json');
   if (!await index.exists()) {
     throw const FormatException('That backup has no library in it.');
+  }
+  // A backup never holds a dot-file or dot-folder at its top (the unpacker
+  // refuses one too): those are a restore's own, and a ".before-restore"
+  // brought in made a replace delete the library it had moved aside.
+  await for (final e in staged.dir.list()) {
+    if (_name(e).startsWith('.')) throw const FormatException('That backup is damaged or was not made by TomeVoice.');
   }
   // Every book's id becomes a folder name: one that is not a book id (a
   // "..") could delete or replace folders outside the books. And every
@@ -266,7 +291,8 @@ Future<void> replaceLibrary(Directory root, StagedBackup staged) async {
     }
     await for (final e in staged.dir.list()) {
       final name = _name(e);
-      if (keptOnPhone.contains(name)) continue;
+      // Never a dot-file (checkStaged refuses a backup with one).
+      if (!_swapped(name)) continue;
       movedIn.add(name);
       await note();
       await e.rename('${root.path}/$name');

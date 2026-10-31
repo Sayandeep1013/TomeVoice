@@ -143,12 +143,18 @@ object LibraryBackup {
                     manifest = zip.readBytes().toString(Charsets.UTF_8)
                     continue
                 }
+                // A backup never holds a dot-file or dot-folder at its top:
+                // those are a restore's own (.restore, .before-restore, its
+                // journal) and the passwords'. One brought in could make a
+                // replace delete the library it was moving aside.
+                val top = entry.name.substringBefore('/')
+                if (top.startsWith(".")) throw IllegalStateException("That backup has files TomeVoice never puts in one")
                 // Older backups carried the natural voices: left out, so a
                 // restore keeps the phone's own (and no megabytes are spent).
                 // No backup carries OCR data, and one that did is not trusted.
-                // Nor another phone's error log.
-                val top = entry.name.substringBefore('/')
-                if (top == "voices" || top == "ocr" || entry.name == ErrorLog.FILE) continue
+                // Nor another phone's error log, nor anything else a backup
+                // leaves out (skip).
+                if (skip(entry.name, true)) continue
                 val dest = File(staging, entry.name)
                 // A name like "../../x" must not write outside the staging folder.
                 if (!dest.canonicalPath.startsWith(base)) {

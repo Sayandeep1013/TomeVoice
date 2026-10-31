@@ -154,6 +154,57 @@ void main() {
     });
   });
 
+  group('a backup with a dot-file or dot-folder at its top', () {
+    // As a crafted zip unpacks: the restore's own folder and journal.
+    void crafted() {
+      put(staging, 'library.json', {
+        'books': [book('theirs')],
+      });
+      put(staging, '.before-restore/library.json', {'books': []});
+      put(staging, '.restore-journal.json', {
+        'aside': [],
+        'in': ['books', 'library.json'],
+        'done': false,
+      });
+    }
+
+    test('is refused', () async {
+      crafted();
+      await expectLater(checkStaged(staged(), root), throwsA(isA<FormatException>()));
+    });
+
+    test('never makes a replace delete the library: none is brought in', () async {
+      put(root, 'library.json', {
+        'books': [book('mine')],
+      });
+      put(root, 'books/mine/cursor.json', {'x': 1});
+      crafted();
+      await replaceLibrary(root, staged());
+      expect([for (final b in read(root, 'library.json')['books'] as List) (b as Map)['id']], ['theirs']);
+      expect(Directory('${root.path}/.before-restore').existsSync(), isFalse);
+      expect(File('${root.path}/.restore-journal.json').existsSync(), isFalse);
+    });
+
+    test('an undo never deletes the folder the library was moved aside to', () async {
+      put(root, '.before-restore/library.json', {
+        'books': [book('mine')],
+      });
+      put(root, '.before-restore/books/mine/cursor.json', {'x': 1});
+      put(root, 'library.json', {
+        'books': [book('theirs')],
+      });
+      put(root, '.restore-journal.json', {
+        'aside': ['library.json', 'books'],
+        'in': ['.before-restore', 'library.json'],
+        'done': false,
+      });
+      await clearStaleRestore(root);
+      expect([for (final b in read(root, 'library.json')['books'] as List) (b as Map)['id']], ['mine']);
+      expect(read(root, 'books/mine/cursor.json')['x'], 1);
+      expect(Directory('${root.path}/.before-restore').existsSync(), isFalse);
+    });
+  });
+
   test('a backup whose books do not read as the library reads them is refused', () async {
     put(staging, 'library.json', {
       'books': [
