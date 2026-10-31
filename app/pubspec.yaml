@@ -25,7 +25,7 @@ dependencies:
   material_color_utilities: any
   # Natural voices made on the phone (Piper models through sherpa-onnx).
   # Apache-2.0. Pinned: 2.0 drops the eSpeak data Piper voices rely on
-  # (docs/14, recheck triggers).
+  # (docs/10, recheck triggers).
   sherpa_onnx: 1.13.8
   # Unpacking downloaded voices (tar.bz2). MIT.
   archive: ^4.0.7

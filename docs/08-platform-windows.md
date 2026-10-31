@@ -1,5 +1,13 @@
 # 08 — Platform: Windows
 
+> **Not started. Windows is a "maybe later", not a plan.** TomeVoice is Android only
+> (1.4.0, 31 October 2026); there is no Windows build, no Windows code and no date. What
+> follows is the research done before the first line was written (2026-09-01), kept so a
+> Windows version, if it comes, does not start from nothing. It has not been checked
+> against current Windows or Flutter since, and parts of it assume a design that was not
+> built: the Android app plays through its own `AudioTrack` player, not `miniaudio`, and
+> renders EPUBs with Flutter text, not a WebView ([02 §2.3](02-architecture.md#23-technology-choices)).
+
 ## 8.1 Targets
 
 | | |
@@ -73,8 +81,9 @@ platforms.
 
 ## 8.4 Audio output
 
-We use one audio backend (`miniaudio`) on both platforms specifically so that device
-handling is one implementation, not two.
+The plan was one audio backend (`miniaudio`) on both platforms, so that device handling
+would be one implementation, not two. Android ended up with its own streaming
+`AudioTrack` (`PcmPlayer.kt`), so a Windows version would need a player of its own.
 
 Windows-specific behaviours to handle:
 
@@ -144,6 +153,8 @@ The desktop is not a big phone, and the differences worth honouring:
 - **Mouse-wheel and trackpad** scrolling that feels native, not mobile-ported.
 
 ## 8.8 Windows checklist
+
+Nothing below is done; it is the list to start from.
 
 - WinRT speech plugin built for x64 and arm64.
 - SMTC wired to the shared playback session.

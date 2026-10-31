@@ -1,634 +1,29 @@
-# 16 — Session Handoff
-
-**As of 2026-10-30.** Everything needed to pick this up cold.
-
----
-
-## 0+++++++. Checkpoint (2026-10-30, evening): the voice outlives the app; resume card, Android Auto, battery help
-
-Branch `feat-auto` (from `fix-core`, with its a5181f4 merged in). Not merged or
-released. Dart analyze and tests pass locally; **the Kotlin has only been reviewed:
-CI is its first compiler.** Nothing was tried on a phone. Details and the table of
-every lifecycle path: docs/07 §7.2; the CI checks: docs/13 §13.11 (the Recents test).
-
-- **One engine** (`ReadingCore.kt`, `FlutterEngineCache` "tomevoice"), provided to
-  MainActivity (`provideFlutterEngine`) and kept while a book is read. The voice, the
-  `PcmPlayer`, audio focus, the noisy receiver and the session moved from MainActivity
-  to `ReadingCore` (verbatim: `withTts`, `listEngines`, `listVoices`, `synthesise`,
-  `ttsDied`, `buildReport`, `requestFocus`, `abandonFocus`, `bluetoothOut`,
-  `session`). **A branch that changed those in MainActivity.kt must make the change in
-  ReadingCore.kt instead.** MainActivity's handler asks `ReadingCore.handle` first.
-- **Swipe from Recents** keeps reading (`onDestroy` no longer ends anything); swiped
-  while paused, the book is put away (`ReadAloudService.onTaskRemoved`). With nothing
-  read, the activity takes the engine with it: a fresh start as before.
-- **Media browser:** `ReadAloudService` extends `MediaBrowserService` (exported, with the
-  filter). The resume card (`EXTRA_RECENT`: the book Play reads) and Android Auto
-  ("Continue", "Recent", covers, progress) list books from `library.json` in Kotlin
-  (`Shelf`), **never a secret shelf's**. A headset's Play reaches the service through
-  the session's media button receiver once the app is gone (and after a reboot).
-- **Play with nothing reading** goes foreground at once, then `ReadingCore.play`: the
-  engine runs `backgroundMain()` if none, and Dart (`MediaRequests`,
-  `BackgroundReading.playFromOutside`) reads the book from its place. The app is built
-  only when an activity attaches (`shown` event; also re-applies edge to edge).
-  `openLibrary()` (home_shell.dart) opens the library once per folder for both.
-- **Android Auto:** `automotive_app_desc.xml`. A sideloaded APK shows in Auto only with
-  Auto's developer setting **Unknown sources** on.
-- **Settings > Listening > Keep reading with the screen off:** battery optimisation
-  status, Android's one-tap question (`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, a Play
-  concern: docs/18 row 7), and a dontkillmyapp.com line on Xiaomi/Redmi/POCO, Samsung,
-  OPPO, realme, OnePlus, vivo/iQOO, Huawei and Honor. No one-time hint.
-- **Shared files edited:** MainActivity.kt, ReadAloudService.kt, prepare_android.py,
-  build.yml (overlay greps), emulator-tests.sh, main.dart, home_shell.dart,
-  listening_session.dart, speech_service.dart (`session(book:)` and new calls),
-  settings_screen.dart, docs 07/13/16/18.
-- **Check on the phone:** read, swipe TomeVoice from Recents (keeps reading; the card
-  stays); pause, swipe (the card becomes a resume card on 11+); Play on it, and after a
-  reboot (reads from the place); headset Play with the app closed; open the app while
-  it reads with no activity (the library, Back closes pages, then leaves); Android Auto
-  (Unknown sources); a secret book never listed; the widget's play; Open with while it
-  reads; Settings' row on the Nothing phone (no dontkillmyapp line there).
-- **Known gaps:** a reader page kept in the engine after its activity closed does not
-  re-send keep-screen-on or volume-keys-turn-pages to a new activity; widgets' progress
-  is not redrawn while reading with no screen; after the process dies with a secret book
-  on the card, the resume card's Play reads the last ordinary book.
-
-## 0++++++. Checkpoint (2026-10-30): Support does nothing yet
-
-Branch `support-nothing-yet`, released as **1.2.2**. By the developer's wish the UPI QR
-is gone: `assets/support/upi_qr.png` and `support.dart` (the sheet, Pay with UPI, Save
-QR) are deleted. About > **Support TomeVoice** stays as a row, but tapping it does
-nothing (`onTap: () {}`) until a better way is decided. `payUpi`/`saveImage` in
-`MainActivity.kt` and the manifest's `upi` query are left in place, unused; the sheet
-is in git history (1.2.1). docs/18 row 5 is moot while nothing pays.
-
-## 0+++++. Checkpoint (2026-10-29, night): a new page tone keeps the page, support by UPI
-
-Branch `page-tone-and-support`, PR #20, released as **1.2.1**. CI analyze + tests
-pass. **Verified on the phone (A059), portrait and landscape.**
-
-- **A new page tone jumped the book back.** `toned()` and the reader's `_ground` built
-  a tree of another shape for Theme than for the other tones (and `PageGround` another
-  for a tone with a vignette), so the pages, or the scroll, were built afresh. A fresh
-  `PagedBook` opened at `startUnit`: `_pageStart` (where pages were turned on this
-  sitting) or, with the voice paused, `_l.items[_startItem]` (where the book was
-  opened). Repro: paused on 17, turned to 23, Ink to Theme, page 1. Every tone now
-  builds one shape, and `startUnit` prefers `_pageUnit` (the page last shown). Test:
-  `a new page tone keeps the page turned to` (checks the `PagedBook` state is the same).
-- **Papyrus and Dusk showed a strip** outside the safe area (the cutout side on its
-  side, the bars upright): the vignette lay on the ground under the pages' opaque
-  paper, so only that strip showed it, with a hard edge. Pages leave the vignette out
-  (`PageGround(vignette: !_inPages)`); the scroll keeps it.
-- **About > Support TomeVoice** (`support.dart`): a row like the other links; tapped, a
-  sheet with the UPI QR (`assets/support/upi_qr.png`), Pay with UPI (`payUpi`: a
-  chooser of the phone's UPI apps) and Save QR (`saveImage`: MediaStore into
-  Pictures/TomeVoice; before Android 10, ACTION_CREATE_DOCUMENT). The UPI ID is not
-  shown, by the developer's wish; it is in the pay link. **The manifest's `<queries>`
-  needs `android:host="pay"`**: with a bare `upi` scheme neither GPay's nor PhonePe's
-  filter matched, both were invisible and the button said there was no UPI app (CI
-  greps for it now). Paying itself was not tried (this phone's PhonePe is the payee).
-- **Play Store audit:** docs/18. The GitHub build keeps every natural voice; only a
-  Play build would leave out Alan, Lessac and Ryan.
-
-## 0++++. Checkpoint (2026-10-29): pages keep time with the voice, fast scroll, secret shelves
-
-Branch `fast-scroll-and-page-sync` (not merged or released yet). CI analyze + tests pass.
-**Verified on the phone (A059, Android 16):** the curl turns as the voice reads onto the
-next page (frames around a sentence carried over a page's foot); fast scroll on Shadow
-Slave's 3,228 chapters and on Red Rising's text (chapter 4 to 26 in one drag); the lock
-prompt (fingerprint accepted, shelf opened); the shelf picker; the glow on pages and the
-player's shadow in scroll, with no line at the safe area's edge. Note: adb's synthetic
-drags that move too fast do not move the thumb; paced ones (about 80 ms apart) do.
-
-- **Pages turn with the voice's word** (`paged_view.dart`). A sentence carried over a
-  page's foot counted as the next page's (`_pageOfUnit`, kept for bookmarks and a new
-  size), so while listening the page turned as soon as the voice *began* the last
-  sentence, with lines at the foot still to be read. Each `_Page` now has
-  `startItem`/`startOffset` (where its first line begins); `showUnit(unit, at:)` takes
-  the word's offset and finds the page by place (`_pageOfPlace`). The reader calls it on
-  every word (`_onWord`, from `_player.word`) while following. Play on a page that opens
-  mid-sentence does not turn back; the voice reading into the next chapter turns onto
-  its first page (the row's edge item) instead of cutting.
-- **Fast scroller** (`fast_scroller.dart`): a thumb at the right edge of a list more than
-  4 screens long, shown while it moves; dragged, it jumps there, a bubble naming the
-  chapter. On a web novel's chapters, a book's, the reader's Contents and the chapter
-  finder. The two sheets search with their own controller (`_found`) so matches start
-  at the top.
-- **Secret shelves** (`secret_shelf.dart`). `Category.secret`; `LibraryStore.secretOpen`.
-  While shut, `index()`/`list()` leave secret shelves and their books out (pass
-  `all: true` where everything is needed: imports, the starter, chapter checks,
-  the reader's own entry). `saveCategories` keeps secret shelves a page did not have,
-  never lets one be the default or every shelf. Unlock: `confirmUser` in MainActivity
-  (BiometricPrompt, BIOMETRIC_WEAK | DEVICE_CREDENTIAL on 11+, credential allowed on
-  10, keyguard's confirm screen before). Leaving the app (`AppLifecycleListener.onHide`)
-  locks and pops to the first page. Hidden while shut: shelves, search, History, Saved,
-  Stats, Updates (checked, named "a novel" in the status), widgets (`Widgets.books`
-  skips them), the app tint; the media card says "TomeVoice" with no cover for a secret
-  book (`isSecret`), always. Recents shows a blank card while open
-  (`setRecentsScreenshotEnabled(false)` on 13+, FLAG_SECURE before). Ways in: Settings >
-  Secret shelf, and press-and-hold the word Library (again to lock; a lock button sits
-  by Edit categories while open). Backups include secret books.
-- **Later the same day.** `USE_BIOMETRIC` was missing from the manifest
-  (`tools/prepare_android.py`; CI now greps for it): BiometricPrompt threw a
-  SecurityException and Make a secret shelf did nothing. A prompt the phone cannot show
-  now says so (`confirmUser` returns null). Settings > Secret shelf > Move shelves into
-  secret… ticks one or more shelves behind the lock (`_ShelfPicker`). The fast scroller
-  takes a `FastScrollTarget`: a `ControllerScrollTarget` (from 2.5 screens) or the
-  reader's text (`_TextScrollTarget`, by paragraph, shown only for the reader's own
-  scrolling; taking it detaches while listening). **The glow:** it fades with the player
-  (`_chrome`/`_scrollBars`); on pages it is drawn over the fade behind the player, which
-  now runs to the screen's edge (the page's paper and that fade, both opaque, hid it above
-  the safe area's edge: a hard line). In scroll mode the player's fold clip cut its
-  shadow at the same edge; it is clipped now only while folding away.
-- **Back on a secret shelf** goes to the default shelf first (`PopScope` in
-  `library_screen.dart`, deciding by `_shownPage`, the pager's own page). Opening the
-  shelves jumped to the first secret one before the pager was rebuilt with it, which
-  landed short: the pill, the books and `_page` disagreed. `_secretDoor` now waits a frame,
-  and a far jump re-syncs `_page` from the pager. Verified on the phone.
-
-## 0+++. Checkpoint (2026-10-28): a tap puts the bars away (1.1.1)
-
-Branch `hide-bars-on-tap`, released as **1.1.1**. Asked for by readers who read by
-scrolling and want the page alone.
-
-- **A tap on the scrolling text folds the top bar and the player away**
-  (`_scrollBars`, `_fold`, `_tapForBars` in `reader_screen.dart`); another brings them
-  back. The paragraphs take no tap of their own (a tap used to send the voice there and
-  was removed), so the tap is free; pictures keep theirs, and long-press is unchanged.
-- **A tap that stops a fling is ignored:** the scroll moved within 150 ms of the
-  pointer going down (`_lastMove`, set on every `ScrollUpdateNotification`).
-- The bars fold into their edges (`AnimatedAlign` heightFactor) and the text grows into
-  their place; on a phone on its side the docked player slides away (`_overBar(shownBy:)`).
-  A PDF's real pages keep the bars. Switching scroll/pages shows them again. Snacks
-  sit at the foot while the bars are away (`_barLift` is 0).
-- Pages already did this with a tap in the middle (`_chrome`).
-- **Verified on the phone by the user** (scroll mode); CI analyze + tests passed.
-
-## 0++. Checkpoint (2026-10-27, evening): phone voices as Google plays them (1.1)
-
-Branch `phone-voices-and-language`, released as **1.1** (1.1.0).
-
-- **Why Google's Bengali voice sounded worse in TomeVoice than in Google's settings.**
-  Same voice name (`bn-in-x-bnd-local`), same downloaded pack, but logcat
-  (`GoogleTTSServiceImpl`: "TTS dispatch") showed TomeVoice's sentences going to
-  `bn-in-x-bnd-lstm-embedded` and Google's sample to `...-seanet-embedded`. The cause is
-  pitch: any `setPitch` but 1.0 makes Google use the older lstm model, for every language
-  (proved in Android's own TTS settings with `settings put secure tts_default_pitch`,
-  restarting Settings so it rereads it). Speech rate does not. The reader had -7.4 st set,
-  shared by every voice. See docs/05 §5.2.
-- **Pitch is each voice's own** (`ListeningPrefs.pitchByVoice`, `settingsFor(voice)`),
-  0 unless set; the old shared pitch is dropped on load. The dialogue voice gets its own
-  (`PlaybackScheduler.pitchOf`, `speakWithDialogue(dialoguePitch:)`). Natural voices never
-  took pitch, so their Fine-tune has no slider.
-- **A web novel's language is its chapters' script** (`webNovelBook` ->
-  `withResolvedLanguage`; with no chapter fetched, the title and summary). Source labels
-  the app does not know (`languageCodeOf`) are null, not English. `loadLayout` brings the
-  library entry's language into line.
-- **A language's usual voice must speak it** (`ListenController.voiceName`/`chooseVoice`).
-- **Google's `xx-YY-language` alias is hidden** where the region lists its speakers
-  (`VoiceCatalog._withoutAliases`), unless it is the voice in use.
-- **Debugging Google TTS on the phone:** `adb logcat | grep -E "Synthesis request|TTS dispatch"`
-  names the model each sentence is read with.
-
-## 0+. Checkpoint (2026-10-27): reading without the voice, motion part two
-
-Branch `reader-mode-and-motion` (not merged or released yet).
-
-- **A novel's chapter order is kept** (`ListeningPrefs.newestFirstByNovel`, and
-  `newestFirst` for novels not turned yet). It was the page's own state.
-- **Natural voices: priority by urgency** (`neural_voices.dart`). 1.0.7 lowered every
-  sentence to nice 10, the first after Play too, and set it on whichever Dart VM pool
-  thread ran the worker, which kept it for later isolates. Now the scheduler marks a
-  sentence urgent when less than 3 s is queued. The worker sets its own thread and the
-  ONNX Runtime threads (found by diffing `/proc/self/task` around the engine's creation)
-  to nice 0 for it, or 10 when ahead, and gives the pool thread back at 0. The reader
-  loads the voice and runs it once, unheard, 1.2 s after opening (`NeuralEngine.warm`).
-  Logcat (`flutter` tag) says when the voice runs dry and how long the last sentence
-  took. **Not reproduced:** the report was a lag "for some time" on a Snapdragon 8 Gen 5
-  that the developer's 7s Gen 3 does not show; running sherpa-onnx's own CLI on the
-  phone was not allowed, so the cause is not measured. Ask for that phone's logcat.
-- **The place follows the reader** (`_placeFromEyes`, `_onPage`). With nothing read
-  aloud, a scroll or a turned page moves the place to the sentence at the top of what is
-  read (a line 12% down); while listening (or paused) a scroll is still a look around.
-  The wash (`_marked`) is off once the reader reads on, and back with Play or a jump.
-- **Pages** (`paged_view.dart`, `ListeningPrefs.pages`): a chapter is cut into pages of
-  whole lines when reached, measured and painted with the same `TextPainter`s (so the
-  cut lines are exact), with the sentence and word washed from `getBoxesForSelection`.
-  The place is a sentence, not a page. The row of pages is the last page of the chapter
-  before, this chapter's and the first of the next; settling on an edge moves chapter
-  by a new `PageController` keyed into a new `PageView` (a jump on the old one showed
-  the wrong page for a frame). Neighbouring chapters are cut 60 ms apart after a page
-  settles. Taps: left 28% back, right 28% on, the middle shows the top bar and player
-  over the page. Volume keys are caught in `MainActivity.dispatchKeyEvent` only while
-  `volumeKeysTurnPages` is on (pages, nothing playing).
-- **Also:** Back to where you were (after Contents or a search, while reading), indented
-  paragraphs (`indentedAt`, a placeholder span 1.6 em wide, offsets shifted by one), full
-  screen (`immersiveSticky`), Aa in the reader (the sheet's Read tab; the old tune button
-  went, the player's voice and speed chips open the same sheet), and a change of size or
-  font keeps the paragraph at the top in place (`_keepAnchor`).
-- **Reader motion:** the web-novel reader keeps the page up until the next is ready
-  (the wait shows after 250 ms); `BookLoader` waits for the route's slide before the
-  reader's first frame and fades it in; Now Playing puts the last sentence back where it
-  was when its window is set out afresh; the player's chapter name rises, and its bar
-  starts a new chapter at once.
-- **Motion, the rest of the app** (merged from a parallel pass): place saves bump
-  `LibraryStore.placeChanges`, not `changes`, so the shelf, History, Updates and a
-  novel's page no longer re-read everything behind the reader every 1.5 s; screens
-  covered by another catch up when shown again (`WhenShown` in `ui.dart`).
-  `downloadedChapters` is cached per novel (it listed thousands of files on the UI
-  thread). The app's colour follows a new book once the reader closes. The glow draws on
-  a display frame 26 ms after the last (a 33 ms timer beat against 60/90/120 Hz). Shelves
-  start on the default category, tiles are keyed by book, sort and view changes fade, a
-  far category jumps with a fade, the dock has no blur. Browse keeps the old feed until
-  the new one arrives. Updates, History, Saved, Sources and Categories fade and fold.
-  Browse, Updates and History build on first visit. PDF pages fade in. The book page
-  waits for its slide before its chapters. Sheets and dialogs use `sheetMotion`;
-  `Motion.follow` (360 ms) and `Motion.travel` (520 ms) replace hard-coded glides.
-  Left: a Saved group's header still vanishes after its last row goes, and Browse's
-  "install sources" state can flash for a frame (gating it broke a test sharing `Net`).
-- **Later the same day, from the developer's and readers' feedback:**
-  - **Curl** (`page_curl.dart`, now the default `pageTurn`): a flat fold on the line
-    halfway between the held corner and where it is. The leaf is clipped to the hinge
-    side, the folded part is the leaf mirrored across the fold (`_reflection`), and
-    shadows fall along the fold and from the flap. A turn back is the turn on from the
-    item before, run the other way. Leaves are the page widgets themselves, so the text
-    stays sharp. Verified on the phone frame by frame (screenrecord).
-  - **Spread**: wider than 600 and wider than tall gives two pages, cut at half the
-    width; the right leaf turns over the spine, and its back is the next left page
-    (drawn through reflection after a spine mirror, so it lands the right way round).
-    The crease (`Crease`) is in the page tone's ink, black on dark pages.
-  - **PDF real pages** turn the same way when Pages is on (`PdfPagesView.turn`), each
-    leaf the PDF's own page shape.
-  - **Page tones** (`page_tone.dart`): app, Ink, Papyrus, Dusk. They apply to the page
-    only (`toned()` overrides the accent through `TintScope` and the text colour), and
-    the status bar icons follow (`AnnotatedRegion`).
-  - **Online voices**: lines with no letter or digit in any script are skipped (a Bengali
-    book's "।।।" dividers sent to Google's online voice timed out with code -7, Android's
-    network timeout). A network failure is retried twice before it counts, and the stop
-    message says the voice needs the internet.
-  - **Voice search** in the voice picker: languages and the voices of every language.
-  - **Reading on after leaving** (`listening_session.dart`, `prefs.keepReading`, on by
-    default): `BackgroundReading` adopts the reader's scheduler on Back (only when the
-    route pops, via PopScope) and keeps the place, card, sleep, stats, focus and a web
-    novel's next chapters. Reopening the book takes the scheduler back
-    (`takeBack`). `PlaybackScheduler.beforePlay` stops it before anything else plays,
-    and an idle scheduler no longer stops the stream when disposed.
-    `readingScheduler()` builds the scheduler for the reader and the background alike.
-- **1.0.8 released** (PR #14). **Then, for 1.0.9:** in pages the pills (Back to reading,
-  the way back, search matches) show only with the bars. Bookmarks from the top bar's
-  button (Contents moved to the title, with a chevron): the page, a spread's two pages, a
-  PDF's page, or the paragraph read; a ribbon in the page's corner or beside the
-  paragraph; hold the button for the list (`_openBookmarks`). A page owns its sentences up
-  to the next page's first (`_endOf`), so a bookmark is on one page. A jump while paused
-  keeps the way back. `MarkStore.reset()` between widget tests: a save inside one test's
-  fake clock left the write queue waiting and every later save timed out.
-- **Local checks:** a scratch Flutter (3.47.8) at `D:/tvchk/flutter` (short path: the
-  SDK's own files pass Windows' path limit under the temp folder). `backup_test`'s
-  "paths are pointed..." fails on Windows only (backslashes in JSON); CI is Linux.
-- **Not verified on the phone yet:** all of the above.
-
-
-## 0. Checkpoint (2026-10-24, night): 1.0.1 released
-
-**1.0.0 and 1.0.1 are released** (1.0.1 is Latest). 1.0.1 added widening a quote and a
-note on it (`quote_sheet.dart`), Saved on each book's and novel's page
-(`BookSavedSection`), hearing a natural voice's Piper sample before downloading it
-(`NeuralVoice.sampleUrl`, native `playUrl`), and the fixes from three audits (security,
-bugs, UI). **Installing an update from inside the app was verified on the phone,
-1.0.0 to 1.0.1**: the offer, the download, Android's one-time "Allow from this source",
-the installer, a Play Protect scan ("looks safe"), and the app reopening on 1.0.1 with
-the library intact.
-
-- **New safeguards:** user data files are written beside and renamed over, one write at
-  a time (`safe_file.dart`); restored book ids must look like book ids
-  (`LibraryStore.isBookId`); `app_update.json` is never backed up or restored, only
-  APKs from this repository's releases are offered, and `installApk` refuses an APK that
-  is not this package (and this key, when Android can read it).
-- **Audit findings not fixed yet (next):**
-  - The library, including `sources/cookies.json` and plugin JS, is on external app
-    storage. Android 11+ isolates it, but on 8-10 an app with storage permission could
-    read cookies or change plugins. Move `sources/` and `app_update.json` to `filesDir`.
-  - CI supply chain: commit `pubspec.lock` and use `--enforce-lockfile`, pin actions
-    by SHA, give the token `contents: read` except for releasing, and decode the
-    signing key just before `flutter build`.
-  - Web-novel plugins share one QuickJS context and one cookie jar, with no host
-    limits. Isolate them per plugin, send cookies only to their site, and block
-    private addresses.
-  - Library index mutations are serialised per write but not per read-modify-write,
-    so a lost update is still possible in a narrow race.
-  - Minor UI: edge-fade ShaderMasks over whole lists (scroll cost), the Undo snack
-    over Now Playing's scrubber, the shelf's scroll key including the book count, and
-    week bars at very large text.
-
-## 0-. Earlier the same day: 1.0 merged, release after the last phone checks
-
-Released since v0.5.0: **0.5.1** (backup and restore, update check), **0.6.0** (the
-permanent app id `app.tomevoice`, a 32-bit APK), **0.7.0** (book colours from covers,
-Now Playing, landscape), **0.8.0** (search, Saved quotes and bookmarks with share cards,
-pronunciation fixes, skip-line rules). **0.9 and 1.0 are merged into `main`** (PR #1) but
-not yet tagged: stats and streaks, home-screen widgets, natural voices, dialogue voice,
-and the fixes below. All other branches were merged and deleted; work continues on
-`v1.0-release`. The plan with every decision is [road-to-1.0.html](road-to-1.0.html).
-
-- **Natural voices** (`neural_voices.dart`, `neural_screen.dart`): Piper models through
-  sherpa_onnx **1.13.8** (2.0 drops espeak; keep the pin). Use the **full-precision**
-  archives (`vits-piper-<id>.tar.bz2`, 64 MB, 110 MB for HD): the fp16 ones abort ONNX
-  Runtime on the phone (`Failed to find kernel for com.microsoft.Gelu ... float16`).
-  Voices live in `files/voices/piper-<id>`; anything else there is cleared on start.
-  Unpacking streams bz2 to a tar beside it and then file by file (24 MB at most; reading
-  it whole took 184 MB). Only path strings may cross into `Isolate.run`: a closure that
-  holds the ChangeNotifier fails to send. Off unless chosen: a warning before any
-  download, a speed test after, Remove and Remove all.
-- **Measured on the developer's phone** (Nothing A059, *Alice* at 2×, 60 s): idle 0.3% CPU
-  and 213 MB; Google voice about 20% of a core (app plus Google's TTS process) and about
-  404 MB together; **Kristin 70% average (bursts to 158%) and 537 MB**, at 10.9× real
-  time. Battery over a long session is not measured.
-- **Widgets** (`Widgets.kt`): drawn as one bitmap per face, to the design in
-  road-to-1.0.html, in the design's own units (the 176-unit 2 × 2, the 360 × 176 card)
-  scaled as one piece. The Nothing launcher's 2 × 2 is **136 dp**, its 4 × 3 about 210 dp
-  (the large layout starts at 190). Numbers and labels in **Doto** (bundled, OFL). The
-  accent is the app's own: `tints.json` now carries `accents` per book (tone 66 and its
-  ink for dark faces, tone 40 and white for light; `widgetAccents` in `book_tint.dart`).
-  Tap targets are moved over the drawn buttons with `setViewLayout*` (Android 12+). The
-  wide and large players have chapter back and next (`ACTION_PREV/NEXT` to the service).
-  Picker previews in `drawable-nodpi` were drawn from the same code.
-- **APK size:** about 27 MB. One CPU's native code per APK (`TV_ABIS` in CI, jniLibs
-  excludes in `prepare_android.py`; `abiFilters` alone was ignored) and compressed native
-  libraries (`useLegacyPackaging`).
-- **Since 0.8, also:** Undo on every save and a Remove button in Saved; press and hold in
-  Now Playing opens the reader's menu; a book's and a novel's page keep Back, Search and
-  the menu pinned (`PinnedBar` in `ui.dart`); landscape puts the player in a floating
-  dock over the text (`_PlayerBar.dock`), with the text capped at a 720 dp line; Now
-  Playing's sentence change pushes up instead of cross-fading; a choice row too wide to
-  fit scrolls inside a pill that keeps its round ends; updates install from the app
-  (`update_flow.dart`: downloads the release's APK for the phone's CPU into cache/share,
-  opens Android's installer through `ShareProvider`; `REQUEST_INSTALL_PACKAGES`).
-- **Verified on the phone:** the media card, backup and restore, the move to the new app
-  id, book colours and Now Playing, search, Saved, pronunciation, the rules screen,
-  Stats, the player widget (play, pause, progress, the new design), and a natural voice
-  (download, speed test, reading, CPU and memory).
-- **Not yet verified on the phone (next):** the build from `main` with Undo, Now Playing's
-  menu, the pinned bars, the landscape dock and the pill rows; the dialogue voice; the
-  streak widget; installing an update (needs a release newer than the one installed, so
-  after 1.0 is out).
-- **Then:** tag and release **v1.0.0** (notes drafted), and delete `/sdcard/ui.xml` on
-  the phone (left by the UI dumps).
-- **On the phone:** the old app `app.tomevoice.tomevoice_spike` is still installed and
-  can be uninstalled. TomeVoice's notification permission was denied once; it asks again
-  when reading starts.
-
-## 0a. Earlier checkpoint (2026-10-23, evening): v0.5.0
-
-Everything is on `main` and released as **v0.5.0**. The `media-card` branch was merged
-and deleted.
-
-- **Media card** (the shade's and lock screen's player, Android 13+), drawn from the
-  MediaSession by the system (`ReadAloudService.kt`):
-  - the TomeVoice mark top left (`ic_stat_tomevoice`). The old small icon was a play or
-    pause sign the wrong way round, and it read as a second button.
-  - the cover as its picture; the system takes the card's colours from it. Decoded once
-    per book, at most 480 px on its long side, RGB_565 (the session crosses processes).
-  - a seek bar through the chapter, estimated from words at 165 wpm and the speed (the
-    same estimate as "time left" under the player). Dragging maps back to a sentence.
-  - a speed button (custom action) stepping through `speedPresets` (0.75 to 2x). Its
-    icons are the numbers, drawn from Figtree into `drawable-*dpi/ic_speed_*.png`;
-    other speeds show the Material speed icon.
-  - previous/next by chapter. Previous restarts the chapter after its first 3 seconds.
-  - moving from the card while paused stops the player, but the card stays up, paused,
-    at the new place (`_parked` in `reader_screen.dart`).
-  - a new sentence only updates the playback state; the notification is rebuilt only
-    when what it shows changes. The notification permission is asked once per launch.
-- **Verified on the phone:** all of the card except dragging its seek bar; per-chapter
-  download, long-press multi-select, batch download with progress and Stop, and removing
-  picked downloads.
-- **Fixed from that testing:** a novel whose source is not installed (there: Deep Sea
-  Embers, from ReadNovelFull) showed a raw `PathNotFoundException` when pulled to check.
-  The novel page now raises `MissingSourceException`, and checks and downloads say so
-  with an Install button (`installMissingSource` in `browser_check.dart`). The chapter
-  pick bar's button no longer reads "Dow...".
-- **Still not verified on a device:** the fresh-install shelf (`starter.dart`).
-- **Next:** the ideas and priorities in [17-step-back-review.md](17-step-back-review.md).
-
-## 0b. Earlier checkpoint (2026-10-23, v0.4.0)
-
-**Stopped here on purpose** (the developer needed the machine). Everything was on `main`
-and released as **v0.4.0**; `m1-new-look` equalled `main`.
-
-- **On the developer's phone** (Nothing A059, adb `00158351M001200`): v0.4.0 installed. Their
-  library is their own; do not reorganise it, and never re-add "Reborn In A World of Chastity
-  Reversal" (they removed it).
-- **Verified on the phone this session:**
-  - adding LNReader's list (319 sources)
-  - installing NovelBin and Royal Road
-  - global search
-  - novel page; add to library
-  - listening, with chapters fetched ahead and next-chapter past what is downloaded
-  - Royal Road through the hidden WebView (finding 20)
-  - Updates
-  - NovelDokusha import of 8 novels with covers and places
-  - one-tap install of a missing source
-  - the Sources language row
-- **README screenshots** were retaken (public-domain books only, via the library search
-  "alice"), cropped to the app and framed by `mockup.py`. That script lived in the scratchpad
-  and is gone; any PIL rounded-rectangle frame will do.
-- **Not verified on a device:**
-  - first-run seeding (`starter.dart`), which needs a fresh install and could not be tested
-    without wiping the phone; the bundled EPUB import is unit-tested
-  - chapter multi-select and per-chapter downloads on the real phone (widget-tested;
-    since verified, see section 0)
-- **Open, next session:**
-  1. Check the fresh-install shelf on a second device or an emulator.
-  2. The priorities in [17-step-back-review.md](17-step-back-review.md), starting with the
-     application id.
-- **Local machine:** the scratch Flutter SDK and workspaces were deleted at the end of the
-  session (PC kept light). To check locally again, rebuild them as in section 5 (or rely on
-  CI: `gh workflow run build.yml --ref <branch>`).
-
-## 1. Where the project is
-
-**As of 2026-10-23, evening** (v0.5.0): the media card above, and the fixes from testing
-on the phone.
-
-**As of 2026-10-23** (v0.4.0, branch `m1-new-look`, merged to `main` for the release): a
-full interface pass, web novels from LNReader sources, and new-chapter updates, on top of
-everything below. The plan these follow is `docs/roadmap.html`.
-
-| Area | State |
-|---|---|
-| Look | Bodoni Moda titles, Figtree interface, Newsreader/Literata page ([ADR-018](10-decisions-adr.md#adr-018)). One `ThemeData` from `Skin`; spacing `Gap`, corners `Radii`, motion `Motion`; shared widgets in `ui.dart`. Five palettes (Forest, Lavender, Ocean, Black, Paper) |
-| Shell | Drawer: Library, Browse, Updates, History; Categories, Sources, Settings, About |
-| Library | Cover tiles with a translucent info band (list view optional); categories as swipeable pages; long-press multi-select, move, remove; a continue dock at the bottom |
-| Book page | Details, description (EPUB `dc:description`, parsed v5), category, per-book voice with a sample, chapters |
-| Reader | Listen/Read settings sheet; voice picker with readable names and spoken samples; fades under the bars; ornament pictures drawn in the page's ink; keep screen on |
-| First run | A new install starts with Pride and Prejudice (bundled, public domain), ReadNovelFull and Royal Road installed, and Shadow Slave and Lord of the Mysteries added from ReadNovelFull (`starter.dart`) |
-| Web novels | LNReader plugins in QuickJS ([ADR-019](10-decisions-adr.md#adr-019)): Sources (LNReader's list built in, own lists addable, install/update), Browse (global search, per-source feeds), novel page (pull to check for new chapters, per-chapter and batch downloads), reading with chapters fetched ahead |
-| Updates | New chapters checked on app open (off/12 h/daily/2 days/weekly) and from the Updates screen. Not yet a background job |
-| Import | NovelDokusha backup zip (SQLite read in Kotlin) -> web novels with downloaded chapters and place |
-| Animation | Fade-through transitions with predictive back, cover hero, staggered entrances, sliding choices, theme cross-fade |
-
-### Earlier state (2026-10-22)
-
-**As of 2026-10-22** (branch `ux-speed-overhaul`): the reader was rebuilt for speed and
-for being obvious to use, and it now opens nearly every document format. Speech streams
-gaplessly, follows the voice word by word, and keeps going with the screen off.
-
-| Layer | State |
-|---|---|
-| Pure-Dart audio pipeline | **Done.** `WavCodec.pcm16Bytes` added for the streaming player |
-| Android TTS adapter | **One warm engine** for engines, voices and synthesis. Callbacks filtered by utterance id; `cancelSynthesis` aborts a sentence on seek |
-| Player | **Streaming `AudioTrack`** (`PcmPlayer.kt`). Gapless, real pause/resume, position from the playback head |
-| Scheduler | Keeps ~10 s queued ahead. Highlight = hardware position, not a timer. DSP on a background isolate |
-| Screen off | **`ReadAloudService`** (mediaPlayback foreground service) + MediaSession: notification, lock screen, headset buttons. Since v0.5.0 the media card has the cover, a chapter seek bar and a speed button |
-| Document Model + ingest | **EPUB, PDF, DOCX, ODT, MOBI/AZW/AZW3 (PalmDOC), FB2, RTF, HTML, MD, TXT.** Script-based language detection |
-| Segmentation | Multilingual (danda, CJK, Arabic stops); sentences capped at 280 chars at a clause boundary |
-| Library | Import/parse/load on background isolates. Compact `parsed.json` v2 (Clown 15 MB -> 4.9 MB). Older books re-parsed once on open |
-| Reading UI | Continuous scroll (`scrollable_positioned_list`), sentence + word wash, tap-to-read, follow mode with "Back to reading", contents sheet, player bar |
-| Settings | One "Listening" sheet: speed, voice (for the book's language), style presets, fine-tune. **Persisted** in `prefs.json` |
-| CI | **Release** APK, arm64 only, Gradle cache. Builds on `main`, PRs, or manual dispatch; docs-only changes skip |
-| Pictures | EPUB images (incl. SVG covers, `<p><img>`) stored at import under `books/<id>/img/`, shown inline at natural size, tap to zoom, never spoken. Picture-only sections (maps, covers) lead into the next chapter. Library shows covers |
-| PDF page view | Text / Page toggle for PDFs: real pages via platform `PdfRenderer` (`PdfPages.kt`), current page outlined and followed; tap a page to read from it |
-| Visual EPUB (WebView, CFI, pagination) | **Not started** |
-| Neural voices (Piper/Kokoro) | **Not started** |
-| Windows | **Not started** |
-
-Measured before this work (debug APK, Clown EPUB, Nothing A059): opening the book froze
-the UI ~2.5 s; 650-760 ms of dead air *between every pair of sentences* (per-sentence WAV +
-new `MediaPlayer` + a full-tree rebuild that scanned all 34k units three times); a WAV
-leaked per sentence (30 found, 80 MB folder).
-
-## 2. What was proven (spike, unchanged)
-
-**R1 is answered** for Google TTS on the test device. See the previous handoff notes
-and [§15.18](15-spike-audio-engine.md#1518-device-run-2-on-2026-09-02-all-criteria-met).
-Cross-engine R1 (eSpeak etc.) is still unmeasured.
-
-Device-checked in this slice (Nothing A059, serial `00158351M001200`):
-
-- Import *Lord of Mysteries* (`Clown - LotM Vol. 1.epub` from the user's `E:\stories\`)
-  → opens on **Chapter 1: Crimson**, `1 OF 213`, not a cover `Image`.
-- Chapter skip → **Chapter 2: Situation**.
-- Resume + tap-to-start-here on the old Specimen book (before it was removed from home).
-- *Crime and Punishment* (Z-Lib EPUB) ingest works (14799 sentences) but the **file is
-  OCR-garbled** (`he house`, `pervent`). That is the source, not the reader.
-
-Playback-through-a-chapter after the TTS-overlap fix was **installed** (`bee9bc2`) but
-not listened through. **Listen before claiming that bug is gone.**
-
----
-
-## 3. Findings that will save the next person days
-
-**1. `onRangeStart` parameters are not in the documented order.** Detect the layout
-(`SpeechService.decodeTimings`). Do not "simplify" that away.
-
-**2. Google TTS hides its sentence pause inside a word's range.** Do not assume every
-gap in the audio is one we created.
-
-**3. Stage order is load-bearing.** Edge-trim first; word-gap after stretch.
-`ordering_test.dart` encodes both bugs. Architecture §2.6 now matches this; do not
-restore the earlier pitch→stretch→trim sketch.
-
-**4. A green test suite proved nothing about listenability.** Listen before claiming
-success.
-
-**5. Re-init of `TextToSpeech` per sentence is unusable.** The adapter keeps the engine
-warm. Do not put `tts?.shutdown()` back at the start of `synthesise`.
-
-**6. Android TTS has one progress listener.** Two overlapping `synthesizeToFile` calls
-steal it; playback then dies after the first sentence. Lookahead must start **after** n
-has finished synthesising, while n *plays from WAV*. `SpeechService.synthesise` is also
-single-flight. Do not kick n+1 TTS before n's callback.
-
-**7. EPUB spine is not a chapter list.** Covers, `Image` alt text, TOC sheets, and `●`
-part dividers are not chapters. `readingSectionIndexes` / `readingToc` in
-`packages/tomevoice_document/lib/src/navigate.dart` skip them. `BlockRole.figure` is in
-`defaultSkippedRoles`.
-
-**8. SAF `EXTRA_MIME_TYPES` hides EPUBs.** Android often labels `.epub` as zip /
-octet-stream. Picker is `*/*` with no MIME extra.
-
-**9. Do not rebuild the whole reader on every word.** Word highlight is a
-`ValueNotifier`. Persist cursor on a debounce, not every sentence. Each paragraph
-widget listens for the cursor itself and rebuilds only when the spoken sentence enters,
-leaves or moves within it.
-
-**10. A debug APK is not a performance test.** Debug Flutter is unoptimised JIT with
-asserts. CI builds `--release` now. Judge latency only on a release build.
-
-**11. Never feed the player per-sentence files.** The streaming track is what makes
-sentences gapless and pause possible. Queue PCM; read the playback head for "what is
-audible". Do not reintroduce `play(path, wait: true)`.
-
-**12. `Isolate.run` closures must be created in a top-level function.** A closure made
-inside a method can share a context with other captured variables (callbacks holding
-widget state), which cannot be sent. See `_runImport` / `_runLoad` in `library_store.dart`.
-
-**13. `flutter analyze` treats deprecations as failures.** Check locally before pushing
-(see §4); a CI round trip costs several minutes.
-
-**15. PdfBox's paragraph marks are not paragraphs.** On the device, a simple PDF came
-out one line per paragraph, which makes the voice pause at every line. `formats/pdf.dart`
-reflows: a paragraph continues unless it ends a sentence or is a heading.
-
-**16. A green line round the whole screen was Android's keyboard-focus outline.**
-One key press (keyboard, D-pad, `adb shell input keyevent`) puts Android in keyboard
-navigation and it outlines the focused view, which for Flutter is the full screen.
-`MainActivity.onPostResume` turns `defaultFocusHighlightEnabled` off.
-
-**17. Kinds of PDF.** Born-digital (text) reads cleanly. Scans with an OCR text layer
-(Internet Archive "Text PDF") read with the scanner's typos. Image-only scans are
-refused; there is no OCR, by choice.
-
-**18. "Chapters skipping" in PDFs was one section per page.** Without bookmarks every
-page was a chapter and near-empty pages (plates, blanks) were hidden, so the list read
-5, 10, 11, 13. `sectionsWithoutOutline` now uses chapter headings found in the text
-(three or more), else ten pages per entry; `resectionPdf` fixes PDFs stored earlier.
-`chapterLine` requires a number after the keyword: "book of rules for..." is prose.
-
-**19. Covers.** `LibraryEntry.coverMode`: auto (the book's own, or drawn from the title),
-custom (the user's picture, copied under `img/custom_cover_<time>`; a new name each time
-because the image cache keys on the path) or plain.
-
-**14. EPUB copyright pages are untitled and long.** `_looksLikeCopyrightPage` in
-`navigate.dart` skips them (Red Rising opened on "This is a work of fiction").
-
-**15. The release manifest had no INTERNET permission.** Nothing used the network before
-web novels; every source request failed "host lookup". `tools/prepare_android.py` adds it.
-
-**16. QuickJS cannot be built on this Windows PC.** flutter_qjs compiles C through a
-native-assets hook that wants MSVC, and the scratch Flutter SDK lacks `gen_kernel_aot`.
-Local checks swap `lib/sources/qjs_runtime.dart` for a stub and drop the dependency
-(the scratchpad `sync.sh`); CI (Linux) builds and tests the real engine. The engine test in
-`test/sources_test.dart` skips itself where the engine is missing.
-
-**17. Mangayomi's Dart re-implementation of cheerio breaks the common plugin families**
-(`.length` as a method, no `$(this)`, no `.attribs`). TomeVoice bundles the real cheerio
-1.0.0-rc.12 + htmlparser2 + dayjs (tools/lnreader_libs, esbuild) and bridges only fetch and
-storage. Verified with RoyalRoad, NovelBin and a madara site end to end.
-
-**18. A painted fade band never matches the diagonal ground.** It read as a "bar" above the
-home indicator. Fade the content itself (`ShaderMask` + `dstIn`) instead.
-
-**19. `Skin.amber` and the ground colours are palette getters now**, so they cannot appear
-inside `const` expressions.
-
-**20. Cloudflare can refuse the app's HTTP client while letting the web view in.** From the
-phone's network Royal Road answered every Dart (and phone curl) request with "Just a moment"
-(403, `cf-mitigated: challenge`), while the PC's curl and the phone's WebView got the site
-with no check at all, so no `cf_clearance` cookie is ever issued and cookies alone cannot
-help. Plugins parsed the check page as "no results". Now: requests use the WebView's own
-User-Agent; a challenged GET is loaded in a hidden one-pixel WebView (`BrowserCheck.fetch`,
-called from worker isolates via `RootIsolateToken`) and its HTML goes to the plugin; if
-even that is still a check, the UI shows "Open the check" (visible WebView dialog). Test
-from the phone's network, not the PC's.
-
----
-
-## 4. Running it
+# 16 — Start Here
+
+Everything needed to pick TomeVoice up cold: where it stands, how to check, build and
+release it, how to check it on a phone, and the findings that cost days. As of 1.4.0
+(31 October 2026). The session-by-session checkpoints this page used to hold are in its
+git history (`git show v1.4.0:docs/16-session-handoff.md`); what each release changed is
+in the [changelog](../CHANGELOG.md).
+
+## Where things stand
+
+- **1.4.0** is the latest release (31 October 2026). `main` is the last release; work
+  happens on `next`, which carries the fixes listed under "Unreleased" in the changelog,
+  and goes to `main` by pull request.
+- **Android only.** Windows is not started ([08](08-platform-windows.md)); there is no Play
+  build ([18](18-play-store-audit.md)).
+- **What is next**, what was turned down and the known limits: [12](12-roadmap-and-milestones.md).
+- **How it is built:** [02](02-architecture.md); where the files are on the phone:
+  [11](11-data-model-and-storage.md); why it is built so: [10](10-decisions-adr.md).
+
+## Checking code locally
 
 There is **no local Flutter or Gradle** by design ([ADR-016](10-decisions-adr.md#adr-016)).
+The two packages and the tools need only the Dart SDK:
 
 ```bash
-cd packages/tomevoice_audio && dart pub get && dart analyze --fatal-infos && dart test
+cd packages/tomevoice_audio    && dart pub get && dart analyze --fatal-infos && dart test
 cd packages/tomevoice_document && dart pub get && dart analyze --fatal-infos && dart test
 
 cd tools && dart pub get
@@ -636,158 +31,190 @@ dart run bin/make_fixture.dart /tmp/fx 120 1.0
 dart run bin/measure.dart /tmp/fx
 ```
 
-Inspect a real EPUB without Flutter:
+What the parser makes of a book, without Flutter:
 
 ```bash
 cd packages/tomevoice_document
-dart run tool/dump_book.dart "E:\stories\some-book.epub"
+dart run tool/dump_book.dart "path/to/book.epub"     # metadata, sections, first sentences, blocks by role
+dart run tool/inspect_file.dart "path/to/book.epub"  # title, kind, counts, first sentence
 ```
 
-**APKs come from CI**, never locally. Pushes to `main` build automatically; for a
-branch run it by hand:
+The test corpus's goldens are rewritten on purpose with
+`TOMEVOICE_UPDATE_GOLDENS=1 dart test test/corpus_test.dart`
+([13 §13.2](13-testing-and-qa.md#132-document-pipeline-tests)).
+
+**App code** is checked before a push with a scratch Flutter SDK, then deleted to keep the
+PC light:
+
+1. Unzip the Flutter that CI pins (3.47.8, in `build.yml`'s `env`) to a short path such as
+   `D:/tvchk/flutter`: under the temp folder the SDK's own files pass Windows' path limit.
+2. Copy `app/` and `packages/` beside each other and run the same `flutter create` as CI
+   (`--platforms=android --project-name tomevoice_spike --org app.tomevoice`).
+3. QuickJS cannot be built on Windows without MSVC: swap `lib/sources/qjs_runtime.dart`
+   for a stub, drop `flutter_qjs` from the copy's `pubspec.yaml`, and `flutter pub get`.
+   CI (Linux) builds and tests the real engine; the engine test in
+   `test/sources_test.dart` skips itself where the engine is missing.
+4. `dart analyze --fatal-infos` (Flutter's own `analyze` trips over long Windows paths; CI
+   runs `flutter analyze`, which fails on deprecations too) and `flutter test`.
+   `backup_test`'s "paths are pointed..." fails on Windows only (backslashes in JSON).
+
+The Kotlin in `app/android_overlay` is never compiled locally: CI is its first compiler.
+
+**The LNReader libraries bundle** (`app/assets/js/lnreader_libs.js`, and
+`lnreader_extra.js` for the plugins that need protobufjs or AES) is committed. To rebuild
+it after changing versions: `cd tools/lnreader_libs && npm install && npm run build`
+(and `npm run build:extra`). Node only; CI does not need it. Smoke-test it in QuickJS
+before committing.
+
+**The voice catalogue** (`app/assets/voices/catalog.json`) is made by
+`python tools/voice_catalog.py`; `--check` says what would change. Read each new voice's
+licence before committing ([06 §6.4](06-voice-catalog-and-licensing.md#64-the-per-voice-trap)).
+
+## Building
+
+**APKs come from CI, never locally** (`.github/workflows/build.yml`). Pushes to `main` and
+pull requests build; changes to docs and Markdown alone do not. Pull requests and manual
+runs also run the emulator job ([13 §13.11](13-testing-and-qa.md#1311-device-flows-and-the-emulator-job)).
+For a branch, by hand:
 
 ```bash
 gh workflow run build.yml --ref <branch>
-gh run download <run-id> -n tomevoice-apk
+gh run download <run-id> -n tomevoice-apk          # tomevoice-apk-32bit for 32-bit phones
 adb install -r app-release.apk
 ```
 
-**Signing.** With the repo secrets `TV_KEYSTORE_B64` and `TV_KEYSTORE_PASSWORD` set,
-every release APK is signed with the same key and `adb install -r` upgrades in place,
-keeping the library. Without them CI signs with a throwaway key and you must
-`adb uninstall` first, which **wipes the library**. The keystore lives outside the repo
-at `~/.tomevoice/` on the developer's laptop.
+- **The test app**, beside the real one with a library of its own:
+  `-f variant=test`, artifact `tomevoice-test-apk` ([13 §13.12](13-testing-and-qa.md#1312-reproducible-builds)).
+- **After changing a `pubspec.yaml`** or the pinned SDKs: `-f relock=true`, then
+  `gh run download <run-id> -n pubspec-locks` from the repository root, and commit the
+  lockfiles. Until then the build stops at "Resolve dependencies (locked)".
+- **Signing.** With the secrets `TV_KEYSTORE_B64` and `TV_KEYSTORE_PASSWORD`, every APK is
+  signed with the TomeVoice key and `adb install -r` upgrades in place, keeping the
+  library. `TV_CERT_SHA256` in `build.yml` is that key's certificate; a release run
+  refuses an APK signed with anything else. Without the secrets CI signs with a throwaway
+  key, and installing that APK needs an uninstall first, which **wipes the library**. The
+  keystore lives outside the repository, on the developer's laptop; keep it and its
+  password safe offline too, or no update can ever install over the last.
+- **The overlay check.** CI generates the Android scaffolding on every build and copies
+  `app/android_overlay` over it ([its README](../app/android_overlay/README.md)), then
+  greps the result for what must not be lost (the activities, the services, permissions
+  such as `USE_BIOMETRIC`, the TTS and text-processing queries). A new load-bearing
+  manifest entry gets a grep there too.
 
-**Checking Dart before pushing** without installing Flutter permanently: unzip a Flutter
-SDK into a temp folder, copy `app/` + `packages/` next to each other, run the same
-`flutter create` as CI, then `dart analyze --fatal-infos` (Flutter's own `analyze` trips
-over long Windows paths) and `flutter test`. Delete the SDK afterwards.
+## Releasing
 
-**The LNReader libraries bundle** (`app/assets/js/lnreader_libs.js`) is committed. To
-rebuild it after changing versions: `cd tools/lnreader_libs && npm install && npm run
-build` (Node only; CI does not need it). Smoke-test it in QuickJS before committing.
+1. On `next`: bump `version:` in `app/pubspec.yaml` (`X.Y.Z+N`, the build number one
+   up), move "Unreleased" in `CHANGELOG.md` under the new version in the voice of the
+   releases before it, and update `README.md` and [12](12-roadmap-and-milestones.md) if
+   what the app does changed.
+2. Merge `next` into `main` by pull request. Read its emulator job's results: a failure
+   there fails the job but blocks no APK.
+3. Make a draft GitHub release for the tag `vX.Y.Z`, its notes the changelog's section.
+4. `gh workflow run build.yml --ref main -f release_tag=vX.Y.Z`. CI builds both APKs,
+   checks each one's app id, signing certificate and 16 KB alignment, attaches
+   `TomeVoice-X.Y.Z.apk` and `TomeVoice-X.Y.Z-32bit.apk`, and publishes the release as
+   Latest. Installed apps find it within a few hours (About → Check for updates at once).
 
-Maestro flows: `mobile-qa/flows/`. Do not `clearState: true` on resume tests. Selectors
-use merged semantics (e.g. `Chapters\nChapter 1: Crimson\n1 OF 213`). Chapter index is
-`1 OF 213`, sentence counter is `1 / 34273` — do not assert `1 /` as unique.
+Never name a branch exactly like a tag (`v1.0.1`): deleting it became ambiguous with the
+tag behind a published release. Use `rel-1.0.2`, `feat-…`, `fix-…`.
 
----
+## Checking on a phone
 
-## 5. Code map
+The developer's phone is a Nothing A059 (Android 16), on adb. It holds the developer's own
+library: do not reorganise it, never re-add a book they removed, and do risky checks (a
+restore, secret shelves, imports, Maestro flows) on the test app, removed afterwards. There
+is no Android 14 or 15 phone: those are checked on CI's emulators.
 
-```
-packages/tomevoice_audio/     PURE DART. Pipeline, timings remap, presets, PCM16 for the player.
-packages/tomevoice_document/  PURE DART. Contract A + every ingest format.
-  lib/src/
-    model.dart                Book -> Section -> Block -> Sentence (compact JSON: 'sb')
-    ingest.dart               ingestBytes / ingestPdfText, language resolved at the end
-    detect.dart               magic bytes first: PDF, RTF, MOBI, zip (EPUB/DOCX/ODT/FB2)
-    language.dart             script -> language (bn, hi, ar, ru, ja, ...)
-    segment.dart              multilingual sentences, 280-char cap at a clause
-    navigate.dart             reading sections: skip covers, TOC, copyright pages
-    reading_layout.dart       units/items/chapter tables the reader uses (O(1) lookups)
-    formats/epub.dart  html_blocks.dart (+ lenient tag-soup fallback)
-    formats/text.dart         TXT (encodings, one-line paragraphs, chapters), Markdown
-    formats/office.dart       DOCX, ODT
-    formats/pdf.dart          page text -> book (headers, page numbers, outline chapters)
-    formats/mobi.dart  fb2.dart  rtf.dart
+- **Drive it by what is on screen.** Find each tap by its label in a `uiautomator dump`,
+  re-read the screen before every tap, and stop when a target is missing instead of tapping
+  where it used to be: the phone may be in use or turned meanwhile. Match labels exactly
+  (`^Play (`, not `Play`, which also finds "Open Now Playing"). No swipes from the screen's
+  edges, which open Home or the shade.
+- **A step is done when evidence shows it**: a screenshot looked at
+  (`adb exec-out screencap -p > shot.png`), or state read back (the version, a file). A
+  script that printed "tapped" proves nothing. Say "unconfirmed" when it is.
+- **Portrait.** Test in portrait unless the change is about landscape, and take README
+  screenshots in portrait. Lock the rotation with `adb shell cmd window user-rotation lock 0`
+  (and `free` after); `settings put system user_rotation` does nothing on this phone.
+- **Launch with `am start`**, never `monkey`, which turns auto-rotate back on:
+  `adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n app.tomevoice/app.tomevoice.tomevoice_spike.MainActivity`
+  (the activity keeps the template's package, whatever the app id).
+- **Sound cannot be recorded** from the phone on the developer's PC (scrcpy writes empty
+  files). Check audio changes by their code path and by a person listening, and say plainly
+  when something was not checked by ear. Screen video works:
+  `adb shell screenrecord --time-limit 4 --size 540x1196 /sdcard/x.mp4` (full resolution
+  fails). Frame pacing: `dumpsys SurfaceFlinger --latency` on the app's layer, polled, as it
+  keeps only about 127 frames.
+- **A fingerprint or PIN prompt screenshots black** (a secure window): use the
+  `uiautomator dump`'s text and logcat (`onAuthenticated(true)`) as evidence.
+- **Google's TTS:** `adb logcat | grep -E "Synthesis request|TTS dispatch"` names the model
+  each sentence is read with. The `flutter` tag says when a natural voice ran dry and how
+  long its last sentence took.
+- **Fast drags:** adb's synthetic drags that move too fast do not move the fast-scroll
+  thumb; paced ones (about 80 ms apart) do.
+- **Sync** is checked against a WebDAV or KOReader server on the PC, reached from the phone
+  through `adb reverse`: no outside accounts.
+- **Android Auto** lists a sideloaded APK only with Android Auto's developer setting
+  **Unknown sources** on (tap the version in its settings ten times, then the menu >
+  Developer settings).
+- **Git Bash on Windows** turns `/sdcard/...` into a Windows path unless
+  `MSYS_NO_PATHCONV=1` is set.
 
-app/                          FLUTTER. Built in CI; analyzed/tested locally (see 4).
-  lib/
-    main.dart                 library, or batch sweep via --es batch true
-    library_screen.dart       shelf: Continue card, books, Add books, Open-with
-    library_store.dart        JSON index; import/load on background isolates
-    reader_screen.dart        BookLoader, reading list, player bar, contents sheet
-    listen_sheet.dart         speed / voice / style / fine-tune
-    scheduler.dart            streaming scheduler, position-driven highlight
-    speech_service.dart       platform API, synth mutex, background render
-    voices.dart               VoiceCatalog (shared), friendly voice names
-    prefs.dart                persisted listening settings
-    theme.dart  brand.dart    Skin, Palette, Gap, Radii, Motion, ThemeData; the logo
-    ui.dart                   shared widgets (ChoiceRow, SettingRow, SearchField, ...)
-    home_shell.dart           drawer and places (Library, Browse, Updates, History)
-    book_screen.dart          a book's page;  book_actions.dart: cover, move, remove
-    categories_screen.dart  history_screen.dart  settings_screen.dart (+ About)
-    sources/                  web novels: net.dart, models.dart, source_store.dart,
-                              plugin_host.dart (bridges), qjs_runtime.dart (QuickJS),
-                              source_engine.dart (isolate pool)
-    sources_screen.dart  browse_screen.dart  novel_screen.dart  web_reader.dart
-    updates.dart  updates_screen.dart  noveldokusha_import.dart
-  assets/js/                  lnreader_libs.js (bundle), lnreader_shim.js (require, fetch, storage)
-  android_overlay/app/
-    src/main/kotlin/.../MainActivity.kt      TTS, focus, import, intents
-    src/main/kotlin/.../PcmPlayer.kt         streaming AudioTrack
-    src/main/kotlin/.../ReadAloudService.kt  foreground service + MediaSession
-    src/main/kotlin/.../PdfText.kt           PdfBox-Android text + outline
-    src/main/kotlin/.../NovelDokushaImport.kt reads a NovelDokusha backup's SQLite
-    proguard-rules.pro                        R8 keeps for PdfBox
-  test/widget_test.dart       reader, sheet, voices, store (real isolates)
+## Findings that cost days
 
-tools/prepare_android.py      manifest/gradle patches: service, intents, PdfBox, signing
-```
+Each of these is in the code for a reason; do not undo them without reading why.
 
----
+1. **`onRangeStart`'s parameters are not in the documented order** on Google's TTS:
+   `(frame, charStart, charEnd)`. The layout is detected (`SpeechService.decodeTimings`);
+   do not "simplify" it away ([04 §4.3](04-tts-engine-contract.md#43-adapter-android-system-tts)).
+2. **Google's TTS hides its sentence pause inside a word's range.** Not every silence in the
+   audio is one TomeVoice made.
+3. **Stage order is load-bearing:** edge trim first, word gap after the stretch.
+   `ordering_test.dart` encodes both bugs ([02 §2.6](02-architecture.md#26-the-audio-pipeline)).
+4. **A green test suite proved nothing about listening.** Listen before claiming success
+   ([13 §13.13](13-testing-and-qa.md#1313-the-audio-spike)).
+5. **One warm `TextToSpeech`, one sentence at a time.** Re-creating it per sentence was
+   unusable; two overlapping `synthesizeToFile` calls steal its single progress listener and
+   playback dies after one sentence.
+6. **One streaming `AudioTrack`**, fed PCM, its playback head the clock for the highlight.
+   Never go back to a file and a `MediaPlayer` per sentence (600 to 750 ms of dead air
+   between sentences, and no pause).
+7. **The voice belongs to the cached Flutter engine** (`ReadingCore.kt`), not to
+   `MainActivity`: a change to the voice, the player, audio focus or the media session goes
+   in `ReadingCore.kt` ([07 §7.2](07-platform-android.md#72-background-playback)).
+8. **Do not rebuild the reader on every word.** The word is a `ValueListenable<WordMark>`,
+   and each paragraph listens for the sentence itself.
+9. **A debug APK is not a performance test** (unoptimised JIT with asserts). CI builds
+   `--release`; judge speed only there.
+10. **Closures sent to `Isolate.run`** must be made in a top-level function: one made in a
+    method can capture widget state, which cannot be sent. Hand an isolate paths, not
+    objects that hold notifiers.
+11. **Natural voices: full precision only.** The fp16 models abort ONNX Runtime on phones.
+    Keep `sherpa_onnx` pinned at 1.13.8 ([recheck triggers](10-decisions-adr.md#recheck-triggers)).
+12. **The file picker takes `*/*` with no MIME extra:** Android labels `.epub` as zip or
+    octet-stream, and a filtered picker hid them.
+13. **An EPUB's spine is not its chapter list.** Covers, contents pages, copyright pages and
+    part dividers are passed over (`navigate.dart`), and chapters follow the book's contents.
+14. **PdfBox's paragraph marks are not paragraphs:** a simple PDF came out a paragraph per
+    line. `formats/pdf.dart` reflows.
+15. **Cloudflare can refuse the app's own requests and let the web view in.** Requests use
+    the web view's User-Agent; a challenged page is loaded in a hidden web view
+    (`BrowserCheck.kt`). Test sites from the phone's network, never the PC's.
+16. **LNReader plugins need the real cheerio** (1.0.0-rc.12, with htmlparser2 and dayjs);
+    Mangayomi's Dart re-implementation breaks whole plugin families.
+17. **A green line round the whole screen** was Android's keyboard-focus outline after one
+    key press; `MainActivity.onPostResume` turns it off.
+18. **A painted fade band never matches the diagonal ground.** Fade the content itself
+    (`ShaderMask` with `dstIn`).
+19. **`MarkStore.reset()` between widget tests:** a save inside one test's fake clock left
+    the write queue waiting, and every later save timed out.
+20. **Maestro selectors** use Flutter's merged semantics (a tile reads
+    `Pride and Prejudice\nPride and Prejudice\nJane Austen\n…`); never `clearState: true` in a
+    flow that tests resuming ([13 §13.11](13-testing-and-qa.md#1311-device-flows-and-the-emulator-job)).
 
-## 6. Known problems
+## Housekeeping
 
-- **Kotlin was reviewed, not compiled locally.** The first CI build is its compiler.
-- **Scanned PDFs** (page images) are refused with a message; there is no OCR.
-- **Legacy-font Bengali PDFs** (Bijoy/SutonnyMJ, not Unicode) extract as Latin
-  gibberish. That is the file's encoding, not the extractor; converting it is its own job.
-- **Old .doc** and **HUFF/CDIC-compressed Kindle** books are refused with a message.
-- No visual EPUB pages, images or footnote links; text only.
-- Highlight lead on Bluetooth: the playback head does not include headset latency, so
-  the word can run ~100-200 ms ahead on Bluetooth.
-- `TimeStretchStubStage` pitch-shifts; speed is always the engine's. Phase 3 replaces it.
-- Google TTS offline voices are mediocre. Piper is the actual answer (Phase 3).
-- Library persistence is JSON, not Drift.
-- Cross-engine R1 is unmeasured.
-
----
-
-## 7. Decisions already locked
-
-Unchanged: GPL-3.0, Flutter, Android primary, Dart locally / APKs in CI, synthesise-to-PCM,
-DRM out of scope. New: the type set of ADR-018 replaces Ojuju/Space Mono; web novels run
-LNReader plugins and TomeVoice ships no list of sites (ADR-019).
-
----
-
-## 8. What to do next
-
-**Web novels, next steps.** (1) A background update job (WorkManager) with a notification,
-so updates happen with the app closed. (2) Cloudflare is handled (finding 20); a
-POST behind a check still fails. (3) Per-plugin settings and filters (`pluginSettings`, `filters`) in the source screen.
-(4) Download queue screen.
-
-**Earlier list, still open:**
-
-**A. Listen on the device.** Chapter-long listen with the screen off; pause from the lock
-screen; a phone call mid-sentence; headphones unplugged. Open a PDF and a DOCX.
-
-**B. Phase 1b — the visual EPUB reader** (WebView, CFIs, images). The reading layout
-and scheduler are reusable; do not re-parse.
-
-**C. Phase 3 — neural voices and a real time-stretcher.** Piper first.
-
-### Do not do these
-
-- Do not start with Kokoro.
-- Do not "clean up" the `onRangeStart` layout detection.
-- Do not reorder the pipeline stages without reading `ordering_test.dart`.
-- Do not shut down `TextToSpeech` per call; one warm engine serves everything.
-- Do not start n+1 `synthesizeToFile` before n has returned (or been cancelled).
-- Do not go back to a file + MediaPlayer per sentence.
-- Do not build a debug APK to judge speed.
-
----
-
-## 9. Loose ends
-
-- Cross-engine R1 (install eSpeak from F-Droid, re-run the batch) is still cheap and undone.
-- `spike-runs/` and `dist/` are gitignored; delete freely. Do not commit APKs.
-- The `spike/audio-engine` branch can still be deleted if it exists remotely.
-- QA leftovers: `mobile-qa/scratch/`, `report.xml`, incomplete flows
-  `import-clown.yaml` / `import-pdf.yaml` / `tap-clown.yaml` are untracked on purpose.
-- User books live on the laptop at `E:\stories\` (Clown EPUB, Crime EPUB, PDFs, audio).
-  Do not delete those. Device copies were under `/sdcard/Download/`.
+- `spike-runs/`, `dist/` and `mobile-qa/scratch/` are git-ignored; delete freely. Never
+  commit an APK.
+- The developer keeps the PC light (no local JDK, Android SDK, Gradle or emulator):
+  remove scratch SDKs, preview pages and downloaded browsers when done with them.

@@ -9,33 +9,60 @@ so nobody here can run `flutter create` to produce and commit an `android/` tree
 CI generates the scaffolding on every build and copies this directory over it:
 
 ```bash
-flutter create --platforms=android --project-name tomevoice_spike --org app.tomevoice .
+flutter create --no-pub --platforms=android --project-name tomevoice_spike --org app.tomevoice .
 cp -r android_overlay/. android/
 python3 ../tools/prepare_android.py .
 ```
+
+(CI keeps `lib/`, `test/`, `pubspec.yaml` and `pubspec.lock` aside while `flutter create`
+runs, puts them back, and fails if it changed any of them.)
 
 Two useful consequences: no generated Gradle boilerplate in version control, and the
 project self-heals when the Flutter template changes rather than drifting against a
 committed copy from whenever the project started.
 
 The trade is that a template change could silently drop something we depend on, so the
-workflow asserts the overlay landed — MainActivity present, method channel name present,
-manifest `<queries>` present, SDK levels patched — and fails the build if not.
+workflow asserts the overlay landed (the "Verify the overlay landed" step in
+`.github/workflows/build.yml`: the Kotlin files present, the method channel named, and the
+manifest's services, permissions and queries in place) and fails the build if not.
+
+The Kotlin package stays `app.tomevoice.tomevoice_spike`, from the template's project name;
+the application id, set by `prepare_android.py`, is `app.tomevoice`.
 
 ## What is in here
 
 | Path | Purpose |
 |---|---|
-| `app/src/main/kotlin/.../MainActivity.kt` | TTS adapter (engine reused across sentences), play-wait, SAF picker. |
-| `app/src/main/res/mipmap-*` and `mipmap-anydpi-v26/` | Launcher icon (adaptive + legacy). |
-| `app/src/main/res/drawable/ic_launcher_foreground.png` | Adaptive-icon foreground. |
+| `app/src/main/kotlin/.../ReadingCore.kt` | The cached Flutter engine and what reading needs with or without an activity: one warm `TextToSpeech`, the player, audio focus, the media session's calls |
+| `.../MainActivity.kt` | The activity: pickers, the window, prompts, Back; asks `ReadingCore` first |
+| `.../OpenActivity.kt` | Where Open with and Share land; hands them to the TomeVoice already open |
+| `.../PcmPlayer.kt` | One streaming `AudioTrack` fed PCM16 |
+| `.../ReadAloudService.kt` | The `mediaPlayback` foreground service, MediaSession and media browser (resume card, Android Auto) |
+| `.../PdfText.kt`, `PdfPages.kt` | A PDF's text (PdfBox-Android) and its pages as pictures (`PdfRenderer`) |
+| `.../Ocr.kt` | Scanned pages read by Tesseract, in a data-sync service |
+| `.../AudioExport.kt` | Saving a book as audio (AAC in MP4, or MP3) |
+| `.../NarrationAudio.kt` | Decoding an EPUB's recorded narration |
+| `.../NovelCheckWorker.kt`, `DownloadService.kt`, `SourcesBridge.kt`, `BrowserCheck.kt` | Web novels: the check for new chapters with the app closed, downloads, platform calls, the hidden web view |
+| `.../NovelDokushaImport.kt` | Reading a NovelDokusha backup's database |
+| `.../LibraryBackup.kt`, `ShareProvider.kt`, `ErrorLog.kt` | Backups, files handed to other apps, Android-side crashes |
+| `.../Widgets.kt`, `WidgetConfigActivity.kt` | The home-screen widgets |
+| `app/src/main/res/` | Launcher icon, notification and speed icons, widget layouts and previews, `xml/` (widget info, `automotive_app_desc.xml`) |
 
 ## What `prepare_android.py` adds
 
-Two things the generated project cannot know about:
+What the generated project cannot know about; the script's own docstring lists each with
+its reason. Among them:
 
-- **`<queries>` for `android.intent.action.TTS_SERVICE`.** Since Android 11, package
-  visibility is restricted and `TextToSpeech.getEngines()` returns almost nothing without
-  it. The spike exists to compare engines, so this is load-bearing rather than cosmetic.
-- **`minSdk 26`, `targetSdk 36`.** `onRangeStart` arrived in API 26 and the spike depends
-  on it; API 36 has been required for new Play submissions since 31 August 2026.
+- **`<queries>` for `android.intent.action.TTS_SERVICE`** (and `PROCESS_TEXT`). Since
+  Android 11, package visibility is restricted and `TextToSpeech.getEngines()` returns
+  almost nothing without it.
+- **`minSdk 26`, `targetSdk 36`.** `onRangeStart` arrived in API 26; API 36 has been
+  required for new Play submissions since 31 August 2026.
+- **The application id** `app.tomevoice` and the label (or the test app's, with
+  `TV_APP_ID` / `TV_APP_LABEL`), and the signing key when `TV_KEYSTORE` is set.
+- **The services, permissions and intent filters**: reading with the screen off, Open with
+  and Share, the media browser, battery optimisation, OCR, saving as audio, web-novel
+  downloads.
+- **Dependencies**: PdfBox-Android (without BouncyCastle's post-quantum tables),
+  WorkManager, Tesseract4Android, jump3r; and only the CPU's own native code (`TV_ABIS`),
+  stored compressed.
