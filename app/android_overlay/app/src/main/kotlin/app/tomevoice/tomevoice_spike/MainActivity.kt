@@ -887,10 +887,11 @@ class MainActivity : FlutterActivity() {
                         queryDisplayName(doc)
                     }
                     // A file the app made (a novel as an EPUB), from its own
-                    // storage only.
+                    // storage only. Dart's temporary folder is code_cache:
+                    // without it, every EPUB was refused.
                     "copyToFolder" -> {
                         val source = File(call.argument<String>("path").orEmpty()).canonicalFile
-                        val ours = listOfNotNull(cacheDir, filesDir, externalCacheDir, getExternalFilesDir(null))
+                        val ours = listOfNotNull(cacheDir, codeCacheDir, filesDir, externalCacheDir, getExternalFilesDir(null))
                             .map { it.canonicalPath + File.separator }
                         if (!source.isFile || ours.none { source.path.startsWith(it) }) {
                             throw IllegalStateException("That file is not one TomeVoice made")
