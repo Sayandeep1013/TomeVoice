@@ -1297,6 +1297,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         chapter: _l.chapterOfUnit(unit),
         reading: _player,
         wholeBook: !web,
+        secret: widget.store?.isSecret(_book.id) ?? false,
       )),
     );
     if (picked == null || !mounted) return;
