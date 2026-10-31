@@ -2115,12 +2115,17 @@ bool _narrationUnread(Map<Object?, Object?> raw, String? source, String dir) {
   final book = raw['book'];
   if (book is! Map || book['source'] != SourceKind.epub.name) return false;
   if (source != null && epubHasNarration(source)) return true;
+  _lookedForNarration(raw, dir);
+  return false;
+}
+
+/// [raw], the book stored in [dir], marked as looked at for its narration.
+void _lookedForNarration(Map<Object?, Object?> raw, String dir) {
   try {
     _writeWholeSync(File('$dir/parsed.json'), jsonEncode({...raw, 'n': _narrationVersion}));
   } on Object {
     // Looked at again next time.
   }
-  return false;
 }
 
 /// Write [text] beside [file] and rename it over: a crash leaves the old
@@ -2273,6 +2278,9 @@ Future<({ReadingLayout layout, bool remade})> _loadLayout(_LoadJob job) async {
           _writeImages(dir, bytes, book);
         } on Object {
           book = withResolvedLanguage(legacy);
+          // Parsed again for its narration alone: one that fails is not
+          // tried at every opening (it was, a whole parse each time).
+          if (raw['v'] == _parsedVersion) _lookedForNarration(raw, dir);
         }
       } else {
         book = withResolvedLanguage(legacy);

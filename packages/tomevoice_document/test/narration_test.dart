@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
+import 'package:archive/archive.dart';
 import 'package:test/test.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
@@ -44,6 +46,42 @@ void main() {
     test('nothing else is one', () {
       for (final bad in ['', 'abc', '12x', '1:2:3:4', '-3s', 'NaN', 'Infinity', '1e3', '12.s']) {
         expect(parseClockValue(bad), isNull, reason: bad);
+      }
+    });
+
+    test('nor a time no recording runs to, which overflowed or came to Infinity', () {
+      final huge = '9' * 400;
+      for (final bad in ['99999999999999999999:00:00', '0:99999999999999999999:00', '${huge}s', '${huge}h', '$huge:00']) {
+        expect(parseClockValue(bad), isNull, reason: bad);
+      }
+      expect(parseClockValue('8760:00:00'), 8760 * 3600000, reason: 'a year of audio is a time still');
+    });
+  });
+
+  group('a damaged narration', () {
+    /// [narratedEpub] with its SMIL files changed by [change].
+    Uint8List damaged(String Function(String smil) change) {
+      final out = Archive();
+      for (final f in ZipDecoder().decodeBytes(narratedEpub())) {
+        if (f.name.endsWith('.smil')) {
+          out.addFile(ArchiveFile.bytes(f.name, utf8.encode(change(utf8.decode(f.content)))));
+        } else {
+          out.addFile(f);
+        }
+      }
+      return ZipEncoder().encodeBytes(out);
+    }
+
+    test('a clock value that overflows, or comes to Infinity, leaves its clip out; the book is read', () {
+      // Each refused the whole book: "int.parse" threw, and Infinity would
+      // not round.
+      for (final value in ['99999999999999999999:00:00', '${'9' * 400}s']) {
+        final book = ingestBytes(
+          damaged((smil) => smil.replaceFirst(RegExp('clipEnd="[^"]*"'), 'clipEnd="$value"')),
+          filename: 'tin-box.epub',
+        );
+        expect(book.sections.expand((s) => s.blocks).map((b) => b.text).join(' '), contains('The box was made of tin'));
+        expect(book.narration!.clips, hasLength(lessThan(10)), reason: value);
       }
     });
   });

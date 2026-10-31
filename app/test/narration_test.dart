@@ -11,6 +11,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
@@ -388,6 +389,31 @@ void main() {
       expect(l.book.narration?.clips, hasLength(10));
       expect(BookNarrationReader.files[entry.id], entry.sourcePath);
       expect((jsonDecode(parsed.readAsStringSync()) as Map)['n'], isNotNull);
+    });
+
+    test('one whose narration cannot be read again is not parsed again at every opening', () async {
+      final store = LibraryStore(dir);
+      final entry = await store.importFile(PickedFile(path: epub, name: 'tin-box.epub'));
+      // As a build before narrations were read wrote it; its file since
+      // damaged: its package names a narration, and it has no text left.
+      final parsed = File('${store.bookDir(entry.id)}/parsed.json');
+      final raw = jsonDecode(parsed.readAsStringSync()) as Map<String, Object?>;
+      (raw['book'] as Map).remove('narration');
+      raw.remove('n');
+      parsed.writeAsStringSync(jsonEncode(raw));
+      final before = jsonEncode(raw['book']);
+      final damaged = Archive();
+      for (final f in ZipDecoder().decodeBytes(File(entry.sourcePath).readAsBytesSync())) {
+        if (!f.name.endsWith('.xhtml')) damaged.addFile(f);
+      }
+      File(entry.sourcePath).writeAsBytesSync(ZipEncoder().encodeBytes(damaged));
+      expect(epubHasNarration(entry.sourcePath), isTrue);
+
+      final l = await store.loadLayout(entry.id);
+      expect(l.units.map((u) => u.text).join(' '), contains('The box was made of tin'), reason: 'read as it was kept');
+      final after = jsonDecode(parsed.readAsStringSync()) as Map;
+      expect(after['n'], isNotNull, reason: 'looked at: not parsed again at every opening');
+      expect(jsonEncode(after['book']), before);
     });
 
     test('an EPUB with none is only marked as looked at', () async {
