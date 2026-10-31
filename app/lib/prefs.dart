@@ -49,6 +49,7 @@ class ListeningPrefs {
     this.pageWarmth = 0,
     this.autoScrollLines = 24,
     this.autoPageSeconds = 30,
+    this.guideShown = false,
     this.themeMode = ThemeMode.system,
     this.paletteId = 'forest',
     this.updateEvery = 'daily',
@@ -263,6 +264,11 @@ class ListeningPrefs {
   int autoScrollLines;
   int autoPageSeconds;
 
+  /// The guide to the app has been shown: by itself once, on a new
+  /// install's first launch (an update, with a shelf of its own, never
+  /// shows it), and again whenever Settings asks.
+  bool guideShown;
+
   /// Light, dark, or the phone's choice.
   ThemeMode themeMode;
 
@@ -411,6 +417,7 @@ class ListeningPrefs {
         if (pageWarmth > 0) 'pageWarmth': pageWarmth,
         if (autoScrollLines != 24) 'autoScrollLines': autoScrollLines,
         if (autoPageSeconds != 30) 'autoPageSeconds': autoPageSeconds,
+        if (guideShown) 'guideShown': true,
         'themeMode': themeMode.name,
         'palette': paletteId,
         'updateEvery': updateEvery,
@@ -498,6 +505,7 @@ class ListeningPrefs {
         pageWarmth: ((json['pageWarmth'] as num?)?.toDouble() ?? 0).clamp(0.0, 1.0).toDouble(),
         autoScrollLines: ((json['autoScrollLines'] as num?)?.toInt() ?? 24).clamp(4, 120),
         autoPageSeconds: ((json['autoPageSeconds'] as num?)?.toInt() ?? 30).clamp(3, 600),
+        guideShown: json['guideShown'] == true,
         themeMode: ThemeMode.values.where((m) => m.name == json['themeMode']).firstOrNull ??
             ThemeMode.system,
         gridView: json['gridView'] as bool? ?? true,

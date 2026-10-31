@@ -17,6 +17,7 @@ import 'categories_screen.dart';
 import 'download_queue.dart';
 import 'error_log.dart';
 import 'export_audio_sheet.dart';
+import 'guide.dart';
 import 'history_screen.dart';
 import 'library_screen.dart';
 import 'library_store.dart';
@@ -327,7 +328,9 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
       // A fresh install may be someone moving over: from the older
       // TomeVoice (another app id), or from another phone.
       final fresh = !File('$dir/starter.json').existsSync() && (await store.list(all: true)).isEmpty;
-      if (fresh) Future<void>.delayed(const Duration(seconds: 3), () => _offerRestore(store));
+      // Its first launch has no settings kept either: then the guide, once.
+      // An update has its shelf (and the starter's mark) and settings.
+      if (fresh) unawaited(_welcome(store, guide: !File('$dir/prefs.json').existsSync()));
       // A new install's first shelf: a classic and two web novels.
       unawaited(Starter.seed(Directory(dir), store, sources));
       // A newer TomeVoice: on opening, and on coming back to the app.
@@ -403,6 +406,30 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
     }
   }
 
+  /// The guide is up over the shelf (a new install's first launch).
+  bool _guiding = false;
+
+  /// A new install: on its first launch the guide, once, then the offer to
+  /// restore a backup, for someone moving over (after the guide, not
+  /// hidden under it).
+  Future<void> _welcome(LibraryStore store, {required bool guide}) async {
+    final prefs = ListeningPrefs.loaded;
+    if (guide && GuideScreen.onFirstLaunch && prefs != null && !prefs.guideShown) {
+      prefs.guideShown = true;
+      prefs.save();
+      // The shelf in first, then the guide over it.
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      if (!mounted) return;
+      _guiding = true;
+      await showGuide(context);
+      _guiding = false;
+      await Future<void>.delayed(const Duration(seconds: 1));
+    } else {
+      await Future<void>.delayed(const Duration(seconds: 3));
+    }
+    _offerRestore(store);
+  }
+
   void _offerRestore(LibraryStore store) {
     if (!mounted) return;
     showSnack(
@@ -418,7 +445,8 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
   /// put it off. Asked on opening and on coming back to the app; GitHub is
   /// asked at most every few hours (see AppUpdates.check).
   Future<void> _offerUpdate(Directory root) async {
-    if (_offering) return;
+    // Not over the guide: asked again on coming back to the app.
+    if (_offering || _guiding) return;
     _offering = true;
     try {
       final update = await AppUpdates.check(root);
