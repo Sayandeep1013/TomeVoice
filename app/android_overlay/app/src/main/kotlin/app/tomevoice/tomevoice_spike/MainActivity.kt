@@ -516,6 +516,20 @@ class MainActivity : FlutterActivity() {
                     }
                     result.success(null)
                 }
+                "screenBrightness" -> {
+                    // The reader's own brightness while a book is open, from
+                    // the phone's lowest (0) to full (1); below 0, the
+                    // phone's own again. Only while this window is in front.
+                    val level = call.argument<Number>("level")?.toFloat() ?: -1f
+                    window.attributes = window.attributes.apply {
+                        screenBrightness = if (level < 0f) {
+                            WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                        } else {
+                            level.coerceIn(0f, 1f)
+                        }
+                    }
+                    result.success(null)
+                }
                 "webUserAgent" -> {
                     try {
                         result.success(BrowserCheck.userAgent(this))
@@ -887,10 +901,11 @@ class MainActivity : FlutterActivity() {
                         queryDisplayName(doc)
                     }
                     // A file the app made (a novel as an EPUB), from its own
-                    // storage only.
+                    // storage only. Dart's temporary folder is code_cache:
+                    // without it, every EPUB was refused.
                     "copyToFolder" -> {
                         val source = File(call.argument<String>("path").orEmpty()).canonicalFile
-                        val ours = listOfNotNull(cacheDir, filesDir, externalCacheDir, getExternalFilesDir(null))
+                        val ours = listOfNotNull(cacheDir, codeCacheDir, filesDir, externalCacheDir, getExternalFilesDir(null))
                             .map { it.canonicalPath + File.separator }
                         if (!source.isFile || ours.none { source.path.startsWith(it) }) {
                             throw IllegalStateException("That file is not one TomeVoice made")

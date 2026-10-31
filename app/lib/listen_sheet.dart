@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
+import 'auto_scroll.dart';
 import 'book_tint.dart';
 import 'neural_screen.dart';
 import 'neural_voices.dart';
+import 'page_light.dart';
 import 'page_tone.dart';
 import 'paged_view.dart' show PageTurn;
 import 'prefs.dart';
@@ -34,6 +36,9 @@ class ListenController {
     this.onPreview,
     this.isPlaying,
     this.isPdf = false,
+    this.narration = false,
+    this.light,
+    this.autoScroll,
     this.characters,
     this.onCharacters,
   });
@@ -68,6 +73,27 @@ class ListenController {
   /// The book is a PDF, so the page view can be offered.
   final bool isPdf;
 
+  /// The book has its own recorded narration (an EPUB's media overlays),
+  /// so it can be read in that instead of a voice.
+  final bool narration;
+
+  /// Whether this book is read in its own narration.
+  bool get narrated => narration && bookId != null && prefs.narratedBooks.contains(bookId);
+
+  /// Read this book in its own narration; choosing a voice reads it in
+  /// that voice again.
+  void chooseNarration() {
+    final id = bookId;
+    if (id == null) return;
+    prefs.narratedBooks.add(id);
+    prefs.save();
+    onChanged(restart: true);
+  }
+  /// The page's light, moved by the Read tab's sliders as they move, and
+  /// auto-scroll, started there: only an open book's page has them.
+  final ValueNotifier<PageLight>? light;
+  final AutoScroll? autoScroll;
+
   /// The book's characters, where they are offered (the reader, once it
   /// has found anyone speaking in the book): how their lines are read now,
   /// and the sheet that gives them voices of their own, done when it closes.
@@ -99,7 +125,10 @@ class ListenController {
   /// Use [name] for this book, and as the default for its language when it
   /// speaks that language (another language's voice stays this book's own).
   void chooseVoice(String name) {
-    if (bookId != null) prefs.voiceByBook[bookId!] = name;
+    if (bookId != null) {
+      prefs.voiceByBook[bookId!] = name;
+      prefs.narratedBooks.remove(bookId);
+    }
     if (VoiceCatalog.instance.byName(name)?.language == language) prefs.voiceByLanguage[language] = name;
     prefs.save();
     onChanged(restart: true);
@@ -345,7 +374,10 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
     final v = _catalog.byName(widget.controller.voiceName);
     final String title;
     final String detail;
-    if (!_catalog.loaded) {
+    if (widget.controller.narrated) {
+      title = "Book's own narration";
+      detail = 'The recording that came with the book';
+    } else if (!_catalog.loaded) {
       title = 'Loading voices…';
       detail = '';
     } else if (v == null) {
@@ -781,17 +813,141 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
   // ------------------------------------------------------------------ read
 
   List<Widget> _read(BuildContext context) => [
+        if (widget.controller.light case final light?) ..._light(context, light),
         ReadingControls(
           prefs: _prefs,
           isPdf: widget.controller.isPdf,
           // The app's light or dark lives in Settings.
           showTheme: false,
+          afterLayout: switch (widget.controller.autoScroll) {
+            final auto? => _autoScroll(context, auto),
+            null => null,
+          },
           onChanged: () {
             setState(() {});
             widget.controller.onChanged(restart: false);
           },
         ),
       ];
+
+  /// The page's light: how bright (at the left end, darker than the phone
+  /// goes) and how warm, and the phone's own again. The page follows the
+  /// sliders as they move; they are kept when let go.
+  List<Widget> _light(BuildContext context, ValueNotifier<PageLight> light) {
+    final now = PageLight.of(_prefs);
+    final brightness = now.brightness;
+    void set({double? to, double? warmth, bool keep = false}) {
+      setState(() {
+        if (to != null) _prefs.pageBrightness = to;
+        if (warmth != null) _prefs.pageWarmth = warmth;
+      });
+      light.value = PageLight.of(_prefs);
+      if (keep) _prefs.save();
+    }
+
+    String bright(double v) => v < PageLight.below
+        ? 'Darker than the phone'
+        : '${((v - PageLight.below) / (1 - PageLight.below) * 100).round()}%';
+    String warm(double v) => v <= 0 ? 'Off' : '${(v * 100).round()}%';
+    return [
+      const SectionTitle('Light'),
+      const SizedBox(height: Gap.m),
+      LabeledSlider(
+        label: 'Brightness',
+        value: brightness ?? PageLight.resting,
+        min: 0,
+        max: 1,
+        display: brightness == null ? 'As the phone is' : bright(brightness),
+        note: 'At its left end, darker than the phone goes.',
+        spoken: (v) => brightness == null && v == PageLight.resting ? 'As the phone is' : bright(v),
+        onChanged: (v) => set(to: v),
+        onChangeEnd: (v) => set(to: v, keep: true),
+      ),
+      LabeledSlider(
+        label: 'Warmth',
+        value: now.warmth,
+        min: 0,
+        max: 1,
+        display: warm(now.warmth),
+        note: 'Amber over the page, for reading at night.',
+        spoken: warm,
+        onChanged: (v) => set(warmth: v),
+        onChangeEnd: (v) => set(warmth: v, keep: true),
+      ),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          onPressed: now.isPhone
+              ? null
+              : () {
+                  setState(() {
+                    _prefs.pageBrightness = null;
+                    _prefs.pageWarmth = 0;
+                  });
+                  light.value = PageLight.phone;
+                  _prefs.save();
+                },
+          icon: const Icon(Icons.restart_alt_rounded, size: 18),
+          label: const Text('As the phone is'),
+        ),
+      ),
+      const SizedBox(height: Gap.xl),
+    ];
+  }
+
+  /// Auto-scroll, under the layout it moves: how fast (in pages, how long
+  /// on each page), and Start, which closes the sheet onto the page moving;
+  /// Stop while it runs.
+  Widget _autoScroll(BuildContext context, AutoScroll auto) => ListenableBuilder(
+        listenable: auto,
+        builder: (context, _) {
+          final pages = _prefs.pages;
+          // A PDF's real pages scroll as pictures; in pages they turn.
+          final can = !(widget.controller.isPdf && _prefs.pdfPages && !pages);
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: Gap.xl),
+              const SectionTitle('Auto-scroll'),
+              const SizedBox(height: Gap.m),
+              StepperControl(
+                value: auto.label(pages: pages),
+                minusTooltip: pages ? 'Longer on each page' : 'Scroll slower',
+                plusTooltip: pages ? 'Shorter on each page' : 'Scroll faster',
+                valueStyle: Skin.ui(size: 17, weight: FontWeight.w700, color: Skin.inkOn(context), tabular: true),
+                onMinus: auto.canSlowDown(pages: pages) ? () => auto.slowDown(pages: pages) : null,
+                onPlus: auto.canSpeedUp(pages: pages) ? () => auto.speedUp(pages: pages) : null,
+              ),
+              const SizedBox(height: Gap.s),
+              Text(
+                !can
+                    ? 'The real pages turn by themselves in pages: choose Pages above.'
+                    : '${pages ? 'A page turns by itself' : 'The page moves on by itself'} until the chapter ends, '
+                        'and a touch holds it a moment. Starting it stops the voice, and Play stops it.',
+                style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
+              ),
+              const SizedBox(height: Gap.m),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.icon(
+                  onPressed: !can
+                      ? null
+                      : () {
+                          if (auto.on) {
+                            auto.stop();
+                            return;
+                          }
+                          auto.start();
+                          Navigator.of(context).maybePop();
+                        },
+                  icon: Icon(auto.on ? Icons.stop_rounded : Icons.play_arrow_rounded),
+                  label: Text(auto.on ? 'Stop auto-scroll' : 'Start auto-scroll'),
+                ),
+              ),
+            ],
+          );
+        },
+      );
 }
 
 /// The common speeds: the speed sheet's row, and the steps of the media
@@ -874,12 +1030,16 @@ class ReadingControls extends StatelessWidget {
     required this.onChanged,
     this.isPdf = false,
     this.showTheme = true,
+    this.afterLayout,
   });
 
   final ListeningPrefs prefs;
   final VoidCallback onChanged;
   final bool isPdf;
   final bool showTheme;
+
+  /// Under the layout's choice, where a book's page is open: its auto-scroll.
+  final Widget? afterLayout;
 
   void _apply(void Function() change) {
     change();
@@ -989,6 +1149,7 @@ class ReadingControls extends StatelessWidget {
                     ],
                   ),
           ),
+          if (afterLayout case final after?) after,
           if (showTheme) ...[
             const SizedBox(height: Gap.xl),
             const SectionTitle('Theme'),
@@ -1114,6 +1275,7 @@ class LabeledSlider extends StatelessWidget {
     required this.onChanged,
     required this.onChangeEnd,
     this.note,
+    this.spoken,
   });
 
   final String label;
@@ -1126,6 +1288,10 @@ class LabeledSlider extends StatelessWidget {
 
   /// A line under the slider about what it does.
   final String? note;
+
+  /// The value as a screen reader says it ("40%"), where the number alone
+  /// would not say it.
+  final String Function(double value)? spoken;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -1151,7 +1317,7 @@ class LabeledSlider extends StatelessWidget {
                 value: value.clamp(min, max),
                 min: min,
                 max: max,
-                semanticFormatterCallback: (v) => '$label ${v.toStringAsFixed(2)}',
+                semanticFormatterCallback: (v) => '$label ${spoken?.call(v) ?? v.toStringAsFixed(2)}',
                 onChanged: onChanged,
                 onChangeEnd: onChangeEnd,
               ),
@@ -1245,6 +1411,7 @@ class _VoicePickerState extends State<_VoicePicker> {
 
   @override
   Widget build(BuildContext context) {
+    final narrated = widget.controller.narrated;
     final selected = widget.controller.voiceName;
     final current = _catalog.byName(selected);
     final voices = _catalog.forLanguage(_language, keep: selected);
@@ -1325,12 +1492,13 @@ class _VoicePickerState extends State<_VoicePicker> {
                           shrinkWrap: true,
                           padding: const EdgeInsets.only(bottom: Gap.xl),
                           children: [
+                            if (widget.controller.narration) _narrationRow(context, selected: narrated),
                             // The voice in use, on its own; the list below keeps
                             // its order and marks it where it stands.
                             if (current != null) ...[
-                              const Padding(
-                                padding: EdgeInsets.fromLTRB(Gap.xl, Gap.s, Gap.xl, Gap.s),
-                                child: Eyebrow('In use'),
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.s, Gap.xl, Gap.s),
+                                child: Eyebrow(narrated ? 'Reads what the narration leaves out' : 'In use'),
                               ),
                               _selectedCard(context, current),
                               const SizedBox(height: Gap.s),
@@ -1342,7 +1510,7 @@ class _VoicePickerState extends State<_VoicePicker> {
                                   padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.l, Gap.xl, Gap.xs),
                                   child: Eyebrow(group.key.isEmpty ? languageName(_language) : group.key),
                                 ),
-                              for (final v in group.value) _voiceRow(context, v, selected: v.name == selected),
+                              for (final v in group.value) _voiceRow(context, v, selected: !narrated && v.name == selected),
                             ],
                             if (_catalog.engines.length > 1) ...[
                               const Padding(
@@ -1452,6 +1620,40 @@ class _VoicePickerState extends State<_VoicePicker> {
       ),
     );
   }
+
+  /// The book's own narration, above its voices: the recording it came
+  /// with, read instead of a voice.
+  Widget _narrationRow(BuildContext context, {required bool selected}) => InkWell(
+        onTap: () => setState(widget.controller.chooseNarration),
+        child: AnimatedContainer(
+          duration: Motion.of(context, Motion.standard),
+          curve: Motion.out,
+          color: Skin.accentOf(context).withValues(alpha: selected ? 0.12 : 0),
+          padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.m, Gap.m, Gap.m),
+          child: Row(
+            children: [
+              Icon(
+                selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+                size: 22,
+                color: selected ? Skin.accentInkOf(context) : Skin.inkFaintOn(context),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("Book's own narration",
+                        style: Skin.ui(size: 16, weight: FontWeight.w600, color: Skin.inkOn(context))),
+                    Text('The recording that came with the book, lit as it is read',
+                        style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkFaintOn(context))),
+                  ],
+                ),
+              ),
+              Icon(Icons.headphones_rounded, color: Skin.accentInkOf(context), size: 24),
+            ],
+          ),
+        ),
+      );
 
   Widget _voiceRow(BuildContext context, VoiceInfo v, {required bool selected}) {
     final note = _availability(v);

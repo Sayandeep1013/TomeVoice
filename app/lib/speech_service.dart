@@ -396,6 +396,10 @@ class SpeechService {
   /// Keep the display awake while a book is open (a reader setting).
   Future<void> keepScreenOn(bool on) => _quiet('keepScreenOn', {'on': on});
 
+  /// The window's own brightness while a book is open: 0 (the phone's
+  /// lowest) to 1 (full), or null for the phone's own again.
+  Future<void> screenBrightness(double? level) => _quiet('screenBrightness', {'level': level ?? -1.0});
+
   /// While on, the volume keys turn pages (a `pageKey` event with `delta`)
   /// instead of changing the volume.
   Future<void> volumeKeysTurnPages(bool on) => _quiet('volumeKeysTurnPages', {'on': on});

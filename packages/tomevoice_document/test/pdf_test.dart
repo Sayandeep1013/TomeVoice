@@ -688,6 +688,49 @@ void main() {
       ]);
     });
 
+    test("a speech that fills its line still ends where the next speaker's line is set in", () {
+      // Measured on a phone's extraction of Pride and Prejudice: the text
+      // at x 32, each paragraph's first line set in to 42, full lines
+      // ending near 273. "...very clever.'" stops only 5 points short of a
+      // full line, so it does not look short, but the page sets first lines
+      // in and runs them on at the edge ("...always sen-" over "sible of
+      // it.'"), so the next line set in starts a paragraph.
+      final book = _laidBook([
+        [
+          _at('not be of my own, however.’', 32, 347, w: 113, para: true),
+          _at('‘If my children are silly, I must hope to be always sen-', 42, 359, w: 231),
+          _at('sible of it.’', 32, 371, w: 41),
+          _at('‘Yes—but as it happens, they are all of them very clever.’', 42, 383, w: 226),
+          _at('‘This is the only point, I flatter myself, on which we do', 42, 395, w: 230),
+          _at('not agree.’', 32, 407, w: 50),
+        ],
+      ]);
+      expect(_texts(book), [
+        'not be of my own, however.’',
+        '‘If my children are silly, I must hope to be always sensible of it.’',
+        '‘Yes—but as it happens, they are all of them very clever.’',
+        '‘This is the only point, I flatter myself, on which we do not agree.’',
+      ]);
+    });
+
+    test('a quotation set in as a whole stays one paragraph, its sentences ending at its lines', () {
+      // Every line of the quotation is set in, its own lines run on set in:
+      // nothing on the page shows first lines set in and run on at the edge.
+      final book = _laidBook([
+        [
+          _at('He wrote to her at once, and she read it twice.', 32, 100, w: 241, para: true),
+          _at('My dear sister, the house is sold and the garden with it.', 52, 112, w: 211, para: true),
+          _at('We go on Monday. Write to me there when you have news.', 52, 124, w: 205),
+          _at('Your loving brother.', 52, 136, w: 90),
+        ],
+      ]);
+      expect(_texts(book), [
+        'He wrote to her at once, and she read it twice.',
+        'My dear sister, the house is sold and the garden with it. We go on Monday. '
+            'Write to me there when you have news. Your loving brother.',
+      ]);
+    });
+
     test('a title set larger than the text under it is a paragraph of its own', () {
       // Two fables on a page, each title a little above its text: the
       // extractor ran each title into its text, so the title was read as the

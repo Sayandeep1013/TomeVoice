@@ -470,7 +470,7 @@ class _WebNovelReaderState extends State<WebNovelReader> {
     return ReaderScreen(
       key: ValueKey(_generation),
       layout: layout,
-      window: window,
+      layouts: window,
       store: _store,
       initialCursor: _cursor,
       autoplay: _autoplay,

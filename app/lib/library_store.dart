@@ -9,8 +9,10 @@ import 'package:flutter/foundation.dart' show ValueNotifier, visibleForTesting;
 import 'package:flutter/services.dart' show BackgroundIsolateBinaryMessenger, MethodChannel, RootIsolateToken;
 import 'package:tomevoice_document/tomevoice_document.dart';
 
+import 'book_search.dart' show foldForSearch;
 import 'index_file.dart';
 import 'marks.dart';
+import 'narration.dart' show BookNarrationReader, epubHasNarration;
 import 'ocr.dart';
 import 'organise.dart' show distinctTags, seriesNamed, tagKey, tagNamed;
 import 'prefs.dart';
@@ -39,6 +41,12 @@ import 'text_print.dart';
 /// entry (pdfParser).
 const _parsedVersion = 8;
 
+/// Bumped when EPUBs are to be read again for their own narration (media
+/// overlays), which books stored before it were never looked at for: an
+/// EPUB whose package names one is parsed again, once; the rest are marked
+/// as looked at. Other books are not touched.
+const _narrationVersion = 1;
+
 /// On-device library: copied files, parsed books, reading positions.
 ///
 /// JSON on disk rather than Drift. Everything heavy (parsing, JSON, building
@@ -46,8 +54,12 @@ const _parsedVersion = 8;
 /// a 2.5 second freeze when opening a long EPUB.
 class LibraryStore {
   LibraryStore(this.root) {
-    // Opening or locking the secret shelves changes what every page shows.
-    secretOpen.addListener(() => changes.value++);
+    // Opening or locking the secret shelves changes what every page shows,
+    // and the titles a series is found among.
+    secretOpen.addListener(() {
+      _seriesSought = false;
+      changes.value++;
+    });
   }
 
   final Directory root;
@@ -109,7 +121,11 @@ class LibraryStore {
   Future<void> _change(List<LibraryEntry> Function(List<LibraryEntry> entries) change, {bool place = false}) async {
     await index();
     if (_held) return;
-    final next = change([..._known!.entries])..sort((a, b) => b.lastTouched.compareTo(a.lastTouched));
+    var next = change([..._known!.entries]);
+    // A book come or gone, moved or put in a series: the series titles
+    // share are found again (a place saved changes none).
+    if (!place) next = _withSeries(next) ?? next;
+    next.sort((a, b) => b.lastTouched.compareTo(a.lastTouched));
     _known = LibraryIndex(entries: next, categories: _categories, defaultCategory: _defaultCategory);
     await _write(next, place: place);
   }
@@ -133,13 +149,74 @@ class LibraryStore {
       final read = await _readIndex();
       if (_known == null) {
         _known = read;
+        _seriesSought = false;
         // Places a run stopped before writing them here (see saveCursor).
         _recoverPlaces();
         _warmParts(read.entries);
       }
       full = _known!;
     }
+    if (!_seriesSought) {
+      await _seekSeries();
+      full = _known ?? full;
+    }
     return all || secretOpen.value ? full : full.withoutSecret();
+  }
+
+  /// Whether the series titles share have been looked for in the index as
+  /// it was last read, and among the books shown now (see [_seekSeries]).
+  bool _seriesSought = false;
+
+  /// The series titles share (see [_withSeries]), looked for in the index
+  /// just read (entries from before series were kept, or that an earlier
+  /// build gave the series each title names alone), and among the books
+  /// shown once a secret shelf opens or shuts. Written as any change is,
+  /// when one is found.
+  Future<void> _seekSeries() async {
+    _seriesSought = true;
+    final known = _known;
+    if (known == null || _held) return;
+    final found = _withSeries(known.entries);
+    if (found == null) return;
+    _known = LibraryIndex(entries: found, categories: _categories, defaultCategory: _defaultCategory);
+    try {
+      await _write(found);
+    } on Object {
+      // Kept here, and written with the next change.
+    }
+  }
+
+  /// [entries] with the series their titles share found again, or null when
+  /// none changes (see seriesAcross). Asked for each book whose series comes
+  /// from its title ([_fromTitle]), among the books shown; the rest lend the
+  /// series they are in. While a secret shelf is shut its books are left
+  /// out altogether, theirs kept as they are, so no series shown can tell
+  /// of them.
+  List<LibraryEntry>? _withSeries(List<LibraryEntry> entries) {
+    final shut = secretOpen.value ? const <String>{} : {for (final c in _categories) if (c.secret) c.id};
+    final asked = <int>[];
+    final named = <String>[];
+    for (var i = 0; i < entries.length; i++) {
+      final e = entries[i];
+      if (shut.isNotEmpty && shut.contains(e.categoryIn(_categories, _defaultCategory))) continue;
+      if (_fromTitle(e)) {
+        asked.add(i);
+      } else if (e.seriesName case final name?) {
+        named.add(name);
+      }
+    }
+    if (asked.isEmpty) return null;
+    final found = seriesAcross([for (final i in asked) entries[i].title], named: named);
+    List<LibraryEntry>? out;
+    for (var j = 0; j < asked.length; j++) {
+      final e = entries[asked[j]];
+      final f = found[j];
+      // Spelled otherwise only where the shelf would show two series
+      // ("Star Wars: Thrawn" and "Star Wars Thrawn").
+      if (f == null || foldForSearch(f.name) == foldForSearch(e.series ?? '')) continue;
+      (out ??= [...entries])[asked[j]] = e.copyWith(series: f.name, seriesIndex: f.index);
+    }
+    return out;
   }
 
   /// library.json's time and size when it was last read or written here
@@ -170,6 +247,7 @@ class LibraryStore {
       _keepUnwritten(entries);
       entries.sort((a, b) => b.lastTouched.compareTo(a.lastTouched));
       _known = LibraryIndex(entries: entries, categories: _categories, defaultCategory: _defaultCategory);
+      _seriesSought = false;
       _seen = now;
       _warmParts(entries);
       // After this step: a listener may well call index() again.
@@ -837,7 +915,7 @@ class LibraryStore {
             if (e.id != entry.id) e,
         ];
       });
-      return merged;
+      return _inIndex(merged);
     } finally {
       // The picker's copy: a duplicate of books/<id>/source.* once imported,
       // and of no use when the import failed (it used to stay behind). A
@@ -883,8 +961,12 @@ class LibraryStore {
     } on FileSystemException {
       // Its book is made; a folder left over is only space.
     }
-    return merged;
+    return _inIndex(merged);
   }
+
+  /// [entry] as the index has it now: the change that put it there may
+  /// have found the series its title shares with the library's.
+  LibraryEntry _inIndex(LibraryEntry entry) => _known?.entries.where((e) => e.id == entry.id).firstOrNull ?? entry;
 
   /// Delete [source] if it is the picker's copy under incoming/, with the
   /// folder of its own it came in (see MainActivity's copy into incoming).
@@ -961,7 +1043,7 @@ class LibraryStore {
           if (e.id != id) e,
       ];
     });
-    return merged;
+    return _inIndex(merged);
   }
 
   /// The reading layout for [id], built on a background isolate, with notes
@@ -1018,6 +1100,8 @@ class LibraryStore {
       notes: notes,
     );
     final layout = await _runLoad(job);
+    // A book with its own narration plays its audio from its EPUB.
+    if (layout.book.narration != null && entry != null) BookNarrationReader.files[id] = entry.sourcePath;
     // A book read again carried its place across in cursor.json (see
     // _carryCursor); the index's copy of the place follows it, for what reads
     // the place from there (Undo after Start over, the shelf).
@@ -1806,12 +1890,27 @@ Future<_Imported> _import(_ImportJob job) async {
   return (entry: entry, note: pdf != null && ocr == null ? _scanNote(pdf) : null);
 }
 
-/// The series [book] says it is in, else the one its title names.
+/// The series [book] says it is in, else the one its title names (the
+/// library's other titles are asked once it is in: see _withSeries).
 ({String name, double? index})? _seriesOf(Book book) {
   final m = book.metadata;
   final named = m.series?.trim() ?? '';
   if (named.isNotEmpty) return (name: named, index: m.seriesIndex);
   return seriesFromTitle(m.title);
+}
+
+/// Whether [e]'s series is its title's to say, and so may be found again as
+/// the library changes: it has none, or the very one its title names alone
+/// (seriesFromTitle), as an import gives it, and a build that asked each
+/// title alone kept it. A series the book or the reader named otherwise,
+/// or one the reader took away, stays; a web novel's or an article's title
+/// says nothing of the kind.
+bool _fromTitle(LibraryEntry e) {
+  if (e.isWeb || e.source == SourceKind.html) return false;
+  final s = e.series;
+  if (s == null) return true;
+  final alone = s.isEmpty ? null : seriesFromTitle(e.title);
+  return alone != null && alone.name == s && alone.index == e.seriesIndex;
 }
 
 /// A print of [book]'s words, to know it again in another file (see
@@ -1959,7 +2058,28 @@ Book _withDetails(Book book, BookMetadata d) {
 }
 
 void _writeParsed(String dir, Book book) {
-  _writeWholeSync(File('$dir/parsed.json'), jsonEncode({'v': _parsedVersion, 'book': book.toJson()}));
+  _writeWholeSync(
+    File('$dir/parsed.json'),
+    jsonEncode({'v': _parsedVersion, 'n': _narrationVersion, 'book': book.toJson()}),
+  );
+}
+
+/// Whether [raw], an EPUB stored before its narration was looked for, has
+/// one in its file [source] (its package says so), and so is to be parsed
+/// again. One without is marked as looked at in [dir], and not looked at
+/// again.
+bool _narrationUnread(Map<Object?, Object?> raw, String? source, String dir) {
+  final looked = raw['n'];
+  if (looked is num && looked >= _narrationVersion) return false;
+  final book = raw['book'];
+  if (book is! Map || book['source'] != SourceKind.epub.name) return false;
+  if (source != null && epubHasNarration(source)) return true;
+  try {
+    _writeWholeSync(File('$dir/parsed.json'), jsonEncode({...raw, 'n': _narrationVersion}));
+  } on Object {
+    // Looked at again next time.
+  }
+  return false;
 }
 
 /// Write [text] beside [file] and rename it over: a crash leaves the old
@@ -2080,7 +2200,7 @@ Future<ReadingLayout> _loadLayout(_LoadJob job) async {
     }
   }
   if (raw != null) {
-    if (raw is Map && raw['v'] == _parsedVersion && raw['book'] is Map) {
+    if (raw is Map && raw['v'] == _parsedVersion && raw['book'] is Map && !_narrationUnread(raw, job.sourcePath, dir)) {
       book = Book.fromJson(Map<String, Object?>.from(raw['book'] as Map));
     } else if (raw is Map) {
       // Written by an older build. Parse the source again so the book gets
@@ -2332,9 +2452,11 @@ class LibraryEntry {
   final List<String> tags;
 
   /// The series it is in, as the book says (an EPUB's own metadata), its
-  /// title does ("A Song of Ice and Fire 3", see series.dart), or the
-  /// reader put it; empty when the reader said it is in none, so that it
-  /// is not found again in its title. Read it through [seriesName].
+  /// title does, alone or with the library's other titles ("A Song of Ice
+  /// and Fire 3", "A Storm of Swords A Song of Ice and Fire 3"; see
+  /// series.dart), or the reader put it; empty when the reader said it is
+  /// in none, so that it is not found again in its title. Read it through
+  /// [seriesName].
   final String? series;
 
   /// Its number in [series], when known.
@@ -2503,7 +2625,8 @@ class LibraryEntry {
             if (t is String && t.trim().isNotEmpty) t,
         ],
         // An entry from before series were kept has its title asked (see
-        // series.dart); one with a series, or an empty one, says itself.
+        // series.dart), and the store asks the library's other titles too
+        // (_withSeries); one with a series, or an empty one, says itself.
         series: json.containsKey('series') ? json['series'] as String? ?? '' : _titleSeries(json)?.name,
         seriesIndex: json.containsKey('series')
             ? (json['seriesIndex'] as num?)?.toDouble()
