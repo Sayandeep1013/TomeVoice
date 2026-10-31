@@ -2,7 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'error_log.dart' show ErrorLog;
 import 'library_store.dart';
+import 'marks.dart' show Mark;
+import 'organise.dart' show distinctTags;
 import 'safe_file.dart';
 import 'speech_service.dart';
 import 'stats.dart';
@@ -65,6 +68,8 @@ String backupFileName(DateTime now) {
 /// Write the library to a zip where the reader chooses. Null when they
 /// closed the save dialog; otherwise how many files and bytes went in.
 Future<({int files, int bytes})?> backUpLibrary(LibraryStore store, {required bool includeChapters}) async {
+  // The places kept in memory go into library.json first (see saveCursor).
+  await store.settlePlaces();
   final books = (await store.list()).length;
   final now = DateTime.now();
   final info = BackupInfo(
@@ -155,18 +160,37 @@ Future<void> settleSwap(Directory root) async {
   if (j['done'] == true) {
     if (await aside.exists()) await aside.delete(recursive: true);
   } else {
+    final staged = stagingDir(root);
     for (final name in (j['in'] as List? ?? const []).cast<String>()) {
+      // Only what the swap brought in: never a dot-file (its own folders,
+      // this journal, the secrets) or what stays on the phone, nor a name
+      // still in the unpacked backup, whose move never happened. Deleting a
+      // ".before-restore" a crafted backup named deleted the library.
+      if (!_swapped(name) || await _exists('${staged.path}/$name')) continue;
       final path = '${root.path}/$name';
       if (await _exists(path)) await _entity(path).delete(recursive: true);
     }
     for (final name in (j['aside'] as List? ?? const []).cast<String>()) {
+      if (!_swapped(name)) continue;
       final from = '${aside.path}/$name';
       if (await _exists(from)) await _entity(from).rename('${root.path}/$name');
     }
-    if (await aside.exists()) await aside.delete(recursive: true);
+    // Emptied, it goes; anything left in it is kept, under another name.
+    if (await aside.exists()) {
+      if (await aside.list().isEmpty) {
+        await aside.delete();
+      } else {
+        await aside.rename('${aside.path}-${DateTime.now().millisecondsSinceEpoch}');
+      }
+    }
   }
   await journal.delete();
 }
+
+/// Whether [name] is one a swap moves: a plain name at the library's top,
+/// not a dot-file, nor what stays on the phone.
+bool _swapped(String name) =>
+    name.isNotEmpty && !name.startsWith('.') && !name.contains('/') && !name.contains(r'\') && !keptOnPhone.contains(name);
 
 Future<bool> _exists(String path) async => await FileSystemEntity.type(path) != FileSystemEntityType.notFound;
 
@@ -193,6 +217,12 @@ Future<void> checkStaged(StagedBackup staged, Directory root) async {
   final index = File('${staged.dir.path}/library.json');
   if (!await index.exists()) {
     throw const FormatException('That backup has no library in it.');
+  }
+  // A backup never holds a dot-file or dot-folder at its top (the unpacker
+  // refuses one too): those are a restore's own, and a ".before-restore"
+  // brought in made a replace delete the library it had moved aside.
+  await for (final e in staged.dir.list()) {
+    if (_name(e).startsWith('.')) throw const FormatException('That backup is damaged or was not made by TomeVoice.');
   }
   // Every book's id becomes a folder name: one that is not a book id (a
   // "..") could delete or replace folders outside the books. And every
@@ -224,8 +254,11 @@ Future<void> rewritePaths(File index, {required String from, required String to}
 
 /// What stays on this phone through a restore: never in a backup, so never
 /// swapped. The natural voices (moved aside with the rest, a restore deleted
-/// them) and the update check's state, which holds whether to check at all.
-const keptOnPhone = {'voices', 'app_update.json'};
+/// them), the OCR language data and any scan being read (ocr.dart), the
+/// update check's state, which holds whether to check at all, and the error
+/// log, this phone's own (error_log.dart: it shares the library's folder
+/// only on a phone with no storage outside the app).
+const keptOnPhone = {'voices', 'ocr', 'app_update.json', ErrorLog.fileName};
 
 /// Swap the library for [staged]. The current one is moved aside first and
 /// put back if anything fails.
@@ -258,7 +291,8 @@ Future<void> replaceLibrary(Directory root, StagedBackup staged) async {
     }
     await for (final e in staged.dir.list()) {
       final name = _name(e);
-      if (keptOnPhone.contains(name)) continue;
+      // Never a dot-file (checkStaged refuses a backup with one).
+      if (!_swapped(name)) continue;
       movedIn.add(name);
       await note();
       await e.rename('${root.path}/$name');
@@ -354,6 +388,12 @@ Future<AddReport> addToLibrary(Directory root, StagedBackup staged, {bool settin
       };
       changed = true;
     }
+    // How the reader organised it: see _organised.
+    final organised = _organised(books[here], m);
+    if (organised != null) {
+      books[here] = organised;
+      changed = true;
+    }
     final ch = Directory('${dir.path}/ch');
     if (await ch.exists()) {
       final into = Directory('${root.path}/books/$id/ch');
@@ -379,17 +419,43 @@ Future<AddReport> addToLibrary(Directory root, StagedBackup staged, {bool settin
   return (added: added, updated: updated, sources: sources, marks: marks, days: days, rules: rules, settings: took);
 }
 
+/// A book in both libraries, [mine] as it is here and [theirs] in the
+/// backup, with what the reader gave it on either phone; null when that
+/// changes nothing. Tags: both phones' (one tag once, as spelled here). A
+/// series: this phone's when it has one or was told it has none, else the
+/// backup's. A print of its text (made here or there, the same): whichever
+/// has one.
+Map<String, Object?>? _organised(Map<String, Object?> mine, Map<String, Object?> theirs) {
+  final out = {...mine};
+  final mineTags = [for (final t in mine['tags'] is List ? mine['tags'] as List : const []) if (t is String) t];
+  final tags = distinctTags([
+    ...mineTags,
+    for (final t in theirs['tags'] is List ? theirs['tags'] as List : const []) if (t is String) t,
+  ]);
+  if (tags.length != mineTags.length) out['tags'] = tags;
+  if (!mine.containsKey('series') && theirs['series'] is String) {
+    out['series'] = theirs['series'];
+    if (theirs['seriesIndex'] is num) out['seriesIndex'] = theirs['seriesIndex'];
+  }
+  if (mine['print'] == null && theirs['print'] is String) out['print'] = theirs['print'];
+  return out.length == mine.length && tags.length == mineTags.length ? null : out;
+}
+
 /// Quotes and bookmarks from [from] that are not here (by id), the whole
-/// list newest first, as Saved keeps it.
+/// list newest first, as Saved keeps it. Only those that read as quotes:
+/// one that did not made the whole list unreadable here.
 Future<int> _addMarks(Directory root, String from) async {
   final theirs = await _readList(File('$from/marks.json'));
   if (theirs.isEmpty) return 0;
   final file = File('${root.path}/marks.json');
   final mine = await _readList(file);
   final ids = {for (final m in mine) if (m is Map) m['id']};
-  final added = [for (final m in theirs) if (m is Map && m['id'] is String && !ids.contains(m['id'])) m];
+  final added = [for (final m in theirs) if (Mark.fromJson(m) case final x? when !ids.contains(x.id)) m];
   if (added.isEmpty) return 0;
-  String created(Object? m) => m is Map ? '${m['created'] ?? ''}' : '';
+  // By the moment each was saved: a time from before they carried a Z
+  // (this phone's own clock's) does not sort as text with one that does.
+  DateTime created(Object? m) =>
+      (m is Map ? DateTime.tryParse('${m['created']}') : null) ?? DateTime.fromMillisecondsSinceEpoch(0);
   final all = [...mine, ...added]..sort((a, b) => created(b).compareTo(created(a)));
   await writeSafely(file, jsonEncode(all));
   return added.length;

@@ -1,9 +1,11 @@
 # Subflow: launch TomeVoice and wait for the shelf with the starter book.
-# A new install's first launch imports Pride and Prejudice before it shows,
-# which takes a while on a slow emulator.
+# A new install's first launch shows the guide (skipped) and imports Pride
+# and Prejudice before it shows, which takes a while on a slow emulator.
 appId: ${APP_ID || 'app.tomevoice'}
 ---
 - launchApp
+- runFlow: skip-guide.yaml
 - extendedWaitUntil:
     visible: ".*Pride and Prejudice.*"
     timeout: 120000
+- runFlow: settled-shelf.yaml

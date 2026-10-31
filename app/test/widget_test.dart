@@ -32,6 +32,7 @@ import 'package:tomevoice_spike/page_curl.dart';
 import 'package:tomevoice_spike/page_tone.dart';
 import 'package:tomevoice_spike/paged_view.dart';
 import 'package:tomevoice_spike/pages_view.dart';
+import 'package:tomevoice_spike/player_controls.dart';
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/reader_screen.dart';
 import 'package:tomevoice_spike/scheduler.dart';
@@ -648,14 +649,17 @@ void main() {
     });
 
     testWidgets('a page tone lays its paper under the text', (tester) async {
+      // The page's ground, and the same drawn again in the fades at the
+      // text's edges.
+      Iterable<PageTone> tones() => tester.widgetList<PageGround>(find.byType(PageGround)).map((g) => g.tone);
       ListeningPrefs.memory.pageTone = 'papyrus';
       await pumpLong(tester, longBook());
-      expect(tester.widget<PageGround>(find.byType(PageGround)).tone, PageTone.papyrus);
+      expect(tones(), everyElement(PageTone.papyrus));
       ListeningPrefs.memory
         ..pageTone = 'app'
         ..save();
       await tester.pumpAndSettle();
-      expect(tester.widget<PageGround>(find.byType(PageGround)).tone, PageTone.app);
+      expect(tones(), everyElement(PageTone.app));
       await finish(tester);
     });
 
@@ -1976,6 +1980,36 @@ void main() {
       await tester.tap(find.text('Two'));
       await tester.pump();
       expect(highlight(tester), closeTo(tester.getCenter(find.text('Two')).dx, 1));
+    });
+
+    testWidgets('the ring round Play comes and goes however fast loading and playing take turns', (tester) async {
+      final player = PlaybackScheduler(
+        service: const SpeechService(),
+        units: const [],
+        settingsFor: (t) => const PipelineSettings().copyWith(text: t),
+        engineIdOf: () => null,
+        voiceNameOf: () => null,
+        pauseAfter: (_) => 0,
+      );
+      await tester.pumpWidget(MaterialApp(home: Scaffold(body: Center(child: PlayButton(player: player, onTap: () {})))));
+      // Each turn well inside the ring's fade: two rings, and two of the
+      // nothing in its place, were once on their way out at once, keyed
+      // alike, which Flutter refuses.
+      for (final s in [PlayState.loading, PlayState.playing, PlayState.loading, PlayState.playing, PlayState.loading]) {
+        player.state.value = s;
+        await tester.pump(const Duration(milliseconds: 30));
+        expect(tester.takeException(), isNull, reason: '$s');
+      }
+      expect(find.byType(CircularProgressIndicator), findsWidgets);
+      expect(find.byTooltip('Pause'), findsOneWidget);
+      player.state.value = PlayState.paused;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+      expect(find.byType(CircularProgressIndicator), findsNothing, reason: 'gone once faded, not spinning unseen');
+      expect(find.byTooltip('Play'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+      player.dispose();
     });
   });
 

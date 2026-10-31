@@ -1,0 +1,38 @@
+{
+  "file": "pg932.txt",
+  "source": "text",
+  "title": "The Fall of the House of Usher",
+  "authors": [
+    "Edgar Allan Poe"
+  ],
+  "language": "en",
+  "sections": [
+    "The Fall of the House of Usher"
+  ],
+  "chapters": [
+    "The Fall of the House of Usher"
+  ],
+  "notRead": [],
+  "blocks": {
+    "paragraph": 58
+  },
+  "displayOnly": [],
+  "sentencesBeforeOpening": 0,
+  "first": [
+    "The Fall of the House of Usher",
+    "Son coeur est un luth suspendu; Sitot qu'on le touche il resonne.",
+    "DE BERANGER.",
+    "During the whole of a dull, dark, and soundless day in the autumn of the year, when the clouds hung oppressively low in the heavens, I had been passing alone, on horseback, through a singularly dreary tract of country; and at length found myself,",
+    "as the shades of the evening drew on, within view of the melancholy House of Usher."
+  ],
+  "last": [
+    "Suddenly there shot along the path a wild light, and I turned to see whence a gleam so unusual could have issued; for the vast house and its shadows were alone behind me.",
+    "The radiance was that of the full, setting, and blood-red moon which now shone vividly through that once barely-discernible fissure of which I have before spoken as extending from the roof of the building, in a zigzag direction, to the base.",
+    "While I gazed, this fissure rapidly widened--there came a fierce breath of the whirlwind--the entire orb of the satellite burst at once upon my sight--my brain reeled as I saw the mighty walls rushing asunder--there was a long tumultuous shouting sound like the voice of a",
+    "thousand waters--and the deep and dank tarn at my feet closed sullenly and silently over the fragments of the \"House of Usher\".",
+    "* Watson, Dr Percival, Spallanzani, and especially the Bishop of Landaff."
+  ],
+  "sentences": 294,
+  "words": 7065,
+  "spokenSha256": "aa3f837faed00e1f37fbe6cffd6af17ceec0ce7294c8b14bedc022a1c1e0b933"
+}

@@ -90,6 +90,9 @@ class VoiceCatalog extends ChangeNotifier {
 
   Future<void> _load() async {
     try {
+      // Natural voices are listed from their catalog: read it first, so a
+      // book's natural voice is there when the list says it has loaded.
+      await NeuralVoices.instance.ready;
       engines = await _svc.engines();
       engineId ??= engines.isNotEmpty ? engines.first['name'] : null;
       await _loadVoices();
@@ -122,10 +125,11 @@ class VoiceCatalog extends ChangeNotifier {
     }
   }
 
-  /// The phone's voices and the natural voices downloaded to it.
+  /// The phone's voices and the natural voices downloaded to it that can
+  /// read here (a Kokoro voice only once this phone's test shows it keeps up).
   List<VoiceInfo> get all => [
         ...voices,
-        for (final v in NeuralVoices.instance.installedVoices)
+        for (final v in NeuralVoices.instance.readableVoices)
           VoiceInfo(name: v.voiceName, locale: v.locale, quality: 500, networkRequired: false, installed: true),
       ];
 
@@ -245,7 +249,7 @@ class VoiceCatalog extends ChangeNotifier {
   /// names its voices keeps those names.
   String friendlyName(VoiceInfo v) {
     final natural = neuralVoiceFor(v.name);
-    if (natural != null) return '${natural.name} · natural';
+    if (natural != null) return naturalName(natural);
     if (v.variant == 'Default') return 'Default voice';
     if (!RegExp(r'^[A-Z0-9]{2,5}$').hasMatch(v.variant)) return v.variant;
     final same = [
@@ -262,6 +266,19 @@ class VoiceCatalog extends ChangeNotifier {
     return set.toList()
       ..sort((a, b) => languageName(a).compareTo(languageName(b)));
   }
+}
+
+/// A natural voice's name in lists: "Kristin · natural", "Lessac · natural
+/// HD", "Alpha · Kokoro". The quality is said: one speaker can be on the
+/// phone at two.
+String naturalName(NeuralVoice v) {
+  final pack = v.pack;
+  if (pack != null) return '${v.name} · ${pack.name}';
+  return switch (v.quality) {
+    'high' => '${v.name} · natural HD',
+    'low' || 'x_low' => '${v.name} · natural (low)',
+    _ => '${v.name} · natural',
+  };
 }
 
 String languageName(String code) => _languages[code] ?? code.toUpperCase();
@@ -295,6 +312,7 @@ const _languages = {
   'sa': 'Sanskrit', 'ps': 'Pashto', 'so': 'Somali', 'ha': 'Hausa',
   'yo': 'Yoruba', 'ig': 'Igbo', 'mt': 'Maltese', 'lb': 'Luxembourgish',
   'gd': 'Scottish Gaelic', 'fy': 'Frisian', 'bo': 'Tibetan', 'ug': 'Uyghur',
+  'ku': 'Kurdish',
 };
 
 const _regions = {
@@ -307,4 +325,12 @@ const _regions = {
   'CH': 'Switzerland', 'AT': 'Austria', 'SG': 'Singapore', 'PH': 'Philippines',
   'PK': 'Pakistan', 'NP': 'Nepal', 'LK': 'Sri Lanka', 'EG': 'Egypt',
   'SA': 'Saudi Arabia', 'AE': 'UAE',
+  // Where the natural voices come from.
+  'AR': 'Argentina', 'JO': 'Jordan', 'CZ': 'Czechia', 'DK': 'Denmark',
+  'GR': 'Greece', 'IR': 'Iran', 'FI': 'Finland', 'HU': 'Hungary',
+  'IS': 'Iceland', 'GE': 'Georgia', 'KZ': 'Kazakhstan', 'TR': 'Turkey',
+  'LU': 'Luxembourg', 'LV': 'Latvia', 'NO': 'Norway', 'PL': 'Poland',
+  'RO': 'Romania', 'SK': 'Slovakia', 'SI': 'Slovenia', 'AL': 'Albania',
+  'RS': 'Serbia', 'SE': 'Sweden', 'CD': 'Congo', 'UA': 'Ukraine',
+  'VN': 'Vietnam', 'ID': 'Indonesia',
 };

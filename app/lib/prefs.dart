@@ -6,7 +6,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show ThemeMode;
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
+import 'folders.dart';
 import 'safe_file.dart';
+import 'speakers.dart' show BookCast;
 import 'theme.dart';
 
 /// What the reader chose, remembered across books and launches: voice and
@@ -18,15 +20,19 @@ class ListeningPrefs {
     Map<String, String>? voiceByLanguage,
     Map<String, String>? voiceByBook,
     Map<String, String>? dialogueByBook,
+    Map<String, BookCast>? castByBook,
+    Set<String>? narratedBooks,
     Map<String, double>? pitchByVoice,
     Map<String, double>? speedByBook,
     Map<String, int>? highlightOffsetMs,
     this.skipBy = SkipBy.sentence,
     Map<String, bool>? newestFirstByNovel,
+    Map<String, String>? autoDownloadByNovel,
     this.newestFirst = false,
     this.engineId,
     this.textSize = 19,
     this.pdfPages = false,
+    this.pdfCrop = false,
     this.bookFont = BookFont.newsreader,
     this.lineHeight = 1.6,
     this.margin = 22,
@@ -39,21 +45,52 @@ class ListeningPrefs {
     this.volumeKeys = false,
     this.fullScreen = false,
     this.keepReading = true,
+    this.notesAloud = false,
     this.keepScreenOn = false,
+    this.pageBrightness,
+    this.pageWarmth = 0,
+    this.autoScrollLines = 24,
+    this.autoPageSeconds = 30,
+    this.guideShown = false,
     this.themeMode = ThemeMode.system,
     this.paletteId = 'forest',
+    this.ownPage,
+    this.ownAccent,
+    this.ownInk,
     this.updateEvery = 'daily',
+    this.novelUpdates = false,
     this.gridView = true,
     this.sort = LibrarySort.recent,
     this.bookColours = true,
     this.naturalVoices,
-  })  : voiceByLanguage = voiceByLanguage ?? {},
+    this.exportFolder,
+    this.backupEvery = 'off',
+    this.backupFolder,
+    this.backupChapters = false,
+    this.backupSecret = false,
+    this.lastBackup,
+    this.webdavOn = false,
+    this.webdavUrl,
+    this.webdavUser,
+    this.kosyncOn = false,
+    this.kosyncUrl,
+    this.kosyncUser,
+    List<String>? plainHttpOk,
+    List<Map<String, Object?>>? catalogues,
+    Map<String, String>? catalogueUsers,
+  })  : plainHttpOk = plainHttpOk ?? [],
+        catalogues = catalogues ?? [],
+        catalogueUsers = catalogueUsers ?? {},
+        voiceByLanguage = voiceByLanguage ?? {},
         voiceByBook = voiceByBook ?? {},
         dialogueByBook = dialogueByBook ?? {},
+        castByBook = castByBook ?? {},
+        narratedBooks = narratedBooks ?? {},
         pitchByVoice = pitchByVoice ?? {},
         speedByBook = speedByBook ?? {},
         highlightOffsetMs = highlightOffsetMs ?? {},
-        newestFirstByNovel = newestFirstByNovel ?? {};
+        newestFirstByNovel = newestFirstByNovel ?? {},
+        autoDownloadByNovel = autoDownloadByNovel ?? {};
 
   /// Bumped on every change, so the app (theme) and open screens can follow.
   static final revision = ValueNotifier<int>(0);
@@ -71,6 +108,25 @@ class ListeningPrefs {
   /// Book id -> the voice its dialogue (words in quotation marks) is read
   /// in, when not the narrator's.
   final Map<String, String> dialogueByBook;
+
+  /// Book id -> its characters and the voices they are read in, for a book
+  /// whose characters were given any (see BookCast). Kept here with the
+  /// book's other voices, so a backup carries it as it carries them.
+  final Map<String, BookCast> castByBook;
+
+  /// Keep [cast] for [book]; one that gives nobody a voice is not kept.
+  void setCast(String book, BookCast? cast) {
+    if (cast == null || !cast.anyVoice) {
+      castByBook.remove(book);
+    } else {
+      castByBook[book] = cast;
+    }
+  }
+
+  /// Books read in their own recorded narration (an EPUB's media
+  /// overlays) instead of a voice; what the narration leaves out is still
+  /// read in the book's voice above.
+  final Set<String> narratedBooks;
 
   /// Voice name -> its pitch in semitones, for the voices given one. Each
   /// voice keeps its own: on Google's voices any pitch but 0 makes Google
@@ -149,6 +205,11 @@ class ListeningPrefs {
     save();
   }
 
+  /// Web novel id -> when its new chapters download by themselves as a
+  /// check finds them: "wifi" (on Wi-Fi only) or "any" (on any network).
+  /// A novel not here does not (see AutoDownload).
+  final Map<String, String> autoDownloadByNovel;
+
   String? engineId;
 
   /// Size of the book's text, in logical pixels.
@@ -156,6 +217,11 @@ class ListeningPrefs {
 
   /// Show PDFs as their real pages instead of reflowed text.
   bool pdfPages;
+
+  /// The real pages' white margins cut away, so the print is larger (see
+  /// page_crop.dart). Off unless chosen: a mark too faint or small to be
+  /// found in a margin would go with it.
+  bool pdfCrop;
 
   /// The typeface of the page.
   BookFont bookFont;
@@ -198,17 +264,51 @@ class ListeningPrefs {
   /// on, paused from the library's player or the card in the shade.
   bool keepReading;
 
+  /// Footnotes and endnotes read aloud where they stand, instead of only
+  /// shown. Off by default; their markers in the text are never read.
+  bool notesAloud;
+
   /// Keep the display awake while a book is open.
   bool keepScreenOn;
+
+  /// The screen's brightness while a book is open, 0 (darker than the phone
+  /// goes) to 1 (full); null leaves it as the phone has it (see PageLight).
+  double? pageBrightness;
+
+  /// Amber over the page for reading at night, 0 (none) to 1.
+  double pageWarmth;
+
+  /// How fast auto-scroll moves the scroll, in lines a minute, and how long
+  /// it leaves each page in pages, in seconds (see AutoScroll).
+  int autoScrollLines;
+  int autoPageSeconds;
+
+  /// The guide to the app has been shown: by itself once, on a new
+  /// install's first launch (an update, with a shelf of its own, never
+  /// shows it), and again whenever Settings asks.
+  bool guideShown;
 
   /// Light, dark, or the phone's choice.
   ThemeMode themeMode;
 
-  /// The colour theme: forest, lavender, ocean, black or paper.
+  /// The colour theme: forest, lavender, ocean, black or paper; own, the
+  /// reader's own colours; or wallpaper, the phone's (Android 12 and later).
   String paletteId;
+
+  /// The reader's own colours (Settings > Appearance > Your own), as ARGB:
+  /// the page and the accent, and the text when they chose one (null for
+  /// text made to suit the page). Kept while another theme is chosen, so
+  /// they come back as they were.
+  int? ownPage;
+  int? ownAccent;
+  int? ownInk;
 
   /// How often web novels are checked for new chapters (see UpdateEvery).
   String updateEvery;
+
+  /// A link on each web novel's page to find it on NovelUpdates, in the
+  /// browser (see NovelUpdates). Off until turned on.
+  bool novelUpdates;
 
   /// The library as a grid of covers instead of a list.
   bool gridView;
@@ -223,6 +323,48 @@ class ListeningPrefs {
   /// Natural voices: null until the reader has been asked, then whether
   /// they want them offered. Declined, the app never suggests them.
   bool? naturalVoices;
+
+  /// Where quotes exported as Markdown were last saved.
+  PickedFolder? exportFolder;
+
+  /// Automatic backups: off, daily or weekly (see BackupEvery), into
+  /// [backupFolder], with downloaded chapters only if [backupChapters].
+  String backupEvery;
+  PickedFolder? backupFolder;
+  bool backupChapters;
+
+  /// Whether automatic backups take the secret shelves too: off unless the
+  /// reader turns it on, told that whoever has a backup file can open their
+  /// books (see secretLeftOut).
+  bool backupSecret;
+
+  /// When the last automatic backup was made.
+  DateTime? lastBackup;
+
+  /// Sync through a WebDAV folder of the reader's own (places, quotes,
+  /// bookmarks, reading time; never the books). Off until set up. The
+  /// password is kept apart, off backups (see Secrets).
+  bool webdavOn;
+  String? webdavUrl;
+  String? webdavUser;
+
+  /// Sync places with KOReader's sync server (koreader-sync-server). Off
+  /// until set up; the password's key kept apart, as above.
+  bool kosyncOn;
+  String? kosyncUrl;
+  String? kosyncUser;
+
+  /// Sync addresses on plain http:// out on the internet that the reader
+  /// was warned of and chose anyway, as typed: a password goes to those,
+  /// and over http otherwise only to this phone or their own network (see
+  /// passwordMayGo).
+  final List<String> plainHttpOk;
+
+  /// OPDS catalogues the reader added (see Catalogue), and the user names
+  /// they sign in to the built-in ones with: kept with the settings, so a
+  /// restore brings them back. Their passwords are kept apart.
+  final List<Map<String, Object?>> catalogues;
+  final Map<String, String> catalogueUsers;
 
   static ListeningPrefs? _cached;
   static File? _file;
@@ -270,7 +412,8 @@ class ListeningPrefs {
     _saveTimer?.cancel();
     _saveTimer = Timer(const Duration(milliseconds: 400), () async {
       final file = _file;
-      if (file == null) return;
+      // Not over a backup's settings being restored (see RestoreGate).
+      if (file == null || RestoreGate.shut) return;
       try {
         await writeSafely(file, jsonEncode(toJson()));
       } on Object {
@@ -285,15 +428,19 @@ class ListeningPrefs {
         'voiceByLanguage': voiceByLanguage,
         'voiceByBook': voiceByBook,
         'dialogueByBook': dialogueByBook,
+        if (castByBook.isNotEmpty) 'castByBook': {for (final e in castByBook.entries) e.key: e.value.toJson()},
+        if (narratedBooks.isNotEmpty) 'narratedBooks': [...narratedBooks],
         'pitchByVoice': pitchByVoice,
         'speedByBook': speedByBook,
         'highlightOffsetMs': highlightOffsetMs,
         'skipBy': skipBy.name,
         'newestFirstByNovel': newestFirstByNovel,
+        if (autoDownloadByNovel.isNotEmpty) 'autoDownloadByNovel': autoDownloadByNovel,
         'newestFirst': newestFirst,
         'engineId': engineId,
         'textSize': textSize,
         'pdfPages': pdfPages,
+        if (pdfCrop) 'pdfCrop': true,
         'bookFont': bookFont.name,
         'lineHeight': lineHeight,
         'margin': margin,
@@ -306,14 +453,39 @@ class ListeningPrefs {
         'volumeKeys': volumeKeys,
         'fullScreen': fullScreen,
         'keepReading': keepReading,
+        if (notesAloud) 'notesAloud': true,
         'keepScreenOn': keepScreenOn,
+        if (pageBrightness != null) 'pageBrightness': pageBrightness,
+        if (pageWarmth > 0) 'pageWarmth': pageWarmth,
+        if (autoScrollLines != 24) 'autoScrollLines': autoScrollLines,
+        if (autoPageSeconds != 30) 'autoPageSeconds': autoPageSeconds,
+        if (guideShown) 'guideShown': true,
         'themeMode': themeMode.name,
         'palette': paletteId,
+        if (ownPage != null) 'ownPage': colourToHex(ownPage!),
+        if (ownAccent != null) 'ownAccent': colourToHex(ownAccent!),
+        if (ownInk != null) 'ownInk': colourToHex(ownInk!),
         'updateEvery': updateEvery,
+        if (novelUpdates) 'novelUpdates': true,
         'gridView': gridView,
         'sort': sort.name,
         'bookColours': bookColours,
         if (naturalVoices != null) 'naturalVoices': naturalVoices,
+        if (exportFolder != null) 'exportFolder': exportFolder!.toJson(),
+        if (backupEvery != 'off') 'backupEvery': backupEvery,
+        if (backupFolder != null) 'backupFolder': backupFolder!.toJson(),
+        if (backupChapters) 'backupChapters': true,
+        if (backupSecret) 'backupSecret': true,
+        if (lastBackup != null) 'lastBackup': lastBackup!.toIso8601String(),
+        if (webdavOn) 'webdavOn': true,
+        if (webdavUrl != null) 'webdavUrl': webdavUrl,
+        if (webdavUser != null) 'webdavUser': webdavUser,
+        if (kosyncOn) 'kosyncOn': true,
+        if (kosyncUrl != null) 'kosyncUrl': kosyncUrl,
+        if (kosyncUser != null) 'kosyncUser': kosyncUser,
+        if (plainHttpOk.isNotEmpty) 'plainHttpOk': plainHttpOk,
+        if (catalogues.isNotEmpty) 'catalogues': catalogues,
+        if (catalogueUsers.isNotEmpty) 'catalogueUsers': catalogueUsers,
       };
 
   static ListeningPrefs fromJson(Map<String, Object?> json) => ListeningPrefs(
@@ -333,6 +505,14 @@ class ListeningPrefs {
           for (final e in (json['voiceByBook'] as Map? ?? const {}).entries)
             e.key.toString(): e.value.toString(),
         },
+        castByBook: {
+          for (final e in (json['castByBook'] is Map ? json['castByBook'] as Map : const {}).entries)
+            if (BookCast.fromJson(e.value) case final cast? when cast.anyVoice) '${e.key}': cast,
+        },
+        narratedBooks: {
+          for (final b in json['narratedBooks'] is List ? json['narratedBooks'] as List : const [])
+            if (b is String) b,
+        },
         pitchByVoice: {
           for (final e in (json['pitchByVoice'] as Map? ?? const {}).entries)
             if (e.value is num) e.key.toString(): (e.value as num).toDouble().clamp(-12, 12).toDouble(),
@@ -350,10 +530,15 @@ class ListeningPrefs {
           for (final e in (json['newestFirstByNovel'] as Map? ?? const {}).entries)
             if (e.value is bool) e.key.toString(): e.value as bool,
         },
+        autoDownloadByNovel: {
+          for (final e in (json['autoDownloadByNovel'] is Map ? json['autoDownloadByNovel'] as Map : const {}).entries)
+            if (e.value is String) e.key.toString(): e.value as String,
+        },
         newestFirst: json['newestFirst'] == true,
         engineId: json['engineId'] as String?,
         textSize: ((json['textSize'] as num?)?.toDouble() ?? 19).clamp(14, 30).toDouble(),
         pdfPages: json['pdfPages'] == true,
+        pdfCrop: json['pdfCrop'] == true,
         bookFont: BookFont.byName(json['bookFont'] as String?),
         lineHeight: ((json['lineHeight'] as num?)?.toDouble() ?? 1.6).clamp(1.3, 2.0).toDouble(),
         margin: ((json['margin'] as num?)?.toDouble() ?? 22).clamp(8, 48).toDouble(),
@@ -366,17 +551,62 @@ class ListeningPrefs {
         volumeKeys: json['volumeKeys'] == true,
         fullScreen: json['fullScreen'] == true,
         keepReading: json['keepReading'] != false,
+        notesAloud: json['notesAloud'] == true,
         keepScreenOn: json['keepScreenOn'] == true,
+        pageBrightness: (json['pageBrightness'] as num?)?.toDouble().clamp(0.0, 1.0).toDouble(),
+        pageWarmth: ((json['pageWarmth'] as num?)?.toDouble() ?? 0).clamp(0.0, 1.0).toDouble(),
+        autoScrollLines: ((json['autoScrollLines'] as num?)?.toInt() ?? 24).clamp(4, 120),
+        autoPageSeconds: ((json['autoPageSeconds'] as num?)?.toInt() ?? 30).clamp(3, 600),
+        guideShown: json['guideShown'] == true,
         themeMode: ThemeMode.values.where((m) => m.name == json['themeMode']).firstOrNull ??
             ThemeMode.system,
         gridView: json['gridView'] as bool? ?? true,
         paletteId: json['palette'] as String? ?? 'forest',
+        ownPage: colourFromHex(json['ownPage']),
+        ownAccent: colourFromHex(json['ownAccent']),
+        ownInk: colourFromHex(json['ownInk']),
         updateEvery: json['updateEvery'] as String? ?? 'daily',
+        novelUpdates: json['novelUpdates'] == true,
         sort: LibrarySort.values.where((m) => m.name == json['sort']).firstOrNull ??
             LibrarySort.recent,
         bookColours: json['bookColours'] != false,
         naturalVoices: json['naturalVoices'] as bool?,
+        exportFolder: PickedFolder.fromJson(json['exportFolder']),
+        backupEvery: json['backupEvery'] as String? ?? 'off',
+        backupFolder: PickedFolder.fromJson(json['backupFolder']),
+        backupChapters: json['backupChapters'] == true,
+        backupSecret: json['backupSecret'] == true,
+        lastBackup: DateTime.tryParse(json['lastBackup'] as String? ?? ''),
+        webdavOn: json['webdavOn'] == true,
+        webdavUrl: json['webdavUrl'] as String?,
+        webdavUser: json['webdavUser'] as String?,
+        kosyncOn: json['kosyncOn'] == true,
+        kosyncUrl: json['kosyncUrl'] as String?,
+        kosyncUser: json['kosyncUser'] as String?,
+        plainHttpOk: [
+          for (final u in json['plainHttpOk'] is List ? json['plainHttpOk'] as List : const [])
+            if (u is String) u,
+        ],
+        catalogues: [
+          for (final c in json['catalogues'] is List ? json['catalogues'] as List : const [])
+            if (c is Map) Map<String, Object?>.from(c),
+        ],
+        catalogueUsers: {
+          for (final e in (json['catalogueUsers'] is Map ? json['catalogueUsers'] as Map : const {}).entries)
+            if (e.value is String) '${e.key}': e.value as String,
+        },
       );
+}
+
+/// An opaque colour as a backup writes it, "#E07B39".
+String colourToHex(int argb) => '#${(argb & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}';
+
+/// A colour written as "#E07B39" (or "E07B39"), opaque; null for anything
+/// else, so a hand-edited or damaged value is as if never set.
+int? colourFromHex(Object? v) {
+  if (v is! String) return null;
+  final m = RegExp(r'^#?([0-9a-fA-F]{6})$').firstMatch(v.trim());
+  return m == null ? null : 0xFF000000 | int.parse(m.group(1)!, radix: 16);
 }
 
 /// What next and previous do on headphones, the lock screen and the
@@ -397,6 +627,8 @@ enum LibrarySort {
   recent('Last read'),
   added('Date added'),
   title('Title'),
+  author('Author'),
+  series('Series'),
   progress('Progress');
 
   const LibrarySort(this.label);

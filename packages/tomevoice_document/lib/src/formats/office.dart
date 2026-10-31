@@ -9,8 +9,13 @@ import '../encoding.dart';
 import '../model.dart';
 import '../segment.dart';
 
-/// One paragraph of a word-processor document, before it is a block.
-typedef _Para = ({String text, int level, bool list, bool note});
+/// One paragraph of a word-processor document, before it is a block: a
+/// heading's [level], or a list item, a note, or a [table]'s row.
+typedef _Para = ({String text, int level, bool list, bool note, bool table});
+
+/// The most a cell of a table of data holds: more, and the table is laid
+/// out to hold text (see [_isDataTable]).
+const _longestDataCell = 200;
 
 /// Word (.docx). Paragraphs from `word/document.xml`; Heading 1 / Title
 /// paragraphs start a new chapter when there are at least two of them.
@@ -35,6 +40,28 @@ Book parseDocx(Uint8List bytes, {required String id, String? filename}) {
 
   resetBlockIds();
   final paras = <_Para>[];
+  // A table of data is read a row at a time, its cells one block, as a row
+  // of an HTML table is: a cell at a time, each was a sentence of its own
+  // ("Fable", "Words", "The Lion And The Mouse", "133"). The row being read,
+  // its cells' text and the notes they point at.
+  final dataTables = {
+    for (final t in body.descendants.whereType<XmlElement>())
+      if (t.name.local == 'tbl' && _isDataTable(t, 'tc', (p) => _docxText(p, null, null))) t,
+  };
+  XmlElement? row;
+  final cells = <String>[];
+  final rowNotes = <String>[];
+  void endRow() {
+    final text = collapseWhitespace(cells.join(' '));
+    if (text.isNotEmpty) paras.add((text: text, level: 0, list: false, note: false, table: true));
+    for (final ref in rowNotes) {
+      paras.addAll(notes.footnoteParas(ref));
+    }
+    row = null;
+    cells.clear();
+    rowNotes.clear();
+  }
+
   // Instructions of the fields open at this point of the document; a TOC
   // field runs from the first contents line to the last.
   final fields = <StringBuffer>[];
@@ -59,6 +86,14 @@ Book parseDocx(Uint8List bytes, {required String id, String? filename}) {
     // on their own; only take the outermost text runs of this one.
     final referenced = <String>[];
     final text = collapseWhitespace(_docxText(p, notes, referenced));
+    final inRow = _rowOf(p, 'tr', 'tbl', dataTables);
+    if (inRow != row && row != null) endRow();
+    if (inRow != null) {
+      row = inRow;
+      if (text.isNotEmpty) cells.add(text);
+      rowNotes.addAll(referenced);
+      continue;
+    }
     if (text.isNotEmpty) {
       final outline = int.tryParse(_attr(_child(ppr, 'outlineLvl'), 'val') ?? '');
       var level = 0;
@@ -70,12 +105,13 @@ Book parseDocx(Uint8List bytes, {required String id, String? filename}) {
       } else if (outline != null && outline < 6) {
         level = outline + 1;
       }
-      paras.add((text: text, level: level, list: _child(ppr, 'numPr') != null, note: false));
+      paras.add((text: text, level: level, list: _child(ppr, 'numPr') != null, note: false, table: false));
     }
     for (final ref in referenced) {
       paras.addAll(notes.footnoteParas(ref));
     }
   }
+  if (row != null) endRow();
   paras.addAll(notes.endnoteParas());
 
   return assembleBook(
@@ -151,8 +187,43 @@ class _DocxNotes {
 
   static List<_Para> _paras(List<String>? lines, String mark) => [
         for (var i = 0; i < (lines ?? const []).length; i++)
-          (text: i == 0 ? '${silentMark(mark)} ${lines![i]}' : lines![i], level: 0, list: false, note: true),
+          (text: i == 0 ? '${silentMark(mark)} ${lines![i]}' : lines![i], level: 0, list: false, note: true, table: false),
       ];
+}
+
+/// Whether [table] holds data rather than text: no cell (a [cell] element)
+/// with more than one paragraph in it, or more than [_longestDataCell]
+/// characters, and no table inside it. A word processor lays text out in
+/// tables too (two columns, a box round a passage), and that is read a
+/// paragraph at a time.
+bool _isDataTable(XmlElement table, String cell, String Function(XmlElement p) textOf) {
+  for (final c in table.descendants.whereType<XmlElement>()) {
+    if (c.name.local == table.name.local) return false;
+    if (c.name.local != cell) continue;
+    var paragraphs = 0, length = 0;
+    for (final p in c.descendants.whereType<XmlElement>()) {
+      if (p.name.local != 'p' && p.name.local != 'h') continue;
+      final t = collapseWhitespace(textOf(p));
+      if (t.isEmpty) continue;
+      paragraphs++;
+      length += t.length;
+    }
+    if (paragraphs > 1 || length > _longestDataCell) return false;
+  }
+  return true;
+}
+
+/// The row (a [row] element) of one of [tables] that paragraph [p] is in, or
+/// null when it is in none.
+XmlElement? _rowOf(XmlElement p, String row, String table, Set<XmlElement> tables) {
+  for (var e = p.parentElement; e != null; e = e.parentElement) {
+    if (e.name.local != row) continue;
+    for (var t = e.parentElement; t != null; t = t.parentElement) {
+      if (t.name.local == table) return tables.contains(t) ? e : null;
+    }
+    return null;
+  }
+  return null;
 }
 
 /// The notes in footnotes.xml or endnotes.xml: id -> paragraph texts.
@@ -172,11 +243,8 @@ Map<String, List<String>> _docxNotes(XmlDocument? doc, String tag) {
   return out;
 }
 
-const _superscriptDigits = [0x2070, 0xB9, 0xB2, 0xB3, 0x2074, 0x2075, 0x2076, 0x2077, 0x2078, 0x2079];
-
 /// 12 as "¹²", as Word shows a note's number.
-String _superscript(int n) =>
-    String.fromCharCodes([for (final d in '$n'.codeUnits) _superscriptDigits[d - 0x30]]);
+String _superscript(int n) => superscriptNumber(n);
 
 /// The text of paragraph [p]. Note references become their (silent) marks
 /// and are listed in [referenced]; hidden runs are left out.
@@ -256,13 +324,20 @@ Book parseOdt(Uint8List bytes, {required String id, String? filename}) {
 
   resetBlockIds();
   final paras = <_Para>[];
-  void add(XmlElement c, int level, bool list) {
+  // [c]'s text as one paragraph: a heading's, a list item's, or a table's
+  // row's ([table]).
+  void add(XmlElement c, int level, bool list, {bool table = false}) {
     final notes = <(String, String)>[];
-    final text = collapseWhitespace(_odtText(c, notes));
-    if (text.isNotEmpty) paras.add((text: text, level: level, list: list, note: false));
+    final text = table
+        ? collapseWhitespace([
+            for (final cell in c.children.whereType<XmlElement>())
+              if (cell.name.local == 'table-cell') _odtText(cell, notes),
+          ].join(' '))
+        : collapseWhitespace(_odtText(c, notes));
+    if (text.isNotEmpty) paras.add((text: text, level: level, list: list, note: false, table: table));
     // A note's body comes right after its paragraph, as a note.
     for (final (mark, body) in notes) {
-      paras.add((text: '${silentMark(mark)} $body', level: 0, list: false, note: true));
+      paras.add((text: '${silentMark(mark)} $body', level: 0, list: false, note: true, table: false));
     }
   }
 
@@ -273,12 +348,27 @@ Book parseOdt(Uint8List bytes, {required String id, String? filename}) {
           add(c, int.tryParse(_attr(c, 'outline-level') ?? '') ?? 1, false);
         case 'p':
           add(c, 0, inList);
+        // A table of data, a row at a time (see parseDocx).
+        case 'table' when _isDataTable(c, 'table-cell', _odtText):
+          for (final r in c.descendants.whereType<XmlElement>()) {
+            if (r.name.local == 'table-row') add(r, 0, false, table: true);
+          }
         case 'list':
         case 'list-item':
           visit(c, inList: true);
         case 'annotation':
         case 'tracked-changes':
         case 'sequence-decls':
+          break;
+        // Indexes LibreOffice generates, a table of contents above all: page
+        // numbers and titles that come later (Word's are not read either).
+        case 'table-of-content':
+        case 'illustration-index':
+        case 'table-index':
+        case 'object-index':
+        case 'user-index':
+        case 'alphabetical-index':
+        case 'bibliography':
           break;
         default:
           visit(c, inList: inList);
@@ -300,6 +390,8 @@ Book parseOdt(Uint8List bytes, {required String id, String? filename}) {
     filename: filename,
   );
 }
+
+const _svg = 'urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0';
 
 /// The text of [e]; each note in it adds its (mark, body) to [notes] and
 /// leaves its mark, silent, in the text.
@@ -328,6 +420,11 @@ String _odtText(XmlElement e, [List<(String, String)>? notes]) {
             if (text.isNotEmpty) notes?.add((mark, text));
           case 'annotation':
             break;
+          // A picture's title and description (its alt text): words about
+          // the picture, which ran into the sentence it sits in.
+          case 'title':
+          case 'desc':
+            if (c.name.namespaceUri != _svg) walk(c);
           default:
             walk(c);
         }
@@ -365,9 +462,11 @@ List<DraftSection> _sectionsByHeading(List<_Para> paras, String fallbackTitle) {
     blocks.add(makeBlock(
       role: p.note
           ? BlockRole.footnote
-          : p.level > 0
-              ? BlockRole.heading
-              : (p.list ? BlockRole.listItem : BlockRole.paragraph),
+          : p.table
+              ? BlockRole.table
+              : p.level > 0
+                  ? BlockRole.heading
+                  : (p.list ? BlockRole.listItem : BlockRole.paragraph),
       text: p.text,
     ));
   }

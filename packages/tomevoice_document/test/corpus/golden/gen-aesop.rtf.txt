@@ -1,0 +1,30 @@
+# gen-aesop.rtf: what a voice reads, a sentence a line, from where a new book opens.
+# Written by test/corpus_test.dart; see test/corpus/README.md before changing it.
+## Fables of Aesop
+FABLES OF AESOP
+Four fables in the Rev. George Fyler Townsend’s translation
+THE WOLF AND THE CRANE
+A WOLF who had a bone stuck in his throat hired a Crane, for a large sum, to put her head into his mouth and draw out the bone.
+When the Crane had extracted the bone and demanded the promised payment, the Wolf, grinning and grinding his teeth, exclaimed: “Why, you have surely already had a sufficient recompense, in having been permitted to draw out your head in safety from the mouth and jaws of a wolf.”
+In serving the wicked, expect no reward, and be thankful if you escape injury for your pains.
+THE FATHER AND HIS SONS
+A FATHER had a family of sons who were perpetually quarreling among themselves.
+When he failed to heal their disputes by his exhortations, he determined to give them a practical illustration of the evils of disunion; and for this purpose he one day told them to bring him a bundle of sticks.
+When they had done so, he placed the faggot into the hands of each of them in succession, and ordered them to break it in pieces.
+They tried with all their strength, and were not able to do it.
+He next opened the faggot, took the sticks separately, one by one, and again put them into his sons’ hands, upon which they broke them easily.
+He then addressed them in these words: “My sons, if you are of one mind, and unite to assist each other, you will be as this faggot, uninjured by all the attempts of your enemies; but if you are divided among yourselves, you will be broken as easily as these sticks.”
+THE BAT AND THE WEASELS
+A BAT who fell upon the ground and was caught by a Weasel pleaded to be spared his life.
+The Weasel refused, saying that he was by nature the enemy of all birds.
+The Bat assured him that he was not a bird, but a mouse, and thus was set free.
+Shortly afterwards the Bat again fell to the ground and was caught by another Weasel, whom he likewise entreated not to eat him.
+The Weasel said that he had a special hostility to mice.
+The Bat assured him that he was not a mouse, but a bat, and thus a second time escaped.
+It is wise to turn circumstances to good account.
+THE SWALLOW AND THE CROW
+THE SWALLOW and the Crow had a contention about their plumage.
+The Crow put an end to the dispute by saying, “Your feathers are all very well in the spring, but mine protect me against the winter.”
+Fair weather friends are not worth much.
+The same lesson is a Russian proverb: Тише едешь — дальше будешь.
+The Greek for a fable is μῦθος, and the fables are online at Project Gutenberg.

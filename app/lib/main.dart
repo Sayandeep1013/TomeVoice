@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show LicenseEntryWithLineBreaks, LicenseRegistry, kReleaseMode;
@@ -6,16 +7,72 @@ import 'package:flutter/services.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
 import 'brand.dart';
+import 'error_log.dart';
 import 'home_shell.dart';
+import 'listening_session.dart';
+import 'own_colours.dart';
 import 'prefs.dart';
 import 'reader_screen.dart';
 import 'secret_shelf.dart';
+import 'sources/bridge.dart';
 import 'speech_service.dart';
 import 'theme.dart';
+import 'wallpaper_colours.dart';
+
+// Both ways in run in a guarded zone, with Flutter's errors and those
+// nothing caught going to the error log on the phone (error_log.dart) as
+// well as where they went before. Nothing is sent anywhere.
 
 void main() {
-  WidgetsFlutterBinding.ensureInitialized();
-  _registerFontLicences();
+  runZonedGuarded(() {
+    WidgetsFlutterBinding.ensureInitialized();
+    catchErrors();
+    unawaited(openErrorLog());
+    _registerFontLicences();
+    _listen();
+    _show();
+  }, zoneError);
+}
+
+/// Where Android starts the app for a book read with no screen: Play on the
+/// system's resume card after TomeVoice was closed, a headset's Play, a
+/// book picked in Android Auto (ReadAloudService, through ReadingCore). The
+/// library is opened and the book read; nothing is built until TomeVoice is
+/// opened onto this engine, when the app is built here as main() builds it.
+@pragma('vm:entry-point')
+void backgroundMain() {
+  runZonedGuarded(() {
+    WidgetsFlutterBinding.ensureInitialized();
+    catchErrors();
+    unawaited(openErrorLog());
+    _registerFontLicences();
+    _listen();
+    // Opened before this was listening: shown now.
+    unawaited(const SpeechService().activityAttached().then((on) {
+      if (on) _show();
+    }));
+  }, zoneError);
+}
+
+/// What both ways in listen for: books asked for from outside the app, and
+/// a new activity showing this engine (it outlives the activity while a
+/// book is read).
+void _listen() {
+  MediaRequests.listen(() async => (await openLibrary()).store);
+  SpeechService.events.where((e) => e['type'] == 'shown').listen((_) => _show());
+  // The closed-app check's worker, finding this engine up, asks it to check.
+  SourcesBridge.answerChecks(checkInApp);
+}
+
+var _built = false;
+
+/// One list for every build of the app, so the navigator keeps its observer.
+final _observers = <NavigatorObserver>[placeSettler];
+
+/// The app on screen: built once for the engine, and drawn edge to edge in
+/// each new activity's window (Android gives each its own, and the mode was
+/// sent to the first).
+void _show() {
   // Draw under the status bar and the gesture bar, and ask Android not to
   // lay its contrast scrim over the gesture area: that scrim was a darker
   // band with a hard edge just above the home bar, cutting the gradient.
@@ -27,8 +84,16 @@ void main() {
     systemNavigationBarContrastEnforced: false,
     systemStatusBarContrastEnforced: false,
   ));
+  if (_built) return;
+  _built = true;
   runApp(const SpikeApp());
+  // The wallpaper's colours, for its theme: read now, and again each time
+  // the app comes back, since a new wallpaper brings new ones.
+  unawaited(WallpaperColours.refresh());
+  _wallpaper ??= AppLifecycleListener(onResume: () => unawaited(WallpaperColours.refresh()));
 }
+
+AppLifecycleListener? _wallpaper;
 
 /// The fonts ship inside the app, so their licences are listed on the About
 /// screen with everything else.
@@ -66,12 +131,12 @@ class SpikeApp extends StatelessWidget {
   const SpikeApp({super.key});
 
   @override
-  Widget build(BuildContext context) => ValueListenableBuilder<int>(
-        valueListenable: ListeningPrefs.revision,
-        builder: (context, _, __) {
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: Listenable.merge([ListeningPrefs.revision, WallpaperColours.current]),
+        builder: (context, _) {
           final prefs = ListeningPrefs.loaded;
           final follow = (prefs?.bookColours ?? true) ? Skin.followTint : null;
-          final base = Palette.byId(prefs?.paletteId);
+          final base = chosenPalette(prefs);
           // With book colours on, the accent is the cover colour of the book
           // being read; the grounds stay the palette's.
           final palette = follow == null ? base : base.withTint(follow);
@@ -85,6 +150,8 @@ class SpikeApp extends StatelessWidget {
   Widget _app(Palette palette, ThemeMode mode) => MaterialApp(
           title: 'TomeVoice',
           navigatorKey: SecretShelf.navigator,
+          // Leaving a book writes its place at once (see PlaceSettler).
+          navigatorObservers: _observers,
           debugShowCheckedModeBanner: false,
           theme: Skin.themeFor(palette, Brightness.light),
           darkTheme: Skin.themeFor(palette, Brightness.dark),

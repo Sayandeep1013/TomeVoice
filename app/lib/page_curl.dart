@@ -41,6 +41,7 @@ class PageCurl extends StatefulWidget {
     this.crease,
     this.onTapMiddle,
     this.tapToTurn = true,
+    this.held = false,
   });
 
   final CurlController controller;
@@ -63,6 +64,11 @@ class PageCurl extends StatefulWidget {
   final Color? crease;
   final VoidCallback? onTapMiddle;
   final bool tapToTurn;
+
+  /// The leaf held still (a page zoomed in on): a drag moves what is on it
+  /// instead of turning it, and a tap at a side turns nothing. A key or the
+  /// book's actions still turn it.
+  final bool held;
 
   @override
   State<PageCurl> createState() => _PageCurlState();
@@ -200,9 +206,10 @@ class _PageCurlState extends State<PageCurl> with SingleTickerProviderStateMixin
   void _onTapUp(TapUpDetails d) {
     if (_turn != null) return;
     final x = d.localPosition.dx / _size.width;
-    if (widget.tapToTurn && x < 0.28) {
+    final sides = widget.tapToTurn && !widget.held;
+    if (sides && x < 0.28) {
       _step(-1, byHand: true);
-    } else if (widget.tapToTurn && x > 0.72) {
+    } else if (sides && x > 0.72) {
       _step(1, byHand: true);
     } else {
       widget.onTapMiddle?.call();
@@ -268,9 +275,10 @@ class _PageCurlState extends State<PageCurl> with SingleTickerProviderStateMixin
             // arrives here with no place on the page, read as "back".
             excludeFromSemantics: true,
             onTapUp: _onTapUp,
-            onHorizontalDragStart: _onDragStart,
-            onHorizontalDragUpdate: _onDragUpdate,
-            onHorizontalDragEnd: _onDragEnd,
+            // Held, no drag is offered for a turn: the leaf's own takes it.
+            onHorizontalDragStart: widget.held ? null : _onDragStart,
+            onHorizontalDragUpdate: widget.held ? null : _onDragUpdate,
+            onHorizontalDragEnd: widget.held ? null : _onDragEnd,
             child: ClipRect(child: _turn == null ? _still(context) : _turning(context, _turn!)),
           );
         },

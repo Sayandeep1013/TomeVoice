@@ -1,0 +1,45 @@
+# gen-parables.html: what a voice reads, a sentence a line, from where a new book opens.
+# Written by test/corpus_test.dart; see test/corpus/README.md before changing it.
+## gen-parables
+Four Parables
+from The Madman (1918)
+Kahlil Gibran
+Four of the thirty-four parables in Gibran’s first book in English.
+The book opens with the madman’s own account:
+Thus I became a madman.
+And I have found both freedom of loneliness and the safety from being understood.
+The Wise King
+Once there ruled in the distant city of Wirani a king who was both mighty and wise.
+And he was feared for his might and loved for his wisdom.
+Now, in the heart of that city was a well, whose water was cool and crystalline, from which all the inhabitants drank, even the king and his courtiers; for there was no other well.
+One night when all were asleep, a witch entered the city, and poured seven drops of strange liquid into the well, and said, “From this hour he who drinks this water shall become mad.”
+Next morning all the inhabitants, save the king and his lord chamberlain, drank from the well and became mad, even as the witch had foretold.
+And during that day the people in the narrow streets and in the market places did naught but whisper to one another, “The king is mad.
+Our king and his lord chamberlain have lost their reason.
+Surely we cannot be ruled by a mad king.
+We must dethrone him.”
+That evening the king ordered a golden goblet to be filled from the well.
+And when it was brought to him he drank deeply, and gave it to his lord chamberlain to drink.
+And there was great rejoicing in that distant city of Wirani, because its king and its lord chamberlain had regained their reason.
+The Pomegranate
+Once when I was living in the heart of a pomegranate, I heard a seed saying, “Someday I shall become a tree, and the wind will sing in my branches, and the sun will dance on my leaves, and I shall be strong and beautiful through all the seasons.”
+Then another seed spoke and said, “When I was as young as you, I too held such views; but now that I can weigh and measure things, I see that my hopes were vain.”
+And a third seed spoke also, “I see in us nothing that promises so great a future.”
+And a fourth said, “But what a mockery our life would be, without a greater future!”
+Said a fifth, “Why dispute what we shall be, when we know not even what we are.”
+But a sixth replied, “Whatever we are, that we shall continue to be.”
+And a seventh said, “I have such a clear idea how everything will be, but I cannot put it into words.”
+Then an eight spoke—and a ninth—and a tenth—and then many—until all were speaking, and I could distinguish nothing for the many voices.
+And so I moved that very day into the heart of a quince, where the seeds are few and almost silent.
+The Eye
+Said the Eye one day, “I see beyond these valleys a mountain veiled with blue mist.
+Is it not beautiful?”
+The Ear listened, and after listening intently awhile, said, “But where is any mountain?
+I do not hear it.”
+Then the Hand spoke and said, “I am trying in vain to feel it or touch it, and I can find no mountain.”
+And the Nose said, “There is no mountain, I cannot smell it.”
+Then the Eye turned the other way, and they all began to talk together about the Eye’s strange delusion.
+And they said, “Something must be the matter with the Eye.”
+The New Pleasure
+Last night I invented a new pleasure, and as I was giving it the first trial an angel and a devil came rushing toward my house.
+They met at my door and fought with each other over my newly created pleasure; the one crying, “It is a sin!”—the other, “It is a virtue!”

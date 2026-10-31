@@ -146,7 +146,12 @@ class _SearchSheetState extends State<_SearchSheet> {
       final q = _query.trim();
       final run = ++_run;
       if (q.length < 2) {
-        setState(() => _hits = const []);
+        // A search still running for the longer query will not report back
+        // (it is out of date): "Searching…" goes with it.
+        setState(() {
+          _hits = const [];
+          _busy = false;
+        });
         return;
       }
       final l = widget.layout;

@@ -11,9 +11,9 @@ import java.io.File
 import java.io.FileNotFoundException
 
 /**
- * Hands a picture made in the app (a quote card) to the app it is shared
- * with, or a downloaded update to Android's installer: read-only and only
- * for that one use.
+ * Hands a picture made in the app (a quote card) or a list of
+ * pronunciations to the app it is shared with, or a downloaded update to
+ * Android's installer: read-only and only for that one use.
  *
  * Android will not let a file path cross apps; a content:// address served
  * from here does. Only files in cache/share are served, so nothing else in
@@ -40,7 +40,17 @@ class ShareProvider : ContentProvider() {
         return file
     }
 
-    override fun onCreate(): Boolean = true
+    // Android creates this before anything else in the app's process (an
+    // activity, a widget, a service, a background check), so the error log
+    // is set up here: it then hears of a crash wherever one happens. A log
+    // that could not be set up must not stop the app from starting.
+    override fun onCreate(): Boolean {
+        try {
+            context?.let { ErrorLog.install(it) }
+        } catch (_: Throwable) {
+        }
+        return true
+    }
 
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor =
         ParcelFileDescriptor.open(fileFor(uri), ParcelFileDescriptor.MODE_READ_ONLY)
@@ -48,6 +58,8 @@ class ShareProvider : ContentProvider() {
     override fun getType(uri: Uri): String = when {
         uri.lastPathSegment?.endsWith(".png") == true -> "image/png"
         uri.lastPathSegment?.endsWith(".apk") == true -> "application/vnd.android.package-archive"
+        uri.lastPathSegment?.endsWith(".json") == true -> "application/json"
+        uri.lastPathSegment?.endsWith(".txt") == true -> "text/plain"
         else -> "application/octet-stream"
     }
 

@@ -92,6 +92,24 @@ void main() {
     });
   });
 
+  group('navigation', () {
+    test("a page's own contents list is not read before its text", () {
+      // pandoc --toc: a nav of links to the headings, at the top.
+      final blocks = blocksFromHtml('<html><body><h1 class="title">Four Parables</h1>'
+          '<nav id="TOC" role="doc-toc"><ul><li><a href="#the-fox">The Fox</a></li>'
+          '<li><a href="#war">War</a></li></ul></nav>'
+          '<h2 id="the-fox">The Fox</h2><p>A fox looked at his shadow at sunrise.</p>'
+          '<h2 id="war">War</h2><p>One night a feast was held in the palace.</p></body></html>');
+      expect(_texts(blocks), [
+        'Four Parables',
+        'The Fox',
+        'A fox looked at his shadow at sunrise.',
+        'War',
+        'One night a feast was held in the palace.',
+      ]);
+    });
+  });
+
   group('flattening', () {
     test('a line break is a space, not glue', () {
       expect(_texts(blocksFromHtml('<p>Roses are red,<br/>Violets are blue.</p>')),
@@ -101,6 +119,14 @@ void main() {
     test('a double line break inside a paragraph makes two', () {
       expect(_texts(blocksFromHtml('<div>First part.<br/><br/>Second part.</div>')),
           ['First part.', 'Second part.']);
+    });
+
+    test('a zero-width no-break space before a dash is not a space', () {
+      // Standard Ebooks join every em dash to the word before it so.
+      final joiner = String.fromCharCode(0xFEFF);
+      final dash = String.fromCharCode(0x2014);
+      expect(_texts(blocksFromHtml('<p>my masks were stolen$joiner${dash}the seven masks</p>')),
+          ['my masks were stolen${dash}the seven masks']);
     });
 
     test('a heading with a line break stays one heading', () {
@@ -166,6 +192,87 @@ void main() {
     test('decodeEntities knows more than a handful of names', () {
       expect(decodeEntities('&Agrave;&thorn;&alpha;&larr;&amp;'),
           String.fromCharCodes([0xC0, 0xFE, 0x3B1, 0x2190, 0x26]));
+    });
+  });
+
+  group("a transcriber's notes", () {
+    test("Project Gutenberg's box at the end is not read, nor in a Kindle copy with its classes renamed", () {
+      for (final cls in ['', ' class="calibre24"']) {
+        final blocks = blocksFromHtml(
+          '<html><body><div><p>And the tarn closed over the House of Usher.</p></div>'
+          '<div$cls style="margin-top: 5%; border: 1px solid;">'
+          '<div style="font-size: large; text-align: center;"><b>Transcriber’s Notes</b></div>'
+          '<ul><li>New original cover art included with this eBook is granted to the public domain.</li></ul>'
+          '</div><div style="text-align:center"/></body></html>',
+        );
+        expect(_texts(blocks), ['And the tarn closed over the House of Usher.']);
+      }
+    });
+
+    test('notes under a heading go as far as the next heading, of any level', () {
+      // Changed on purpose: they ran to the next heading as high as their
+      // title, and a chapter set a level lower went with them.
+      final blocks = blocksFromHtml(
+        '<html><body><h2>TRANSCRIBER’S NOTES</h2>'
+        '<p>Obvious printing errors have been corrected.</p><h2>Chapter One</h2><p>The lamp was lit at dusk.</p>'
+        '<p>The transcriber’s notes were lost in the fire, the keeper said.</p></body></html>',
+      );
+      expect(_texts(blocks), [
+        'Chapter One',
+        'The lamp was lit at dusk.',
+        'The transcriber’s notes were lost in the fire, the keeper said.',
+      ]);
+    });
+
+    test('a chapter a level below their title is read', () {
+      final blocks = blocksFromHtml(
+        '<html><body><h2>Transcriber’s Note</h2><p>The spelling of the original is kept.</p>'
+        '<h3>I.</h3><p>The Time Traveller (for so it will be convenient to speak of him) was expounding a '
+        'recondite matter to us.</p><p>His grey eyes shone and twinkled.</p></body></html>',
+      );
+      expect(_texts(blocks), [
+        'I.',
+        'The Time Traveller (for so it will be convenient to speak of him) was expounding a recondite matter to us.',
+        'His grey eyes shone and twinkled.',
+      ]);
+    });
+
+    test('a section of its own, or a rule across the page, ends them', () {
+      final section = blocksFromHtml(
+        '<html><body><p><b>Transcriber’s Notes</b></p><p>Hyphenation has been made consistent.</p>'
+        '<section><p>The road ran down to the harbour.</p></section></body></html>',
+      );
+      expect(_texts(section), ['The road ran down to the harbour.']);
+      final rule = blocksFromHtml(
+        '<html><body><p><b>Transcriber’s Notes</b></p><p>Hyphenation has been made consistent.</p>'
+        '<hr/><p>The road ran down to the harbour.</p></body></html>',
+      );
+      expect(_texts(rule), ['The road ran down to the harbour.']);
+    });
+
+    test('no further than notes run: text past that is kept, between blocks too', () {
+      final page = 'The road ran down to the harbour, where the boats lay drawn up in a row. ' * 60;
+      final blocks = blocksFromHtml(
+        '<html><body><div><b>Transcriber’s Notes</b></div><p>Hyphenation has been made consistent.</p>'
+        '<p>$page</p><p>The lamp was lit at dusk.</p></body></html>',
+      );
+      expect(_texts(blocks), [page.trim(), 'The lamp was lit at dusk.']);
+      // The book as text straight in the page, after the title: once
+      // dropped whole, uncounted.
+      final loose = blocksFromHtml(
+        '<html><body><h2>Transcriber’s Notes</h2>Hyphenation has been made consistent.<br/><br/>'
+        '$page<p>The lamp was lit at dusk.</p></body></html>',
+      );
+      expect(_texts(loose).join(' '), contains('The road ran down to the harbour'));
+      expect(_texts(loose).last, 'The lamp was lit at dusk.');
+    });
+
+    test('a paragraph that is a transcriber’s note is not read; the chapter it opens is', () {
+      final blocks = blocksFromHtml(
+        '<html><body><div class="chapter"><p class="tn">Transcriber\'s Note: The spelling of the original '
+        'is kept.</p><h2>Chapter One</h2><p>The lamp was lit at dusk.</p></div></body></html>',
+      );
+      expect(_texts(blocks), ['Chapter One', 'The lamp was lit at dusk.']);
     });
   });
 }

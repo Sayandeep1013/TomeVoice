@@ -287,6 +287,23 @@ confident wrong one.
 Per-character voices for dialogue are explicitly a v2 idea; doing it well needs speaker
 attribution, which is a research problem, not a settings toggle.
 
+**As built (2026-10-31): a voice per character, experimental** (`speakers.dart`, `cast.dart`).
+Who says each quotation is found from English speech tags on either side of it ("…," said
+Elizabeth; Elizabeth said, "…"), "he" and "she" for the last named speaker of that sex where
+nobody else of it has been named since, a character's own beat beside the words, "his
+wife"/"her husband" through a Mr. and Mrs. of one name in the scene, and the turns of a
+two-person exchange (stopped by a third person, a line spoken to the one it would be given
+to, a thought, or a long stretch of narration). A line it cannot place stays in the dialogue
+voice. A book's characters are listed on its page, most lines first; each can be given the
+dialogue voice, the narrator's, or a voice of the book's language, kept per book with its
+other voices (`ListeningPrefs.castByBook`, so backups carry it; sync carries no per-book
+voices). At most four voices for the characters, and a natural one only while the phone keeps
+its model loaded with the narrator's and the dialogue voice's: reading never holds more models
+than the phone does, nor reloads one between two characters' lines. Measured on Pride and
+Prejudice against 512 paragraphs labelled by hand (`app/test/speakers_pp.tsv`): about half are
+given a speaker, and all but one of those rightly; on chapters labelled after the rules were
+settled, a quarter to a third were given one, every one right but one.
+
 ---
 
 ## 5.11 Presets

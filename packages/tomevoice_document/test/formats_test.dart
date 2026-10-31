@@ -90,6 +90,76 @@ void main() {
           'The quick brown fox was an example of speed and grace.');
     });
 
+    test('hard-wrapped paragraphs longer than six lines are still joined', () {
+      // A Gutenberg story's paragraphs run to twenty lines and more: blank
+      // lines are few, and the file was once read a line to a sentence.
+      String wrap(String text) {
+        final lines = <String>[];
+        var line = '';
+        for (final word in text.split(' ')) {
+          if (line.isNotEmpty && line.length + word.length > 60) {
+            lines.add(line);
+            line = word;
+          } else {
+            line = line.isEmpty ? word : '$line $word';
+          }
+        }
+        return [...lines, line].join('\n');
+      }
+
+      const first = 'During the whole of a dull, dark, and soundless day in the autumn of the year, '
+          'when the clouds hung oppressively low in the heavens, I had been passing alone, on '
+          'horseback, through a singularly dreary tract of country; and at length found myself, '
+          'as the shades of the evening drew on, within view of the melancholy House of Usher. '
+          'I know not how it was; but, with the first glimpse of the building, a sense of '
+          'insufferable gloom pervaded my spirit.';
+      const second = 'Nevertheless, in this mansion of gloom I now proposed to myself a sojourn of '
+          'some weeks. Its proprietor, Roderick Usher, had been one of my boon companions in '
+          'boyhood; but many years had elapsed since our last meeting. A letter, however, had '
+          'lately reached me in a distant part of the country, a letter from him, which, in its '
+          'wildly importunate nature, had admitted of no other than a personal reply.';
+      final book = ingestString('${wrap(first)}\n\n${wrap(second)}\n', filename: 'usher.txt');
+      expect(_texts(book), [first, second]);
+    });
+
+    test("Project Gutenberg's header and licence around a text file are not read", () {
+      const book = 'The Raven\n\nOnce upon a midnight dreary, while I pondered, weak and weary.\n';
+      const raw = 'The Project Gutenberg eBook of The Raven\n\n'
+          'This eBook is for the use of anyone anywhere in the United States.\n\n'
+          'Title: The Raven\n\nAuthor: Edgar Allan Poe\n\n'
+          '*** START OF THE PROJECT GUTENBERG EBOOK THE RAVEN ***\n\n\n$book\n\n'
+          '*** END OF THE PROJECT GUTENBERG EBOOK THE RAVEN ***\n\n'
+          'Updated editions will replace the previous one.\n\n'
+          'START: FULL LICENSE\n\nPLEASE READ THIS BEFORE YOU DISTRIBUTE OR USE THIS WORK\n';
+      expect(_texts(ingestString(raw, filename: 'pg1065.txt')),
+          ['The Raven', 'Once upon a midnight dreary, while I pondered, weak and weary.']);
+      // Older files say THIS, and some leave out the spaces.
+      expect(_texts(ingestString('Header.\n\n***START OF THIS PROJECT GUTENBERG EBOOK RAVEN***\n\n$book', filename: 'r.txt')),
+          ['The Raven', 'Once upon a midnight dreary, while I pondered, weak and weary.']);
+    });
+
+    test("a Gutenberg text is named by its header's title and author, not its file's number", () {
+      const book = 'The Raven\n\nOnce upon a midnight dreary, while I pondered, weak and weary.\n';
+      String gutenberg(String header) =>
+          'The Project Gutenberg eBook of The Raven\n\n$header\n\n'
+          '*** START OF THE PROJECT GUTENBERG EBOOK THE RAVEN ***\n\n$book\n'
+          '*** END OF THE PROJECT GUTENBERG EBOOK THE RAVEN ***\n';
+      final raven = ingestString(gutenberg('Title: The Raven\n\nAuthor: Edgar Allan Poe\n\nRelease date: 1997'),
+          filename: 'pg1065.txt');
+      expect(raven.metadata.title, 'The Raven');
+      expect(raven.metadata.authors, ['Edgar Allan Poe']);
+      // A title over two lines, the second set in: a subtitle.
+      final douglass = ingestString(
+        gutenberg('Title: Narrative of the Life of Frederick Douglass, an American Slave\n'
+            '       Written by Himself\n\nAuthor: Frederick Douglass'),
+        filename: 'pg23.txt',
+      );
+      expect(douglass.metadata.title, 'Narrative of the Life of Frederick Douglass, an American Slave: Written by Himself');
+      // No header, or a "Title:" in the book itself: the file's name, as before.
+      expect(ingestString('Title: a list\n\nAuthor: me\n\n$book', filename: 'notes.txt').metadata.title, 'notes');
+      expect(ingestString(gutenberg('Release date: 1997'), filename: 'raven.txt').metadata.title, 'raven');
+    });
+
     test('chapter lines become sections', () {
       const raw = 'Preface text that comes first.\n\n'
           'Chapter 1\n\nIt began.\n\n'
@@ -193,12 +263,71 @@ void main() {
     expect(book.sections, hasLength(2));
   });
 
+  test("an FB2 book's own title and epigraph, before its first chapter, are kept", () {
+    const xml = '<?xml version="1.0" encoding="utf-8"?>'
+        '<FictionBook><description><title-info><book-title>The Lighthouse</book-title></title-info></description>'
+        '<body><title><p>The Lighthouse</p></title>'
+        '<epigraph><poem><stanza><v>A fire burns above the water,</v><v>and someone waits.</v></stanza></poem>'
+        '<text-author>A keepers’ song</text-author></epigraph>'
+        '<section><title><p>Chapter One</p></title><p>The keeper came in the spring.</p></section>'
+        '<section><title><p>Chapter Two</p></title><p>The storm came in November.</p></section>'
+        '</body></FictionBook>';
+    final book = ingestBytes(Uint8List.fromList(utf8.encode(xml)), filename: 'l.fb2');
+    expect(_texts(book), [
+      'The Lighthouse',
+      'A fire burns above the water,',
+      'and someone waits.',
+      'A keepers’ song',
+      'Chapter One',
+      'The keeper came in the spring.',
+      'Chapter Two',
+      'The storm came in November.',
+    ]);
+    expect(book.sections.map((s) => s.displayTitle), ['The Lighthouse', 'Chapter One', 'Chapter Two']);
+  });
+
+  test("an FB2 book's sequence is its series, with its number", () {
+    const xml = '<?xml version="1.0" encoding="utf-8"?>'
+        '<FictionBook><description><title-info><book-title>A Storm of Swords</book-title>'
+        '<sequence name="A Song of Ice and Fire" number="3"/></title-info></description>'
+        '<body><section><title><p>Prologue</p></title><p>The day was grey and bitter cold.</p></section></body>'
+        '</FictionBook>';
+    final book = ingestBytes(Uint8List.fromList(utf8.encode(xml)), filename: 'storm.fb2');
+    expect((book.metadata.series, book.metadata.seriesIndex), ('A Song of Ice and Fire', 3.0));
+  });
+
   test('rtf', () {
     const rtf = r'''{\rtf1\ansi{\fonttbl{\f0 Times;}}{\*\generator Word;}\f0 Caf\'e9 is open.\par Second \u8212? line.\par}''';
     final bytes = Uint8List.fromList(rtf.codeUnits);
     expect(detectFormat(bytes), SourceKind.rtf);
     final book = ingestBytes(bytes, filename: 'a.rtf');
     expect(_texts(book), ['Café is open.', 'Second — line.']);
+    expect(book.metadata.title, 'a');
+  });
+
+  test("an RTF file's notes are shown after their paragraphs and not read, their marks not said; \\info names it", () {
+    // As Word writes them: a note's group right after its mark, \chftn (its
+    // number) or the writer's own, set raised; an endnote says \ftnalt.
+    const rtf = r'''{\rtf1\ansi{\fonttbl{\f0 Times;}}{\info{\title The Harbour Book}{\author Ann Keeper}{\operator Ed}}\f0 '''
+        r'''The lamp was lit at dusk.{\cs10\super \chftn {\footnote \pard\plain {\cs10\super \chftn } It was oil, not gas.}} '''
+        r'''It burned all night.\par '''
+        r'''The boats came home{\super *}{\footnote \pard\plain {\super *} Six of them.} at dawn.\par '''
+        r'''The end{\cs10\super \chftn {\footnote\ftnalt \pard\plain {\cs10\super \chftn } An endnote.}}.\par '''
+        r'''A last line.\par}''';
+    final book = ingestBytes(Uint8List.fromList(rtf.codeUnits), filename: 'harbour.rtf');
+    expect(book.metadata.title, 'The Harbour Book');
+    expect(book.metadata.authors, ['Ann Keeper']);
+    expect([for (final s in book.sections) for (final b in s.blocks) '${b.role.name}: ${b.text}'], [
+      'paragraph: The lamp was lit at dusk.¹ It burned all night.',
+      'footnote: ¹ It was oil, not gas.',
+      'paragraph: The boats came home* at dawn.',
+      'footnote: * Six of them.',
+      'paragraph: The end³.',
+      'paragraph: A last line.',
+      'footnote: ³ An endnote.',
+    ]);
+    expect([for (final u in flattenSpeakable(book)) spokenText(u.text, u.silent).text],
+        ['The lamp was lit at dusk.', 'It burned all night.', 'The boats came home at dawn.', 'The end.', 'A last line.']);
   });
 
   group('mobi', () {

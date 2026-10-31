@@ -1,0 +1,300 @@
+// What sits at a screen's edges: the text and the shelf fade into the ground
+// at their edges only (a mask over all of it drew it all again offscreen on
+// every frame it moved); a message over Now Playing sits clear of its
+// controls; and a system sheet over pages in full screen leaves them as they
+// were cut.
+
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
+import 'package:tomevoice_document/tomevoice_document.dart';
+import 'package:tomevoice_spike/book_card.dart';
+import 'package:tomevoice_spike/library_screen.dart';
+import 'package:tomevoice_spike/library_store.dart';
+import 'package:tomevoice_spike/main.dart';
+import 'package:tomevoice_spike/marks.dart';
+import 'package:tomevoice_spike/now_playing.dart';
+import 'package:tomevoice_spike/page_tone.dart';
+import 'package:tomevoice_spike/paged_view.dart';
+import 'package:tomevoice_spike/player_controls.dart';
+import 'package:tomevoice_spike/prefs.dart';
+import 'package:tomevoice_spike/reader_screen.dart';
+import 'package:tomevoice_spike/speech_service.dart';
+import 'package:tomevoice_spike/ui.dart';
+import 'package:tomevoice_spike/voice_glow.dart';
+
+const _channel = MethodChannel('tomevoice/tts');
+
+late Directory _tmp;
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    MarkStore.instance.reset();
+    _tmp = Directory.systemTemp.createTempSync('tv_screen_edges');
+    ListeningPrefs.reset();
+    SpeechService.resetQueue();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(_channel, (call) async {
+      return switch (call.method) {
+        'launchArgs' => <String, Object?>{},
+        'listEngines' => [
+            {'name': 'com.google.android.tts', 'label': 'Google TTS'},
+          ],
+        'listVoices' => [
+            {'name': 'en-gb-x-gba-local', 'locale': 'en-GB', 'quality': 300, 'networkRequired': false, 'installed': true},
+          ],
+        'outputDir' => _tmp.path,
+        'playerPosition' => 0,
+        'playerEnqueue' => 0,
+        _ => null,
+      };
+    });
+  });
+
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(_channel, null);
+    try {
+      _tmp.deleteSync(recursive: true);
+    } on FileSystemException {
+      // Best effort.
+    }
+  });
+
+  void phone(WidgetTester tester, {bool onItsSide = false}) {
+    tester.view.physicalSize = onItsSide ? const Size(2340, 1080) : const Size(1080, 2340);
+    tester.view.devicePixelRatio = 2.75;
+    addTearDown(tester.view.reset);
+  }
+
+  /// Two chapters long enough to scroll and to fill several pages.
+  ReadingLayout longBook() {
+    final para = List.filled(30, 'A long paragraph of the story goes on here for a while.').join(' ');
+    return ReadingLayout.build(ingestString(
+      '# Alpha\n\n${List.filled(12, para).join('\n\n')}\n\n'
+      '# Beta\n\nBeta opens here. ${List.filled(12, para).join('\n\n')}',
+      filename: 'novel.md',
+    ));
+  }
+
+  Future<void> openReader(WidgetTester tester, ReadingLayout layout) async {
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData(useMaterial3: true, brightness: Brightness.light),
+      home: ReaderScreen(layout: layout),
+    ));
+    await tester.pumpAndSettle();
+  }
+
+  /// Dispose the tree and let any snack bar or timer run out.
+  Future<void> finish(WidgetTester tester) async {
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 10));
+  }
+
+  group('the text fades into the ground', () {
+    // A mask over the text, as in 1.3.0: the ground drawn again over its
+    // edges through a layer following the page's took Android's emulators
+    // down when a book opened.
+    testWidgets('a mask over the text fades its two edges, the ground and the glow under it', (tester) async {
+      ListeningPrefs.memory.pageTone = 'papyrus';
+      phone(tester);
+      await openReader(tester, longBook());
+      final text = find.byType(ScrollablePositionedList);
+      final masks = find.ancestor(of: text, matching: find.byType(ShaderMask));
+      expect(masks, findsOneWidget, reason: 'one mask over the scrolling text');
+      final mask = tester.widget<ShaderMask>(masks);
+      expect(mask.blendMode, BlendMode.dstIn);
+      // Transparent at the two edges, whole between: 18 at the top, 28 at the foot.
+      final rect = Offset.zero & tester.getSize(masks);
+      final shader = mask.shaderCallback(rect);
+      expect(shader, isNotNull);
+      expect(find.byType(GroundFade), findsNothing, reason: 'no copies of the ground over the edges');
+      // The ground and the voice's glow lie under the text, not under the mask.
+      expect(find.ancestor(of: find.byType(PageGround).first, matching: find.byType(ShaderMask)), findsNothing);
+      expect(find.ancestor(of: find.byType(VoiceGlow), matching: find.byType(ShaderMask)), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('on its side the text has the same mask, the glow over it', (tester) async {
+      phone(tester, onItsSide: true);
+      await openReader(tester, longBook());
+      final text = find.byType(ScrollablePositionedList);
+      expect(find.ancestor(of: text, matching: find.byType(ShaderMask)), findsOneWidget);
+      expect(find.byType(GroundFade), findsNothing);
+      await finish(tester);
+    });
+  });
+
+  testWidgets('the shelf fades into the ground under the dock, at its foot only', (tester) async {
+    phone(tester);
+    await tester.runAsync(() async {
+      final store = LibraryStore(_tmp);
+      for (final name in ['alpha.txt', 'beta.txt']) {
+        final f = File('${_tmp.path}/incoming/$name')
+          ..createSync(recursive: true)
+          ..writeAsStringSync('Chapter 1\n\n${'The $name story goes on. ' * 40}\n\n'
+              'Chapter 2\n\n${'It keeps going here. ' * 40}');
+        final made = await store.importFile(PickedFile(path: f.path, name: name));
+        if (name == 'alpha.txt') {
+          // Being read: the dock comes up with it.
+          final layout = await store.loadLayout(made.id);
+          await store.saveCursor(made.id, cursorOf(layout.units[3]), 0.3, where: 'Chapter 1');
+        }
+      }
+    });
+    await tester.pumpWidget(const SpikeApp());
+    for (var i = 0; i < 40 && find.byType(BookCover).evaluate().isEmpty; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+    expect(find.byType(ContinueDock), findsOneWidget);
+
+    final cover = find.byType(BookCover).first;
+    expect(find.ancestor(of: cover, matching: find.byType(ShaderMask)), findsNothing,
+        reason: 'no mask over the whole shelf');
+    final fade = find.byType(GroundFade);
+    expect(fade, findsOneWidget);
+    final shelf = tester.getRect(find.ancestor(of: fade, matching: find.byType(Stack)).first);
+    final strip = tester.getRect(fade);
+    expect(strip.bottom, shelf.bottom);
+    expect(strip.height, 130);
+    expect(strip.width, shelf.width);
+    expect(tester.widget<GroundFade>(fade).top, isFalse);
+    // The ground drawn again where the library's is.
+    final copy = tester.renderObject<RenderBox>(find.descendant(of: fade, matching: find.byType(DecoratedBox)).first);
+    expect(copy.localToGlobal(Offset.zero), Offset.zero);
+    expect(copy.size, tester.getSize(find.byType(LibraryScreen)));
+    await finish(tester);
+  });
+
+  group('a message over Now Playing', () {
+    for (final onItsSide in [false, true]) {
+      testWidgets('sits above its scrubber, clear of its controls${onItsSide ? ', on its side' : ''}',
+          (tester) async {
+        phone(tester, onItsSide: onItsSide);
+        await openReader(tester, ReadingLayout.build(specimenBook()));
+        // Swiped up from the player.
+        await tester.fling(find.byTooltip('Speed'), const Offset(0, -300), 1500);
+        await tester.pumpAndSettle();
+        expect(find.byType(NowPlayingScreen), findsOneWidget);
+        final now = find.byType(NowPlayingScreen);
+        await tester.tap(find.descendant(of: now, matching: find.text('Save')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        final snack = find.descendant(of: now, matching: find.byType(SnackBar));
+        expect(snack, findsOneWidget);
+        expect(find.descendant(of: snack, matching: find.text('Undo')), findsOneWidget);
+        final message = tester.getRect(find.descendant(of: snack, matching: find.byType(Material)).first);
+        final scrubber = tester.getRect(find.descendant(of: now, matching: find.byType(ChapterScrubber)));
+        expect(message.bottom, lessThanOrEqualTo(scrubber.top), reason: 'above the scrubber');
+        expect(message.left, greaterThanOrEqualTo(scrubber.left - 0.5), reason: 'over the text, not the cover');
+        // Nothing to tap lies under it.
+        final controls = find.descendant(
+          of: now,
+          matching: find.byWidgetPredicate((w) => w is IconButton || w is InkWell || w is PlayButton),
+        );
+        for (final c in controls.evaluate()) {
+          if (find.descendant(of: snack, matching: find.byWidget(c.widget)).evaluate().isNotEmpty) continue;
+          final r = tester.getRect(find.byWidget(c.widget).first);
+          expect(r.overlaps(message), isFalse, reason: '${c.widget} at $r is under the message at $message');
+        }
+        await finish(tester);
+      });
+    }
+
+    testWidgets('closed, a message sits above the player again', (tester) async {
+      phone(tester);
+      await openReader(tester, ReadingLayout.build(specimenBook()));
+      await tester.fling(find.byTooltip('Speed'), const Offset(0, -300), 1500);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Bookmark this page'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      final message = tester.getRect(find.descendant(of: find.byType(SnackBar), matching: find.byType(Material)).first);
+      final play = tester.getRect(find.byType(PlayButton));
+      expect(message.bottom, lessThanOrEqualTo(play.top));
+      await finish(tester);
+    });
+  });
+
+  group('a system sheet over pages in full screen', () {
+    const bars = FakeViewPadding(top: 66, bottom: 132);
+
+    void barsShown(WidgetTester tester, bool shown) {
+      if (shown) {
+        tester.view.padding = bars;
+        tester.view.viewPadding = bars;
+      } else {
+        tester.view.resetPadding();
+        tester.view.resetViewPadding();
+      }
+    }
+
+    testWidgets('leaves the pages as they were cut, and a change still there after is followed', (tester) async {
+      ListeningPrefs.memory
+        ..pages = true
+        ..fullScreen = true;
+      phone(tester);
+      await openReader(tester, longBook());
+      final book = find.byType(PagedBook);
+      final was = tester.getRect(book);
+      final count = find.textContaining(RegExp(r'^\d+ / \d+$'));
+      final page = tester.widget<Text>(count).data;
+
+      // The sheet comes: the app is told it is away, and the phone's bars show.
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      barsShown(tester, true);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(tester.getRect(book), was, reason: 'the page did not move behind the sheet');
+      // It goes, and the bars with it.
+      barsShown(tester, false);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(tester.getRect(book), was);
+      expect(tester.widget<Text>(count).data, page);
+
+      // Bars that show a moment before the app is told it is away are held
+      // too.
+      barsShown(tester, true);
+      await tester.pump(const Duration(milliseconds: 100));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump(const Duration(seconds: 1));
+      expect(tester.getRect(book), was);
+
+      // Back with the bars still there: the pages are laid out clear of them,
+      // once the app has been back a moment.
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(tester.getRect(book), was, reason: 'not the moment it is back');
+      for (var i = 0; i < 4; i++) {
+        await tester.pump(const Duration(milliseconds: 500));
+      }
+      await tester.pumpAndSettle();
+      expect(tester.getSize(book).height, closeTo(was.height - (66 + 132) / 2.75, 0.01));
+      await finish(tester);
+    });
+
+    testWidgets('out of full screen, the bars are followed at once', (tester) async {
+      ListeningPrefs.memory.pages = true;
+      phone(tester);
+      await openReader(tester, longBook());
+      final book = find.byType(PagedBook);
+      final was = tester.getSize(book);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      barsShown(tester, true);
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(tester.getSize(book).height, closeTo(was.height - (66 + 132) / 2.75, 0.01));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await finish(tester);
+    });
+  });
+}

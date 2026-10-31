@@ -31,8 +31,14 @@ final _roman = RegExp(r'^[IVXLCDM]+$');
 /// that never moves. Split at a clause boundary instead.
 const maxSentenceChars = 280;
 
+/// A zero-width no-break space: nothing on the page, though `\s` takes it
+/// for a space. Standard Ebooks put one before every em dash, which came
+/// out as "stolen —the" for "stolen—the".
+final _zeroWidthNoBreak = String.fromCharCode(0xFEFF);
+
 /// Collapse runs of whitespace to a single space and trim.
-String collapseWhitespace(String raw) => raw.replaceAll(_spaceRe, ' ').trim();
+String collapseWhitespace(String raw) =>
+    (raw.contains(_zeroWidthNoBreak) ? raw.replaceAll(_zeroWidthNoBreak, '') : raw).replaceAll(_spaceRe, ' ').trim();
 
 /// Terminators that end a sentence regardless of what follows: Devanagari and
 /// Bengali danda, CJK full stops, Arabic question mark.
@@ -118,6 +124,13 @@ List<Sentence> segmentSentences(
         // "“Help!” he cried." — lowercase continues the sentence, in any
         // script with capitals ("т. е. согласился").
         if (_isLower(text.codeUnitAt(next))) continue;
+        // "— Огонь! — крикнул Андреич." — so does a dash after "!" or "?"
+        // with lower case after it, who spoke: Russian and Ukrainian set
+        // dialogue so. A capital after the dash starts a sentence.
+        if (c != 0x2E && _isDash(text.codeUnitAt(next))) {
+          final after = _skipSpace(text, next + 1);
+          if (after > next + 1 && after < n && _isLower(text.codeUnitAt(after))) continue;
+        }
       }
     }
 
@@ -318,6 +331,10 @@ bool _isCloser(int c) =>
     c == 0x300B || // 》
     c == 0x3011 || // 】
     c == 0xFF09; // ）
+
+/// Dashes that set off who spoke: em, en, figure dash, horizontal bar, and a
+/// hyphen standing for one.
+bool _isDash(int c) => c == 0x2014 || c == 0x2013 || c == 0x2012 || c == 0x2015 || c == 0x2D;
 
 bool _isSpace(int c) =>
     c == 0x20 ||

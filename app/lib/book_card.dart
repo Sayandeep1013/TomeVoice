@@ -356,7 +356,7 @@ class BookRow extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: Skin.meta(context, size: 10.5,
-                                color: e.finished ? Skin.accentOf(context) : null),
+                                color: e.finished ? Skin.accentInkOf(context) : null),
                           ),
                         ],
                       ),
@@ -374,7 +374,7 @@ class BookRow extends StatelessWidget {
                         padding: const EdgeInsets.all(Gap.m),
                         child: Icon(
                           selected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-                          color: selected ? Skin.accentOf(context) : Skin.inkFaintOn(context),
+                          color: selected ? Skin.accentInkOf(context) : Skin.inkFaintOn(context),
                         ),
                       )
                     : IconButton(
@@ -504,7 +504,8 @@ class BookTile extends StatelessWidget {
                               ),
                               if (e.progress > 0 && !e.finished) ...[
                                 const SizedBox(height: 7),
-                                Progress(e.progress, height: 3, track: white.withValues(alpha: 0.22)),
+                                Progress(e.progress,
+                                    height: 3, track: white.withValues(alpha: 0.22), color: Skin.accentSoftOf(context)),
                               ],
                             ],
                           ),

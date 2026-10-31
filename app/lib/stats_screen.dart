@@ -53,6 +53,13 @@ class _StatsScreenState extends State<StatsScreen> {
     if (mounted) setState(() {});
   }
 
+  /// A new daily goal: the streak, the ring and the days count by it at
+  /// once, and so do the home-screen widgets, drawn again now.
+  Future<void> _setGoal(int minutes) async {
+    await _stats.setGoal(minutes);
+    await const SpeechService().refreshWidgets();
+  }
+
   @override
   Widget build(BuildContext context) {
     final streak = _stats.streak();
@@ -63,7 +70,8 @@ class _StatsScreenState extends State<StatsScreen> {
     final top = [for (final e in totals.books.entries) if (!_hidden.contains(e.key)) e]
       ..sort((a, b) => b.value.compareTo(a.value));
     final ink = Skin.inkOn(context);
-    final accent = Skin.accentOf(context);
+    final accent = Skin.accentMarkOf(context);
+    final goal = _stats.goal.inMinutes;
     return Scaffold(
       body: DecoratedBox(
         decoration: BoxDecoration(gradient: Skin.ground(context)),
@@ -80,31 +88,47 @@ class _StatsScreenState extends State<StatsScreen> {
                   children: [
                     _card(
                       context,
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.end,
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                DotText('$streak', dot: 9, color: ink, off: ink.withValues(alpha: 0.07)),
-                                const SizedBox(height: Gap.m),
-                                Text(streak == 1 ? 'DAY STREAK' : 'DAYS STREAK', style: Skin.meta(context)),
-                                if (best > streak) ...[
-                                  const SizedBox(height: 2),
-                                  Text('BEST $best', style: Skin.meta(context, size: 10)),
-                                ],
-                              ],
-                            ),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    DotText('$streak', dot: 9, color: ink, off: ink.withValues(alpha: 0.07)),
+                                    const SizedBox(height: Gap.m),
+                                    Text(streak == 1 ? 'DAY STREAK' : 'DAYS STREAK', style: Skin.meta(context)),
+                                    if (best > streak) ...[
+                                      const SizedBox(height: 2),
+                                      Text('BEST $best', style: Skin.meta(context, size: 10)),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              _TodayRing(minutes: todayMin, goal: goal, color: accent),
+                            ],
                           ),
-                          _TodayRing(minutes: todayMin, goal: StatsStore.goal.inMinutes, color: accent),
+                          // How much a day needs to count, beside the streak
+                          // it makes.
+                          const SizedBox(height: Gap.l),
+                          Text('MINUTES A DAY', style: Skin.meta(context, size: 10)),
+                          const SizedBox(height: Gap.s),
+                          ChoiceRow<int>(
+                            options: [for (final m in StatsStore.goals) (m, '$m')],
+                            value: goal,
+                            minSegment: 40,
+                            onChanged: (m) => unawaited(_setGoal(m)),
+                          ),
                         ],
                       ),
                     ),
                     const SizedBox(height: Gap.l),
                     const SectionTitle('This week'),
                     const SizedBox(height: Gap.m),
-                    _card(context, _WeekBars(minutes: week, goal: StatsStore.goal.inMinutes, color: accent)),
+                    _card(context, _WeekBars(minutes: week, goal: goal, color: accent)),
                     const SizedBox(height: Gap.l),
                     const SectionTitle('Twenty weeks'),
                     const SizedBox(height: Gap.m),
@@ -138,7 +162,7 @@ class _StatsScreenState extends State<StatsScreen> {
                     ),
                     const SizedBox(height: Gap.l),
                     Text(
-                      'A day counts toward the streak with ${StatsStore.goal.inMinutes} minutes of listening or reading. '
+                      'A day counts toward the streak with $goal minutes of listening or reading. '
                       'Days start at 4 am, so late nights count toward the day before.',
                       style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
                     ),
@@ -258,13 +282,21 @@ class _WeekBars extends StatelessWidget {
   final int goal;
   final Color color;
 
+  /// The tallest a bar is drawn.
+  static const _tallest = 96.0;
+
   @override
   Widget build(BuildContext context) {
     final top = math.max(goal * 2, minutes.fold<int>(0, math.max)).toDouble();
     final now = dayOf(dayKey(DateTime.now()));
     const letters = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    // The bars, and the minutes above them and the days below at the
+    // reader's text size (meta lines are 1.45 high): a fixed 140 cut them
+    // off once the phone's text was set larger.
+    final scale = MediaQuery.textScalerOf(context);
+    final words = (scale.scale(9.5) + scale.scale(10)) * 1.45;
     return SizedBox(
-      height: 140,
+      height: _tallest + 4 + 6 + words + 6,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
@@ -276,7 +308,7 @@ class _WeekBars extends StatelessWidget {
                   Text(minutes[i] == 0 ? '' : '${minutes[i]}', style: Skin.meta(context, size: 9.5)),
                   const SizedBox(height: 4),
                   Container(
-                    height: math.max(4, 96 * minutes[i] / top),
+                    height: math.max(4, _tallest * minutes[i] / top),
                     margin: const EdgeInsets.symmetric(horizontal: 6),
                     decoration: BoxDecoration(
                       color: minutes[i] >= goal ? color : color.withValues(alpha: minutes[i] == 0 ? 0.12 : 0.45),
@@ -313,7 +345,7 @@ class _YearDots extends StatelessWidget {
         final dot = math.min(step * 0.62, 11.0);
         return SizedBox(
           height: step * 7,
-          child: CustomPaint(painter: _DaysPainter(days, color, dot, step, StatsStore.goal.inMinutes)),
+          child: CustomPaint(painter: _DaysPainter(days, color, dot, step, stats.goal.inMinutes)),
         );
       },
     );
@@ -343,7 +375,7 @@ class _DaysPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_DaysPainter old) => old.days.join() != days.join() || old.color != color;
+  bool shouldRepaint(_DaysPainter old) => old.days.join() != days.join() || old.color != color || old.goal != goal;
 }
 
 /// Ask the launcher to add a TomeVoice widget ([kind]: player, playerStamp,

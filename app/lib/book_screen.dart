@@ -7,13 +7,21 @@ import 'book_actions.dart';
 import 'book_card.dart';
 import 'book_search.dart';
 import 'book_tint.dart';
+import 'cast.dart';
+import 'cast_sheet.dart';
 import 'chapter_finder.dart';
+import 'export_audio_sheet.dart';
 import 'fast_scroller.dart';
 import 'library_store.dart';
+import 'novel_screen.dart';
+import 'organise.dart' show seriesLine;
+import 'organise_sheets.dart';
 import 'saved_screen.dart';
 import 'listen_sheet.dart';
 import 'prefs.dart';
 import 'reader_screen.dart';
+import 'rules_screen.dart';
+import 'speakers.dart' show Character;
 import 'speech_service.dart';
 import 'theme.dart';
 import 'ui.dart';
@@ -39,6 +47,10 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
   ReadingCursor _cursor = ReadingCursor.zero;
   Object? _error;
   bool _blurbOpen = false;
+
+  /// Who the book's speech tags name, once found (none for a book with no
+  /// dialogue, or not in English).
+  List<Character> _people = const [];
 
   /// The list holding the chapters, for the fast scroller beside them.
   final _scroll = ScrollController();
@@ -88,6 +100,10 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
         _cursor = cursor;
         _index = idx;
       });
+      // Who speaks in it, found off the screen's isolate: the Characters
+      // entry appears when anyone does.
+      final people = await bookCharacters(_entry.id, layout);
+      if (mounted && people.isNotEmpty) setState(() => _people = people);
     } on Object catch (e) {
       if (mounted) setState(() => _error = e);
     }
@@ -170,8 +186,10 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
         prefs: _prefs,
         language: _language,
         bookId: _entry.id,
+        bookTitle: _entry.title,
         onChanged: ({required bool restart}) => _rebuild(),
         onPreview: _preview,
+        narration: _layout?.book.narration != null,
       );
 
   Future<void> _preview(String voiceName) async {
@@ -249,7 +267,20 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
       ),
       SliverPadding(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
-        sliver: SliverToBoxAdapter(child: _voice(context)),
+        sliver: SliverToBoxAdapter(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _voice(context),
+              growIn(
+                context,
+                _people.isEmpty
+                    ? null
+                    : Padding(padding: const EdgeInsets.only(top: Gap.s), child: _characters(context)),
+              ),
+            ],
+          ),
+        ),
       ),
       SliverPadding(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
@@ -367,10 +398,34 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                 switch (v) {
                   case 'passage':
                     await _findPassage();
+                  case 'audio':
+                    final l = _layout;
+                    if (l == null) break;
+                    await showSaveAsAudio(
+                      context,
+                      layout: l,
+                      bookId: _entry.id,
+                      title: _entry.title,
+                      author: _entry.authorLine,
+                      cover: _entry.shownCover,
+                      chapter: _currentChapter,
+                      preferBook: true,
+                      secret: _store.isSecret(_entry.id),
+                    );
+                  case 'rules':
+                    await Navigator.of(context).push(MaterialPageRoute<void>(
+                      builder: (_) => RulesScreen(
+                        bookTitles: {for (final e in _index?.entries ?? const <LibraryEntry>[]) e.id: e.title},
+                        bookId: _entry.id,
+                        bookTitle: _entry.title,
+                      ),
+                    ));
                   case 'cover':
                     await changeCover(context, _store, _entry);
                   case 'move':
                     await moveBook(context, _store, _entry);
+                  case 'organise':
+                    await editTagsAndSeries(context, _store, _entry);
                   case 'restart':
                     // One tap from the menu: the place it had is one tap away.
                     final was = _entry;
@@ -392,8 +447,11 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
               },
               itemBuilder: (_) => [
                 if (_layout?.isEmpty == false) const PopupMenuItem(value: 'passage', child: Text('Find a passage')),
+                if (_layout?.isEmpty == false) const PopupMenuItem(value: 'audio', child: Text('Save as audio…')),
+                const PopupMenuItem(value: 'rules', child: Text('Reading rules')),
                 const PopupMenuItem(value: 'cover', child: Text('Change cover')),
                 const PopupMenuItem(value: 'move', child: Text('Move to…')),
+                const PopupMenuItem(value: 'organise', child: Text('Tags and series…')),
                 if (_entry.progress > 0)
                   const PopupMenuItem(value: 'restart', child: Text('Start from the beginning')),
                 const PopupMenuItem(value: 'remove', child: Text('Remove from library')),
@@ -436,35 +494,96 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
               ],
               const SizedBox(height: Gap.m),
               Wrap(spacing: 5, runSpacing: 5, children: [for (final f in facts) TagChip(f)]),
+              // A scan whose words OCR read (ocr.dart).
+              if (e.ocr != null) ...[
+                const SizedBox(height: Gap.s),
+                Text('Read by OCR: may contain errors', style: Skin.label(context, size: 13)),
+              ],
               if (category != null) ...[
                 const SizedBox(height: Gap.m),
-                InkWell(
-                  borderRadius: BorderRadius.circular(Radii.pill),
+                _detail(
+                  context,
+                  icon: Icons.folder_outlined,
+                  label: category.name,
                   onTap: () => moveBook(context, _store, _entry),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: Gap.xs),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.folder_outlined, size: 18, color: Skin.inkSoftOn(context)),
-                        const SizedBox(width: 6),
-                        Flexible(
-                          child: Text(category.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Skin.ui(size: 14, weight: FontWeight.w600, color: Skin.inkSoftOn(context))),
-                        ),
-                        Icon(Icons.arrow_drop_down_rounded, color: Skin.inkSoftOn(context)),
-                      ],
-                    ),
-                  ),
                 ),
               ],
+              // Its series, in order, a tap away; and its tags.
+              if (e.seriesName != null)
+                _detail(
+                  context,
+                  icon: Icons.collections_bookmark_outlined,
+                  label: seriesLine(e),
+                  onTap: _showSeries,
+                  more: Icons.chevron_right_rounded,
+                ),
+              _detail(
+                context,
+                icon: Icons.sell_outlined,
+                label: e.tags.isEmpty ? 'Add tags' : e.tags.join(' · '),
+                faint: e.tags.isEmpty,
+                onTap: () => editTagsAndSeries(context, _store, _entry),
+              ),
             ],
           ),
         ),
       ],
     );
+  }
+
+  /// One quiet line of the book's details under its facts: its shelf, its
+  /// series, its tags, each opening what changes it.
+  Widget _detail(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    IconData more = Icons.arrow_drop_down_rounded,
+    bool faint = false,
+  }) {
+    final color = faint ? Skin.inkFaintOn(context) : Skin.inkSoftOn(context);
+    return InkWell(
+      borderRadius: BorderRadius.circular(Radii.pill),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: Gap.xs),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: color),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Skin.ui(size: 14, weight: FontWeight.w600, color: color)),
+            ),
+            Icon(more, color: color),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The book's series in its order; another of them opens its own page.
+  Future<void> _showSeries() async {
+    final name = _entry.seriesName;
+    if (name == null) return;
+    final books = (await _store.index()).entries;
+    if (!mounted) return;
+    final picked = await showSeriesBooks(context, name: name, books: books, current: _entry.id);
+    if (picked == null || picked.id == _entry.id || !mounted) return;
+    if (picked.isWeb) {
+      await NovelScreen.openEntry(context, _store, picked);
+      return;
+    }
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => BookTint(
+        bookId: picked.id,
+        cover: picked.shownCover,
+        child: BookScreen(store: _store, entry: picked),
+      ),
+    ));
   }
 
   Widget _actions(BuildContext context) {
@@ -525,7 +644,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
               ),
               const SizedBox(height: Gap.xs),
               Text(_blurbOpen ? 'Less' : 'More',
-                  style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentSoftOf(context))),
+                  style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentInkOf(context))),
             ],
           ),
         ),
@@ -546,7 +665,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
           padding: const EdgeInsets.symmetric(horizontal: Gap.l, vertical: 14),
           child: Row(
             children: [
-              Icon(Icons.record_voice_over_rounded, color: Skin.accentOf(context)),
+              Icon(Icons.record_voice_over_rounded, color: Skin.accentInkOf(context)),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -555,7 +674,9 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                     const Eyebrow('Voice for this book'),
                     const SizedBox(height: 2),
                     Text(
-                      !_catalog.loaded
+                      controller.narrated
+                          ? "Book's own narration · $speed×"
+                          : !_catalog.loaded
                           ? 'Loading voices…'
                           : v == null
                               ? 'No ${languageName(_language)} voice yet'
@@ -565,7 +686,53 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                   ],
                 ),
               ),
-              Text('Change', style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentSoftOf(context))),
+              Text('Change', style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentInkOf(context))),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The book's characters, and the voices their lines are read in: under
+  /// its voice, once its speech tags have named anyone.
+  Widget _characters(BuildContext context) {
+    final summary = castSummary(_prefs.castByBook[_entry.id]);
+    final n = _people.length;
+    return Material(
+      color: Skin.capsuleOn(context),
+      borderRadius: BorderRadius.circular(Radii.row + 4),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(Radii.row + 4),
+        onTap: () => showCastSheet(
+          context,
+          bookId: _entry.id,
+          title: _entry.title,
+          people: _people,
+          listen: _listen,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Gap.l, vertical: 14),
+          child: Row(
+            children: [
+              Icon(Icons.groups_outlined, color: Skin.accentInkOf(context)),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Eyebrow('Characters'),
+                    const SizedBox(height: 2),
+                    Text(
+                      summary ?? '$n ${n == 1 ? 'speaks' : 'speak'}, all in the dialogue voice',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Skin.ui(size: 15.5, weight: FontWeight.w600, color: Skin.inkOn(context)),
+                    ),
+                  ],
+                ),
+              ),
+              Text('Change', style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentInkOf(context))),
             ],
           ),
         ),

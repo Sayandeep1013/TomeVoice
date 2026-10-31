@@ -1,0 +1,14 @@
+# The corpus is read byte for byte: its line endings, byte order marks and
+# encodings are part of what it tests. Git must never convert them.
+* -text
+*.epub binary
+*.mobi binary
+*.docx binary
+*.odt binary
+gen-clockmaker-utf16.txt binary
+
+# The notes about the corpus, and its goldens, are plain text with \n.
+.gitattributes text eol=lf
+README.md text eol=lf
+SOURCES.md text eol=lf
+golden/** text eol=lf

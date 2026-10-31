@@ -9,6 +9,13 @@ core-js - Copyright (c) 2014-2024 Denis Pushkarev (MIT)
 lnreader-plugins and LNReader (plugin host conventions, isUrlAbsolute) - Copyright (c) 2021 Rajarshee Chatterjee (MIT)
 htmlparser2, domhandler, domutils, dom-serializer, entities, css-select, css-what, nth-check - Copyright (c) Felix Boehm (BSD-2-Clause)
 boolbase - Copyright (c) 2014 Felix Boehm (ISC)
+Loaded only for the sources that ask for them (lnreader_extra.js):
+protobufjs 8.7.1 - Copyright (c) 2016 Daniel Wirtz (BSD-3-Clause; the BSD 2-Clause terms below, and the
+  names of the copyright holder and contributors may not be used to endorse or promote products derived
+  from it without specific prior written permission)
+long 5.3.2 - Copyright 2009 The Closure Library Authors, Copyright 2020 Daniel Wirtz (Apache-2.0,
+  https://www.apache.org/licenses/LICENSE-2.0)
+@noble/ciphers 2.2.0 - Copyright (c) 2023 Paul Miller (MIT)
 
 The MIT License
 
@@ -72,4 +79,39 @@ Includes ONNX Runtime (MIT) and eSpeak NG data (GPL-3.0-or-later).
 Piper voices (downloaded on request, not part of the app)
 https://github.com/rhasspy/piper
 Each voice keeps the licence of the recordings it was trained on, given
-in the MODEL_CARD that comes with it in voices/<name>/ on the phone.
+in the MODEL_CARD that comes with it in voices/<name>/ on the phone, and
+shown beside it in Settings > Listening > Natural voices.
+
+Kokoro-82M (downloaded on request, not part of the app), Apache License 2.0
+https://huggingface.co/hexgrad/Kokoro-82M
+
+Kitten TTS nano 0.8 (downloaded on request, not part of the app),
+Apache License 2.0
+https://huggingface.co/KittenML/kitten-tts-nano-0.8-fp32
+
+------------------------------------------------------------------------
+Tesseract4Android (reading scanned pages, OCR), Apache License 2.0
+https://github.com/adaptech-cz/Tesseract4Android
+Includes Tesseract OCR 5.5.1 (Apache License 2.0), Leptonica 1.85.0
+(BSD-style licence), libpng 1.6.48 (libpng licence) and libjpeg 9f.
+This software is based in part on the work of the Independent JPEG Group.
+
+Tesseract language data (downloaded on request, not part of the app)
+https://github.com/tesseract-ocr/tessdata_fast, Apache License 2.0
+Kept in ocr/tessdata on the phone.
+
+------------------------------------------------------------------------
+jump3r 1.0.5 (saving as MP3), GNU Lesser General Public License 2.1 or later
+https://codeberg.org/sciss/jump3r (Maven Central: de.sciss:jump3r)
+A Java port of the LAME MP3 encoder 3.98.4 (https://lame.sourceforge.io).
+LAME: Copyright (c) 1999-2011 Mark Taylor, Takehiro Tominaga, Robert
+Hegemann, Gabriel Bouvigne, Alexander Leidinger and the LAME developers.
+The Java port: Ken Händel, Vadym Vikulin and Hanns Holger Rutz.
+This library is free software; you can redistribute it and/or modify it
+under the terms of the GNU Lesser General Public License as published by
+the Free Software Foundation; either version 2.1 of the License, or (at
+your option) any later version. It is distributed in the hope that it will
+be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. TomeVoice, under the
+GNU GPL 3.0, uses it as the LGPL allows; its source, and TomeVoice's, are
+public. The licence: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'contrast.dart' show groundOf;
 import 'theme.dart';
 
 /// The page under the text: the app's own colours, or a reader's paper —
@@ -51,23 +52,29 @@ class PageTone {
   );
 
   /// Old paper: warm, a brown ink, a sienna voice.
+  ///
+  /// The soft ink and the sienna set the 10 and 11 px labels (the chapter
+  /// above the page, the time left, "CHAPTER 3"), so each is just dark
+  /// enough to read at 4.5:1 on the paper; the soft ink also where the top
+  /// bar's chapter line sits, on the darkened edge of the scroll.
   static const papyrus = PageTone(
     'papyrus',
     'Papyrus',
     paper: [Color(0xFFF2E4C4), Color(0xFFE5D0A3)],
     ink: Color(0xFF3B2B19),
-    inkSoft: Color(0xFF6E5839),
-    accent: Color(0xFF9C5527),
+    inkSoft: Color(0xFF654F31),
+    accent: Color(0xFF8C471A),
     vignette: Color(0x38734A1A),
   );
 
   /// For the dark: a dim warm grey, soft low-contrast text, nothing glaring.
+  /// Its soft ink is only just light enough for small labels (4.5:1).
   static const dusk = PageTone(
     'dusk',
     'Dusk',
     paper: [Color(0xFF27231F), Color(0xFF1C1A17)],
     ink: Color(0xFFB9AD9C),
-    inkSoft: Color(0xFF8A7F71),
+    inkSoft: Color(0xFF95897B),
     accent: Color(0xFFC6A06A),
     dark: true,
     vignette: Color(0x73000000),
@@ -77,6 +84,12 @@ class PageTone {
 
   static PageTone byId(String? id) => all.where((t) => t.id == id).firstOrNull ?? app;
 
+  /// The page's shades top to foot, what its type is read against: the
+  /// tone's paper, or the app's ground as its gradient draws it.
+  List<Color> shadesOf(BuildContext context) => paper == null
+      ? groundOf(Skin.paletteOf(context), Theme.of(context).brightness)
+      : [for (var t = 0.0; t <= 1; t += 0.25) Color.lerp(paper!.first, paper!.last, t)!];
+
   /// The paper as a decoration: the tone's, or the app's diagonal ground.
   BoxDecoration paperOf(BuildContext context) => paper == null
       ? BoxDecoration(gradient: Skin.ground(context))
@@ -85,7 +98,11 @@ class PageTone {
         );
 
   Color inkOf(BuildContext context) => ink ?? Skin.inkOn(context);
-  Color accentOf(BuildContext context) => accent ?? Skin.accentOf(context);
+
+  /// The accent as the page's text: its headings, "CHAPTER 3", its ribbon.
+  /// In the app's own colours the accent's ink, which reads on the ground
+  /// where the full accent (a fill) is too pale.
+  Color accentOf(BuildContext context) => accent ?? Skin.accentInkOf(context);
 }
 
 /// [child] in [tone]'s ink and accent: what reads the accent (washes,
@@ -101,20 +118,12 @@ Widget toned(BuildContext context, PageTone tone, Widget child) {
   }
   final a = tone.accent!;
   return TintScope(
-    palette: Palette(
+    palette: p.copyWith(
       id: '${p.id}+${tone.id}',
-      label: p.label,
-      day: p.day,
-      night: p.night,
       accent: a,
       accentSoft: a,
       accentDeep: a,
       onAccent: tone.dark ? const Color(0xFF1C1A17) : Colors.white,
-      nightCapsule: p.nightCapsule,
-      nightSheet: p.nightSheet,
-      dayCapsule: p.dayCapsule,
-      daySheet: p.daySheet,
-      only: p.only,
     ),
     child: DefaultTextStyle.merge(style: TextStyle(color: tone.ink), child: child),
   );

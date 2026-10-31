@@ -8,9 +8,10 @@ import 'package:flutter/rendering.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'listen_sheet.dart' show trimSpeed;
+import 'page_style.dart';
 import 'player_controls.dart';
 import 'prefs.dart';
-import 'reader_screen.dart' show wordAt;
+import 'reader_text.dart' show wordAt;
 import 'scheduler.dart';
 import 'theme.dart';
 import 'ui.dart';
@@ -34,6 +35,7 @@ class NowPlayingScreen extends StatelessWidget {
     required this.speed,
     required this.voiceLabel,
     required this.sleepNote,
+    required this.sleepChanges,
     required this.onPlay,
     required this.onGoTo,
     required this.onPrevChapter,
@@ -58,6 +60,9 @@ class NowPlayingScreen extends StatelessWidget {
   final double Function() speed;
   final String Function() voiceLabel;
   final String? Function() sleepNote;
+
+  /// Ticks as the sleep timer changes, runs down or pauses the book.
+  final Listenable sleepChanges;
   final VoidCallback onPlay;
   final ValueChanged<int> onGoTo;
   final VoidCallback onPrevChapter;
@@ -179,7 +184,7 @@ class NowPlayingScreen extends StatelessWidget {
   Widget _panel(BuildContext context, {required bool compact}) => Padding(
         padding: EdgeInsets.fromLTRB(Gap.xl, compact ? Gap.l : 0, Gap.xl, Gap.l),
         child: ListenableBuilder(
-          listenable: Listenable.merge([cursor, ListeningPrefs.revision]),
+          listenable: Listenable.merge([cursor, ListeningPrefs.revision, sleepChanges]),
           builder: (context, _) {
             final u = cursor.value.clamp(0, layout.units.isEmpty ? 0 : layout.units.length - 1);
             final empty = layout.isEmpty;
@@ -220,19 +225,26 @@ class NowPlayingScreen extends StatelessWidget {
                 const SizedBox(height: Gap.m),
                 Expanded(child: _Passage(layout: layout, unit: u, player: player, onTap: onGoTo, onHold: onHold)),
                 const SizedBox(height: Gap.s),
+                // Its taps reach over the gap above it and the line under it,
+                // which are no target: a finger's 48 dp.
                 ChapterScrubber(
                   value: count <= 1 ? 0 : inChapter / (count - 1),
                   onSeek: count <= 1 ? null : (f) => onGoTo(first + (f * (count - 1)).round()),
+                  above: 8,
+                  below: 14,
                 ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                  child: Text(
-                    [
-                      minutes < 1 ? 'UNDER A MINUTE LEFT' : '${_duration(minutes)} LEFT IN CHAPTER',
-                      if (sleep != null) sleep,
-                    ].join('  ·  '),
-                    textAlign: TextAlign.end,
-                    style: Skin.meta(context, size: 10.5, color: Colors.white.withValues(alpha: 0.55)),
+                // A tap on it is the scrubber's.
+                IgnorePointer(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    child: Text(
+                      [
+                        minutes < 1 ? 'UNDER A MINUTE LEFT' : '${durationLabel(minutes)} LEFT IN CHAPTER',
+                        if (sleep != null) sleep,
+                      ].join('  ·  '),
+                      textAlign: TextAlign.end,
+                      style: Skin.meta(context, size: 10.5, color: Colors.white.withValues(alpha: 0.55)),
+                    ),
                   ),
                 ),
                 const SizedBox(height: Gap.s),
@@ -249,14 +261,19 @@ class NowPlayingScreen extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: Gap.m),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _chip(context, '${trimSpeed(speed())}×', Icons.speed_rounded, onSpeed),
-                    _chip(context, sleep == null ? 'Sleep' : 'Sleep on', Icons.bedtime_outlined, onSleep),
-                    _chip(context, 'Save', Icons.bookmark_add_outlined, onSave),
-                    _chip(context, voiceLabel(), Icons.record_voice_over_rounded, onVoice),
-                  ],
+                // The chips are drawn 37 dp tall: a tap in the gap over them
+                // is theirs too, a finger's 48.
+                TapBand(
+                  above: 11,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _chip(context, '${trimSpeed(speed())}×', Icons.speed_rounded, onSpeed),
+                      _chip(context, sleep == null ? 'Sleep' : 'Sleep on', Icons.bedtime_outlined, onSleep),
+                      _chip(context, 'Save', Icons.bookmark_add_outlined, onSave),
+                      _chip(context, voiceLabel(), Icons.record_voice_over_rounded, onVoice),
+                    ],
+                  ),
                 ),
               ],
             );
@@ -304,13 +321,6 @@ class NowPlayingScreen extends StatelessWidget {
           ),
         ),
       );
-}
-
-String _duration(int minutes) {
-  if (minutes < 60) return '${minutes}M';
-  final h = minutes ~/ 60;
-  final m = minutes % 60;
-  return m == 0 ? '${h}H' : '${h}H ${m}M';
 }
 
 /// The cover blurred to colour, under a scrim that keeps white text legible,
@@ -578,9 +588,9 @@ class _PassageState extends State<_Passage> {
     final key = _keys.putIfAbsent(a, GlobalKey.new);
     final heading = _l.units[a].role == BlockRole.heading;
     final dim = Colors.white.withValues(alpha: 0.4);
-    final style = heading
-        ? Skin.title(context, size: 21, color: dim)
-        : TextStyle(fontFamily: 'Newsreader', fontSize: 19, height: 1.5, color: dim);
+    // The reader's text size (19 unless it was changed), as on the page.
+    final prefs = ListeningPrefs.loaded ?? ListeningPrefs.memory;
+    final style = PageStyle.passage(context, prefs, heading: heading, color: dim);
     final u = widget.unit;
     final current = u >= a && u < b;
     Widget text(WordMark word) => Text.rich(

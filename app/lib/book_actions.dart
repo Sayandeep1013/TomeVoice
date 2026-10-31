@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import 'book_card.dart';
 import 'library_store.dart';
+import 'marks.dart';
 import 'speech_service.dart';
 import 'theme.dart';
 import 'ui.dart';
@@ -84,11 +85,16 @@ Future<bool> moveBook(BuildContext context, LibraryStore store, LibraryEntry ent
 
 /// Ask, then remove [entry]. True if it was removed.
 Future<bool> removeBook(BuildContext context, LibraryStore store, LibraryEntry entry) async {
+  // A secret book takes what was saved from it along (LibraryStore.remove).
+  final saved = store.isSecret(entry.id) && MarkStore.instance.forBook(entry.id).isNotEmpty;
   final ok = await confirm(
     context,
     title: 'Remove this book?',
-    body: '"${entry.title}" is deleted from TomeVoice with its reading place. '
-        'The original file on your phone is not touched.',
+    body: saved
+        ? '"${entry.title}" is deleted from TomeVoice with its reading place and, as it is on a secret '
+            'shelf, everything saved from it. The original file on your phone is not touched.'
+        : '"${entry.title}" is deleted from TomeVoice with its reading place. '
+            'The original file on your phone is not touched.',
     action: 'Remove',
   );
   if (!ok) return false;
@@ -146,7 +152,7 @@ Future<void> changeCover(BuildContext context, LibraryStore store, LibraryEntry 
                       style: Skin.ui(
                           size: 14,
                           weight: FontWeight.w700,
-                          color: selected ? Skin.accentOf(context) : Skin.inkOn(ctx))),
+                          color: selected ? Skin.accentInkOf(context) : Skin.inkOn(ctx))),
                   const SizedBox(height: 2),
                   Text(detail.toUpperCase(), textAlign: TextAlign.center, style: Skin.meta(ctx, size: 9.5)),
                 ],
@@ -176,7 +182,7 @@ Future<void> changeCover(BuildContext context, LibraryStore store, LibraryEntry 
                 const SizedBox(height: Gap.m),
                 OutlinedButton.icon(
                   onPressed: () => Navigator.pop(ctx, (CoverMode.custom, true)),
-                  icon: Icon(Icons.add_photo_alternate_outlined, size: 18, color: Skin.accentOf(context)),
+                  icon: Icon(Icons.add_photo_alternate_outlined, size: 18, color: Skin.accentInkOf(context)),
                   label: const Text('Choose a different picture'),
                 ),
               ],

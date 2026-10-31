@@ -1,0 +1,44 @@
+{
+  "file": "gen-clockmaker-utf16.txt",
+  "source": "text",
+  "title": "gen-clockmaker-utf16",
+  "authors": [],
+  "language": "en",
+  "sections": [
+    "gen-clockmaker-utf16",
+    "CHAPTER I.",
+    "CHAPTER II.",
+    "CHAPTER III."
+  ],
+  "chapters": [
+    "CHAPTER I.",
+    "CHAPTER II.",
+    "CHAPTER III."
+  ],
+  "notRead": [
+    "gen-clockmaker-utf16"
+  ],
+  "blocks": {
+    "heading": 7,
+    "paragraph": 10
+  },
+  "displayOnly": [],
+  "sentencesBeforeOpening": 0,
+  "first": [
+    "CHAPTER I.",
+    "THE SHOP ON THE BRIDGE",
+    "In the spring of 1891 a boy named Tomas came to Zürich with one letter in his pocket and no money at all.",
+    "The letter was for Herr Albrecht Vogel, clockmaker, whose shop stood on the bridge over the Limmat.",
+    "“You are late,” said Herr Vogel, reading it twice."
+  ],
+  "last": [
+    "On the tenth the little ship moved, slowly at first, then steadily, across the painted sea.",
+    "Herr Vogel said nothing at all.",
+    "He put on his coat and his hat, went out, and came back with a sign, which he hung in the window: Vogel & Lehrling, Uhrmacher.",
+    "Clockmakers.",
+    "The mending was worth 120 francs, which Tomas thought a fortune, and which Herr Vogel, who had been naïve about apprentices before, thought rather cheap."
+  ],
+  "sentences": 28,
+  "words": 323,
+  "spokenSha256": "2c617a748b16315e27ac47d28ca87847243e181d1f67911e1e39ba159c4f6230"
+}

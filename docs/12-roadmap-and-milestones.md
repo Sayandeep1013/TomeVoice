@@ -1,221 +1,47 @@
 # 12 — Roadmap & Milestones
 
-## The ordering principle
+Where TomeVoice stands and what comes next, as of 31 October 2026. The original plan
+(a 28-week, two-platform roadmap, Android and Windows, phases 0 to 6) is in git history;
+what actually shipped is in the [changelog](../CHANGELOG.md).
 
-This is three products in a trench coat — an ebook reader, a PDF reader and a TTS engine
-— on two platforms. Built in the wrong order, the project ends up 60% done everywhere and
-shippable nowhere ([C-38](09-challenges-and-solutions.md#c-38)).
+## Shipped
 
-So the order is deliberate: **prove the architecture end-to-end on the easiest format
-with the easiest engine first.** EPUB plus system TTS exercises every contract in the
-system — the Document Model, the engine adapter, the audio pipeline, the scheduler,
-background playback, both platforms — using the format that hands us structure for free
-and the engine that hands us word timings for free.
+0.2 to 1.4.0, between 22 and 31 October 2026: the reader, the owned audio pipeline,
+system and natural voices, ten formats, web novels, widgets, stats, secret shelves and
+backups; with 1.3.0 the fixes from the full review of 30 October
+([docs/review-2026-10-30.html](review-2026-10-30.html)); and with 1.4.0 everything that
+review asked for and every idea it listed that was chosen, from saving as audio, a voice
+for each character and an EPUB's own narration to sync, OCR, organising the library,
+reader comforts and your own colours. The [changelog](../CHANGELOG.md) has each release.
 
-Everything hard after that (PDF layout, neural voices, derived timings) plugs into
-contracts that are already proven, instead of being designed against a moving target.
+Before 1.4.0 went out, a second review of all its new code found 47 problems; all were
+fixed, and an emulator crash in the reader (a fade drawn through a following layer) was
+found on CI and fixed.
 
-The temptation will be to start with Kokoro because it is the exciting part. Resist it.
-Kokoro is worthless without the pipeline underneath it, and that pipeline is proven
-faster and more cheaply with a system voice.
+## Next
 
----
+1. **A second full review** of the whole app, as the first one was done.
+2. **Dusk's saved quotes:** a quote's colour under the Dusk page tone reads at about
+   4.2:1 (3:1 under the sentence being read), short of AA; it needs a design call on
+   Dusk's ink or the quote colours.
+3. **Smaller things left from 1.4.0:** the upright player's scrubber reaches 39 dp, not
+   48 (more would mean a taller player); Pause pressed in the moment a web novel rolls
+   into its next chapters is ignored; a shared Wikipedia page's notes in other sections'
+   names may still be read.
 
-## Phase 0 — Foundations
-*Target: 2 weeks*
+## Not planned
 
-Project skeleton, CI, and the decisions that are expensive to change later.
-
-- Flutter project targeting Android (API 36) and Windows
-- CI: build both platforms, run tests, **check native library 16 KB alignment**, **track
-  binary size against a failing threshold**
-- Drift database with the initial schema and a migration test harness
-- Domain model: Document Model and engine contract as pure Dart, no implementations
-- Logging, crash reporting (opt-in), a feature-flag mechanism
-- **Decide [ADR-014](10-decisions-adr.md#adr-014): the project's licence** — it gates
-  the phonemiser choice and therefore the language roadmap
-
-**Exit criteria.** Both platforms build in CI from a clean checkout. The alignment and
-size checks are live and can fail the build. The licence decision is recorded.
-
-The audio-engine spike ([15](15-spike-audio-engine.md)) retired the Phase 2 *discovery*
-risk on Android before Phase 1 existed: word-gap injection and `onRangeStart` capture
-are proven. Windows speech, Drift, and size/alignment gates are still open.
-
----
-
-## Phase 1a — Speakable document
-*Current slice. This is the product you can use.*
-
-The specimen UI already speaks. What was missing was a book. This phase wires Contract A
-into that UI so a file on disk becomes something you can hear.
-
-- Document Model as pure Dart (`packages/tomevoice_document`)
-- Ingest: EPUB 2/3 (text + roles + TOC), TXT, Markdown, HTML
-- Library: SAF import, copied into app storage, resume cursor
-- Sentence-by-sentence playback with one-sentence lookahead
-- Section next/prev; word highlighting on the current sentence
-- DRM-encrypted EPUBs refused with a clear message
-
-**Not in this slice.** WebView pagination, EPUB CFI-accurate highlighting in the
-rendered HTML, cover art, search, Drift, Windows.
-
-**Exit criteria.** Open a real EPUB from the device, play from a mid-chapter sentence,
-change word-gap, and hear the new setting at the next sentence. Position survives
-leaving the reader and coming back.
-
----
-
-## Phase 1b — Visual EPUB reader
-*Target: 4 weeks*
-
-A genuinely good silent reader on top of the model Phase 1a already builds. If this is
-not pleasant to use, no amount of TTS saves it.
-
-- WebView renderer with pagination, font/size/spacing/margin/theme controls
-- Real EPUB CFI anchors that survive reflow (the 1a anchors are placeholders)
-- Library: collections, sorting, cover thumbnails
-- Navigation: TOC drawer, full-text search, bookmarks that land in the rendered view
-- Reading position persistence across reflow, rotation and restart
-- ICU-based sentence/word tokeniser replacing the English-first segmenter
-
-**Exit criteria.** Open 20 real-world EPUBs from varied sources without a crash or a
-layout failure. Reading position survives font-size change, rotation and app restart.
-5 MB book opens to first page in under 2 s on a mid-range Android device.
-
----
-
-## Phase 2 — Speech with system voices
-*Target: 5 weeks* — **the architectural proof**
-
-Android synthesis-to-PCM, word-gap, and a one-sentence lookahead already exist from the
-spike + Phase 1a. This phase finishes the *product* speech layer.
-
-- ~~Android system TTS adapter: `synthesizeToFile` plus `onRangeStart`~~ **done (spike)**
-- Windows WinRT speech plugin (C++/WinRT): stream plus word-boundary markers
-- Audio output via miniaudio / ring buffer (today: MediaPlayer on a WAV file)
-- Adaptive lookahead depth and isolate-hosted synthesis
-- Word-synchronised highlighting with auto-scroll in the visual reader
-- Android foreground service, MediaSession, audio focus, `BECOMING_NOISY`
-- Windows SMTC, media keys, device-change handling
-- Text normalisation v1 and the pronunciation dictionary
-- Skip-rule UI driven by block roles
-
-**Exit criteria.** An 8-hour continuous background session on stock Android with the
-screen off, with no interruption and no position loss. Word gap audibly and measurably
-correct at 0/60/120/250 ms. Highlight drift under 120 ms over a 10-minute chapter.
-Media keys and lock-screen controls work on both platforms.
-
-This phase is the risk retirement. If word-gap injection and timing remapping work here,
-the rest of the project is execution rather than discovery.
-
----
-
-## Phase 3 — Neural voices
-*Target: 5 weeks*
-
-- sherpa-onnx integration, Android and Windows, all target ABIs
-- Piper adapter (Tier 1) with native speed
-- Kokoro adapter (Tier 2) with the device memory gate
-- DSP: formant-preserving pitch shift, WSOLA time stretch — **with the permissively
-  licensed implementation chosen and audited** ([C-14](09-challenges-and-solutions.md#c-14))
-- Word timing derivation: proportional estimation, plus per-word synthesis for the
-  accessibility preset
-- Voice Store: catalogue, previews, resumable hash-verified downloads, licence display,
-  attribution page
-- Voice licence audit completed and the allowlist published
-
-**Exit criteria.** Piper plays on a 3 GB Android device without OOM. Kokoro loads on a
-gated device and degrades with a clear message on an ungated one. Every shipped voice has
-an `approved` licence verdict with a recorded audit date. Time to first audio under 1.2 s
-on a warm neural voice.
-
----
-
-## Phase 4 — PDF
-*Target: 6 weeks* — the long one
-
-- PDFium integration and page rendering
-- Glyph extraction, word and line clustering
-- Vertical band segmentation and column detection
-- Reading-order construction and paragraph merging
-- Running header/footer and page-number classification
-- Hyphenation repair with lexicon checking
-- Footnote detection and separation
-- Text-selection overlay and quad-based highlighting
-- **Reading-order overlay, manual region editing, column-count override**
-- Scanned-PDF detection with an honest message
-- Windowed analysis with background promotion and persistent caching
-
-**Exit criteria.** Above 99% paragraph-order accuracy on a corpus of single-column
-born-digital PDFs; above 90% on two-column academic papers. A 900-page PDF opens to a
-readable first page in under 3 s. Manual correction persists and generalises to
-structurally similar pages.
-
----
-
-## Phase 5 — Remaining formats and polish
-*Target: 3 weeks*
-
-- DOCX, TXT, Markdown, HTML, RTF
-- Encoding detection for plain text
-- Windows desktop affordances: mini player, sidebar, two-page spread, keyboard shortcuts
-- Accessibility pass with TalkBack and Narrator as a release gate
-- Localisation scaffolding
-- Onboarding
-
-**Exit criteria.** All v1 formats open and read correctly. The full reading flow is
-operable with a screen reader active without audio collision.
-
----
-
-## Phase 6 — Release preparation
-*Target: 3 weeks*
-
-- Windows OV code signing through a cloud HSM in CI; MSIX and portable builds
-- Play Console: Data Safety, foreground-service justification, AI disclosure
-- Microsoft Store submission
-- Battery and memory profiling per voice tier, published in the Voice Store
-- Crash-free-session target above 99.5% in beta
-- Store listings, screenshots, privacy policy, attribution page
-- Beta with real users on a spread of Android OEMs — specifically including
-  known-aggressive ones ([C-26](09-challenges-and-solutions.md#c-26))
-
-**Exit criteria.** Both stores accept the build. No S1 or S2 open defects. Background
-playback verified on at least four OEM Android skins.
-
----
-
-## Total: roughly 28 weeks to v1.0
-
-For a solo developer, treat that as a floor and expect 35–40 weeks with real life in it.
-Phase 4 is the most likely to overrun; PDF layout analysis has a long tail of
-special cases and no natural stopping point, which is exactly why it sits behind a
-shippable milestone rather than in front of one.
-
----
-
-## After v1.0
-
-| Version | Contents |
+| | |
 |---|---|
-| **v1.1** | Model-duration word timings via a sherpa-onnx contribution -> word-level highlighting on neural voices ([C-13](09-challenges-and-solutions.md#c-13)) |
-| **v1.2** | OCR for scanned PDFs |
-| **v1.3** | Cross-device sync (opt-in, state only, file-backend first) |
-| **v1.4** | MOBI/AZW3 (DRM-free), export chapter to audio |
-| **v1.5** | POS-based homograph disambiguation; expanded language coverage |
-| **v2.0** | Per-character dialogue voices; spoken mathematics; voice cloning if a permissively licensed model exists |
+| The interface in other languages | The app's language stays English; books in any language are read in their own voice. |
+| On-device AI | Kept out to keep the app light. An optional feature with the reader's own API key may be considered later. |
+| A Play Store build | Not planned for now ([docs/18](18-play-store-audit.md) holds the audit, should that change). |
+| Windows | Android only for now; maybe in the near future. |
 
----
+## Known limits, and what could lift them
 
-## Things deliberately not on the roadmap
-
-Recorded so they are re-proposed with knowledge of why they were excluded:
-
-- DRM support ([ADR-010](10-decisions-adr.md#adr-010))
-- Bundled cloud TTS ([C-24](09-challenges-and-solutions.md#c-24))
-- A bookstore or content catalogue
-- Mandatory accounts
-- iOS and macOS — plausible later given Flutter, but it triples QA surface and is not a
-  v1 conversation
-- Being a general-purpose screen reader
+| Limit | Why | What could lift it |
+|---|---|---|
+| A jump with a natural voice waits for the clause being made (0.3 to 1.7 s, longer with Kokoro) | sherpa-onnx makes a sentence in one model run and cannot stop part-way | A streaming synthesiser that yields audio as it goes, or smaller pieces at a cost to intonation |
+| No natural voice for Bengali | sherpa-onnx has not converted rhasspy's `bn_BD-google-medium` Piper voice | Convert it with sherpa-onnx's Piper export scripts, check its espeak-ng Bengali front end, then judge it by ear |
+| Android Auto untested | No car with Android Auto | Google's Desktop Head Unit emulator on a PC (it needs Android SDK tools), or a friend's car |

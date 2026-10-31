@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android Auto: TomeVoice is a media app there. The books are listed and
+     played through ReadAloudService, the media browser (the manifest's
+     com.google.android.gms.car.application, from tools/prepare_android.py). -->
+<automotiveApp>
+    <uses name="media" />
+</automotiveApp>

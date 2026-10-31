@@ -1,0 +1,57 @@
+{
+  "file": "gen-aesop.docx",
+  "source": "docx",
+  "title": "Fables of Aesop",
+  "authors": [
+    "Aesop"
+  ],
+  "language": "en",
+  "sections": [
+    "Fables of Aesop",
+    "The Lion And The Mouse",
+    "The Wolf And The Lamb",
+    "The Ants and the Grasshopper",
+    "The Hare and the Tortoise",
+    "The Dog and the Shadow",
+    "The fables at a glance"
+  ],
+  "chapters": [
+    "Fables of Aesop",
+    "The Lion And The Mouse",
+    "The Wolf And The Lamb",
+    "The Ants and the Grasshopper",
+    "The Hare and the Tortoise",
+    "The Dog and the Shadow",
+    "The fables at a glance"
+  ],
+  "notRead": [],
+  "blocks": {
+    "heading": 7,
+    "paragraph": 11,
+    "listItem": 2,
+    "footnote": 2,
+    "table": 6
+  },
+  "displayOnly": [
+    "footnote: ¹ Aesop is said to have been a slave on the island of Samos, some six hundred years before Christ.",
+    "footnote: ¹ La Fontaine told the same story in verse, as the cicada and the ant."
+  ],
+  "sentencesBeforeOpening": 3,
+  "first": [
+    "The Lion And The Mouse",
+    "A LION was awakened from sleep by a Mouse running over his face.",
+    "Rising up angrily, he caught him and was about to kill him, when the Mouse piteously entreated, saying: “If you would only spare my life, I would be sure to repay your kindness.”",
+    "The Lion laughed and let him go.",
+    "It happened shortly after this that the Lion was caught by some hunters, who bound him by strong ropes to the ground."
+  ],
+  "last": [
+    "The Dog and the Shadow 87",
+    "This selection was put together for listening tests.",
+    "Its sources:",
+    "The fables, from Townsend’s translation of 1867.",
+    "The notes, written for this selection."
+  ],
+  "sentences": 49,
+  "words": 730,
+  "spokenSha256": "7064cd1635d17951f8611f30ae1f6888d7cd4197981773b87c6b2b7f8b372f56"
+}

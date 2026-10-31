@@ -65,8 +65,13 @@ class StatsStore {
 
   static final instance = StatsStore._();
 
-  /// A day counts toward the streak with at least this much reading.
-  static const goal = Duration(minutes: 5);
+  /// The daily goals there are to pick from, in minutes.
+  static const goals = [5, 10, 15, 20, 30, 45, 60];
+
+  /// A day counts toward the streak with at least this much reading: the
+  /// reader's goal, 5 minutes until they pick another. Kept in stats.json,
+  /// where the home-screen widgets read it too.
+  Duration goal = const Duration(minutes: 5);
 
   /// Bumped when the numbers are saved.
   final changes = ValueNotifier<int>(0);
@@ -80,6 +85,16 @@ class StatsStore {
 
   Map<String, DayStats> get days => _days;
 
+  /// Forget everything without writing (between tests).
+  @visibleForTesting
+  void reset() {
+    _saveTimer?.cancel();
+    _saveTimer = null;
+    _file = null;
+    _days.clear();
+    goal = const Duration(minutes: 5);
+  }
+
   Future<void> attach(Directory root) async {
     _file = File('${root.path}/stats.json');
     try {
@@ -88,6 +103,10 @@ class StatsStore {
         for (final e in (raw['days'] as Map? ?? const {}).entries) {
           _days[e.key as String] = DayStats.fromJson(Map<String, Object?>.from(e.value as Map));
         }
+        // Any whole number of minutes up to four hours: a newer app might
+        // offer goals this one does not.
+        final minutes = raw['goalMinutes'];
+        if (minutes is num && minutes >= 1 && minutes <= 240) goal = Duration(minutes: minutes.round());
         changes.value++;
       }
     } on Object {
@@ -123,6 +142,14 @@ class StatsStore {
     _scheduleSave();
   }
 
+  /// A new daily goal, of [minutes] (one of [goals]): written at once, so
+  /// the widgets, drawn from the file, can follow it.
+  Future<void> setGoal(int minutes) async {
+    if (!goals.contains(minutes) || minutes == goal.inMinutes) return;
+    goal = Duration(minutes: minutes);
+    await flush();
+  }
+
   /// Write now (leaving the reader, the app going to the background).
   Future<void> flush() async {
     _saveTimer?.cancel();
@@ -139,6 +166,8 @@ class StatsStore {
   Future<void> _save() async {
     _saveTimer = null;
     changes.value++;
+    // Not over the files a restore is putting in place (see RestoreGate).
+    if (RestoreGate.shut) return;
     try {
       await writeSafely(_file, jsonEncode({
         'goalMinutes': goal.inMinutes,

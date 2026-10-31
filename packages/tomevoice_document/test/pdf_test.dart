@@ -150,6 +150,54 @@ void main() {
       expect(units[firstReadingUnitIndex(units, book)].text, 'CHAPTER 1');
     });
 
+    test('a title page and a contents page are not read when the book opens', () {
+      final pages = [
+        _page([
+          ['PRIDE AND PREJUDICE:'],
+          ['A NOVEL. IN THREE VOLUMES.'],
+          ['VOL. I.'],
+          ['London: Printed for T. Egerton, Military Library, Whitehall. 1813.'],
+        ]),
+        _page([
+          ['CONTENTS'],
+          for (final (i, n) in ['I', 'II', 'III'].indexed) ['Chapter $n . . . . . . . ${i * 3 + 1}'],
+        ]),
+        for (var p = 2; p < 11; p++)
+          _page([
+            if (p % 3 == 2) ['CHAPTER ${['I', 'II', 'III'][(p - 2) ~/ 3]}.'],
+            _prose(p),
+          ]),
+      ];
+      final layout = ReadingLayout.build(ingestPdfText(id: 'x', pages: pages));
+      expect([for (var c = 0; c < layout.chapters.length; c++) layout.chapterTitle(c)],
+          ['Chapter I', 'Chapter II', 'Chapter III']);
+      expect(layout.units[layout.unitForCursor(ReadingCursor.zero)].text, 'CHAPTER I.');
+    });
+
+    test("a short chapter's one running head, set small, is not another chapter", () {
+      // Chapters two pages long: the second page's head names the chapter
+      // and carries the page's number ("CHAPTER II. 4"), once a chapter.
+      const roman = ['I', 'II', 'III', 'IV'];
+      final pages = <List<_At>>[];
+      for (var c = 0; c < 4; c++) {
+        for (var k = 0; k < 2; k++) {
+          final folio = c * 2 + k + 1;
+          final top = k == 0 ? 210 : 90;
+          pages.add([
+            if (k == 0)
+              _at('CHAPTER ${roman[c]}.', 160, 170, w: 100, size: 14, para: true)
+            else
+              _at('CHAPTER ${roman[c]}. $folio', 250, 50, w: 90, size: 9, para: true),
+            for (final (i, l) in _prose(folio).indexed) _at(l, 72, top + i * 13, size: 10.5, para: i == 0),
+            if (k == 0) _at('$folio', 205, 575, w: 6, size: 9, para: true),
+          ]);
+        }
+      }
+      final book = _laidBook(pages);
+      expect(_titles(book), ['Chapter I', 'Chapter II', 'Chapter III', 'Chapter IV']);
+      expect(_texts(book).join('\n'), isNot(contains('CHAPTER II. 4')));
+    });
+
     test('without chapter headings, the book opens after its contents page', () {
       // Stories with plain titles: no "Chapter N" to make chapters of, so
       // the book goes ten pages to an entry. The contents page heads the
@@ -309,6 +357,74 @@ void main() {
         {'title': '2.1 Epithelium', 'page': 10, 'level': 1},
       ]);
       expect(titles(outline), ['Chapter 1 Cells', '2 Tissues']);
+    });
+
+    test("a scan's bookmarks named after its pictures are not chapters", () {
+      // An image-to-PDF tool's bookmark on every page, named after the page's
+      // picture: each was a chapter, its name over the page and read aloud.
+      final outline = pdfOutlineFromPlatform([
+        for (var p = 0; p < 4; p++) {'title': 'DSC0${1139 + p}.tif', 'page': p, 'level': 0},
+        {'title': 'IMG_2041.JPG', 'page': 4, 'level': 0},
+        {'title': 'IMG-20240501-WA0003', 'page': 5, 'level': 0},
+        {'title': 'PXL_20240501_101530123', 'page': 6, 'level': 0},
+        {'title': 'scan0001.pdf', 'page': 7, 'level': 0},
+        {'title': '0009.pdf', 'page': 8, 'level': 0},
+        {'title': 'page_010.png', 'page': 9, 'level': 0},
+      ]);
+      expect(outline, isEmpty);
+    });
+
+    test('a PDF joined from files keeps a chapter for each, named without the extension', () {
+      final outline = pdfOutlineFromPlatform([
+        {'title': 'Chapter 1.pdf', 'page': 0, 'level': 0},
+        {'title': 'The Storm.PDF', 'page': 9, 'level': 0},
+        {'title': 'Image 3', 'page': 12, 'level': 0},
+        {'title': '1914', 'page': 15, 'level': 0},
+      ]);
+      expect(titles(outline), ['Chapter 1', 'The Storm', 'Image 3', '1914']);
+    });
+
+    test("a scan titled with its first picture's name is named by its file", () {
+      final pages = [_page([_prose(0), _prose(1)])];
+      String titled(String? title) =>
+          ingestPdfText(id: 'x', pages: pages, title: title, filename: 'Sonar Tori.pdf').metadata.title;
+      expect(titled('DSC01139.tif'), 'Sonar Tori');
+      expect(titled('IMG_2041'), 'Sonar Tori');
+      expect(titled('  '), 'Sonar Tori');
+      expect(titled('The Harbour Book.docx'), 'The Harbour Book');
+      expect(titled('The Harbour Book'), 'The Harbour Book');
+    });
+
+    test('a bookmark on every page, its title not printed there, marks the page, not a chapter', () {
+      // A scanned book with "Page 1" to "Page 12" in its bookmarks, and its
+      // chapters printed in its text.
+      final pages = [
+        for (var p = 0; p < 12; p++)
+          _page([
+            if (p % 4 == 0) ['CHAPTER ${['I', 'II', 'III'][p ~/ 4]}.'],
+            _prose(p),
+            _prose(p + 12),
+          ]),
+      ];
+      final book = ingestPdfText(id: 'x', pages: pages, outline: [
+        for (var p = 0; p < 12; p++) (title: 'Page ${p + 1}', page: p),
+      ]);
+      expect(_titles(book), ['Chapter I', 'Chapter II', 'Chapter III']);
+    });
+
+    test('a poem a page, its title printed over it, keeps its bookmarks', () {
+      const poems = ['The Lantern', 'Low Water', 'The Salt Road', 'Gulls', 'The Ford', 'Night Boats', 'Driftwood'];
+      final pages = [
+        for (var p = 0; p < poems.length; p++)
+          _page([
+            [poems[p]],
+            _prose(p),
+          ]),
+      ];
+      final book = ingestPdfText(id: 'x', pages: pages, outline: [
+        for (var p = 0; p < poems.length; p++) (title: poems[p], page: p),
+      ]);
+      expect(_titles(book), poems);
     });
 
     test('bookmarks without levels, from an older extractor, read as before', () {
@@ -530,6 +646,120 @@ void main() {
       ]);
     });
 
+    test("two speakers' lines set in, one after the other, are two paragraphs however the extractor marked them", () {
+      // Pride and Prejudice as PDFBox marks paragraphs when it sees indents:
+      // at a line set in after one that did not start a paragraph, and at a
+      // line back at the edge after one set in that did not. A one-line
+      // speech and the next speaker's first line, both set in, share one
+      // extractor paragraph with no line at the edge, and were read as one
+      // ("How so? ... them?' 'My dear Mr. Bennet,' replied his wife").
+      // Measured on the page: the text at x 31.5, a speaker's first line set
+      // in to 41.9, an em at 10 points.
+      final book = _laidBook([
+        [
+          _at('‘What is his name?’', 41.9, 80, w: 94, para: true),
+          _at('‘Bingley.’', 41.9, 93, w: 49),
+          _at('‘Is he married or single?’', 41.9, 106, w: 128),
+          _at('‘Oh! single, my dear, to be sure! A single man of large', 41.9, 119, w: 309.6),
+          _at('fortune; four or five thousand a year. What a fine thing for our', 31.5, 132, w: 320, para: true),
+          _at('girls!’', 31.5, 145, w: 35),
+          _at('‘How so? how can it affect them?’', 41.9, 158, w: 163, para: true),
+          _at('‘My dear Mr. Bennet,’ replied his wife, ‘how can you be so', 41.9, 171, w: 309.6),
+          _at('tiresome! You must know that I am thinking of his marrying one', 31.5, 184, w: 320, para: true),
+          _at('of them.’', 31.5, 197, w: 44),
+          _at('‘Is that his design in settling here?’', 41.9, 210, w: 188, para: true),
+          _at('‘Design! nonsense, how can you talk so! But it is very likely', 41.9, 223, w: 309.6),
+          _at('that he may fall in love with one of them, and therefore you', 31.5, 236, w: 320, para: true),
+          _at('must visit him as soon as he comes.’', 31.5, 249, w: 178),
+        ],
+      ]);
+      expect(_texts(book), [
+        '‘What is his name?’',
+        '‘Bingley.’',
+        '‘Is he married or single?’',
+        '‘Oh! single, my dear, to be sure! A single man of large fortune; four or five thousand a year. '
+            'What a fine thing for our girls!’',
+        '‘How so? how can it affect them?’',
+        '‘My dear Mr. Bennet,’ replied his wife, ‘how can you be so tiresome! You must know that I am '
+            'thinking of his marrying one of them.’',
+        '‘Is that his design in settling here?’',
+        '‘Design! nonsense, how can you talk so! But it is very likely that he may fall in love with one '
+            'of them, and therefore you must visit him as soon as he comes.’',
+      ]);
+    });
+
+    test("a speech that fills its line still ends where the next speaker's line is set in", () {
+      // Measured on a phone's extraction of Pride and Prejudice: the text
+      // at x 32, each paragraph's first line set in to 42, full lines
+      // ending near 273. "...very clever.'" stops only 5 points short of a
+      // full line, so it does not look short, but the page sets first lines
+      // in and runs them on at the edge ("...always sen-" over "sible of
+      // it.'"), so the next line set in starts a paragraph.
+      final book = _laidBook([
+        [
+          _at('not be of my own, however.’', 32, 347, w: 113, para: true),
+          _at('‘If my children are silly, I must hope to be always sen-', 42, 359, w: 231),
+          _at('sible of it.’', 32, 371, w: 41),
+          _at('‘Yes—but as it happens, they are all of them very clever.’', 42, 383, w: 226),
+          _at('‘This is the only point, I flatter myself, on which we do', 42, 395, w: 230),
+          _at('not agree.’', 32, 407, w: 50),
+        ],
+      ]);
+      expect(_texts(book), [
+        'not be of my own, however.’',
+        '‘If my children are silly, I must hope to be always sensible of it.’',
+        '‘Yes—but as it happens, they are all of them very clever.’',
+        '‘This is the only point, I flatter myself, on which we do not agree.’',
+      ]);
+    });
+
+    test('a quotation set in as a whole stays one paragraph, its sentences ending at its lines', () {
+      // Every line of the quotation is set in, its own lines run on set in:
+      // nothing on the page shows first lines set in and run on at the edge.
+      final book = _laidBook([
+        [
+          _at('He wrote to her at once, and she read it twice.', 32, 100, w: 241, para: true),
+          _at('My dear sister, the house is sold and the garden with it.', 52, 112, w: 211, para: true),
+          _at('We go on Monday. Write to me there when you have news.', 52, 124, w: 205),
+          _at('Your loving brother.', 52, 136, w: 90),
+        ],
+      ]);
+      expect(_texts(book), [
+        'He wrote to her at once, and she read it twice.',
+        'My dear sister, the house is sold and the garden with it. We go on Monday. '
+            'Write to me there when you have news. Your loving brother.',
+      ]);
+    });
+
+    test('a title set larger than the text under it is a paragraph of its own', () {
+      // Two fables on a page, each title a little above its text: the
+      // extractor ran each title into its text, so the title was read as the
+      // start of the first sentence and the bookmarks could not find it.
+      final laid = _laid([
+        _at('The Fox and the Crow', 72, 100, w: 150, size: 12, para: true),
+        _at('A CROW having stolen a bit of meat, perched in a tree and held', 72, 116),
+        _at('it in her beak. A Fox, seeing this, longed to possess the meat.', 72, 128, w: 380),
+        _at('The Crow and the Pitcher', 72, 160, w: 170, size: 12, para: true),
+        _at('A CROW perishing with thirst saw a pitcher, and hoping to find', 72, 176),
+        _at('water, flew to it with delight. Necessity is the mother of invention.', 72, 188, w: 390),
+      ]);
+      final book = ingestPdfText(
+        id: 'x',
+        pages: [laid.text],
+        layout: [laid.layout],
+        outline: const [(title: 'The Fox and the Crow', page: 0), (title: 'The Crow and the Pitcher', page: 0)],
+      );
+      expect(_titles(book), ['The Fox and the Crow', 'The Crow and the Pitcher']);
+      expect(_texts(book), [
+        'The Fox and the Crow',
+        'A CROW having stolen a bit of meat, perched in a tree and held it in her beak. '
+            'A Fox, seeing this, longed to possess the meat.',
+        'The Crow and the Pitcher',
+        'A CROW perishing with thirst saw a pitcher, and hoping to find water, flew to it with delight. '
+            'Necessity is the mother of invention.',
+      ]);
+    });
+
     test('a quotation set in as a whole stays one paragraph', () {
       final book = _laidBook([
         [
@@ -542,6 +772,74 @@ void main() {
       ]);
       expect(_texts(book).last, 'Come home before the tide turns. Bring the lantern, and the key to the gate. '
           'The road is dark at night. Mind the ford. It rises fast after the rain.');
+    });
+
+    test("a note's mark set raised after a word is shown and not said", () {
+      // PdfText.kt says which runs of a line are set smaller and raised:
+      // here the "1" after "Michaelmas,", the "2" of "102" and the "st" of
+      // "1st". Only the first is a note's mark; a power follows a digit, and
+      // letters are not a mark.
+      const note = 'Michaelmas,1 and some of his servants are to be in the house by';
+      const more = 'the end of next week, when 102 of them, the 1st, would come.';
+      final laid = _laid([
+        _at('Mr. Morris immediately; that he is to take possession before', 72, 100, para: true),
+        _at(note, 72, 114),
+        _at(more, 72, 128),
+      ]);
+      Book read(List<List<int>>? raised) =>
+          ingestPdfText(id: 'x', pages: [laid.text], layout: [laid.layout], raised: raised);
+      String said(Book b) => [
+            for (final bl in b.sections.expand((s) => s.blocks))
+              spokenText(bl.text, [for (final s in bl.sentences) ...s.silent]).text,
+          ].join(' ');
+      final raised = [
+        [1, note.indexOf(',1') + 1, 1, 2, more.indexOf('102') + 2, 1, 2, more.indexOf('1st') + 1, 2],
+      ];
+      final book = read(raised);
+      expect(_texts(book).single, contains('before Michaelmas,1 and some'), reason: 'shown');
+      expect(said(book), contains('before Michaelmas, and some'));
+      expect(said(book), contains('when 102 of them, the 1st, would come.'));
+      // An older extraction says nothing of raised runs, and is read as before.
+      expect(said(read(null)), contains('before Michaelmas,1 and some'));
+    });
+
+    test('a number raised after one letter, or in a sum, is said; a mark the page has a note for is not', () {
+      // Powers, all once taken for notes' marks and not said: "E = m c",
+      // "50 m", "x plus y".
+      const lines = [
+        'The famous result E = mc2 changed how we think about light and mass.',
+        'The room measured 50 m2 and the hall a little more than that, it said.',
+        'The circle is where x2 + y2 = 1 holds, for every point along its edge.',
+        'A lake of 400 km2 lies to the north of the town, among the hills there.',
+        'Darwin3 wrote of it at length, and his letters say as much more than once.',
+        'Plan B4 was never tried by the council, as the minutes of the day show.',
+      ];
+      final laid = _laid([
+        for (var i = 0; i < lines.length; i++) _at(lines[i], 72, 100 + 14 * i, para: i == 0),
+        _at('4 See the minutes of the council for the spring of that year.', 72, 300, size: 8, para: true),
+      ]);
+      int at(int line, String s) => lines[line].indexOf(s);
+      final raised = [
+        [
+          0, at(0, 'mc2') + 2, 1, //
+          1, at(1, 'm2') + 1, 1,
+          2, at(2, 'x2') + 1, 1, 2, at(2, 'y2') + 1, 1,
+          3, at(3, 'km2') + 2, 1,
+          4, at(4, 'Darwin3') + 6, 1,
+          5, at(5, 'B4') + 1, 1,
+        ],
+      ];
+      final book = ingestPdfText(id: 'x', pages: [laid.text], layout: [laid.layout], raised: raised);
+      final said = [
+        for (final bl in book.sections.expand((s) => s.blocks))
+          spokenText(bl.text, [for (final s in bl.sentences) ...s.silent]).text,
+      ].join(' ');
+      expect(said, contains('E = mc2 changed'));
+      expect(said, contains('measured 50 m2 and'));
+      expect(said, contains('where x2 + y2 = 1 holds'));
+      expect(said, contains('400 km2 lies'));
+      expect(said, contains('Darwin wrote'), reason: 'a note after a word');
+      expect(said, contains('Plan B was never'), reason: 'note 4 is at the foot of the page');
     });
 
     test('a layout that does not match the text is ignored', () {
@@ -618,6 +916,54 @@ void main() {
         for (var p = 0; p < 40; p++) p % 8 == 0 ? '' : _page([_prose(p), _prose(p + 1)]),
       ];
       expect(pdfTextCoverage(pages), (pages: 40, pagesWithText: 35, mostlyPictures: false));
+    });
+
+    test('the pages with text are told apart, for OCR to read the others', () {
+      // A scan's few typed pages, a stamp on every page, and the empty string
+      // after the last page break.
+      final pages = [
+        for (var p = 0; p < 12; p++)
+          p == 0 || p == 7 ? _page([_prose(p), _prose(p + 1)]) : _page([['Digitized by Google']]),
+        '',
+      ];
+      final withText = pdfPagesWithText(pages);
+      expect(withText, hasLength(12));
+      expect([for (var p = 0; p < withText.length; p++) if (withText[p]) p], [0, 7]);
+      expect(pdfTextCoverage(pages), (pages: 12, pagesWithText: 2, mostlyPictures: true));
+    });
+
+    test('a PDF each of whose pages has a line to read is no scan, however little it has', () {
+      // Refused as a scan, OCR found no page in it to read: its job never
+      // ended, and its card took the shelf down.
+      final notice = [
+        _page([
+          ['Notice of the harbour meeting'],
+        ]),
+        _page([
+          ['Bring the minutes of the last one'],
+        ]),
+        '',
+      ];
+      expect(pdfPagesWithText(notice), [true, true]);
+      expect(_texts(ingestPdfText(id: 'x', pages: notice)).join(' '), contains('harbour meeting'));
+    });
+
+    test('a PDF refused as a scan always has a page for OCR to read', () {
+      final shapes = <List<String>>[
+        ['', '', ''],
+        [_page([['Digitized by Google']]), _page([['Digitized by Google']]), _page([['Digitized by Google']]), ''],
+        [_page([['Notice of the harbour meeting']]), '', ''],
+        [_page([['Notice of the harbour meeting']]), _page([['A second line to read here']]), ''],
+        [_page([['Notice of the harbour meeting']]), _page([['A second line to read here']]), '', ''],
+        [for (var p = 0; p < 30; p++) p < 3 ? _page([_prose(p)]) : '', ''],
+      ];
+      for (final pages in shapes) {
+        try {
+          ingestPdfText(id: 'x', pages: pages);
+        } on UnsupportedDocumentException {
+          expect(pdfPagesWithText(pages), contains(false), reason: '$pages');
+        }
+      }
     });
 
     test('the layout from the platform is read as lists of numbers', () {

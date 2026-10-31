@@ -3,50 +3,40 @@ package app.tomevoice.tomevoice_spike
 import android.Manifest
 import android.app.Activity
 import android.app.KeyguardManager
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.hardware.biometrics.BiometricManager
 import android.hardware.biometrics.BiometricPrompt
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
-import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.CancellationSignal
 import android.os.Handler
 import android.os.Looper
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.provider.Settings
-import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
-import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Platform side of TomeVoice: the TTS engine, the PCM player, file import and
- * the foreground service hooks.
+ * Platform side of TomeVoice that needs the activity: file import, pickers,
+ * the window, prompts, intents.
  *
- * TTS: one engine instance, created at launch and kept warm. Listing voices
- * and synthesising both use it. Earlier builds created a throwaway engine for
- * the engine list, another for the voice list and a third for synthesis, each
- * paying a service bind and model load; that was the "voices lag".
- *
- * Synthesis still uses synthesizeToFile, never speak(): the architecture
- * requires PCM we can process (docs/10 ADR-003). onRangeStart is captured
- * verbatim; the Dart side detects its parameter layout.
+ * Reading aloud (the voice, the player, the phone's audio, the card) is the
+ * engine's, not the activity's: ReadingCore, for the life of the process. The
+ * activity shows that one engine (provideFlutterEngine) and lets go of it
+ * without ending the reading.
  */
 class MainActivity : FlutterActivity() {
 
@@ -56,15 +46,18 @@ class MainActivity : FlutterActivity() {
     private val pages = Executors.newSingleThreadExecutor()
     private var channel: MethodChannel? = null
 
-    private var tts: TextToSpeech? = null
-    private var ttsEngineId: String? = null
-    private var ttsReady = false
-    private val ttsWaiters = mutableListOf<(TextToSpeech?) -> Unit>()
+    /** This activity came to an engine already running Dart (see onCreate). */
+    private var rejoined = false
 
-    private val player = PcmPlayer()
+    /** Whether the engine goes with this activity, decided as it lets go. */
+    private var engineGoes = false
+
     private var pickResult: MethodChannel.Result? = null
     private var imageResult: MethodChannel.Result? = null
     private var pendingOpen: Map<String, String>? = null
+
+    /** A link or words shared to TomeVoice: id, text and subject (see takeSharedText). */
+    private var pendingShare: Map<String, String>? = null
 
     /** A widget was tapped: the book to open (and play), or the page to show. */
     private var pendingWidget: Map<String, Any>? = null
@@ -76,15 +69,9 @@ class MainActivity : FlutterActivity() {
     private var restoreResult: MethodChannel.Result? = null
     private var restoreStaging: File? = null
 
-    private var focusRequest: AudioFocusRequest? = null
-    private var noisyRegistered = false
-    private val noisyReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
-                event(mapOf("type" to "noisy"))
-            }
-        }
-    }
+    // A folder being picked, to write into from then on (automatic backups,
+    // quotes as Markdown).
+    private var folderResult: MethodChannel.Result? = null
 
     companion object {
         private const val REQ_PICK = 71
@@ -93,6 +80,11 @@ class MainActivity : FlutterActivity() {
         private const val REQ_BACKUP = 74
         private const val REQ_RESTORE = 75
         private const val REQ_CONFIRM = 76
+        private const val REQ_FOLDER = 77
+
+        /** The launch argument that has a PDF's extraction written out (dumpPdfIfAsked). */
+        private const val EXTRA_DUMP_PDF = "dumpPdf"
+        private const val LOG_TAG = "TomeVoice"
     }
 
     /**
@@ -131,24 +123,80 @@ class MainActivity : FlutterActivity() {
     /** The answer to "is it you?" on phones too old for BiometricPrompt's PIN. */
     private var confirmResult: MethodChannel.Result? = null
 
+    /**
+     * The colours Android 12 and later make from the wallpaper for every app
+     * (Material You): five families, each a tone per shade from 0 (white) to
+     * 1000 (black), as ARGB. Null on older phones, which have none.
+     */
+    private fun systemColours(): Map<String, List<Int>>? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
+        val families = mapOf(
+            "accent1" to intArrayOf(
+                android.R.color.system_accent1_0, android.R.color.system_accent1_10,
+                android.R.color.system_accent1_50, android.R.color.system_accent1_100,
+                android.R.color.system_accent1_200, android.R.color.system_accent1_300,
+                android.R.color.system_accent1_400, android.R.color.system_accent1_500,
+                android.R.color.system_accent1_600, android.R.color.system_accent1_700,
+                android.R.color.system_accent1_800, android.R.color.system_accent1_900,
+                android.R.color.system_accent1_1000,
+            ),
+            "accent2" to intArrayOf(
+                android.R.color.system_accent2_0, android.R.color.system_accent2_10,
+                android.R.color.system_accent2_50, android.R.color.system_accent2_100,
+                android.R.color.system_accent2_200, android.R.color.system_accent2_300,
+                android.R.color.system_accent2_400, android.R.color.system_accent2_500,
+                android.R.color.system_accent2_600, android.R.color.system_accent2_700,
+                android.R.color.system_accent2_800, android.R.color.system_accent2_900,
+                android.R.color.system_accent2_1000,
+            ),
+            "accent3" to intArrayOf(
+                android.R.color.system_accent3_0, android.R.color.system_accent3_10,
+                android.R.color.system_accent3_50, android.R.color.system_accent3_100,
+                android.R.color.system_accent3_200, android.R.color.system_accent3_300,
+                android.R.color.system_accent3_400, android.R.color.system_accent3_500,
+                android.R.color.system_accent3_600, android.R.color.system_accent3_700,
+                android.R.color.system_accent3_800, android.R.color.system_accent3_900,
+                android.R.color.system_accent3_1000,
+            ),
+            "neutral1" to intArrayOf(
+                android.R.color.system_neutral1_0, android.R.color.system_neutral1_10,
+                android.R.color.system_neutral1_50, android.R.color.system_neutral1_100,
+                android.R.color.system_neutral1_200, android.R.color.system_neutral1_300,
+                android.R.color.system_neutral1_400, android.R.color.system_neutral1_500,
+                android.R.color.system_neutral1_600, android.R.color.system_neutral1_700,
+                android.R.color.system_neutral1_800, android.R.color.system_neutral1_900,
+                android.R.color.system_neutral1_1000,
+            ),
+            "neutral2" to intArrayOf(
+                android.R.color.system_neutral2_0, android.R.color.system_neutral2_10,
+                android.R.color.system_neutral2_50, android.R.color.system_neutral2_100,
+                android.R.color.system_neutral2_200, android.R.color.system_neutral2_300,
+                android.R.color.system_neutral2_400, android.R.color.system_neutral2_500,
+                android.R.color.system_neutral2_600, android.R.color.system_neutral2_700,
+                android.R.color.system_neutral2_800, android.R.color.system_neutral2_900,
+                android.R.color.system_neutral2_1000,
+            ),
+        )
+        return families.mapValues { (_, ids) -> ids.map { getColor(it) } }
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        // An engine already running: the app is there, or a book was being
+        // read or saved as audio with no activity, and this activity only
+        // shows it. (Saving as audio, "tomevoice/export", is the engine's:
+        // ReadingCore.exporter, attached to this activity in engineFor.)
+        rejoined = flutterEngine.dartExecutor.isExecutingDart
 
         val ch = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
         channel = ch
         ch.setMethodCallHandler { call, result ->
+            // Asking to show the notification is the activity's part of it.
+            if (call.method == "session" && call.argument<Boolean>("active") == true) askToNotify()
+            // Reading's calls are the engine's, answered with or without an
+            // activity; the rest are this activity's.
+            if (ReadingCore.handle(call, result)) return@setMethodCallHandler
             when (call.method) {
-                "listEngines" -> listEngines(result)
-                "listVoices" -> listVoices(call.argument<String>("engineId"), result)
-                "synthesise" -> synthesise(call.arguments as Map<*, *>, result)
-                "cancelSynthesis" -> {
-                    // Seeking should not wait for a sentence nobody will hear.
-                    try {
-                        if (ttsReady) tts?.stop()
-                    } catch (_: Exception) {
-                    }
-                    result.success(null)
-                }
                 "openTtsSettings" -> {
                     try {
                         startActivity(
@@ -160,55 +208,6 @@ class MainActivity : FlutterActivity() {
                         result.success(false)
                     }
                 }
-                "playerEnqueue" -> {
-                    val pcm = call.argument<ByteArray>("pcm")
-                    val rate = call.argument<Int>("sampleRate") ?: 24000
-                    if (pcm == null) {
-                        result.error("NO_PCM", "No audio", null)
-                    } else {
-                        if (!player.isActive) requestFocus()
-                        try {
-                            result.success(player.enqueue(pcm, rate))
-                        } catch (e: Exception) {
-                            result.error("PLAYER", e.message ?: "The audio could not be played", null)
-                        }
-                    }
-                }
-                "playerPosition" -> result.success(player.position(call.argument<Boolean>("raw") == true))
-                "playerPause" -> {
-                    player.pause()
-                    result.success(null)
-                }
-                "playerResume" -> {
-                    // Dart asked for focus first; during a call it waits for
-                    // the gain instead of reading over the call.
-                    if (requestFocus() == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) player.resume()
-                    result.success(null)
-                }
-                "playerStop" -> {
-                    player.stop()
-                    result.success(null)
-                }
-                "requestFocus" -> result.success(
-                    when (requestFocus()) {
-                        AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> "granted"
-                        AudioManager.AUDIOFOCUS_REQUEST_DELAYED -> "delayed"
-                        else -> "failed"
-                    }
-                )
-                "playerVolume" -> {
-                    player.setVolume((call.argument<Double>("volume") ?: 1.0).toFloat())
-                    result.success(null)
-                }
-                "playerLatency" -> {
-                    player.setOffsets(
-                        (call.argument<Int>("bluetoothMs") ?: 0).toLong(),
-                        (call.argument<Int>("otherMs") ?: 0).toLong(),
-                    )
-                    result.success(null)
-                }
-                "playerRoute" -> result.success(if (player.onBluetoothNow() ?: bluetoothOut()) "bluetooth" else "other")
-                "session" -> session(call.arguments as Map<*, *>, result)
                 "pickDocuments" -> pickDocuments(result)
                 "pickImage" -> {
                     if (imageResult != null) {
@@ -227,6 +226,10 @@ class MainActivity : FlutterActivity() {
                     result.success(pendingOpen)
                     pendingOpen = null
                 }
+                "pendingShare" -> {
+                    result.success(pendingShare)
+                    pendingShare = null
+                }
                 "extractPdf" -> extractPdf(call.argument<String>("path"), result)
                 "pdfInfo" -> {
                     val path = call.argument<String>("path").orEmpty()
@@ -243,15 +246,43 @@ class MainActivity : FlutterActivity() {
                     val path = call.argument<String>("path").orEmpty()
                     val index = call.argument<Int>("page") ?: 0
                     val width = call.argument<Int>("width") ?: 1080
+                    // Only this part of the page, when its margins are cut.
+                    val crop = call.argument<List<Number>>("crop")?.map { it.toFloat() }?.toFloatArray()
                     pages.execute {
                         try {
-                            val file = PdfPages.render(path, index, width, cacheDir)
+                            val file = PdfPages.render(path, index, width, cacheDir, crop)
                             main.post { result.success(file) }
                         } catch (e: Throwable) {
                             main.post { result.error("PDF_PAGES", e.message ?: "Cannot draw page", null) }
                         }
                     }
                 }
+                // Where the print lies on pages, for Crop margins.
+                "pdfPrint" -> {
+                    val path = call.argument<String>("path").orEmpty()
+                    val indices = call.argument<List<Number>>("pages").orEmpty().map { it.toInt() }
+                    pages.execute {
+                        try {
+                            val found = PdfPages.prints(path, indices, cacheDir)
+                            main.post { result.success(found) }
+                        } catch (e: Throwable) {
+                            main.post { result.error("PDF_PAGES", e.message ?: "Cannot look at the pages", null) }
+                        }
+                    }
+                }
+                // A scanned PDF read with OCR, in a foreground service (Ocr.kt).
+                "ocrStart" -> {
+                    try {
+                        result.success(OcrService.start(this, call.arguments as Map<*, *>))
+                    } catch (e: Exception) {
+                        result.error("OCR", e.message ?: "The scan could not be read", null)
+                    }
+                }
+                "ocrStop" -> {
+                    OcrService.stop()
+                    result.success(null)
+                }
+                "ocrStatus" -> result.success(OcrService.status())
                 "outputDir" -> result.success(outputDir().absolutePath)
                 "launchArgs" -> result.success(launchArgs())
                 // Text in an East Asian legacy encoding (GBK, Big5, Shift_JIS,
@@ -313,7 +344,7 @@ class MainActivity : FlutterActivity() {
                     val chapters = call.argument<Boolean>("includeChapters") != false
                     Thread {
                         val bytes = try {
-                            LibraryBackup.size(outputDir(), chapters)
+                            LibraryBackup.size(outputDir(), chapters, File(filesDir, "sources"))
                         } catch (e: Throwable) {
                             -1L
                         }
@@ -351,15 +382,16 @@ class MainActivity : FlutterActivity() {
                         startActivityForResult(intent, REQ_RESTORE)
                     }
                 }
-                "shareImage" -> {
-                    // A picture in cache/share, with words to go with it.
+                "shareImage", "shareFile" -> {
+                    // A picture in cache/share (or another file made to be
+                    // passed on, as its type), with words to go with it.
                     try {
                         val file = File(call.argument<String>("path").orEmpty())
                         val shared = File(ShareProvider.dir(cacheDir), file.name)
                         if (file.canonicalPath != shared.canonicalPath) file.copyTo(shared, overwrite = true)
                         val uri = ShareProvider.uriFor("$packageName.share", shared)
                         val send = Intent(Intent.ACTION_SEND).apply {
-                            type = "image/png"
+                            type = call.argument<String>("mime") ?: "image/png"
                             putExtra(Intent.EXTRA_STREAM, uri)
                             call.argument<String>("text")?.let { putExtra(Intent.EXTRA_TEXT, it) }
                             clipData = android.content.ClipData.newRawUri("", uri)
@@ -484,6 +516,20 @@ class MainActivity : FlutterActivity() {
                     }
                     result.success(null)
                 }
+                "screenBrightness" -> {
+                    // The reader's own brightness while a book is open, from
+                    // the phone's lowest (0) to full (1); below 0, the
+                    // phone's own again. Only while this window is in front.
+                    val level = call.argument<Number>("level")?.toFloat() ?: -1f
+                    window.attributes = window.attributes.apply {
+                        screenBrightness = if (level < 0f) {
+                            WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                        } else {
+                            level.coerceIn(0f, 1f)
+                        }
+                    }
+                    result.success(null)
+                }
                 "webUserAgent" -> {
                     try {
                         result.success(BrowserCheck.userAgent(this))
@@ -492,6 +538,9 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                 }
+                // The check in a web view holding the cookies of the source
+                // that met it alone (SourcesBridge's "browserFetch" is the
+                // page through it nobody sees).
                 "browserCheck" -> {
                     val url = call.argument<String>("url")
                     val agent = call.argument<String>("userAgent")
@@ -499,22 +548,14 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     } else {
                         try {
-                            BrowserCheck.open(this, url, agent) { jar -> result.success(jar) }
+                            BrowserCheck.open(
+                                { SourcesBridge.currentActivity() },
+                                url,
+                                agent,
+                                BrowserCheck.Seed.of(call.argument<Any>("cookies"), call.argument<Any>("domain")),
+                            ) { got -> result.success(got) }
                         } catch (e: Exception) {
                             result.error("BROWSER_CHECK", e.message ?: "No web view on this phone", null)
-                        }
-                    }
-                }
-                "browserFetch" -> {
-                    val url = call.argument<String>("url")
-                    val agent = call.argument<String>("userAgent")
-                    if (url == null || agent == null) {
-                        result.success(null)
-                    } else {
-                        try {
-                            BrowserCheck.fetch(this, url, agent) { html -> result.success(html) }
-                        } catch (e: Exception) {
-                            result.success(null)
                         }
                     }
                 }
@@ -540,19 +581,94 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                 }
+                // The phone, for a problem report the reader reads and sends
+                // themselves (About > Report a problem).
+                "deviceInfo" -> result.success(
+                    mapOf(
+                        "android" to Build.VERSION.RELEASE,
+                        "sdk" to Build.VERSION.SDK_INT,
+                        "maker" to Build.MANUFACTURER,
+                        "model" to Build.MODEL,
+                    )
+                )
+                // The wallpaper's colours, for a theme that follows them
+                // (Settings > Appearance). Null before Android 12.
+                "systemColours" -> result.success(systemColours())
+                "pickFolder" -> {
+                    if (folderResult != null) {
+                        result.error("BUSY", "A folder is already being chosen", null)
+                    } else {
+                        folderResult = result
+                        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                            addFlags(
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                            )
+                        }
+                        @Suppress("DEPRECATION")
+                        startActivityForResult(intent, REQ_FOLDER)
+                    }
+                }
+                "folderOk" -> {
+                    val tree = call.argument<String>("tree").orEmpty()
+                    result.success(contentResolver.persistedUriPermissions.any {
+                        it.uri.toString() == tree && it.isWritePermission
+                    })
+                }
+                "writeToFolder", "copyToFolder", "listFolder", "deleteFromFolder", "backupToFolder" -> folderCall(call, result)
                 else -> result.notImplemented()
             }
         }
 
-        ReadAloudService.onAction = { action, value ->
-            main.post { event(mapOf("type" to "action", "action" to action, "value" to value)) }
-        }
-
-        // Warm the engine now so the first Play does not pay for the bind.
-        withTts(null) { }
+        // Web novels: their own channel (SourcesBridge.kt), also registered
+        // on the background check's engine, where this activity is not.
+        SourcesBridge.attach(this, flutterEngine.dartExecutor.binaryMessenger, this)
+        // A scan being read says how far it has got (ocr_jobs.dart), to the
+        // engine rather than to this activity: what it does while no window
+        // shows the app still reaches Dart, and an activity that goes takes
+        // nothing from one that came after it.
+        OcrService.onEvent = { e -> ReadingCore.event(e) }
         cleanSynthDir()
         handleViewIntent(intent)
-        takeWidgetIntent(intent)
+        dumpPdfIfAsked(intent)
+        // A widget's book for an app already running is told, as onNewIntent
+        // tells it: the shelf asked once, when it first opened.
+        if (takeWidgetIntent(intent) && rejoined) event(mapOf("type" to "widgetLaunch"))
+        // The app in a new window: edge to edge again, and built if Dart was
+        // only reading (backgroundMain).
+        if (rejoined) event(mapOf("type" to "shown"))
+    }
+
+    // ---------------------------------------------------------------- engine
+
+    /**
+     * The one engine (ReadingCore), not one of this activity's own: the voice
+     * is Dart's, and must not end with the activity.
+     */
+    override fun provideFlutterEngine(context: Context): FlutterEngine = ReadingCore.engineFor(this)
+
+    /**
+     * Kept while a book is being read or saved as audio: a swipe from
+     * Recents, or Android closing the activity, leaves the voice reading and
+     * the save going. With neither, an activity that is finishing takes it
+     * along, so the next opening starts afresh, as it always did (decided in
+     * cleanUpFlutterEngine, which comes first). Never while a newer activity
+     * takes the engine over.
+     */
+    override fun shouldDestroyEngineWithHost(): Boolean = engineGoes
+
+    /** The engine's state is live: an activity's saved state must not overwrite it. */
+    override fun shouldRestoreAndSaveState(): Boolean = false
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        engineGoes = isFinishing && !isChangingConfigurations && ReadingCore.shows(this) &&
+            !ReadAloudService.isRunning() && !ReadAloudService.isStarting() && !ReadingCore.saving()
+        // Reading and a save carry on; this activity's own calls (pickers,
+        // the window, prompts) go with it.
+        ReadingCore.detach(this)
+        channel = null
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -568,6 +684,12 @@ class MainActivity : FlutterActivity() {
                 android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT
             ) { moveTaskToBack(true) }
         }
+        // An engine already running (a book read on after the last activity
+        // closed): Flutter said whether it has a page to go back to when that
+        // changed, to the activity before, and says it again only when it next
+        // changes. Until then Back goes to Flutter, which closes a page, or at
+        // the root calls popSystemNavigator: TomeVoice goes behind, as ever.
+        if (rejoined) setFrameworkHandlesBack(true)
         // Draw into the camera cutout too. Without this, landscape leaves a
         // dark strip down the cutout side and under the gesture bar, where
         // the window background shows instead of the app's gradient.
@@ -592,7 +714,7 @@ class MainActivity : FlutterActivity() {
     }
 
     // Back out of the library puts TomeVoice behind, as Home does, instead of
-    // finishing it. Finishing ran onDestroy, which ends the reading service
+    // finishing it. Finishing ran onDestroy, which ended the reading service
     // and the player, so on Android 15 and older leaving with Back stopped the
     // book being read. Android 16 (predictive back, targetSdk 36) already
     // moved the app behind, which is why it never showed there.
@@ -611,6 +733,7 @@ class MainActivity : FlutterActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleViewIntent(intent)
+        dumpPdfIfAsked(intent)
         if (takeWidgetIntent(intent)) event(mapOf("type" to "widgetLaunch"))
     }
 
@@ -711,7 +834,7 @@ class MainActivity : FlutterActivity() {
                     ?: throw IllegalStateException("Android would not open that file for writing")
                 var total = 0L
                 val files = out.use {
-                    LibraryBackup.write(outputDir(), it, manifest, chapters) { done, all ->
+                    LibraryBackup.write(outputDir(), it, manifest, chapters, File(filesDir, "sources")) { done, all ->
                         total = all
                         event(mapOf("type" to "backupProgress", "done" to done, "total" to all))
                     }
@@ -754,11 +877,146 @@ class MainActivity : FlutterActivity() {
         }.start()
     }
 
-    private fun synthDir(): File = File(cacheDir, "tts").apply { mkdirs() }
+    /**
+     * Files in a folder the reader picked (pickFolder): one written, listed
+     * or deleted, on a thread of its own (a backup takes a while). A folder
+     * taken away, or gone, answers FOLDER.
+     */
+    private fun folderCall(call: MethodCall, result: MethodChannel.Result) {
+        val tree = Uri.parse(call.argument<String>("tree").orEmpty())
+        Thread {
+            try {
+                val out: Any? = when (call.method) {
+                    "writeToFolder" -> {
+                        val doc = createInFolder(
+                            tree,
+                            call.argument<String>("mime") ?: "text/plain",
+                            call.argument<String>("name") ?: "TomeVoice.txt"
+                        )
+                        val stream = contentResolver.openOutputStream(doc, "wt")
+                            ?: throw IllegalStateException("Android would not open the new file")
+                        stream.use { it.write(call.argument<String>("text").orEmpty().toByteArray(Charsets.UTF_8)) }
+                        queryDisplayName(doc)
+                    }
+                    // A file the app made (a novel as an EPUB), from its own
+                    // storage only. Dart's temporary folder is code_cache:
+                    // without it, every EPUB was refused.
+                    "copyToFolder" -> {
+                        val source = File(call.argument<String>("path").orEmpty()).canonicalFile
+                        val ours = listOfNotNull(cacheDir, codeCacheDir, filesDir, externalCacheDir, getExternalFilesDir(null))
+                            .map { it.canonicalPath + File.separator }
+                        if (!source.isFile || ours.none { source.path.startsWith(it) }) {
+                            throw IllegalStateException("That file is not one TomeVoice made")
+                        }
+                        val doc = createInFolder(
+                            tree,
+                            call.argument<String>("mime") ?: "application/octet-stream",
+                            call.argument<String>("name") ?: source.name
+                        )
+                        try {
+                            val stream = contentResolver.openOutputStream(doc, "wt")
+                                ?: throw IllegalStateException("Android would not open the new file")
+                            stream.use { out -> source.inputStream().use { it.copyTo(out) } }
+                        } catch (e: Throwable) {
+                            // No half-written copy is left behind.
+                            try {
+                                DocumentsContract.deleteDocument(contentResolver, doc)
+                            } catch (_: Throwable) {
+                            }
+                            throw e
+                        }
+                        queryDisplayName(doc)
+                    }
+                    "listFolder" -> listFolder(tree)
+                    "deleteFromFolder" -> {
+                        val id = call.argument<String>("id").orEmpty()
+                        DocumentsContract.deleteDocument(contentResolver, DocumentsContract.buildDocumentUriUsingTree(tree, id))
+                        null
+                    }
+                    "backupToFolder" -> {
+                        val doc = createInFolder(tree, "application/zip", call.argument<String>("name") ?: "TomeVoice-backup.zip")
+                        try {
+                            var total = 0L
+                            val stream = contentResolver.openOutputStream(doc, "wt")
+                                ?: throw IllegalStateException("Android would not open the new file")
+                            val files = stream.use {
+                                LibraryBackup.write(
+                                    outputDir(),
+                                    it,
+                                    call.argument<String>("manifest").orEmpty(),
+                                    call.argument<Boolean>("includeChapters") == true,
+                                    File(filesDir, "sources"),
+                                    // A secret shelf left out (AutoBackup).
+                                    call.argument<List<String>>("leaveOut") ?: emptyList(),
+                                    call.argument<Map<String, String>>("swapped") ?: emptyMap()
+                                ) { _, all -> total = all }
+                            }
+                            mapOf("files" to files, "bytes" to total, "name" to queryDisplayName(doc))
+                        } catch (e: Throwable) {
+                            // Leave no half-written backup behind to be trusted later.
+                            try {
+                                DocumentsContract.deleteDocument(contentResolver, doc)
+                            } catch (_: Throwable) {
+                            }
+                            throw e
+                        }
+                    }
+                    else -> null
+                }
+                main.post { result.success(out) }
+            } catch (e: SecurityException) {
+                main.post { result.error("FOLDER", "TomeVoice may no longer write to that folder. Choose it again.", null) }
+            } catch (e: java.io.FileNotFoundException) {
+                main.post { result.error("FOLDER", "That folder is gone. Choose another.", null) }
+            } catch (e: Throwable) {
+                main.post { result.error("FOLDER_IO", e.message ?: "Could not write to that folder", null) }
+            }
+        }.start()
+    }
+
+    /** A new file [name] in the picked folder [tree]. */
+    private fun createInFolder(tree: Uri, mime: String, name: String): Uri {
+        val parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+        return DocumentsContract.createDocument(contentResolver, parent, mime, name)
+            ?: throw IllegalStateException("Android would not make a file in that folder")
+    }
+
+    private fun listFolder(tree: Uri): List<Map<String, Any?>> {
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+        val out = mutableListOf<Map<String, Any?>>()
+        val columns = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_SIZE,
+            DocumentsContract.Document.COLUMN_LAST_MODIFIED
+        )
+        contentResolver.query(children, columns, null, null, null)?.use { c ->
+            while (c.moveToNext()) {
+                out.add(
+                    mapOf(
+                        "id" to c.getString(0),
+                        "name" to c.getString(1),
+                        "size" to (if (c.isNull(2)) 0L else c.getLong(2)),
+                        "modified" to (if (c.isNull(3)) 0L else c.getLong(3))
+                    )
+                )
+            }
+        }
+        return out
+    }
+
+    private fun folderName(tree: Uri): String? = try {
+        val doc = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+        contentResolver.query(doc, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)
+            ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+    } catch (_: Exception) {
+        null
+    }
 
     private fun cleanSynthDir() {
         io.execute {
-            synthDir().listFiles()?.forEach { it.delete() }
+            // (cache/tts, the voice's, is emptied when its engine is made, in
+            // ReadingCore: a book may be reading from it now.)
             // Builds before this one left a WAV per sentence in the library
             // folder. They are dead weight; nothing reads them.
             outputDir().listFiles()?.forEach {
@@ -777,262 +1035,44 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    // ------------------------------------------------------------------ TTS
-
-    private fun engineMatches(requested: String?): Boolean {
-        val current = tts ?: return false
-        if (requested.isNullOrBlank()) return true
-        if (requested == ttsEngineId) return true
-        return ttsEngineId == null && requested == current.defaultEngine
-    }
-
-    /** Run [block] with a ready engine (or null if it failed to start). */
-    private fun withTts(engineId: String?, block: (TextToSpeech?) -> Unit) {
-        val current = tts
-        if (current != null && engineMatches(engineId)) {
-            if (ttsReady) block(current) else ttsWaiters.add(block)
+    /**
+     * A development tool, driven from adb like the measurement runs:
+     * `--es dumpPdf <book id>` writes what the extractor reads of that PDF in
+     * the library (its text, bookmarks and line layout, PdfText.dump) to
+     * pdf-dump-<book id>.json beside the books, to pull off the phone and
+     * study. It changes nothing, and says how it went in the log
+     * (`adb logcat -s TomeVoice`).
+     */
+    private fun dumpPdfIfAsked(intent: Intent?) {
+        val i = intent ?: return
+        val id = i.getStringExtra(EXTRA_DUMP_PDF) ?: return
+        // Once: not again when the activity is made anew.
+        i.removeExtra(EXTRA_DUMP_PDF)
+        // Any app may start this activity: only with USB debugging on, as
+        // adb is, so no other app can set a book's extraction going.
+        if (Settings.Global.getInt(contentResolver, Settings.Global.ADB_ENABLED, 0) != 1) {
+            android.util.Log.w(LOG_TAG, "dumpPdf: USB debugging is off")
             return
         }
-        current?.shutdown()
-        ttsReady = false
-        ttsEngineId = if (engineId.isNullOrBlank()) null else engineId
-        ttsWaiters.add(block)
-        val holder = arrayOfNulls<TextToSpeech>(1)
-        val created = TextToSpeech(applicationContext, { status ->
-            main.post {
-                val engine = holder[0]
-                if (engine == null || tts !== engine) return@post
-                ttsReady = status == TextToSpeech.SUCCESS
-                if (!ttsReady) {
-                    tts = null
-                    engine.shutdown()
-                }
-                val waiting = ttsWaiters.toList()
-                ttsWaiters.clear()
-                waiting.forEach { it(if (ttsReady) engine else null) }
-            }
-        }, ttsEngineId)
-        holder[0] = created
-        tts = created
-    }
-
-    private fun listEngines(result: MethodChannel.Result) {
-        withTts(null) { engine ->
-            if (engine == null) {
-                result.error("TTS_INIT", "No text-to-speech engine could start", null)
-                return@withTts
-            }
-            result.success(engine.engines.map { mapOf("name" to it.name, "label" to it.label) })
-        }
-    }
-
-    /** Voices of [engineId], best quality first. */
-    private fun listVoices(engineId: String?, result: MethodChannel.Result) {
-        withTts(engineId) { engine ->
-            if (engine == null) {
-                result.error("TTS_INIT", "The voice engine did not start", null)
-                return@withTts
-            }
-            val voices = try {
-                (engine.voices ?: emptySet())
-                    .sortedWith(
-                        compareByDescending<android.speech.tts.Voice> { it.quality }
-                            .thenBy { it.name }
-                    )
-                    .map {
-                        mapOf(
-                            "name" to it.name,
-                            "locale" to it.locale.toLanguageTag(),
-                            "quality" to it.quality,
-                            "networkRequired" to it.isNetworkConnectionRequired,
-                            "installed" to !it.features.contains(
-                                TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED
-                            )
-                        )
-                    }
-            } catch (e: Exception) {
-                emptyList()
-            }
-            result.success(voices)
-        }
-    }
-
-    /**
-     * [engine] is dead: its service went away (an update of Speech Services
-     * kills it) and the binding still looks alive, so every sentence after
-     * failed or timed out. It is shut down and forgotten, and the next use
-     * makes a new one: still one warm engine, not one per sentence.
-     */
-    private fun ttsDied(engine: TextToSpeech?) {
-        if (engine == null || tts !== engine) return
-        try {
-            engine.shutdown()
-        } catch (_: Exception) {
-        }
-        tts = null
-        ttsReady = false
-    }
-
-    private fun synthesise(args: Map<*, *>, result: MethodChannel.Result, retried: Boolean = false) {
-        val text = (args["text"] as? String).orEmpty()
-        val engineId = args["engineId"] as? String
-        val rate = (args["rate"] as? Number)?.toFloat() ?: 1.0f
-        val pitch = (args["pitch"] as? Number)?.toFloat() ?: 1.0f
-        val wanted = args["voiceName"] as? String
-
-        if (text.isBlank()) {
-            result.error("EMPTY_TEXT", "Nothing to synthesise", null)
+        // A book's folder, as LibraryStore.isBookId has them: never a path.
+        if (!Regex("[A-Za-z0-9_-]{1,64}").matches(id)) {
+            android.util.Log.w(LOG_TAG, "dumpPdf: not a book id")
             return
         }
-
-        val replied = AtomicBoolean(false)
-        fun reply(block: () -> Unit) {
-            if (replied.compareAndSet(false, true)) main.post(block)
+        val dir = outputDir()
+        val source = File(dir, "books/$id/source.pdf")
+        if (!source.isFile) {
+            android.util.Log.w(LOG_TAG, "dumpPdf: no PDF at ${source.absolutePath}")
+            return
         }
-
-        /** The engine died under this sentence: a new one, and the sentence again, once. */
-        fun again(engine: TextToSpeech, fallback: () -> Unit) {
-            if (!retried && replied.compareAndSet(false, true)) {
-                main.post {
-                    ttsDied(engine)
-                    synthesise(args, result, retried = true)
-                }
-            } else {
-                main.post { ttsDied(engine) }
-                reply(fallback)
-            }
-        }
-
-        var used: TextToSpeech? = null
-        main.postDelayed({
-            // No word from the engine in 30 s: it may be dead. The next
-            // sentence gets a new one.
-            if (!replied.get()) ttsDied(used)
-            reply { result.error("TTS_TIMEOUT", "No callback within 30s", null) }
-        }, 30_000)
-
-        withTts(engineId) { engine ->
-            if (engine == null) {
-                reply { result.error("TTS_INIT", "The voice engine did not start", null) }
-                return@withTts
-            }
-            used = engine
-            val events = CopyOnWriteArrayList<Map<String, Int>>()
-            val utteranceId = "tv-" + System.nanoTime()
-            val outFile = File(synthDir(), "$utteranceId.wav")
+        io.execute {
+            val out = File(dir, "pdf-dump-$id.json")
             try {
-                if (!wanted.isNullOrBlank() && engine.voice?.name != wanted) {
-                    engine.voices?.firstOrNull { it.name == wanted }?.let { engine.voice = it }
-                }
-                engine.setSpeechRate(rate)
-                engine.setPitch(pitch)
-                // The engine has one listener. A late callback for an utterance
-                // that was cancelled must not complete this one, so every
-                // callback checks the id.
-                engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(id: String?) = Unit
-
-                    override fun onRangeStart(id: String?, start: Int, end: Int, frame: Int) {
-                        if (id != utteranceId) return
-                        events.add(mapOf("start" to start, "end" to end, "frame" to frame))
-                    }
-
-                    override fun onDone(id: String?) {
-                        if (id != utteranceId) return
-                        reply { result.success(buildReport(text, outFile, events, engine)) }
-                    }
-
-                    override fun onStop(id: String?, interrupted: Boolean) {
-                        if (id != utteranceId) return
-                        outFile.delete()
-                        reply { result.error("TTS_STOPPED", "Synthesis cancelled", null) }
-                    }
-
-                    @Deprecated("Required by the base class")
-                    override fun onError(id: String?) {
-                        if (id != utteranceId) return
-                        reply { result.error("TTS_ERROR", "Synthesis failed", null) }
-                    }
-
-                    override fun onError(id: String?, errorCode: Int) {
-                        if (id != utteranceId) return
-                        val failed = {
-                            result.error("TTS_ERROR", "Synthesis failed (code $errorCode)", null)
-                        }
-                        // The engine's service failed: a new engine, and again.
-                        if (errorCode == TextToSpeech.ERROR_SERVICE) again(engine, failed) else reply(failed)
-                    }
-                })
-                val code = engine.synthesizeToFile(text, Bundle(), outFile, utteranceId)
-                if (code != TextToSpeech.SUCCESS) {
-                    // Not even queued: the binding is gone.
-                    again(engine) { result.error("TTS_QUEUE", "synthesizeToFile returned $code", null) }
-                }
-            } catch (e: Exception) {
-                reply { result.error("TTS_EXCEPTION", e.message, null) }
+                PdfText.dump(this, source.absolutePath, out)
+                android.util.Log.i(LOG_TAG, "dumpPdf: wrote ${out.absolutePath}")
+            } catch (e: Throwable) {
+                android.util.Log.w(LOG_TAG, "dumpPdf: ${e.javaClass.simpleName}: ${e.message}")
             }
-        }
-    }
-
-    // ---------------------------------------------------------- audio focus
-
-    /**
-     * Ask for the audio; the answer is AudioManager's: granted, delayed (a
-     * call is on: AUDIOFOCUS_GAIN arrives as "focusGain" when it ends) or
-     * failed. It used to be ignored, and Play during a call read over it.
-     */
-    private fun requestFocus(): Int {
-        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        if (focusRequest == null) {
-            val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .build()
-                )
-                .setWillPauseWhenDucked(true)
-                .setAcceptsDelayedFocusGain(true)
-                .setOnAudioFocusChangeListener { change ->
-                    val type = when (change) {
-                        AudioManager.AUDIOFOCUS_LOSS -> "focusLoss"
-                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
-                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> "focusLossTransient"
-                        AudioManager.AUDIOFOCUS_GAIN -> "focusGain"
-                        else -> null
-                    }
-                    if (type != null) event(mapOf("type" to type))
-                }
-                .build()
-            focusRequest = req
-        }
-        val answer = am.requestAudioFocus(focusRequest!!)
-        if (!noisyRegistered) {
-            val filter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
-            val flags = if (Build.VERSION.SDK_INT >= 33) Context.RECEIVER_NOT_EXPORTED else 0
-            registerReceiver(noisyReceiver, filter, flags)
-            noisyRegistered = true
-        }
-        return answer
-    }
-
-    /** Whether a Bluetooth output is connected, for when nothing is playing to ask. */
-    private fun bluetoothOut(): Boolean = try {
-        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { PcmPlayer.isBluetooth(it.type) }
-    } catch (e: Exception) {
-        false
-    }
-
-    private fun abandonFocus() {
-        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        focusRequest?.let { am.abandonAudioFocusRequest(it) }
-        if (noisyRegistered) {
-            try {
-                unregisterReceiver(noisyReceiver)
-            } catch (_: Exception) {
-            }
-            noisyRegistered = false
         }
     }
 
@@ -1040,42 +1080,18 @@ class MainActivity : FlutterActivity() {
 
     private var askedNotify = false
 
-    /** Start, update or end the "reading aloud" foreground service. */
-    private fun session(args: Map<*, *>, result: MethodChannel.Result) {
-        val active = args["active"] == true
-        if (!active) {
-            ReadAloudService.end(this)
-            abandonFocus()
-            result.success(null)
-            return
-        }
-        // Asked once per launch: the session is updated on every sentence, and
-        // a refusal must not bring the prompt back each time.
+    /**
+     * The notification permission, asked as reading starts (ReadingCore puts
+     * the card up). Once per launch: the session is updated on every
+     * sentence, and a refusal must not bring the prompt back each time.
+     */
+    private fun askToNotify() {
         if (Build.VERSION.SDK_INT >= 33 && !askedNotify &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) {
             askedNotify = true
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIFY)
-        }
-        try {
-            ReadAloudService.update(
-                this,
-                ReadAloudService.NowReading(
-                    title = (args["title"] as? String) ?: "TomeVoice",
-                    subtitle = (args["subtitle"] as? String) ?: "",
-                    playing = args["playing"] == true,
-                    cover = args["cover"] as? String,
-                    positionMs = (args["positionMs"] as? Number)?.toLong() ?: 0,
-                    durationMs = (args["durationMs"] as? Number)?.toLong() ?: 0,
-                    speed = (args["speed"] as? Number)?.toDouble() ?: 1.0,
-                )
-            )
-            result.success(null)
-        } catch (e: Exception) {
-            // Reading still works in the foreground; it just will not survive
-            // the screen turning off.
-            result.error("SESSION", e.message, null)
         }
     }
 
@@ -1167,6 +1183,7 @@ class MainActivity : FlutterActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
+        if (ReadingCore.exporter?.onActivityResult(requestCode, resultCode, data) == true) return
         if (requestCode == REQ_CONFIRM) {
             confirmResult?.success(resultCode == Activity.RESULT_OK)
             confirmResult = null
@@ -1178,6 +1195,26 @@ class MainActivity : FlutterActivity() {
         }
         if (requestCode == REQ_RESTORE) {
             finishRestore(resultCode, data?.data)
+            return
+        }
+        if (requestCode == REQ_FOLDER) {
+            val reply = folderResult ?: return
+            folderResult = null
+            val uri = data?.data
+            if (resultCode != Activity.RESULT_OK || uri == null) {
+                reply.success(null)
+                return
+            }
+            try {
+                // Kept across restarts, until the reader takes it back.
+                contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+                reply.success(mapOf("uri" to uri.toString(), "name" to (folderName(uri) ?: "Folder")))
+            } catch (e: Exception) {
+                reply.error("FOLDER", e.message ?: "Android would not let TomeVoice keep that folder", null)
+            }
             return
         }
         if (requestCode == REQ_IMAGE) {
@@ -1250,7 +1287,11 @@ class MainActivity : FlutterActivity() {
             }
             else -> null
         }
-        if (uri == null) return
+        if (uri == null) {
+            // No file: a link or words (Chrome's Share, chosen text).
+            if (intent.action == Intent.ACTION_SEND) takeSharedText(intent)
+            return
+        }
         if (uri.scheme != "content" || uri.authority?.startsWith(packageName) == true) return
         // Do not re-import the same file when the activity is recreated.
         intent.action = Intent.ACTION_MAIN
@@ -1265,6 +1306,26 @@ class MainActivity : FlutterActivity() {
                 event(mapOf("type" to "openFailed", "message" to (e.message ?: "")))
             }
         }
+    }
+
+    /**
+     * Words shared to TomeVoice, EXTRA_TEXT with no file: Dart reads a link
+     * as an article, anything else as a book. Kept as pendingShare as well,
+     * as a file is kept as pendingOpen, for a share that started the app
+     * before Dart was listening; the id lets Dart take one of the two.
+     */
+    private fun takeSharedText(intent: Intent) {
+        val text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
+        if (text.isNullOrBlank()) return
+        // Not read again when the activity is recreated.
+        intent.action = Intent.ACTION_MAIN
+        val share = mapOf(
+            "id" to java.util.UUID.randomUUID().toString(),
+            "text" to text,
+            "subject" to (intent.getCharSequenceExtra(Intent.EXTRA_SUBJECT)?.toString() ?: ""),
+        )
+        pendingShare = share
+        event(mapOf("type" to "sharedText") + share)
     }
 
     private fun copyIn(uri: Uri): Map<String, String> {
@@ -1319,42 +1380,12 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    // --------------------------------------------------------------- report
-
-    private fun buildReport(
-        text: String,
-        file: File,
-        events: List<Map<String, Int>>,
-        engine: TextToSpeech
-    ): Map<String, Any?> {
-        val words = text.trim().split(Regex("\\s+")).count { it.isNotBlank() }
-        val granularity = when {
-            events.isEmpty() -> "none"
-            words > 0 && events.size >= (words * 0.6) -> "word"
-            else -> "utterance"
-        }
-        return mapOf(
-            "wavPath" to file.absolutePath,
-            "engineId" to (ttsEngineId ?: engine.defaultEngine ?: "unknown"),
-            "voiceName" to (engine.voice?.name ?: "unknown"),
-            "voiceQuality" to (engine.voice?.quality ?: -1),
-            "rangeEvents" to events,
-            "rangeStartFired" to events.isNotEmpty(),
-            "granularity" to granularity,
-            "wordCount" to words,
-            "deviceModel" to "${Build.MANUFACTURER} ${Build.MODEL}",
-            "androidVersion" to Build.VERSION.SDK_INT
-        )
-    }
-
     override fun onDestroy() {
         stopSample()
-        ReadAloudService.onAction = null
-        ReadAloudService.end(this)
-        abandonFocus()
-        player.stop()
-        tts?.shutdown()
-        tts = null
+        // The reading, the voice, the player and a save as audio are the
+        // engine's and carry on (ReadingCore): leaving the app, by a swipe
+        // from Recents too, does not stop a book being read or saved. A scan
+        // being read goes on too, telling the engine (configureFlutterEngine).
         io.shutdown()
         pages.execute { PdfPages.close() }
         pages.shutdown()

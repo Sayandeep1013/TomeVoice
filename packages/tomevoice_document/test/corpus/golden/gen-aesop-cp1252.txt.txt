@@ -1,0 +1,47 @@
+# gen-aesop-cp1252.txt: what a voice reads, a sentence a line, from where a new book opens.
+# Written by test/corpus_test.dart; see test/corpus/README.md before changing it.
+## gen-aesop-cp1252
+ÆSOP’S FABLES
+Six fables, literally translated from the Greek by the Rev. George Fyler Townsend
+THE MOUNTAIN IN LABOR
+A MOUNTAIN was once greatly agitated.
+Loud groans and noises were heard, and crowds of people came from all parts to see what was the matter.
+While they were assembled in anxious expectation of some terrible calamity, out came a Mouse.
+Don’t make much ado about nothing.
+THE FOX AND THE GOAT
+A FOX one day fell into a deep well and could find no means of escape.
+A Goat, overcome with thirst, came to the same well, and seeing the Fox, inquired if the water was good.
+Concealing his sad plight under a merry guise, the Fox indulged in a lavish praise of the water, saying it was excellent beyond measure, and encouraging him to descend.
+The Goat, mindful only of his thirst, thoughtlessly jumped down, but just as he drank, the Fox informed him of the difficulty they were both in and suggested a scheme for their common escape.
+“If,” said he, “you will place your forefeet upon the wall and bend your head, I will run up your back and escape, and will help you out afterwards.”
+The Goat readily assented and the Fox leaped upon his back.
+Steadying himself with the Goat’s horns, he safely reached the mouth of the well and made off as fast as he could.
+When the Goat upbraided him for breaking his promise, he turned around and cried out, “You foolish old fellow!
+If you had as many brains in your head as you have hairs in your beard, you would never have gone down before you had inspected the way up, nor have exposed yourself to dangers from which you had no means of escape.”
+Look before you leap.
+THE DOG IN THE MANGER
+A DOG lay in a manger, and by his growling and snapping prevented the oxen from eating the hay which had been placed for them.
+“What a selfish Dog!” said one of them to his companions; “he cannot eat the hay himself, and yet refuses to allow those to eat who can.”
+THE BEAR AND THE TWO TRAVELERS
+TWO MEN were traveling together, when a Bear suddenly met them on their path.
+One of them climbed up quickly into a tree and concealed himself in the branches.
+The other, seeing that he must be attacked, fell flat on the ground, and when the Bear came up and felt him with his snout, and smelt him all over, he held his breath, and feigned the appearance of death as much as he could.
+The Bear soon left him, for it is said he will not touch a dead body.
+When he was quite gone, the other Traveler descended from the tree, and jocularly inquired of his friend what it was the Bear had whispered in his ear.
+“He gave me this advice,” his companion replied.
+“Never travel with a friend who deserts you at the approach of danger.”
+Misfortune tests the sincerity of friends.
+THE WOLF IN SHEEP’S CLOTHING
+ONCE UPON A TIME a Wolf resolved to disguise his appearance in order to secure food more easily.
+Encased in the skin of a sheep, he pastured with the flock deceiving the shepherd by his costume.
+In the evening he was shut up by the shepherd in the fold; the gate was closed, and the entrance made thoroughly secure.
+But the shepherd, returning to the fold during the night to obtain meat for the next day, mistakenly caught up the Wolf instead of a sheep, and killed him instantly.
+Harm seek, harm find.
+THE MISER
+A MISER sold all that he had and bought a lump of gold, which he buried in a hole in the ground by the side of an old wall and went to look at daily.
+One of his workmen observed his frequent visits to the spot and decided to watch his movements.
+He soon discovered the secret of the hidden treasure, and digging down, came to the lump of gold, and stole it.
+The Miser, on his next visit, found the hole empty and began to tear his hair and to make loud lamentations.
+A neighbor, seeing him overcome with grief and learning the cause, said, “Pray do not grieve so; but go and take a stone, and place it in the hole, and fancy that the gold is still lying there.
+It will do you quite the same service; for when the gold was there, you had it not, as you did not make the slightest use of it.”
+THE END

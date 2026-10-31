@@ -24,8 +24,12 @@ object LibraryBackup {
     private const val MAX_BYTES = 16L shl 30
     private const val MAX_FILES = 500_000
 
-    /** What is never backed up: imports in flight, caches, site cookies. */
-    private fun skip(rel: String, includeChapters: Boolean): Boolean {
+    /**
+     * What is never backed up: imports in flight, caches, site cookies; and
+     * what this backup leaves out, [leaveOut] (each a file, or a folder ending
+     * in "/", from the library's top: a secret shelf's books, see AutoBackup).
+     */
+    private fun skip(rel: String, includeChapters: Boolean, leaveOut: Collection<String> = emptyList()): Boolean {
         val top = rel.substringBefore('/')
         if (top.startsWith(".")) return true // .restore, .before-restore
         if (top == "incoming") return true
@@ -33,42 +37,74 @@ object LibraryBackup {
         if (rel == "sources/cookies.json") return true
         // The update check's state names the APK to install: never carried.
         if (rel == "app_update.json") return true
+        // The error log is this phone's own (ErrorLog.kt). It is kept in the
+        // app's private storage, which is the library's folder too only on a
+        // phone with no storage outside the app.
+        if (rel == ErrorLog.FILE) return true
         // A cached copy of a source list; fetched again when needed.
         if (rel.startsWith("sources/index-")) return true
         // Natural voices are a download away (64 to 110 MB each). Carried,
         // every voice made every backup that much bigger (docs/11: never).
         if (top == "voices") return true
+        // So is the OCR language data (Ocr.kt), and a scan still being read
+        // is this phone's: its text is backed up with its book once made.
+        if (top == "ocr") return true
         if (!includeChapters && rel.startsWith("books/") && rel.split('/').getOrNull(2) == "ch") return true
+        if (leaveOut.any { if (it.endsWith("/")) rel.startsWith(it) else rel == it }) return true
         return false
     }
 
-    private fun files(root: File, includeChapters: Boolean): List<Pair<File, String>> {
+    private fun files(
+        root: File,
+        includeChapters: Boolean,
+        sources: File?,
+        leaveOut: Collection<String> = emptyList(),
+    ): List<Pair<File, String>> {
         val out = mutableListOf<Pair<File, String>>()
         val base = root.absolutePath.trimEnd('/') + "/"
         root.walkTopDown().forEach { f ->
             if (!f.isFile) return@forEach
             val rel = f.absolutePath.removePrefix(base)
-            if (!skip(rel, includeChapters)) out.add(f to rel)
+            if (!skip(rel, includeChapters, leaveOut)) out.add(f to rel)
+        }
+        // Web novels' sources moved to internal storage (SourceStore.open), out
+        // of the library's folder: their lists, what is installed and each
+        // source's own settings still travel, as sources/ (a restore adopts
+        // them and installs the sources again from their lists). Never the
+        // plugins' code, the site cookies or a cached list.
+        val taken = out.map { it.second }.toSet()
+        sources?.listFiles()?.forEach { f ->
+            val name = f.name
+            val carried = name == "repos.json" || name == "installed.json" ||
+                (name.startsWith("storage-") && name.endsWith(".json"))
+            val rel = "sources/$name"
+            if (f.isFile && carried && rel !in taken) out.add(f to rel)
         }
         return out
     }
 
-    /** Bytes a backup of [root] would hold before compression. */
-    fun size(root: File, includeChapters: Boolean): Long =
-        files(root, includeChapters).sumOf { it.first.length() }
+    /** Bytes a backup of [root] (and [sources]) would hold before compression. */
+    fun size(root: File, includeChapters: Boolean, sources: File? = null): Long =
+        files(root, includeChapters, sources).sumOf { it.first.length() }
 
     /**
-     * Zip [root] into [out], [manifest] first. [progress] gets bytes done and
-     * the total. Returns the number of files written.
+     * Zip [root] into [out], [manifest] first, with what of [sources] (the
+     * web novels' sources, in internal storage) is carried. [leaveOut] is
+     * left out too, and each file in [swapped] goes in with the text given
+     * in place of its own. [progress] gets bytes done and the total. Returns
+     * the number of files written.
      */
     fun write(
         root: File,
         out: OutputStream,
         manifest: String,
         includeChapters: Boolean,
+        sources: File? = null,
+        leaveOut: Collection<String> = emptyList(),
+        swapped: Map<String, String> = emptyMap(),
         progress: (Long, Long) -> Unit,
     ): Int {
-        val list = files(root, includeChapters)
+        val list = files(root, includeChapters, sources, leaveOut + swapped.keys)
         val total = list.sumOf { it.first.length() }
         var done = 0L
         var lastReport = 0L
@@ -76,6 +112,11 @@ object LibraryBackup {
             zip.putNextEntry(ZipEntry(MANIFEST))
             zip.write(manifest.toByteArray(Charsets.UTF_8))
             zip.closeEntry()
+            for ((rel, text) in swapped) {
+                zip.putNextEntry(ZipEntry(rel))
+                zip.write(text.toByteArray(Charsets.UTF_8))
+                zip.closeEntry()
+            }
             val buf = ByteArray(1 shl 16)
             for ((file, rel) in list) {
                 zip.putNextEntry(ZipEntry(rel).apply { time = file.lastModified() })
@@ -95,7 +136,7 @@ object LibraryBackup {
             }
         }
         progress(total, total)
-        return list.size
+        return list.size + swapped.size
     }
 
     /**
@@ -121,9 +162,18 @@ object LibraryBackup {
                     manifest = zip.readBytes().toString(Charsets.UTF_8)
                     continue
                 }
+                // A backup never holds a dot-file or dot-folder at its top:
+                // those are a restore's own (.restore, .before-restore, its
+                // journal) and the passwords'. One brought in could make a
+                // replace delete the library it was moving aside.
+                val top = entry.name.substringBefore('/')
+                if (top.startsWith(".")) throw IllegalStateException("That backup has files TomeVoice never puts in one")
                 // Older backups carried the natural voices: left out, so a
                 // restore keeps the phone's own (and no megabytes are spent).
-                if (entry.name.substringBefore('/') == "voices") continue
+                // No backup carries OCR data, and one that did is not trusted.
+                // Nor another phone's error log, nor anything else a backup
+                // leaves out (skip).
+                if (skip(entry.name, true)) continue
                 val dest = File(staging, entry.name)
                 // A name like "../../x" must not write outside the staging folder.
                 if (!dest.canonicalPath.startsWith(base)) {

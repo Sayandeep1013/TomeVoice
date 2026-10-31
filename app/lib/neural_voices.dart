@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
@@ -6,65 +7,364 @@ import 'dart:math' as math;
 
 import 'package:archive/archive_io.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart' show PlatformException;
+import 'package:flutter/services.dart' show AssetBundle, PlatformException, rootBundle;
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
-/// A natural voice that runs on the phone: a Piper model (VITS), made into
-/// speech by sherpa-onnx. Downloaded only when chosen, one at a time; the
-/// phone's own voices stay the default and cost nothing.
-class NeuralVoice {
-  const NeuralVoice(this.id, this.name, this.locale, this.sizeMb, {this.hd = false, this.blurb = ''});
+/// Where the models come from: sherpa-onnx's release of speech models, in
+/// full precision. The half-size (fp16) ones crash the engine on phones:
+/// ONNX Runtime has no fp16 kernel for one of their layers on CPU (found on
+/// the phone).
+const _release = 'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models';
 
-  /// The Piper name: "en_US-kristin-medium".
+/// How a natural voice is made into speech, all by sherpa-onnx: Piper's
+/// models (VITS) hold one voice each; Kokoro's and Kitten's hold many
+/// speakers in one download.
+enum NeuralKind {
+  piper,
+  kokoro,
+  kitten;
+
+  static NeuralKind parse(String? s) => values.firstWhere((k) => k.name == s, orElse: () => piper);
+}
+
+/// What the recordings a voice learned from may be used for, from the most
+/// open to the least (docs/18 section 2).
+enum LicenceUse {
+  /// Public domain or CC0.
+  free,
+
+  /// Open, on conditions: credit, share-alike, a notice kept.
+  credit,
+
+  /// Personal or research use only.
+  noncommercial,
+
+  /// No licence granted ("All rights reserved").
+  restricted,
+
+  /// Not stated, or not settled.
+  unclear;
+
+  static LicenceUse parse(String? s) => values.firstWhere((u) => u.name == s, orElse: () => unclear);
+}
+
+/// The licence of the recordings a voice learned from, as the catalog
+/// records it (tools/voice_catalog.py read it from the voice's model card).
+class VoiceLicence {
+  const VoiceLicence({
+    required this.name,
+    required this.use,
+    this.note = '',
+    this.stated = '',
+    this.dataset = '',
+    this.card = '',
+  });
+
+  /// "CC BY 4.0", "Public domain", "Not stated".
+  final String name;
+  final LicenceUse use;
+
+  /// A plain sentence or two: what it allows, and anything else to know.
+  final String note;
+
+  /// The model card's own words, the recordings it names, and where it is.
+  final String stated;
+  final String dataset;
+  final String card;
+
+  static const unknown = VoiceLicence(name: 'Not stated', use: LicenceUse.unclear);
+
+  factory VoiceLicence.fromJson(Object? json) {
+    if (json is! Map) return unknown;
+    String s(String key) => json[key] as String? ?? '';
+    return VoiceLicence(
+      name: s('name').isEmpty ? unknown.name : s('name'),
+      use: LicenceUse.parse(json['use'] as String?),
+      note: s('note'),
+      stated: s('stated'),
+      dataset: s('dataset'),
+      card: s('card'),
+    );
+  }
+
+  /// What it lets a reader do, in a few words.
+  String get summary => switch (use) {
+        LicenceUse.free => 'Free for any use',
+        LicenceUse.credit => 'Free to use, on conditions',
+        LicenceUse.noncommercial => 'Non-commercial use only',
+        LicenceUse.restricted => 'No licence granted',
+        LicenceUse.unclear => 'Licence unclear',
+      };
+}
+
+/// One download that holds many voices (Kokoro, Kitten): its speakers share
+/// the model, so it is downloaded, tested and removed as one.
+class NeuralPack {
+  const NeuralPack({
+    required this.id,
+    required this.kind,
+    required this.name,
+    required this.file,
+    required this.bytes,
+    required this.sampleRate,
+    this.blurb = '',
+    this.minMemoryMb = 0,
+    this.mustKeepUp = false,
+    this.licence = VoiceLicence.unknown,
+  });
+
+  /// The release's name for it, and its folder: "kokoro-multi-lang-v1_0".
+  final String id;
+  final NeuralKind kind;
+  final String name;
+  final String blurb;
+
+  /// The model in its folder: "model.onnx".
+  final String file;
+  final int bytes;
+  final int sampleRate;
+
+  /// Not offered on a phone with less memory than this (Kokoro holds about
+  /// 850 MB while it reads).
+  final int minMemoryMb;
+
+  /// Offered for reading only once this phone's speed test shows it keeps
+  /// up: on many phones it cannot.
+  final bool mustKeepUp;
+  final VoiceLicence licence;
+
+  int get sizeMb => (bytes / 1048576).round();
+
+  String get url => '$_release/$id.tar.bz2';
+
+  factory NeuralPack.fromJson(Map<String, Object?> j) => NeuralPack(
+        id: j['id']! as String,
+        kind: NeuralKind.parse(j['engine'] as String?),
+        name: j['name'] as String? ?? '',
+        blurb: j['blurb'] as String? ?? '',
+        file: j['file'] as String? ?? 'model.onnx',
+        bytes: (j['bytes'] as num?)?.toInt() ?? 0,
+        sampleRate: (j['sampleRate'] as num?)?.toInt() ?? 24000,
+        minMemoryMb: (j['minMemoryMb'] as num?)?.toInt() ?? 0,
+        mustKeepUp: j['mustKeepUp'] == true,
+        licence: VoiceLicence.fromJson(j['licence']),
+      );
+}
+
+/// A natural voice that runs on the phone, made into speech by sherpa-onnx:
+/// a Piper model, or one speaker of a model that holds many (Kokoro,
+/// Kitten). Downloaded only when chosen; the phone's own voices stay the
+/// default and cost nothing.
+class NeuralVoice {
+  const NeuralVoice(
+    this.id,
+    this.name,
+    this.locale,
+    this.bytes, {
+    this.quality = 'medium',
+    this.sampleRate = 22050,
+    this.speakers = 1,
+    this.blurb = '',
+    this.sample = '',
+    this.licence = VoiceLicence.unknown,
+    this.kind = NeuralKind.piper,
+    this.pack,
+    this.sid = 0,
+    this.lang = '',
+    this.lexicon = false,
+    this.grade = '',
+    this.gender = '',
+  });
+
+  /// Piper's name for it, "en_US-kristin-medium"; a speaker of a shared
+  /// model is "kokoro-multi-lang-v1_0:hf_alpha".
   final String id;
   final String name;
-  final String locale;
-  final int sizeMb;
 
-  /// The high-quality model: richer, larger and slower.
-  final bool hd;
+  /// "en-US", "hi-IN".
+  final String locale;
+
+  /// The download: this voice's own, or the model it shares.
+  final int bytes;
+
+  /// Piper's grades: x_low, low, medium, high.
+  final String quality;
+
+  /// Samples a second its model makes: 16,000 for Piper's low voices,
+  /// 22,050 for most, 24,000 for Kokoro and Kitten, 44,100 for a few.
+  final int sampleRate;
+  final int speakers;
   final String blurb;
+
+  /// A recording of it, to hear before downloading.
+  final String sample;
+  final VoiceLicence licence;
+  final NeuralKind kind;
+
+  /// The model this speaker shares (Kokoro, Kitten), and its number there.
+  final NeuralPack? pack;
+  final int sid;
+
+  /// The language its text is read in (Kokoro's speakers: espeak-ng's
+  /// "hi", "en-gb"); empty for a model that knows its own.
+  final String lang;
+
+  /// Read through a lexicon and rules rather than espeak-ng (two Chinese
+  /// Piper voices).
+  final bool lexicon;
+
+  /// Its makers' grade (Kokoro), and whose voice it is, where they say.
+  final String grade;
+  final String gender;
 
   /// The name voices go by in the app (see [neuralPrefix]).
   String get voiceName => '$neuralPrefix$id';
 
-  /// The full-precision model. The half-size (fp16) ones crash the engine on
-  /// phones: ONNX Runtime has no fp16 kernel for one of their layers on CPU
-  /// (found on the phone).
-  String get url => 'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-$id.tar.bz2';
+  /// What its download, folder and loaded model go by: its own id, or the
+  /// model it shares.
+  String get modelId => pack?.id ?? id;
 
-  /// Piper's own recording of this voice (about 100 KB), to hear before
-  /// downloading it: en_US-kristin-medium is en/en_US/kristin/medium.
-  String get sampleUrl {
+  int get sizeMb => (bytes / 1048576).round();
+
+  /// The high-quality models: richer, larger and slower.
+  bool get hd => quality == 'high';
+
+  String get url => pack?.url ?? '$_release/vits-piper-$id.tar.bz2';
+
+  /// Its model in its folder.
+  String get modelFile => pack?.file ?? '$id.onnx';
+
+  /// A recording of it (about 100 KB) to hear before downloading; empty for
+  /// the one voice nobody has recorded a sample of.
+  String get sampleUrl => sample;
+
+  /// Piper's own recording of one of its voices: en_US-kristin-medium is
+  /// en/en_US/kristin/medium.
+  static String piperSample(String id) {
     final parts = id.split('-');
     final lang = parts.first.split('_').first;
     return 'https://huggingface.co/rhasspy/piper-voices/resolve/main/$lang/${parts.join('/')}/samples/speaker_0.mp3';
   }
+
+  /// "en", "hi".
+  String get language => locale.split(RegExp('[-_]')).first.toLowerCase();
+
+  /// "US", "IN"; empty when it names none.
+  String get region {
+    final parts = locale.split(RegExp('[-_]'));
+    return parts.length > 1 ? parts[1].toUpperCase() : '';
+  }
+
+  /// The catalog's entry; a speaker names its model, which must be in [packs].
+  static NeuralVoice? fromJson(Map<String, Object?> j, Map<String, NeuralPack> packs) {
+    final packId = j['pack'] as String?;
+    final pack = packId == null ? null : packs[packId];
+    if (packId != null && pack == null) return null;
+    return NeuralVoice(
+      j['id']! as String,
+      j['name'] as String? ?? '',
+      j['locale'] as String? ?? '',
+      (j['bytes'] as num?)?.toInt() ?? pack?.bytes ?? 0,
+      quality: j['quality'] as String? ?? 'medium',
+      sampleRate: (j['sampleRate'] as num?)?.toInt() ?? pack?.sampleRate ?? 22050,
+      speakers: (j['speakers'] as num?)?.toInt() ?? 1,
+      blurb: j['blurb'] as String? ?? '',
+      sample: j['sample'] as String? ?? '',
+      licence: VoiceLicence.fromJson(j['licence']),
+      kind: NeuralKind.parse(j['engine'] as String?),
+      pack: pack,
+      sid: (j['sid'] as num?)?.toInt() ?? 0,
+      lang: j['lang'] as String? ?? '',
+      lexicon: j['frontend'] == 'lexicon',
+      grade: j['grade'] as String? ?? '',
+      gender: j['gender'] as String? ?? '',
+    );
+  }
 }
+
+/// The natural voices on offer, as tools/voice_catalog.py wrote them into
+/// the app (assets/voices/catalog.json): every voice in sherpa-onnx's release
+/// in full precision, with its language, size and sample rate, and the
+/// licence of the recordings it learned from. Nothing is listed from
+/// upstream at run time (docs/06 section 6.4).
+class NeuralCatalog {
+  NeuralCatalog(this.voices, this.packs) : _byId = {for (final v in voices) v.id: v};
+
+  final List<NeuralVoice> voices;
+  final Map<String, NeuralPack> packs;
+  final Map<String, NeuralVoice> _byId;
+
+  static const asset = 'assets/voices/catalog.json';
+
+  NeuralVoice? byId(String id) => _byId[id];
+
+  /// [language]'s voices, in the catalog's order.
+  List<NeuralVoice> forLanguage(String language) => [
+        for (final v in voices)
+          if (v.language == language) v,
+      ];
+
+  /// Every language with a voice.
+  Set<String> get languages => {for (final v in voices) v.language};
+
+  /// The speakers [pack] holds.
+  List<NeuralVoice> speakersOf(NeuralPack pack) => [
+        for (final v in voices)
+          if (v.pack?.id == pack.id) v,
+      ];
+
+  static NeuralCatalog parse(String text) {
+    final json = jsonDecode(text) as Map<String, Object?>;
+    final packs = <String, NeuralPack>{
+      for (final p in (json['packs'] as List? ?? const []).cast<Map<String, Object?>>())
+        p['id']! as String: NeuralPack.fromJson(p),
+    };
+    return NeuralCatalog([
+      for (final v in (json['voices'] as List? ?? const []).cast<Map<String, Object?>>())
+        if (NeuralVoice.fromJson(v, packs) case final voice?) voice,
+    ], packs);
+  }
+
+  /// Read from the app's files. As bytes, decoded here: loadString hands a
+  /// file this size to another isolate, and tests never see that finish.
+  static Future<NeuralCatalog> load([AssetBundle? bundle]) async {
+    final data = await (bundle ?? rootBundle).load(asset);
+    return parse(utf8.decode(Uint8List.sublistView(data)));
+  }
+}
+
+/// The first natural voices, known before the catalog is read (a moment
+/// after start): a book set to one finds it from the first moment, and so
+/// would an app whose catalog could not be read.
+final firstNeuralVoices = [
+  for (final (id, name, locale, bytes, blurb) in const [
+    ('en_US-kristin-medium', 'Kristin', 'en-US', 67259230, 'Warm and clear'),
+    ('en_US-norman-medium', 'Norman', 'en-US', 67203672, 'Calm, a little deep'),
+    ('en_GB-alan-medium', 'Alan', 'en-GB', 67220121, 'Steady British reader'),
+    ('en_GB-jenny_dioco-medium', 'Jenny (Dioco)', 'en-GB', 67225842, 'Bright British voice'),
+    ('en_GB-cori-medium', 'Cori', 'en-GB', 67257412, 'Soft and expressive'),
+    ('en_US-lessac-high', 'Lessac', 'en-US', 115545841, 'The richest, needs a faster phone'),
+    ('en_US-ryan-high', 'Ryan', 'en-US', 115630708, 'Deep and full, needs a faster phone'),
+  ])
+    NeuralVoice(id, name, locale, bytes,
+        quality: id.endsWith('-high') ? 'high' : 'medium', blurb: blurb, sample: NeuralVoice.piperSample(id)),
+];
 
 /// Voice names that start with this are TomeVoice's own, not the phone's.
 const neuralPrefix = 'neural:';
 
 bool isNeural(String? voiceName) => voiceName?.startsWith(neuralPrefix) ?? false;
 
-/// The voices on offer: English for now.
-const neuralVoices = [
-  NeuralVoice('en_US-kristin-medium', 'Kristin', 'en-US', 64, blurb: 'Warm and clear'),
-  NeuralVoice('en_US-norman-medium', 'Norman', 'en-US', 64, blurb: 'Calm, a little deep'),
-  NeuralVoice('en_GB-alan-medium', 'Alan', 'en-GB', 64, blurb: 'Steady British reader'),
-  NeuralVoice('en_GB-jenny_dioco-medium', 'Jenny', 'en-GB', 64, blurb: 'Bright British voice'),
-  NeuralVoice('en_GB-cori-medium', 'Cori', 'en-GB', 64, blurb: 'Soft and expressive'),
-  NeuralVoice('en_US-lessac-high', 'Lessac', 'en-US', 110, hd: true, blurb: 'The richest, needs a faster phone'),
-  NeuralVoice('en_US-ryan-high', 'Ryan', 'en-US', 110, hd: true, blurb: 'Deep and full, needs a faster phone'),
-];
+/// The voices on offer: the catalog's, or the first ones until it is read.
+List<NeuralVoice> get neuralVoices => NeuralVoices.instance.catalog?.voices ?? firstNeuralVoices;
 
 NeuralVoice? neuralVoiceFor(String? voiceName) {
   if (!isNeural(voiceName)) return null;
-  final id = voiceName!.substring(neuralPrefix.length);
-  return neuralVoices.where((v) => v.id == id).firstOrNull;
+  return NeuralVoices.instance.byId(voiceName!.substring(neuralPrefix.length));
 }
 
-/// Where voices are kept, and which are here.
+/// Where voices are kept, which are here, and what this phone measured
+/// each to manage.
 class NeuralVoices extends ChangeNotifier {
   NeuralVoices._();
 
@@ -72,26 +372,87 @@ class NeuralVoices extends ChangeNotifier {
 
   Directory? _dir;
 
-  /// Voice id -> download progress (0..1), while downloading.
+  /// Download (a voice's own, or a shared model's: [NeuralVoice.modelId]) ->
+  /// progress (0..1), while downloading.
   final downloading = <String, double>{};
 
   Directory get dir => _dir ?? Directory.systemTemp;
 
+  NeuralCatalog? _catalog;
+  Future<NeuralCatalog>? _loading;
+
+  /// The catalog, once read; null for the moment before.
+  NeuralCatalog? get catalog => _catalog;
+
+  /// The catalog, read once from the app's files.
+  Future<NeuralCatalog> get ready => _loading ??= _readCatalog();
+
+  Future<NeuralCatalog> _readCatalog() async {
+    NeuralCatalog read;
+    try {
+      read = await NeuralCatalog.load();
+    } on Object catch (e) {
+      debugPrint('Natural voices: the catalog could not be read ($e)');
+      read = NeuralCatalog(firstNeuralVoices, const {});
+    }
+    // One given meanwhile (a test's) stands.
+    final given = _catalog;
+    if (given != null) return given;
+    _catalog = read;
+    notifyListeners();
+    return read;
+  }
+
+  /// Use [c] as the catalog.
+  @visibleForTesting
+  void useCatalog(NeuralCatalog c) {
+    _catalog = c;
+    _loading = Future.value(c);
+    notifyListeners();
+  }
+
+  static final _first = {for (final v in firstNeuralVoices) v.id: v};
+
+  NeuralVoice? byId(String id) {
+    final known = _catalog?.byId(id) ?? _first[id];
+    if (known != null) return known;
+    // On the phone but not in this catalog (a later one left it out): a
+    // Piper voice is all in its folder, so it still reads.
+    if (_installedFolders.contains('piper-$id')) return _inferred(id);
+    return null;
+  }
+
+  /// A Piper voice known only by its id: "de_DE-thorsten-high".
+  static NeuralVoice _inferred(String id) {
+    final m = RegExp(r'^([a-z]{2,3})_([A-Z]{2})-(.+)-(x_low|low|medium|high)$').firstMatch(id);
+    if (m == null) return NeuralVoice(id, id, 'und', 0);
+    final name = m.group(3)!.replaceAll('_', ' ');
+    return NeuralVoice(id, name[0].toUpperCase() + name.substring(1), '${m.group(1)}-${m.group(2)}', 0,
+        quality: m.group(4)!, sample: NeuralVoice.piperSample(id));
+  }
+
   void attach(Directory root) {
     _dir = Directory('${root.path}/voices');
+    _here = null;
+    _speeds.clear();
     // Folders from an earlier format (the fp16 models, which crash the
-    // engine) or an unfinished unpacking are not voices: clear them. A
-    // download cut short is kept, to go on from where it stopped.
+    // engine) or an unfinished unpacking are not voices: clear them, and a
+    // voice folder left without its model (removed while the engine still
+    // read through it, see [remove]). A download cut short is kept, to go
+    // on from where it stopped.
     try {
       for (final e in dir.listSync()) {
-        final name = e.uri.pathSegments.where((s) => s.isNotEmpty).last;
-        if ((!name.startsWith('piper-') && !name.endsWith(_partial)) || name.endsWith('.unpacking')) {
+        final name = _nameOf(e);
+        if (e is Directory && _isVoiceFolder(name)) {
+          if (!_hasModel(e)) e.deleteSync(recursive: true);
+        } else if (!name.endsWith(_partial)) {
           e.deleteSync(recursive: true);
         }
       }
     } on Object {
       // No voices folder yet.
     }
+    unawaited(ready);
   }
 
   static const _partial = '.tar.bz2.part';
@@ -100,11 +461,120 @@ class NeuralVoices extends ChangeNotifier {
   /// go on from there (it once sat at "Downloading n%" for good).
   static const stallAfter = Duration(seconds: 30);
 
-  Directory folder(NeuralVoice v) => Directory('${dir.path}/piper-${v.id}');
+  static String _nameOf(FileSystemEntity e) => e.uri.pathSegments.where((s) => s.isNotEmpty).last;
 
-  bool installed(NeuralVoice v) => File('${folder(v).path}/${v.id}.onnx').existsSync();
+  /// A voice's folder: "piper-<id>", or a shared model's own name.
+  static bool _isVoiceFolder(String name) =>
+      !name.endsWith('.unpacking') &&
+      (name.startsWith('piper-') || name.startsWith('kokoro-') || name.startsWith('kitten-'));
 
-  List<NeuralVoice> get installedVoices => [for (final v in neuralVoices) if (installed(v)) v];
+  /// Whether [folder] holds its model: a Piper voice's "<id>.onnx", or a
+  /// shared model's.
+  static bool _hasModel(Directory folder) {
+    final name = _nameOf(folder);
+    if (name.startsWith('piper-')) return File('${folder.path}/${name.substring(6)}.onnx').existsSync();
+    try {
+      return folder.listSync().any((f) => f is File && f.path.endsWith('.onnx'));
+    } on Object {
+      return false;
+    }
+  }
+
+  /// The folders that hold a voice, read once and again after each change:
+  /// the screens ask on every frame.
+  Set<String>? _here;
+
+  /// Not yet told where voices are kept ([attach]): none, rather than
+  /// whatever is in the system's temporary folder, and nothing remembered.
+  Set<String> get _installedFolders => _dir == null ? const {} : _here ??= _scan();
+
+  Set<String> _scan() {
+    try {
+      return {
+        for (final e in dir.listSync())
+          if (e is Directory && _isVoiceFolder(_nameOf(e)) && _hasModel(e)) _nameOf(e),
+      };
+    } on Object {
+      return {};
+    }
+  }
+
+  String folderName(NeuralVoice v) => v.pack?.id ?? 'piper-${v.id}';
+
+  Directory folder(NeuralVoice v) => Directory('${dir.path}/${folderName(v)}');
+
+  bool installed(NeuralVoice v) => _installedFolders.contains(folderName(v));
+
+  /// Every voice on the phone: the catalog's, then any it no longer lists.
+  List<NeuralVoice> get installedVoices {
+    final here = _installedFolders;
+    final known = neuralVoices;
+    final ids = {for (final v in known) v.id};
+    return [
+      for (final v in known)
+        if (here.contains(folderName(v))) v,
+      for (final f in here)
+        if (f.startsWith('piper-') && !ids.contains(f.substring(6))) _inferred(f.substring(6)),
+    ];
+  }
+
+  /// Whether [v] may read: on the phone, and, for a model that must keep up
+  /// (Kokoro), shown by this phone's speed test to keep up. One that does
+  /// not is not offered: it would leave pauses between sentences.
+  bool readable(NeuralVoice v) {
+    if (!installed(v)) return false;
+    final pack = v.pack;
+    return pack == null || !pack.mustKeepUp || keepsUp(speedOf(v));
+  }
+
+  /// The voices the voice picker offers.
+  List<NeuralVoice> get readableVoices => [
+        for (final v in installedVoices)
+          if (readable(v)) v,
+      ];
+
+  /// Whether [speed] (seconds of speech made per second of work) keeps up
+  /// with reading aloud, with a little to spare.
+  static bool keepsUp(double? speed) => speed != null && speed >= 1.05;
+
+  /// What the speed test measured for each model on this phone: kept in the
+  /// model's folder, so it is known next time and goes with the voice.
+  final _speeds = <String, double?>{};
+  static const _speedFile = 'speed-test.txt';
+
+  double? speedOf(NeuralVoice v) {
+    final key = v.modelId;
+    if (_speeds.containsKey(key)) return _speeds[key];
+    double? s;
+    try {
+      final f = File('${folder(v).path}/$_speedFile');
+      if (f.existsSync()) s = double.tryParse(f.readAsStringSync().trim());
+    } on Object {
+      // Not measured, as far as anyone can tell.
+    }
+    return _speeds[key] = s;
+  }
+
+  Future<void> rememberSpeed(NeuralVoice v, double speed) async {
+    _speeds[v.modelId] = speed;
+    notifyListeners();
+    try {
+      await File('${folder(v).path}/$_speedFile').writeAsString(speed.toStringAsFixed(3));
+    } on Object {
+      // Measured again next time.
+    }
+  }
+
+  /// Whether this phone has the memory [pack] needs.
+  bool fits(NeuralPack pack) =>
+      pack.minMemoryMb <= 0 || (NeuralEngine.instance.memoryMb ?? 0) >= pack.minMemoryMb;
+
+  /// [language]'s voices this phone can have: all of Piper's, and a bigger
+  /// model's only where the phone has the memory for it.
+  List<NeuralVoice> offeredFor(String language) => [
+        for (final v in _catalog?.forLanguage(language) ?? const <NeuralVoice>[])
+          if (v.pack == null || fits(v.pack!)) v,
+      ];
 
   /// Downloads called off from the screen, and the connections they use.
   final _cancelled = <String>{};
@@ -112,12 +582,14 @@ class NeuralVoices extends ChangeNotifier {
 
   /// Stop downloading [v] (at once, data coming or not); what came is deleted.
   void cancel(NeuralVoice v) {
-    if (!downloading.containsKey(v.id)) return;
-    _cancelled.add(v.id);
-    _clients[v.id]?.close(force: true);
+    final key = v.modelId;
+    if (!downloading.containsKey(key)) return;
+    _cancelled.add(key);
+    _clients[key]?.close(force: true);
   }
 
-  /// Fetch [v] and unpack it, reporting progress; the archive is not kept.
+  /// Fetch [v] (a shared model's speaker: the whole model) and unpack it,
+  /// reporting progress; the archive is not kept.
   ///
   /// A download cut short (a lost connection, a stall) keeps what came, and
   /// the next one asks the server only for the rest. Before unpacking, the
@@ -126,13 +598,14 @@ class NeuralVoices extends ChangeNotifier {
   /// Throws [DownloadCancelled] when called off with [cancel]. [source] and
   /// [stall] stand in for the voice's address and [stallAfter] in tests.
   Future<void> download(NeuralVoice v, {@visibleForTesting Uri? source, Duration stall = stallAfter}) async {
-    if (downloading.containsKey(v.id)) return;
-    _cancelled.remove(v.id);
-    downloading[v.id] = 0;
+    final key = v.modelId;
+    if (downloading.containsKey(key)) return;
+    _cancelled.remove(key);
+    downloading[key] = 0;
     notifyListeners();
-    final part = File('${dir.path}/${v.id}$_partial');
+    final part = File('${dir.path}/$key$_partial');
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 20);
-    _clients[v.id] = client;
+    _clients[key] = client;
     var keepPart = true;
     try {
       await dir.create(recursive: true);
@@ -155,13 +628,13 @@ class NeuralVoices extends ChangeNotifier {
         final total = resumed ? _totalOf(res.headers.value(HttpHeaders.contentRangeHeader)) : res.contentLength;
         final sink = part.openWrite(mode: resumed ? FileMode.append : FileMode.write);
         var got = from;
-        final expected = total > 0 ? total : v.sizeMb * 1024 * 1024;
+        final expected = total > 0 ? total : math.max(1, v.bytes);
         try {
           await for (final chunk in res.timeout(stall)) {
-            if (_cancelled.contains(v.id)) throw const DownloadCancelled();
+            if (_cancelled.contains(key)) throw const DownloadCancelled();
             sink.add(chunk);
             got += chunk.length;
-            downloading[v.id] = 0.9 * (got / expected).clamp(0.0, 1.0);
+            downloading[key] = 0.9 * (got / expected).clamp(0.0, 1.0);
             notifyListeners();
           }
         } finally {
@@ -171,28 +644,34 @@ class NeuralVoices extends ChangeNotifier {
         break;
       }
       // Unpacking a few hundred files takes a moment: off the screen's isolate.
-      // Only the two paths go across: a closure that held this object (and
+      // Only plain values go across: a closure that held this object (and
       // so the screens listening to it) cannot be sent to another isolate.
       final from = part.path;
       final into = folder(v).path;
-      final model = '${v.id}.onnx';
+      final model = v.modelFile;
+      final shared = v.pack != null;
       // A broken archive is not worth resuming: it starts over next time.
       keepPart = false;
-      await Isolate.run(() => _unpack(from, into, model));
-      downloading.remove(v.id);
+      await Isolate.run(() => _unpack(from, into, model, shared: shared));
+      _here = null;
+      _speeds.remove(key);
+      downloading.remove(key);
       notifyListeners();
     } on Object {
       // Called off: whatever the closed connection threw, it is that.
-      final cancelled = _cancelled.remove(v.id);
+      final cancelled = _cancelled.remove(key);
       if (cancelled) keepPart = false;
-      downloading.remove(v.id);
+      downloading.remove(key);
+      _here = null;
       final f = folder(v);
-      if (!installed(v) && await f.exists()) await f.delete(recursive: true);
+      if (!installed(v) && !NeuralEngine.instance.readsThrough(f) && await f.exists()) {
+        await f.delete(recursive: true);
+      }
       notifyListeners();
       if (cancelled) throw const DownloadCancelled();
       rethrow;
     } finally {
-      _clients.remove(v.id);
+      _clients.remove(key);
       client.close(force: true);
       if (!keepPart && await part.exists()) await part.delete();
     }
@@ -211,20 +690,46 @@ class NeuralVoices extends ChangeNotifier {
     return n;
   }
 
-  /// Every voice off the phone, and the folder with them.
+  /// Every voice off the phone.
   Future<void> removeAll() async {
     for (final v in installedVoices) {
       await NeuralEngine.instance.unload(v);
     }
-    if (await dir.exists()) await dir.delete(recursive: true);
+    if (await dir.exists()) {
+      for (final e in await dir.list().toList()) {
+        if (e is Directory) {
+          await _clear(e);
+        } else {
+          await e.delete();
+        }
+      }
+    }
+    _here = null;
+    _speeds.clear();
     notifyListeners();
   }
 
   Future<void> remove(NeuralVoice v) async {
     await NeuralEngine.instance.unload(v);
-    final f = folder(v);
-    if (await f.exists()) await f.delete(recursive: true);
+    await _clear(folder(v));
+    _here = null;
+    _speeds.remove(v.modelId);
     notifyListeners();
+  }
+
+  /// Delete [f]. The engine reads every voice's pronunciation through the
+  /// data of the first voice it loaded this run (espeak-ng starts once), so
+  /// that voice's espeak-ng-data stays until the app next starts ([attach]
+  /// clears it), or every other voice would fall silent until then.
+  static Future<void> _clear(Directory f) async {
+    if (!await f.exists()) return;
+    if (!NeuralEngine.instance.readsThrough(f)) {
+      await f.delete(recursive: true);
+      return;
+    }
+    for (final e in await f.list().toList()) {
+      if (_nameOf(e) != 'espeak-ng-data') await e.delete(recursive: true);
+    }
   }
 }
 
@@ -238,8 +743,9 @@ class DownloadCancelled implements Exception {
 /// out of that), so memory stays small however large the voice: reading it
 /// whole took about four times its size. The bz2's own checksums are
 /// checked, and the voice must have its [model], its tokens and its
-/// pronunciation data, or nothing is kept (a half voice crashed the engine).
-void _unpack(String archive, String into, String model) {
+/// pronunciation data (espeak-ng's, or a lexicon), and a [shared] model its
+/// speakers, or nothing is kept (a half voice crashed the engine).
+void _unpack(String archive, String into, String model, {bool shared = false}) {
   final tarPath = '$archive.tar';
   final work = Directory('$into.unpacking');
   try {
@@ -266,10 +772,13 @@ void _unpack(String archive, String into, String model) {
       tarIn.closeSync();
     }
     final onnx = File('${work.path}/$model');
+    final espeak = Directory('${work.path}/espeak-ng-data').existsSync();
+    final lexicon = File('${work.path}/lexicon.txt').existsSync();
     if (!onnx.existsSync() ||
         onnx.lengthSync() < 1024 * 1024 ||
         !File('${work.path}/tokens.txt').existsSync() ||
-        !Directory('${work.path}/espeak-ng-data').existsSync()) {
+        !(espeak || (lexicon && !shared)) ||
+        (shared && !File('${work.path}/voices.bin').existsSync())) {
       throw const FormatException('The voice arrived incomplete. Download it again.');
     }
     final out = Directory(into);
@@ -312,15 +821,33 @@ class NeuralEngine {
   int _cancels = 0;
 
   /// Loaded voices are let go after this long unused: a model holds a
-  /// hundred MB or more, kept after the reader switched voice or stopped.
+  /// hundred MB or more, kept after the reader stopped or paused.
   static const idleUnload = Duration(minutes: 3);
   Timer? _idle;
+
+  /// [idleUnload], or less in a test.
+  @visibleForTesting
+  Duration idleAfter = idleUnload;
+
+  /// The models the worker may be holding: asked for since it last let go
+  /// of them all.
+  final _asked = <String>{};
+
+  /// Run in place of the worker isolate, on this one (tests): handed the
+  /// port the engine hears on, it answers as the worker does.
+  @visibleForTesting
+  static void Function(SendPort out)? workerForTests;
 
   /// How many voices stay loaded at once: two on a phone with the memory
   /// for it (about 6 GB), so a natural narrator and a natural dialogue voice
   /// do not take turns reloading at every quote (a second or two each, more
   /// for HD); one elsewhere.
-  late final int slots = slotsFor(_memTotalKb());
+  int get slots => slotsForTests ?? _slots;
+  late final int _slots = slotsFor(_memTotalKb());
+
+  /// [slots] for a test's phone.
+  @visibleForTesting
+  int? slotsForTests;
 
   /// Whether two natural voices (a narrator and a dialogue voice) can stay
   /// loaded together on this phone.
@@ -328,6 +855,14 @@ class NeuralEngine {
 
   @visibleForTesting
   static int slotsFor(int? memTotalKb) => (memTotalKb ?? 0) >= 5200 * 1024 ? 2 : 1;
+
+  /// The phone's memory in MB as Linux counts it (a 6 GB phone says about
+  /// 5,600); null where it cannot be read.
+  int? get memoryMb => memoryForTests ?? _memoryMb;
+  late final int? _memoryMb = switch (_memTotalKb()) { final kb? => kb ~/ 1024, null => null };
+
+  @visibleForTesting
+  int? memoryForTests;
 
   static int? _memTotalKb() {
     try {
@@ -337,6 +872,20 @@ class NeuralEngine {
       return null;
     }
   }
+
+  /// The folder whose espeak-ng-data the engine reads every voice's
+  /// pronunciation through: the first one loaded this run (sherpa-onnx
+  /// starts espeak-ng once a process).
+  String? _espeakHome;
+
+  /// Whether the engine reads through [folder]'s espeak-ng-data, which must
+  /// then stay until the app next starts.
+  bool readsThrough(Directory folder) => _espeakHome != null && _same(folder.path, _espeakHome!);
+
+  @visibleForTesting
+  set espeakHomeForTests(String? path) => _espeakHome = path;
+
+  static bool _same(String a, String b) => a.replaceAll(r'\', '/') == b.replaceAll(r'\', '/');
 
   Future<SendPort> _port() => _starting ??= _spawn();
 
@@ -365,17 +914,29 @@ class NeuralEngine {
       }
     });
     try {
-      _isolate = await Isolate.spawn(
-        _workerMain,
-        inbox.sendPort,
-        debugName: 'neural-voice',
-        onError: inbox.sendPort,
-        onExit: inbox.sendPort,
-      );
+      final stand = workerForTests;
+      if (stand != null) {
+        stand(inbox.sendPort);
+      } else {
+        _isolate = await Isolate.spawn(
+          _workerMain,
+          inbox.sendPort,
+          debugName: 'neural-voice',
+          onError: inbox.sendPort,
+          onExit: inbox.sendPort,
+        );
+      }
     } on Object catch (e) {
       _died('it could not start: $e', ready);
     }
     return _worker = await ready.future;
+  }
+
+  /// Let the worker go (tests): the next sentence starts another.
+  @visibleForTesting
+  void forgetWorkerForTests() {
+    _idle?.cancel();
+    _died('let go by a test');
   }
 
   /// The worker is gone: every sentence waiting on it fails (and is read in
@@ -389,6 +950,7 @@ class NeuralEngine {
     _worker = null;
     _starting = null;
     _busyThreads = const [];
+    _asked.clear();
     final waiting = Map.of(_waiting);
     _waiting.clear();
     for (final done in waiting.values) {
@@ -417,8 +979,8 @@ class NeuralEngine {
     }
   }
 
-  /// Long enough for a model to load (longer for HD on a slow phone) and a
-  /// piece to be made at no faster than real time.
+  /// Long enough for a model to load (longer for HD or Kokoro on a slow
+  /// phone) and a piece to be made at no faster than real time.
   static Duration _timeoutFor(String text) => Duration(seconds: 45, milliseconds: 150 * text.length);
 
   /// Call off the sentence being made: it stops before its next piece, and
@@ -432,9 +994,23 @@ class NeuralEngine {
 
   void _armIdle() {
     _idle?.cancel();
-    _idle = Timer(idleUnload, () {
+    _idle = Timer(idleAfter, () {
+      _asked.clear();
       _worker?.send({'id': -1, 'op': 'unload', 'model': null});
     });
+  }
+
+  /// The natural voices reading uses now, [voices] (its narrator, and a
+  /// dialogue voice): any other the worker holds is let go at once, before
+  /// the next one loads. A voice switched away from stayed until it had gone
+  /// unused for [idleUnload], which on a phone that holds two voices was
+  /// never, as long as reading went on.
+  void keepOnly(Iterable<NeuralVoice> voices) {
+    final keep = {for (final v in voices) v.modelId};
+    final worker = _worker;
+    if (worker == null || _asked.every(keep.contains)) return;
+    _asked.retainAll(keep);
+    worker.send({'id': -1, 'op': 'unload', 'keep': [...keep]});
   }
 
   /// Say [text] in [voice] at [speed]; a WAV in [outDir], as the phone's
@@ -458,6 +1034,8 @@ class NeuralEngine {
     _idle?.cancel();
     final parts = pieces ? clausePieces(text) : [(start: 0, text: text)];
     final job = _next++;
+    final dir = NeuralVoices.instance.folder(voice).path;
+    _asked.add(voice.modelId);
     try {
       for (var k = 0; k < parts.length; k++) {
         if (_cancels != cancels) throw PlatformException(code: 'TTS_STOPPED', message: 'Synthesis cancelled');
@@ -466,8 +1044,12 @@ class NeuralEngine {
           'op': 'say',
           'job': job,
           'last': last,
-          'dir': NeuralVoices.instance.folder(voice).path,
-          'model': voice.id,
+          'dir': dir,
+          'model': voice.modelId,
+          'kind': voice.kind.name,
+          'file': voice.modelFile,
+          'sid': voice.sid,
+          'lang': voice.lang,
           'text': parts[k].text,
           'speed': speed,
           'urgent': urgent,
@@ -475,6 +1057,9 @@ class NeuralEngine {
           'out': '$outDir/neural-$job.wav',
         }, _timeoutFor(parts[k].text));
         if (r['error'] != null) throw Exception(r['error']);
+        // The first voice to load and speak this run is the one espeak-ng
+        // reads every voice's pronunciation through ([readsThrough]).
+        if (!voice.lexicon) _espeakHome ??= dir;
         final loadMs = r['loadMs'] as int? ?? 0;
         if (loadMs > 0) debugPrint('Natural voice ${voice.id}: loaded in $loadMs ms');
         if (!last) continue;
@@ -503,11 +1088,11 @@ class NeuralEngine {
   /// read aloud does not wait for the model (a second or two, longer for
   /// HD) or for the engine's slower first run. Done at low priority.
   Future<void> warm(NeuralVoice voice) async {
-    if (!NeuralVoices.instance.installed(voice)) return;
+    if (!NeuralVoices.instance.readable(voice)) return;
     try {
       final r = await synthesise(
         voice: voice,
-        text: 'Hi.',
+        text: voice.language == 'zh' ? _helloZh : 'Hi.',
         speed: 1,
         outDir: Directory.systemTemp.path,
         urgent: false,
@@ -519,31 +1104,55 @@ class NeuralEngine {
   }
 
   /// Seconds of speech made per second of work for [voice] on this phone,
-  /// from one long sentence: above 1 it keeps up with reading aloud.
+  /// from one long sentence: above 1 it keeps up with reading aloud. The
+  /// length is read at the voice's own sample rate (16,000 to 44,100 a
+  /// second), from the WAV it made.
   Future<double> measure(NeuralVoice voice, String outDir) async {
-    const text = 'It was a bright cold day in April, and the clocks were striking thirteen, '
-        'while the wind swept little eddies of dust and torn paper into spirals along the street.';
+    // A shared model does the same work in any of its voices: measured in an
+    // English one, as the sentence is English.
+    final pack = voice.pack;
+    if (pack != null && voice.language != 'en') {
+      voice = NeuralVoices.instance.catalog?.speakersOf(pack).where((v) => v.language == 'en').firstOrNull ?? voice;
+    }
+    // A Chinese voice reads through a Chinese lexicon: English is lost on it.
+    final zh = voice.language == 'zh';
+    final text = zh
+        ? _storyZh
+        : 'It was a bright cold day in April, and the clocks were striking thirteen, '
+            'while the wind swept little eddies of dust and torn paper into spirals along the street.';
     // The first call loads the voice; time the second, made in one go.
-    final warm = await synthesise(voice: voice, text: 'Hello.', speed: 1, outDir: outDir);
+    final warm = await synthesise(voice: voice, text: zh ? _helloZh : 'Hello.', speed: 1, outDir: outDir);
     await File(warm['wavPath']! as String).delete().catchError((Object _) => File(''));
     final watch = Stopwatch()..start();
     final r = await synthesise(voice: voice, text: text, speed: 1, outDir: outDir, pieces: false);
     watch.stop();
     final wav = File(r['wavPath']! as String);
-    final seconds = (await wav.length() - 44) / 2 / 22050;
+    final bytes = await wav.readAsBytes();
     await wav.delete();
+    final seconds = wavSeconds(bytes) ?? 0;
+    if (seconds <= 0) throw StateError('The voice made no sound');
     return seconds / (watch.elapsedMilliseconds / 1000);
   }
 
   Future<void> unload(NeuralVoice voice) async {
     if (_worker == null) return;
+    _asked.remove(voice.modelId);
     try {
-      await _ask({'op': 'unload', 'model': voice.id}, const Duration(seconds: 20));
+      await _ask({'op': 'unload', 'model': voice.modelId}, const Duration(seconds: 20));
     } on Object {
       // A worker that cannot answer holds nothing worth keeping.
     }
   }
 }
+
+/// "Hello." and a sentence of a children's story, in Chinese, for a Chinese
+/// voice's warming and speed test.
+final _helloZh = String.fromCharCodes(const [0x4F60, 0x597D, 0x3002]);
+final _storyZh = String.fromCharCodes(const [
+  0x4ECE, 0x524D, 0x6709, 0x5EA7, 0x5C71, 0xFF0C, 0x5C71, 0x91CC, 0x6709, 0x5EA7, 0x5E99, 0xFF0C, //
+  0x5E99, 0x91CC, 0x6709, 0x4E2A, 0x8001, 0x548C, 0x5C1A, 0x5728, 0x7ED9, 0x5C0F, 0x548C, 0x5C1A, //
+  0x8BB2, 0x6545, 0x4E8B, 0xFF0C, 0x8BB2, 0x5F97, 0x5F88, 0x6162, 0x5F88, 0x6162, 0x3002,
+]);
 
 /// [text] cut where a voice pauses anyway (after a comma, a semicolon, a
 /// colon, a dash, a question or an exclamation) into pieces of at least
@@ -630,8 +1239,76 @@ class _Job {
   }
 }
 
+/// How to load the model a `say` message [m] asks for, from what is in its
+/// folder.
+@visibleForTesting
+sherpa.OfflineTtsConfig modelConfigFor(Map<Object?, Object?> m) {
+  final dir = m['dir']! as String;
+  final model = '$dir/${m['file'] ?? '${m['model']}.onnx'}';
+  final tokens = '$dir/tokens.txt';
+  final espeak = '$dir/espeak-ng-data';
+  final threads = Platform.numberOfProcessors >= 8 ? 4 : 2;
+  switch (m['kind']) {
+    case 'kokoro':
+      return sherpa.OfflineTtsConfig(
+        model: sherpa.OfflineTtsModelConfig(
+          kokoro: sherpa.OfflineTtsKokoroModelConfig(
+            model: model,
+            voices: '$dir/voices.bin',
+            tokens: tokens,
+            dataDir: espeak,
+            // Each speaker's own language goes with each piece; Kokoro 1.0
+            // will not load without one (the process exits).
+            lang: 'en-us',
+          ),
+          numThreads: threads,
+          debug: false,
+        ),
+        maxNumSenetences: 1,
+      );
+    case 'kitten':
+      return sherpa.OfflineTtsConfig(
+        model: sherpa.OfflineTtsModelConfig(
+          kitten: sherpa.OfflineTtsKittenModelConfig(
+            model: model,
+            voices: '$dir/voices.bin',
+            tokens: tokens,
+            dataDir: espeak,
+          ),
+          numThreads: threads,
+          debug: false,
+        ),
+        maxNumSenetences: 1,
+      );
+    default:
+      // Two Chinese voices read through a lexicon and rules for numbers and
+      // dates, where the rest use espeak-ng.
+      final lexicon = !Directory(espeak).existsSync() && File('$dir/lexicon.txt').existsSync();
+      return sherpa.OfflineTtsConfig(
+        model: sherpa.OfflineTtsModelConfig(
+          vits: sherpa.OfflineTtsVitsModelConfig(
+            model: model,
+            tokens: tokens,
+            dataDir: lexicon ? '' : espeak,
+            lexicon: lexicon ? '$dir/lexicon.txt' : '',
+          ),
+          numThreads: threads,
+          debug: false,
+        ),
+        ruleFsts: lexicon
+            ? [
+                for (final f in const ['phone.fst', 'date.fst', 'number.fst'])
+                  if (File('$dir/$f').existsSync()) '$dir/$f',
+              ].join(',')
+            : '',
+        maxNumSenetences: 1,
+      );
+  }
+}
+
 /// The worker: up to `slots` loaded voices, the one used longest ago let go
-/// first when another is needed.
+/// first when another is needed. The speakers of one model (Kokoro's, say)
+/// share it, loaded once.
 Future<void> _workerMain(SendPort out) async {
   final inbox = ReceivePort();
   try {
@@ -652,9 +1329,12 @@ Future<void> _workerMain(SendPort out) async {
     try {
       switch (m['op']) {
         case 'unload':
+          // One voice, every voice, or every voice but those still read with.
           final model = m['model'] as String?;
+          final keep = m['keep'];
           for (final key in [...loaded.keys]) {
-            if (model == null || key == model) loaded.remove(key)!.tts.free();
+            final go = keep is List ? !keep.contains(key) : model == null || key == model;
+            if (go) loaded.remove(key)!.tts.free();
           }
           out.send({'id': id});
         case 'drop':
@@ -672,24 +1352,12 @@ Future<void> _workerMain(SendPort out) async {
             while (loaded.length >= slots) {
               loaded.remove(loaded.keys.first)!.tts.free();
             }
-            final dir = m['dir'] as String;
             final watch = Stopwatch()..start();
             // Its threads start at this thread's priority; they are set for
             // each piece below.
             _setNice(tid, 0);
             final before = _threads();
-            final tts = sherpa.OfflineTts(sherpa.OfflineTtsConfig(
-              model: sherpa.OfflineTtsModelConfig(
-                vits: sherpa.OfflineTtsVitsModelConfig(
-                  model: '$dir/$model.onnx',
-                  tokens: '$dir/tokens.txt',
-                  dataDir: '$dir/espeak-ng-data',
-                ),
-                numThreads: Platform.numberOfProcessors >= 8 ? 4 : 2,
-                debug: false,
-              ),
-              maxNumSenetences: 1,
-            ));
+            final tts = sherpa.OfflineTts(modelConfigFor(m));
             engine = _Engine(tts, [for (final t in _threads()) if (!before.contains(t)) t]);
             loadMs = watch.elapsedMilliseconds;
           }
@@ -701,16 +1369,27 @@ Future<void> _workerMain(SendPort out) async {
           for (final t in [tid, ...engine.threads]) {
             _setNice(t, nice);
           }
+          final lang = m['lang'] as String? ?? '';
           final sherpa.GeneratedAudio audio;
           try {
-            audio = engine.tts.generate(text: m['text'] as String, sid: 0, speed: (m['speed'] as num).toDouble());
+            audio = engine.tts.generateWithConfig(
+              text: m['text'] as String,
+              config: sherpa.OfflineTtsGenerationConfig(
+                sid: m['sid'] as int? ?? 0,
+                speed: (m['speed'] as num).toDouble(),
+                // A Kokoro speaker's language: one model reads several.
+                extra: lang.isEmpty ? const {} : {'lang': lang},
+              ),
+            );
           } finally {
             // This thread is the VM's, shared with other isolates (the render
             // after each sentence, the collector): it goes back as it came.
             if (!urgent) _setNice(tid, 0);
           }
+          // A piece that made no sound says no rate either: the model's own.
+          final rate = audio.sampleRate > 0 ? audio.sampleRate : engine.tts.sampleRate;
           final key = m['job'] as int;
-          final job = jobs.putIfAbsent(key, () => _Job(audio.sampleRate))..pieces.add(audio.samples);
+          final job = jobs.putIfAbsent(key, () => _Job(rate))..pieces.add(audio.samples);
           final threads = [tid, ...engine.threads];
           if (m['last'] != true) {
             out.send({'id': id, 'loadMs': loadMs, 'threads': threads});
@@ -803,4 +1482,16 @@ Uint8List wavBytes(Float32List samples, int sampleRate) {
     data.setInt16(44 + i * 2, (samples[i].clamp(-1.0, 1.0) * 32767).round(), Endian.little);
   }
   return data.buffer.asUint8List();
+}
+
+/// How long the speech in a WAV that [wavBytes] wrote lasts, in seconds, at
+/// the sample rate its header gives; null when it is not such a WAV.
+double? wavSeconds(Uint8List wav) {
+  if (wav.length < 44 || String.fromCharCodes(wav.sublist(0, 4)) != 'RIFF') return null;
+  final head = ByteData.sublistView(wav);
+  final rate = head.getUint32(24, Endian.little);
+  final channels = head.getUint16(22, Endian.little);
+  final bits = head.getUint16(34, Endian.little);
+  if (rate <= 0 || channels <= 0 || bits <= 0) return null;
+  return (wav.length - 44) / (channels * bits ~/ 8) / rate;
 }

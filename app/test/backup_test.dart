@@ -6,8 +6,15 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor;
 import 'package:tomevoice_spike/app_update.dart';
 import 'package:tomevoice_spike/backup.dart';
+import 'package:tomevoice_spike/library_store.dart';
+import 'package:tomevoice_spike/marks.dart';
+import 'package:tomevoice_spike/prefs.dart';
+import 'package:tomevoice_spike/safe_file.dart';
+import 'package:tomevoice_spike/stats.dart';
+import 'package:tomevoice_spike/sync.dart';
 
 void main() {
   late Directory tmp;
@@ -153,6 +160,104 @@ void main() {
     });
   });
 
+  group('while a restore is under way', () {
+    tearDown(() {
+      RestoreGate.open();
+      MarkStore.instance.reset();
+      StatsStore.instance.reset();
+      ListeningPrefs.reset();
+    });
+
+    test('nothing is written into the library, and no sync starts', () async {
+      const id = '0123456789abcdef';
+      final store = LibraryStore(root);
+      await MarkStore.instance.attach(root);
+      await StatsStore.instance.attach(root);
+      final prefs = await ListeningPrefs.load(root.path);
+      prefs
+        ..webdavOn = true
+        ..webdavUrl = 'http://127.0.0.1:9/dav/';
+      // As the restore shuts everything: the store held, and the gate shut.
+      store.hold();
+      await RestoreGate.close();
+      await store.saveCursor(id, const ReadingCursor(blockIndex: 3), 0.5);
+      await MarkStore.instance.add(
+        bookId: id,
+        bookTitle: 'A book',
+        kind: MarkKind.quote,
+        at: const ReadingCursor(blockIndex: 3),
+        text: 'A line.',
+      );
+      StatsStore.instance.addTime(id, const Duration(minutes: 3), listening: true);
+      await StatsStore.instance.flush();
+      prefs.save();
+      final sync = await BookSync.instance.syncNow(store: store);
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      expect(sync.problem, isNull, reason: 'not even tried');
+      expect([for (final f in root.listSync(recursive: true)) if (f is File) f.path], isEmpty);
+      expect(Directory('${root.path}/books').existsSync(), isFalse);
+    });
+
+    test('a write under way as it shuts lands first', () async {
+      final index = File('${root.path}/library.json');
+      final writing = writeSafely(index, '{"books": []}');
+      await RestoreGate.close();
+      expect(index.readAsStringSync(), '{"books": []}');
+      await writing;
+    });
+  });
+
+  group('a backup with a dot-file or dot-folder at its top', () {
+    // As a crafted zip unpacks: the restore's own folder and journal.
+    void crafted() {
+      put(staging, 'library.json', {
+        'books': [book('theirs')],
+      });
+      put(staging, '.before-restore/library.json', {'books': []});
+      put(staging, '.restore-journal.json', {
+        'aside': [],
+        'in': ['books', 'library.json'],
+        'done': false,
+      });
+    }
+
+    test('is refused', () async {
+      crafted();
+      await expectLater(checkStaged(staged(), root), throwsA(isA<FormatException>()));
+    });
+
+    test('never makes a replace delete the library: none is brought in', () async {
+      put(root, 'library.json', {
+        'books': [book('mine')],
+      });
+      put(root, 'books/mine/cursor.json', {'x': 1});
+      crafted();
+      await replaceLibrary(root, staged());
+      expect([for (final b in read(root, 'library.json')['books'] as List) (b as Map)['id']], ['theirs']);
+      expect(Directory('${root.path}/.before-restore').existsSync(), isFalse);
+      expect(File('${root.path}/.restore-journal.json').existsSync(), isFalse);
+    });
+
+    test('an undo never deletes the folder the library was moved aside to', () async {
+      put(root, '.before-restore/library.json', {
+        'books': [book('mine')],
+      });
+      put(root, '.before-restore/books/mine/cursor.json', {'x': 1});
+      put(root, 'library.json', {
+        'books': [book('theirs')],
+      });
+      put(root, '.restore-journal.json', {
+        'aside': ['library.json', 'books'],
+        'in': ['.before-restore', 'library.json'],
+        'done': false,
+      });
+      await clearStaleRestore(root);
+      expect([for (final b in read(root, 'library.json')['books'] as List) (b as Map)['id']], ['mine']);
+      expect(read(root, 'books/mine/cursor.json')['x'], 1);
+      expect(Directory('${root.path}/.before-restore').existsSync(), isFalse);
+    });
+  });
+
   test('a backup whose books do not read as the library reads them is refused', () async {
     put(staging, 'library.json', {
       'books': [
@@ -180,6 +285,27 @@ void main() {
     expect(Directory('${root.path}/voices/piper-en_US-ryan-high').existsSync(), isFalse);
     expect(read(root, 'app_update.json')['check'], false);
     expect(staging.existsSync(), isFalse);
+  });
+
+  test("replace keeps this phone's OCR language data and the scan it is reading", () async {
+    put(root, 'library.json', {
+      'books': [book('mine')],
+    });
+    put(root, 'ocr/tessdata/ben.traineddata', 'model');
+    put(root, 'ocr/jobs/scan/pages/0.txt', 'page one');
+    put(staging, 'library.json', {
+      'books': [book('theirs')],
+    });
+    // A backup never carries any (LibraryBackup.kt leaves ocr/ out); one
+    // that did is not taken.
+    put(staging, 'ocr/tessdata/hin.traineddata', 'other');
+
+    await replaceLibrary(root, staged());
+
+    expect(File('${root.path}/ocr/tessdata/ben.traineddata').readAsStringSync(), 'model');
+    expect(File('${root.path}/ocr/jobs/scan/pages/0.txt').readAsStringSync(), 'page one');
+    expect(File('${root.path}/ocr/tessdata/hin.traineddata').existsSync(), isFalse);
+    expect([for (final b in read(root, 'library.json')['books'] as List) (b as Map)['id']], ['theirs']);
   });
 
   test('add keeps my books, adds theirs, and keeps the further place', () async {
@@ -309,6 +435,18 @@ void main() {
       expect(addSummary(again), 'Nothing new to add from the backup.');
     });
 
+    test('a quote that does not read as one is not added', () async {
+      put(staging, 'marks.json', [
+        mark('q-good', '2026-10-20T10:00:00.000Z'),
+        {...mark('q-bad', '2026-10-21T10:00:00.000Z'), 'text': 7},
+        {'id': 'q-shapeless'},
+      ]);
+      final report = await addToLibrary(root, staged());
+      expect(report.marks, 1);
+      final marks = [for (final m in jsonDecode(File('${root.path}/marks.json').readAsStringSync()) as List) (m as Map)['id']];
+      expect(marks, ['q-good', 'q-mine']);
+    });
+
     test("the backup's settings only when asked", () async {
       final report = await addToLibrary(root, staged(), settings: true);
       expect(report.settings, isTrue);
@@ -321,6 +459,65 @@ void main() {
       expect(await takeRestoreReport(root), 'Added 2 books from the backup.');
       expect(await takeRestoreReport(root), isNull);
     });
+  });
+
+  test("add puts both phones' tags on a book in both; a series given here stays, one missing comes", () async {
+    put(root, 'library.json', {
+      'books': [
+        {...book('both'), 'tags': ['Fantasy', 'Mine'], 'series': 'Saga', 'seriesIndex': 2},
+        // Taken out of its series here: it stays out.
+        {...book('cleared'), 'series': ''},
+        book('bare'),
+      ],
+    });
+    put(staging, 'library.json', {
+      'books': [
+        {...book('both'), 'tags': ['fantasy', 'Theirs'], 'series': 'Other Saga', 'seriesIndex': 5, 'print': 'AAAA'},
+        {...book('cleared'), 'series': 'Back Again', 'seriesIndex': 1},
+        {...book('bare'), 'series': 'Found There', 'seriesIndex': 3, 'tags': ['Lent']},
+        {...book('new'), 'tags': ['Brought'], 'series': 'New Saga', 'seriesIndex': 1},
+      ],
+    });
+
+    final report = await addToLibrary(root, staged());
+
+    final byId = {for (final b in read(root, 'library.json')['books'] as List) (b as Map)['id']: b};
+    expect(byId['both']!['tags'], ['Fantasy', 'Mine', 'Theirs'], reason: 'each tag once, as spelled here');
+    expect((byId['both']!['series'], byId['both']!['seriesIndex']), ('Saga', 2));
+    expect(byId['both']!['print'], 'AAAA', reason: 'a print of the same text, made there');
+    expect((byId['cleared']!['series'], byId['cleared']!.containsKey('seriesIndex')), ('', false));
+    expect((byId['bare']!['series'], byId['bare']!['seriesIndex']), ('Found There', 3));
+    expect(byId['bare']!['tags'], ['Lent']);
+    expect(byId['new']!['tags'], ['Brought']);
+    expect(byId['new']!['series'], 'New Saga');
+    expect(report.updated, 2, reason: 'the two books given something; the one left alone is not');
+
+    // As the library reads it.
+    final entries = {for (final e in await LibraryStore(root).list(all: true)) e.id: e};
+    expect(entries['both']!.tags, ['Fantasy', 'Mine', 'Theirs']);
+    expect(entries['cleared']!.seriesName, isNull);
+    expect((entries['bare']!.seriesName, entries['bare']!.seriesIndex), ('Found There', 3.0));
+  });
+
+  test("the same backup added twice changes nothing the second time", () async {
+    put(root, 'library.json', {
+      'books': [
+        {...book('both'), 'tags': ['Mine']},
+      ],
+    });
+    Map<String, Object?> theirs() => {
+          'books': [
+            {...book('both'), 'tags': ['Theirs'], 'series': 'Saga', 'seriesIndex': 1},
+          ],
+        };
+    put(staging, 'library.json', theirs());
+    expect((await addToLibrary(root, staged())).updated, 1);
+    staging.createSync(recursive: true);
+    put(staging, 'library.json', theirs());
+    expect((await addToLibrary(root, staged())).updated, 0);
+    final both = (read(root, 'library.json')['books'] as List).single as Map;
+    expect(both['tags'], ['Mine', 'Theirs']);
+    expect(both['series'], 'Saga');
   });
 
   test('a secret shelf in a backup never merges into an open one here', () async {

@@ -7,8 +7,10 @@ import '../build.dart';
 import '../encoding.dart';
 import '../image_size.dart';
 import '../model.dart';
+import '../narration.dart' show Narration;
 import '../segment.dart';
 import 'html_blocks.dart';
+import 'media_overlays.dart';
 
 Book parseEpub(Uint8List bytes, {required String id, String? filename, LegacyDecoder? legacy}) {
   Archive archive;
@@ -106,6 +108,24 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename, LegacyDec
 
   final withImages = _measureImages(archive, indexed);
   final toc = _tocEntries(contents, parts, anchorsOf, withImages);
+  // The book's own recorded narration (EPUB 3 media overlays): where in the
+  // text each of its clips is said. Looked for only when the manifest names
+  // one, so every other book is read as it was. One that cannot be read is
+  // none, and the book is read all the same (one damaged clock value in its
+  // SMIL once refused the whole book).
+  Narration? narration;
+  try {
+    narration = readMediaOverlays(
+      opf: opf,
+      manifest: manifest,
+      resolve: (dir, href) => _resolvePath(dir, href, names),
+      read: (path) => _read(archive, path, legacy),
+      sections: withImages,
+      sectionPaths: [for (final p in parts) p.path],
+    );
+  } on Object {
+    narration = null;
+  }
   // Many EPUBs never declare a cover, or declare one that is not in the
   // archive; their first picture is the cover.
   final declared = _coverPath(opf, manifest);
@@ -129,12 +149,15 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename, LegacyDec
             identifier: metadata.identifier,
             cover: cover,
             description: metadata.description,
+            series: metadata.series,
+            seriesIndex: metadata.seriesIndex,
           ),
     sections: withImages,
     toc: toc,
     source: SourceKind.epub,
     sourceName: filename,
     wordCount: 0,
+    narration: narration,
   );
   return Book(
     id: book.id,
@@ -144,6 +167,7 @@ Book parseEpub(Uint8List bytes, {required String id, String? filename, LegacyDec
     source: book.source,
     sourceName: book.sourceName,
     wordCount: wordCountOf(book),
+    narration: book.narration,
   );
 }
 
@@ -310,6 +334,7 @@ BookMetadata _metadata(XmlDocument opf, String? filename) {
     }
   }
 
+  final series = _series(opf);
   return BookMetadata(
     title: first('title') ?? _fallbackTitle(filename),
     authors: authors,
@@ -317,7 +342,59 @@ BookMetadata _metadata(XmlDocument opf, String? filename) {
     publisher: first('publisher'),
     identifier: first('identifier'),
     description: _plainBlurb(first('description')),
+    series: series?.name,
+    seriesIndex: series?.index,
   );
+}
+
+/// The series an EPUB says it is in, and its number there: calibre's
+/// `<meta name="calibre:series">` with `calibre:series_index` (EPUB 2, and
+/// most books that have been through calibre), else EPUB 3's
+/// `belongs-to-collection` with its `group-position`. A collection marked
+/// as a set rather than a series is not one.
+({String name, double? index})? _series(XmlDocument opf) {
+  final metas = [
+    for (final el in opf.descendants.whereType<XmlElement>())
+      if (el.localName.toLowerCase() == 'meta') el,
+  ];
+  String? named(String name) {
+    for (final m in metas) {
+      if (m.getAttribute('name')?.toLowerCase() == name) {
+        final v = collapseWhitespace(m.getAttribute('content') ?? '');
+        if (v.isNotEmpty) return v;
+      }
+    }
+    return null;
+  }
+
+  final calibre = named('calibre:series');
+  if (calibre != null) return (name: calibre, index: _seriesNumber(named('calibre:series_index')));
+  for (final m in metas) {
+    if (m.getAttribute('property') != 'belongs-to-collection') continue;
+    final name = collapseWhitespace(m.innerText);
+    if (name.isEmpty) continue;
+    final id = m.getAttribute('id');
+    String? refined(String property) {
+      if (id == null) return null;
+      for (final r in metas) {
+        if (r.getAttribute('refines') == '#$id' && r.getAttribute('property') == property) {
+          return collapseWhitespace(r.innerText);
+        }
+      }
+      return null;
+    }
+
+    final type = refined('collection-type');
+    if (type != null && type.toLowerCase() != 'series') continue;
+    return (name: name, index: _seriesNumber(refined('group-position')));
+  }
+  return null;
+}
+
+/// "3", "3.0", "1.5" as a number; nothing for anything else.
+double? _seriesNumber(String? raw) {
+  final n = double.tryParse((raw ?? '').trim());
+  return n == null || n.isNaN || n < 0 || n > 100000 ? null : n;
 }
 
 /// A description is often escaped HTML; keep only its words.

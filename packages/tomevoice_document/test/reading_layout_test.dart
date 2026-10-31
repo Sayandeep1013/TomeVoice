@@ -122,6 +122,89 @@ void main() {
     });
   });
 
+  group('notes read aloud', () {
+    Book notes() => Book(
+          id: 'n',
+          metadata: const BookMetadata(title: 'Notes'),
+          source: SourceKind.epub,
+          toc: const [],
+          sections: [
+            Section(id: 'a', index: 0, title: 'One', blocks: [
+              makeBlock(role: BlockRole.heading, text: 'One'),
+              makeBlock(role: BlockRole.paragraph, text: 'The house fell.${silentMark('1')} It was old. Nobody minded.'),
+              makeBlock(role: BlockRole.footnote, text: '1 A note about the house.'),
+              makeBlock(role: BlockRole.caption, text: 'Figure 1: the house.'),
+              makeBlock(role: BlockRole.paragraph, text: 'Then the rain came, and it went on for days and days.'),
+              makeBlock(role: BlockRole.pageNumber, text: '17'),
+            ]),
+            Section(id: 'b', index: 1, title: 'Two', blocks: [
+              makeBlock(role: BlockRole.heading, text: 'Two'),
+              makeBlock(role: BlockRole.paragraph, text: 'A second chapter begins here and goes on for long enough to be a chapter of its own.'),
+              makeBlock(role: BlockRole.footnote, text: '2 The last note.'),
+            ]),
+            // The notes at the back, alone in their file.
+            Section(id: 'c', index: 2, title: 'Notes', blocks: [
+              makeBlock(role: BlockRole.footnote, text: '3 An endnote, long enough to be worth hearing at the end of the book when notes are read.'),
+              makeBlock(role: BlockRole.footnote, text: '4 Another endnote follows it here, with a little more to say about the house and the rain.'),
+            ]),
+          ],
+        );
+
+    test('nothing is spoken that was not before, unless asked', () {
+      final plain = ReadingLayout.build(notes(), displayOnly: true);
+      final none = ReadingLayout.build(notes(), displayOnly: true, spoken: const {});
+      expect(none.units.map((u) => u.text), plain.units.map((u) => u.text));
+      expect(plain.units.map((u) => u.text), isNot(contains('1 A note about the house.')));
+      expect(plain.skipped, defaultSkippedRoles);
+      expect(plain.chapters, [0, 1]);
+    });
+
+    test('footnotes spoken where they stand; captions still only shown; markers still silent', () {
+      final read = ReadingLayout.build(notes(), displayOnly: true, spoken: const {BlockRole.footnote});
+      final texts = read.units.map((u) => u.text).toList();
+      expect(texts, containsAllInOrder(['Nobody minded.', '1 A note about the house.', 'Then the rain came, and it went on for days and days.']));
+      expect(texts, contains('2 The last note.'));
+      expect(read.skipped.contains(BlockRole.footnote), isFalse);
+      expect(read.skipped, containsAll([BlockRole.caption, BlockRole.pageNumber, BlockRole.figure]));
+
+      // The notes are items with their sentences, no longer shown only.
+      final only = read.items.where((i) => i.displayOnly).map((i) => i.block!.text).toList();
+      expect(only, ['Figure 1: the house.']);
+      final note = read.items.firstWhere((i) => i.block?.text == '1 A note about the house.');
+      expect(note.unitCount, 1);
+      expect(read.units[note.firstUnit].role, BlockRole.footnote);
+
+      // The marker that points at the note is still not read.
+      final fell = read.units.firstWhere((u) => u.text.startsWith('The house fell.'));
+      expect(fell.silent, isNotEmpty);
+      expect(spokenText(fell.text, fell.silent).text, 'The house fell.');
+
+      // The notes alone at the back are a chapter now: they have something to say.
+      expect(read.chapters, [0, 1, 2]);
+      expect(read.units.last.text, startsWith('4 Another endnote'));
+
+      // Every unit still maps to the item holding its text.
+      for (var u = 0; u < read.units.length; u++) {
+        final item = read.items[read.unitItem[u]];
+        expect(item.containsUnit(u), isTrue);
+        expect(item.block!.text.startsWith(read.units[u].text, read.unitOffset[u]), isTrue);
+      }
+    });
+
+    test('a place keeps its sentence when notes start or stop being read', () {
+      final plain = ReadingLayout.build(notes(), displayOnly: true);
+      final read = ReadingLayout.build(notes(), displayOnly: true, spoken: const {BlockRole.footnote});
+      for (final u in plain.units) {
+        final there = read.units[read.unitForCursor(cursorOf(u), saved: true)];
+        expect(there.text, u.text);
+      }
+      // A place on a note, its notes no longer read: the sentence after it.
+      final onNote = read.units.firstWhere((u) => u.text == '1 A note about the house.');
+      final after = plain.units[plain.unitForCursor(cursorOf(onNote), saved: true)];
+      expect(after.text, 'Then the rain came, and it went on for days and days.');
+    });
+  });
+
   group('a saved place after a re-parse', () {
     // The same book as an earlier build parsed it: one section, and the
     // answer and the question below kept as one sentence.
@@ -206,6 +289,28 @@ void main() {
         firstBody: 'Shirley Jackson. A collection.',
       ));
       expect(layout.units[layout.unitForCursor(ReadingCursor.zero)].text, 'The Daemon Lover');
+    });
+
+    test('a title page named like the book is passed over in any script', () {
+      final book = Book(
+        id: 'm',
+        metadata: const BookMetadata(title: 'Маяк на Белом мысу'),
+        source: SourceKind.fb2,
+        toc: const [],
+        sections: [
+          Section(id: 'a', index: 0, title: 'Маяк на Белом мысу', blocks: [
+            makeBlock(role: BlockRole.heading, text: 'Маяк на Белом мысу'),
+            makeBlock(role: BlockRole.quote, text: 'Горит огонь над чёрною водой, и кто-то ждёт, и кто-то будет дома.'),
+            makeBlock(role: BlockRole.quote, text: 'Песня смотрителей.'),
+          ]),
+          Section(id: 'b', index: 1, title: 'Глава первая', blocks: [
+            makeBlock(role: BlockRole.heading, text: 'Глава первая'),
+            makeBlock(role: BlockRole.paragraph, text: 'Маяк построили давно. ${'Он горел каждую ночь. ' * 10}'),
+          ]),
+        ],
+      );
+      final layout = ReadingLayout.build(book);
+      expect(layout.units[layout.unitForCursor(ReadingCursor.zero)].text, 'Глава первая');
     });
 
     test('but a place saved there is where it reopens', () {

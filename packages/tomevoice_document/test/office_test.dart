@@ -100,6 +100,86 @@ void main() {
       final first = blocks.indexWhere((b) => b.text.startsWith('The house fell.'));
       expect(blocks[first + 1].role, BlockRole.footnote);
     });
+
+    test('a table of data is read a row at a time; one laid out to hold text, a paragraph at a time', () {
+      String cell(String text) => '<w:tc>${_p(text)}</w:tc>';
+      String row(List<String> cells) => '<w:tr>${cells.map(cell).join()}</w:tr>';
+      final data = '<w:tbl>${row(['Fable', 'Words'])}${row(['The Lion And The Mouse', '133'])}'
+          '<w:tr><w:tc><w:p><w:r><w:t>The Wolf And The Lamb</w:t></w:r><w:r><w:footnoteReference w:id="5"/></w:r></w:p></w:tc>'
+          '${cell('146')}</w:tr></w:tbl>';
+      final layout = '<w:tbl><w:tr><w:tc>${_p('The left column has a paragraph.')}${_p('And a second one.')}</w:tc>'
+          '${cell('The right column.')}</w:tr></w:tbl>';
+      final book = ingestBytes(
+        _docx('${_p('Before the tables.')}$data$layout${_p('After them.')}',
+            footnotes: '<w:footnote w:id="5">${_p('Counted twice.')}</w:footnote>'),
+        filename: 'tables.docx',
+      );
+      expect([for (final s in book.sections) for (final b in s.blocks) '${b.role.name}: ${b.text}'], [
+        'paragraph: Before the tables.',
+        'table: Fable Words',
+        'table: The Lion And The Mouse 133',
+        'table: The Wolf And The Lamb¹ 146',
+        'footnote: ¹ Counted twice.',
+        'paragraph: The left column has a paragraph.',
+        'paragraph: And a second one.',
+        'paragraph: The right column.',
+        'paragraph: After them.',
+      ]);
+    });
+  });
+
+  group('odt', () {
+    Uint8List odt(String body) {
+      final a = Archive();
+      void add(String name, String text) => a.addFile(ArchiveFile.bytes(name, utf8.encode(text)));
+      add('mimetype', 'application/vnd.oasis.opendocument.text');
+      add('meta.xml', '<office:document-meta xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+          'xmlns:dc="http://purl.org/dc/elements/1.1/"><office:meta><dc:title>Parables</dc:title></office:meta></office:document-meta>');
+      add('content.xml', '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+          'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" '
+          'xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" '
+          'xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink">'
+          '<office:body><office:text>$body</office:text></office:body></office:document-content>');
+      return Uint8List.fromList(ZipEncoder().encode(a));
+    }
+
+    test("LibreOffice's table of contents and a picture's description are not read", () {
+      final book = ingestBytes(
+        odt('<text:p text:style-name="Title">Parables</text:p>'
+            '<text:table-of-content text:name="Table of Contents1"><text:index-body>'
+            '<text:index-title><text:p>Table of Contents</text:p></text:index-title>'
+            '<text:p><text:a xlink:href="#__RefHeading___Toc1_1">The Scarecrow<text:tab/>2</text:a></text:p>'
+            '</text:index-body></text:table-of-content>'
+            '<text:h text:outline-level="1">The Scarecrow</text:h>'
+            '<text:p><draw:frame draw:name="Image1"><draw:image xlink:href="Pictures/a.png"/>'
+            '<svg:title>A scarecrow</svg:title><svg:desc>A scarecrow in a field.</svg:desc></draw:frame>'
+            'Once I said to a scarecrow, “You must be tired.”</text:p>'
+            '<text:h text:outline-level="1">The Fox</text:h><text:p>A fox looked at his shadow.</text:p>'),
+        filename: 'p.odt',
+      );
+      expect(_texts(book), [
+        'Parables',
+        'The Scarecrow',
+        'Once I said to a scarecrow, “You must be tired.”',
+        'The Fox',
+        'A fox looked at his shadow.',
+      ]);
+    });
+
+    test('a table of data is read a row at a time, its header row too', () {
+      String row(List<String> cells) =>
+          '<table:table-row>${[for (final c in cells) '<table:table-cell><text:p>$c</text:p></table:table-cell>'].join()}'
+          '</table:table-row>';
+      final book = ingestBytes(
+        odt('<text:p>Five parables, by length.</text:p>'
+            '<table:table><table:table-header-rows>${row(['Parable', 'Paragraphs'])}</table:table-header-rows>'
+            '${row(['The Scarecrow', '7'])}${row(['The Fox', '1'])}</table:table>'
+            '<text:p>The end.</text:p>'),
+        filename: 't.odt',
+      );
+      expect(_texts(book), ['Five parables, by length.', 'Parable Paragraphs', 'The Scarecrow 7', 'The Fox 1', 'The end.']);
+      expect([for (final s in book.sections) for (final b in s.blocks) b.role].where((r) => r == BlockRole.table), hasLength(3));
+    });
   });
 
   group('markdown', () {
@@ -122,6 +202,54 @@ void main() {
         'Bob 25',
         'Centred words.',
         'After it all.',
+      ]);
+    });
+
+    test('headings underlined with = or - are headings, not read with their underline', () {
+      final book = ingestString(
+        'A Week on the Coast Path\n========================\n\nThe first notes.\n\n'
+        'Day One\n-------\n\nWe left at nine.\n\n- an item\n---\n\nDay Two\n---\n\nWe walked on.',
+        filename: 'walk.md',
+      );
+      expect(_texts(book), [
+        'A Week on the Coast Path',
+        'The first notes.',
+        'Day One',
+        'We left at nine.',
+        'an item',
+        'Day Two',
+        'We walked on.',
+      ]);
+      expect(book.sections.map((s) => s.displayTitle), ['A Week on the Coast Path', 'Day One', 'Day Two']);
+    });
+
+    test('a footnote is shown and not read in the flow; its mark is not said', () {
+      final book = ingestString(
+        'We could see six small boats.[^tide] Then the rain came.\n\n'
+        'The tide turned at noon.\n\n'
+        '[^tide]: The tide tables were an hour out\nall week.',
+        filename: 'walk.md',
+      );
+      final blocks = [for (final s in book.sections) ...s.blocks];
+      final one = String.fromCharCode(0xB9);
+      expect(blocks.map((b) => b.text), [
+        'We could see six small boats.$one Then the rain came.',
+        'The tide turned at noon.',
+        '$one The tide tables were an hour out all week.',
+      ]);
+      expect(blocks.last.role, BlockRole.footnote);
+      expect(flattenSpeakable(book).map((u) => spokenText(u.text, u.silent).text),
+          ['We could see six small boats.', 'Then the rain came.', 'The tide turned at noon.']);
+    });
+
+    test("a picture's description is shown, not read in its sentence", () {
+      final book = ingestString('He drew ![a star](star.png) on the wall.\n\n![A sketch map](map.png)\n',
+          filename: 'p.md');
+      final blocks = [for (final s in book.sections) ...s.blocks];
+      expect(blocks.map((b) => (b.role, b.text)), [
+        (BlockRole.paragraph, 'He drew on the wall.'),
+        (BlockRole.figure, 'a star'),
+        (BlockRole.figure, 'A sketch map'),
       ]);
     });
   });

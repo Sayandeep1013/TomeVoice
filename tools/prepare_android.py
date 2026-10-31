@@ -38,6 +38,33 @@ copied in. The generated project cannot know about any of this:
    beside the real one with a library of its own, so a risky build never
    touches the reader's books.
 
+9. **Saving a book as audio with the screen off.** A dataSync foreground
+   service (AudioExportService) and its permission: the reading service is
+   mediaPlayback and belongs to reading aloud.
+
+10. **Reading from outside the app.** The reading service is a media browser
+    (exported, with the MediaBrowserService filter), so the system's resume
+    card (Android 11+) and Android Auto can list the books and start one; the
+    meta-data names TomeVoice a media app to Android Auto
+    (res/xml/automotive_app_desc.xml in the overlay).
+
+11. **Battery optimisation.** REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, for the
+    one-tap question in Settings > Listening. Fine for the GitHub build; a
+    Play build must justify it or leave it out (docs/18).
+
+12. Web novels: WorkManager for the check for new chapters made with the app
+    closed (NovelCheckWorker.kt), and the downloads' data-sync service
+    (DownloadService.kt).
+
+13. **OCR for scanned PDFs** (Ocr.kt): Tesseract4Android, Apache-2.0 like the
+    Tesseract, Leptonica, libjpeg and libpng it bundles, from JitPack (it is
+    not on Maven Central), which is asked for that one group and nothing else.
+    A dataSync foreground service reads the pages with the screen off.
+
+14. **Saving as MP3** (AudioExport.kt, Mp3Writer): jump3r, the LAME encoder
+    3.98.4 ported to Java, LGPL 2.1 or later (GPL-3.0 compatible), from Maven
+    Central. Android has no MP3 encoder of its own.
+
 Idempotent: running it twice changes nothing the second time.
 """
 
@@ -59,6 +86,47 @@ APP_LABEL = "TomeVoice"
 MIN_SDK = 26
 TARGET_SDK = 36
 PDFBOX = 'implementation("com.tom-roush:pdfbox-android:2.0.27.0")'
+# Web novels: WorkManager runs the check for new chapters with the app closed
+# (NovelCheckWorker.kt). Apache-2.0 (AndroidX).
+WORK = 'implementation("androidx.work:work-runtime:2.10.0")'
+
+# The standard (single-threaded) build, not -openmp: OCR runs beside reading
+# aloud, and the OpenMP one would take every core from the voice. Its native
+# code per CPU, compressed as the APK stores it: 3.0 MB for arm64-v8a, 2.7 MB
+# for armeabi-v7a (7.2 and 5.3 MB installed). Its 64-bit libraries are
+# aligned for 16 KB pages (checked: tools/check_16kb.py); 32-bit phones have
+# 4 KB pages only.
+TESSERACT = 'implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")'
+TESSERACT_GROOVY = "implementation 'cz.adaptech.tesseract4android:tesseract4android:4.9.0'"
+
+# Saving as MP3 (AudioExport.kt, Mp3Writer): jump3r 1.0.5, LAME 3.98.4 in
+# Java, LGPL 2.1 or later, on Maven Central. Pure Java, nothing native: no
+# library to align for 16 KB pages, every CPU (the emulator's too), any
+# Android the app runs on (Java 6 bytecode). 353 KB as published, with no
+# dependencies; R8 keeps only the encoder (AudioExport.kt wires it itself,
+# as jump3r's own wrapper needs javax.sound, which Android has not).
+JUMP3R = 'implementation("de.sciss:jump3r:1.0.5")'
+JUMP3R_GROOVY = "implementation 'de.sciss:jump3r:1.0.5'"
+
+JITPACK = """
+// Tesseract4Android is published on JitPack only. Nothing else is fetched
+// from there.
+repositories {
+    maven {
+        url = uri("https://jitpack.io")
+        content { includeGroup("cz.adaptech.tesseract4android") }
+    }
+}
+"""
+
+JITPACK_GROOVY = """
+repositories {
+    maven {
+        url 'https://jitpack.io'
+        content { includeGroup 'cz.adaptech.tesseract4android' }
+    }
+}
+"""
 
 QUERIES_BLOCK = """    <!-- Required since Android 11 for TextToSpeech.getEngines() to see
          installed engines. -->
@@ -88,10 +156,60 @@ PERMISSIONS = """    <uses-permission android:name="android.permission.INTERNET"
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 """
 
+# Exported for the media browser: System UI binds to it for the resume card,
+# Android Auto to list and play the books. ReadAloudService decides who sees
+# what (onGetRoot); its other starts are its own notification's, widgets' and
+# media buttons'.
 SERVICE = """        <service
             android:name=".ReadAloudService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+        </service>
+"""
+
+# Android Auto: a media app, with the TomeVoice mark on its notifications.
+AUTO = """        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+        <meta-data
+            android:name="com.google.android.gms.car.notification.SmallIcon"
+            android:resource="@drawable/ic_stat_tomevoice" />
+"""
+
+# Settings > Listening asks Android to let TomeVoice run with the screen off.
+BATTERY = """    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+"""
+
+# Saving a book as audio (AudioExport.kt): a job that goes on with the screen
+# off, while nothing is read aloud. Its own blocks, so a manifest patched
+# before them gains them too.
+# For the three dataSync services: saving as audio, the downloads' queue and OCR.
+DATA_SYNC_PERMISSION = """    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+"""
+
+EXPORT_SERVICE = """        <service
+            android:name=".AudioExportService"
             android:exported="false"
-            android:foregroundServiceType="mediaPlayback" />
+            android:foregroundServiceType="dataSync" />
+"""
+
+# Web novels: chapters downloading in the background show their progress and
+# keep the app alive (DownloadService.kt, download_queue.dart).
+DOWNLOAD_SERVICE = """        <service
+            android:name=".DownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+"""
+
+# Scanned pages read as text (Ocr.kt): a file being read in, page by page,
+# with the screen off.
+OCR_SERVICE = """        <service
+            android:name=".OcrService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 """
 
 # The home-screen widgets (Widgets.kt) and the screen that picks a widget's book.
@@ -230,15 +348,46 @@ def patch_manifest(path: Path, label: str = APP_LABEL) -> str:
             raise SystemExit("manifest: no <manifest> tag")
         notes.append("permissions")
 
+    if "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" not in text:
+        text, n = re.subn(r"(<manifest\b[^>]*>\n?)", r"\1" + BATTERY, text, count=1)
+        if n != 1:
+            raise SystemExit("manifest: no <manifest> tag")
+        notes.append("battery permission")
+
     if ".ReadAloudService" not in text:
         if "</application>" not in text:
             raise SystemExit("manifest: no </application>")
         text = text.replace("</application>", SERVICE + "    </application>", 1)
         notes.append("service")
 
+    if "FOREGROUND_SERVICE_DATA_SYNC" not in text:
+        text, n = re.subn(r"(<manifest\b[^>]*>\n?)", r"\1" + DATA_SYNC_PERMISSION, text, count=1)
+        if n != 1:
+            raise SystemExit("manifest: no <manifest> tag")
+        notes.append("data sync permission")
+
+    if ".AudioExportService" not in text:
+        if "</application>" not in text:
+            raise SystemExit("manifest: no </application>")
+        text = text.replace("</application>", EXPORT_SERVICE + "    </application>", 1)
+        notes.append("export service")
+
+    if "com.google.android.gms.car.application" not in text:
+        text = text.replace("</application>", AUTO + "    </application>", 1)
+        notes.append("Android Auto")
+
+    if ".OcrService" not in text:
+        text = text.replace("</application>", OCR_SERVICE + "    </application>", 1)
+        notes.append("OCR service")
+
     if ".PlayerWidget" not in text:
         text = text.replace("</application>", WIDGETS + "    </application>", 1)
         notes.append("widgets")
+
+    # Web novels' downloads (DownloadService.kt).
+    if ".DownloadService" not in text:
+        text = text.replace("</application>", DOWNLOAD_SERVICE + "    </application>", 1)
+        notes.append("download service")
 
     if ".ShareProvider" not in text:
         text = text.replace("</application>", PROVIDER + "    </application>", 1)
@@ -343,6 +492,25 @@ def patch_gradle(path: Path, signing: bool, app_id: str = APPLICATION_ID) -> str
         else:
             text = text.rstrip() + "\n\ndependencies {\n    implementation 'com.tom-roush:pdfbox-android:2.0.27.0'\n}\n"
         notes.append("pdfbox")
+
+    # Web novels: the background check for new chapters (NovelCheckWorker.kt).
+    if WORK not in text and path.suffix == ".kts":
+        text = text.rstrip() + f"\n\ndependencies {{\n    {WORK}\n}}\n"
+        notes.append("workmanager")
+
+    if TESSERACT not in text and TESSERACT_GROOVY not in text:
+        if path.suffix == ".kts":
+            text = text.rstrip() + "\n" + JITPACK + f"\ndependencies {{\n    {TESSERACT}\n}}\n"
+        else:
+            text = text.rstrip() + "\n" + JITPACK_GROOVY + f"\ndependencies {{\n    {TESSERACT_GROOVY}\n}}\n"
+        notes.append("tesseract (OCR)")
+
+    if JUMP3R not in text and JUMP3R_GROOVY not in text:
+        if path.suffix == ".kts":
+            text = text.rstrip() + f"\n\ndependencies {{\n    {JUMP3R}\n}}\n"
+        else:
+            text = text.rstrip() + f"\n\ndependencies {{\n    {JUMP3R_GROOVY}\n}}\n"
+        notes.append("jump3r (MP3)")
 
     if 'proguardFiles("proguard-rules.pro")' not in text and path.suffix == ".kts":
         text, n = re.subn(

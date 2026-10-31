@@ -1,16 +1,19 @@
 {
   "private": true,
   "type": "module",
-  "description": "Builds app/assets/js/lnreader_libs.js: the libraries LNReader source plugins are written against, bundled for QuickJS. Run once when they change; CI does not need Node.",
+  "description": "Builds app/assets/js/lnreader_libs.js (and lnreader_extra.js, loaded only by plugins that need it): the libraries LNReader source plugins are written against, bundled for QuickJS. Run once when they change; CI does not need Node.",
   "dependencies": {
     "cheerio": "1.0.0-rc.12",
     "dayjs": "1.11.13",
-    "core-js": "3.39.0"
+    "core-js": "3.39.0",
+    "protobufjs": "8.7.1",
+    "@noble/ciphers": "2.2.0"
   },
   "devDependencies": {
     "esbuild": "0.24.0"
   },
   "scripts": {
-    "build": "esbuild entry.js --bundle --format=iife --platform=browser --target=es2020 --minify --legal-comments=eof --outfile=../../app/assets/js/lnreader_libs.js"
+    "build": "esbuild entry.js --bundle --format=iife --platform=browser --target=es2020 --minify --legal-comments=eof --outfile=../../app/assets/js/lnreader_libs.js",
+    "build:extra": "esbuild extra.js --bundle --format=iife --platform=browser --target=es2020 --minify --legal-comments=eof --outfile=../../app/assets/js/lnreader_extra.js"
   }
 }

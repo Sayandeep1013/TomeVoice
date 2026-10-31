@@ -32,6 +32,42 @@ class WordMark {
   int get hashCode => Object.hash(unit, start, end);
 }
 
+/// The voices a book's cast gives its characters (cast.dart): who says the
+/// words in quotation marks in each sentence, in the voice chosen for them.
+abstract interface class SpeakerVoices {
+  /// The voice for unit [unit]'s quotations: the one its speaker is given,
+  /// or null for the dialogue voice. A Future the first time a stretch of
+  /// the book is read for it; at once after.
+  FutureOr<String?> voiceAt(int unit);
+
+  /// Every voice the cast reads with now: a natural one stays loaded
+  /// between its character's lines.
+  Iterable<String> get voices;
+}
+
+/// A book's own recorded narration (an EPUB's media overlays), read for the
+/// scheduler (narration.dart): the audio that says a sentence, made ready
+/// for the player as a voice's sentence is.
+abstract interface class BookNarration {
+  /// How sentence [unit] is read: [NarrationRole.voiced] for every one
+  /// while the book is read in a voice.
+  NarrationRole at(int unit);
+
+  /// Sentence [unit] as the narration says it, at [settings]' speed (its
+  /// pitch kept) and loudness: no word gap or pause is put into a
+  /// recording, and [pauseAfterMs] of silence follows it only where the
+  /// recording has no pause of its own after it. [levelDb] as for
+  /// [makeSentence]. Null when [stale] says it was overtaken; throws when
+  /// the recording could not be read.
+  Future<RenderedSpeech?> make(
+    int unit, {
+    required PipelineSettings settings,
+    required int pauseAfterMs,
+    double? levelDb,
+    bool Function()? stale,
+  });
+}
+
 class _Chunk {
   _Chunk(this.unit, this.start, this.speechFrames, this.totalFrames, this.timings, this.levels, this.pcm);
   final int unit;
@@ -72,10 +108,14 @@ class PlaybackScheduler {
     this.pitchOf,
     this.quoteOpenAt,
     this.fallbackVoiceOf,
+    this.speakers,
+    this.narration,
   });
 
   final SpeechService service;
-  final List<Speakable> units;
+
+  /// The sentences it reads; longer once [readOnInto] adds more after them.
+  List<Speakable> units;
   final PipelineSettings Function(String text) settingsFor;
   final String? Function() engineIdOf;
   final String? Function() voiceNameOf;
@@ -103,6 +143,28 @@ class PlaybackScheduler {
   /// natural voice fails (docs/04 section 4.9), rather than sentences being
   /// skipped and the book stopping.
   final String? Function()? fallbackVoiceOf;
+
+  /// The book's cast: its characters' lines in voices of their own. Null
+  /// (or a cast that gives nobody a voice) reads every quotation in the
+  /// dialogue voice, exactly as before.
+  final SpeakerVoices? speakers;
+
+  /// The book's own recorded narration, when it brings one: chosen, a
+  /// sentence it says is played from it (no voice, cast or respelling: the
+  /// recording is what it is), one it leaves out among lines it reads is
+  /// passed over, and the rest is read by the voice.
+  final BookNarration? narration;
+
+  /// The voice for the words in quotation marks in unit [i]: the one the
+  /// book's cast gives whoever says them (the narrator's, for a character
+  /// read in it), else the dialogue voice. Saving as audio makes each
+  /// sentence with this, as reading aloud does.
+  Future<String?> quoteVoiceAt(int i) async {
+    final dialogue = dialogueVoiceOf?.call();
+    final cast = speakers;
+    if (cast == null) return dialogue;
+    return await cast.voiceAt(i) ?? dialogue;
+  }
 
   final state = ValueNotifier<PlayState>(PlayState.idle);
   final unit = ValueNotifier<int>(0);
@@ -132,6 +194,11 @@ class PlaybackScheduler {
   /// with null): a book read on in the background stops for it, as two
   /// cannot share the one audio stream.
   static void Function(PlaybackScheduler? next)? beforePlay;
+
+  /// Told when any scheduler pauses: the library writes the reading places
+  /// it keeps in memory then, rather than a few seconds on
+  /// (LibraryStore.settlePlaces).
+  static void Function()? onPaused;
 
   static const _ahead = Duration(seconds: 10);
 
@@ -268,6 +335,7 @@ class PlaybackScheduler {
     final gen = _gen;
     final token = ++_pauseToken;
     state.value = PlayState.paused;
+    onPaused?.call();
     _rewindDue = false;
     _rewindTimer?.cancel();
     _rewindTimer = Timer(rewindAfter, () => _rewindDue = true);
@@ -344,6 +412,19 @@ class PlaybackScheduler {
     state.value = PlayState.idle;
     word.value = WordMark.none;
     level.value = 0;
+  }
+
+  /// Read on into [longer]: [units], with more sentences after them (a web
+  /// novel's window of chapters rolled on). What is queued and being made
+  /// stays as it is, and the new sentences are made after it into the same
+  /// stream, so the voice goes on into them with no gap.
+  void readOnInto(List<Speakable> longer) {
+    units = longer;
+    // Everything there was had been made: making goes on.
+    if (_fillDone && active && _next < units.length) {
+      _fillDone = false;
+      unawaited(_fill(_gen));
+    }
   }
 
   /// Fade the voice out over the [fadeLength] before [at] (the sleep timer):
@@ -496,19 +577,27 @@ class PlaybackScheduler {
   /// A line with something in it to say: a letter or a digit, in any script.
   static final _sayable = RegExp(r'[\p{L}\p{N}]', unicode: true);
 
+  /// Whether [text] has something in it to say: a line without ("* * *")
+  /// is passed over, read aloud or saved as audio.
+  static bool sayable(String text) => _sayable.hasMatch(text);
+
   /// The voice failed for want of the internet (an online voice): worth
   /// asking again before calling it a failure.
   static bool _offline(PlatformException e) =>
       e.code == 'TTS_TIMEOUT' ||
       (e.code == 'TTS_ERROR' && (e.message?.contains('code -6)') == true || e.message?.contains('code -7)') == true));
 
+  /// [e] is an online voice out of reach (see [_offline]).
+  static bool offline(PlatformException e) => _offline(e);
+
   static const offlineHint = 'The voice needs the internet and could not reach it. Try again, or pick a voice '
       "that works offline (or download this language's voice in the phone's speech settings).";
 
   /// A natural voice in this sentence failed: the phone's voice reads from
-  /// here (a natural dialogue voice gives way to the narrator's), with a
-  /// line on screen saying why. False when there is nothing to fall back to.
-  bool _fallBack(String? narrator, String? dialogue, Object e) {
+  /// here (a natural dialogue voice gives way to the narrator's, and a
+  /// character's to the dialogue voice), with a line on screen saying why.
+  /// False when there is nothing to fall back to.
+  bool _fallBack(String? narrator, String? dialogue, Object e, {bool character = false}) {
     final natural = [
       if (isNeural(narrator) && !_failed.contains(narrator)) narrator!,
       if (isNeural(dialogue) && !_failed.contains(dialogue)) dialogue!,
@@ -520,7 +609,9 @@ class PlaybackScheduler {
     debugPrint('TomeVoice: $name failed ($e); reading on in the phone\'s voice');
     notice.value = natural.contains(narrator)
         ? "$name could not speak on this phone, so the phone's own voice reads on."
-        : '$name could not speak on this phone, so the narrator reads the dialogue too.';
+        : character
+            ? "$name could not speak on this phone, so its character's lines are read in the dialogue voice."
+            : '$name could not speak on this phone, so the narrator reads the dialogue too.';
     return true;
   }
 
@@ -529,13 +620,30 @@ class PlaybackScheduler {
     var retries = 0;
     while (gen == _gen) {
       if (_next >= units.length) break;
-      final ahead = _queuedEnd - _position;
+      var ahead = _queuedEnd - _position;
       if (_chunks.isNotEmpty && ahead > _rate * _ahead.inSeconds) {
         // Full: wait for the head to make room, without polling.
         await (_room ??= Completer<void>()).future;
         continue;
       }
       final i = _next;
+      // The book's own narration: a line it says is played as recorded, one
+      // it leaves out among the lines it reads is passed over. A recording
+      // that cannot be read here leaves the line to the voice.
+      final told = narration?.at(i);
+      if (told == NarrationRole.passed) {
+        _next = i + 1;
+        continue;
+      }
+      if (told == NarrationRole.recorded) {
+        final played = await _narrate(gen, i);
+        if (gen != _gen) return;
+        if (played) {
+          failures = 0;
+          retries = 0;
+          continue;
+        }
+      }
       final said = respell?.call(units[i]) ?? Respelled.same(units[i].text);
       final text = said.text;
       // A line with nothing to say ("।।।", "* * *", a lone full stop) is
@@ -544,6 +652,22 @@ class PlaybackScheduler {
       if (!_sayable.hasMatch(text)) {
         _next = i + 1;
         continue;
+      }
+      // The voice the book's cast gives whoever says this sentence's
+      // quotations. Its stretch of the book is read for it once, on
+      // another isolate, a chapter ahead; a book with no cast waits for
+      // nothing here.
+      final cast = speakers;
+      String? character;
+      if (cast != null) {
+        final asked = cast.voiceAt(i);
+        if (asked is Future<String?>) {
+          character = await asked;
+          if (gen != _gen) return;
+          ahead = _queuedEnd - _position;
+        } else {
+          character = asked;
+        }
       }
       // Little queued for the time this sentence will take (starting, or
       // the voice catching up): make it at full priority. Well ahead, with
@@ -559,70 +683,39 @@ class PlaybackScheduler {
       if (_failed.contains(narrator)) narrator = fallbackVoiceOf?.call() ?? narrator;
       var dialogue = dialogueVoiceOf?.call();
       if (_failed.contains(dialogue) || dialogue == narrator) dialogue = null;
+      // Who says the words in quotation marks: the character's own voice
+      // (none, for one read in the narrator's), else the dialogue voice.
+      var quoted = dialogue;
+      if (character != null && !_failed.contains(character)) quoted = character == narrator ? null : character;
+      // A natural voice switched away from (or one that failed) is let go
+      // now, before another loads, not minutes later. The cast's stay: each
+      // is admitted only while the phone holds them all (cast.dart).
+      NeuralEngine.instance.keepOnly([
+        for (final v in [
+          narrator,
+          dialogue,
+          if (quoted != dialogue) quoted,
+          if (cast != null) ...cast.voices.where((v) => !_failed.contains(v)),
+        ])
+          if (neuralVoiceFor(v) case final natural?) natural,
+      ]);
       try {
-        final s = settingsFor(text);
-        final open = dialogue == null ? null : quoteOpenAt?.call(i);
-        // A sentence in the middle of a long quote has no marks of its own.
-        final native = dialogue == null || !(open == true || text.contains(RegExp('[“”"«»「」„]')))
-            ? await service.synthesise(
-                text: text,
-                engineId: engineIdOf(),
-                voiceName: narrator,
-                rate: s.speedScale,
-                pitch: SpeechService.semitonesToPitch(s.pitchSemitones),
-                urgent: urgent,
-              )
-            : await speakWithDialogue(
-                svc: service,
-                text: text,
-                stale: () => gen != _gen,
-                startsInside: open,
-                narrator: narrator,
-                dialogueVoice: dialogue,
-                engineId: engineIdOf(),
-                rate: s.speedScale,
-                pitch: SpeechService.semitonesToPitch(s.pitchSemitones),
-                dialoguePitch: SpeechService.semitonesToPitch(pitchOf?.call(dialogue) ?? s.pitchSemitones),
-                urgent: urgent,
-                level: s.normaliseLoudness,
-              );
-        if (gen != _gen) {
-          // Made for a start that was overtaken: nobody will hear it.
-          final wav = native['wavPath'];
-          if (wav is String) unawaited(File(wav).delete().catchError((Object _) => File(wav)));
-          return;
-        }
-        final r = await renderInBackground(
-          native: native,
-          // Speed is the engine's job (real duration change); the DSP stub
-          // would pitch-shift. Sentence pause is ours, appended below.
-          settings: s.copyWith(speedScale: 1.0, sentencePauseMs: 0, text: text),
-          pauseAfterMs: pauseAfter(i),
+        final r = await makeSentence(
+          service: service,
+          text: text,
+          settings: settingsFor(text),
+          open: quoted == null ? null : quoteOpenAt?.call(i),
+          engineId: engineIdOf(),
+          narrator: narrator,
+          dialogue: quoted,
+          pitchOf: pitchOf,
+          pauseAfterMs: () => pauseAfter(i),
           levelDb: _levelDb,
+          urgent: urgent,
+          stale: () => gen != _gen,
         );
-        if (gen != _gen) return;
-        final to = _streamRate ??= r.sampleRate;
-        final k = to / r.sampleRate;
-        int at(int frame) => (frame * k).round();
-        final pcm = to == r.sampleRate ? r.pcm : resamplePcm16(r.pcm, r.sampleRate, to);
-        final start = await service.enqueue(pcm, to);
-        if (gen != _gen) return;
-        _rate = to;
-        _levelDb = r.gainDb;
-        final timings = [
-          for (final t in said.changed ? _onPage(r.timings, said) : r.timings)
-            to == r.sampleRate
-                ? t
-                : WordTiming(
-                    charStart: t.charStart,
-                    charEnd: t.charEnd,
-                    frameStart: at(t.frameStart),
-                    frameEnd: at(t.frameEnd),
-                    source: t.source,
-                  ),
-        ];
-        _chunks.add(_Chunk(i, start, at(r.speechFrames), to == r.sampleRate ? r.totalFrames : pcm.length ~/ 2, timings,
-            r.levels, pcm));
+        if (r == null || gen != _gen) return;
+        if (!await _queue(gen, i, r, said.changed ? _onPage(r.timings, said) : r.timings)) return;
         final took = watch.elapsedMilliseconds;
         _lastMade = (ms: took, speechMs: r.speechFrames * 1000 ~/ r.sampleRate, urgent: urgent);
         if (text.length >= 20) {
@@ -663,7 +756,7 @@ class PlaybackScheduler {
         // A natural voice that cannot speak (a broken download, too little
         // memory, its worker gone): the same sentence again in the phone's
         // voice, not skipped.
-        if (_fallBack(narrator, dialogue, e)) continue;
+        if (_fallBack(narrator, quoted, e, character: quoted != dialogue)) continue;
         failures++;
         _next = i + 1;
         if (failures >= 3) {
@@ -673,6 +766,67 @@ class PlaybackScheduler {
       }
     }
     if (gen == _gen) _fillDone = true;
+  }
+
+  /// [r], sentence [i] made, queued after what is queued (at the stream's
+  /// rate, which a sentence at another rate is brought to), with [timings]
+  /// on the page's text. False when it was overtaken meanwhile.
+  Future<bool> _queue(int gen, int i, RenderedSpeech r, List<WordTiming> timings) async {
+    final to = _streamRate ??= r.sampleRate;
+    final k = to / r.sampleRate;
+    int at(int frame) => (frame * k).round();
+    final pcm = to == r.sampleRate ? r.pcm : resamplePcm16(r.pcm, r.sampleRate, to);
+    final start = await service.enqueue(pcm, to);
+    if (gen != _gen) return false;
+    _rate = to;
+    _levelDb = r.gainDb;
+    _chunks.add(_Chunk(
+      i,
+      start,
+      at(r.speechFrames),
+      to == r.sampleRate ? r.totalFrames : pcm.length ~/ 2,
+      [
+        for (final t in timings)
+          to == r.sampleRate
+              ? t
+              : WordTiming(
+                  charStart: t.charStart,
+                  charEnd: t.charEnd,
+                  frameStart: at(t.frameStart),
+                  frameEnd: at(t.frameEnd),
+                  source: t.source,
+                ),
+      ],
+      r.levels,
+      pcm,
+    ));
+    return true;
+  }
+
+  /// Sentence [i] from the book's own narration, queued (or passed over,
+  /// when its clip holds no sound). False when its recording could not be
+  /// read: the voice reads it instead, and says so once.
+  Future<bool> _narrate(int gen, int i) async {
+    // A natural voice switched from is let go: the recording needs none.
+    NeuralEngine.instance.keepOnly(const []);
+    try {
+      final r = await narration!.make(
+        i,
+        settings: settingsFor(units[i].text),
+        pauseAfterMs: pauseAfter(i),
+        levelDb: _levelDb,
+        stale: () => gen != _gen,
+      );
+      if (gen != _gen) return true;
+      if (r != null && r.totalFrames > 0 && !await _queue(gen, i, r, r.timings)) return true;
+      _next = i + 1;
+      return true;
+    } on Object catch (e) {
+      if (gen != _gen) return true;
+      debugPrint('TomeVoice: the narration of sentence $i could not be played ($e); the voice reads it');
+      notice.value ??= "Part of the book's own narration could not be played on this phone, so the voice reads it.";
+      return false;
+    }
   }
 
   Future<void> _tick(int gen) async {
@@ -782,4 +936,76 @@ class PlaybackScheduler {
     await service.stopPlayback();
     if (error.value == null) onFinished?.call();
   }
+}
+
+/// One sentence as reading aloud makes it: said by [narrator] (words in
+/// quotation marks by [dialogue]: the voice the book's cast gives whoever
+/// says them, else the book's dialogue voice, when it has one), at the
+/// speed and pitch in [settings] ([pitchOf] gives each voice its own), then
+/// through the pipeline with the reader's word gap, punctuation pauses and
+/// loudness, with [pauseAfterMs] of silence after it. The scheduler makes
+/// every sentence it reads this way, and saving a book as audio
+/// (export_audio.dart, with [PlaybackScheduler.quoteVoiceAt]) every
+/// sentence it writes, so what is saved is what is heard.
+///
+/// [settings] are the listening settings for [text]; [open] whether a
+/// quotation is already open where the sentence begins, when that is
+/// known. [pauseAfterMs] is asked once the speech is made, as it always
+/// was. [levelDb] is the levelling gain of the sentence before (see
+/// [renderInBackground]). Null when [stale] says the sentence was
+/// overtaken while it was made (its file is deleted); the engine's errors
+/// are thrown as they come.
+Future<RenderedSpeech?> makeSentence({
+  required SpeechService service,
+  required String text,
+  required PipelineSettings settings,
+  required String? engineId,
+  required String? narrator,
+  required String? dialogue,
+  required int Function() pauseAfterMs,
+  bool? open,
+  double Function(String? voiceName)? pitchOf,
+  double? levelDb,
+  bool urgent = true,
+  bool Function()? stale,
+}) async {
+  final s = settings;
+  // A sentence in the middle of a long quote has no marks of its own.
+  final native = dialogue == null || !(open == true || text.contains(RegExp('[“”"«»「」„]')))
+      ? await service.synthesise(
+          text: text,
+          engineId: engineId,
+          voiceName: narrator,
+          rate: s.speedScale,
+          pitch: SpeechService.semitonesToPitch(s.pitchSemitones),
+          urgent: urgent,
+        )
+      : await speakWithDialogue(
+          svc: service,
+          text: text,
+          stale: stale,
+          startsInside: open,
+          narrator: narrator,
+          dialogueVoice: dialogue,
+          engineId: engineId,
+          rate: s.speedScale,
+          pitch: SpeechService.semitonesToPitch(s.pitchSemitones),
+          dialoguePitch: SpeechService.semitonesToPitch(pitchOf?.call(dialogue) ?? s.pitchSemitones),
+          urgent: urgent,
+          level: s.normaliseLoudness,
+        );
+  if (stale?.call() ?? false) {
+    // Made for a start that was overtaken: nobody will hear it.
+    final wav = native['wavPath'];
+    if (wav is String) unawaited(File(wav).delete().catchError((Object _) => File(wav)));
+    return null;
+  }
+  return renderInBackground(
+    native: native,
+    // Speed is the engine's job (real duration change); the DSP stub
+    // would pitch-shift. Sentence pause is ours, appended after it.
+    settings: s.copyWith(speedScale: 1.0, sentencePauseMs: 0, text: text),
+    pauseAfterMs: pauseAfterMs(),
+    levelDb: levelDb,
+  );
 }

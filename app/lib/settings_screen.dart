@@ -9,25 +9,36 @@ import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
 import 'app_update.dart';
+import 'auto_backup.dart';
 import 'backup_flow.dart';
 import 'brand.dart';
 import 'categories_screen.dart';
+import 'folders.dart';
+import 'guide.dart';
 import 'library_store.dart';
 import 'listen_sheet.dart';
 import 'neural_screen.dart';
+import 'novel_updates.dart';
 import 'noveldokusha_import.dart';
+import 'own_colours.dart';
+import 'own_colours_sheet.dart';
 import 'prefs.dart';
+import 'problem_report.dart';
+import 'relayout.dart';
 import 'rules_screen.dart';
 import 'sources/source_engine.dart';
 import 'secret_shelf.dart';
 import 'sources_screen.dart';
 import 'stats_screen.dart' show addWidget;
 import 'speech_service.dart';
+import 'sync.dart';
+import 'sync_screen.dart';
 import 'theme.dart';
 import 'ui.dart';
 import 'updates.dart';
 import 'update_flow.dart';
 import 'voices.dart';
+import 'wallpaper_colours.dart';
 
 const _svc = SpeechService();
 
@@ -49,6 +60,10 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   LibraryIndex? _index;
   bool _tellUpdates = true;
 
+  /// Whether there is a secret shelf, open or shut: automatic backups leave
+  /// it out unless the reader lets it in.
+  bool _secretShelf = false;
+
   /// The screen as it looked before a theme change, fading out over the
   /// screen as it looks now: a true cross-fade, where a theme animation
   /// alone would snap every colour the app draws itself.
@@ -65,6 +80,8 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   void initState() {
     super.initState();
     ListeningPrefs.revision.addListener(_rebuild);
+    // The wallpaper's theme shows once the phone has said it has colours.
+    WallpaperColours.current.addListener(_rebuild);
     unawaited(_loadIndex());
     AppUpdates.enabled(widget.store.root).then((on) {
       if (mounted) setState(() => _tellUpdates = on);
@@ -77,6 +94,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     _before?.dispose();
     _sampleTimer?.cancel();
     ListeningPrefs.revision.removeListener(_rebuild);
+    WallpaperColours.current.removeListener(_rebuild);
     super.dispose();
   }
 
@@ -86,7 +104,13 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
 
   Future<void> _loadIndex() async {
     final idx = await widget.store.index();
-    if (mounted) setState(() => _index = idx);
+    final secret = (await widget.store.index(all: true)).categories.any((c) => c.secret);
+    if (mounted) {
+      setState(() {
+        _index = idx;
+        _secretShelf = secret;
+      });
+    }
   }
 
   void _change(void Function() f) {
@@ -116,6 +140,67 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
       _before?.dispose();
       _before = null;
     });
+  }
+
+  /// Your own colours: the editor opens on the ones kept (or where a reader
+  /// starts), and what it gives back is kept and shown.
+  Future<void> _pickOwn() async {
+    final picked = await showOwnColours(context, OwnColours.of(_prefs));
+    if (picked == null || !mounted) return;
+    _changeTheme(() {
+      picked.saveTo(_prefs);
+      _prefs.paletteId = 'own';
+    });
+  }
+
+  /// What "Light or dark" says of a theme shown only one way.
+  String _alwaysSaid(Palette p) {
+    final way = p.only == Brightness.dark ? 'dark' : 'light';
+    return _prefs.paletteId == 'own' ? 'Your own colours are $way, as their page is.' : '${p.label} is always $way.';
+  }
+
+  /// Automatic backups on or off. On needs a folder: picked first, and
+  /// left off if none is.
+  Future<void> _setBackupEvery(BackupEvery every) async {
+    if (every != BackupEvery.off && _prefs.backupFolder == null && !await _pickBackupFolder()) return;
+    _change(() => _prefs.backupEvery = every.name);
+    if (every != BackupEvery.off) unawaited(AutoBackup.runIfDue(widget.store));
+  }
+
+  /// The secret shelf in automatic backups, or out of them. In only once the
+  /// reader has been told what that means, and said yes.
+  Future<void> _setBackupSecret(bool on) async {
+    if (on &&
+        !await confirm(
+          context,
+          title: 'Back up the secret shelf too?',
+          body: 'Automatic backups are plain files. Anyone who has one can open the books on your secret shelf, '
+              'and read what you saved from them.',
+          action: 'Back it up',
+        )) {
+      return;
+    }
+    if (mounted) _change(() => _prefs.backupSecret = on);
+  }
+
+  /// The folder backups go to. True if one was picked.
+  Future<bool> _pickBackupFolder() async {
+    PickedFolder? folder;
+    try {
+      folder = await const Folders().pick();
+    } on PlatformException catch (e) {
+      if (mounted) showSnack(context, 'The folder could not be used: ${e.message ?? e.code}');
+    }
+    if (folder == null || !mounted) return false;
+    final picked = folder;
+    _change(() => _prefs.backupFolder = picked);
+    AutoBackup.problem.value = null;
+    // A backup is a plain file, as one saved by hand: let in, the secret
+    // shelf's books are in each one (they are left out otherwise).
+    if (_prefs.backupSecret && _secretShelf && mounted) {
+      showSnack(context, 'Backups include your secret shelf. Anyone who has one can open its books.', long: true);
+    }
+    return true;
   }
 
   /// Pick a NovelDokusha backup and bring its web novels into the library.
@@ -233,9 +318,17 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                         const SectionTitle('Theme'),
                         const SizedBox(height: Gap.m),
                         _PaletteSwatches(
-                          selected: _prefs.paletteId,
+                          selected: chosenPaletteId(_prefs),
+                          own: OwnColours.of(_prefs).made.palette,
+                          wallpaper: WallpaperColours.palette,
                           onPick: (id) => _changeTheme(() => _prefs.paletteId = id),
+                          onOwn: _pickOwn,
                         ),
+                        if (_prefs.paletteId == 'own')
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton(onPressed: _pickOwn, child: const Text('Change your colours')),
+                          ),
                         const SizedBox(height: Gap.l),
                         SwitchRow(
                           title: 'Colours from book covers',
@@ -248,7 +341,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                         const SizedBox(height: Gap.xl),
                         const SectionTitle('Light or dark'),
                         const SizedBox(height: Gap.m),
-                        if (Palette.byId(_prefs.paletteId).only == null)
+                        if (chosenPalette(_prefs).only == null)
                           ChoiceRow<ThemeMode>(
                             options: const [
                               (ThemeMode.system, 'Phone'),
@@ -260,8 +353,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           )
                         else
                           Text(
-                            '${Palette.byId(_prefs.paletteId).label} is always '
-                            '${Palette.byId(_prefs.paletteId).only == Brightness.dark ? 'dark' : 'light'}.',
+                            _alwaysSaid(chosenPalette(_prefs)),
                             style: Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
                           ),
                       ],
@@ -292,6 +384,20 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           value: _prefs.keepReading,
                           padding: EdgeInsets.zero,
                           onChanged: (v) => _change(() => _prefs.keepReading = v),
+                        ),
+                        const ScreenOffRow(),
+                        const SizedBox(height: Gap.l),
+                        SwitchRow(
+                          title: 'Read notes aloud',
+                          subtitle: 'Footnotes and endnotes are read where they stand in the book. '
+                              'The little numbers pointing at them stay silent',
+                          value: _prefs.notesAloud,
+                          padding: EdgeInsets.zero,
+                          onChanged: (v) {
+                            _change(() => _prefs.notesAloud = v);
+                            // A book reading on goes on in the new layout.
+                            unawaited(relayReadingBook());
+                          },
                         ),
                         const SizedBox(height: Gap.xl),
                         const SectionTitle('Style'),
@@ -346,7 +452,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                         _Link(
                           icon: Icons.rule_rounded,
                           title: 'Reading rules',
-                          subtitle: 'Words said your way, and lines left out of web novels',
+                          subtitle: 'Words said your way, shared lists of them, and what the voice skips',
                           onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
                             builder: (_) => RulesScreen(
                               bookTitles: {for (final e in idx?.entries ?? const <LibraryEntry>[]) e.id: e.title},
@@ -357,7 +463,11 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           icon: Icons.lock_outline_rounded,
                           title: 'Secret shelf',
                           subtitle: 'Books that only your fingerprint, face or phone PIN opens',
-                          onTap: () => showSecretShelfSheet(context, widget.store),
+                          onTap: () async {
+                            await showSecretShelfSheet(context, widget.store);
+                            // Made, or turned back into an ordinary shelf.
+                            await _loadIndex();
+                          },
                         ),
                         _Link(
                           icon: Icons.backup_outlined,
@@ -370,6 +480,53 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           title: 'Restore a backup',
                           subtitle: 'From a TomeVoice backup on this phone or in Drive',
                           onTap: () => runRestore(context, widget.store),
+                        ),
+                        const SizedBox(height: Gap.l),
+                        const SectionTitle('Back up automatically'),
+                        const SizedBox(height: Gap.m),
+                        ChoiceRow<BackupEvery>(
+                          options: [for (final e in BackupEvery.values) (e, e.label)],
+                          value: BackupEvery.byName(_prefs.backupEvery),
+                          onChanged: (e) => unawaited(_setBackupEvery(e)),
+                        ),
+                        if (BackupEvery.byName(_prefs.backupEvery) != BackupEvery.off) ...[
+                          const SizedBox(height: Gap.s),
+                          _Link(
+                            icon: Icons.folder_outlined,
+                            title: _prefs.backupFolder?.name ?? 'Choose a folder',
+                            subtitle: 'Where the backups go, when TomeVoice opens and one is due. '
+                                'The last $autoBackupsKept are kept',
+                            onTap: () => unawaited(_pickBackupFolder()),
+                          ),
+                          SwitchRow(
+                            title: 'With downloaded chapters',
+                            subtitle: 'Bigger backups; web novel chapters otherwise download again after a restore',
+                            value: _prefs.backupChapters,
+                            padding: EdgeInsets.zero,
+                            onChanged: (v) => _change(() => _prefs.backupChapters = v),
+                          ),
+                          if (_secretShelf)
+                            SwitchRow(
+                              title: 'With the secret shelf',
+                              subtitle: _prefs.backupSecret
+                                  ? 'Anyone who has a backup file can open its books'
+                                  : 'Left out: its books, quotes and places are not in these backups',
+                              value: _prefs.backupSecret,
+                              padding: EdgeInsets.zero,
+                              onChanged: (v) => unawaited(_setBackupSecret(v)),
+                            ),
+                          _AutoBackupStatus(store: widget.store, prefs: _prefs),
+                        ],
+                        const SizedBox(height: Gap.s),
+                        _Link(
+                          icon: Icons.sync_rounded,
+                          title: 'Sync',
+                          subtitle: BookSync.on
+                              ? 'On: places, quotes and reading time'
+                              : 'Off. Keep places and quotes the same on your phones, or with KOReader',
+                          onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                            builder: (_) => SyncScreen(store: widget.store),
+                          )),
                         ),
                         _Link(
                           icon: Icons.move_to_inbox_outlined,
@@ -390,6 +547,14 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                         Text(
                           'Web novels in your library are checked when TomeVoice opens, at most this often.',
                           style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
+                        ),
+                        const SizedBox(height: Gap.s),
+                        SwitchRow(
+                          title: 'Find on NovelUpdates',
+                          subtitle: NovelUpdates.about,
+                          value: _prefs.novelUpdates,
+                          padding: EdgeInsets.zero,
+                          onChanged: (v) => _change(() => _prefs.novelUpdates = v),
                         ),
                         const SizedBox(height: Gap.l),
                         _Link(
@@ -464,6 +629,12 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                         ),
                         const SizedBox(height: Gap.s),
                         _Link(
+                          icon: Icons.tips_and_updates_outlined,
+                          title: 'Show the guide again',
+                          subtitle: 'Bringing books in, play, the voices and the page',
+                          onTap: () => unawaited(showGuide(context)),
+                        ),
+                        _Link(
                           icon: Icons.info_outline_rounded,
                           title: 'About TomeVoice',
                           subtitle: 'Version, licences, source code',
@@ -485,36 +656,73 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
 }
 
 /// The colour themes, each drawn as a little card of its own ground and
-/// accent, in the brightness it would show in now.
+/// accent, in the brightness it would show in now: the five, the
+/// wallpaper's where the phone makes one, and the reader's own, which opens
+/// its colours.
 class _PaletteSwatches extends StatelessWidget {
-  const _PaletteSwatches({required this.selected, required this.onPick});
+  const _PaletteSwatches({
+    required this.selected,
+    required this.own,
+    required this.wallpaper,
+    required this.onPick,
+    required this.onOwn,
+  });
 
   final String selected;
+  final Palette own;
+  final Palette? wallpaper;
   final ValueChanged<String> onPick;
+  final VoidCallback onOwn;
 
   @override
   Widget build(BuildContext context) {
     final dark = Skin.isDark(context);
-    // All five in one row, so none hides off the side.
-    return Row(
-      children: [
-        for (final (i, p) in Palette.all.indexed) ...[
-          if (i > 0) const SizedBox(width: Gap.s),
-          Expanded(child: _swatch(context, p, p.only ?? (dark ? Brightness.dark : Brightness.light))),
-        ],
-      ],
+    final themes = [
+      for (final p in Palette.all) (p, p.id, p.label),
+      if (wallpaper != null) (wallpaper!, 'wallpaper', 'Wallpaper'),
+      (own, 'own', 'Your own'),
+    ];
+    // Rows of as many as fit with their names whole (four on a phone held
+    // upright), so none hides off the side.
+    return LayoutBuilder(
+      builder: (context, box) {
+        final across = (box.maxWidth / 72).floor().clamp(4, themes.length);
+        return Column(
+          children: [
+            for (var row = 0; row * across < themes.length; row++) ...[
+              if (row > 0) const SizedBox(height: Gap.m),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (var i = 0; i < across; i++) ...[
+                    if (i > 0) const SizedBox(width: Gap.s),
+                    Expanded(
+                      child: row * across + i < themes.length
+                          ? _swatch(context, themes[row * across + i], dark)
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ],
+        );
+      },
     );
   }
 
-  Widget _swatch(BuildContext context, Palette p, Brightness b) {
-    final on = p.id == selected;
-    final ink = b == Brightness.dark ? Skin.nightInk : Skin.ink;
+  Widget _swatch(BuildContext context, (Palette, String, String) theme, bool dark) {
+    final (p, id, label) = theme;
+    final b = p.only ?? (dark ? Brightness.dark : Brightness.light);
+    final on = id == selected;
+    final mine = id == 'own';
+    final ink = p.inkFor(b);
     return Semantics(
       button: true,
       selected: on,
-      label: '${p.label} theme',
+      label: mine ? 'Your own colours' : '$label theme',
       child: GestureDetector(
-        onTap: () => onPick(p.id),
+        onTap: mine ? onOwn : () => onPick(id),
         child: Column(
           children: [
             AnimatedContainer(
@@ -548,7 +756,12 @@ class _PaletteSwatches extends StatelessWidget {
                       width: 18,
                       height: 18,
                       decoration: BoxDecoration(color: p.accent, shape: BoxShape.circle),
-                      child: on ? Icon(Icons.check_rounded, size: 13, color: p.onAccent) : null,
+                      // Your own opens its colours: a brush until it is chosen.
+                      child: on
+                          ? Icon(Icons.check_rounded, size: 13, color: p.onAccent)
+                          : mine
+                              ? Icon(Icons.brush_rounded, size: 11, color: p.onAccent)
+                              : null,
                     ),
                   ),
                 ],
@@ -556,7 +769,7 @@ class _PaletteSwatches extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              p.label,
+              label,
               maxLines: 1,
               overflow: TextOverflow.fade,
               softWrap: false,
@@ -571,6 +784,49 @@ class _PaletteSwatches extends StatelessWidget {
       ),
     );
   }
+}
+
+/// When the last automatic backup was made, or why it could not be, and
+/// Back up now.
+class _AutoBackupStatus extends StatelessWidget {
+  const _AutoBackupStatus({required this.store, required this.prefs});
+
+  final LibraryStore store;
+  final ListeningPrefs prefs;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: Listenable.merge([AutoBackup.problem, AutoBackup.running]),
+        builder: (context, _) {
+          final problem = AutoBackup.problem.value;
+          final last = prefs.lastBackup;
+          final said = AutoBackup.running.value
+              ? 'Backing up…'
+              : problem ??
+                  (last == null
+                      ? 'No backup made yet.'
+                      : 'Last backup ${MaterialLocalizations.of(context).formatMediumDate(last)}, '
+                          '${MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(last))}.');
+          return Row(
+            children: [
+              Expanded(
+                child: Text(
+                  said,
+                  style: Skin.ui(
+                    size: 13.5,
+                    weight: problem == null ? FontWeight.w400 : FontWeight.w600,
+                    color: problem == null ? Skin.inkFaintOn(context) : Skin.inkOn(context),
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: AutoBackup.running.value ? null : () => unawaited(AutoBackup.backUpNow(store)),
+                child: const Text('Back up now'),
+              ),
+            ],
+          );
+        },
+      );
 }
 
 /// A titled card of settings.
@@ -639,6 +895,118 @@ class _Link extends StatelessWidget {
           ),
         ),
       );
+}
+
+/// Phone makers known to stop apps reading in the background in ways of
+/// their own, beyond Android's battery saving (dontkillmyapp.com ranks them):
+/// the name the phone goes by, and the maker's page there. Brand first: a
+/// Redmi is made by Xiaomi. Null for the rest (Pixel, Nothing and others that
+/// behave as Android does; dontkillmyapp.com has no page for Honor, whose
+/// apps the Huawei page covers).
+({String name, String page})? aggressiveMaker(String maker, String brand) {
+  const pages = {
+    'xiaomi': ('Xiaomi', 'xiaomi'),
+    'redmi': ('Redmi', 'xiaomi'),
+    'poco': ('POCO', 'xiaomi'),
+    'samsung': ('Samsung', 'samsung'),
+    'oppo': ('OPPO', 'oppo'),
+    'realme': ('realme', 'realme'),
+    'oneplus': ('OnePlus', 'oneplus'),
+    'vivo': ('vivo', 'vivo'),
+    'iqoo': ('iQOO', 'vivo'),
+    'huawei': ('Huawei', 'huawei'),
+    'honor': ('Honor', 'huawei'),
+  };
+  for (final key in [brand.trim().toLowerCase(), maker.trim().toLowerCase()]) {
+    final hit = pages[key];
+    if (hit != null) return (name: hit.$1, page: hit.$2);
+  }
+  return null;
+}
+
+/// Settings > Listening: whether Android lets TomeVoice read on with the
+/// screen off, and the way to its setting (the phone's own question, or its
+/// list of apps). On phones whose makers stop apps in ways of their own as
+/// well, a line to the maker's page on dontkillmyapp.com, which says what
+/// else to turn off. Nothing shows where the phone cannot say (tests).
+class ScreenOffRow extends StatefulWidget {
+  const ScreenOffRow({super.key});
+
+  @override
+  State<ScreenOffRow> createState() => _ScreenOffRowState();
+}
+
+class _ScreenOffRowState extends State<ScreenOffRow> {
+  ({bool exempt, String maker, String brand})? _status;
+  late final AppLifecycleListener _life;
+
+  @override
+  void initState() {
+    super.initState();
+    // Back from Android's setting: show what it says now.
+    _life = AppLifecycleListener(onResume: () => unawaited(_load()));
+    unawaited(_load());
+  }
+
+  @override
+  void dispose() {
+    _life.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final status = await _svc.batteryStatus();
+    if (mounted) setState(() => _status = status);
+  }
+
+  Future<void> _open() async {
+    if (!await _svc.openBatterySettings() && mounted) {
+      showSnack(context, 'This phone has no battery setting TomeVoice can open.');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final status = _status;
+    if (status == null) return const SizedBox.shrink();
+    final maker = aggressiveMaker(status.maker, status.brand);
+    return Padding(
+      padding: const EdgeInsets.only(top: Gap.l),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _Link(
+            icon: status.exempt ? Icons.bedtime_outlined : Icons.battery_alert_outlined,
+            title: 'Keep reading with the screen off',
+            subtitle: status.exempt
+                ? 'Allowed: battery saving leaves TomeVoice alone'
+                : 'Battery saving may stop the voice with the screen off. Tap to allow TomeVoice',
+            onTap: _open,
+          ),
+          if (maker != null)
+            // In line with the row's text, under its icon's gap.
+            Padding(
+              padding: const EdgeInsets.only(left: 38),
+              child: Semantics(
+                link: true,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(Radii.row),
+                  onTap: () => _svc.openUrl('https://dontkillmyapp.com/${maker.page}'),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: Gap.xs),
+                    child: Text(
+                      '${maker.name} phones can also stop apps in ways of their own: '
+                      'dontkillmyapp.com/${maker.page}',
+                      style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 /// The app, its version, its licence and the licences of what it is made of.
@@ -738,6 +1106,12 @@ class _AboutScreenState extends State<AboutScreen> {
                         title: 'Releases',
                         subtitle: 'Download the latest version',
                         onTap: () => _svc.openUrl('$repositoryUrl/releases/latest'),
+                      ),
+                      _Link(
+                        icon: Icons.bug_report_outlined,
+                        title: 'Report a problem',
+                        subtitle: 'See every word it would say, then send it yourself on GitHub',
+                        onTap: () => unawaited(showProblemReport(context)),
                       ),
                       _Link(
                         icon: Icons.gavel_rounded,

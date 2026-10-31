@@ -229,16 +229,24 @@ jobs:
           set -e
           K=android/app/src/main/kotlin/app/tomevoice/tomevoice_spike
           M=android/app/src/main/AndroidManifest.xml
-          for f in MainActivity OpenActivity PcmPlayer ReadAloudService PdfText PdfPages ShareProvider LibraryBackup Widgets WidgetConfigActivity; do test -f "$K/$f.kt"; done
+          for f in MainActivity OpenActivity ReadingCore PcmPlayer ReadAloudService PdfText PdfPages ShareProvider LibraryBackup Widgets WidgetConfigActivity; do test -f "$K/$f.kt"; done
           grep -q "PlayerWidget" "$M"
           # Open with and Share land on OpenActivity, never on MainActivity
           # itself (a second copy of the app inside the file manager's task).
           grep -q 'android:name=".OpenActivity"' "$M"
           grep -q "tomevoice/tts" "$K/MainActivity.kt"
+          grep -q "tomevoice/tts" "$K/ReadingCore.kt"
           grep -q "TTS_SERVICE" "$M"
           grep -q "ReadAloudService" "$M"
           grep -q "ShareProvider" "$M"
           grep -q 'foregroundServiceType="mediaPlayback"' "$M"
+          # The resume card and Android Auto reach the books through the
+          # media browser; Auto lists only apps that say they are media apps.
+          grep -q "android.media.browse.MediaBrowserService" "$M"
+          grep -q "com.google.android.gms.car.application" "$M"
+          test -f android/app/src/main/res/xml/automotive_app_desc.xml
+          # Settings > Listening's one-tap question about battery saving.
+          grep -q "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" "$M"
           # TomeVoice, or the test app when TV_APP_ID / TV_APP_LABEL say so.
           grep -qF "android:label=\"${TV_APP_LABEL:-TomeVoice}\"" "$M"
           # The secret shelf's fingerprint, face or PIN prompt.
@@ -246,6 +254,13 @@ jobs:
           # Look up and Translate: those apps are invisible without it.
           grep -q "android.intent.action.PROCESS_TEXT" "$M"
           grep -q "pdfbox-android" android/app/build.gradle.kts
+          # OCR for scanned PDFs: Tesseract4Android and its service.
+          grep -q "tesseract4android" android/app/build.gradle.kts
+          grep -q 'foregroundServiceType="dataSync"' "$M"
+          # Saving as MP3: the encoder (jump3r) and the save's service.
+          grep -q "de.sciss:jump3r" android/app/build.gradle.kts
+          grep -q "AudioExportService" "$M"
+          test -f "$K/AudioExport.kt"
           # ...without BouncyCastle's post-quantum tables (4.1 MB).
           grep -q 'excludes += "org/bouncycastle/pqc/' android/app/build.gradle.kts
           test -f android/app/proguard-rules.pro
@@ -346,6 +361,11 @@ jobs:
               echo "::error::$name still carries org/bouncycastle/pqc/"
               exit 1
             fi
+            # 64-bit libraries aligned for 16 KB pages: OCR's must be (a
+            # failure here stops the run); any other is warned about.
+            echo "::group::$name native libraries"
+            python3 ../tools/check_16kb.py "$apk" --require libtesseract.so libleptonica.so libjpeg.so libpngx.so
+            echo "::endgroup::"
             if [ "$cert" != "$TV_CERT_SHA256" ]; then
               if [ -n "$RELEASE_TAG" ]; then
                 echo "::error::$name is not signed with the TomeVoice key (${cert:-no certificate found}). Not releasing it: it would not install over the last version."

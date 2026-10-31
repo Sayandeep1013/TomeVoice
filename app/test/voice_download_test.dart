@@ -10,12 +10,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_spike/neural_voices.dart';
 
 /// A voice's archive, as the release has it: one top folder with the model,
-/// its tokens and its pronunciation data.
-Uint8List archiveOf(NeuralVoice v) {
+/// its tokens and its pronunciation data (espeak-ng's, or a [lexicon]), and
+/// a shared model's speakers ([speakers] false leaves them out).
+Uint8List archiveOf(NeuralVoice v, {bool lexicon = false, bool speakers = true}) {
+  final top = v.pack?.id ?? 'vits-piper-${v.id}';
   final a = Archive()
-    ..addFile(ArchiveFile.bytes('vits-piper-${v.id}/${v.id}.onnx', Uint8List(1500 * 1024)))
-    ..addFile(ArchiveFile.string('vits-piper-${v.id}/tokens.txt', 'a 1\nb 2\n'))
-    ..addFile(ArchiveFile.string('vits-piper-${v.id}/espeak-ng-data/phontab', 'x'));
+    ..addFile(ArchiveFile.bytes('$top/${v.modelFile}', Uint8List(1500 * 1024)))
+    ..addFile(ArchiveFile.string('$top/tokens.txt', 'a 1\nb 2\n'));
+  if (lexicon) {
+    a.addFile(ArchiveFile.string('$top/lexicon.txt', 'x x\n'));
+  } else {
+    a.addFile(ArchiveFile.string('$top/espeak-ng-data/phontab', 'x'));
+  }
+  if (v.pack != null && speakers) a.addFile(ArchiveFile.bytes('$top/voices.bin', Uint8List(4096)));
   return BZip2Encoder().encodeBytes(TarEncoder().encodeBytes(a));
 }
 
@@ -125,5 +132,45 @@ void main() {
     expect(NeuralVoices.instance.installed(voice), isFalse);
     expect(root.listSync(recursive: true).where((e) => e.path.endsWith('.part')), isEmpty,
         reason: 'a broken file is not worth going on from');
+  });
+
+  group('from the catalog', () {
+    final catalog = NeuralCatalog.parse(File('assets/voices/catalog.json').readAsStringSync());
+    setUp(() => NeuralVoices.instance.useCatalog(catalog));
+
+    test('a model with many voices is downloaded once, for every speaker', () async {
+      final alpha = catalog.byId('kokoro-multi-lang-v1_0:hf_alpha')!;
+      final psi = catalog.byId('kokoro-multi-lang-v1_0:hm_psi')!;
+      body = archiveOf(alpha);
+      cutAfter = body.length ~/ 3;
+      await expectLater(NeuralVoices.instance.download(alpha, source: at()), throwsA(anything));
+      // The part is the model's, whichever of its speakers asked.
+      cutAfter = null;
+      await NeuralVoices.instance.download(psi, source: at());
+      expect(ranges.last, 'bytes=${body.length ~/ 3}-');
+      expect(NeuralVoices.instance.installed(alpha), isTrue);
+      expect(NeuralVoices.instance.installed(psi), isTrue);
+      expect(Directory('${root.path}/voices/kokoro-multi-lang-v1_0').existsSync(), isTrue);
+      expect(File('${NeuralVoices.instance.folder(alpha).path}/voices.bin').existsSync(), isTrue);
+
+      // Removing one speaker removes the model all of them share.
+      await NeuralVoices.instance.remove(psi);
+      expect(NeuralVoices.instance.installed(alpha), isFalse);
+    });
+
+    test("a model whose speakers did not come is not kept", () async {
+      final alpha = catalog.byId('kokoro-multi-lang-v1_0:hf_alpha')!;
+      body = archiveOf(alpha, speakers: false);
+      await expectLater(NeuralVoices.instance.download(alpha, source: at()), throwsA(isA<FormatException>()));
+      expect(NeuralVoices.instance.installed(alpha), isFalse);
+    });
+
+    test('a Chinese voice read through a lexicon unpacks without espeak-ng data', () async {
+      final xiaoYa = catalog.byId('zh_CN-xiao_ya-medium')!;
+      body = archiveOf(xiaoYa, lexicon: true);
+      await NeuralVoices.instance.download(xiaoYa, source: at());
+      expect(NeuralVoices.instance.installed(xiaoYa), isTrue);
+      expect(File('${NeuralVoices.instance.folder(xiaoYa).path}/lexicon.txt').existsSync(), isTrue);
+    });
   });
 }

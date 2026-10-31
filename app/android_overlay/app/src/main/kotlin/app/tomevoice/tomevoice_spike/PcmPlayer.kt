@@ -6,7 +6,6 @@ import android.media.AudioFormat
 import android.media.AudioTimestamp
 import android.media.AudioTrack
 import java.util.concurrent.LinkedBlockingQueue
-import java.util.concurrent.TimeUnit
 
 /**
  * One streaming AudioTrack that the Dart scheduler feeds sentence by sentence.
@@ -230,7 +229,10 @@ class PcmPlayer {
         val writer = Thread({
             try {
                 while (generation == gen) {
-                    val chunk = q.poll(200, TimeUnit.MILLISECONDS) ?: continue
+                    // Asleep until the next sentence comes (it looked every
+                    // 200 ms, playing or paused); a stop wakes it with an
+                    // empty one (see releaseLocked).
+                    val chunk = q.take()
                     var off = 0
                     while (off < chunk.size && generation == gen) {
                         val n = t.write(chunk, off, chunk.size - off)
@@ -259,6 +261,9 @@ class PcmPlayer {
     private fun releaseLocked() {
         generation++
         queue.clear()
+        // The writer of this stream, waiting for the next sentence, wakes to
+        // find its stream gone.
+        queue.offer(ByteArray(0))
         failed = false
         haveStamp = false
         lastHeard = 0L

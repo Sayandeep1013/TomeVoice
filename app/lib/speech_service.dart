@@ -11,6 +11,10 @@ import 'package:tomevoice_document/tomevoice_document.dart' show wordSpans;
 import 'neural_voices.dart';
 import 'scheduler.dart';
 
+/// The phone a problem report names: Android's version and API level, and
+/// its maker and model (see [SpeechService.deviceInfo]).
+typedef DeviceInfo = ({String android, int sdk, String maker, String model});
+
 /// Everything that talks to the platform, plus the decoding that has to happen
 /// before the pure-Dart pipeline can be handed anything.
 ///
@@ -88,6 +92,10 @@ class SpeechService {
   /// continues the scheduler, so this is strictly one at a time.
   static Future<void> _synthBusy = Future<void>.value();
 
+  /// Bumped by [cancelSynthesis]: a sentence still waiting for its turn
+  /// when it was called off is dropped when the turn comes, not made.
+  static int _cancels = 0;
+
   /// Forget a synthesis still holding the queue (between widget tests).
   @visibleForTesting
   static void resetQueue() => _synthBusy = Future<void>.value();
@@ -103,11 +111,16 @@ class SpeechService {
     final previous = _synthBusy;
     final gate = Completer<void>();
     _synthBusy = gate.future;
+    final cancels = _cancels;
     // Never wait on a call that will not come back (an engine that hung, a
     // test that ended mid-call): one stuck sentence must not silence every
     // later one.
     await previous.timeout(const Duration(seconds: 20), onTimeout: () {});
     try {
+      // Overtaken while it waited (a jump, then another): nobody will hear
+      // it. Made anyway, each such sentence kept the jump's own one waiting
+      // a whole sentence more, seconds of it with a natural voice.
+      if (_cancels != cancels) throw PlatformException(code: 'TTS_STOPPED', message: 'Synthesis cancelled');
       // A natural voice is made here, not by the phone's speech engine.
       final natural = neuralVoiceFor(voiceName);
       if (natural != null) {
@@ -135,7 +148,10 @@ class SpeechService {
 
   /// Abandon the sentence being synthesised (after a seek): the phone's
   /// engine stops at once; a natural voice stops after the piece it is on.
+  /// Sentences still waiting for their turn are dropped, so what is asked
+  /// for next is made next.
   Future<void> cancelSynthesis() {
+    _cancels++;
     NeuralEngine.instance.cancel();
     return _quiet('cancelSynthesis');
   }
@@ -201,14 +217,28 @@ class SpeechService {
   static const routeBluetooth = 'bluetooth';
   static const routeOther = 'other';
 
+  /// Who put the card up last: a book's page, or the reading in the
+  /// background (see [session]).
+  static Object? _cardOwner;
+
+  /// Whether [owner] put the card up last, and so may take it away.
+  static bool ownsCard(Object owner) => identical(_cardOwner, owner);
+
   /// The "reading aloud" foreground service that keeps speech going with the
   /// screen off. Inactive ends it.
   ///
   /// It also feeds the shade's media card: [cover] (an image file) is its
   /// picture, [positionMs] of [durationMs] its seek bar through the chapter,
-  /// and [speed] its speed button.
+  /// and [speed] its speed button. [book], when given, is the book's id: a
+  /// Play from outside the app for that book then carries on with this one.
+  ///
+  /// [owner] is who puts the card up: its end is let through only while the
+  /// card is still its own. Another reading put up since (a book started
+  /// from Android Auto while a page waited) keeps its card, its audio and
+  /// the phone kept awake.
   Future<void> session({
     required bool active,
+    Object? owner,
     String title = '',
     String subtitle = '',
     bool playing = false,
@@ -216,17 +246,81 @@ class SpeechService {
     int positionMs = 0,
     int durationMs = 0,
     double speed = 1.0,
-  }) =>
-      _quiet('session', {
-        'active': active,
-        'title': title,
-        'subtitle': subtitle,
-        'playing': playing,
-        'cover': cover,
-        'positionMs': positionMs,
-        'durationMs': durationMs,
-        'speed': speed,
-      });
+    String? book,
+  }) {
+    if (active) {
+      _cardOwner = owner;
+    } else {
+      if (owner != null && !identical(_cardOwner, owner)) return Future<void>.value();
+      _cardOwner = null;
+    }
+    return _quiet('session', {
+      'active': active,
+      'title': title,
+      'subtitle': subtitle,
+      'playing': playing,
+      'cover': cover,
+      'positionMs': positionMs,
+      'durationMs': durationMs,
+      'speed': speed,
+      'book': book,
+    });
+  }
+
+  // ------------------------------------------------------ outside the app
+
+  /// A book asked for from outside the app (the system's resume card, a
+  /// headset's Play, Android Auto), taken once: its id, and whether a
+  /// reading had the card when it was asked. Null when none is waiting.
+  Future<({String book, bool reading})?> takeMediaPlay() async {
+    try {
+      final raw = await _channel.invokeMapMethod<String, Object?>('takeMediaPlay');
+      final book = raw?['book'];
+      return book is String ? (book: book, reading: raw?['reading'] == true) : null;
+    } on Object {
+      return null;
+    }
+  }
+
+  /// The book asked for from outside the app cannot be read: the card put
+  /// up for it goes.
+  Future<void> mediaPlayFailed() => _quiet('mediaPlayFailed');
+
+  /// Whether an activity shows this engine: the app runs with no screen when
+  /// a book was started from outside it.
+  Future<bool> activityAttached() async {
+    try {
+      return await _channel.invokeMethod<bool>('activityAttached') ?? false;
+    } on Object {
+      return false;
+    }
+  }
+
+  /// Whether Android's battery optimisation leaves TomeVoice alone, and the
+  /// phone's maker and brand; null where the platform cannot say.
+  Future<({bool exempt, String maker, String brand})?> batteryStatus() async {
+    try {
+      final raw = await _channel.invokeMapMethod<String, Object?>('batteryStatus');
+      if (raw == null) return null;
+      return (
+        exempt: raw['exempt'] == true,
+        maker: raw['maker'] as String? ?? '',
+        brand: raw['brand'] as String? ?? '',
+      );
+    } on Object {
+      return null;
+    }
+  }
+
+  /// Android's setting that lets TomeVoice read on with the screen off.
+  /// False when the phone has none to open.
+  Future<bool> openBatterySettings() async {
+    try {
+      return await _channel.invokeMethod<bool>('openBatterySettings') ?? false;
+    } on Object {
+      return false;
+    }
+  }
 
   /// Whether the phone has a lock (a PIN, pattern or password) to ask for.
   Future<bool> deviceSecure() async {
@@ -309,11 +403,14 @@ class SpeechService {
     }
   }
 
-  /// Show [url]'s browser check in a web view; the site's cookies once it
-  /// lets the reader in ("a=1; cf_clearance=…"), or null if it did not.
-  Future<String?> browserCheck(String url, String userAgent) async {
+  /// Show [url]'s browser check in a web view holding [seed] (the cookies
+  /// of the source that met it, see Net.browserSeed) and nothing else; the
+  /// site's cookies once it lets the reader in ({cookies, wide}, see
+  /// Net.keepFromBrowser), or null if it did not.
+  Future<Map<Object?, Object?>?> browserCheck(String url, String userAgent, Map<String, Object?> seed) async {
     try {
-      return await _channel.invokeMethod<String>('browserCheck', {'url': url, 'userAgent': userAgent});
+      return await _channel
+          .invokeMethod<Map<Object?, Object?>>('browserCheck', {'url': url, 'userAgent': userAgent, ...seed});
     } on Object {
       return null;
     }
@@ -321,6 +418,10 @@ class SpeechService {
 
   /// Keep the display awake while a book is open (a reader setting).
   Future<void> keepScreenOn(bool on) => _quiet('keepScreenOn', {'on': on});
+
+  /// The window's own brightness while a book is open: 0 (the phone's
+  /// lowest) to 1 (full), or null for the phone's own again.
+  Future<void> screenBrightness(double? level) => _quiet('screenBrightness', {'level': level ?? -1.0});
 
   /// While on, the volume keys turn pages (a `pageKey` event with `delta`)
   /// instead of changing the volume.
@@ -330,6 +431,34 @@ class SpeechService {
   Future<String?> appVersion() async {
     try {
       return await _channel.invokeMethod<String>('appVersion');
+    } on Object {
+      return null;
+    }
+  }
+
+  /// The colours Android 12 and later make from the wallpaper, by family
+  /// (accent1 to neutral2), each a list of ARGB values from shade 0 to 1000.
+  /// Null on older phones and where the platform cannot say.
+  Future<Object?> systemColours() async {
+    try {
+      return await _channel.invokeMethod<Object?>('systemColours');
+    } on Object {
+      return null;
+    }
+  }
+
+  /// The phone, for a problem report: Android's version ("14") and API
+  /// level, its maker and its model. Null where the platform cannot say.
+  Future<DeviceInfo?> deviceInfo() async {
+    try {
+      final raw = await _channel.invokeMapMethod<String, Object?>('deviceInfo');
+      if (raw == null) return null;
+      return (
+        android: raw['android'] as String? ?? '',
+        sdk: (raw['sdk'] as num?)?.toInt() ?? 0,
+        maker: raw['maker'] as String? ?? '',
+        model: raw['model'] as String? ?? '',
+      );
     } on Object {
       return null;
     }
@@ -393,6 +522,11 @@ class SpeechService {
   /// Android's share sheet for the picture at [path], with [text] beside it.
   Future<void> shareImage(String path, {String? text}) =>
       _channel.invokeMethod<void>('shareImage', {'path': path, 'text': text});
+
+  /// Android's share sheet for the file at [path] (in [shareDir]), as
+  /// [mime]: a list of pronunciations, say.
+  Future<void> shareFile(String path, {required String mime, String? text}) =>
+      _channel.invokeMethod<void>('shareFile', {'path': path, 'mime': mime, 'text': text});
 
   /// What a tapped widget asked for (`book`, `play`, `page`), once.
   Future<Map<String, Object?>?> widgetLaunch() async {
@@ -472,14 +606,38 @@ class SpeechService {
     );
   }
 
-  /// A rendered page as an image file, [width] pixels wide.
-  Future<String> pdfRender(String path, int page, int width) async {
+  /// A rendered page as an image file, [width] pixels wide: the whole page,
+  /// or only [crop] of it (in fractions of the page), drawn at that width.
+  Future<String> pdfRender(String path, int page, int width, {Rect? crop}) async {
     final file = await _channel.invokeMethod<String>(
       'pdfRender',
-      {'path': path, 'page': page, 'width': width},
+      {
+        'path': path,
+        'page': page,
+        'width': width,
+        if (crop != null) 'crop': [crop.left, crop.top, crop.right, crop.bottom],
+      },
     );
     if (file == null) throw Exception('Page $page could not be drawn');
     return file;
+  }
+
+  /// Where the print lies on each of [pages], found on a small drawing of
+  /// each (PdfPages.findPrint): its box in fractions of the page, or null on
+  /// a blank page. Throws when the phone could not say, so a page it did not
+  /// look at is never taken for a blank one.
+  Future<List<Rect?>> pdfPrint(String path, List<int> pages) async {
+    final raw = await _channel.invokeListMethod<Object?>('pdfPrint', {'path': path, 'pages': pages});
+    if (raw == null || raw.length != pages.length) throw Exception('The pages could not be looked at');
+    return [
+      for (final box in raw)
+        switch (box) {
+          null => null,
+          [final num l, final num t, final num r, final num b] =>
+            Rect.fromLTRB(l.toDouble(), t.toDouble(), r.toDouble(), b.toDouble()),
+          _ => throw Exception('A page could not be looked at'),
+        },
+    ];
   }
 
   // ------------------------------------------------------------- pipeline

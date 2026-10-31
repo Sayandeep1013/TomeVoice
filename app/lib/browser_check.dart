@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
+import 'sources/bridge.dart';
+import 'sources/models.dart';
 import 'sources/net.dart';
 import 'sources/source_engine.dart';
+import 'sources/source_updates.dart';
 import 'sources/plugin_host.dart';
 import 'speech_service.dart';
 import 'theme.dart';
@@ -10,23 +13,78 @@ import 'ui.dart';
 /// Show the site's browser check (Cloudflare) in a web view, and keep the
 /// cookies it hands out for the app's own requests. True when the site let
 /// the reader in, so the caller can try again.
+///
+/// The web view holds the cookies of the source that met the check and no
+/// other's while it shows it, and what the site sets there is kept for that
+/// source alone: another source's sign-in on the same site neither passes
+/// this check nor is copied to it.
 Future<bool> passBrowserCheck(BuildContext context, ChallengeException e) async {
-  final jar = await const SpeechService().browserCheck(e.url, Net.userAgent);
-  if (jar == null) {
+  if (!Net.isWebAddress(e.url)) return false;
+  final page = Uri.parse(e.url);
+  final got = await const SpeechService()
+      .browserCheck(e.url, Net.userAgent, Net.instance.browserSeed(page, partition: e.pluginId));
+  if (got == null) {
     if (context.mounted) showSnack(context, 'The check did not finish. Try again in a moment.');
     return false;
   }
-  final cookies = <String, String>{};
-  for (final part in jar.split(';')) {
-    final at = part.indexOf('=');
-    if (at > 0) cookies[part.substring(0, at).trim()] = part.substring(at + 1).trim();
-  }
-  await Net.instance.setCookies(Uri.parse(e.url).host, cookies);
+  await Net.instance.keepFromBrowser(page, got, partition: e.pluginId);
   return true;
 }
 
+/// Sign in to [plugin]'s site in a web view, for a site that wants an
+/// account: what it sets for the site is kept in that source's own cookies
+/// (and no other source's), so its requests go signed in from then on. The
+/// web view holds that source's cookies alone meanwhile, and none after.
+/// True once the reader tapped Done.
+Future<bool> signInToSite(BuildContext context, PluginInfo plugin) async {
+  final site = plugin.site;
+  if (!Net.isWebAddress(site)) {
+    showSnack(context, '${plugin.name} names no web page to sign in on.');
+    return false;
+  }
+  final page = Uri.parse(site);
+  final got = await SourcesBridge.browserLogin(site, Net.userAgent, Net.instance.browserSeed(page, partition: plugin.id));
+  if (got == null) return false;
+  final kept = await Net.instance.keepFromBrowser(page, got, partition: plugin.id);
+  if (context.mounted) {
+    showSnack(
+      context,
+      kept == 0
+          ? 'Nothing was kept: ${plugin.name} set no cookies there.'
+          : 'Signed in to ${plugin.name}. Clear its cookies in Sources to sign out.',
+      long: kept == 0,
+    );
+  }
+  return true;
+}
+
+/// The update waiting for source [pluginId], if its list has one: a source
+/// that fails is often one its site has changed under, and fixed since.
+PluginInfo? pendingUpdate(String? pluginId) {
+  if (pluginId == null) return null;
+  try {
+    return SourceEngine.instance.store.pending.value[pluginId];
+  } on StateError {
+    return null;
+  }
+}
+
+/// Update source [update] from its row's or a failure's button, kept at
+/// the version that works (see updateSources). True when it was updated.
+Future<bool> updateSource(BuildContext context, PluginInfo update) async {
+  final engine = SourceEngine.instance;
+  showSnack(context, 'Updating ${update.name}…');
+  final out = (await updateSources(engine.store, engine, [update])).single;
+  if (context.mounted) {
+    showSnack(context, out.note ?? (out.updated ? '${update.name} is updated.' : 'It could not be updated.'),
+        long: out.note != null);
+  }
+  return out.updated;
+}
+
 /// A source's failure where its results would be: what went wrong, and the
-/// way on. A browser check gets the button that opens it.
+/// way on. A browser check gets the button that opens it; a source with an
+/// update waiting, the button that updates it.
 class SourceProblem extends StatelessWidget {
   const SourceProblem({
     super.key,
@@ -34,6 +92,7 @@ class SourceProblem extends StatelessWidget {
     required this.onRetry,
     this.title = 'The site did not answer',
     this.more,
+    this.pluginId,
   });
 
   final Object error;
@@ -43,9 +102,36 @@ class SourceProblem extends StatelessWidget {
   /// Another action beside "Try again", such as opening the site.
   final Widget? more;
 
+  /// The source that failed, so a waiting update can be offered.
+  final String? pluginId;
+
   @override
   Widget build(BuildContext context) {
     final e = error;
+    final update = e is MissingSourceException || e is TamperedSourceException || e is ChallengeException
+        ? null
+        : pendingUpdate(pluginId);
+    if (update != null) {
+      return EmptyState(
+        icon: Icons.system_update_alt_rounded,
+        title: 'An update is available',
+        body: '$e An update for ${update.name} is waiting, and may fix this.',
+        action: Wrap(
+          spacing: Gap.s,
+          runSpacing: Gap.s,
+          alignment: WrapAlignment.center,
+          children: [
+            FilledButton(
+              onPressed: () async {
+                if (await updateSource(context, update)) onRetry();
+              },
+              child: Text('Update ${update.name}'),
+            ),
+            OutlinedButton(onPressed: onRetry, child: const Text('Try again')),
+          ],
+        ),
+      );
+    }
     if (e is ChallengeException) {
       return EmptyState(
         icon: Icons.verified_user_outlined,
@@ -72,6 +158,20 @@ class SourceProblem extends StatelessWidget {
           },
           icon: const Icon(Icons.download_rounded),
           label: Text('Install ${e.name}'),
+        ),
+      );
+    }
+    if (e is TamperedSourceException) {
+      return EmptyState(
+        icon: Icons.gpp_maybe_outlined,
+        title: 'Its source changed on the phone',
+        body: '${e.message} Installing it again from its list puts it right.',
+        action: FilledButton.icon(
+          onPressed: () async {
+            if (await reinstallSource(context, e.pluginId, e.name)) onRetry();
+          },
+          icon: const Icon(Icons.download_rounded),
+          label: Text('Reinstall ${e.name}'),
         ),
       );
     }
@@ -115,17 +215,58 @@ Future<bool> installMissingSource(BuildContext context, MissingSourceException e
   }
 }
 
+/// Install source [pluginId] again from the list it came from: its code on
+/// the phone did not match what was installed. True when it was.
+Future<bool> reinstallSource(BuildContext context, String pluginId, String name) async {
+  final store = SourceEngine.instance.store;
+  try {
+    final have = await store.installedById(pluginId);
+    final listed = have == null ? null : await store.fromItsList(have, refresh: true);
+    if (listed == null) {
+      if (context.mounted) {
+        showSnack(context, 'The list $name came from no longer has it. Remove it in Sources.', long: true);
+      }
+      return false;
+    }
+    if (context.mounted) showSnack(context, 'Installing $name again…');
+    await store.install(listed);
+    return true;
+  } on Object catch (err) {
+    if (context.mounted) showSnack(context, friendlyError(err), long: true);
+    return false;
+  }
+}
+
 /// [SourceProblem] on one line, for a row among others (global search).
 class SourceProblemLine extends StatelessWidget {
-  const SourceProblemLine({super.key, required this.error, required this.onRetry});
+  const SourceProblemLine({super.key, required this.error, required this.onRetry, this.pluginId});
 
   final Object error;
   final VoidCallback onRetry;
+
+  /// The source that failed, so a waiting update can be offered.
+  final String? pluginId;
 
   @override
   Widget build(BuildContext context) {
     final e = error;
     final style = Skin.label(context, size: 13, color: Skin.inkFaintOn(context));
+    final update = e is ChallengeException ? null : pendingUpdate(pluginId);
+    if (update != null) {
+      return Row(
+        children: [
+          Expanded(
+            child: Text('$e An update is available.', maxLines: 2, overflow: TextOverflow.ellipsis, style: style),
+          ),
+          TextButton(
+            onPressed: () async {
+              if (await updateSource(context, update)) onRetry();
+            },
+            child: const Text('Update'),
+          ),
+        ],
+      );
+    }
     if (e is! ChallengeException) {
       return Text('$e', maxLines: 2, overflow: TextOverflow.ellipsis, style: style);
     }

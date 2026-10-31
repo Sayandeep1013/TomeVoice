@@ -180,13 +180,15 @@ class _Answers {
   }
 }
 
-/// A PDF, from the per-page text the platform extracted, and where its
-/// lines sit when the platform says (see [bookFromPdfText]).
+/// A PDF, from the per-page text the platform extracted, where its lines
+/// sit and which of their runs are raised, when the platform says (see
+/// [bookFromPdfText]).
 Book ingestPdfText({
   required String id,
   required List<String> pages,
   List<PdfOutlineEntry> outline = const [],
   List<List<int>>? layout,
+  List<List<int>>? raised,
   String? title,
   String? author,
   String? filename,
@@ -196,6 +198,7 @@ Book ingestPdfText({
       pages: pages,
       outline: outline,
       layout: layout,
+      raised: raised,
       title: title,
       author: author,
       filename: filename,

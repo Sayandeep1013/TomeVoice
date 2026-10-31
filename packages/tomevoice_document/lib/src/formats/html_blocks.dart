@@ -125,6 +125,45 @@ List<Block> blocksFromHtml(
   return (blocks: joinDropCaps(_notesHeading(walker.out)), anchors: walker.anchors);
 }
 
+/// The text of each element of [html] whose id is in [ids], as the walker
+/// reads text into blocks: ruby readings, scripts, pictures, navigation and
+/// printed page numbers left out. A book's own narration names what each
+/// of its clips says by an element's id; this is what is looked for in the
+/// blocks to find it.
+Map<String, String> textsOfIds(String html, Set<String> ids) {
+  if (ids.isEmpty) return const {};
+  final doc = _parse(html);
+  if (doc == null) return const {};
+  final out = <String, String>{};
+  for (final e in doc.descendants.whereType<XmlElement>()) {
+    final id = _idOf(e);
+    if (id == null || !ids.contains(id) || out.containsKey(id)) continue;
+    final buf = StringBuffer();
+    void walk(XmlNode n) {
+      if (n is XmlText || n is XmlCDATA) {
+        buf.write(n.value);
+        return;
+      }
+      if (n is! XmlElement) return;
+      final name = n.localName.toLowerCase();
+      if (name == 'svg' || name == 'rt' || name == 'rp' || _skipTags.contains(name) || _isApparatus(n) || _isPageBreak(n)) {
+        return;
+      }
+      buf.write(' ');
+      for (final c in n.children) {
+        walk(c);
+      }
+      buf.write(' ');
+    }
+
+    for (final c in e.children) {
+      walk(c);
+    }
+    out[id] = buf.toString();
+  }
+  return out;
+}
+
 /// Ids of notes in this document: what its marker links point forward to.
 /// A note's link back to the text points backward, so the text it returns
 /// to is never taken for a note.
@@ -337,6 +376,10 @@ class _Walker {
     final role = _isNote(node) ? BlockRole.footnote : _roleFor(node, name, inherited);
     if (_isLeaf(node, name)) {
       final text = _inlineText([node], this);
+      // "Transcriber's note: the spelling of the original is kept."
+      if (text.length < 3000 && _transcribersNote.hasMatch(collapseWhitespace(text.replaceAll(_ownMarks, ' ')))) {
+        return;
+      }
       _emitText(
         text,
         text.length <= 3000 && _opensNote(node.children) ? BlockRole.footnote : role,
@@ -353,6 +396,15 @@ class _Walker {
   /// The children of a block that holds other blocks. Text and inline
   /// elements between those blocks (`<h2>…</h2>text<br/>text`, or text
   /// straight in `<body>`) are paragraphs of their own, not dropped.
+  ///
+  /// A transcriber's notes, under their title, are passed over: notes about
+  /// the e-text ("New original cover art included with this eBook is
+  /// granted to the public domain"), which Project Gutenberg's books have at
+  /// their end, read aloud after the story. They run to the next heading of
+  /// any level, a section of its own, or the end of what holds them, and no
+  /// further than notes run: past that, what follows is the book's own (a
+  /// chapter I under its "Transcriber's Note" went with it, and the twenty
+  /// thousand characters after).
   void _container(XmlElement node, BlockRole? role, String? language) {
     final run = <XmlNode>[];
     void flush() {
@@ -370,9 +422,28 @@ class _Walker {
       run.clear();
     }
 
+    // While a transcriber's notes are passed over, how much of them has
+    // gone: the text in between blocks counted too.
+    var notes = false;
+    var passed = 0;
     for (final child in node.children) {
-      if (child is XmlElement && _breaksRun(child)) {
+      final block = child is XmlElement && _breaksRun(child);
+      if (notes) {
+        final size = _textLength(child);
+        if ((block && _endsNotes(child)) || passed + size > _longestTranscribersNotes) {
+          notes = false;
+        } else {
+          passed += size;
+          continue;
+        }
+      }
+      if (block) {
         flush();
+        if (_isTranscribersNotesTitle(child)) {
+          notes = true;
+          passed = 0;
+          continue;
+        }
         walk(child, language, inherited: role);
       } else {
         run.add(child);
@@ -414,7 +485,9 @@ class _Walker {
       final name = el.localName.toLowerCase();
       final src = name == 'img' ? el.getAttribute('src') ?? '' : _attr(el, 'href');
       final alt = collapseWhitespace(el.getAttribute('alt') ?? '');
-      final path = href == null || src.isEmpty || src.startsWith('data:')
+      // A picture is a file of the book's: not one that has a scheme
+      // (data:, http:, a Kindle book's kindle:embed:0001).
+      final path = href == null || src.isEmpty || _scheme.hasMatch(src)
           ? null
           : zipJoin(_dirOfPath(href!), _decode(src));
       if (path == null && alt.isEmpty) continue;
@@ -439,6 +512,63 @@ class _Walker {
       }
     }
   }
+}
+
+/// "Transcriber's Notes", "TRANSCRIBERS' NOTE:", "Note from the transcriber":
+/// notes on how an e-text was made from its book.
+final _transcribersNote = RegExp(
+  r'''^(transcriber['’`]?s?['’`]?\s+notes?|notes?\s+(of|from|by)\s+the\s+transcriber)\b''',
+  caseSensitive: false,
+);
+
+/// The most of a transcriber's notes passed over, in characters: a page or
+/// so of corrections. What would take them past it is kept, as the book's.
+const _longestTranscribersNotes = 3000;
+
+/// Whether [e] is only the title of a transcriber's notes ("<h2>
+/// Transcriber's Notes</h2>", "<div><b>Transcriber’s Notes</b></div>").
+bool _isTranscribersNotesTitle(XmlElement e) {
+  if (_firstText(e) case final first? when first.length < 60 && _transcribersNote.hasMatch(first)) {
+    final text = collapseWhitespace(e.innerText);
+    return text.length < 60 && _transcribersNote.hasMatch(text) && !_textAfterStop.hasMatch(text);
+  }
+  return false;
+}
+
+/// Where a transcriber's notes end, however little of them has gone: a
+/// heading of any level, a rule across the page, a section of its own, or
+/// a block that holds a heading or a section (a chapter's <div>).
+bool _endsNotes(XmlElement e) {
+  bool opens(XmlElement x) {
+    final name = x.localName.toLowerCase();
+    return _headingTags.contains(name) || _sectionTags.contains(name);
+  }
+
+  return e.localName.toLowerCase() == 'hr' || opens(e) || e.descendants.whereType<XmlElement>().any(opens);
+}
+
+/// Elements that are a section of a document of their own.
+const _sectionTags = {'section', 'article', 'main'};
+
+/// The text in [n], as a transcriber's notes are measured.
+int _textLength(XmlNode n) => switch (n) {
+      XmlText() || XmlCDATA() => collapseWhitespace(n.value ?? '').length,
+      XmlElement() => collapseWhitespace(n.innerText).length,
+      _ => 0,
+    };
+
+/// A title is only a title: "Transcriber's Note: the spelling..." is a note.
+final _textAfterStop = RegExp(r'[:.]\s*\S');
+
+/// The first words of [e]'s text, looked for without reading all of it.
+String? _firstText(XmlElement e) {
+  for (final n in e.descendants) {
+    if (n is XmlText || n is XmlCDATA) {
+      final t = n.value!.trim();
+      if (t.isNotEmpty) return t;
+    }
+  }
+  return null;
 }
 
 /// A block element that holds no other blocks: its text is one block.
@@ -511,7 +641,8 @@ String _inlineText(List<XmlNode> nodes, _Walker walker) {
     }
     final id = _idOf(n);
     if (id != null) walker.pending.add(id);
-    if ((name == 'a' || name == 'sup' || name == 'span') && _isMarker(n, walker, tail)) {
+    if (((name == 'a' || name == 'sup' || name == 'span') && _isMarker(n, walker, tail)) ||
+        (name == 'a' && _isBacklink(n))) {
       write(silentMark(collapseWhitespace(n.innerText.replaceAll(_ownMarks, ''))));
       return;
     }
@@ -589,6 +720,19 @@ String? _idOf(XmlElement e) {
   }
   return null;
 }
+
+/// A note's link back to where it is marked: epub:type backlink, the role
+/// doc-backlink, or a link that is only an arrow or a caret. Shown, never
+/// said: a voice reads "↩" as "right arrow curving left".
+bool _isBacklink(XmlElement a) {
+  if (_types(a).contains('backlink') || _role(a) == 'doc-backlink') return true;
+  return _backlinkText.hasMatch(collapseWhitespace(a.innerText.replaceAll(_ownMarks, '')));
+}
+
+/// "↩", "↑", "^" (an arrow perhaps in its text or emoji form), alone or
+/// bracketed: what a link back from a note says.
+final _backlinkText = RegExp('^[\\[(]?[${String.fromCharCodes(const [0x21A9, 0x21AA, 0x21B5, 0x2191, 0x2934, 0x2B06, 0x5E])}]'
+    '[${String.fromCharCodes(const [0xFE0E, 0xFE0F])}]?[\\])]?\$');
 
 /// "1", "[12]", "(3)", "*", "†", "a", "iv": what a footnote marker says.
 final _markerLinkText = RegExp(
@@ -783,6 +927,8 @@ List<Block> lenientHtmlBlocks(String html, {String? language}) {
 /// HTML5 name, not only the handful a hand-written table remembered.
 String decodeEntities(String s) => _entities.decode(s);
 
+final _scheme = RegExp(r'^[A-Za-z][A-Za-z0-9+.-]*:');
+
 bool _isPicture(XmlElement e) {
   final n = e.localName.toLowerCase();
   return n == 'img' || (n == 'image' && e.parentElement != null);
@@ -801,10 +947,19 @@ String _decode(String s) {
   }
 }
 
-/// Things in a book's markup that are not the book: Project Gutenberg's
-/// header and licence, and printed page numbers ("[127]") that would
-/// otherwise be read aloud mid-sentence.
+/// Things in a book's markup that are not the book: navigation, Project
+/// Gutenberg's header and licence, and printed page numbers ("[127]") that
+/// would otherwise be read aloud mid-sentence.
+///
+/// A nav is links: a contents list (pandoc puts one at the top of a page),
+/// landmarks, a site's menu. Gutenberg's header and licence are known by
+/// their class, or by the ids its Ebookmaker gives them: a Kindle book made
+/// from the EPUB keeps the ids but not the class (calibre renames every
+/// class), and read its whole licence aloud after the story.
 bool _isApparatus(XmlElement e) {
+  if (e.localName.toLowerCase() == 'nav') return true;
+  final id = e.getAttribute('id');
+  if (id == 'pg-header' || id == 'pg-footer') return true;
   final cls = (e.getAttribute('class') ?? '').toLowerCase();
   if (cls.isEmpty) return false;
   return cls.contains('pg-boilerplate') ||

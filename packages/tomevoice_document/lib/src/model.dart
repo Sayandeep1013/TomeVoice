@@ -5,6 +5,8 @@
 /// what an EPUB is. See docs/02 §2.4.
 library;
 
+import 'narration.dart';
+
 enum SourceKind {
   epub,
   text,
@@ -370,6 +372,8 @@ class BookMetadata {
     this.identifier,
     this.cover,
     this.description,
+    this.series,
+    this.seriesIndex,
   });
 
   final String title;
@@ -383,6 +387,11 @@ class BookMetadata {
 
   /// The blurb: an EPUB's dc:description, a web novel's summary.
   final String? description;
+
+  /// The series the book says it belongs to (an EPUB's calibre:series or
+  /// belongs-to-collection, an FB2's sequence), and its number there.
+  final String? series;
+  final double? seriesIndex;
 
   String get authorLine => authors.join(', ');
 
@@ -399,6 +408,8 @@ class BookMetadata {
         identifier: identifier,
         cover: cover,
         description: description,
+        series: series,
+        seriesIndex: seriesIndex,
       );
 
   Map<String, Object?> toJson() => {
@@ -409,6 +420,8 @@ class BookMetadata {
         if (identifier != null) 'identifier': identifier,
         if (cover != null) 'cover': cover,
         if (description != null) 'description': description,
+        if (series != null) 'series': series,
+        if (seriesIndex != null) 'seriesIndex': seriesIndex,
       };
 
   static BookMetadata fromJson(Map<String, Object?> json) => BookMetadata(
@@ -421,6 +434,8 @@ class BookMetadata {
         identifier: json['identifier'] as String?,
         cover: json['cover'] as String?,
         description: json['description'] as String?,
+        series: json['series'] as String?,
+        seriesIndex: (json['seriesIndex'] as num?)?.toDouble(),
       );
 }
 
@@ -433,6 +448,7 @@ class Book {
     required this.source,
     this.sourceName,
     this.wordCount = 0,
+    this.narration,
   });
 
   final String id;
@@ -442,6 +458,10 @@ class Book {
   final SourceKind source;
   final String? sourceName;
   final int wordCount;
+
+  /// The book's own recorded narration (an EPUB 3's media overlays), when
+  /// it brings one.
+  final Narration? narration;
 
   bool get isEmpty =>
       sections.every((s) => s.blocks.every((b) => b.text.isEmpty));
@@ -460,6 +480,7 @@ class Book {
         source: source,
         sourceName: sourceName,
         wordCount: wordCount ?? this.wordCount,
+        narration: narration,
       );
 
   Map<String, Object?> toJson() => {
@@ -470,6 +491,7 @@ class Book {
         'source': source.name,
         if (sourceName != null) 'sourceName': sourceName,
         'wordCount': wordCount,
+        if (narration != null) 'narration': narration!.toJson(),
       };
 
   static Book fromJson(Map<String, Object?> json) => Book(
@@ -491,6 +513,7 @@ class Book {
         ),
         sourceName: json['sourceName'] as String?,
         wordCount: json['wordCount'] as int? ?? 0,
+        narration: Narration.fromJson(json['narration']),
       );
 }
 
