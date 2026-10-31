@@ -218,17 +218,27 @@ class DownloadQueue {
   }
 
   /// Take novel [bookId]'s chapters out of the queue (it is moving to
-  /// another source), once none of them is on its way down: those that
-  /// were waiting, to be queued again at their places there.
+  /// another source): those that were waiting, to be queued again at their
+  /// places there, or put back ([putBack]) if it does not move. One on its
+  /// way down meanwhile is saved by its address under the novel's lock
+  /// (LibraryStore.saveChapterAt), so before the move takes the novel's
+  /// files, or not at all once it has gone; it is not waited for.
   Future<List<DownloadJob>> takeOut(String bookId) async {
     final out = [for (final j in _jobs) if (j.bookId == bookId) j];
     _jobs.removeWhere((j) => j.bookId == bookId);
     await _save();
     _kick();
-    for (var waited = 0; _running.values.any((j) => j.bookId == bookId) && waited < 300; waited++) {
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-    }
     return out;
+  }
+
+  /// [jobs] taken out with [takeOut] waiting again, as they were and ahead
+  /// of the rest: the novel did not move.
+  Future<void> putBack(List<DownloadJob> jobs) async {
+    if (jobs.isEmpty) return;
+    final queued = {for (final j in _jobs) '${j.bookId}|${j.path}'};
+    _jobs.insertAll(0, [for (final j in jobs) if (queued.add('${j.bookId}|${j.path}')) j]);
+    await _save();
+    _kick();
   }
 
   /// Try again the chapters of [bookId] that failed.

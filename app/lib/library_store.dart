@@ -765,6 +765,8 @@ class LibraryStore {
 
   /// [settleWebChapters] with the novel's lock held.
   Future<WebNovelInfo?> _settle(String id) async {
+    // A move to another source that stopped part way gives its downloads back.
+    await putBackMove(id);
     final info = await webNovel(id);
     if (info == null || info.filed) return info;
     final moves = await _runSettle(bookDir(id), [for (final c in info.chapters) c.name]);
@@ -773,6 +775,80 @@ class LibraryStore {
     final next = info.copyWith(filed: true);
     await writeSafely(File('${bookDir(id)}/novel.json'), jsonEncode(next.toJson()));
     return next;
+  }
+
+  /// The note of a move to another source under way (novel_move.dart),
+  /// kept in the old novel's folder.
+  File _moveNote(String id) => File('${bookDir(id)}/moving.json');
+
+  /// Note, in web novel [from]'s folder, that its files are moving to
+  /// [to]'s by [moves] (each a path within the one folder, and where it goes
+  /// in the other): written before the first of them moves, and taken away
+  /// ([endMove]) once the library has [to]. One left behind is a move that
+  /// stopped part way, put back by [putBackMove]. [made]: [to]'s folder was
+  /// made for the move (one there before is never taken away).
+  Future<void> noteMove(String from, String to, List<(String, String)> moves, {bool made = true}) => writeSafely(
+        _moveNote(from),
+        jsonEncode({
+          'to': to,
+          'made': made,
+          'moves': [for (final (a, b) in moves) [a, b]],
+        }),
+      );
+
+  /// The move noted for [from] is done: nothing of it is to be put back.
+  Future<void> endMove(String from) async {
+    try {
+      await _moveNote(from).delete();
+    } on FileSystemException {
+      // None noted, or the old folder gone already.
+    }
+  }
+
+  /// A move of web novel [id] to another source that stopped part way (an
+  /// error, or the app closed, between its files moving and the library
+  /// taking the new novel): every file it moved put back, so the downloads
+  /// are [id]'s again, then the new novel's half-made folder taken away (if
+  /// the move made it). A file whose place holds one again (downloaded
+  /// since) is kept aside, never deleted; the note stays for another try
+  /// while anything of [id]'s could not be put back. Only while the library
+  /// has [id] and not the new novel: once it has the new one the move is
+  /// done, and the note goes. With [id]'s lock held ([withNovelLock]).
+  /// Whether nothing of [id]'s is left elsewhere now.
+  Future<bool> putBackMove(String id) async {
+    final note = _moveNote(id);
+    if (!await note.exists()) return true;
+    final String to;
+    final bool made;
+    final List<(String, String)> moves;
+    try {
+      final raw = jsonDecode(await note.readAsString()) as Map;
+      to = raw['to'] as String;
+      made = raw['made'] != false;
+      moves = [for (final m in (raw['moves'] as List).cast<List>()) (m[0] as String, m[1] as String)];
+    } on Object {
+      // Unreadable: nothing to go by. A move tried again keeps the new
+      // folder's downloads (see moveNovel).
+      return false;
+    }
+    final known = {for (final e in (await index(all: true)).entries) e.id};
+    if (!isBookId(to) || to == id || known.contains(to) || !known.contains(id)) {
+      await endMove(id);
+      return true;
+    }
+    final whole = await _runPutBack(bookDir(id), bookDir(to), moves);
+    _downloads.remove(id);
+    _downloads.remove(to);
+    if (!whole) return false;
+    await endMove(id);
+    if (made) {
+      try {
+        await Directory(bookDir(to)).delete(recursive: true);
+      } on FileSystemException {
+        // Nothing of the old novel's is in it now: left as it is.
+      }
+    }
+    return true;
   }
 
   /// Move [id]'s downloads by [moves] (old chapter to new; -1, no longer
@@ -1514,6 +1590,45 @@ Future<void> _runRefile(String dir, Map<int, int> moves, List<String> names) => 
     });
 
 Future<Map<int, int>> _runSettle(String dir, List<String> names) => Isolate.run(() => _settleSync(dir, names));
+
+Future<bool> _runPutBack(String from, String to, List<(String, String)> moves) =>
+    Isolate.run(() => _putBackSync(from, to, moves));
+
+/// Put back what [moves] moved from folder [from] to [to] (each a path
+/// within the one, and where it went in the other), the last first. One
+/// that never moved is passed over. A chapter whose place in [from] holds
+/// one again (downloaded since) is kept aside there (ch/orphaned), never
+/// deleted; a picture whose place is taken is there already. True when
+/// nothing of [from]'s is left in [to].
+bool _putBackSync(String from, String to, List<(String, String)> moves) {
+  var whole = true;
+  for (final (src, dst) in moves.reversed) {
+    try {
+      final at = '$to/$dst', back = '$from/$src';
+      final kind = FileSystemEntity.typeSync(at, followLinks: false);
+      if (kind == FileSystemEntityType.notFound) continue;
+      if (FileSystemEntity.typeSync(back, followLinks: false) == FileSystemEntityType.notFound) {
+        Directory(back).parent.createSync(recursive: true);
+        if (kind == FileSystemEntityType.directory) {
+          Directory(at).renameSync(back);
+        } else {
+          File(at).renameSync(back);
+        }
+      } else if (kind == FileSystemEntityType.directory) {
+        for (final f in Directory(at).listSync().whereType<File>()) {
+          final there = File('$back/${f.uri.pathSegments.last}');
+          if (!there.existsSync()) f.renameSync(there.path);
+        }
+      } else if (src.startsWith('ch/')) {
+        final name = src.split('/').last;
+        _setAsideSync(File(at), '$from/ch', int.tryParse(name.split(RegExp(r'[-.]')).first) ?? 0);
+      }
+    } on FileSystemException {
+      whole = false;
+    }
+  }
+  return whole;
+}
 
 /// Where each chapter of [before] is in [after], for those that moved (-1:
 /// found nowhere). A chapter is found by its address; failing that (a site
