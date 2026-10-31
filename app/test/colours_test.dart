@@ -660,5 +660,42 @@ void main() {
       expect(Hct.fromInt(picked!.toARGB32()).hue, closeTo(250, 4));
       expect(_tone(picked!), closeTo(start.tone, 1));
     });
+
+    testWidgets('the shade taken to black or white and back keeps the hue and its colour', (tester) async {
+      // Read from the colour each time, they went at either end (black and
+      // white have neither), and the colour came back grey.
+      var colour = const Color(0xFFE07B39);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) => HueShadePicker(colour: colour, onChanged: (c) => setState(() => colour = c)),
+          ),
+        ),
+      ));
+      final start = Hct.fromInt(0xFFE07B39);
+      Slider shade() => tester.widgetList<Slider>(find.byType(Slider)).toList()[1];
+      for (final end in [0.0, 100.0]) {
+        shade().onChanged!(end);
+        await tester.pump();
+        expect(_tone(colour), closeTo(end, 1));
+        shade().onChanged!(start.tone);
+        await tester.pump();
+        final back = Hct.fromInt(colour.toARGB32());
+        expect((back.hue - start.hue).abs(), lessThan(4), reason: 'from $end');
+        expect(back.chroma, closeTo(start.chroma, 4), reason: 'from $end');
+      }
+      // A colour from outside (a swatch) is taken as it is.
+      colour = const Color(0xFF3A8FDB);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) => HueShadePicker(colour: colour, onChanged: (c) => setState(() => colour = c)),
+          ),
+        ),
+      ));
+      shade().onChanged!(40);
+      await tester.pump();
+      expect((Hct.fromInt(colour.toARGB32()).hue - Hct.fromInt(0xFF3A8FDB).hue).abs(), lessThan(4));
+    });
   });
 }
