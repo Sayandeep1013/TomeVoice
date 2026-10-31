@@ -1581,7 +1581,10 @@ void main() {
     });
 
     testWidgets('the page left to read on is let go: its voice holds nothing of it', (tester) async {
-      final layout = numbered();
+      // A book of its own: who speaks in a book is found once a run, and
+      // what an earlier test found waits in that test's own time, which
+      // no longer runs, holding whatever waits on it.
+      final layout = numbered(paragraphs: 9);
       final store = LibraryStore(_tmp);
       final nav = await shelf(tester);
       unawaited(nav.push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(layout: layout, store: store))));

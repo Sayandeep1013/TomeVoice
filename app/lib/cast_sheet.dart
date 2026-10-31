@@ -16,16 +16,19 @@ import 'voices.dart';
 /// The most characters the sheet lists: past this, those who speak least.
 const _listed = 40;
 
-/// A book's characters, from its page: who its speech tags name, how often
-/// each speaks, and the voice their lines are read in, with one of their
-/// own lines to hear it say. [people] are the book's, as found by
-/// [findBookCharacters]; [listen] is the book's voice and dialogue voice.
+/// A book's characters, from its page or its reader: who its speech tags
+/// name, how often each speaks, and the voice their lines are read in, with
+/// one of their own lines to hear it say. [people] are the book's, as found
+/// by [findBookCharacters]; [listen] is the book's voice and dialogue voice.
+/// [beforeHear] comes before each line is said (the reader stops the book
+/// being read aloud for it, as for a voice's sample: they share a stream).
 Future<void> showCastSheet(
   BuildContext context, {
   required String bookId,
   required String title,
   required List<Character> people,
   required ListenController listen,
+  Future<void> Function()? beforeHear,
 }) =>
     showModalBottomSheet<void>(
       context: context,
@@ -34,7 +37,7 @@ Future<void> showCastSheet(
       useSafeArea: true,
       builder: (_) => carryTint(
         context,
-        _CastSheet(bookId: bookId, title: title, people: people, listen: listen),
+        _CastSheet(bookId: bookId, title: title, people: people, listen: listen, beforeHear: beforeHear),
       ),
     );
 
@@ -67,12 +70,19 @@ String? castSummary(BookCast? cast) {
 }
 
 class _CastSheet extends StatefulWidget {
-  const _CastSheet({required this.bookId, required this.title, required this.people, required this.listen});
+  const _CastSheet({
+    required this.bookId,
+    required this.title,
+    required this.people,
+    required this.listen,
+    this.beforeHear,
+  });
 
   final String bookId;
   final String title;
   final List<Character> people;
   final ListenController listen;
+  final Future<void> Function()? beforeHear;
 
   @override
   State<_CastSheet> createState() => _CastSheetState();
@@ -124,6 +134,7 @@ class _CastSheetState extends State<_CastSheet> {
     if (name == null) return;
     setState(() => _hearing = c.name);
     try {
+      await widget.beforeHear?.call();
       await speakSample(
         voiceName: name,
         text: c.sample.isEmpty ? 'This is how ${c.isI ? 'the storyteller' : c.name} will sound.' : c.sample,

@@ -194,6 +194,23 @@ void main() {
       final cast = BookCast(_people([('A', 2), ('B', 1)]), {'A': BookCast.narrator, 'B': 'gone'});
       expect(castVoices(cast, narrator: 'phone-n', dialogue: 'phone-d', slots: 1, here: (v) => v != 'gone'), {0: 'phone-n'});
     });
+
+    test("the first character's natural voice is loaded ahead only where the phone keeps two and has room", () {
+      final people = _people([('Zorian', 30), ('Kirielle', 20), ('Benisek', 10)]);
+      final cast = BookCast(people, {'Zorian': 'phone-z', 'Kirielle': _alan, 'Benisek': _cori});
+      final kristin = neuralVoiceFor(_kristin)!.modelId;
+      String? warmed({String? dialogue = 'phone-d', required int slots, required Set<String> held, BookCast? of}) =>
+          castVoiceToWarm(of ?? cast, narrator: _kristin, dialogue: dialogue, slots: slots, held: held)?.voiceName;
+      // Two kept, the narrator's loaded: Kirielle's, the first in a natural
+      // voice (Zorian's is the phone's).
+      expect(warmed(slots: 2, held: {kristin}), _alan);
+      // One kept: none, it would push the narrator out.
+      expect(warmed(slots: 1, held: {kristin}), isNull);
+      // Two kept and both taken (the narrator's and a natural dialogue voice).
+      expect(warmed(dialogue: _cori, slots: 2, held: {kristin, neuralVoiceFor(_cori)!.modelId}), isNull);
+      // Nobody given a voice: none.
+      expect(warmed(slots: 2, held: {kristin}, of: BookCast(people)), isNull);
+    });
   });
 
   group('reading with a cast', () {

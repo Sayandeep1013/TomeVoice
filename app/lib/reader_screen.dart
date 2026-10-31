@@ -10,6 +10,8 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'book_tint.dart';
+import 'cast.dart';
+import 'cast_sheet.dart';
 import 'chapter_finder.dart';
 import 'export_audio_sheet.dart';
 import 'fast_scroller.dart';
@@ -37,6 +39,7 @@ import 'rules_screen.dart';
 import 'share_card.dart';
 import 'sources/source_engine.dart';
 import 'scheduler.dart';
+import 'speakers.dart' show Character;
 import 'speech_service.dart';
 import 'stats.dart';
 import 'theme.dart';
@@ -502,6 +505,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _applyScreenOn();
     _applyReadingMode();
     _warmVoice();
+    _findPeople();
     if (p.engineId != null && p.engineId != _catalog.engineId) {
       await _catalog.ensureLoaded();
       await _catalog.switchEngine(p.engineId!);
@@ -511,7 +515,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// A natural voice is loaded while the page settles, so Play does not
   /// wait for it (a second or two, longer for HD, the first time); a natural
   /// dialogue voice too, where the phone keeps two loaded (with room for
-  /// one, loading it would only push the narrator out).
+  /// one, loading it would only push the narrator out); and where it keeps
+  /// two and has room left, the first character's (see castVoiceToWarm).
   void _warmVoice() {
     final listen = _listen;
     final narrator = neuralVoiceFor(listen.voiceName);
@@ -520,6 +525,15 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       if (narrator != null) narrator,
       if (dialogue != null && (narrator == null || NeuralEngine.instance.holdsTwo)) dialogue,
     ];
+    final character = castVoiceToWarm(
+      _prefs.castByBook[_book.id],
+      narrator: listen.voiceName,
+      dialogue: listen.dialogueVoice,
+      slots: NeuralEngine.instance.slots,
+      held: {for (final v in voices) v.modelId},
+      here: (v) => _catalog.byName(v) != null,
+    );
+    if (character != null) voices.add(character);
     if (voices.isEmpty) return;
     Timer(const Duration(milliseconds: 1200), () async {
       for (final v in voices) {
@@ -527,6 +541,50 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         await NeuralEngine.instance.warm(v);
       }
     });
+  }
+
+  /// Who the book's speech tags name, once found (a book's, not a web
+  /// novel's, and in English): the listening sheet offers them, as the
+  /// book's page does.
+  List<Character> _people = const [];
+  Timer? _peopleTimer;
+
+  /// The book's characters are looked for once the page has settled, on
+  /// another isolate: a long book takes a second or more, and its page has
+  /// often found them already this run.
+  void _findPeople() {
+    if (widget.onReachedEnd != null || _l.isEmpty) return;
+    _peopleTimer = Timer(const Duration(milliseconds: 1500), () async {
+      if (!mounted) return;
+      final people = await bookCharacters(_book.id, _l);
+      if (mounted && people.isNotEmpty) setState(() => _people = people);
+    });
+  }
+
+  /// How the book's characters are read now, for the listening sheet.
+  String _peopleNote() =>
+      castSummary(_prefs.castByBook[_book.id]) ??
+      '${_people.length} ${_people.length == 1 ? 'speaks' : 'speak'}, all in the dialogue voice';
+
+  /// The book's characters, and the voice each one's lines are read in.
+  Future<void> _openPeople() async {
+    final people = await bookCharacters(_book.id, _l);
+    if (!mounted || people.isEmpty) return;
+    final before = _prefs.castByBook[_book.id];
+    await showCastSheet(
+      context,
+      bookId: _book.id,
+      title: _book.metadata.title,
+      people: people,
+      listen: _listen,
+      // A line said for a character shares the reading's stream: the
+      // reading stops for it, as for a voice's sample.
+      beforeHear: () async {
+        if (_player.state.value != PlayState.idle) await _player.stop();
+      },
+    );
+    // A voice given or taken away is heard from the sentence being read.
+    if (mounted && !identical(before, _prefs.castByBook[_book.id])) _reader.settingsChanged(restart: true);
   }
 
   bool _screenOn = false;
@@ -638,6 +696,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _eyesTimer?.cancel();
     _backTimer?.cancel();
     _insetsTimer?.cancel();
+    _peopleTimer?.cancel();
     if (_fullScreen) unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
     if (_volumeKeys) unawaited(_svc.volumeKeysTurnPages(false));
     WidgetsBinding.instance.removeObserver(this);
@@ -751,6 +810,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         isPlaying: () =>
             _player.state.value == PlayState.playing || _player.state.value == PlayState.loading,
         isPdf: _isPdf,
+        characters: _people.isEmpty ? null : _peopleNote,
+        onCharacters: _people.isEmpty ? null : _openPeople,
       );
 
   /// Say the sentence under the cursor in [voiceName], so a voice is judged
