@@ -49,6 +49,7 @@ The biggest TomeVoice yet: save a book as an audiobook, a voice for each charact
 - A backup made to look like TomeVoice's can no longer delete your library on Replace.
 - Moving your default shelf into a secret one takes all its books with it.
 - A sleep timer set to the chapter's end pauses only when the voice gets there, not when you move to another chapter, and Now Playing shows when it has paused.
+- With Read notes aloud on, the little arrow at the end of a note that leads back to the text (as in Standard Ebooks) is shown but not read out.
 - Before release, a fresh review of all the new code found 47 problems, in sync, backups, the sources' sandbox, OCR and the reader. All are fixed.
 
 ## 1.3.0 (2026-10-30)

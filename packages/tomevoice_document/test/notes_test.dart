@@ -65,6 +65,27 @@ void main() {
       expect(blocks.last.role, BlockRole.footnote);
     });
 
+    test("a note's link back to its marker is shown but not said", () {
+      final hook = String.fromCharCodes(const [0x21A9, 0xFE0E]);
+      final up = String.fromCharCode(0x2191);
+      final blocks = blocksFromHtml('<p>Text<a epub:type="noteref" href="#n1">1</a> here.</p>'
+          '<section epub:type="endnotes"><ol>'
+          '<li id="n1"><p>Hesiod, Works and Days, 369. <a href="ch.xhtml#r1" epub:type="backlink">$hook</a></p></li>'
+          '<li id="n2"><p>Frag. 475 Usener.<a href="#fnref2" class="footnote-back" role="doc-backlink">$hook</a></p></li>'
+          '<li id="n3"><p>A third note. <a href="#r3">$up</a></p></li>'
+          '<li id="n4"><p><a href="#r4">^</a> A fourth.</p></li>'
+          '</ol></section>');
+      final notes = [for (final b in blocks) if (b.role == BlockRole.footnote) b];
+      String said(Block b) => [
+            for (final s in b.sentences)
+              spokenText(s.of(b.text), [
+                for (final r in s.silent) (start: r.start - s.startOffset, end: r.end - s.startOffset),
+              ]).text.trim(),
+          ].where((t) => t.isNotEmpty).join(' ');
+      expect(notes.map(said), ['Hesiod, Works and Days, 369.', 'Frag. 475 Usener.', 'A third note.', 'A fourth.']);
+      expect(notes.first.text, contains(hook), reason: 'shown as the book has it');
+    });
+
     test('a numbered link after "chapter" or "page" is still read', () {
       final blocks = blocksFromHtml('<p>See chapter <a href="#c2">2</a> and page <a href="#p9">9</a>.</p>'
           '<h2 id="c2">Two</h2><p id="p9">Text.</p>');

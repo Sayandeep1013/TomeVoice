@@ -641,7 +641,8 @@ String _inlineText(List<XmlNode> nodes, _Walker walker) {
     }
     final id = _idOf(n);
     if (id != null) walker.pending.add(id);
-    if ((name == 'a' || name == 'sup' || name == 'span') && _isMarker(n, walker, tail)) {
+    if (((name == 'a' || name == 'sup' || name == 'span') && _isMarker(n, walker, tail)) ||
+        (name == 'a' && _isBacklink(n))) {
       write(silentMark(collapseWhitespace(n.innerText.replaceAll(_ownMarks, ''))));
       return;
     }
@@ -719,6 +720,19 @@ String? _idOf(XmlElement e) {
   }
   return null;
 }
+
+/// A note's link back to where it is marked: epub:type backlink, the role
+/// doc-backlink, or a link that is only an arrow or a caret. Shown, never
+/// said: a voice reads "↩" as "right arrow curving left".
+bool _isBacklink(XmlElement a) {
+  if (_types(a).contains('backlink') || _role(a) == 'doc-backlink') return true;
+  return _backlinkText.hasMatch(collapseWhitespace(a.innerText.replaceAll(_ownMarks, '')));
+}
+
+/// "↩", "↑", "^" (an arrow perhaps in its text or emoji form), alone or
+/// bracketed: what a link back from a note says.
+final _backlinkText = RegExp('^[\\[(]?[${String.fromCharCodes(const [0x21A9, 0x21AA, 0x21B5, 0x2191, 0x2934, 0x2B06, 0x5E])}]'
+    '[${String.fromCharCodes(const [0xFE0E, 0xFE0F])}]?[\\])]?\$');
 
 /// "1", "[12]", "(3)", "*", "†", "a", "iv": what a footnote marker says.
 final _markerLinkText = RegExp(
