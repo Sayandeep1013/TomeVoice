@@ -10,7 +10,7 @@ Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoi
 - The forms for a catalogue (a Calibre library, Add a catalogue, signing in) and for sync have room between their fields.
 - Standard Ebooks' whole catalogue says what its Patrons Circle is before it asks for an email.
 - A source update that fails because the site sent a web page instead of its data says so in words, not as a "SyntaxError".
-- OCR reads every line of a page again: it was told nothing of the page's size, took it for 70 dpi, and let whole lines go as noise (four of fourteen on a Bengali page).
+- OCR tells the text engine what resolution a page was drawn at; told nothing, it took a 300 dpi page for 70 dpi and misjudged the size of everything on it.
 
 ## 1.4.0 (2026-10-31)
 

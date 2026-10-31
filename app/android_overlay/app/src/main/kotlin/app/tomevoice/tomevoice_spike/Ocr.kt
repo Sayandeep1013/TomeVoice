@@ -368,9 +368,8 @@ class OcrService : Service() {
                         try {
                             // Raw pixels carry no resolution, and Tesseract
                             // then takes them for 70 dpi: a 300 dpi page's
-                            // letters look four times their size, and whole
-                            // lines are let go as noise (four of fourteen in
-                            // a Bengali page). It is told what it was drawn at.
+                            // letters look four times their size to it. It is
+                            // told what the page was drawn at.
                             api.setVariable("user_defined_dpi", page.dpi.toString())
                             api.setImage(page.pixels, page.width, page.height, 1, page.width)
                             text = api.getUTF8Text() ?: ""
