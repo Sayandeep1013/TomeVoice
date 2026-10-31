@@ -237,6 +237,55 @@ class SyncAuthException implements Exception {
   String toString() => 'The server did not take that user name and password.';
 }
 
+/// Nothing was sent: the server's address is plain http:// on the internet
+/// (see [passwordMayGo]).
+class SyncPlainException implements Exception {
+  const SyncPlainException();
+  @override
+  String toString() => 'Not synced: the address starts with http://, so your password would cross the internet '
+      'unencrypted. Use https://, or set it up again in Settings > Sync to allow it.';
+}
+
+/// A server's address as the reader typed it: https:// when it names no
+/// scheme. Plain http:// only when typed so.
+String withScheme(String typed) {
+  final url = typed.trim();
+  return url.isEmpty || url.contains('://') ? url : 'https://$url';
+}
+
+/// Whether a password may go to [url]: over https; over plain http only to
+/// this phone or the reader's own network (a NAS at home, a test server
+/// over USB), which it never leaves, or to an address the reader was
+/// warned of and chose anyway ([agreed], as typed).
+Future<bool> passwordMayGo(String url, {Iterable<String> agreed = const []}) async {
+  final uri = Uri.tryParse(url);
+  if (uri == null || !uri.isScheme('http')) return true;
+  if (agreed.contains(url)) return true;
+  final host = uri.host;
+  if (host == 'localhost') return true;
+  var found = [if (InternetAddress.tryParse(host) case final ip?) ip];
+  if (found.isEmpty) {
+    try {
+      found = await InternetAddress.lookup(host).timeout(const Duration(seconds: 10));
+    } on Object {
+      return false;
+    }
+  }
+  return found.isNotEmpty && found.every(_ownNetwork);
+}
+
+/// This phone, or an address that only a home or office network has: the
+/// private ranges, and those of a link alone.
+bool _ownNetwork(InternetAddress a) {
+  if (a.isLoopback || a.isLinkLocal) return true;
+  final b = a.rawAddress;
+  if (a.type == InternetAddressType.IPv4) {
+    return b[0] == 10 || (b[0] == 172 && b[1] >= 16 && b[1] < 32) || (b[0] == 192 && b[1] == 168);
+  }
+  // IPv6's own private range, fc00::/7.
+  return a.type == InternetAddressType.IPv6 && (b[0] & 0xfe) == 0xfc;
+}
+
 /// A file changed on the server between reading and writing it.
 class _Changed implements Exception {
   const _Changed();
@@ -263,7 +312,10 @@ class WebDav {
 
   Future<bool> _signIn(Uri url, String scheme, String? realm) async {
     final u = user;
-    if (u == null || u.isEmpty || url.host != base.host || url.port != base.port) return false;
+    // Only to the address given, never to another (or to http, redirected).
+    if (u == null || u.isEmpty || url.scheme != base.scheme || url.host != base.host || url.port != base.port) {
+      return false;
+    }
     // Asked again for the same: what was given was refused.
     if (!_given.add('$scheme ${realm ?? ''}')) return false;
     _http.addCredentials(
@@ -520,6 +572,7 @@ class BookSync {
     final p = _prefs;
     if (p.webdavOn && (p.webdavUrl ?? '').isNotEmpty) {
       try {
+        if (!await passwordMayGo(p.webdavUrl!, agreed: p.plainHttpOk)) throw const SyncPlainException();
         final r = await syncWebDav(store, books, state, url: p.webdavUrl!, user: p.webdavUser, password: secrets['webdav']);
         sent += r.sent;
         taken += r.taken;
@@ -529,6 +582,7 @@ class BookSync {
     }
     if (p.kosyncOn && (p.kosyncUrl ?? '').isNotEmpty) {
       try {
+        if (!await passwordMayGo(p.kosyncUrl!, agreed: p.plainHttpOk)) throw const SyncPlainException();
         final r = await syncKosync(store, books, state,
             url: p.kosyncUrl!, user: p.kosyncUser ?? '', key: secrets['kosync'] ?? '', device: await deviceId(store.root));
         sent += r.sent;

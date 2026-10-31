@@ -109,6 +109,33 @@ void main() {
     });
   });
 
+  group('addresses', () {
+    test('one typed without a scheme is https; plain http only as typed', () {
+      expect(withScheme(' cloud.example.org/remote.php/dav/ '), 'https://cloud.example.org/remote.php/dav/');
+      expect(withScheme('http://127.0.0.1:8081/dav/'), 'http://127.0.0.1:8081/dav/');
+      expect(withScheme(''), '');
+    });
+
+    test('a password goes over plain http only to this phone, its own network, or where the reader agreed', () async {
+      for (final ok in [
+        'https://cloud.example.org/',
+        'http://127.0.0.1:8081/dav/',
+        'http://localhost:8081/',
+        'http://192.168.1.20/dav/',
+        'http://10.0.0.5:5005/',
+        'http://172.20.1.1/',
+        'http://169.254.10.10/',
+        'http://[fd12:3456::1]/',
+      ]) {
+        expect(await passwordMayGo(ok), isTrue, reason: ok);
+      }
+      for (final no in ['http://203.0.113.5/dav/', 'http://172.32.0.1/', 'http://8.8.8.8/']) {
+        expect(await passwordMayGo(no), isFalse, reason: no);
+      }
+      expect(await passwordMayGo('http://203.0.113.5/dav/', agreed: ['http://203.0.113.5/dav/']), isTrue);
+    });
+  });
+
   group('with a WebDAV server', () {
     late Directory tmp;
     late WebDavTestServer server;
@@ -392,6 +419,15 @@ void main() {
       LibraryStore.secretOpen.value = true;
       await BookSync.instance.syncNow(store: store);
       expect(server.files.keys, contains(bookFile()));
+    });
+
+    test('nothing goes to a plain http address out on the internet the reader did not agree to', () async {
+      await turnOn();
+      ListeningPrefs.memory.webdavUrl = 'http://203.0.113.5/dav/';
+      await quote(3);
+      final r = await BookSync.instance.syncNow(store: store);
+      expect(r.problem, contains('http://'));
+      expect(r.sent, 0);
     });
 
     test('a wrong password is said, and nothing changes', () async {

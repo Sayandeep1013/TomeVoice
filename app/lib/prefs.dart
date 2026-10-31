@@ -74,9 +74,11 @@ class ListeningPrefs {
     this.kosyncOn = false,
     this.kosyncUrl,
     this.kosyncUser,
+    List<String>? plainHttpOk,
     List<Map<String, Object?>>? catalogues,
     Map<String, String>? catalogueUsers,
-  })  : catalogues = catalogues ?? [],
+  })  : plainHttpOk = plainHttpOk ?? [],
+        catalogues = catalogues ?? [],
         catalogueUsers = catalogueUsers ?? {},
         voiceByLanguage = voiceByLanguage ?? {},
         voiceByBook = voiceByBook ?? {},
@@ -346,6 +348,12 @@ class ListeningPrefs {
   String? kosyncUrl;
   String? kosyncUser;
 
+  /// Sync addresses on plain http:// out on the internet that the reader
+  /// was warned of and chose anyway, as typed: a password goes to those,
+  /// and over http otherwise only to this phone or their own network (see
+  /// passwordMayGo).
+  final List<String> plainHttpOk;
+
   /// OPDS catalogues the reader added (see Catalogue), and the user names
   /// they sign in to the built-in ones with: kept with the settings, so a
   /// restore brings them back. Their passwords are kept apart.
@@ -467,6 +475,7 @@ class ListeningPrefs {
         if (kosyncOn) 'kosyncOn': true,
         if (kosyncUrl != null) 'kosyncUrl': kosyncUrl,
         if (kosyncUser != null) 'kosyncUser': kosyncUser,
+        if (plainHttpOk.isNotEmpty) 'plainHttpOk': plainHttpOk,
         if (catalogues.isNotEmpty) 'catalogues': catalogues,
         if (catalogueUsers.isNotEmpty) 'catalogueUsers': catalogueUsers,
       };
@@ -565,6 +574,10 @@ class ListeningPrefs {
         kosyncOn: json['kosyncOn'] == true,
         kosyncUrl: json['kosyncUrl'] as String?,
         kosyncUser: json['kosyncUser'] as String?,
+        plainHttpOk: [
+          for (final u in json['plainHttpOk'] is List ? json['plainHttpOk'] as List : const [])
+            if (u is String) u,
+        ],
         catalogues: [
           for (final c in json['catalogues'] is List ? json['catalogues'] as List : const [])
             if (c is Map) Map<String, Object?>.from(c),
