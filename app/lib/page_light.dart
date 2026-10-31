@@ -41,6 +41,7 @@ class PageLight {
   /// goes most, as a phone's night light takes it.
   static const _amber = (red: 1.0, green: 0.76, blue: 0.48);
 
+  /// Nothing of its own set: the window and the page as the phone has them.
   bool get isPhone => brightness == null && warmth <= 0;
 
   /// The window's brightness, 0 (the phone's lowest) to 1, or null for the

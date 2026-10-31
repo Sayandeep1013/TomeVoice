@@ -167,7 +167,7 @@ class _GuideScreenState extends State<GuideScreen> {
 
   Widget _card(BuildContext context, int i) {
     final card = _cards[i];
-    final accent = Skin.accentOf(context);
+    final ink = Skin.accentInkOf(context);
     return Center(
       // A large text size still fits: the card scrolls.
       child: SingleChildScrollView(
@@ -182,8 +182,8 @@ class _GuideScreenState extends State<GuideScreen> {
                 child: Container(
                   width: 72,
                   height: 72,
-                  decoration: BoxDecoration(color: accent.withValues(alpha: 0.16), shape: BoxShape.circle),
-                  child: Icon(card.icon, size: 34, color: accent),
+                  decoration: BoxDecoration(color: Skin.accentOf(context).withValues(alpha: 0.16), shape: BoxShape.circle),
+                  child: Icon(card.icon, size: 34, color: ink),
                 ),
               ),
               const SizedBox(height: Gap.xl),
@@ -207,7 +207,7 @@ class _GuideScreenState extends State<GuideScreen> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      ExcludeSemantics(child: Icon(icon, size: 22, color: Skin.accentSoftOf(context))),
+                      ExcludeSemantics(child: Icon(icon, size: 22, color: ink)),
                       const SizedBox(width: Gap.l),
                       Expanded(
                         child: Text(
@@ -238,7 +238,7 @@ class _GuideScreenState extends State<GuideScreen> {
               width: i == _at ? 22 : 8,
               height: 8,
               decoration: BoxDecoration(
-                color: i == _at ? Skin.accentOf(context) : Skin.inkFaintOn(context).withValues(alpha: 0.35),
+                color: i == _at ? Skin.accentMarkOf(context) : Skin.inkFaintOn(context).withValues(alpha: 0.35),
                 borderRadius: BorderRadius.circular(Radii.pill),
               ),
             ),
