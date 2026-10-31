@@ -292,6 +292,28 @@ void main() {
       expect(onServer().removed.keys, [q.id]);
     });
 
+    test('a quote saved while sync is out with its book is kept', () async {
+      await turnOn();
+      await quote(2);
+      await BookSync.instance.syncNow(store: store);
+      // Another phone's quote there, so the book is read and taken in.
+      server.files[bookFile()] = mergeBooks(
+        onServer(),
+        BookRecord(id: book.id, marks: [_mark('elsewhere', book: book.id, created: DateTime.now())]),
+      ).encode();
+      Future<Mark>? meanwhile;
+      server.afterGet = (path) {
+        if (path != bookFile()) return;
+        server.afterGet = null;
+        // Saved here while the sync waits on the server.
+        meanwhile = quote(9);
+      };
+      await BookSync.instance.syncNow(store: store);
+      final saved = await meanwhile!;
+      expect(MarkStore.instance.forBook(book.id).map((m) => m.id), containsAll(['elsewhere', saved.id]));
+      expect(MarkStore.instance.forBook(book.id), hasLength(3));
+    });
+
     test('a book on a shut secret shelf is never sent; open, it is', () async {
       await turnOn();
       final secret = await store.addCategory('Hidden', secret: true);

@@ -414,8 +414,13 @@ Future<bool> applyRecord(LibraryStore store, BookRecord local, BookRecord merged
     changed = true;
   }
   String sig(Iterable<Mark> ms) => ([for (final m in ms) '${m.id}@${m.changed.toIso8601String()}']..sort()).join(',');
-  if (sig(merged.marks) != sig(local.marks)) {
-    await MarkStore.instance.replaceBook(merged.id, merged.marks);
+  // Merged again with the marks as they are now, not as they were when the
+  // sync set out: one saved, changed or removed here meanwhile stays so.
+  // Nothing is awaited between the two, so nothing comes between.
+  final now = MarkStore.instance.forBook(merged.id);
+  final marks = mergeBooks(BookRecord(id: merged.id, marks: now, removed: MarkStore.instance.removedOf(merged.id)), merged).marks;
+  if (sig(marks) != sig(now)) {
+    await MarkStore.instance.replaceBook(merged.id, marks);
     changed = true;
   }
   var timeChanged = false;
