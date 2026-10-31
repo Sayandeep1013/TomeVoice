@@ -1238,16 +1238,23 @@ class LibraryStore {
   /// each save wrote the whole index again on the UI thread. A run stopped
   /// before the index took a place loses nothing: the next one finds it in
   /// cursor.json (see [_recoverPlaces]).
+  ///
+  /// A place taken in from another phone (sync) comes with the time it was
+  /// saved there, [at], and keeps it: stamped with the time it came, it beat
+  /// a later place on that phone, which then went back to it. It moves the
+  /// book up History only as far as that time, and only if it is later than
+  /// the book was last opened here.
   Future<void> saveCursor(
     String id,
     ReadingCursor cursor,
     double progress, {
     String? where,
+    DateTime? at,
   }) async {
     final dir = Directory(bookDir(id));
     // Made once a run, not once a sentence.
     if (_madeDirs.add(id)) await dir.create(recursive: true);
-    final place = _Place(cursor, progress, where, DateTime.now());
+    final place = _Place(cursor, progress, where, at ?? DateTime.now(), taken: at != null);
     await writeSafely(File('${dir.path}/cursor.json'), jsonEncode(place.toJson()));
     await index();
     if (_held || !_keepPlace(id, place)) return;
@@ -2279,7 +2286,7 @@ bool _samePlace(ReadingCursor a, ReadingCursor b) =>
 /// A reading place as it is saved: where, how far, the chapter it is in,
 /// and when (cursor.json holds all four).
 class _Place {
-  const _Place(this.cursor, this.progress, this.where, this.at, {this.opened = true});
+  const _Place(this.cursor, this.progress, this.where, this.at, {this.opened = true, this.taken = false});
 
   final ReadingCursor cursor;
   final double progress;
@@ -2290,6 +2297,9 @@ class _Place {
   /// build, recovered, says nothing of when).
   final bool opened;
 
+  /// Whether it was taken in from another phone, at the time saved there.
+  final bool taken;
+
   Map<String, Object?> toJson() => {
         'cursor': cursor.toJson(),
         'progress': progress,
@@ -2297,8 +2307,13 @@ class _Place {
         'at': at.toIso8601String(),
       };
 
-  LibraryEntry onto(LibraryEntry e) =>
-      e.copyWith(cursor: cursor, progress: progress, where: where, openedAt: opened ? at : null);
+  /// [e] at this place. A place taken in moves when the book was opened
+  /// only on, never back (see LibraryStore.saveCursor).
+  LibraryEntry onto(LibraryEntry e) {
+    final was = e.openedAt;
+    final opens = opened && !(taken && was != null && !at.isAfter(was));
+    return e.copyWith(cursor: cursor, progress: progress, where: where, openedAt: opens ? at : null);
+  }
 
   /// A cursor.json's place, [raw], when it is later than [e]'s own: saved
   /// after the place [e] has, or (with no time, as older builds wrote it)

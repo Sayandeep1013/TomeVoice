@@ -364,7 +364,10 @@ Future<({int sent, int taken})> syncKosync(
         if (!l.isEmpty) {
           final cursor = cursorOf(l.units[unit]);
           if (jsonEncode(cursor.toJson()) != here) {
-            await store.saveCursor(e.id, cursor, progressFraction(l.units, unit), where: l.chapterTitle(l.unitChapter[unit]));
+            // At the time KOReader saved it (see LibraryStore.saveCursor).
+            await store.saveCursor(e.id, cursor, progressFraction(l.units, unit),
+                where: l.chapterTitle(l.unitChapter[unit]),
+                at: DateTime.fromMillisecondsSinceEpoch(remote.timestamp * 1000));
             taken++;
             moved = true;
             mine['sentAt'] = jsonEncode(cursor.toJson());

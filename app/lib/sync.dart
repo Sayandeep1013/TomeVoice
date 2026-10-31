@@ -429,7 +429,9 @@ Future<bool> applyRecord(LibraryStore store, BookRecord local, BookRecord merged
   var changed = false;
   final mp = merged.place, lp = local.place;
   if (mp != null && (lp == null || (mp.at.isAfter(lp.at) && !mp.samePlace(lp)))) {
-    await store.saveCursor(merged.id, mp.cursor, mp.progress, where: mp.where);
+    // At the time it was saved there, not now: stamped now, it beat a
+    // later place on the phone it came from, and moved the book up History.
+    await store.saveCursor(merged.id, mp.cursor, mp.progress, where: mp.where, at: mp.at.toLocal());
     changed = true;
   }
   String sig(Iterable<Mark> ms) => ([for (final m in ms) '${m.id}@${m.changed.toIso8601String()}']..sort()).join(',');

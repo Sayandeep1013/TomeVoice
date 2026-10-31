@@ -342,6 +342,42 @@ void main() {
       expect(server.requests.where((q) => q.startsWith('GET') && q.contains(other.id)).length, reads);
     });
 
+    test("a place taken in keeps its own time, so it never beats a later one from the phone it came from", () async {
+      await turnOn();
+      // Another book, read here just now.
+      final f = File('${tmp.path}/incoming/other.txt')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('Chapter 1\n\n${List.generate(30, (i) => 'Another line $i goes by.').join(' ')}');
+      final other = await store.importFile(PickedFile(path: f.path, name: 'other.txt'));
+      await store.saveCursor(other.id, const ReadingCursor(blockIndex: 1), 0.1);
+      // The other phone's place: two hours ago.
+      final now = DateTime.now().toUtc();
+      final earlier = now.subtract(const Duration(hours: 2));
+      server.files[bookFile()] = BookRecord(
+        id: book.id,
+        title: book.title,
+        place: SyncedPlace(cursor: cursorOf(layout.units[10]), progress: 0.25, at: earlier),
+      ).encode();
+      await BookSync.instance.syncNow(store: store);
+      var e = await entry();
+      expect(layout.unitForCursor(e.cursor, saved: true), 10);
+      expect(e.openedAt!.isAtSameMomentAs(earlier), isTrue, reason: 'its own time, not when it came');
+      expect((await store.list()).first.id, other.id, reason: 'not above a book read here since');
+      // That phone read on, an hour ago (its sync held back while it read),
+      // and syncs only now: its later place stands.
+      final later = now.subtract(const Duration(hours: 1));
+      server.files[bookFile()] = mergeBooks(
+        onServer(),
+        BookRecord(id: book.id, place: SyncedPlace(cursor: cursorOf(layout.units[30]), progress: 0.75, at: later)),
+      ).encode();
+      await BookSync.instance.syncNow(store: store);
+      e = await entry();
+      expect(layout.unitForCursor(e.cursor, saved: true), 30);
+      expect(e.openedAt!.isAtSameMomentAs(later), isTrue);
+      expect(onServer().place!.at.isAtSameMomentAs(later), isTrue, reason: 'never sent back as newer');
+      expect(onServer().place!.cursor.sentenceIndex, layout.units[30].sentenceIndex);
+    });
+
     test('a book on a shut secret shelf is never sent; open, it is', () async {
       await turnOn();
       final secret = await store.addCategory('Hidden', secret: true);
