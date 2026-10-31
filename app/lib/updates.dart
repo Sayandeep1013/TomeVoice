@@ -229,6 +229,42 @@ class Updates {
     );
   }
 
+  /// Take [shown] off the list (the Updates screen's Clear). Nothing else
+  /// changes: the chapters stay in their novels, downloaded or not; checks
+  /// go on and log what they find as ever; when the sites were last asked,
+  /// what failed, and the chapters waiting to download by themselves stay.
+  Future<void> forget(Iterable<NewChapter> shown) async {
+    final gone = {for (final c in shown) _entry(c)};
+    final raw = await _raw();
+    await writeSafely(
+      _log,
+      jsonEncode({
+        ...raw,
+        'new': [
+          for (final o in raw['new'] as List? ?? const [])
+            if (NewChapter.fromJson(o) case final c? when !gone.contains(_entry(c))) o,
+        ],
+      }),
+    );
+  }
+
+  /// Put [chapters] back on the list (Undo after [forget]), with any found
+  /// since, newest first.
+  Future<void> keepAgain(List<NewChapter> chapters) async {
+    final raw = await _raw();
+    final now = [
+      for (final o in raw['new'] as List? ?? const [])
+        if (NewChapter.fromJson(o) case final c?) c,
+    ];
+    final have = {for (final c in now) _entry(c)};
+    final all = [...now, for (final c in chapters) if (!have.contains(_entry(c))) c]
+      ..sort((a, b) => b.foundAt.compareTo(a.foundAt));
+    await writeSafely(_log, jsonEncode({...raw, 'new': [for (final c in all) c.toJson()]}));
+  }
+
+  /// One entry of the list, as two readings of the log tell it apart.
+  static (String, String, DateTime) _entry(NewChapter c) => (c.bookId, c.path ?? '#${c.index}', c.foundAt);
+
   Future<Map<String, Object?>> _raw() async {
     try {
       if (await _log.exists()) return Map<String, Object?>.from(jsonDecode(await _log.readAsString()) as Map);

@@ -1200,17 +1200,27 @@ void main() {
       await finish(tester);
     });
 
-    testWidgets('press and hold on a real page reads from it; a tap does not', (tester) async {
-      ListeningPrefs.memory.pdfPages = true;
-      await openPdf(tester);
+    /// The second real page, scrolled to; where a finger holds it.
+    Future<Offset> secondPage(WidgetTester tester) async {
       await tester.drag(find.byType(PdfPagesView), const Offset(0, -350));
       await tester.pumpAndSettle();
       final second = tester.getRect(find.byType(InteractiveViewer).at(1));
-      final at = Offset(second.center.dx, second.top + 60);
+      return Offset(second.center.dx, second.top + 60);
+    }
+
+    testWidgets('press and hold on a real page offers what to do there, and reads only when asked; a tap does not',
+        (tester) async {
+      ListeningPrefs.memory.pdfPages = true;
+      await openPdf(tester);
+      final at = await secondPage(tester);
       await tester.tapAt(at);
       await tester.pump(const Duration(milliseconds: 400));
       expect(find.byTooltip('Play'), findsOneWidget);
       await tester.longPressAt(at);
+      await tester.pumpAndSettle();
+      expect(find.text('Page 2'), findsOneWidget);
+      expect(find.byTooltip('Play'), findsOneWidget, reason: 'nothing read until something is picked');
+      await tester.tap(find.text('Read from the top of this page'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
       expect(find.byTooltip('Pause'), findsOneWidget);
@@ -1222,6 +1232,20 @@ void main() {
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump(const Duration(milliseconds: 600));
       expect(washed(tester), startsWith('Second page'));
+      await finish(tester);
+    });
+
+    testWidgets('Pick a sentence on this page shows the text at that page, and starts no voice', (tester) async {
+      ListeningPrefs.memory.pdfPages = true;
+      await openPdf(tester);
+      await tester.longPressAt(await secondPage(tester));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Pick a sentence on this page'));
+      await tester.pumpAndSettle();
+      expect(find.byType(PdfPagesView), findsNothing);
+      expect(ListeningPrefs.memory.pdfPages, isFalse, reason: 'the text, where a sentence can be held');
+      expect(washed(tester), startsWith('Second page'), reason: "the place is that page's first sentence");
+      expect(find.byTooltip('Play'), findsOneWidget, reason: 'and nothing is read');
       await finish(tester);
     });
   });

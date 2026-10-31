@@ -8,6 +8,8 @@ Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoi
 Fixes from the first day of 1.4.0 on a phone.
 
 #### Fixes
+- Updates has **Clear the list**: the list of new chapters empties (with Undo). The chapters stay in their novels, downloaded or not, and checks and downloads go on as before.
+- On a PDF's real pages, press and hold offers what to do there (read from the top of the page, or pick a sentence on it, shown as text) instead of reading from the top at once.
 - Back with the menu open closes the menu. On Android 16 it took TomeVoice to the background with the menu still open.
 - The forms for a catalogue (a Calibre library, Add a catalogue, signing in) and for sync have room between their fields.
 - Standard Ebooks' whole catalogue says what its Patrons Circle is before it asks for an email.

@@ -96,6 +96,36 @@ class _UpdatesScreenState extends State<UpdatesScreen> with WidgetsBindingObserv
     );
   }
 
+  /// Clear: the list as shown empties, and nothing else changes (a shut
+  /// secret shelf's novels, not shown, are not touched).
+  Future<void> _clear() async {
+    final shown = _items;
+    if (shown.isEmpty) return;
+    final n = shown.length;
+    final ok = await confirm(
+      context,
+      title: 'Clear the list?',
+      body: 'The ${n == 1 ? 'chapter stays in its novel' : '$n chapters stay in their novels'}, downloaded or not, '
+          'and new chapters are checked for and downloaded as before. Only this list is emptied.',
+      action: 'Clear',
+    );
+    if (!ok || !mounted) return;
+    await widget.updates.forget(shown);
+    await _reload();
+    if (!mounted) return;
+    showSnack(
+      context,
+      'Cleared $n ${n == 1 ? 'update' : 'updates'}.',
+      actionLabel: 'Undo',
+      onAction: () => unawaited(_unclear(shown)),
+    );
+  }
+
+  Future<void> _unclear(List<NewChapter> shown) async {
+    await widget.updates.keepAgain(shown);
+    await _reload();
+  }
+
   Future<void> _open(NewChapter c) async {
     final entry = (await widget.store.list()).where((e) => e.id == c.bookId).firstOrNull;
     if (entry == null || !mounted) return;
@@ -205,6 +235,10 @@ class _UpdatesScreenState extends State<UpdatesScreen> with WidgetsBindingObserv
                       ),
                       const SizedBox(width: Gap.m),
                       Expanded(child: Text('Updates', style: Skin.title(context, size: 28, weight: FontWeight.w500))),
+                      if (_items.isNotEmpty) ...[
+                        RoundButton(icon: Icons.clear_all_rounded, tooltip: 'Clear the list', size: 42, onTap: _clear),
+                        const SizedBox(width: Gap.s),
+                      ],
                       // Check and its spinner turn into each other.
                       ValueListenableBuilder<bool>(
                         valueListenable: widget.updates.running,

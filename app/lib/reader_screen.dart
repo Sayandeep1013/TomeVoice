@@ -1184,6 +1184,59 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _autoNewPage();
   }
 
+  /// Press and hold on a PDF's real page: what to do there, not a reading
+  /// from its top at once. The page's picture does not say which sentence
+  /// lies where, so one is picked on the text, at that page, where holding
+  /// a sentence offers all it does.
+  Future<void> _onHoldPage(int page) async {
+    if (!mounted || _l.isEmpty) return;
+    final unit = _l.unitForPage(page);
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      sheetAnimationStyle: sheetMotion(context),
+      useSafeArea: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SheetHeader('Page ${page + 1}'),
+            SheetAction(
+              icon: Icons.play_arrow_rounded,
+              label: 'Read from the top of this page',
+              onTap: () => Navigator.pop(ctx, 'read'),
+            ),
+            SheetAction(
+              icon: Icons.notes_rounded,
+              label: 'Pick a sentence on this page',
+              detail: 'Shown as text: hold a sentence to read from it, keep it, or look a word up',
+              onTap: () => Navigator.pop(ctx, 'text'),
+            ),
+            const SizedBox(height: Gap.s),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    switch (picked) {
+      case 'read':
+        await _reader.goTo(unit, play: true);
+      case 'text':
+        _auto.stop();
+        setState(() => _prefs.pdfPages = false);
+        _prefs.save();
+        // Listening, the voice reads on where it is; the text shows this page.
+        if (_listening) {
+          _detached.value = true;
+        } else {
+          _reader.moveQuietly(unit);
+        }
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _reveal(unit, force: true);
+        });
+    }
+  }
+
   /// Press and hold on a page: the sentence and the word under the finger.
   void _onHoldAt(int item, int offset) {
     final it = _l.items[item];
@@ -1895,6 +1948,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                           cursor: _cursor,
                           detached: _detached,
                           onTapPage: (page) => _reader.goTo(_l.unitForPage(page), play: true),
+                          onHoldPage: (page) => unawaited(_onHoldPage(page)),
                           controller: _pdf,
                           turn: _prefs.pages ? PageTurn.byName(_prefs.pageTurn) : null,
                           spread: _pdfSpread,

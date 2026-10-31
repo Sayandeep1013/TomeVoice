@@ -76,6 +76,7 @@ class PdfPagesView extends StatefulWidget {
     required this.cursor,
     required this.detached,
     required this.onTapPage,
+    this.onHoldPage,
     this.controller,
     this.turn,
     this.spread = false,
@@ -90,7 +91,12 @@ class PdfPagesView extends StatefulWidget {
 
   /// True while the user has scrolled away from the voice.
   final ValueNotifier<bool> detached;
+
+  /// A screen reader's double tap on a page: read from it.
   final ValueChanged<int> onTapPage;
+
+  /// Press and hold on a page; [onTapPage] when not given.
+  final ValueChanged<int>? onHoldPage;
   final PdfPagesController? controller;
 
   /// Turned like a book's pages, one at a time (two in a [spread]), instead
@@ -476,7 +482,7 @@ class _PdfPagesViewState extends State<PdfPagesView> {
             return GestureDetector(
               onLongPress: () {
                 unawaited(HapticFeedback.selectionClick());
-                widget.onTapPage(page);
+                (widget.onHoldPage ?? widget.onTapPage)(page);
               },
               child: _ZoomPage(
                 key: ValueKey(page),
@@ -608,13 +614,13 @@ class _PdfPagesViewState extends State<PdfPagesView> {
       child: LayoutBuilder(
         builder: (context, c) {
           final drawn = _render(index, _px(context, c.maxWidth));
-          // Press and hold reads from the page, as on the text: a tap (to
-          // stop a fling) must not move the voice. A screen reader's double
-          // tap still does.
+          // Press and hold offers what to do at the page: a tap (to stop a
+          // fling) must not move the voice. A screen reader's double tap
+          // reads from the page, as its label says.
           return GestureDetector(
             onLongPress: () {
               unawaited(HapticFeedback.selectionClick());
-              widget.onTapPage(index);
+              (widget.onHoldPage ?? widget.onTapPage)(index);
             },
             child: Semantics(
               button: true,
