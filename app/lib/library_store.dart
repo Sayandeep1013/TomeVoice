@@ -534,7 +534,9 @@ class LibraryStore {
     final url = novel.cover;
     if (url != null && url.startsWith('http')) {
       try {
-        final r = await Net.instance.request(url, headers: {'Referer': plugin.site});
+        // With the source's own cookies, as its covers in Browse are
+        // (NetImage), not the app's.
+        final r = await Net.instance.request(url, headers: {'Referer': plugin.site}, partition: plugin.id);
         if (r.ok && r.bytes.length > 200) {
           final img = Directory('${dir.path}/img')..createSync(recursive: true);
           final f = File('${img.path}/cover${_imageExt(r.headers['content-type'], url)}');

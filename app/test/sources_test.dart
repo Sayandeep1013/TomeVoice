@@ -1165,6 +1165,32 @@ exports.default = { id: "f", name: "F", site: "https://f.test/", version: "1",
     expect(File('${dir.path}/cookies.json').readAsStringSync(), contains('"sid"'));
   });
 
+  test("a novel's cover is fetched with its source's own cookies, not the app's", () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final sent = <String?>[];
+    server.listen((req) async {
+      sent.add(req.headers.value(HttpHeaders.cookieHeader));
+      req.response.headers.contentType = ContentType('image', 'png');
+      req.response.add(List.filled(400, 7));
+      await req.response.close();
+    });
+    final dir = Directory.systemTemp.createTempSync('tv_cover');
+    addTearDown(() async {
+      await server.close(force: true);
+      await Net.instance.clearCookies();
+      dir.deleteSync(recursive: true);
+    });
+    final site = 'http://127.0.0.1:${server.port}/';
+    Net.instance.jar
+      ..merge([StoredCookie(name: 'mine', value: 'fake', domain: '127.0.0.1')], partition: 'fake')
+      ..merge([StoredCookie(name: 'app', value: 'old', domain: '127.0.0.1')]);
+    final plugin = PluginInfo(id: 'fake', name: 'Fake', site: site, lang: 'English', version: '1', url: 'u');
+    final e = await LibraryStore(dir)
+        .addWebNovel(plugin, SourceNovel(path: 'novel/1', name: 'Shadow', cover: '${site}cover.png', chapters: const []));
+    expect(e.cover, isNotNull);
+    expect(sent, ['mine=fake']);
+  });
+
   test('a web novel in the library: fetched chapters are read, the rest wait', () async {
     final dir = Directory.systemTemp.createTempSync('tv_web');
     addTearDown(() => dir.deleteSync(recursive: true));
