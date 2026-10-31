@@ -205,10 +205,12 @@ class ChapterRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = Skin.accentOf(context);
+    // The row being read is washed in the accent; its number, title and
+    // sign are in the accent as type, which reads on the wash.
+    final ink = Skin.accentInkOf(context);
     final part = parts && _part.hasMatch(title);
     return Material(
-      color: current ? accent.withValues(alpha: 0.14) : Colors.transparent,
+      color: current ? Skin.accentOf(context).withValues(alpha: 0.14) : Colors.transparent,
       borderRadius: BorderRadius.circular(Radii.row),
       child: InkWell(
         borderRadius: BorderRadius.circular(Radii.row),
@@ -219,7 +221,7 @@ class ChapterRow extends StatelessWidget {
             children: [
               SizedBox(
                 width: numberWidth,
-                child: Text('$number', style: Skin.meta(context, size: 11.5, color: current ? accent : null)),
+                child: Text('$number', style: Skin.meta(context, size: 11.5, color: current ? ink : null)),
               ),
               Expanded(
                 child: part
@@ -227,17 +229,17 @@ class ChapterRow extends StatelessWidget {
                         title.toUpperCase(),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: Skin.meta(context, size: 12, color: current ? accent : Skin.inkSoftOn(context)),
+                        style: Skin.meta(context, size: 12, color: current ? ink : Skin.inkSoftOn(context)),
                       )
                     : Text(
                         title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: Skin.title(context, size: 17, color: current ? accent : null),
+                        style: Skin.title(context, size: 17, color: current ? ink : null),
                       ),
               ),
               if (current)
-                Icon(Icons.graphic_eq_rounded, size: 18, color: accent)
+                Icon(Icons.graphic_eq_rounded, size: 18, color: ink)
               else if (onPhone)
                 Tooltip(
                   message: 'On the phone',

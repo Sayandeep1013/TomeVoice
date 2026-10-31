@@ -13,6 +13,12 @@ import 'stats.dart';
 
 const _svc = SpeechService();
 
+/// The shared reading and listening settings, as the reading in the
+/// background reads them: what a page's voice is given. This holds nothing
+/// of the page; reading the page's own field held the whole closed page for
+/// as long as its voice read on without it.
+ListeningPrefs _shared() => ListeningPrefs.loaded ?? ListeningPrefs.memory;
+
 /// What a book's page does for the reading behind it (its
 /// [ReaderController]): shows the place, says what happened, and turns its
 /// pages. ReaderScreen's state is the one.
@@ -65,11 +71,12 @@ class ReaderController {
   /// [initialCursor] (a place saved before is restored as it was; a book
   /// opened for the first time skips a title page named like it).
   ReaderController({
-    required this.layout,
+    required ReadingLayout layout,
     required this.view,
     required ReadingCursor initialCursor,
     this.store,
-  }) : cursor = ValueNotifier(layout.isEmpty
+  })  : _layout = layout,
+        cursor = ValueNotifier(layout.isEmpty
             ? 0
             : layout.unitForCursor(initialCursor, saved: initialCursor != ReadingCursor.zero)) {
     // This book reading on in the background: take its voice back, still
@@ -84,7 +91,7 @@ class ReaderController {
       unawaited(bg.stop());
     }
     player = back?.player ??
-        readingScheduler(layout: layout, prefs: () => prefs, language: language, bookId: _book.id, service: _svc);
+        readingScheduler(layout: layout, prefs: _shared, language: language, bookId: _book.id, service: _svc);
     player.onFinished = _onFinished;
     tookBack = back != null;
     if (back != null) {
@@ -101,7 +108,10 @@ class ReaderController {
     _statsTimer = Timer.periodic(const Duration(seconds: 15), (_) => countTime());
   }
 
-  final ReadingLayout layout;
+  /// The chapters read: the page's, with any joined on after them since
+  /// (see [widen]).
+  ReadingLayout get layout => _layout;
+  ReadingLayout _layout;
   final LibraryStore? store;
   final ReaderView view;
 
@@ -111,7 +121,9 @@ class ReaderController {
   late final String language = primaryLanguage(_book.metadata.language);
 
   /// The reading and listening settings: the shared ones, once the page has
-  /// loaded them.
+  /// loaded them. It is only ever the one shared instance (memory makes it
+  /// if nothing has loaded it yet, and load gives that same one back), and
+  /// it is changed in place, so the voice reads it from there ([_shared]).
   ListeningPrefs prefs = ListeningPrefs.memory;
 
   /// The place: the sentence being read, or to be read from.
@@ -178,8 +190,9 @@ class ReaderController {
   DateTime? lastScroll;
   int _statsUnit = -1;
 
-  /// The card moved the place while paused. Moving stops the player, but
-  /// the card stays up, paused at the new place, until reading resumes.
+  /// The place moved while paused (by the card, a headset, or the page's
+  /// own buttons). Moving stops the player, but the card stays up, paused
+  /// at the new place, until reading resumes.
   bool _parked = false;
 
   SleepChoice _sleep = SleepChoice.off;
@@ -316,7 +329,7 @@ class ReaderController {
     player.endFade();
     if (!view.mounted) return false;
     final bg = BackgroundReading.adopt(
-      player: readingScheduler(layout: layout, prefs: () => prefs, language: language, bookId: _book.id, service: _svc),
+      player: readingScheduler(layout: layout, prefs: _shared, language: language, bookId: _book.id, service: _svc),
       layout: layout,
       store: store,
       bookId: _book.id,
@@ -329,6 +342,18 @@ class ReaderController {
       sleep: _sleep,
     );
     unawaited(bg.readOn());
+    return true;
+  }
+
+  /// The chapters after this page's joined on to it (a web novel's window
+  /// rolled on, see WebNovelReader): [longer] begins with the same
+  /// sentences, so the place, the card and the voice carry on into it as
+  /// they are, the voice with no break. False where it cannot: the voice
+  /// went on without this page, or [longer] does not continue its chapters.
+  bool widen(ReadingLayout longer) {
+    if (_handedOn || identical(longer, _layout) || !continuesLayout(longer, _layout)) return false;
+    _layout = longer;
+    readOnInto(player, longer);
     return true;
   }
 
@@ -438,6 +463,10 @@ class ReaderController {
     if (play || state == PlayState.playing || state == PlayState.loading) {
       await player.play(next);
     } else if (state == PlayState.paused) {
+      // Its voice stops, so Play reads from here; the card stays up, paused
+      // at the new place, whichever buttons moved it (the page's own once
+      // took the card away).
+      _parked = true;
       await player.stop();
     }
   }
@@ -567,6 +596,10 @@ class ReaderController {
       positionMs: clock.positionMs,
       durationMs: clock.durationMs,
       speed: speed,
+      // As the reading in the background names it: a Play from outside the
+      // app for this book (Android Auto, a spoken request) is then the
+      // card's own Play, not a book to start.
+      book: secret ? null : _book.id,
     ));
   }
 
@@ -588,13 +621,10 @@ class ReaderController {
             _parked = false;
             unawaited(player.stop());
           case 'next':
-            _park();
             _cardSkip(1);
           case 'prev':
-            _park();
             _cardSkip(-1);
           case 'seek':
-            _park();
             _seekInChapter((e['value'] as num?)?.toInt() ?? 0);
           case 'speed':
             _nextSpeed();
@@ -604,10 +634,6 @@ class ReaderController {
       default:
         _focus.follow(e['type'], player);
     }
-  }
-
-  void _park() {
-    if (player.state.value == PlayState.paused) _parked = true;
   }
 
   /// The speed this book reads at: its own, or everyone's.

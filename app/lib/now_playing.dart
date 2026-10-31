@@ -221,19 +221,26 @@ class NowPlayingScreen extends StatelessWidget {
                 const SizedBox(height: Gap.m),
                 Expanded(child: _Passage(layout: layout, unit: u, player: player, onTap: onGoTo, onHold: onHold)),
                 const SizedBox(height: Gap.s),
+                // Its taps reach over the gap above it and the line under it,
+                // which are no target: a finger's 48 dp.
                 ChapterScrubber(
                   value: count <= 1 ? 0 : inChapter / (count - 1),
                   onSeek: count <= 1 ? null : (f) => onGoTo(first + (f * (count - 1)).round()),
+                  above: 8,
+                  below: 14,
                 ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                  child: Text(
-                    [
-                      minutes < 1 ? 'UNDER A MINUTE LEFT' : '${durationLabel(minutes)} LEFT IN CHAPTER',
-                      if (sleep != null) sleep,
-                    ].join('  ·  '),
-                    textAlign: TextAlign.end,
-                    style: Skin.meta(context, size: 10.5, color: Colors.white.withValues(alpha: 0.55)),
+                // A tap on it is the scrubber's.
+                IgnorePointer(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    child: Text(
+                      [
+                        minutes < 1 ? 'UNDER A MINUTE LEFT' : '${durationLabel(minutes)} LEFT IN CHAPTER',
+                        if (sleep != null) sleep,
+                      ].join('  ·  '),
+                      textAlign: TextAlign.end,
+                      style: Skin.meta(context, size: 10.5, color: Colors.white.withValues(alpha: 0.55)),
+                    ),
                   ),
                 ),
                 const SizedBox(height: Gap.s),
@@ -250,14 +257,19 @@ class NowPlayingScreen extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: Gap.m),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _chip(context, '${trimSpeed(speed())}×', Icons.speed_rounded, onSpeed),
-                    _chip(context, sleep == null ? 'Sleep' : 'Sleep on', Icons.bedtime_outlined, onSleep),
-                    _chip(context, 'Save', Icons.bookmark_add_outlined, onSave),
-                    _chip(context, voiceLabel(), Icons.record_voice_over_rounded, onVoice),
-                  ],
+                // The chips are drawn 37 dp tall: a tap in the gap over them
+                // is theirs too, a finger's 48.
+                TapBand(
+                  above: 11,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _chip(context, '${trimSpeed(speed())}×', Icons.speed_rounded, onSpeed),
+                      _chip(context, sleep == null ? 'Sleep' : 'Sleep on', Icons.bedtime_outlined, onSleep),
+                      _chip(context, 'Save', Icons.bookmark_add_outlined, onSave),
+                      _chip(context, voiceLabel(), Icons.record_voice_over_rounded, onVoice),
+                    ],
+                  ),
                 ),
               ],
             );

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
@@ -66,6 +68,9 @@ class ReaderTopBar extends StatelessWidget {
   final VoidCallback onBookmarks;
   final VoidCallback onSettings;
 
+  /// The chapter line's arrow, which says it opens the Contents.
+  static const _arrow = 15.0;
+
   // The round buttons take 48 dp for a finger and draw 44: the gaps and the
   // edges are 2 dp less on each side, so every circle stays where it was.
   @override
@@ -120,7 +125,9 @@ class ReaderTopBar extends StatelessWidget {
                             style: meta,
                           );
                         }
-                        // A long title gives way; the count always shows.
+                        // A long title gives way; the count shows whole
+                        // unless even it has no room (a split screen), when
+                        // it gives way too rather than run off the end.
                         // A new chapter's name rises into place.
                         return AnimatedSwitcher(
                           duration: Motion.of(context, Motion.standard),
@@ -129,20 +136,27 @@ class ReaderTopBar extends StatelessWidget {
                             alignment: Alignment.centerLeft,
                             children: [...previous, if (current != null) current],
                           ),
-                          child: Row(
+                          child: LayoutBuilder(
                             key: ValueKey(c),
-                            children: [
-                              Flexible(
-                                child: Text(layout.chapterTitle(c).toUpperCase(),
-                                    maxLines: 1, overflow: TextOverflow.ellipsis, style: meta),
-                              ),
-                              Text(
-                                '  ·  ${positionOf?.call(u) ?? '${chapterNumber(c)}/${layout.chapters.length}'}',
-                                maxLines: 1,
-                                style: meta,
-                              ),
-                              Icon(Icons.expand_more_rounded, size: 15, color: meta.color),
-                            ],
+                            builder: (context, box) => Row(
+                              children: [
+                                Flexible(
+                                  child: Text(layout.chapterTitle(c).toUpperCase(),
+                                      maxLines: 1, overflow: TextOverflow.ellipsis, style: meta),
+                                ),
+                                ConstrainedBox(
+                                  constraints: BoxConstraints(maxWidth: math.max(0.0, box.maxWidth - _arrow)),
+                                  child: Text(
+                                    '  ·  ${positionOf?.call(u) ?? '${chapterNumber(c)}/${layout.chapters.length}'}',
+                                    maxLines: 1,
+                                    softWrap: false,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: meta,
+                                  ),
+                                ),
+                                Icon(Icons.expand_more_rounded, size: _arrow, color: meta.color),
+                              ],
+                            ),
                           ),
                         );
                       },
@@ -173,7 +187,7 @@ class ReaderTopBar extends StatelessWidget {
             valueListenable: bookmarked,
             builder: (context, marked, _) => RoundButton(
               icon: marked ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
-              iconColor: marked ? Skin.accentOf(context) : null,
+              iconColor: marked ? Skin.accentInkOf(context) : null,
               tooltip: marked ? 'Remove bookmark' : 'Bookmark this page',
               onTap: onBookmark,
               onLongPress: onBookmarks,
@@ -346,7 +360,9 @@ class ReturnPill extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.undo_rounded, size: 16, color: Skin.accentOf(context)),
+                      // On the dark pill, the soft accent (the deep one by
+                      // day would not show on it).
+                      Icon(Icons.undo_rounded, size: 16, color: Skin.accentSoftOf(context)),
                       const SizedBox(width: Gap.s),
                       Flexible(
                         child: Text('Back to where you were',
@@ -398,7 +414,9 @@ class BackToReadingPill extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.my_location_rounded, size: 16, color: Skin.accentOf(context)),
+                    // On the dark pill, the soft accent (the deep one by day
+                    // would not show on it).
+                    Icon(Icons.my_location_rounded, size: 16, color: Skin.accentSoftOf(context)),
                     const SizedBox(width: Gap.s),
                     Text('Back to reading',
                         style: Skin.ui(size: 14, weight: FontWeight.w600, color: Skin.onDark(context))),

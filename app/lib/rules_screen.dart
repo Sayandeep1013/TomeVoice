@@ -370,8 +370,8 @@ class _RulesScreenState extends State<RulesScreen> {
       sheetAnimationStyle: sheetMotion(context),
       isScrollControlled: true,
       useSafeArea: true,
-      // One book's list is named for it; when its title is not known here
-      // (the reader does not say), the reader names it.
+      // One book's list is named for it: the book's page and the reader
+      // both pass its title. Without one, the name is left to be typed.
       builder: (_) => _ShareSheet(lists: lists, name: book == null ? null : (_title ?? '')),
     );
     if (picked == null || !mounted) return;

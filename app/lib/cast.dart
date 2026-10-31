@@ -67,6 +67,28 @@ Map<int, String> castVoices(
   return out;
 }
 
+/// The natural voice worth loading for [cast] before reading begins, with
+/// the reader's: that of the first character read in one (the characters
+/// with the most lines come first) whose model is not among [held] (the
+/// narrator's and the dialogue voice's, loaded already). Only where the
+/// phone keeps two or more models and one is still free: loading it then
+/// pushes nothing out. Null where there is none, or no room.
+NeuralVoice? castVoiceToWarm(
+  BookCast? cast, {
+  required String? narrator,
+  required String? dialogue,
+  required int slots,
+  required Set<String> held,
+  bool Function(String voice)? here,
+}) {
+  if (cast == null || !cast.anyVoice || slots < 2 || held.length >= slots) return null;
+  for (final v in castVoices(cast, narrator: narrator, dialogue: dialogue, slots: slots, here: here).values) {
+    final natural = neuralVoiceFor(v);
+    if (natural != null && !held.contains(natural.modelId)) return natural;
+  }
+  return null;
+}
+
 /// Why [voice] would not be [name]'s in [cast] now, as a line to show; null
 /// when it would be.
 String? castRefusal(

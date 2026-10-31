@@ -60,12 +60,21 @@ Map<int, Mark> highlightUnits(ReadingLayout layout, Iterable<Mark> marks) {
 /// The saved quotes of one book by the sentences they hold, kept up to date
 /// as quotes are saved, coloured, changed and removed: what the page washes.
 class Highlights extends ChangeNotifier implements ValueListenable<Map<int, Mark>> {
-  Highlights(this.layout) {
+  Highlights(this._layout) {
     MarkStore.instance.changes.addListener(_update);
     _value = highlightUnits(layout, MarkStore.instance.forBook(layout.book.id));
   }
 
-  final ReadingLayout layout;
+  /// The chapters washed: more of them once a web novel's chapters after
+  /// the page's are joined on, and the quotes in them washed too.
+  ReadingLayout get layout => _layout;
+  ReadingLayout _layout;
+  set layout(ReadingLayout next) {
+    if (identical(next, _layout)) return;
+    _layout = next;
+    _update();
+  }
+
   Map<int, Mark> _value = const {};
 
   @override

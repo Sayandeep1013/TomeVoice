@@ -149,7 +149,7 @@ Future<void> showBookmarks(
                           for (final x in kept)
                             ListTile(
                               key: ValueKey(x.m.id),
-                              leading: Icon(Icons.bookmark_rounded, color: Skin.accentOf(ctx)),
+                              leading: Icon(Icons.bookmark_rounded, color: Skin.accentInkOf(ctx)),
                               title: Text(
                                 (x.m.chapter ?? layout.chapterTitle(layout.chapterOfUnit(x.u))).toUpperCase(),
                                 maxLines: 1,

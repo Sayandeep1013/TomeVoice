@@ -11,6 +11,7 @@
 // stood before, copied here so it cannot drift with the code it pins.
 
 import 'dart:async';
+import 'dart:developer' show reachabilityBarrier;
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -398,10 +399,14 @@ void main() {
       // A part reads as a divider, in capitals and the soft ink.
       final part = tester.widget<Text>(inSheet(find.text('PART ONE: ARRIVAL')));
       expect(part.style!.color, Skin.inkSoftOn(tester.element(find.byType(ReaderScreen))));
-      // The chapter being read, in the accent, with the voice's sign.
+      // The chapter being read, in the accent as type (its ink, which reads
+      // on the sheet: the full accent was too pale there by day), with the
+      // voice's sign.
+      final ink = Skin.accentInkOf(tester.element(find.byType(ReaderScreen)));
       final road = tester.widget<Text>(inSheet(find.text('The Road')));
-      expect(road.style!.color, Skin.accentOf(tester.element(find.byType(ReaderScreen))));
-      expect(inSheet(find.byIcon(Icons.graphic_eq_rounded)), findsOneWidget);
+      expect(road.style!.color, ink);
+      expect(tester.widget<Text>(inSheet(find.text('2'))).style!.color, ink);
+      expect(tester.widget<Icon>(inSheet(find.byIcon(Icons.graphic_eq_rounded))).color, ink);
       // The numbers in a column for short ones.
       expect(tester.getSize(find.ancestor(of: inSheet(find.text('2')), matching: find.byType(SizedBox)).first).width, 40);
       // A drag down the list leaves the keyboard as it is.
@@ -578,13 +583,16 @@ void main() {
       await finish(tester);
     });
 
-    testWidgets("on its side, the scroll fades into the app's ground before the dock", (tester) async {
-      // Its own colour, whatever the tone (the foot of the app's ground).
-      ListeningPrefs.memory.pageTone = 'papyrus';
-      await open(tester, numbered(), onItsSide: true);
-      final foot = Skin.groundFoot(tester.element(find.byType(ReaderScreen)));
-      expect(hasFade(tester, [foot.withValues(alpha: 0), foot]), isTrue);
-      await finish(tester);
+    testWidgets("on its side, the scroll fades into the page's paper before the dock", (tester) async {
+      // Changed on purpose: it faded into the app's ground whatever the
+      // tone, a band across the foot of Papyrus, Ink and Dusk.
+      for (final tone in [PageTone.app, PageTone.papyrus, PageTone.eink, PageTone.dusk]) {
+        ListeningPrefs.memory.pageTone = tone.id;
+        await open(tester, numbered(), onItsSide: true);
+        final foot = tone.paper?.last ?? Skin.groundFoot(tester.element(find.byType(ReaderScreen)));
+        expect(hasFade(tester, [foot.withValues(alpha: 0), foot]), isTrue, reason: tone.id);
+        await finish(tester);
+      }
     });
 
     testWidgets("Now Playing sets the book in the reader's text size, in its own face, white", (tester) async {
@@ -880,7 +888,9 @@ void main() {
       expect(s['subtitle'], 'Alpha');
       expect(s['playing'], isTrue);
       expect(s['cover'], isNull);
-      expect(s['book'], isNull);
+      // Changed on purpose: it went without the book, which the reading in
+      // the background names (see the test after this one).
+      expect(s['book'], layout.book.id);
       expect(s['speed'], 1.0);
       expect(s['positionMs'], 0);
       final chapterEnd = layout.chapterFirstUnit[1];
@@ -905,16 +915,62 @@ void main() {
       expect(s['active'], isTrue);
       expect(s['playing'], isFalse);
 
-      // The player's own buttons, paused, move the place and end the
-      // reading: the card goes (the card's own buttons keep it, below).
+      // The player's own buttons, paused, move the place and leave the card
+      // up, paused there, as the card's own do (below). Changed on purpose:
+      // they ended the reading, and the card went.
       final before = sessions().length;
       await tester.tap(find.byTooltip('Previous chapter'));
       await tester.pump(const Duration(milliseconds: 100));
       final after = sessions().sublist(before);
       expect(after.first['subtitle'], 'Alpha');
       expect(after.first['playing'], isFalse);
-      expect(after.last['active'], isFalse);
+      expect(after.where((s) => s['active'] == false), isEmpty, reason: 'the card stays');
+      await tester.tap(find.byTooltip('Next sentence'));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(sessions().last['active'], isTrue);
+      expect(sessions().last['playing'], isFalse);
+      expect(sessions().last['positionMs'], msFor(layout.wordsBefore[1]));
       expect(find.byTooltip('Play'), findsOneWidget);
+      // Play reads from where it was moved to.
+      await tester.tap(find.byTooltip('Play'));
+      await io(tester, () => sessions().last['playing'] == true);
+      expect(sessions().last['playing'], isTrue);
+      expect(sessions().last['positionMs'], msFor(layout.wordsBefore[1]));
+      expect(washed(tester), startsWith(layout.units[1].text));
+      await finish(tester);
+    });
+
+    testWidgets("the card names the book being read, as the background's does, unless it is on a secret shelf",
+        (tester) async {
+      // A Play from outside the app (Android Auto, a spoken request) for
+      // the book on the card is the card's own Play; one for another book
+      // starts that book. Without the book, the page's own was taken for
+      // another, and started again from outside.
+      final store = LibraryStore(_tmp);
+      late LibraryEntry entry;
+      late ReadingLayout layout;
+      await tester.runAsync(() async {
+        final f = File('${_tmp.path}/incoming/story.md')
+          ..createSync(recursive: true)
+          ..writeAsStringSync(numberedText());
+        entry = await store.importFile(PickedFile(path: f.path, name: 'story.md'));
+        layout = await store.loadLayout(entry.id);
+      });
+      await open(tester, layout, store: store);
+      await playing(tester);
+      expect(sessions().last['book'], entry.id);
+      expect(sessions().last['title'], layout.book.metadata.title);
+
+      await tester.runAsync(() async {
+        final secret = await store.addCategory('Secret', secret: true);
+        await store.moveBooks({entry.id}, secret.id);
+      });
+      await tester.tap(find.byTooltip('Next sentence'));
+      await tester.pump(const Duration(milliseconds: 100));
+      final s = sessions().last;
+      expect(s['active'], isTrue);
+      expect(s['title'], 'TomeVoice', reason: 'not named on the lock screen');
+      expect(s['book'], isNull, reason: 'nor played from outside the app');
       await finish(tester);
     });
 
@@ -1151,6 +1207,46 @@ void main() {
       tester.view.physicalSize = const Size(1040, 2340);
       await tester.pumpAndSettle();
       expect(tester.getRect(para(p).first).top, closeTo(was, 1), reason: 'a narrower window');
+      await finish(tester);
+    });
+  });
+
+  group('a narrow window', () {
+    testWidgets("in a split screen the top bar's chapter line fits: a long title gives way, then the count",
+        (tester) async {
+      // 327 dp across, as a phone's half of a split screen.
+      Future<void> narrow(Widget reader) async {
+        tester.view.physicalSize = const Size(900, 2340);
+        tester.view.devicePixelRatio = 2.75;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(MaterialApp(home: reader));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      }
+
+      final layout = numbered();
+      await narrow(ReaderScreen(layout: layout));
+      expect(find.textContaining('1/2'), findsOneWidget, reason: 'the count shows');
+      await finish(tester);
+      // A web novel's numbers, and a PDF's extra button beside them.
+      await narrow(ReaderScreen(
+        layout: layout,
+        positionOf: (u) => '${layout.units[u].sectionIndex + 3222}/3400',
+        chapterNumberOf: (c) => c + 3222,
+        progressOf: (u) => 0.95,
+        onReachedEnd: ({required bool playing, bool browse = false}) async {},
+      ));
+      expect(find.textContaining('3222/3400'), findsOneWidget);
+      await finish(tester);
+      final pdf = ingestPdfText(id: 'p', pages: [
+        'First page text is long enough to be a real page of a book, honestly.',
+        'Second page text is also long enough to count as a page of a book.',
+      ]);
+      await narrow(ReaderScreen(
+        layout: ReadingLayout.build(pdf),
+        sourcePath: '${_tmp.path}/b.pdf',
+        positionOf: (u) => '3222/3400',
+      ));
       await finish(tester);
     });
   });
@@ -1481,6 +1577,49 @@ void main() {
       expect(s['speed'], 1.25);
       await bg.stop();
       expect(sessions().last['active'], isFalse);
+      await finish(tester);
+    });
+
+    testWidgets('the page left to read on is let go: its voice holds nothing of it', (tester) async {
+      // A book of its own: who speaks in a book is found once a run, and
+      // what an earlier test found waits in that test's own time, which
+      // no longer runs, holding whatever waits on it.
+      final layout = numbered(paragraphs: 9);
+      final store = LibraryStore(_tmp);
+      final nav = await shelf(tester);
+      unawaited(nav.push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(layout: layout, store: store))));
+      await tester.pumpAndSettle();
+      await playing(tester);
+      final page = WeakReference(tester.state(find.byType(ReaderScreen)));
+      await nav.maybePop();
+      await tester.pumpAndSettle();
+      final bg = BackgroundReading.current.value!;
+      expect(bg.playing, isTrue, reason: 'it reads on without the page');
+      await tester.pumpWidget(const SizedBox());
+      // Its place written as it went, and whatever else was under way.
+      for (var i = 0; i < 20; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await tester.pump();
+      }
+      // Collected twice over (enough kept alive meanwhile for the old
+      // objects to be collected too): whatever nothing held is gone.
+      var cycles = 0;
+      await tester.runAsync(() async {
+        final from = reachabilityBarrier;
+        final heap = <List<int>>[];
+        final watch = Stopwatch()..start();
+        while (reachabilityBarrier < from + 2 && watch.elapsed < const Duration(seconds: 30)) {
+          await Future<void>.delayed(Duration.zero);
+          heap.add(List.generate(30000, (n) => n));
+          if (heap.length > 100) heap.removeAt(0);
+        }
+        cycles = reachabilityBarrier - from;
+      });
+      expect(cycles, greaterThanOrEqualTo(2), reason: 'the heap was not collected');
+      expect(page.target, isNull, reason: "the closed page's state is held while its voice reads on");
+      expect(identical(BackgroundReading.current.value, bg), isTrue);
+      expect(bg.playing, isTrue);
+      await bg.stop();
       await finish(tester);
     });
 

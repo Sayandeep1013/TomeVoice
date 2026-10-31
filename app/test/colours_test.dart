@@ -2,7 +2,8 @@
 // colour, a reader's own, the wallpaper's) and every colour each sets text,
 // icons and a control's marks in, on every surface each is drawn on; a
 // reader's own colours kept, carried in a backup and guarded; the
-// wallpaper's theme where the phone has one; and both on the reader's page.
+// wallpaper's theme where the phone has one; and both on the reader's page,
+// with the reader's own marks in the accent.
 
 import 'dart:convert';
 import 'dart:io';
@@ -23,12 +24,14 @@ import 'package:material_color_utilities/material_color_utilities.dart'
         SchemeVibrant,
         TonalPalette;
 import 'package:tomevoice_spike/backup.dart';
+import 'package:tomevoice_spike/chapter_finder.dart';
 import 'package:tomevoice_spike/contrast.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/own_colours.dart';
 import 'package:tomevoice_spike/own_colours_sheet.dart';
 import 'package:tomevoice_spike/page_tone.dart';
 import 'package:tomevoice_spike/prefs.dart';
+import 'package:tomevoice_spike/reader_chrome.dart';
 import 'package:tomevoice_spike/settings_screen.dart';
 import 'package:tomevoice_spike/theme.dart';
 import 'package:tomevoice_spike/ui.dart';
@@ -425,6 +428,72 @@ void main() {
       expect(Skin.accentOf(inside), PageTone.papyrus.accent);
       expect(Skin.accentInkOf(inside), PageTone.papyrus.accent);
       expect(Skin.inkOn(inside), own.nightInk);
+    });
+
+    /// Every palette, and a reader's own with an accent dark enough to vanish
+    /// on the player's dark bar by day.
+    final palettes = [
+      ...Palette.all,
+      const OwnColours(page: Color(0xFFF3EBDD), accent: Color(0xFF1D2A6B)).made.palette,
+      const OwnColours(page: Color(0xFF141B2B), accent: Color(0xFFF2D541)).made.palette,
+    ];
+
+    testWidgets("the way back to the voice, and to where the reader was, reads on its dark pill", (tester) async {
+      for (final p in palettes) {
+        for (final b in Brightness.values) {
+          if (p.only != null && p.only != b) continue;
+          Skin.palette = p;
+          await tester.pumpWidget(MaterialApp(
+            key: ValueKey((p.id, b)),
+            theme: Skin.themeFor(p, b),
+            home: Scaffold(
+              body: Column(
+                children: [
+                  BackToReadingPill(detached: ValueNotifier(true), onTap: () {}),
+                  ReturnPill(onBack: () {}, onStay: () {}),
+                ],
+              ),
+            ),
+          ));
+          await tester.pumpAndSettle();
+          final pill = Skin.darkFor(p, b);
+          for (final icon in [Icons.my_location_rounded, Icons.undo_rounded]) {
+            final c = tester.widget<Icon>(find.byIcon(icon)).color!;
+            expect(contrast(c, pill), greaterThanOrEqualTo(largeText), reason: '$icon in ${p.label}, ${b.name}');
+          }
+        }
+      }
+    });
+
+    testWidgets("the chapter being read stands out in the Contents in the accent as type", (tester) async {
+      for (final p in palettes) {
+        for (final b in Brightness.values) {
+          if (p.only != null && p.only != b) continue;
+          Skin.palette = p;
+          await tester.pumpWidget(MaterialApp(
+            key: ValueKey((p.id, b)),
+            theme: Skin.themeFor(p, b),
+            home: Scaffold(
+              backgroundColor: b == Brightness.dark ? p.nightSheet : p.daySheet,
+              body: Column(
+                children: [
+                  ChapterRow(number: 7, title: 'The River', current: true, onTap: () {}),
+                  ChapterRow(number: 8, title: 'Part Two', current: true, parts: true, onTap: () {}),
+                ],
+              ),
+            ),
+          ));
+          await tester.pumpAndSettle();
+          final row = surfacesOf(p, b)['a choice chosen on a sheet']!.single;
+          final why = '${p.label}, ${b.name}';
+          for (final t in ['7', 'The River', '8', 'PART TWO']) {
+            final c = tester.widget<Text>(find.text(t)).style!.color!;
+            expect(contrast(c, row), greaterThanOrEqualTo(smallText), reason: '$t in $why');
+          }
+          final sign = tester.widget<Icon>(find.byIcon(Icons.graphic_eq_rounded).first).color!;
+          expect(contrast(sign, row), greaterThanOrEqualTo(largeText), reason: why);
+        }
+      }
     });
   });
 

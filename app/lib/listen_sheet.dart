@@ -39,6 +39,8 @@ class ListenController {
     this.narration = false,
     this.light,
     this.autoScroll,
+    this.characters,
+    this.onCharacters,
   });
 
   final ListeningPrefs prefs;
@@ -91,6 +93,12 @@ class ListenController {
   /// auto-scroll, started there: only an open book's page has them.
   final ValueNotifier<PageLight>? light;
   final AutoScroll? autoScroll;
+
+  /// The book's characters, where they are offered (the reader, once it
+  /// has found anyone speaking in the book): how their lines are read now,
+  /// and the sheet that gives them voices of their own, done when it closes.
+  final String Function()? characters;
+  final Future<void> Function()? onCharacters;
 
   Timer? _sampleTimer;
 
@@ -326,6 +334,10 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
           const SizedBox(height: Gap.s),
           _dialogueCard(context),
         ],
+        if (widget.controller.onCharacters != null) ...[
+          const SizedBox(height: Gap.s),
+          _charactersCard(context),
+        ],
         const SizedBox(height: Gap.xl),
         const SectionTitle('Style'),
         const SizedBox(height: Gap.m),
@@ -429,6 +441,46 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
                     Text('Dialogue', style: Skin.ui(size: 15, weight: FontWeight.w600, color: Skin.inkOn(context))),
                     Text(
                       v == null ? 'In the same voice' : 'Words in quotation marks: ${_catalog.friendlyName(v)}',
+                      style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
+                    ),
+                  ],
+                ),
+              ),
+              Text('Change', style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentInkOf(context))),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The book's characters, and the voices their lines are read in, as on
+  /// the book's page.
+  Widget _charactersCard(BuildContext context) {
+    final c = widget.controller;
+    return Material(
+      color: Skin.raisedOn(context),
+      borderRadius: BorderRadius.circular(Radii.row),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(Radii.row),
+        onTap: () async {
+          await c.onCharacters!();
+          // Who has a voice now, on the card.
+          if (mounted) setState(() {});
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Gap.l, vertical: 12),
+          child: Row(
+            children: [
+              Icon(Icons.groups_outlined, color: Skin.accentInkOf(context), size: 22),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Characters', style: Skin.ui(size: 15, weight: FontWeight.w600, color: Skin.inkOn(context))),
+                    Text(
+                      c.characters?.call() ?? '',
                       style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
                     ),
                   ],
