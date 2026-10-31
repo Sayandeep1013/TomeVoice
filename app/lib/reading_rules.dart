@@ -194,6 +194,23 @@ class ReadingRules {
     await _save();
   }
 
+  /// Book [from]'s own pronunciations and presets as book [to]'s (a web
+  /// novel moved to another source). Whether it had any.
+  Future<bool> moveBook(String from, String to) async {
+    final presets = bookPresets[from];
+    if (presets == null && !say.any((r) => r.book == from)) return false;
+    say = [for (final r in say) r.book == from ? SayRule(from: r.from, to: r.to, book: to) : r];
+    if (presets != null) {
+      bookPresets = {
+        for (final e in bookPresets.entries)
+          if (e.key != from) e.key: e.value,
+        to: presets,
+      };
+    }
+    await _save();
+    return true;
+  }
+
   /// Whether [p] is on in [book] (its own choice, when it has its own),
   /// or in every book when [book] is null.
   bool presetOn(SkipPreset p, {String? book}) =>

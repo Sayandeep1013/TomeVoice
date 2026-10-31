@@ -9,6 +9,7 @@ import 'library_store.dart';
 import 'marks.dart';
 import 'prefs.dart';
 import 'read_marks.dart';
+import 'reading_rules.dart';
 import 'safe_file.dart';
 import 'sources/models.dart';
 
@@ -329,8 +330,9 @@ Future<MovePlan> planMove(LibraryStore store, LibraryEntry entry, PluginInfo to,
 /// shelf, with what was kept for it carried to the same chapters there (by
 /// [MovePlan.match]): the place, the downloads (one that matches nothing is
 /// kept aside under ch/orphaned, never deleted), quotes and bookmarks, read
-/// marks, its cover and its own settings (voice, speed, order). Chapters
-/// waiting to download wait there instead. The new entry.
+/// marks, its cover and its own settings (voice, its characters' voices,
+/// speed, order, pronunciations and skips). Chapters waiting to download
+/// wait there instead. The new entry.
 ///
 /// The new folder is made whole first and the library's entry swapped in
 /// one step; the old folder goes last. Each file to move is noted before
@@ -369,11 +371,13 @@ Future<LibraryEntry> moveNovel(LibraryStore store, LibraryEntry entry, MovePlan 
     ];
     if (again.isNotEmpty) await q.add(to, again);
 
-    // What else is kept by the book: its quotes and bookmarks, and its own
-    // voice, speed and order.
+    // What else is kept by the book: its quotes and bookmarks, its own
+    // voices (its characters' too), speed and order, its pronunciations
+    // and what its voice passes over.
     await MarkStore.instance.moveBook(from, to, plan.match.follow);
     final prefs = ListeningPrefs.loaded;
     if (prefs != null && movePrefs(prefs, from, to)) prefs.save();
+    await ReadingRules.instance.moveBook(from, to);
 
     try {
       await Directory(store.bookDir(from)).delete(recursive: true);
@@ -486,9 +490,9 @@ Future<LibraryEntry> _swapIn(LibraryStore store, LibraryEntry entry, MovePlan pl
   }
 }
 
-/// [prefs]' settings of book [from] (voice, dialogue voice, speed, order of
-/// chapters, new chapters downloading by themselves) as book [to]'s.
-/// Whether any were.
+/// [prefs]' settings of book [from] (voice, dialogue voice, its characters'
+/// voices, speed, order of chapters, new chapters downloading by
+/// themselves) as book [to]'s. Whether any were.
 bool movePrefs(ListeningPrefs prefs, String from, String to) {
   var any = false;
   void move<T>(Map<String, T> m) {
@@ -499,6 +503,7 @@ bool movePrefs(ListeningPrefs prefs, String from, String to) {
 
   move(prefs.voiceByBook);
   move(prefs.dialogueByBook);
+  move(prefs.castByBook);
   move(prefs.speedByBook);
   move(prefs.newestFirstByNovel);
   move(prefs.autoDownloadByNovel);

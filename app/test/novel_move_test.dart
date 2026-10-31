@@ -19,7 +19,9 @@ import 'package:tomevoice_spike/novel_move_screen.dart';
 import 'package:tomevoice_spike/novel_screen.dart';
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/read_marks.dart';
+import 'package:tomevoice_spike/reading_rules.dart';
 import 'package:tomevoice_spike/sources/models.dart';
+import 'package:tomevoice_spike/speakers.dart';
 import 'package:tomevoice_spike/sources/source_engine.dart';
 import 'package:tomevoice_spike/sources/source_store.dart';
 
@@ -235,7 +237,18 @@ void main() {
       await ReadMarkStore.instance.mark(store, from, ['a/4'], read: true);
       final prefs = ListeningPrefs.memory
         ..voiceByBook[from] = 'voice-x'
-        ..speedByBook[from] = 1.4;
+        ..speedByBook[from] = 1.4
+        ..setCast(from, BookCast([Character('Sunny')], {'Sunny': 'voice-y'}));
+      final rules = ReadingRules.instance
+        ..say = [
+          SayRule(from: 'Sunny', to: 'Sonny', book: from),
+          const SayRule(from: 'Nephis', to: 'Neffis'),
+          const SayRule(from: 'Cassie', to: 'Kassie', book: 'another'),
+        ]
+        ..bookPresets = {
+          from: {SkipPreset.authorNotes: false},
+        };
+      addTearDown(rules.reset);
       await queue.add(from, [const ChapterItem(name: 'Chapter 5', path: 'a/5')]);
 
       final plan = await planMove(store, e, b, atB(5));
@@ -263,6 +276,13 @@ void main() {
       expect((quote.bookId, quote.at.sectionIndex, quote.text), (to, 2, 'A line.'));
       expect((await ReadMarkStore.instance.of(store, to)).read, {'b/4'});
       expect((prefs.voiceByBook[to], prefs.speedByBook[to], prefs.voiceByBook.containsKey(from)), ('voice-x', 1.4, false));
+      expect(prefs.castByBook[to]?.voices, {'Sunny': 'voice-y'}, reason: "its characters' voices");
+      expect(prefs.castByBook.containsKey(from), isFalse);
+      expect([for (final r in rules.say) '${r.from}:${r.book}'], ['Sunny:$to', 'Nephis:null', 'Cassie:another'],
+          reason: "its pronunciations; every book's and another's stay as they are");
+      expect((rules.hasOwnPresets(to), rules.hasOwnPresets(from), rules.presetOn(SkipPreset.authorNotes, book: to)),
+          (true, false, false),
+          reason: 'what its voice passes over');
       expect(queue.waitingPaths(to), {'b/5'}, reason: 'what was waiting waits there');
       expect(queue.waitingPaths(from), isEmpty);
     });
