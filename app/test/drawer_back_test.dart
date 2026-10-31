@@ -28,8 +28,10 @@ void main() {
     return said.isEmpty ? null : said.last.arguments as bool;
   }
 
-  Future<void> pumpShell(WidgetTester tester, {bool canPop = true, VoidCallback? onBack}) =>
-      tester.pumpWidget(MaterialApp(
+  Future<void> pumpShell(WidgetTester tester, {bool canPop = true, VoidCallback? onBack}) {
+    // Flutter tells Android who takes Back only once the app is running.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    return tester.pumpWidget(MaterialApp(
         home: DrawerBackScaffold(
           canPop: canPop,
           onBack: onBack ?? () {},
@@ -41,6 +43,7 @@ void main() {
           ),
         ),
       ));
+  }
 
   testWidgets('Back with the drawer open closes it, and the app stays', (tester) async {
     await pumpShell(tester);
