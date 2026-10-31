@@ -107,16 +107,16 @@ object NarrationAudio {
             while (true) {
                 if (System.nanoTime() > deadline) throw IllegalStateException("The narration took too long to read")
                 if (!inputDone) {
-                    val index = c.dequeueInputBuffer(10_000)
-                    if (index >= 0) {
-                        val buf = c.getInputBuffer(index) ?: throw IllegalStateException("The decoder gave no buffer")
+                    val slot = c.dequeueInputBuffer(10_000)
+                    if (slot >= 0) {
+                        val buf = c.getInputBuffer(slot) ?: throw IllegalStateException("The decoder gave no buffer")
                         val n = extractor.readSampleData(buf, 0)
                         val time = extractor.sampleTime
                         if (n < 0 || (endUs >= 0 && time > endUs + POST_ROLL_US)) {
-                            c.queueInputBuffer(index, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            c.queueInputBuffer(slot, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                             inputDone = true
                         } else {
-                            c.queueInputBuffer(index, 0, n, time, 0)
+                            c.queueInputBuffer(slot, 0, n, time, 0)
                             extractor.advance()
                         }
                     }
