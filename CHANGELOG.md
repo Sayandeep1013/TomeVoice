@@ -3,7 +3,9 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
-## Unreleased
+## 1.4.1 (2026-10-31)
+
+Fixes from the first day of 1.4.0 on a phone.
 
 #### Fixes
 - Back with the menu open closes the menu. On Android 16 it took TomeVoice to the background with the menu still open.
