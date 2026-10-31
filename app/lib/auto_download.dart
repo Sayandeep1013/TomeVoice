@@ -164,7 +164,8 @@ Future<int> downloadAway(
           left.add(c);
           continue;
         }
-        await store.saveChapter(c.bookId, at, c.name, html, language: languageCodeOf(info.plugin.lang));
+        // By its address, at its place as the list has it when it is written.
+        if (!await store.saveChapterAt(c.bookId, c.path!, html, language: languageCodeOf(info.plugin.lang))) continue;
         done++;
         if (pace > Duration.zero) await Future<void>.delayed(pace);
       } on Object {

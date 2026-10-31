@@ -520,16 +520,18 @@ class LibraryStore {
     await ensure();
     final id = webId(plugin.id, novel.path);
     final dir = Directory(bookDir(id))..createSync(recursive: true);
-    // Added again (from Browse): its downloads follow the list as it is now.
-    final before = await settleWebChapters(id);
-    final info = WebNovelInfo(
-        plugin: plugin, novel: novel, chapters: novel.chapters, checkedAt: DateTime.now(), filed: true);
-    if (before == null) {
-      await writeSafely(File('${dir.path}/novel.json'), jsonEncode(info.toJson()));
-    } else {
-      await _replaceChapters(id, before, info);
-      await _discardOffered(id);
-    }
+    await withNovelLock(id, () async {
+      // Added again (from Browse): its downloads follow the list as it is now.
+      final before = await _settle(id);
+      final info = WebNovelInfo(
+          plugin: plugin, novel: novel, chapters: novel.chapters, checkedAt: DateTime.now(), filed: true);
+      if (before == null) {
+        await writeSafely(File('${dir.path}/novel.json'), jsonEncode(info.toJson()));
+      } else {
+        await _replaceChapters(id, before, info);
+        await _discardOffered(id);
+      }
+    });
     String? cover;
     final url = novel.cover;
     if (url != null && url.startsWith('http')) {
@@ -598,13 +600,15 @@ class LibraryStore {
   /// reader chose it). Downloads follow their chapters and are never deleted
   /// (see [_replaceChapters]); a list just fetched goes through
   /// [offerWebChapters] instead, which refuses one that looks wrong.
-  Future<void> saveWebChapters(String id, List<ChapterItem> chapters) async {
-    final info = await settleWebChapters(id);
-    if (info == null) return;
-    await _replaceChapters(id, info, info.copyWith(chapters: chapters, checkedAt: DateTime.now(), clearRefusal: true));
-    await _discardOffered(id);
-    await _change((entries) => [for (final e in entries) e.id == id ? e.copyWith(chapterCount: chapters.length) : e]);
-  }
+  Future<void> saveWebChapters(String id, List<ChapterItem> chapters) => withNovelLock(id, () async {
+        final info = await _settle(id);
+        if (info == null) return;
+        await _replaceChapters(
+            id, info, info.copyWith(chapters: chapters, checkedAt: DateTime.now(), clearRefusal: true));
+        await _discardOffered(id);
+        await _change(
+            (entries) => [for (final e in entries) e.id == id ? e.copyWith(chapterCount: chapters.length) : e]);
+      });
 
   /// A chapter list just fetched for web novel [id]: stored in place of the
   /// one on the phone when that is safe (see [judgeChapterList]). Otherwise
@@ -618,8 +622,11 @@ class LibraryStore {
     List<ChapterItem> fresh, {
     bool complete = true,
     bool force = false,
-  }) async {
-    final info = await settleWebChapters(id);
+  }) =>
+      withNovelLock(id, () => _offer(id, fresh, complete: complete, force: force));
+
+  Future<ListVerdict> _offer(String id, List<ChapterItem> fresh, {required bool complete, required bool force}) async {
+    final info = await _settle(id);
     if (info == null) return const ListVerdict(ListChange.refused, why: 'This novel is not in the library.');
     var verdict = judgeChapterList(info.chapters, fresh, complete: complete);
     if (force && fresh.isNotEmpty && verdict.refused) verdict = const ListVerdict(ListChange.taken);
@@ -699,7 +706,8 @@ class LibraryStore {
   /// download whose chapter is no longer listed is set aside (ch/orphaned)
   /// and comes back if its chapter does. The list is marked unsettled until
   /// they have moved, so a stop half way is put right the next time the
-  /// novel opens.
+  /// novel opens. Under the novel's lock ([withNovelLock]): no chapter is
+  /// saved between the list and its downloads.
   Future<void> _replaceChapters(String id, WebNovelInfo before, WebNovelInfo next) async {
     final file = File('${bookDir(id)}/novel.json');
     final moves = _refileMoves(before.chapters, next.chapters);
@@ -715,13 +723,32 @@ class LibraryStore {
   /// from the app (another engine may hold the index). Only when [fresh]
   /// keeps every stored chapter where it was; false otherwise (left for the
   /// app to take when it next checks).
-  Future<bool> appendWebChapters(String id, WebNovelInfo info, List<ChapterItem> fresh) async {
-    if (!info.filed || _refileMoves(info.chapters, fresh).isNotEmpty) return false;
-    await writeSafely(
-      File('${bookDir(id)}/novel.json'),
-      jsonEncode(info.copyWith(chapters: fresh, checkedAt: DateTime.now(), clearRefusal: true).toJson()),
-    );
-    return true;
+  Future<bool> appendWebChapters(String id, WebNovelInfo info, List<ChapterItem> fresh) => withNovelLock(id, () async {
+        if (!info.filed || _refileMoves(info.chapters, fresh).isNotEmpty) return false;
+        await writeSafely(
+          File('${bookDir(id)}/novel.json'),
+          jsonEncode(info.copyWith(chapters: fresh, checkedAt: DateTime.now(), clearRefusal: true).toJson()),
+        );
+        return true;
+      });
+
+  /// What holds each web novel's chapter files now (see [withNovelLock]).
+  final _novelLocks = <String, Future<void>>{};
+
+  /// Run [body] once nothing else has web novel [id]'s chapter files, and
+  /// keep them its own until it is done: a chapter saved, its list replaced
+  /// and its downloads moved after it, the novel moved to another source.
+  /// Each of those is one step to the others, so a chapter that came down
+  /// while the list was re-filed is never written by a place it no longer
+  /// has. Not to be asked again inside [body]: it would wait for itself.
+  Future<T> withNovelLock<T>(String id, Future<T> Function() body) {
+    final run = (_novelLocks[id] ?? Future<void>.value()).then((_) => body());
+    final done = run.then<void>((_) {}, onError: (Object _) {});
+    _novelLocks[id] = done;
+    unawaited(done.whenComplete(() {
+      if (identical(_novelLocks[id], done)) _novelLocks.remove(id);
+    }));
+    return run;
   }
 
   final _settling = <String, Future<WebNovelInfo?>>{};
@@ -731,21 +758,21 @@ class LibraryStore {
   /// site's list shifted (an entry taken out earlier on), so tapping
   /// chapter 3222 opened 3221: once per novel, each download is matched to
   /// its place again by the title it was saved with.
-  Future<WebNovelInfo?> settleWebChapters(String id) => _settling[id] ??= _settle(id);
+  Future<WebNovelInfo?> settleWebChapters(String id) =>
+      _settling[id] ??= withNovelLock(id, () => _settle(id)).whenComplete(() {
+        _settling.remove(id);
+      });
 
+  /// [settleWebChapters] with the novel's lock held.
   Future<WebNovelInfo?> _settle(String id) async {
-    try {
-      final info = await webNovel(id);
-      if (info == null || info.filed) return info;
-      final moves = await _runSettle(bookDir(id), [for (final c in info.chapters) c.name]);
-      _downloads.remove(id);
-      await _followMoves(id, moves);
-      final next = info.copyWith(filed: true);
-      await writeSafely(File('${bookDir(id)}/novel.json'), jsonEncode(next.toJson()));
-      return next;
-    } finally {
-      _settling.remove(id);
-    }
+    final info = await webNovel(id);
+    if (info == null || info.filed) return info;
+    final moves = await _runSettle(bookDir(id), [for (final c in info.chapters) c.name]);
+    _downloads.remove(id);
+    await _followMoves(id, moves);
+    final next = info.copyWith(filed: true);
+    await writeSafely(File('${bookDir(id)}/novel.json'), jsonEncode(next.toJson()));
+    return next;
   }
 
   /// Move [id]'s downloads by [moves] (old chapter to new; -1, no longer
@@ -803,8 +830,28 @@ class LibraryStore {
     }
   }
 
-  /// Keep a fetched chapter, parsed, so it opens offline from now on.
-  Future<void> saveChapter(String id, int index, String title, String html, {String? language}) async {
+  /// Keep a fetched chapter, parsed, so it opens offline from now on, as
+  /// chapter [index] (a novel just made, as an import makes one; a chapter
+  /// fetched from its site is saved by its address, [saveChapterAt]).
+  Future<void> saveChapter(String id, int index, String title, String html, {String? language}) =>
+      withNovelLock(id, () => _saveChapter(id, index, title, html, language));
+
+  /// Keep a chapter fetched from its site, parsed, so it opens offline from
+  /// now on: found by its address ([path]) in web novel [id]'s list as it is
+  /// when it is written, under the novel's lock, not by the place it had
+  /// when it was asked for (the site may have put a chapter in before it
+  /// meanwhile, and the downloads moved). False, with nothing written, when
+  /// the list has it no longer, or the novel is gone (moved to another
+  /// source, or taken off).
+  Future<bool> saveChapterAt(String id, String path, String html, {String? language}) => withNovelLock(id, () async {
+        final info = await webNovel(id);
+        final at = info?.chapters.indexWhere((c) => c.path == path) ?? -1;
+        if (at < 0) return false;
+        await _saveChapter(id, at, info!.chapters[at].name, html, language);
+        return true;
+      });
+
+  Future<void> _saveChapter(String id, int index, String title, String html, String? language) async {
     final path = _chapterFile(id, index);
     await _runSaveChapter(path, index, title, html, language);
     final known = _downloads[id];
@@ -815,16 +862,16 @@ class LibraryStore {
 
   /// Take the downloaded text of chapters [indexes] of [id] off the phone.
   /// They stay in the chapter list and are fetched again when read.
-  Future<void> deleteChapters(String id, Iterable<int> indexes) async {
-    for (final i in indexes) {
-      try {
-        await File(_chapterFile(id, i)).delete();
-      } on FileSystemException {
-        // Not downloaded.
-      }
-    }
-    _downloads.remove(id);
-  }
+  Future<void> deleteChapters(String id, Iterable<int> indexes) => withNovelLock(id, () async {
+        for (final i in indexes) {
+          try {
+            await File(_chapterFile(id, i)).delete();
+          } on FileSystemException {
+            // Not downloaded.
+          }
+        }
+        _downloads.remove(id);
+      });
 
   /// Take [id] off the history (and the Continue card) without touching the
   /// place it is saved at.
@@ -1413,9 +1460,12 @@ class LibraryStore {
       // on with a secret shelf shut (see marksShown).
       await MarkStore.instance.leaveBook(id);
     }
-    final dir = Directory(bookDir(id));
-    if (await dir.exists()) await dir.delete(recursive: true);
-    _downloads.remove(id);
+    // A chapter still coming down for it finds no novel, and writes nothing.
+    await withNovelLock(id, () async {
+      final dir = Directory(bookDir(id));
+      if (await dir.exists()) await dir.delete(recursive: true);
+      _downloads.remove(id);
+    });
     _madeDirs.remove(id);
     await _change((entries) => [for (final e in entries) if (e.id != id) e]);
   }

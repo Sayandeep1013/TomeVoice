@@ -321,7 +321,7 @@ class DownloadQueue {
         _running[site] = job;
       }
       // Found again by its address: the list may have changed since.
-      var at = info.chapters.indexWhere((c) => c.path == job.path);
+      final at = info.chapters.indexWhere((c) => c.path == job.path);
       if (at < 0 || store.hasChapter(job.bookId, at)) {
         _jobs.remove(job);
         return;
@@ -330,10 +330,10 @@ class DownloadQueue {
       if (plugin == null) throw MissingSourceException(info.plugin.id, info.plugin.name);
       _lastAsked[site] = DateTime.now();
       final html = await SourceEngine.instance.chapter(plugin, job.path);
-      // Its place again: the list may have been re-filed while it came.
-      final now = await store.webNovel(job.bookId);
-      at = now?.chapters.indexWhere((c) => c.path == job.path) ?? -1;
-      if (at >= 0) await store.saveChapter(job.bookId, at, job.name, html, language: languageCodeOf(info.plugin.lang));
+      // Saved by its address, at its place as the list has it then: the
+      // list may have been re-filed while it came. A novel moved to another
+      // source meanwhile takes none (its chapter waits there instead).
+      await store.saveChapterAt(job.bookId, job.path, html, language: languageCodeOf(info.plugin.lang));
       _jobs.remove(job);
       _done++;
     } on Object catch (e) {
