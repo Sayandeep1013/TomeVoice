@@ -8,3 +8,4 @@ appId: ${APP_ID || 'app.tomevoice'}
 - extendedWaitUntil:
     visible: ".*Pride and Prejudice.*"
     timeout: 120000
+- runFlow: settled-shelf.yaml
