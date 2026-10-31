@@ -699,12 +699,15 @@ class BackgroundReading {
 
   Future<bool?> _intoNext() async {
     if (!web || layout.isEmpty) return false;
-    final last = layout.units.last.sectionIndex;
     try {
       // The next chapters were being joined on as the last sentences were
       // heard: read on there, in this player.
       await _extending;
       if (!identical(current.value, this)) return null;
+      // On from the chapter the voice got to. Chapters joined on as it
+      // finished (here, or on the page that handed it on) are read, not
+      // passed over: the end of what is here may be further on by now.
+      final last = layout.units[unit.clamp(0, layout.units.length - 1)].sectionIndex;
       var start = layout.units.indexWhere((u) => u.sectionIndex > last);
       if (start < 0) {
         await fetchChapters(store, bookId, last + 1);

@@ -323,13 +323,18 @@ class ReaderController {
     _handedOn = true;
     _sleepTimer?.cancel();
     _sleepTick?.cancel();
+    final at = cursor.value;
     // Its own voice stops (it may be mid-chapter: Next chapter at the
     // last one), leaving the card up for the reading that carries on.
     await player.stop();
     player.endFade();
     if (!view.mounted) return false;
     final bg = BackgroundReading.adopt(
-      player: readingScheduler(layout: layout, prefs: _shared, language: language, bookId: _book.id, service: _svc),
+      // From where this page's voice got to: the chapters after it are the
+      // ones read next (more may have been joined on meanwhile, see
+      // [widen]), and the card shows it until they are.
+      player: readingScheduler(layout: layout, prefs: _shared, language: language, bookId: _book.id, service: _svc)
+        ..unit.value = at,
       layout: layout,
       store: store,
       bookId: _book.id,

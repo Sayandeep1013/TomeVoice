@@ -1,7 +1,8 @@
 // Reading on: a web novel read past the end of its window of chapters, in
 // the background or handed on by its page, with the card in the shade
 // saying "playing" all the way (said "paused" for a moment, Android 12+
-// took the reading out of the foreground for good).
+// took the reading out of the foreground for good), and the chapters
+// joined on as the voice finished not passed over.
 
 import 'dart:async';
 import 'dart:io';
@@ -20,6 +21,7 @@ import 'package:tomevoice_spike/sources/models.dart';
 import 'package:tomevoice_spike/sources/source_engine.dart';
 import 'package:tomevoice_spike/sources/source_store.dart';
 import 'package:tomevoice_spike/speech_service.dart';
+import 'package:tomevoice_spike/web_reader.dart';
 
 const _channel = MethodChannel('tomevoice/tts');
 
@@ -224,6 +226,61 @@ void main() {
       expect(bg?.bookId, id);
       await _until(() => bg!.player.isPlaying);
       expect(stopped(sessions()), isNull);
+    });
+  });
+
+  group('chapters joined on as the voice finishes are read, not passed over', () {
+    test('in the background', () async {
+      final (store, id) = await novel();
+      final bg = await listen(store, id);
+      // The chapters after the window come from the site as the voice
+      // reads its last sentence: held until it has finished.
+      final gate = site.gate = Completer<void>();
+      final enqueued = count('playerEnqueue');
+      await bg.player.play(bg.layout.units.length - 1);
+      await _until(() => count('playerEnqueue') > enqueued);
+      final from = sessions().length;
+      // They are joined on while the player stops at the end.
+      onStop = () async {
+        site.gate = null;
+        gate.complete();
+        await _until(() => bg.layout.chapters.contains(60));
+      };
+      head = 1 << 30;
+      await _until(() => bg.player.isPlaying && reading(bg) > 59);
+      expect(bg.layout.chapters, containsAll([60, 61, 62]));
+      expect(reading(bg), 60, reason: 'the chapters joined on were passed over');
+      await _until(() => asked.any((t) => t.startsWith('Part 61 ')));
+      expect(asked.where((t) => t.startsWith('Part 61 ')), isNotEmpty);
+      expect(stopped(sessions().sublist(from)), isNull);
+    });
+
+    test("on a book's page, handing its reading on", () async {
+      final (store, id) = await novel(onPhone: 63);
+      final layout = await store.loadLayout(id, around: 30);
+      expect(layout.chapters.last, 59);
+      final longer = (await joinNextChapters(store, id, layout))!;
+      expect(longer.chapters.last, 62);
+      final page = ReaderController(
+        layout: layout,
+        view: _Page(web: true),
+        initialCursor: const ReadingCursor(sectionIndex: 59),
+        store: store,
+      );
+      addTearDown(page.dispose);
+      await page.goTo(layout.units.length - 1, play: true);
+      await _until(() => page.player.isPlaying && count('playerEnqueue') > 0);
+      // The page's window grows (WebNovelReader joins the next chapters on)
+      // while its voice stops at the end of what it had.
+      var widened = false;
+      onStop = () async {
+        widened = page.widen(longer);
+      };
+      head = 1 << 30;
+      await _until(() => BackgroundReading.current.value?.player.isPlaying ?? false);
+      expect(widened, isTrue);
+      final bg = BackgroundReading.current.value!;
+      expect(reading(bg), 60, reason: 'the chapters joined on were passed over');
     });
   });
 }
