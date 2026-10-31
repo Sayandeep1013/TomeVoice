@@ -406,7 +406,8 @@ class ListeningPrefs {
     _saveTimer?.cancel();
     _saveTimer = Timer(const Duration(milliseconds: 400), () async {
       final file = _file;
-      if (file == null) return;
+      // Not over a backup's settings being restored (see RestoreGate).
+      if (file == null || RestoreGate.shut) return;
       try {
         await writeSafely(file, jsonEncode(toJson()));
       } on Object {

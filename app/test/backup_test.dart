@@ -6,9 +6,15 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor;
 import 'package:tomevoice_spike/app_update.dart';
 import 'package:tomevoice_spike/backup.dart';
 import 'package:tomevoice_spike/library_store.dart';
+import 'package:tomevoice_spike/marks.dart';
+import 'package:tomevoice_spike/prefs.dart';
+import 'package:tomevoice_spike/safe_file.dart';
+import 'package:tomevoice_spike/stats.dart';
+import 'package:tomevoice_spike/sync.dart';
 
 void main() {
   late Directory tmp;
@@ -151,6 +157,53 @@ void main() {
       await replaceLibrary(root, staged());
       final kept = root.listSync().map((e) => e.uri.pathSegments.lastWhere((s) => s.isNotEmpty));
       expect(kept.where((n) => n.startsWith('.before-restore-')), hasLength(1));
+    });
+  });
+
+  group('while a restore is under way', () {
+    tearDown(() {
+      RestoreGate.open();
+      MarkStore.instance.reset();
+      StatsStore.instance.reset();
+      ListeningPrefs.reset();
+    });
+
+    test('nothing is written into the library, and no sync starts', () async {
+      const id = '0123456789abcdef';
+      final store = LibraryStore(root);
+      await MarkStore.instance.attach(root);
+      await StatsStore.instance.attach(root);
+      final prefs = await ListeningPrefs.load(root.path);
+      prefs
+        ..webdavOn = true
+        ..webdavUrl = 'http://127.0.0.1:9/dav/';
+      // As the restore shuts everything: the store held, and the gate shut.
+      store.hold();
+      await RestoreGate.close();
+      await store.saveCursor(id, const ReadingCursor(blockIndex: 3), 0.5);
+      await MarkStore.instance.add(
+        bookId: id,
+        bookTitle: 'A book',
+        kind: MarkKind.quote,
+        at: const ReadingCursor(blockIndex: 3),
+        text: 'A line.',
+      );
+      StatsStore.instance.addTime(id, const Duration(minutes: 3), listening: true);
+      await StatsStore.instance.flush();
+      prefs.save();
+      final sync = await BookSync.instance.syncNow(store: store);
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      expect(sync.problem, isNull, reason: 'not even tried');
+      expect([for (final f in root.listSync(recursive: true)) if (f is File) f.path], isEmpty);
+      expect(Directory('${root.path}/books').existsSync(), isFalse);
+    });
+
+    test('a write under way as it shuts lands first', () async {
+      final index = File('${root.path}/library.json');
+      final writing = writeSafely(index, '{"books": []}');
+      await RestoreGate.close();
+      expect(index.readAsStringSync(), '{"books": []}');
+      await writing;
     });
   });
 

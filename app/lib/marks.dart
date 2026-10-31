@@ -413,6 +413,7 @@ class MarkStore {
   }
 
   Future<void> _saveRemoved() async {
+    if (RestoreGate.shut) return;
     try {
       await writeSafely(_removedFile, jsonEncode({
         for (final e in _removed.entries) e.key: {'book': e.value.book, 'at': e.value.at.toIso8601String()},
@@ -424,6 +425,8 @@ class MarkStore {
 
   Future<void> _save() async {
     changes.value++;
+    // Kept in memory while a restore is under way (see RestoreGate).
+    if (RestoreGate.shut) return;
     try {
       await writeSafely(_file, jsonEncode([for (final m in _all) m.toJson()]));
     } on Object {

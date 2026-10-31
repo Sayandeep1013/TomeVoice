@@ -13,6 +13,7 @@ import 'package:tomevoice_spike/backup.dart';
 import 'package:tomevoice_spike/folders.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/prefs.dart';
+import 'package:tomevoice_spike/safe_file.dart';
 
 const _channel = MethodChannel('tomevoice/tts');
 
@@ -105,6 +106,18 @@ void main() {
     expect(await AutoBackup.runIfDue(store), isFalse);
     expect(AutoBackup.problem.value, contains('Choose a folder'));
     expect(calls.where((c) => c.method == 'backupToFolder'), isEmpty);
+  });
+
+  test('none while a restore is under way', () async {
+    final store = LibraryStore(tmp);
+    ListeningPrefs.memory
+      ..backupEvery = 'daily'
+      ..backupFolder = folder;
+    await RestoreGate.close();
+    addTearDown(RestoreGate.open);
+    expect(await AutoBackup.runIfDue(store), isFalse);
+    expect(await AutoBackup.backUpNow(store), isFalse);
+    expect(backupsWritten(), isEmpty);
   });
 
   test('a backup when due, without downloaded chapters, then not again until the next', () async {

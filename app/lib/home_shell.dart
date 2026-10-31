@@ -74,6 +74,9 @@ Future<OpenLibrary> openLibrary() async {
 }
 
 Future<OpenLibrary> _open(String dir) async {
+  // A restore the app stopped in the middle of is finished or undone first,
+  // before any store reads the library half swapped.
+  await clearStaleRestore(Directory(dir));
   await ListeningPrefs.load(dir);
   // Sources ask as the phone's own browser does (see Net.userAgent).
   final agent = await const SpeechService().webUserAgent();
@@ -304,9 +307,8 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
           _updates = updates;
         });
       }
-      // A restore that was interrupted leaves its unpacked copy behind, and
-      // an import a crash stopped leaves the picker's copy.
-      unawaited(clearStaleRestore(Directory(dir)));
+      // An import a crash stopped leaves the picker's copy (and a restore
+      // that was, its unpacked one: cleared as the library opened).
       unawaited(store.sweepIncoming());
       unawaited(sweepUpdateDownloads());
       // A restore just made starts the app again: say what it did.

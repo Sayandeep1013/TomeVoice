@@ -438,7 +438,10 @@ class SyncState {
     return _j[kind] = <String, Object?>{'server': server};
   }
 
-  Future<void> save() => writeSafely(_file, jsonEncode(_j));
+  /// Kept, unless a restore is under way (see RestoreGate).
+  Future<void> save() async {
+    if (!RestoreGate.shut) await writeSafely(_file, jsonEncode(_j));
+  }
 }
 
 // ------------------------------------------------------------------ sync
@@ -544,7 +547,7 @@ class BookSync {
   /// Places were saved (a book read, then left): sync shortly, at most
   /// once a minute while a book reads on in the background.
   void soon() {
-    if (!on || _store == null) return;
+    if (!on || _store == null || RestoreGate.shut) return;
     _soon?.cancel();
     final last = _last;
     final wait = last == null
@@ -556,7 +559,8 @@ class BookSync {
   /// Sync now (or join the sync already running).
   Future<SyncReport> syncNow({LibraryStore? store}) {
     final s = store ?? _store;
-    if (s == null || !on) return Future.value((sent: 0, taken: 0, problem: null));
+    // Nor while a restore is under way (see RestoreGate).
+    if (s == null || !on || RestoreGate.shut) return Future.value((sent: 0, taken: 0, problem: null));
     return _running ??= _sync(s).whenComplete(() => _running = null);
   }
 
@@ -642,6 +646,8 @@ Future<({int sent, int taken})> syncWebDav(
     var sent = 0, taken = 0;
     final now = DateTime.now().toUtc();
     for (final e in books) {
+      // A restore begun meanwhile: nothing more is taken in.
+      if (RestoreGate.shut) return (sent: sent, taken: taken);
       final name = '${e.id}.json';
       final mine = Map<String, Object?>.from(known[e.id] as Map? ?? const {});
       // Marks removed, and when: elsewhere, as last merged, and here, as

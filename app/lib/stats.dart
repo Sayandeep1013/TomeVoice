@@ -166,6 +166,8 @@ class StatsStore {
   Future<void> _save() async {
     _saveTimer = null;
     changes.value++;
+    // Not over the files a restore is putting in place (see RestoreGate).
+    if (RestoreGate.shut) return;
     try {
       await writeSafely(_file, jsonEncode({
         'goalMinutes': goal.inMinutes,

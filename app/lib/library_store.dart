@@ -98,19 +98,23 @@ class LibraryStore {
 
   /// Set while a backup is being restored: library.json is being replaced
   /// on disk, and this copy must not be written back over it.
-  bool _held = false;
+  bool _holding = false;
+
+  /// Whether nothing is to be written: held here, or a restore under way
+  /// (RestoreGate).
+  bool get _held => _holding || RestoreGate.shut;
 
   /// Stop writing the index (a restore is replacing it). Places not yet
   /// written into it are in their books' cursor.json (see [saveCursor]).
   void hold() {
-    _held = true;
+    _holding = true;
     _downloads.clear();
     _dropUnwritten();
   }
 
   /// Write again, reading the index afresh (the restore did not happen).
   void release() {
-    _held = false;
+    _holding = false;
     _known = null;
     _downloads.clear();
     _dropUnwritten();
@@ -1251,9 +1255,13 @@ class LibraryStore {
     String? where,
     DateTime? at,
   }) async {
+    // Not even its cursor.json, nor its folder, while a restore is under way:
+    // the books are being swapped beneath.
+    if (_held) return;
     final dir = Directory(bookDir(id));
     // Made once a run, not once a sentence.
     if (_madeDirs.add(id)) await dir.create(recursive: true);
+    if (_held) return;
     final place = _Place(cursor, progress, where, at ?? DateTime.now(), taken: at != null);
     await writeSafely(File('${dir.path}/cursor.json'), jsonEncode(place.toJson()));
     await index();

@@ -10,6 +10,7 @@ import 'backup.dart';
 import 'folders.dart';
 import 'library_store.dart';
 import 'prefs.dart';
+import 'safe_file.dart' show RestoreGate;
 import 'speech_service.dart';
 
 /// How often the library backs itself up into the folder the reader picked.
@@ -77,6 +78,20 @@ class AutoBackup {
 
   static ListeningPrefs get _prefs => ListeningPrefs.loaded ?? ListeningPrefs.memory;
 
+  /// Once the backup being written, if there is one, is done.
+  static Future<void> idle() {
+    if (!running.value) return Future.value();
+    final done = Completer<void>();
+    void heard() {
+      if (running.value) return;
+      running.removeListener(heard);
+      done.complete();
+    }
+
+    running.addListener(heard);
+    return done.future;
+  }
+
   /// Check a moment after the app opens (once the shelf is up and quiet),
   /// and whenever it comes back. Not in widget tests, which have no folder.
   static void start(LibraryStore store, {Duration after = const Duration(seconds: 10)}) {
@@ -87,6 +102,8 @@ class AutoBackup {
 
   /// A backup, if one is due and a folder has been picked.
   static Future<bool> runIfDue(LibraryStore store, {DateTime? now, Folders folders = const Folders()}) async {
+    // Never of a library being restored (see RestoreGate).
+    if (RestoreGate.shut) return false;
     final p = _prefs;
     final at = now ?? DateTime.now();
     if (!backupDue(BackupEvery.byName(p.backupEvery), p.lastBackup, at)) return false;
@@ -96,7 +113,7 @@ class AutoBackup {
   /// Back up into the picked folder now, keeping the newest few. False,
   /// with [problem] saying why, when it could not.
   static Future<bool> backUpNow(LibraryStore store, {DateTime? now, Folders folders = const Folders()}) async {
-    if (running.value) return false;
+    if (running.value || RestoreGate.shut) return false;
     final p = _prefs;
     final folder = p.backupFolder;
     if (folder == null) {

@@ -9,6 +9,7 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 import 'package:xml/xml.dart';
 
 import 'library_store.dart';
+import 'safe_file.dart' show RestoreGate;
 import 'sync.dart';
 
 // KOReader's progress sync ("kosync"): the place in a book, shared through
@@ -340,6 +341,8 @@ Future<({int sent, int taken})> syncKosync(
     final since = DateTime.now().subtract(const Duration(days: 60));
     var sent = 0, taken = 0;
     for (final e in books) {
+      // A restore begun meanwhile: nothing more is taken in.
+      if (RestoreGate.shut) break;
       final opened = e.openedAt;
       if (e.isWeb || opened == null || opened.isBefore(since)) continue;
       final file = File(e.sourcePath);
