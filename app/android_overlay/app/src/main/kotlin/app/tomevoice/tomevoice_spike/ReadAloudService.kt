@@ -95,6 +95,15 @@ class ReadAloudService : MediaBrowserService() {
         private const val LINGER_MS = 2000L
 
         /**
+         * Paused this long before the service leaves the foreground and lets
+         * the phone sleep (see settle): a reading moving on (into a web
+         * novel's next chapters, or from a book's page to the background)
+         * may say it is not playing for a moment on its way, and out of the
+         * foreground, Android 12+ would not let it back in.
+         */
+        private const val SETTLE_AFTER_MS = 5 * 1000L
+
+        /**
          * Paused while reading may still play on by itself (see settle):
          * how soon the foreground is looked at again.
          */
@@ -185,7 +194,8 @@ class ReadAloudService : MediaBrowserService() {
             val running = instance
             if (running != null && (running.foreground || running.started)) {
                 running.giveUpLater(false)
-                running.keepAwake(next.playing)
+                // Not playing, it is let sleep a moment later (settle).
+                if (next.playing) running.keepAwake(true)
                 // Playing again after a pause: back in the foreground, with
                 // the card as it is now.
                 val promoted = next.playing && !running.foreground && running.goForeground()
@@ -198,7 +208,7 @@ class ReadAloudService : MediaBrowserService() {
                         running.refresh()
                     }
                 }
-                running.settle()
+                running.settleSoon()
                 return
             }
             val intent = Intent(ctx, ReadAloudService::class.java)
@@ -392,7 +402,7 @@ class ReadAloudService : MediaBrowserService() {
         if (reading && now.playing) keepAwake(true)
         // Started for a reading that is paused (a book handed on paused):
         // up, as Android requires of a start like this, and out again.
-        if (action == null) settle()
+        if (action == null) settleSoon()
         if (!reading && !starting) {
             // Nothing is being read (the app was closed since, or a button
             // with nothing to act on): stop again, and redraw the widgets so
@@ -525,18 +535,33 @@ class ReadAloudService : MediaBrowserService() {
     }
 
     /**
-     * Paused: out of the foreground, the card kept (now one that can be
-     * swiped away), so a book left paused no longer holds the app up for
-     * good and Android may take its memory back. Play puts it back in the
-     * foreground ([update]). Not while reading may play on by itself (the
-     * phone's audio taken a moment, or Play waiting for a call to end, see
-     * ReadingCore.audioMayReturn): Android 12+ would not let the app go
-     * foreground again then, from the background. That is looked at again
-     * every little while until it no longer may.
+     * Not playing: [settle] in a moment ([SETTLE_AFTER_MS]), unless it plays
+     * again first. Only a pause that lasts takes it out of the foreground: a
+     * reading moving on (a web novel into its next chapters, a book's page
+     * handing it to the background) must stay in it all the way, whatever
+     * the card is told for a moment on the way.
+     */
+    private fun settleSoon() {
+        main.removeCallbacks(settleLater)
+        if (!reading || now.playing || starting) return
+        main.postDelayed(settleLater, SETTLE_AFTER_MS)
+    }
+
+    /**
+     * Paused: the phone let sleep, and out of the foreground, the card kept
+     * (now one that can be swiped away), so a book left paused no longer
+     * holds the app up for good and Android may take its memory back. Play
+     * puts it back in the foreground ([update]). Not while reading may play
+     * on by itself (the phone's audio taken a moment, or Play waiting for a
+     * call to end, see ReadingCore.audioMayReturn): Android 12+ would not let
+     * the app go foreground again then, from the background. That is looked
+     * at again every little while until it no longer may.
      */
     private fun settle() {
         main.removeCallbacks(settleLater)
-        if (!foreground || !reading || now.playing || starting) return
+        if (!reading || now.playing || starting) return
+        keepAwake(false)
+        if (!foreground) return
         if (ReadingCore.audioMayReturn()) {
             main.postDelayed(settleLater, SETTLE_AGAIN_MS)
             return

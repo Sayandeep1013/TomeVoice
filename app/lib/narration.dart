@@ -332,14 +332,31 @@ class BookNarrationReader implements BookNarration {
     final src = await _sourceOf(file);
     final known = _durationMs[file];
     final end = known == null ? toMs : math.min(toMs, known);
-    final d = await decode(path: src.path, offset: src.offset, length: src.length, beginUs: fromMs * 1000, endUs: end * 1000);
+    Future<(DecodedAudio, Float32List)> read(int beginMs) async {
+      final d = await decode(path: src.path, offset: src.offset, length: src.length, beginUs: beginMs * 1000, endUs: end * 1000);
+      return (d, await _mono(d, fromMs * 1000, end * 1000));
+    }
+
+    int heldBy(Float32List samples) => fromMs + samples.length * 1000 ~/ narrationRate;
+    // Short of where the file itself says it goes on to: not its end, but
+    // a seek that landed later than it said. Once more from further back.
+    bool short(DecodedAudio d, int held) => held < end - 50 && d.durationUs > (held + 50) * 1000;
+    var (d, samples) = await read(fromMs);
+    if (short(d, heldBy(samples)) && fromMs > 0) {
+      final (again, more) = await read(math.max(0, fromMs - windowMs));
+      if (more.length > samples.length) (d, samples) = (again, more);
+    }
+    final held = heldBy(samples);
     if (d.durationUs > 0) _durationMs[file] = d.durationUs ~/ 1000;
-    final samples = await Isolate.run(() => monoAt(d, fromMs * 1000, end * 1000, narrationRate));
-    final held = fromMs + samples.length * 1000 ~/ narrationRate;
-    // Less than was asked for: the file ends there.
-    if (held < end - 50 && known == null) _durationMs[file] = held;
+    // Less than was asked for: the file ends there, unless it says otherwise.
+    if (held < end - 50 && known == null && !short(d, held)) _durationMs[file] = held;
     return _Window(file, fromMs, held < end - 50 ? held : end, samples);
   }
+
+  /// [monoAt] on another isolate, at [narrationRate]. Static, as [_render]
+  /// is, so the closure sent takes nothing of the reader with it.
+  static Future<Float32List> _mono(DecodedAudio d, int beginUs, int endUs) =>
+      Isolate.run(() => monoAt(d, beginUs, endUs, narrationRate));
 
   Future<({String path, int offset, int length})> _sourceOf(int file) async {
     final had = _sources[file];

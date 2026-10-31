@@ -627,6 +627,7 @@ class AudioExport {
     required this.folder,
     required this.tags,
     required this.destination,
+    required this.secret,
   });
 
   /// The save running now, if any.
@@ -648,6 +649,10 @@ class AudioExport {
   /// Audiobooks folder.
   final String? destination;
 
+  /// A book on a secret shelf: its notifications say "a book", and show on
+  /// no lock screen.
+  final bool secret;
+
   final status = ValueNotifier(const ExportStatus(ExportPhase.starting));
 
   late final AudioRenderer _renderer;
@@ -660,6 +665,12 @@ class AudioExport {
 
   /// Start saving [plan], read by [voice], as [bookTitle] by [author], in
   /// [format]. Its result is in [status]; it ends by itself.
+  ///
+  /// [secret]: a book on a secret shelf, whose notifications say "a book"
+  /// and show on no lock screen. [named]: the file's tags name the book
+  /// (its title, author and cover, which players show), as they do unless
+  /// the reader of a secret book leaves them out; its name is still the
+  /// book's.
   static AudioExport start({
     required ExportPlan plan,
     required PlaybackScheduler voice,
@@ -668,6 +679,8 @@ class AudioExport {
     Uint8List? cover,
     String? destination,
     ExportFormat format = ExportFormat.aac,
+    bool secret = false,
+    bool named = true,
   }) {
     final running = current.value;
     if (running != null) return running;
@@ -679,15 +692,18 @@ class AudioExport {
       format: format,
       fileName: nameFor(plan, bookTitle, format: format),
       folder: safeFileName(bookTitle),
-      tags: AudioTags(
-        title: chapter ?? bookTitle,
-        artist: author == null || author.trim().isEmpty ? null : author,
-        album: bookTitle,
-        genre: 'Audiobook',
-        cover: cover,
-        audiobook: true,
-      ),
+      tags: named
+          ? AudioTags(
+              title: chapter ?? bookTitle,
+              artist: author == null || author.trim().isEmpty ? null : author,
+              album: bookTitle,
+              genre: 'Audiobook',
+              cover: cover,
+              audiobook: true,
+            )
+          : const AudioTags(genre: 'Audiobook', audiobook: true),
       destination: destination,
+      secret: secret,
     );
     current.value = job;
     _listen();
@@ -789,10 +805,12 @@ class AudioExport {
       final note = made.unsaid == 0 ? '' : ' ${made.unsaid} ${made.unsaid == 1 ? 'line' : 'lines'} the voice could not say '
           '${made.unsaid == 1 ? 'was' : 'were'} left out.';
       await _quiet('done', {
-        'title': 'Saved as audio: $bookTitle',
-        'text': '$where · ${durationLabel(made.length)}.$note',
+        'title': 'Saved as audio: $_named',
+        // A secret book's says not where it went: that is named after it.
+        'text': secret ? '${durationLabel(made.length)} of audio.$note' : '$where · ${durationLabel(made.length)}.$note',
         'uri': uri,
         'mime': format.mime,
+        if (secret) 'secret': true,
       });
       status.value = ExportStatus(ExportPhase.saved, uri: uri, where: where, unsaid: made.unsaid, message: note.trim());
     } on ExportCancelled {
@@ -815,10 +833,14 @@ class AudioExport {
   /// Everything made so far deleted, the service stopped; [notice] said in
   /// a notification when the reader did not stop it themselves.
   Future<void> _abort(String? notice) async {
-    await _quiet('abort', {'title': 'Not saved: $bookTitle', 'notice': notice});
+    await _quiet('abort', {'title': 'Not saved: $_named', 'notice': notice, if (secret) 'secret': true});
     final chosen = destination;
     if (chosen != null) await _quiet('discard', {'uri': chosen});
   }
+
+  /// The book as the notifications name it: "a book" for one on a secret
+  /// shelf, as they stay on the lock screen, and after the shelf is shut.
+  String get _named => secret ? 'a book' : bookTitle;
 
   void _onProgress(RenderProgress p) {
     final elapsed = _watch.elapsed;
@@ -838,7 +860,12 @@ class AudioExport {
   /// done (-1: not known yet).
   Future<void> _service(String method, String text, int percent) async {
     if (_serviceStopped && method == 'progress') return;
-    await _quiet(method, {'title': 'Saving $bookTitle as audio', 'text': text, 'percent': percent});
+    await _quiet(method, {
+      'title': 'Saving $_named as audio',
+      'text': text,
+      'percent': percent,
+      if (secret) 'secret': true,
+    });
   }
 
   /// Android 15 lets a job like this run six hours a day in the background,
