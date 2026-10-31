@@ -9,6 +9,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
+import 'package:tomevoice_spike/error_log.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/marks.dart';
 import 'package:tomevoice_spike/prefs.dart';
@@ -312,6 +313,33 @@ void main() {
       final saved = await meanwhile!;
       expect(MarkStore.instance.forBook(book.id).map((m) => m.id), containsAll(['elsewhere', saved.id]));
       expect(MarkStore.instance.forBook(book.id), hasLength(3));
+    });
+
+    test("one book's file that cannot be read is passed over; the others still sync", () async {
+      await turnOn();
+      final f = File('${tmp.path}/incoming/other.txt')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('Chapter 1\n\n${List.generate(30, (i) => 'Another line $i goes by.').join(' ')}');
+      final other = await store.importFile(PickedFile(path: f.path, name: 'other.txt'));
+      // The broken one is read first: the most recently read.
+      await store.saveCursor(book.id, cursorOf(layout.units[5]), 0.2);
+      expect((await store.list(all: true)).first.id, book.id);
+      server.files[bookFile()] = '{"id": "${book.id}", "marks": [';
+      server.files['/dav/TomeVoice/books/${other.id}.json'] =
+          BookRecord(id: other.id, marks: [_mark('there', book: other.id, created: DateTime.now())]).encode();
+      server.files['/dav/TomeVoice/stats.json'] = 'not the days';
+      final r = await BookSync.instance.syncNow(store: store);
+      expect(r.problem, isNull);
+      expect(MarkStore.instance.forBook(other.id).map((m) => m.id), ['there']);
+      expect(server.files[bookFile()], '{"id": "${book.id}", "marks": [', reason: 'never written over');
+      expect(server.files['/dav/TomeVoice/stats.json'], 'not the days');
+      final said = [for (final e in ErrorLog.instance.entries) e.message].where((m) => m.contains('passed over'));
+      expect(said, isNotEmpty);
+      expect(said.join(), isNot(contains(book.title)));
+      // What did sync is kept: the next sync reads the other book no more.
+      final reads = server.requests.where((q) => q.startsWith('GET') && q.contains(other.id)).length;
+      await BookSync.instance.syncNow(store: store);
+      expect(server.requests.where((q) => q.startsWith('GET') && q.contains(other.id)).length, reads);
     });
 
     test('a book on a shut secret shelf is never sent; open, it is', () async {

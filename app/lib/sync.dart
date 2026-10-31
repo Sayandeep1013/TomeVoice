@@ -9,6 +9,7 @@ import 'package:flutter/widgets.dart' show AppLifecycleListener;
 import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor;
 import 'package:xml/xml.dart';
 
+import 'error_log.dart' show ErrorLog;
 import 'kosync.dart';
 import 'library_store.dart';
 import 'marks.dart';
@@ -194,8 +195,14 @@ String _encodeDays(Map<String, Map<String, int>> days) {
   });
 }
 
-Map<String, Map<String, int>> _decodeDays(String text) {
-  final j = jsonDecode(text);
+/// The days' totals [text] holds; null when it cannot be read.
+Map<String, Map<String, int>>? _decodeDays(String text) {
+  final Object? j;
+  try {
+    j = jsonDecode(text);
+  } on FormatException {
+    return null;
+  }
   final days = j is Map && j['days'] is Map ? j['days'] as Map : const {};
   return {
     for (final e in days.entries)
@@ -205,6 +212,18 @@ Map<String, Map<String, int>> _decodeDays(String text) {
             if (f.value is num) '${f.key}': (f.value as num).toInt(),
         },
   };
+}
+
+/// Book [id]'s record as [text] holds it; null when it cannot be read (a
+/// damaged file, or another app's), said in the error log without the
+/// book's name.
+BookRecord? _readRecord(String id, String text) {
+  try {
+    return BookRecord.fromJson(id, jsonDecode(text));
+  } on Object catch (e) {
+    ErrorLog.instance.record('Sync passed over a book: its file on the server could not be read (${e.runtimeType})', null);
+    return null;
+  }
 }
 
 String _hash(String text) => md5.convert(utf8.encode(text)).toString();
@@ -591,6 +610,7 @@ Future<({int sent, int taken})> syncWebDav(
       var read = onServer && (tag == null || tag != mine['etag'] || _hash(local.encode()) != mine['hash']);
       var merged = local;
       var etag = mine['etag'] as String?;
+      var unreadable = false;
       for (var attempt = 0; attempt < 3; attempt++) {
         String? theirs;
         if (read) {
@@ -599,7 +619,14 @@ Future<({int sent, int taken})> syncWebDav(
           if (got != null) {
             theirs = got.text;
             etag = got.etag ?? tag;
-            merged = mergeBooks(local, BookRecord.fromJson(e.id, jsonDecode(got.text)));
+            final record = _readRecord(e.id, got.text);
+            // Not written over (another app may know it), nor taken in:
+            // this book waits, and the rest are synced.
+            if (record == null) {
+              unreadable = true;
+              break;
+            }
+            merged = mergeBooks(local, record);
           }
         }
         final text = merged.encode();
@@ -614,6 +641,7 @@ Future<({int sent, int taken})> syncWebDav(
           read = true;
         }
       }
+      if (unreadable) continue;
       if (await applyRecord(store, local, merged)) taken++;
       known[e.id] = {
         if (etag != null) 'etag': etag,
@@ -632,7 +660,13 @@ Future<({int sent, int taken})> syncWebDav(
     final localDays = _localDays();
     var mergedDays = localDays;
     final got = await dav.get('TomeVoice/stats.json');
-    if (got != null) mergedDays = mergeDays(localDays, _decodeDays(got.text));
+    final theirDays = got == null ? null : _decodeDays(got.text);
+    if (got != null && theirDays == null) {
+      // Not written over either: the books' places and quotes still sync.
+      ErrorLog.instance.record('Sync passed over the reading time: its file on the server could not be read', null);
+      return (sent: sent, taken: taken);
+    }
+    if (theirDays != null) mergedDays = mergeDays(localDays, theirDays);
     final text = _encodeDays(mergedDays);
     if (got?.text != text) {
       try {
