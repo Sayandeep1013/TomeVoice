@@ -277,12 +277,30 @@ class CookieJar {
   static const legacyPartition = '';
 }
 
+/// Hosts where everyone has a site of their own ("a.wordpress.com" and
+/// "b.wordpress.com" are two sites, two owners): each taken as a public
+/// suffix, as the public suffix list would.
+const sharedHosts = {
+  'wordpress.com', 'blogspot.com', 'github.io', 'gitlab.io', 'netlify.app', 'vercel.app', 'pages.dev',
+  'workers.dev', 'neocities.org', 'wixsite.com', 'weebly.com', 'tumblr.com', 'substack.com', 'livejournal.com',
+  'dreamwidth.org', 'herokuapp.com', 'firebaseapp.com', 'web.app', 'appspot.com', 'glitch.me', 'carrd.co',
+  'notion.site', 'gitbook.io', 'readthedocs.io', 'surge.sh', '000webhostapp.com', 'webflow.io', 'squarespace.com',
+};
+
 /// The domain a site's cookies are shared under: its host without "www.",
 /// and for a deeper subdomain its registrable part as far as can be told
-/// without the public suffix list ("m.site.co.uk" -> "site.co.uk").
+/// without the public suffix list ("m.site.co.uk" -> "site.co.uk"). On a
+/// shared host ([sharedHosts]) that is the reader's or writer's own part
+/// ("x.a.wordpress.com" -> "a.wordpress.com").
 String siteDomain(String host) {
   final h = host.toLowerCase();
   if (!InternetAddressCheck.notIp(h)) return h;
+  for (final shared in sharedHosts) {
+    if (h.endsWith('.$shared')) {
+      final own = h.substring(0, h.length - shared.length - 1).split('.').last;
+      return '$own.$shared';
+    }
+  }
   final labels = h.split('.');
   if (labels.length <= 2) return h;
   // Second-level suffixes such as co.uk, com.br, or.jp: keep three labels.
@@ -292,7 +310,8 @@ String siteDomain(String host) {
 }
 
 /// Whether [host] belongs to the site whose home page is [site]: the same
-/// registrable domain ("www.royalroad.com" and "royalroad.com").
+/// registrable domain ("www.royalroad.com" and "royalroad.com"; not
+/// "a.wordpress.com" and "b.wordpress.com", see [sharedHosts]).
 bool sameSite(String host, String site) {
   final siteHost = Uri.tryParse(site)?.host ?? '';
   if (host.isEmpty || siteHost.isEmpty) return false;

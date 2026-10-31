@@ -450,6 +450,19 @@ void main() {
     expect(jar.isEmpty, isTrue, reason: 'an older copy does not bring cleared cookies back');
   });
 
+  test("a shared host is many sites: one blog's cookies and checks are not another's", () {
+    expect(siteDomain('a.wordpress.com'), 'a.wordpress.com');
+    expect(siteDomain('www.a.wordpress.com'), 'a.wordpress.com');
+    expect(siteDomain('wordpress.com'), 'wordpress.com');
+    expect(sameSite('a.wordpress.com', 'https://b.wordpress.com/'), isFalse);
+    expect(sameSite('a.github.io', 'https://b.github.io/novel/'), isFalse);
+    expect(sameSite('x.a.blogspot.com', 'https://a.blogspot.com/'), isTrue);
+    // Ordinary sites as before.
+    expect(sameSite('www.royalroad.com', 'https://royalroad.com/'), isTrue);
+    expect(siteDomain('m.site.co.uk'), 'site.co.uk');
+    expect(siteDomain('127.0.0.1'), '127.0.0.1');
+  });
+
   test('tag names a site ran together are split, short ones kept whole', () {
     expect(SourceNovel.unglue('AdventureFantasyMystery'), ['Adventure', 'Fantasy', 'Mystery']);
     expect(SourceNovel.unglue('LitRPG'), ['LitRPG']);

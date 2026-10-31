@@ -190,6 +190,24 @@ void main() {
     expect((await updates.log()).problems.single.kind, CheckProblemKind.challenge);
   });
 
+  test("away from the app, one blog's browser check on a shared host does not skip another's source", () async {
+    PluginInfo blog(String id, String site) =>
+        PluginInfo(id: id, name: 'Blog $id', site: site, lang: 'English', version: '1', url: 'https://x/$id.js');
+    final mine = blog('mine', 'https://mine.wordpress.com/'), theirs = blog('theirs', 'https://theirs.wordpress.com/');
+    sites.attach(_Installed(tmp, [mine, theirs]));
+    for (final p in [mine, theirs]) {
+      await store.addWebNovel(p, SourceNovel(path: p.id, name: 'Novel ${p.id}', chapters: _chapters(p.id, 3)));
+      sites.lists[p.id] = _chapters(p.id, 4);
+    }
+    File('${tmp.path}/sources/browser-hosts.json')
+      ..createSync(recursive: true)
+      ..writeAsStringSync(jsonEncode(['theirs.wordpress.com']));
+    final updates = Updates(store, background: true);
+    final r = await updates.checkAll();
+    expect((r.found, sites.asked), (1, 1), reason: 'mine.wordpress.com is a site of its own');
+    expect((await updates.log()).problems.single.pluginId, 'theirs');
+  });
+
   test('the notification names novels, but not one on a secret shelf', () async {
     final open = await add('a', 'a0', 3);
     final hidden = await add('b', 'b0', 3);
