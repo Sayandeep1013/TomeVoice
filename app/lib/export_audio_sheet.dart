@@ -11,6 +11,7 @@ import 'export_audio.dart';
 import 'listen_sheet.dart' show trimSpeed;
 import 'listening_session.dart';
 import 'neural_voices.dart';
+import 'prefs.dart';
 import 'scheduler.dart';
 import 'theme.dart';
 import 'ui.dart';
@@ -151,6 +152,11 @@ class _SaveSheetState extends State<_SaveSheet> {
   String? _problem;
 
   ExportPlan get _plan => _whole ? _bookPlan : _chapterPlan;
+
+  /// The book is saved in its own narration, as it is read aloud.
+  bool get _narrated =>
+      widget.layout.book.narration != null &&
+      (ListeningPrefs.loaded ?? ListeningPrefs.memory).narratedBooks.contains(widget.bookId);
 
   bool get _reading => (widget.reading?.active ?? false) || BackgroundReading.current.value != null;
 
@@ -325,11 +331,14 @@ class _SaveSheetState extends State<_SaveSheet> {
             const SizedBox(height: Gap.s),
             note(
               Icons.record_voice_over_outlined,
-              'Read by ${_voiceLabel(narrator)}'
-              '${dialogue == null || dialogue == narrator ? '' : ', the dialogue by ${_voiceLabel(dialogue)}'}'
-              '${cast.isEmpty ? '' : ', its characters in ${cast.length == 1 ? 'a voice' : 'voices'} of their own'}'
-              ' at ${trimSpeed(settings.speedScale)}×, with your word gap, pauses and pronunciations: '
-              'the current voice and settings, as you hear them.',
+              _narrated
+                  ? "In the book's own narration at ${trimSpeed(settings.speedScale)}×, as it was recorded, "
+                      'at your loudness; anything it does not narrate read by ${_voiceLabel(narrator)}.'
+                  : 'Read by ${_voiceLabel(narrator)}'
+                      '${dialogue == null || dialogue == narrator ? '' : ', the dialogue by ${_voiceLabel(dialogue)}'}'
+                      '${cast.isEmpty ? '' : ', its characters in ${cast.length == 1 ? 'a voice' : 'voices'} of their own'}'
+                      ' at ${trimSpeed(settings.speedScale)}×, with your word gap, pauses and pronunciations: '
+                      'the current voice and settings, as you hear them.',
             ),
             if (natural)
               note(

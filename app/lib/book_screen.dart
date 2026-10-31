@@ -189,6 +189,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
         bookTitle: _entry.title,
         onChanged: ({required bool restart}) => _rebuild(),
         onPreview: _preview,
+        narration: _layout?.book.narration != null,
       );
 
   Future<void> _preview(String voiceName) async {
@@ -672,7 +673,9 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                     const Eyebrow('Voice for this book'),
                     const SizedBox(height: 2),
                     Text(
-                      !_catalog.loaded
+                      controller.narrated
+                          ? "Book's own narration · $speed×"
+                          : !_catalog.loaded
                           ? 'Loading voices…'
                           : v == null
                               ? 'No ${languageName(_language)} voice yet'

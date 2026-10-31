@@ -45,6 +45,29 @@ abstract interface class SpeakerVoices {
   Iterable<String> get voices;
 }
 
+/// A book's own recorded narration (an EPUB's media overlays), read for the
+/// scheduler (narration.dart): the audio that says a sentence, made ready
+/// for the player as a voice's sentence is.
+abstract interface class BookNarration {
+  /// How sentence [unit] is read: [NarrationRole.voiced] for every one
+  /// while the book is read in a voice.
+  NarrationRole at(int unit);
+
+  /// Sentence [unit] as the narration says it, at [settings]' speed (its
+  /// pitch kept) and loudness: no word gap or pause is put into a
+  /// recording, and [pauseAfterMs] of silence follows it only where the
+  /// recording has no pause of its own after it. [levelDb] as for
+  /// [makeSentence]. Null when [stale] says it was overtaken; throws when
+  /// the recording could not be read.
+  Future<RenderedSpeech?> make(
+    int unit, {
+    required PipelineSettings settings,
+    required int pauseAfterMs,
+    double? levelDb,
+    bool Function()? stale,
+  });
+}
+
 class _Chunk {
   _Chunk(this.unit, this.start, this.speechFrames, this.totalFrames, this.timings, this.levels, this.pcm);
   final int unit;
@@ -86,6 +109,7 @@ class PlaybackScheduler {
     this.quoteOpenAt,
     this.fallbackVoiceOf,
     this.speakers,
+    this.narration,
   });
 
   final SpeechService service;
@@ -124,6 +148,12 @@ class PlaybackScheduler {
   /// (or a cast that gives nobody a voice) reads every quotation in the
   /// dialogue voice, exactly as before.
   final SpeakerVoices? speakers;
+
+  /// The book's own recorded narration, when it brings one: chosen, a
+  /// sentence it says is played from it (no voice, cast or respelling: the
+  /// recording is what it is), one it leaves out among lines it reads is
+  /// passed over, and the rest is read by the voice.
+  final BookNarration? narration;
 
   /// The voice for the words in quotation marks in unit [i]: the one the
   /// book's cast gives whoever says them (the narrator's, for a character
@@ -597,6 +627,23 @@ class PlaybackScheduler {
         continue;
       }
       final i = _next;
+      // The book's own narration: a line it says is played as recorded, one
+      // it leaves out among the lines it reads is passed over. A recording
+      // that cannot be read here leaves the line to the voice.
+      final told = narration?.at(i);
+      if (told == NarrationRole.passed) {
+        _next = i + 1;
+        continue;
+      }
+      if (told == NarrationRole.recorded) {
+        final played = await _narrate(gen, i);
+        if (gen != _gen) return;
+        if (played) {
+          failures = 0;
+          retries = 0;
+          continue;
+        }
+      }
       final said = respell?.call(units[i]) ?? Respelled.same(units[i].text);
       final text = said.text;
       // A line with nothing to say ("।।।", "* * *", a lone full stop) is
@@ -668,28 +715,7 @@ class PlaybackScheduler {
           stale: () => gen != _gen,
         );
         if (r == null || gen != _gen) return;
-        final to = _streamRate ??= r.sampleRate;
-        final k = to / r.sampleRate;
-        int at(int frame) => (frame * k).round();
-        final pcm = to == r.sampleRate ? r.pcm : resamplePcm16(r.pcm, r.sampleRate, to);
-        final start = await service.enqueue(pcm, to);
-        if (gen != _gen) return;
-        _rate = to;
-        _levelDb = r.gainDb;
-        final timings = [
-          for (final t in said.changed ? _onPage(r.timings, said) : r.timings)
-            to == r.sampleRate
-                ? t
-                : WordTiming(
-                    charStart: t.charStart,
-                    charEnd: t.charEnd,
-                    frameStart: at(t.frameStart),
-                    frameEnd: at(t.frameEnd),
-                    source: t.source,
-                  ),
-        ];
-        _chunks.add(_Chunk(i, start, at(r.speechFrames), to == r.sampleRate ? r.totalFrames : pcm.length ~/ 2, timings,
-            r.levels, pcm));
+        if (!await _queue(gen, i, r, said.changed ? _onPage(r.timings, said) : r.timings)) return;
         final took = watch.elapsedMilliseconds;
         _lastMade = (ms: took, speechMs: r.speechFrames * 1000 ~/ r.sampleRate, urgent: urgent);
         if (text.length >= 20) {
@@ -740,6 +766,67 @@ class PlaybackScheduler {
       }
     }
     if (gen == _gen) _fillDone = true;
+  }
+
+  /// [r], sentence [i] made, queued after what is queued (at the stream's
+  /// rate, which a sentence at another rate is brought to), with [timings]
+  /// on the page's text. False when it was overtaken meanwhile.
+  Future<bool> _queue(int gen, int i, RenderedSpeech r, List<WordTiming> timings) async {
+    final to = _streamRate ??= r.sampleRate;
+    final k = to / r.sampleRate;
+    int at(int frame) => (frame * k).round();
+    final pcm = to == r.sampleRate ? r.pcm : resamplePcm16(r.pcm, r.sampleRate, to);
+    final start = await service.enqueue(pcm, to);
+    if (gen != _gen) return false;
+    _rate = to;
+    _levelDb = r.gainDb;
+    _chunks.add(_Chunk(
+      i,
+      start,
+      at(r.speechFrames),
+      to == r.sampleRate ? r.totalFrames : pcm.length ~/ 2,
+      [
+        for (final t in timings)
+          to == r.sampleRate
+              ? t
+              : WordTiming(
+                  charStart: t.charStart,
+                  charEnd: t.charEnd,
+                  frameStart: at(t.frameStart),
+                  frameEnd: at(t.frameEnd),
+                  source: t.source,
+                ),
+      ],
+      r.levels,
+      pcm,
+    ));
+    return true;
+  }
+
+  /// Sentence [i] from the book's own narration, queued (or passed over,
+  /// when its clip holds no sound). False when its recording could not be
+  /// read: the voice reads it instead, and says so once.
+  Future<bool> _narrate(int gen, int i) async {
+    // A natural voice switched from is let go: the recording needs none.
+    NeuralEngine.instance.keepOnly(const []);
+    try {
+      final r = await narration!.make(
+        i,
+        settings: settingsFor(units[i].text),
+        pauseAfterMs: pauseAfter(i),
+        levelDb: _levelDb,
+        stale: () => gen != _gen,
+      );
+      if (gen != _gen) return true;
+      if (r != null && r.totalFrames > 0 && !await _queue(gen, i, r, r.timings)) return true;
+      _next = i + 1;
+      return true;
+    } on Object catch (e) {
+      if (gen != _gen) return true;
+      debugPrint('TomeVoice: the narration of sentence $i could not be played ($e); the voice reads it');
+      notice.value ??= "Part of the book's own narration could not be played on this phone, so the voice reads it.";
+      return false;
+    }
   }
 
   Future<void> _tick(int gen) async {

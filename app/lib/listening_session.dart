@@ -7,6 +7,7 @@ import 'cast.dart';
 import 'library_store.dart';
 import 'listen_sheet.dart';
 import 'marks.dart';
+import 'narration.dart';
 import 'prefs.dart';
 import 'reading_rules.dart';
 import 'scheduler.dart';
@@ -17,8 +18,10 @@ import 'web_reader.dart';
 
 /// The scheduler that reads [layout] of book [bookId] aloud, as the reader
 /// sets one up: its voice (and dialogue voice), speed, pronunciation fixes,
-/// what its skip presets pass over, and pauses. One place, so a book read
-/// on after its page is closed (or saved as audio) sounds as it did on it.
+/// what its skip presets pass over, and pauses, or the book's own
+/// narration where it has one and the reader chose it. One place, so a
+/// book read on after its page is closed (or saved as audio) sounds as it
+/// did on it.
 PlaybackScheduler readingScheduler({
   required ReadingLayout layout,
   required ListeningPrefs Function() prefs,
@@ -89,6 +92,14 @@ PlaybackScheduler readingScheduler({
       narrator: () => listen().voiceName,
       dialogue: () => listen().dialogueVoice,
     ),
+    // The recording the book came with, for a book read in it.
+    narration: layout.book.narration == null
+        ? null
+        : BookNarrationReader(
+            bookId: bookId,
+            layout: () => read.layout,
+            chosen: () => prefs().narratedBooks.contains(bookId),
+          ),
   );
   _bookOf[scheduler] = bookId;
   _readOf[scheduler] = read;
