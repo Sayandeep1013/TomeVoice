@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'page_style.dart';
@@ -450,4 +452,35 @@ class HeldSafeArea extends StatelessWidget {
           child: child,
         ),
       );
+}
+
+/// Tells [onSize] its child's size after each layout that changed it (on
+/// the next frame, outside layout): what a bar laid over the text measures,
+/// for the text's room under it.
+class SizeReport extends SingleChildRenderObjectWidget {
+  const SizeReport({super.key, required this.onSize, super.child});
+
+  final ValueChanged<Size> onSize;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderSizeReport(onSize);
+
+  @override
+  void updateRenderObject(BuildContext context, RenderObject renderObject) => (renderObject as _RenderSizeReport).onSize = onSize;
+}
+
+class _RenderSizeReport extends RenderProxyBox {
+  _RenderSizeReport(this.onSize);
+
+  ValueChanged<Size> onSize;
+  Size? _told;
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    if (size == _told) return;
+    _told = size;
+    final now = size;
+    SchedulerBinding.instance.addPostFrameCallback((_) => onSize(now));
+  }
 }

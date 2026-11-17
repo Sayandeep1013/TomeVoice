@@ -128,8 +128,8 @@ void main() {
 
   test('a long sentence is made in pieces cut where the voice pauses anyway', () {
     expect(clausePieces('Short and sweet, as it is.'), [(start: 0, text: 'Short and sweet, as it is.')]);
-    const text = 'The old man, who had walked for hours along the river, sat down at last; '
-        'he was tired, and the evening was coming on fast over the hills.';
+    const text = 'The old man, who had walked for hours along the river and through the dark woods beyond it, '
+        'sat down at last on a stone by the water; he was tired, and the evening was coming on fast over the hills to the west.';
     final pieces = clausePieces(text);
     expect(pieces.length, greaterThan(1));
     for (final p in pieces) {
@@ -173,13 +173,41 @@ void main() {
     ];
     final native = await joinParts(pieces, narratorRate: 24000);
     await File(native['wavPath']! as String).delete();
-    final joined = SpeechService.timingsFromMaps(native['wordTimings']! as List, 4800);
+    final joined = SpeechService.timingsFromMaps(native['wordTimings']! as List, 4800 + 24000 * joinGapMs ~/ 1000);
     expect(joined, hasLength(3));
     expect(joined[1].source, WordTimingSource.engineReported, reason: 'the phone\'s timings were thrown away');
     expect(text.substring(joined[2].charStart, joined[2].charEnd), 'run');
-    expect(joined[2].frameStart, 2400, reason: 'after the narration, at its rate');
-    expect(joined[2].frameEnd, 4800);
+    // The narration and the quote are both sound to their edges here: the
+    // least gap between them is put in.
+    const gap = 24000 * joinGapMs ~/ 1000;
+    expect(joined[2].frameStart, 2400 + gap, reason: 'after the narration and the gap, at its rate');
+    expect(joined[2].frameEnd, 4800 + gap);
     expect(joined[2].source, WordTimingSource.anchored);
+  });
+
+  test('where a quote meets its narration: padding trimmed, and never run together', () async {
+    // A phone voice's narration padded with 300 ms of silence at its end,
+    // and a quote padded with 250 ms at its start.
+    const rate = 24000;
+    final narration = AudioBuffer(
+        Float32List.fromList([...List.filled(2400, 0.2), ...List.filled(rate * 300 ~/ 1000, 0.0)]), rate);
+    final quote = AudioBuffer(
+        Float32List.fromList([...List.filled(rate * 250 ~/ 1000, 0.0), ...List.filled(2400, 0.2)]), rate);
+    final pieces = [
+      (audio: narration, offset: 0, timings: const <WordTiming>[]),
+      (audio: quote, offset: 5, timings: const <WordTiming>[]),
+    ];
+    final out = await joinParts(pieces, narratorRate: rate, level: false);
+    final file = File(out['wavPath']! as String);
+    final bytes = await file.readAsBytes();
+    await file.delete();
+    // 16-bit mono after a 44-byte header: the silence between the two sounds.
+    final data = ByteData.sublistView(bytes, 44);
+    final samples = [for (var i = 0; i + 1 < data.lengthInBytes; i += 2) data.getInt16(i, Endian.little)];
+    final first = samples.indexWhere((s) => s == 0);
+    final next = samples.indexWhere((s) => s != 0, first);
+    final gapMs = (next - first) * 1000 / rate;
+    expect(gapMs, closeTo(2 * joinKeepMs, 2), reason: 'each side keeps $joinKeepMs ms of its padding');
   });
 
   test('timings already worked out are used as they are; with none, the pauses are found', () {

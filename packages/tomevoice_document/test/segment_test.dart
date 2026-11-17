@@ -7,6 +7,23 @@ String _cp(List<int> codes) => String.fromCharCodes(codes);
 
 void main() {
   group('sentence boundaries', () {
+    test('a stammer or a short trailing-off before an ellipsis stays with what follows', () {
+      expect(_split('"I... I do not know what to say." He looked away.'), ['"I... I do not know what to say."', 'He looked away.']);
+      expect(_split('Well... Fine, then. Go.'), ['Well... Fine, then.', 'Go.']);
+      expect(_split('No, no... You misunderstand me.'), hasLength(1));
+    });
+
+    test('after a few words an ellipsis before a capital still ends a sentence', () {
+      expect(_split('He waited for a long time... Then he left.'), ['He waited for a long time...', 'Then he left.']);
+      expect(_split('She was going to say it... but she did not.'), hasLength(1));
+    });
+
+    test('a spaced ellipsis is one mark, not three full stops', () {
+      expect(_split('Well . . . maybe tomorrow. Or not.'), ['Well . . . maybe tomorrow.', 'Or not.']);
+      expect(_split('I . . . I cannot. Stop.'), ['I . . . I cannot.', 'Stop.']);
+      expect(_split('He waited for a long time . . . Then he left.'), ['He waited for a long time . . .', 'Then he left.']);
+    });
+
     test('titles before a name never end a sentence', () {
       for (final t in [
         'Capt. Smith came. He left.',

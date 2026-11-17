@@ -37,7 +37,17 @@ class ReaderPlayerBar extends StatelessWidget {
     this.cover,
     this.onSleep,
     this.onSave,
+    this.voice,
+    this.elsewhere = false,
   });
+
+  /// The voice reads another chapter than the page shows: the bar names
+  /// it, and is the voice's (see ReaderController.placeAway).
+  final bool elsewhere;
+
+  /// Whether this book's voice reads in the background, while the page
+  /// shows another chapter (see PlayButton.voice).
+  final ValueListenable<bool>? voice;
 
   final ReadingLayout layout;
   final ValueListenable<int> cursor;
@@ -250,7 +260,7 @@ class ReaderPlayerBar extends StatelessWidget {
                   ),
                   _icon(context, Icons.skip_previous_rounded, 'Previous chapter', at.chapter > 0 ? onPrevChapter : null),
                   _icon(context, Icons.fast_rewind_rounded, 'Previous sentence', u > 0 ? onPrevSentence : null),
-                  PlayButton(player: player, onTap: empty ? null : onPlay),
+                  PlayButton(player: player, voice: voice, onTap: empty ? null : onPlay),
                   _icon(context, Icons.fast_forward_rounded, 'Next sentence',
                       u < layout.units.length - 1 ? onNextSentence : null),
                   _icon(context, Icons.skip_next_rounded, 'Next chapter',
@@ -347,7 +357,8 @@ class ReaderPlayerBar extends StatelessWidget {
                               child: Text(
                                 // With a sleep timer there is no room for all three.
                                 [
-                                  if (sleepNote == null) '$pct%',
+                                  if (elsewhere) 'READING ${layout.chapterTitle(chapter).toUpperCase()}'
+                                  else if (sleepNote == null) '$pct%',
                                   partial ? '${durationLabel(minutes)} LEFT IN CHAPTER' : '${durationLabel(minutes)} LEFT',
                                   if (sleepNote != null) sleepNote!,
                                 ].join('  ·  '),
@@ -382,7 +393,7 @@ class ReaderPlayerBar extends StatelessWidget {
                       chapter > 0 ? onPrevChapter : null),
                   _icon(context, Icons.fast_rewind_rounded, 'Previous sentence',
                       u > 0 ? onPrevSentence : null),
-                  PlayButton(player: player, onTap: empty ? null : onPlay),
+                  PlayButton(player: player, voice: voice, onTap: empty ? null : onPlay),
                   _icon(context, Icons.fast_forward_rounded, 'Next sentence',
                       u < layout.units.length - 1 ? onNextSentence : null),
                   _icon(context, Icons.skip_next_rounded, 'Next chapter',

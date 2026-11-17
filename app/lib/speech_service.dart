@@ -751,7 +751,10 @@ class SpeechService {
     final given = native['wordTimings'];
     if (given is List) return timingsFromMaps(given, raw.frameCount);
     final decoded = decodeTimings(native, raw.frameCount, text.length);
-    if (decoded.timings.isNotEmpty) return decoded.timings;
+    // Reported in a way that cannot be read for sure (a short sentence, its
+    // numbers all small): they were kept as guesses, and no word was lit.
+    // Worked out from the audio instead, as for a voice that reports none.
+    if (decoded.timings.isNotEmpty && decoded.layout != 'ambiguous') return decoded.timings;
     return PauseAligner.align(
       raw,
       text,

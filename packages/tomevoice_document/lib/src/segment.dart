@@ -53,6 +53,20 @@ bool _isHardStop(int c) =>
 
 bool _isSoftStop(int c) => c == 0x2E || c == 0x21 || c == 0x3F; // . ! ?
 
+/// How many words [text] has from [from] to [to]: runs of letters or
+/// digits, so "I..." is one and ". . ." none.
+int _wordsBetween(String text, int from, int to) {
+  var words = 0;
+  var inWord = false;
+  for (var i = from; i < to && i < text.length; i++) {
+    final c = text.codeUnitAt(i);
+    final letter = c > 0x7F || (c >= 0x30 && c <= 0x39) || ((c | 0x20) >= 0x61 && (c | 0x20) <= 0x7A);
+    if (letter && !inWord) words++;
+    inWord = letter;
+  }
+  return words;
+}
+
 /// Sentence + word tokeniser.
 ///
 /// Not ICU, but no longer English-only: danda, CJK and Arabic stops end a
@@ -92,12 +106,19 @@ List<Sentence> segmentSentences(
     if (!hard && !_isSoftStop(c)) continue;
 
     if (c == 0x2E) {
-      // 3.14, "...", or an abbreviation.
+      // 3.14, "...", ". . .", or an abbreviation.
       if (i + 1 < n && !quiet.containsKey(i + 1) && _isDigit(text.codeUnitAt(i + 1))) continue;
       if (i + 1 < n && text.codeUnitAt(i + 1) == 0x2E) continue;
-      if (i > 0 && text.codeUnitAt(i - 1) == 0x2E) {
-        // End of an ellipsis: only a boundary if a capital follows.
+      // A dot of a spaced ellipsis (". . ."), not its last.
+      if (i + 2 < n && text.codeUnitAt(i + 1) == 0x20 && text.codeUnitAt(i + 2) == 0x2E) continue;
+      final ellipsis = (i > 0 && text.codeUnitAt(i - 1) == 0x2E) ||
+          (i > 1 && text.codeUnitAt(i - 1) == 0x20 && text.codeUnitAt(i - 2) == 0x2E);
+      if (ellipsis) {
+        // End of an ellipsis: a boundary only if a capital follows, and
+        // only after a few words. "I... I don't know" is one sentence: cut
+        // after "I...", the voice said a word alone, rushed, and paused.
         if (!_capitalFollows(text, i + 1)) continue;
+        if (_wordsBetween(text, start, i) < 4) continue;
       }
       if (_abbreviationContinues(text, start, i)) continue;
     }

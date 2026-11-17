@@ -23,6 +23,12 @@ ListeningPrefs _shared() => ListeningPrefs.loaded ?? ListeningPrefs.memory;
 /// [ReaderController]): shows the place, says what happened, and turns its
 /// pages. ReaderScreen's state is the one.
 abstract interface class ReaderView {
+  /// Open the page at the place (and this book's voice, reading or paused
+  /// in the background), reading on with [play]: the place was in chapters
+  /// this page did not hold (see ReaderController.placeAway). Null where a
+  /// page always holds every chapter.
+  Future<void> Function({required bool play})? get toThePlace;
+
   /// The page is still up.
   bool get mounted;
 
@@ -75,26 +81,31 @@ class ReaderController {
     required this.view,
     required ReadingCursor initialCursor,
     this.store,
-    bool chosen = false,
+    ReadingCursor? lookAt,
   })  : _layout = layout,
         cursor = ValueNotifier(layout.isEmpty
             ? 0
             : layout.unitForCursor(initialCursor, saved: initialCursor != ReadingCursor.zero)) {
-    chosenUnit = chosen && !layout.isEmpty ? cursor.value : -1;
+    lookUnit = lookAt != null && !layout.isEmpty ? layout.unitForCursor(lookAt, saved: true) : -1;
+    // A chapter, a mark or a passage picked is looked at: the voice reads on
+    // (or waits, paused) where it is, and Continue goes on from there. Only
+    // Read from here moves it. (A book only ever read by eye is the
+    // exception: its place is where the reader looks.)
+    final placeHere = !layout.isEmpty &&
+        initialCursor.sectionIndex >= layout.units.first.sectionIndex &&
+        initialCursor.sectionIndex <= layout.units.last.sectionIndex;
     // This book reading on in the background: take its voice back, still
-    // reading, so opening the book again does not break the flow.
+    // reading (or still paused), so opening the book again does not break
+    // the flow.
     final bg = BackgroundReading.current.value;
     final mine = bg != null && bg.bookId == _book.id;
-    // A place picked (a chapter, a mark, a passage) while it waits paused is
-    // where the book opens: the voice's place is not put over it. Reading
-    // aloud, the voice is taken back and reads on, and the page shows what
-    // was picked, looked at (Back to reading returns to the voice).
-    final back = mine && (chosenUnit < 0 || bg.playing) ? bg.takeBack(layout) : null;
+    final back = mine ? bg.takeBack(layout) : null;
     if (mine && back == null) {
-      if (chosenUnit >= 0) {
-        // Its place saved first, then this one over it: the place is what
-        // was picked now.
-        unawaited(bg.stop().then((_) => bg.saved).whenComplete(persist));
+      if (lookUnit >= 0) {
+        // Its voice is in chapters this page does not hold: left reading
+        // (or paused) as it is. This page only shows what was picked.
+        _placeAway = true;
+        cursor.value = lookUnit;
       } else {
         // Its chapters changed meanwhile (a web novel): start again here.
         final u = bg.unitIn(layout);
@@ -110,6 +121,19 @@ class ReaderController {
     if (back != null) {
       cursor.value = player.unit.value;
       _restoreSleep(back.sleep, back.sleepAt, back.sleepChapter);
+    } else if (!mine && lookUnit >= 0) {
+      if (_listened) {
+        // Listened to before: the place stays where the voice left it.
+        // Not among these chapters (a web novel's window round the pick),
+        // Play and Back to reading go to it (see ReaderView.toThePlace).
+        if (!placeHere) {
+          _placeAway = true;
+          cursor.value = lookUnit;
+        }
+      } else {
+        // Read only by eye: the place is where the reader looks.
+        cursor.value = lookUnit;
+      }
     }
     player.unit.addListener(_onPlayerUnit);
     player.state.addListener(_onPlayState);
@@ -171,6 +195,10 @@ class ReaderController {
   /// have changed since (a web novel): the sentence it reads on from once
   /// the page is up; -1 for none.
   int get resumeAt => _resumeAt;
+
+  /// The chapter the place was in when it was last saved (see
+  /// [_schedulePersist]).
+  int _lastSavedSection = -1;
   var _resumeAt = -1;
 
   /// The book has been read aloud: a scroll or a page turned by hand only
@@ -178,10 +206,37 @@ class ReaderController {
   bool get listened => _listened;
   late bool _listened = store?.listenedTo(_book.id) ?? false;
 
-  /// The sentence picked to open at (a chapter, a mark, a passage), not
-  /// the place saved; -1 for none. With the voice taken back, the page
-  /// shows it while the voice reads on where it is.
-  late final int chosenUnit;
+  /// The sentence picked to look at (a chapter, a mark, a passage), not
+  /// the place; -1 for none. The page opens showing it.
+  late final int lookUnit;
+
+  /// The place (and this book's voice, reading in the background or
+  /// paused there) is in chapters this page does not hold: the page only
+  /// shows what was picked. Play and Back to reading go to the place
+  /// (ReaderView.toThePlace); nothing here is saved as the place; Read from
+  /// here takes the voice to this page.
+  bool get placeAway => _placeAway;
+  bool _placeAway = false;
+
+  /// Whether this book's voice reads, while [placeAway] with it reading
+  /// (or paused) in the background: the player's button shows it.
+  ValueListenable<bool>? get voicePlaying {
+    if (!_placeAway) return null;
+    final bg = BackgroundReading.current.value;
+    return bg != null && bg.bookId == _book.id ? bg.playingNow : null;
+  }
+
+  /// Leave [placeAway]: the background reading of this book, if any,
+  /// stopped (its place saved), and this page's own voice takes over.
+  Future<void> _takeOver() async {
+    if (!_placeAway) return;
+    _placeAway = false;
+    final bg = BackgroundReading.current.value;
+    if (bg != null && bg.bookId == _book.id) {
+      await bg.stop();
+      await bg.saved;
+    }
+  }
 
   StreamSubscription<Map<String, Object?>>? _events;
   Timer? _persistTimer;
@@ -505,6 +560,17 @@ class ReaderController {
 
   Future<void> togglePlay() async {
     if (layout.isEmpty) return;
+    if (_placeAway) {
+      // Looking elsewhere: Pause pauses the voice where it reads; Play goes
+      // back to it and reads on from there.
+      final bg = BackgroundReading.current.value;
+      if (bg != null && bg.bookId == _book.id && bg.playing) {
+        await bg.pause();
+      } else {
+        await view.toThePlace?.call(play: true);
+      }
+      return;
+    }
     if (_handedOn) {
       // Shown a moment longer while the next chapters load: the voice is
       // the background reading's.
@@ -532,6 +598,16 @@ class ReaderController {
     // Handed on: this page goes as soon as the next is built; the voice is
     // not to be pulled back to it.
     if (layout.isEmpty || _handedOn) return;
+    if (_placeAway) {
+      // Read from here: the voice comes to this page. Any other move (the
+      // player's buttons) is the voice's: back to it first.
+      if (!play) {
+        await view.toThePlace?.call(play: false);
+        return;
+      }
+      await _takeOver();
+      if (layout.isEmpty) return;
+    }
     final next = unit.clamp(0, layout.units.length - 1);
     _showPlace(true);
     cursor.value = next;
@@ -549,6 +625,11 @@ class ReaderController {
   }
 
   void goChapter(int delta) {
+    if (_placeAway) {
+      // The player's buttons are the voice's: back to it first.
+      unawaited(view.toThePlace?.call(play: false));
+      return;
+    }
     final more = view.onReachedEnd;
     if (delta > 0 && more != null && layout.chapterOfUnit(cursor.value) >= layout.chapters.length - 1) {
       // Past what is here: the next chapters are still on the site.
@@ -611,6 +692,8 @@ class ReaderController {
 
   void _onPlayState() {
     final s = player.state.value;
+    // Paused or stopped: the place it got to is saved now, not in half a minute.
+    if (s == PlayState.paused || s == PlayState.idle) _schedulePersist(soon: true);
     if (s == PlayState.playing || s == PlayState.loading) _parked = false;
     if (s == PlayState.playing && !_listened) {
       _listened = true;
@@ -635,7 +718,7 @@ class ReaderController {
 
   void _updateSession({bool force = false}) {
     // Handed on: the card is the background reading's.
-    if (_handedOn) return;
+    if (_handedOn || _placeAway) return;
     final actual = player.state.value;
     // The end of a web novel's chapters here, read on into the next: the
     // card stays up (playing) while they load. Ended, Android 12 might not
@@ -815,7 +898,9 @@ class ReaderController {
         }
       }
     }
-    _schedulePersist();
+    final here = layout.isEmpty ? -1 : layout.units[cursor.value.clamp(0, layout.units.length - 1)].sectionIndex;
+    _schedulePersist(soon: _lastSavedSection != here);
+    _lastSavedSection = here;
     _updateSession();
     if (!detached.value && !_quiet) view.reveal(cursor.value);
     view.placeMoved();
@@ -824,6 +909,10 @@ class ReaderController {
   /// Resume following the voice. [force] scrolls even if the paragraph is
   /// already on screen (the "Back to reading" pill).
   void follow({bool force = false}) {
+    if (_placeAway) {
+      unawaited(view.toThePlace?.call(play: false));
+      return;
+    }
     detached.value = false;
     view.reveal(cursor.value, force: force);
   }
@@ -847,16 +936,23 @@ class ReaderController {
     _syncMarked();
   }
 
-  void _schedulePersist() {
+  /// The place saved a moment after it moves; while the voice reads on,
+  /// every [readingSaveEvery] instead, and at once when it pauses, stops, or
+  /// the chapter changes. Saved at every sentence (with a flush to the
+  /// disk, and the home screen's widget drawn again), hours of listening
+  /// woke the storage thousands of times.
+  void _schedulePersist({bool soon = false}) {
+    final reading = player.isPlaying && !soon;
+    if (reading && _persistTimer != null && _persistTimer!.isActive) return;
     _persistTimer?.cancel();
-    _persistTimer = Timer(const Duration(milliseconds: 1500), () => unawaited(persist()));
+    _persistTimer = Timer(reading ? readingSaveEvery : const Duration(milliseconds: 1500), () => unawaited(persist()));
   }
 
   /// Save the place now.
   Future<void> persist() async {
     final store = this.store;
     // Handed on: the place is the background reading's, further on.
-    if (store == null || layout.isEmpty || _handedOn) return;
+    if (store == null || layout.isEmpty || _handedOn || _placeAway) return;
     final u = cursor.value.clamp(0, layout.units.length - 1);
     try {
       await store.saveCursor(

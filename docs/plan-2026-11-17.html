@@ -41,6 +41,7 @@ a{color:var(--accent)}
 <p class="sub">17 November 2026. Your notes from the last 2&ndash;3 weeks, the 1.4.1 release, the GitHub issues, Anx Reader, and the research you asked for. Every bug below was traced to its code and checked by reading it. None has been fixed or tested on the phone yet.</p>
 
 <nav class="card"><ol>
+<li><a href="#next-session">Next session starts here</a></li>
 <li><a href="#progress">Progress</a></li>
 <li><a href="#remind">Two reminders</a></li>
 <li><a href="#release">The 1.4.1 release, audited</a></li>
@@ -59,6 +60,16 @@ a{color:var(--accent)}
 <li><a href="#questions">What I need from you</a></li>
 </ol></nav>
 
+<div class="card q" id="next-session">
+<h3>Next session starts here</h3>
+<ol>
+<li><b>Two phone checks of 1.5.0</b>, in the test app. With the voice reading and another chapter picked, the player says "READING CHAPTER &hellip;" and shows Pause. A tap on the reading card in the notification shade opens the book where the voice reads.</li>
+<li><b>Batch 4</b>, the diary/notebook look first (section 13): a Notebook paper, Saved as a notebook, Contents as tabs. Then the Contents and Scroll/Pages buttons, voice search, the Anx-inspired comforts, Gutenberg's OPDS 2 feed, and DJVU.</li>
+<li><b>Batch 5:</b> the reading helper (section 10, the qualities chosen in section 15), cloud voices (section 11), and Paradee.</li>
+</ol>
+<p><small>The same list, with how the work is done here, is in <code>docs/16-session-handoff.md</code> under "Resume here". The phone and local-check scripts are in <code>tools/phone/</code>.</small></p>
+</div>
+
 <div class="card" id="progress">
 <h3>Progress, 18 November</h3>
 <div class="scroll"><table>
@@ -71,8 +82,13 @@ a{color:var(--accent)}
 <tr><td>A6 the view follows the voice into the next chapter</td><td class="ok">Works</td><td>Recorded on the phone in scroll and pages, with the phone voice and with Cori (natural) plus a phone voice for dialogue. Page, chapter title and word highlight all followed. One stray Back to reading pill before Play is to look at with batch 2's page work.</td></tr>
 <tr><td>Crash #24/#25, Settings width, AZW3 Open with</td><td class="ok">Done</td><td>Analyzer clean; CI's whole test suite passed on Linux.</td></tr>
 <tr><td>Error logs</td><td class="ok">Checked</td><td>GitHub: only #24/#25. Your app's Report a problem: only that crash. The test app's log: empty after all tests. Your phone now reports Android 17 (API 37).</td></tr>
+<tr><td>Open, carried forward</td><td class="warn">Watch</td><td>A stray Back to reading pill once in pages mode before Play (not reproduced). One unexplained pause of a background reading (03:53, 18 Nov; not reproduced, no audio-focus loss logged). Android 17 runs app animations at 60 Hz untouched (left as is, for battery).</td></tr>
 <tr><td>Your AZW3 file</td><td class="warn">Waiting</td><td>Not on the phone; needs the file or its message (DRM and HUFF/CDIC are the other two causes).</td></tr>
-<tr><td>Release 1.4.2</td><td class="warn">In progress</td><td>Pull request to main with the emulator tests, then CI's release run.</td></tr>
+<tr><td>Release 1.4.2</td><td class="ok">Released 18 Nov</td><td>PR #26 (CI and the emulator tests on Android 14 and 16 passed), then CI's release run: tag v1.4.2 on main, both APKs checked (app id, signing certificate, 16 KB alignment) and named right. Issues #24 and #25 closed by it.</td></tr>
+<tr><td>Release 1.5.0</td><td class="ok">Released 18 Nov</td><td>Batches 2 and 3, and chapters picked only looked at. PR #27 (CI and the emulator tests on Android 14 and 16 passed), then CI's release run.</td></tr>
+<tr><td>Chapters picked only looked at (your note of 18 Nov)</td><td class="ok">Done, in 1.5.0</td><td>A chapter, bookmark or passage picked is shown while the voice reads on, or stays paused, at its own place. Continue goes on from the voice; only Read from here moves it. Meanwhile the player is the voice's (its chapter, Pause, its buttons), and the reading card opens where it reads. 5 new tests; on the phone, picking chapter 2 while the voice read chapter 3247 kept it playing. <b>Still to see on the phone:</b> the player's "READING CHAPTER" line and the card tap.</td></tr>
+<tr><td>Batch 2: battery and smoothness</td><td class="ok">Done, in 1.5.0</td><td>Upright, the bars now slide over the text (your choice), so the text is never laid out again while they move. Measured while the voice reads: frames held 25 ms or more during the fold went from 42 to 2. Android 17 runs app animations at 60 Hz unless touched (its frame rate category); that is left as is, for battery. Glow sleeps unseen; screen-off poll 300 ms; deep-buffer audio (Android 12+); place saved every 30 s while reading; bars fold without rebuilding the list; gentler auto-follow; Now Playing blur made once. Measured before: bar fold 16.7 ms median frames, over half late. Measuring after on the phone.</td></tr>
+<tr><td>Batch 3: how it sounds</td><td class="ok">Done, in 1.5.0</td><td>You confirmed the ellipsis fix by ear. "I... I don't" stays one sentence, ". . ." one mark; natural voices' comma pauses topped up, not doubled; long sentences cut into pieces only over 200 characters; quote and narration joined with trimmed padding; "well-known" has no pause; spaced dashes pause; words lit over clauses up to 6 s; unclear phone timings worked out from the audio.</td></tr>
 </table></div>
 </div>
 
@@ -128,33 +144,33 @@ a{color:var(--accent)}
 <p>Probably A1 and A4 seen from inside the reader. One more cause: when the voice rolls into a new set of chapters, the page is rebuilt at the voice and drops where you were looking. <i>I'll ask what you meant.</i></p></div>
 
 <h2 id="speech">4. How the voice sounds</h2>
-<div class="card"><h3><span class="pill">B1</span> &ldquo;...&rdquo; makes the voice speed up</h3>
+<div class="card"><h3><span class="pill">B1</span> &ldquo;...&rdquo; makes the voice speed up <span class="done">Done &middot; 1.5.0</span></h3>
 <p><b>Nothing handles this today.</b> &ldquo;...&rdquo; followed by a capital cuts the sentence in two, so &ldquo;I... I don't know&rdquo; makes a tiny unit &ldquo;I...&rdquo; that the voice rushes. The single character &ldquo;&hellip;&rdquo; never cuts, so books that use one or the other read differently. &ldquo;. . .&rdquo; with spaces makes empty units with pauses. The 300 ms ellipsis pause only fires in narrow cases.</p>
 <p><b>Fix: an ellipsis rule.</b> Every form (<code>...</code>, <code>&hellip;</code>, <code>. . .</code>, <code>....</code>) becomes one mark, read as a held breath: the voice keeps going and a set pause is added (Settings &rarr; Reading rules, on by default, with the pause length adjustable). It also stops cutting sentences at ellipses inside speech, turns <code>--</code> into a dash, and folds <code>!!!</code> and <code>?!?</code> into one mark.</p></div>
 
-<div class="card"><h3><span class="pill">B2</span> Natural voices go silent for 0.2&ndash;0.3 s mid-sentence</h3>
+<div class="card"><h3><span class="pill">B2</span> Natural voices go silent for 0.2&ndash;0.3 s mid-sentence <span class="done">Done &middot; 1.5.0</span></h3>
 <p><b>Cause, confirmed in code. It matches your description exactly.</b> Any sentence over 90 characters is cut at its first comma after about 40 characters, and each piece is made separately (<code>neural_voices.dart:1162</code>). At the join, the piece keeps up to 180 ms of the voice's own tail, and then the comma pause (150 ms) is added <i>on top</i>. That is about 230&ndash;345 ms of silence after 7&ndash;8 words, every long sentence. The cut exists only so a jump starts faster.</p>
 <p><b>Fix.</b> Cut only very long sentences (over ~200 characters). At a cut, never stack the comma pause on the voice's own. For natural voices, top the pause up to a target length instead of always adding.</p></div>
 
-<div class="card"><h3><span class="pill">B3</span> Speed swings, extra pauses, two words run together</h3>
+<div class="card"><h3><span class="pill">B3</span> Speed swings, extra pauses, two words run together <span class="done">Done &middot; 1.5.0</span></h3>
 <p>The same separate pieces (B1, B2, and a quote split from its narration) are each timed by the voice on its own, so short ones come out fast and long ones slow. When a quote and its narration are joined, each part's own padding is never trimmed, so a phone voice leaves 100&ndash;300 ms at every quote edge. A natural voice with no padding runs straight into the next part. A plain hyphen counts as a dash, so &ldquo;well-known&rdquo; can get a pause in the middle.</p>
 <p><b>Fix.</b> Trim each part, then put one set gap between parts. A hyphen is a dash only with spaces around it.</p></div>
 
-<div class="card"><h3><span class="pill">B4</span> The word is lit sometimes; other times only the sentence</h3>
+<div class="card"><h3><span class="pill">B4</span> The word is lit sometimes; other times only the sentence <span class="done">Done &middot; 1.5.0</span></h3>
 <p><b>Cause, confirmed.</b> A word is lit only when its timing is known, not guessed. Natural voices find word timing from the small pauses in the audio. A pause must be 70 ms long and 40 dB below the peak, and Kokoro and Piper rarely dip that far at commas. Any stretch longer than 3.5 s without such a pause loses word lighting. With phone voices, short sentences sometimes give timings the code can't read, and it then keeps the guessed timings instead of working them out from the audio.</p>
 <p><b>Fix.</b> Use a looser pause rule, allow longer stretches, and fall back to the audio when the phone's timings are unclear. A guessed word gets a soft highlight rather than none. A debug count per chapter (words lit vs. guessed) will prove it.</p></div>
 
 <h2 id="smooth">5. Smoothness (frames)</h2>
-<div class="card"><h3><span class="pill">C1</span> Hiding or bringing back the player lags, worst while playing</h3>
+<div class="card"><h3><span class="pill">C1</span> Hiding or bringing back the player lags, worst while playing <span class="done">Done &middot; 1.5.0</span></h3>
 <p><b>Cause, high confidence.</b> In scroll mode the bars fold by changing their <i>height</i> over 220 ms, so the text area changes size on every frame. Each frame rebuilds about five screens of paragraphs and redoes the fade mask (<code>reader_chrome.dart:233</code>, <code>reader_screen.dart:2484</code>). During playback, the glow and word repaints add to it.</p>
 <p><b>Fix.</b> Lay the bars over the text, as pages already do, sliding and fading without changing the text's size.</p></div>
 
-<div class="card"><h3><span class="pill">C2</span> Following the voice (scroll and page turns) skips frames</h3>
+<div class="card"><h3><span class="pill">C2</span> Following the voice (scroll and page turns) skips frames <span class="done">Done &middot; 1.5.0</span></h3>
 <ul><li><b>Scroll:</b> it waits until the sentence is near the bottom (90%), then jumps up to three quarters of a screen in 360 ms. That is 90&ndash;180 px a frame, which looks like dropped frames even when none are dropped. <b>Fix:</b> follow sooner with shorter, gentler moves, and start the scroll on the frame after the sentence change, not the same one.</li>
 <li><b>Curl pages:</b> every frame of a turn rebuilds all three leaves, works out their accessibility text, and draws a blurred shadow. The leaves are also torn down and rebuilt at the start and end of each turn. Every word repaints the whole page. At a new chapter, the whole chapter is cut into pages in one frame. <b>Fix:</b> build the leaves once per turn, use a gradient shadow, repaint only the spoken line, and cut chapters a little per frame.</li>
 <li><b>To check:</b> the phone may drop to 60 Hz when you aren't touching it, so turns driven by the voice may run at half rate. Measurable; if so, ask for 120 Hz while reading.</li></ul></div>
 
-<div class="card"><h3><span class="pill">C3</span> The constant lag</h3>
+<div class="card"><h3><span class="pill">C3</span> The constant lag <span class="done">Done &middot; 1.5.0</span></h3>
 <ul><li><b>The voice glow never stops.</b> While the voice reads, it asks for a frame about every 33 ms, even when it is hidden or covered (<code>voice_glow.dart:151</code>). That is about 30 full-screen redraws a second, for nothing.</li>
 <li>A full-screen fade mask over the text adds an extra render pass on every frame.</li>
 <li>Each spoken word re-lays out the whole paragraph in scroll mode.</li>
@@ -268,10 +284,10 @@ a{color:var(--accent)}
 <p>Each batch is fixed, tested in CI, checked on your phone (with screenshots), then released properly through <code>main</code>. You'll get a check list for each one before release.</p>
 <div class="scroll"><table>
 <tr><th>Batch</th><th>What</th><th>Release</th></tr>
-<tr><td><b>1. Make 1.4.1 right, fix the worst</b></td><td>Release hygiene (notes, tag, <code>main</code>); the crash #24/#25; A1 chapter opens the right place; A2 opens at once; A3 download counts; A5 reading on across chapters; Settings width.</td><td>1.4.2</td></tr>
-<tr><td><b>2. Smooth and light</b></td><td>C1&ndash;C3 and D1&ndash;D5, each measured before and after on the phone; A4 (as you decide); A6.</td><td>1.4.3</td></tr>
-<tr><td><b>3. How it sounds</b></td><td>B1 ellipsis rule, B2 no gaps, B3 joins, B4 word highlight; Contents and Pages buttons in view; natural voice search.</td><td>1.5.0</td></tr>
-<tr><td><b>4. Comforts</b></td><td>Anx-inspired: spacing, weight, alignment, your own fonts, TXT chapter rules, replace a book's file; Notebook paper and the Saved notebook; Gutenberg OPDS 2; DJVU.</td><td>1.5.x</td></tr>
+<tr><td><b>1. Make 1.4.1 right, fix the worst</b> <span class="done">Done &middot; 1.4.2</span></td><td>Release hygiene (notes, tag, <code>main</code>); the crash #24/#25; A1 chapter opens the right place; A2 opens at once; A3 download counts; A5 reading on across chapters; Settings width.</td><td>1.4.2</td></tr>
+<tr><td><b>2. Smooth and light</b> <span class="done">Done &middot; 1.5.0</span></td><td>C1&ndash;C3 and D1&ndash;D5, each measured before and after on the phone; A4 (as you decide); A6.</td><td>1.4.3</td></tr>
+<tr><td><b>3. How it sounds</b> <span class="done">Done &middot; 1.5.0</span></td><td>B1 ellipsis rule, B2 no gaps, B3 joins, B4 word highlight; Contents and Pages buttons in view; natural voice search.</td><td>1.5.0</td></tr>
+<tr><td><b>4. Comforts</b> <span class="pill">Next</span></td><td>Anx-inspired: spacing, weight, alignment, your own fonts, TXT chapter rules, replace a book's file; Notebook paper and the Saved notebook; Gutenberg OPDS 2; DJVU.</td><td>1.5.x</td></tr>
 <tr><td><b>5. Helper and voices</b></td><td>The reading helper (after you've said what you want); the cloud voice (Azure, then ElevenLabs); Paradee.</td><td>1.6</td></tr>
 </table></div>
 

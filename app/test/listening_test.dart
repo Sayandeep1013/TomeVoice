@@ -31,7 +31,8 @@ const _channel = MethodChannel('tomevoice/tts');
 /// The first sentence is long and has its clauses: a natural voice makes it
 /// in three pieces.
 const _long = 'The rain came down over the harbour all night, and the boats knocked together at '
-    'their moorings, while the keeper slept on in his chair by the lamp.';
+    'their moorings, while the keeper slept by the lamp, dreaming of the summer the whole bay froze, '
+    'and nobody sailed out past the old stone point for a month or more that year.';
 
 final _book = ingestString(
   [
@@ -209,6 +210,42 @@ void main() {
     });
   });
 
+  group('with the screen off', () {
+    test('the head is asked for a few times a second, not 25', () async {
+      final service = _Player(tmp);
+      final player = PlaybackScheduler(
+        service: service,
+        units: [for (var i = 0; i < 40; i++) ...layout.units],
+        settingsFor: (t) => const PipelineSettings().copyWith(text: t),
+        engineIdOf: () => null,
+        voiceNameOf: () => null,
+        pauseAfter: (_) => 100,
+      );
+      addTearDown(player.dispose);
+      final binding = TestWidgetsFlutterBinding.instance;
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await player.play(0);
+      await _until(() => service.made >= 3);
+      var asked = service.polled;
+      await Future<void>.delayed(const Duration(seconds: 1));
+      final seen = service.polled - asked;
+      expect(seen, greaterThan(12), reason: 'followed closely while the page can be seen');
+      binding
+        ..handleAppLifecycleStateChanged(AppLifecycleState.inactive)
+        ..handleAppLifecycleStateChanged(AppLifecycleState.hidden)
+        ..handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      asked = service.polled;
+      await Future<void>.delayed(const Duration(seconds: 1));
+      expect(service.polled - asked, lessThanOrEqualTo(5), reason: 'polled as often with the screen off');
+      binding
+        ..handleAppLifecycleStateChanged(AppLifecycleState.hidden)
+        ..handleAppLifecycleStateChanged(AppLifecycleState.inactive)
+        ..handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await player.stop();
+    });
+  });
+
   group('while paused', () {
     test('nothing is polled or made, and both start again on Play', () async {
       final service = _Player(tmp);
@@ -242,7 +279,9 @@ void main() {
       await inZone(() => player.play(0));
       // Ten seconds queued ahead (a second a sentence): it waits for room.
       await _until(() => service.made >= 10);
-      expect(repeating.where((t) => t.isActive), hasLength(1), reason: 'the head is followed while it plays');
+      final asked = service.polled;
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(service.polled, greaterThan(asked), reason: 'the head is followed while it plays');
       await inZone(() => player.pause());
       // A sentence under way when it paused is finished.
       var made = -1;
@@ -254,13 +293,12 @@ void main() {
       final set = timers.length;
       final polled = service.polled;
       await Future<void>.delayed(const Duration(seconds: 1));
-      expect(repeating.where((t) => t.isActive), isEmpty, reason: 'the 40 ms poll ran on while paused');
+      expect(repeating.where((t) => t.isActive), isEmpty, reason: 'a poll ran on while paused');
       expect(timers.length, set, reason: 'something woke on a timer while paused');
       expect(service.polled, polled, reason: 'the head was asked for while paused');
       expect(service.made, made, reason: 'speech was made while paused');
 
       await inZone(() => player.resume());
-      expect(repeating.where((t) => t.isActive), hasLength(1));
       await _until(() => service.polled > polled);
       expect(service.polled, greaterThan(polled), reason: 'Play did not follow the head again');
       await player.stop();
@@ -422,7 +460,8 @@ void main() {
     await tester.pump(const Duration(seconds: 10));
   });
 
-  testWidgets('a chapter picked while the novel waits paused in the background opens there, not at the voice', (tester) async {
+  testWidgets('a chapter picked while the novel waits paused is only looked at: the voice keeps its place, Play goes back to it',
+      (tester) async {
     late LibraryStore store;
     late LibraryEntry entry;
     late String id;
@@ -435,30 +474,113 @@ void main() {
       await bg.player.play(bg.layout.units.indexWhere((u) => u.sectionIndex == 45));
       await _until(() => count('playerEnqueue') > 0);
       await bg.pause(now: true);
+      await bg.saved;
     });
+    final bg = BackgroundReading.current.value!;
     tester.view.physicalSize = const Size(1080, 2340);
     tester.view.devicePixelRatio = 2.75;
     addTearDown(tester.view.reset);
-    // Chapter 3, picked from the novel's list. Its page loads from disk:
-    // file reads and frames in turn until it shows.
+    Future<void> settle() async {
+      for (var i = 0; i < 40; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    // Chapter 3, picked from the novel's list: far from the voice's chapters.
     await tester.pumpWidget(MaterialApp(home: WebNovelReader(store: store, entry: entry, startChapter: 2)));
-    for (var i = 0; i < 40 && find.textContaining('Part ', findRichText: true).evaluate().isEmpty; i++) {
-      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
-      await tester.pump(const Duration(milliseconds: 50));
-    }
+    await settle();
     expect(find.textContaining('Part 3 of the story', findRichText: true), findsWidgets,
-        reason: 'the page opened somewhere other than the chapter picked');
-    expect(find.textContaining('Part 46 of the story', findRichText: true), findsNothing);
-    expect(BackgroundReading.current.value, isNull, reason: 'the paused reading was not ended');
-    // Its place saved, then the pick over it: file writes and frames in turn.
-    var place = -1;
-    for (var i = 0; i < 40 && place != 2; i++) {
+        reason: 'the page did not show the chapter picked');
+    expect(identical(BackgroundReading.current.value, bg), isTrue, reason: 'the paused reading was ended');
+    expect(bg.player.state.value, PlayState.paused, reason: 'the voice was moved or started');
+    final place = (await tester.runAsync(() => store.cursorFor(id)))!.sectionIndex;
+    expect(place, 45, reason: 'the chapter looked at became the place');
+
+    // Play: back to the voice, reading on from where it waited.
+    await tester.tap(find.byTooltip('Play'));
+    await settle();
+    expect(bg.player.isPlaying, isTrue, reason: 'Play did not go on with the voice');
+    expect(bg.layout.units[bg.player.unit.value].sectionIndex, 45, reason: 'Play started somewhere else');
+    expect(find.textContaining('Part 46 of the story', findRichText: true), findsWidgets,
+        reason: 'the page did not go back to the voice');
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 10));
+  });
+
+  testWidgets('a chapter picked in a novel listened to before, the app since closed: looked at; Play reads from the place',
+      (tester) async {
+    late LibraryStore store;
+    late LibraryEntry entry;
+    late String id;
+    await tester.runAsync(() async {
+      store = LibraryStore(tmp);
+      id = await _addNovel(tmp, store);
+      await store.markListened(id);
+      entry = (await store.list(all: true)).firstWhere((e) => e.id == id);
+    });
+    expect(BackgroundReading.current.value, isNull);
+    tester.view.physicalSize = const Size(1080, 2340);
+    tester.view.devicePixelRatio = 2.75;
+    addTearDown(tester.view.reset);
+    Future<void> settle() async {
+      for (var i = 0; i < 30; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    await tester.pumpWidget(MaterialApp(home: WebNovelReader(store: store, entry: entry, startChapter: 2)));
+    await settle();
+    expect(find.textContaining('Part 3 of the story', findRichText: true), findsWidgets);
+    expect((await tester.runAsync(() => store.cursorFor(id)))!.sectionIndex, 30, reason: 'the chapter looked at became the place');
+    await tester.tap(find.byTooltip('Play'));
+    await settle();
+    await tester.runAsync(() => _until(() => count('playerEnqueue') > 0));
+    expect(find.textContaining('Part 31 of the story', findRichText: true), findsWidgets, reason: 'Play did not read from the place');
+    expect((await tester.runAsync(() => store.cursorFor(id)))!.sectionIndex, 30);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 10));
+  });
+
+  testWidgets('a chapter picked far from the voice while it reads: shown, and the voice reads on', (tester) async {
+    late LibraryStore store;
+    late LibraryEntry entry;
+    await tester.runAsync(() async {
+      store = LibraryStore(tmp);
+      final id = await _addNovel(tmp, store);
+      entry = (await store.list(all: true)).firstWhere((e) => e.id == id);
+      await BackgroundReading.startFrom(store, entry);
+      final bg = BackgroundReading.current.value!;
+      await bg.player.play(bg.layout.units.indexWhere((u) => u.sectionIndex == 45));
+      await Future<void>.delayed(const Duration(milliseconds: 1800));
+      await _until(() => count('playerEnqueue') > 0);
+    });
+    final bg = BackgroundReading.current.value!;
+    final stops = count('playerStop');
+    tester.view.physicalSize = const Size(1080, 2340);
+    tester.view.devicePixelRatio = 2.75;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(home: WebNovelReader(store: store, entry: entry, startChapter: 2)));
+    for (var i = 0; i < 40 && find.textContaining('Part 3 of', findRichText: true).evaluate().isEmpty; i++) {
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
       await tester.pump(const Duration(milliseconds: 50));
-      place = (await tester.runAsync(() => store.cursorFor(id)))!.sectionIndex;
     }
-    expect(place, 2, reason: "the voice's old place was saved over the pick");
-    expect(find.byTooltip('Play'), findsOneWidget, reason: 'opening a chapter started the voice');
+    expect(find.textContaining('Part 3 of the story', findRichText: true), findsWidgets);
+    expect(identical(BackgroundReading.current.value, bg), isTrue, reason: 'the voice was taken from the background');
+    expect(bg.player.isPlaying, isTrue, reason: 'the voice stopped');
+    expect(count('playerStop'), stops, reason: 'the voice was stopped');
+    expect(find.text('Back to reading'), findsOneWidget, reason: 'no way back to the voice');
+    expect(find.byTooltip('Pause'), findsOneWidget, reason: "the player's button does not show the voice reading");
+    expect(find.textContaining('READING CHAPTER 46'), findsOneWidget, reason: "the player does not name the voice's chapter");
+    // Pause pauses the voice where it is, the chapter still shown.
+    await tester.tap(find.byTooltip('Pause'));
+    await tester.pump();
+    await tester.runAsync(() => _until(() => !bg.player.isPlaying));
+    await tester.pump();
+    expect(bg.player.isPlaying, isFalse);
+    expect(find.byTooltip('Play'), findsOneWidget);
+    expect(find.textContaining('Part 3 of the story', findRichText: true), findsWidgets);
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(seconds: 10));
   });

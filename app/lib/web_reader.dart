@@ -152,9 +152,10 @@ class _WebNovelReaderState extends State<WebNovelReader> {
   /// past the fetched chapters; null opens at the place being read.
   int? _view;
 
-  /// [_cursor] was picked (a chapter, a passage), not the place saved: the
-  /// page opens there even while the novel reads on in the background.
-  bool _chosen = false;
+  /// Something picked to look at (a chapter, a passage): the page opens
+  /// showing it, and the place and the voice stay where they are (see
+  /// ReaderScreen.lookAt).
+  ReadingCursor? _look;
 
   late List<SkipRule> _skip = ReadingRules.instance.skip;
 
@@ -165,24 +166,23 @@ class _WebNovelReaderState extends State<WebNovelReader> {
     // Read aloud in the background: the page opens on the chapters the voice
     // reads, and so takes the voice back with no break (on a window of its
     // own, the voice was started again from its place).
-    // A chapter picked while it reads aloud, one of those chapters: the
-    // page shows it and the voice reads on where it is (Back to reading
-    // returns to it).
+    // A chapter picked while it reads (or waits paused), one of those
+    // chapters: the page shows it and the voice reads on where it is (Back
+    // to reading returns to it). Picked further away, the page is made for
+    // it, the voice left as it is (see ReaderController.placeAway).
     final bg = BackgroundReading.current.value;
     final pick = widget.at?.sectionIndex ?? widget.startChapter;
     if (bg != null &&
         bg.bookId == _id &&
         bg.rolling == null &&
         !bg.layout.isEmpty &&
-        (pick == null || (bg.playing && bg.layout.chapters.contains(pick)))) {
+        (pick == null || bg.layout.chapters.contains(pick))) {
       final layout = bg.layout;
       _show(layout);
-      if (pick == null) {
-        _cursor = cursorOf(layout.units[bg.unit.clamp(0, layout.units.length - 1)]);
-      } else {
+      _cursor = cursorOf(layout.units[bg.unit.clamp(0, layout.units.length - 1)]);
+      if (pick != null) {
         final first = layout.units.indexWhere((u) => u.sectionIndex == pick);
-        _cursor = widget.at ?? cursorOf(layout.units[first]);
-        _chosen = true;
+        _look = widget.at ?? cursorOf(layout.units[first]);
         _autoplay = widget.autoplay;
       }
       // Every chapter the novel lists has its section.
@@ -190,7 +190,7 @@ class _WebNovelReaderState extends State<WebNovelReader> {
       _extendNear(_cursor.sectionIndex);
       return;
     }
-    unawaited(_open(widget.at?.sectionIndex ?? widget.startChapter, autoplay: widget.autoplay, at: widget.at));
+    unawaited(_open(widget.at?.sectionIndex ?? widget.startChapter, autoplay: widget.autoplay, at: widget.at, pick: true));
   }
 
   @override
@@ -284,7 +284,7 @@ class _WebNovelReaderState extends State<WebNovelReader> {
     setState(() {
       _show(layout);
       _cursor = cursorOf(layout.units[bg.unit.clamp(0, layout.units.length - 1)]);
-      _chosen = false;
+      _look = null;
       _autoplay = false;
       _view = null;
       _generation++;
@@ -312,7 +312,10 @@ class _WebNovelReaderState extends State<WebNovelReader> {
   /// here, then (re)build the book and show it there.
   /// With [keepPlace], [start] is only shown: the place being read stays.
   /// [at], a sentence in [start], opens there rather than at its start.
-  Future<void> _open(int? start, {required bool autoplay, bool keepPlace = false, ReadingCursor? at}) async {
+  /// With [pick], [start] (or [at]) was picked to look at: the place stays
+  /// (see [_look]); without, the reading goes there (Next chapter at the
+  /// end of what is here).
+  Future<void> _open(int? start, {required bool autoplay, bool keepPlace = false, ReadingCursor? at, bool pick = false}) async {
     setState(() => _error = null);
     // The page being read stays until the next is ready: chapters already
     // on the phone open in a moment, and a wait screen flashed between.
@@ -335,24 +338,29 @@ class _WebNovelReaderState extends State<WebNovelReader> {
       // A window of chapters round the place, not every one on the phone
       // (see LibraryStore.webWindow): its end opens the next.
       final layout = await _store.loadLayout(_id, around: at?.sectionIndex ?? from);
+      ReadingCursor? look;
       if (at != null) {
-        cursor = at;
+        look = at;
       } else if (start != null && !keepPlace && !layout.isEmpty) {
         final unit = layout.units.indexWhere((u) => u.sectionIndex == start);
-        if (unit >= 0) cursor = cursorOf(layout.units[unit]);
+        if (unit >= 0) look = cursorOf(layout.units[unit]);
+      }
+      if (!pick && look != null) {
+        cursor = look;
+        look = null;
       }
       if (!mounted) return;
       setState(() {
         _show(layout);
         _cursor = cursor;
-        _chosen = at != null || (start != null && !keepPlace);
+        _look = look;
         _autoplay = autoplay;
         _view = keepPlace ? start : null;
         _generation++;
         _status = null;
       });
-      _extendNear(_view ?? cursor.sectionIndex);
-      _fetchAhead(_view ?? cursor.sectionIndex);
+      _extendNear(_view ?? look?.sectionIndex ?? cursor.sectionIndex);
+      _fetchAhead(_view ?? look?.sectionIndex ?? cursor.sectionIndex);
     } on Object catch (e) {
       if (mounted) {
         setState(() {
@@ -476,7 +484,36 @@ class _WebNovelReaderState extends State<WebNovelReader> {
       onPhone: _store.downloadedChapters(_id),
       current: section,
     );
-    if (picked != null && mounted) await _open(picked, autoplay: playing);
+    // Looked at, as a chapter picked from the novel's list: the voice reads
+    // on where it is.
+    if (picked != null && mounted) await _open(picked, autoplay: false, pick: true);
+  }
+
+  /// Back to the place from a chapter looked at: the page made again where
+  /// the voice is (reading on, with [play]), taking it back; with no voice
+  /// in the background, the novel opened at its saved place.
+  Future<void> _toThePlace({required bool play}) async {
+    final bg = BackgroundReading.current.value;
+    if (bg != null && bg.bookId == _id) {
+      if (play && !bg.playing) await bg.resume();
+      final rolling = bg.rolling;
+      if (rolling != null) await rolling;
+      if (!mounted || !identical(BackgroundReading.current.value, bg) || bg.layout.isEmpty) return;
+      final layout = bg.layout;
+      setState(() {
+        _show(layout);
+        _cursor = cursorOf(layout.units[bg.unit.clamp(0, layout.units.length - 1)]);
+        _look = null;
+        _view = null;
+        _autoplay = false;
+        _generation++;
+        _status = null;
+        _error = null;
+      });
+      _extendNear(_cursor.sectionIndex);
+      return;
+    }
+    await _open(null, autoplay: play);
   }
 
   /// How far through the whole novel sentence [u] of [l] is.
@@ -512,7 +549,8 @@ class _WebNovelReaderState extends State<WebNovelReader> {
       layouts: window,
       store: _store,
       initialCursor: _cursor,
-      chosenPlace: _chosen,
+      lookAt: _look,
+      toThePlace: _toThePlace,
       autoplay: _autoplay,
       bookDir: _store.bookDir(_id),
       onReachedEnd: _onEnd,
@@ -541,7 +579,7 @@ class _WebNovelReaderState extends State<WebNovelReader> {
                             error: _error!,
                             title: 'Could not open this chapter',
                             pluginId: widget.entry.plugin,
-                            onRetry: () => _open(widget.at?.sectionIndex ?? widget.startChapter, autoplay: widget.autoplay, at: widget.at),
+                            onRetry: () => _open(widget.at?.sectionIndex ?? widget.startChapter, autoplay: widget.autoplay, at: widget.at, pick: true),
                           )
                         : Column(
                             mainAxisSize: MainAxisSize.min,

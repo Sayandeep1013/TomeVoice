@@ -3,6 +3,32 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## 1.5.0 (2026-11-18)
+
+Smoother, lighter on the battery, and a voice that reads "..." and commas as people do.
+
+#### Looking at another chapter
+- A chapter picked from a novel's list (or Contents, a bookmark, a passage found) is only looked at: the voice reads on where it is, or stays paused there, and Continue goes on from the voice's place, not from the chapter opened. Only Read from here moves it. Back to reading returns to the voice. In a book only ever read by eye, the place still follows what you open.
+- Meanwhile the player is the voice's: it says which chapter is being read, shows Pause while it reads, and its buttons and scrubber move the voice. A tap on it goes back to the voice.
+- A tap on the reading card in the notification shade opens the book where the voice is reading, not the page of the app last shown.
+
+#### Listening
+- "I... I don't know" is read as one sentence, not "I..." rushed on its own; ". . ." is one mark. Your books, and web-novel chapters already downloaded, are split again when you open them.
+- Natural voices no longer pause twice at a comma (their own pause and the one set): the pause set is how long it is in all. A long sentence is made in pieces only over 200 characters, so there are far fewer short silences mid-sentence.
+- Where a quote meets its narration in two voices, each side's silence is trimmed and they are always a tenth of a second apart: no half-second gaps, no words run together.
+- "well-known" has no pause in it; a dash set apart by spaces has one.
+- The word being read stays lit over long clauses (up to 6 seconds without a pause), and a phone voice's word positions that cannot be read for sure are worked out from the audio instead of lighting only the sentence.
+
+#### Smoother
+- Upright, the top bar and the player slide over the text instead of resizing it: they come and go smoothly while the voice reads.
+- Following the voice moves the page a little at a time, gently, instead of three quarters of a screen at once.
+- Now Playing's cover is blurred once, not on every frame.
+
+#### Battery
+- With the screen off, nothing redraws the voice's glow, and the player is checked a few times a second instead of 25.
+- On Android 12 and later the voice plays through the phone's power-saving audio output.
+- Your place is saved every half minute while the voice reads (and at once when it pauses, stops or changes chapter), not after every sentence.
+
 ## 1.4.2 (2026-11-18)
 
 Web novels open where you ask, and keep going.

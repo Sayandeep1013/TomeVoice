@@ -5,6 +5,7 @@ import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioTimestamp
 import android.media.AudioTrack
+import android.os.Build
 import java.util.concurrent.LinkedBlockingQueue
 
 /**
@@ -190,10 +191,16 @@ class PcmPlayer {
             AudioFormat.CHANNEL_OUT_MONO,
             AudioFormat.ENCODING_PCM_16BIT
         )
-        // About half a second. Position comes from the playback head, so a
-        // larger buffer costs nothing in sync; it only protects against a
-        // writer hiccup turning into an audible dropout.
-        val bytes = maxOf(min * 4, rate)
+        // About two seconds, on the power-saving (deep buffer) output: the
+        // phone's audio wakes less often for the same speech, which matters
+        // over hours with the screen off. Position comes from the playback
+        // head, so a larger buffer costs nothing in sync, and it guards
+        // against a writer hiccup (a busy voice model) becoming a dropout.
+        // Only where the track can be told to start before its buffer is
+        // full (Android 12): a short last sentence could otherwise sit in a
+        // two-second buffer unplayed. Before that, half a second, as ever.
+        val deep = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+        val bytes = if (deep) maxOf(min * 4, rate * 4) else maxOf(min * 4, rate)
         val t = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -210,7 +217,15 @@ class PcmPlayer {
             )
             .setBufferSizeInBytes(bytes)
             .setTransferMode(AudioTrack.MODE_STREAM)
+            .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_POWER_SAVING)
             .build()
+        if (deep) {
+            try {
+                // Starts as soon as a tenth of a second is written.
+                t.setStartThresholdInFrames(maxOf(rate / 10, min / 4))
+            } catch (_: Exception) {
+            }
+        }
         track = t
         framesEnqueued = 0L
         failed = false

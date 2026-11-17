@@ -42,12 +42,35 @@ Section cleanWebChapter(Section s, {Iterable<String> skip = const []}) {
         if (!rules.any((r) => b.text.toLowerCase().contains(r))) b,
     ];
   }
+  // Downloaded before "I... I don't" stayed one sentence: split again.
+  if (blocks.any(_hasEllipsis)) {
+    blocks = [for (final b in blocks) _hasEllipsis(b) ? _resplit(b) : b];
+  }
   final first = blocks.indexWhere((b) => b.speakable);
   if (first >= 0 && blocks[first].role != BlockRole.heading && sameChapterTitle(blocks[first].text, s.title)) {
     blocks = [...blocks]..[first] = blocks[first].withRole(BlockRole.heading);
   }
   if (identical(blocks, s.blocks)) return s;
   return Section(id: s.id, index: s.index, title: s.title, blocks: blocks);
+}
+
+bool _hasEllipsis(Block b) => b.text.contains('..') || b.text.contains('. .');
+
+/// [b] with its sentences found again by today's rules, its silent marks
+/// (footnote numbers) kept.
+Block _resplit(Block b) {
+  final silent = [for (final s in b.sentences) ...s.silent];
+  return Block(
+    id: b.id,
+    role: b.role,
+    text: b.text,
+    sentences: segmentSentences(b.text, silent: silent, words: false),
+    anchor: b.anchor,
+    language: b.language,
+    image: b.image,
+    imageWidth: b.imageWidth,
+    imageHeight: b.imageHeight,
+  );
 }
 
 /// Whether [line] says what [title] says: the same words once "Chapter" and

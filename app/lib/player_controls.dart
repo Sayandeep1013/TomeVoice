@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 
 import 'scheduler.dart';
@@ -18,14 +19,27 @@ String durationLabel(int minutes) {
 
 /// Play or pause, with a ring while the first sentence is being made.
 class PlayButton extends StatelessWidget {
-  const PlayButton({super.key, required this.player, required this.onTap});
+  const PlayButton({super.key, required this.player, required this.onTap, this.voice});
 
   final PlaybackScheduler player;
   final VoidCallback? onTap;
 
+  /// Whether the voice reads, when it is not [player]'s: this book reading
+  /// on in the background while the page shows another chapter.
+  final ValueListenable<bool>? voice;
+
   @override
-  Widget build(BuildContext context) => ValueListenableBuilder<PlayState>(
-        valueListenable: player.state,
+  Widget build(BuildContext context) {
+    final voice = this.voice;
+    if (voice == null) return _button(context, player.state);
+    return ValueListenableBuilder<bool>(
+      valueListenable: voice,
+      builder: (context, on, _) => _button(context, ValueNotifier(on ? PlayState.playing : PlayState.paused)),
+    );
+  }
+
+  Widget _button(BuildContext context, ValueListenable<PlayState> states) => ValueListenableBuilder<PlayState>(
+        valueListenable: states,
         builder: (context, state, _) {
           final speaking = state == PlayState.playing || state == PlayState.loading;
           return Tooltip(

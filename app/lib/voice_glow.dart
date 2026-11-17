@@ -34,11 +34,16 @@ class VoiceGlow extends StatefulWidget {
   /// dark; otherwise it follows the theme.
   final bool? dark;
 
+  /// Steps taken by every glow so far, for tests: none while it cannot be
+  /// seen.
+  @visibleForTesting
+  static int debugSteps = 0;
+
   @override
   State<VoiceGlow> createState() => _VoiceGlowState();
 }
 
-class _VoiceGlowState extends State<VoiceGlow> {
+class _VoiceGlowState extends State<VoiceGlow> with WidgetsBindingObserver {
   /// How long to wait after a picture before asking for the next frame.
   ///
   /// A plain 33 ms timer drifted against the display: its pictures came
@@ -60,6 +65,9 @@ class _VoiceGlowState extends State<VoiceGlow> {
   /// False while another screen covers this one.
   bool _current = true;
 
+  /// False while it is put away (TickerMode off: the player hidden).
+  bool _enabled = true;
+
   /// Seconds since the glow last woke, for the drift.
   double _time = 0;
 
@@ -75,6 +83,7 @@ class _VoiceGlowState extends State<VoiceGlow> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     widget.state.addListener(_wake);
     _wake();
   }
@@ -83,6 +92,28 @@ class _VoiceGlowState extends State<VoiceGlow> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _current = ModalRoute.isCurrentOf(context) ?? true;
+    _enabled = TickerMode.valuesOf(context).enabled;
+    _sync();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) => _sync();
+
+  /// Asleep while it cannot be seen (the screen off, the app away, another
+  /// screen over it, the player hidden): not a timer left running, which
+  /// woke the phone thirty times a second for the whole of a reading with
+  /// the screen off. Seen again, it takes up where the voice is.
+  void _sync() {
+    if (!_visible) {
+      _timer?.cancel();
+      _timer = null;
+      if (_frame != null) SchedulerBinding.instance.cancelFrameCallbackWithId(_frame!);
+      _frame = null;
+    } else if (!_running && (_reading || _shown > 0)) {
+      _last = _clock.elapsedMicroseconds;
+      if (!_clock.isRunning) _clock.start();
+      _next();
+    }
   }
 
   @override
@@ -96,6 +127,7 @@ class _VoiceGlowState extends State<VoiceGlow> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     widget.state.removeListener(_wake);
     _timer?.cancel();
     if (_frame != null) SchedulerBinding.instance.cancelFrameCallbackWithId(_frame!);
@@ -104,7 +136,7 @@ class _VoiceGlowState extends State<VoiceGlow> {
   }
 
   void _wake() {
-    if (_reading && !_running) {
+    if (_reading && !_running && _visible) {
       _clock
         ..reset()
         ..start();
@@ -114,27 +146,26 @@ class _VoiceGlowState extends State<VoiceGlow> {
   }
 
   /// Under another screen, or the app away: nothing is drawn.
-  bool get _visible => _current && WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+  bool get _visible {
+    final app = WidgetsBinding.instance.lifecycleState;
+    return _current && _enabled && (app == null || app == AppLifecycleState.resumed);
+  }
 
-  /// The next step after a rest: on a frame while the glow can be seen, so
-  /// the picture keeps time with the display; on the timer alone while it
-  /// cannot, where no frame is wanted.
+  /// The next step after a rest, on a frame, so the picture keeps time
+  /// with the display. Not while it cannot be seen (see [_sync]).
   void _next() {
     _timer = Timer(_rest, () {
       _timer = null;
-      if (!mounted) return;
-      if (_visible) {
-        _frame = SchedulerBinding.instance.scheduleFrameCallback((_) {
-          _frame = null;
-          if (mounted) _step();
-        });
-      } else {
-        _step();
-      }
+      if (!mounted || !_visible) return;
+      _frame = SchedulerBinding.instance.scheduleFrameCallback((_) {
+        _frame = null;
+        if (mounted) _step();
+      });
     });
   }
 
   void _step() {
+    VoiceGlow.debugSteps++;
     final now = _clock.elapsedMicroseconds;
     final dt = ((now - _last) / 1e6).clamp(0.0, 0.1);
     _last = now;
@@ -148,9 +179,8 @@ class _VoiceGlowState extends State<VoiceGlow> {
       _shown = 0;
       _voice = 0;
     }
-    // Under another screen, or the app away: keep time, draw nothing.
-    if (_visible) _paint.value++;
-    if (!done) _next();
+    _paint.value++;
+    if (!done && _visible) _next();
   }
 
   @override

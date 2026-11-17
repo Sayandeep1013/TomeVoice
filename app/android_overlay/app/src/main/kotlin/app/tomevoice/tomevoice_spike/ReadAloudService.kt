@@ -688,10 +688,14 @@ class ReadAloudService : MediaBrowserService() {
         publishState()
         val playing = n.playing
 
+        // A tap on the card opens the book where the voice reads, not
+        // whatever page of the app was last shown (a novel's chapter list).
         val open = PendingIntent.getActivity(
             this,
             0,
             Intent(this, MainActivity::class.java)
+                .setAction("app.tomevoice.card.OPEN")
+                .putExtra(Widgets.EXTRA_PAGE, "reading")
                 .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )

@@ -35,7 +35,10 @@ class PauseAligner {
 
   /// Words shared over a longer stretch than this, with no pause to put
   /// them right, can be far enough out that highlighting one would mislead.
-  static const trustedSpanMs = 3500.0;
+  /// (At 3.5 s, a natural voice's long clauses, with no pause deep enough
+  /// to find, lost their word highlight to the whole sentence's, now and
+  /// then in every chapter; within one clause the share stays close.)
+  static const trustedSpanMs = 6000.0;
 
   /// Timings for each word of [text], in the frames of [audio].
   ///

@@ -21,6 +21,7 @@ import 'guide.dart';
 import 'history_screen.dart';
 import 'library_screen.dart';
 import 'library_store.dart';
+import 'listening_session.dart' show BackgroundReading;
 import 'marks.dart';
 import 'neural_voices.dart';
 import 'prefs.dart';
@@ -215,6 +216,17 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
     }
     if (launch['page'] == 'stats') {
       unawaited(Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => StatsScreen(store: store))));
+      return;
+    }
+    // The reading card: the book where the voice reads. Read from a book's
+    // page that is still up (the app put away), that page is already it.
+    if (launch['page'] == 'reading') {
+      final bg = BackgroundReading.current.value;
+      if (bg == null) return;
+      final entry = (await store.list()).where((e) => e.id == bg.bookId).firstOrNull;
+      if (entry == null || !mounted) return;
+      Navigator.of(context).popUntil((r) => r.isFirst);
+      await openBook(context, store, entry);
       return;
     }
     // The new-chapters notification: the Updates page.

@@ -38,9 +38,11 @@ import 'text_print.dart';
 /// read, transcribers' notes not read, a Gutenberg text named by its
 /// header, an RTF file's notes shown and its \info title, a Word or ODT
 /// table of data read a row at a time; v9: transcribers' notes passed over
-/// only to the next heading of any level, and no further than notes run).
+/// only to the next heading of any level, and no further than notes run;
+/// v10: a stammer or a short trailing-off before "..." is not a sentence of
+/// its own, and ". . ." is one mark).
 /// PDFs keep their own version, on the entry (pdfParser).
-const _parsedVersion = 9;
+const _parsedVersion = 10;
 
 /// Bumped when EPUBs are to be read again for their own narration (media
 /// overlays), which books stored before it were never looked at for: an

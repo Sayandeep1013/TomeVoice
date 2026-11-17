@@ -166,28 +166,49 @@ Future<Map<String, Object?>> speakWithDialogue({
 /// each piece's offset in the text, frames by where its audio now begins.
 /// At [narratorRate], so the sentence matches the ones around it (not
 /// whichever voice happened to speak first).
+///
+/// Where two pieces meet, each keeps at most [joinKeepMs] of its own
+/// silence there, and the two are at least [joinGapMs] apart: a phone
+/// voice's padding on both sides left up to half a second between a quote
+/// and its "she said", and a natural voice, which pads nothing, ran them
+/// together.
 Future<Map<String, Object?>> joinParts(
   List<({AudioBuffer audio, List<WordTiming> timings, int offset})> pieces, {
   int? narratorRate,
   bool level = true,
 }) async {
   final rate0 = narratorRate ?? pieces.first.audio.sampleRate;
+  final keep = rate0 * joinKeepMs ~/ 1000;
+  final gap = rate0 * joinGapMs ~/ 1000;
   final joined = <double>[];
   final timings = <WordTiming>[];
-  for (final p in pieces) {
+  for (var n = 0; n < pieces.length; n++) {
+    final p = pieces[n];
     final k = rate0 / p.audio.sampleRate;
-    final start = joined.length;
     final samples = resample(p.audio.samples, p.audio.sampleRate, rate0);
+    var a = 0;
+    var b = samples.length;
+    if (n > 0) {
+      a = math.max(0, _quietRun(samples, forward: true) - keep);
+      // The silence at the join: what the last piece kept, and this one's.
+      var quiet = _quietRun(joined, forward: false) + _quietRun(samples, forward: true) - a;
+      while (quiet < gap) {
+        joined.add(0);
+        quiet++;
+      }
+    }
+    if (n < pieces.length - 1) b = math.max(a, samples.length - math.max(0, _quietRun(samples, forward: false) - keep));
+    final start = joined.length - a;
     final gain = level ? math.pow(10, GainStage.levelGainDb(samples, rate0) / 20).toDouble() : 1.0;
-    for (final s in samples) {
-      joined.add(s * gain);
+    for (var i = a; i < b; i++) {
+      joined.add(samples[i] * gain);
     }
     for (final t in p.timings) {
       timings.add(WordTiming(
         charStart: t.charStart + p.offset,
         charEnd: t.charEnd + p.offset,
-        frameStart: start + (t.frameStart * k).round(),
-        frameEnd: start + (t.frameEnd * k).round(),
+        frameStart: math.max(start + a, start + (t.frameStart * k).round()),
+        frameEnd: math.min(joined.length, math.max(start + a, start + (t.frameEnd * k).round())),
         source: t.source,
       ));
     }
@@ -199,4 +220,19 @@ Future<Map<String, Object?>> joinParts(
     'engineId': 'tomevoice.dialogue',
     'wordTimings': SpeechService.timingsToMaps(timings),
   };
+}
+
+/// The silence each piece keeps where it meets the next, and the least
+/// there is between two (see [joinParts]).
+const joinKeepMs = 60;
+const joinGapMs = 100;
+
+/// How many samples at the start (or the end) of [s] are near silence
+/// (below about -50 dBFS).
+int _quietRun(List<double> s, {required bool forward}) {
+  var n = 0;
+  while (n < s.length && s[forward ? n : s.length - 1 - n].abs() < 0.003) {
+    n++;
+  }
+  return n;
 }

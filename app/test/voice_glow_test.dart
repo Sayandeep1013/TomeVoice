@@ -2,8 +2,11 @@
 
 import 'dart:math' as math;
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tomevoice_spike/scheduler.dart';
 import 'package:tomevoice_spike/speech_service.dart';
+import 'package:tomevoice_spike/voice_glow.dart';
 
 /// [ms] of a 220 Hz tone whose loudness is [db] (RMS, dB below full scale).
 List<double> tone(double db, int ms, {int rate = 22050}) {
@@ -34,5 +37,47 @@ void main() {
     for (var i = 0; i < a.length; i++) {
       expect(a[i], closeTo(b[i], 2));
     }
+  });
+
+  testWidgets('the glow sleeps while it cannot be seen, and wakes when it can', (tester) async {
+    final state = ValueNotifier(PlayState.playing);
+    final level = ValueNotifier(0.5);
+    final shown = ValueNotifier(true);
+    await tester.pumpWidget(MaterialApp(
+      home: ValueListenableBuilder<bool>(
+        valueListenable: shown,
+        builder: (context, on, _) => TickerMode(
+          enabled: on,
+          child: VoiceGlow(level: level, state: state),
+        ),
+      ),
+    ));
+    Future<int> stepsIn(Duration d) async {
+      final before = VoiceGlow.debugSteps;
+      for (var t = Duration.zero; t < d; t += const Duration(milliseconds: 16)) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      return VoiceGlow.debugSteps - before;
+    }
+
+    expect(await stepsIn(const Duration(seconds: 1)), greaterThan(20), reason: 'it does not glow while shown');
+
+    // The player put away.
+    shown.value = false;
+    await tester.pump();
+    expect(await stepsIn(const Duration(seconds: 1)), 0, reason: 'it ran on while hidden');
+
+    // Shown, but the screen off (the app away).
+    shown.value = true;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    expect(await stepsIn(const Duration(seconds: 1)), 0, reason: 'it ran on with the screen off');
+
+    // Back.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(await stepsIn(const Duration(seconds: 1)), greaterThan(20), reason: 'it did not wake again');
+    state.value = PlayState.idle;
+    await tester.pump(const Duration(seconds: 2));
   });
 }
