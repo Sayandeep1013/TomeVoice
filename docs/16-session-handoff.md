@@ -10,9 +10,11 @@ in the [changelog](../CHANGELOG.md).
 
 The working plan is **`docs/plan-2026-11-17.html`**. Its **Progress** table says what is done, and its **Order of work** says what is next. A session told just "continue" picks up from these steps, in order:
 
-1. **Finish two phone checks of 1.5.0** in the test app ("TomeVoice Test", `app.tomevoice.test`, already on the owner's phone). On 18 November the owner had the notification shade open, so these were not done:
+1. **Ask the owner what they found in 1.5.0.** They are installing it on their daily TomeVoice to check every fix themselves, and the test app was uninstalled at the end of 18 November. Fix whatever they report first, and confirm the two checks not yet made on the phone:
    - with the voice reading and another chapter picked from the list, the player reads "READING CHAPTER …" and shows Pause;
    - a tap on the reading card in the notification shade opens the book where the voice reads.
+
+   For phone tests, build the test app again (`gh workflow run build.yml --ref <branch> -f variant=test`, artifact `tomevoice-test-apk`), install it beside the real app, and uninstall it afterwards. The scratch Flutter SDK and check project (`D:/tvchk`) were also removed: set them up again from tools/phone/README.md when needed.
 2. **Batch 4, comforts**, the diary/notebook look first (plan section 13):
    - a Notebook (grid) paper among the reader's papers;
    - Saved as a notebook: one page per book, the cover "taped" at the top, notes in an open-licence handwritten font (Caveat or Kalam), coloured numbered tabs down the edge;
