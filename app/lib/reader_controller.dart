@@ -171,6 +171,10 @@ class ReaderController {
   /// have changed since (a web novel): the sentence it reads on from once
   /// the page is up; -1 for none.
   int get resumeAt => _resumeAt;
+
+  /// The chapter the place was in when it was last saved (see
+  /// [_schedulePersist]).
+  int _lastSavedSection = -1;
   var _resumeAt = -1;
 
   /// The book has been read aloud: a scroll or a page turned by hand only
@@ -611,6 +615,8 @@ class ReaderController {
 
   void _onPlayState() {
     final s = player.state.value;
+    // Paused or stopped: the place it got to is saved now, not in half a minute.
+    if (s == PlayState.paused || s == PlayState.idle) _schedulePersist(soon: true);
     if (s == PlayState.playing || s == PlayState.loading) _parked = false;
     if (s == PlayState.playing && !_listened) {
       _listened = true;
@@ -815,7 +821,9 @@ class ReaderController {
         }
       }
     }
-    _schedulePersist();
+    final here = layout.isEmpty ? -1 : layout.units[cursor.value.clamp(0, layout.units.length - 1)].sectionIndex;
+    _schedulePersist(soon: _lastSavedSection != here);
+    _lastSavedSection = here;
     _updateSession();
     if (!detached.value && !_quiet) view.reveal(cursor.value);
     view.placeMoved();
@@ -847,9 +855,16 @@ class ReaderController {
     _syncMarked();
   }
 
-  void _schedulePersist() {
+  /// The place saved a moment after it moves; while the voice reads on,
+  /// every [readingSaveEvery] instead, and at once when it pauses, stops, or
+  /// the chapter changes. Saved at every sentence (with a flush to the
+  /// disk, and the home screen's widget drawn again), hours of listening
+  /// woke the storage thousands of times.
+  void _schedulePersist({bool soon = false}) {
+    final reading = player.isPlaying && !soon;
+    if (reading && _persistTimer != null && _persistTimer!.isActive) return;
     _persistTimer?.cancel();
-    _persistTimer = Timer(const Duration(milliseconds: 1500), () => unawaited(persist()));
+    _persistTimer = Timer(reading ? readingSaveEvery : const Duration(milliseconds: 1500), () => unawaited(persist()));
   }
 
   /// Save the place now.

@@ -323,6 +323,80 @@ class NowPlayingScreen extends StatelessWidget {
       );
 }
 
+/// The cover, blurred once into a small picture that is then only stretched.
+/// A blur over the screen (an ImageFiltered layer, even in a RepaintBoundary)
+/// was done again on every frame the glow or the words moved: the renderer
+/// keeps no copy of a layer.
+class _BlurredCover extends StatefulWidget {
+  const _BlurredCover({required this.path});
+
+  final String path;
+
+  @override
+  State<_BlurredCover> createState() => _BlurredCoverState();
+}
+
+class _BlurredCoverState extends State<_BlurredCover> {
+  ui.Image? _image;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_make());
+  }
+
+  @override
+  void didUpdateWidget(_BlurredCover old) {
+    super.didUpdateWidget(old);
+    if (old.path != widget.path) unawaited(_make());
+  }
+
+  Future<void> _make() async {
+    final path = widget.path;
+    try {
+      final bytes = await File(path).readAsBytes();
+      final codec = await ui.instantiateImageCodec(bytes, targetWidth: 72);
+      final small = (await codec.getNextFrame()).image;
+      codec.dispose();
+      // Drawn blurred into a picture a little larger than itself, so the
+      // blur has room at the edges, then kept as an image.
+      final w = small.width, h = small.height;
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      canvas.drawImage(
+        small,
+        Offset.zero,
+        Paint()..imageFilter = ui.ImageFilter.blur(sigmaX: 3, sigmaY: 3, tileMode: TileMode.clamp),
+      );
+      final blurred = await recorder.endRecording().toImage(w, h);
+      small.dispose();
+      if (!mounted || path != widget.path) {
+        blurred.dispose();
+        return;
+      }
+      setState(() {
+        _image?.dispose();
+        _image = blurred;
+      });
+    } on Object {
+      // No cover to show: the accent alone, as without one.
+    }
+  }
+
+  @override
+  void dispose() {
+    _image?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final image = _image;
+    if (image == null) return const SizedBox.shrink();
+    return FadeIn(child: RawImage(image: image, fit: BoxFit.cover, filterQuality: FilterQuality.medium));
+  }
+}
+
 /// The cover blurred to colour, under a scrim that keeps white text legible,
 /// washed with the book's accent. Without a cover, the accent alone.
 class _Backdrop extends StatelessWidget {
@@ -336,16 +410,7 @@ class _Backdrop extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           ColoredBox(color: Color.lerp(accent, Colors.black, 0.72)!),
-          if (cover != null)
-            // Its own layer: the blur is drawn once, not again on every frame
-            // of the slide up.
-            RepaintBoundary(
-              child: ImageFiltered(
-                imageFilter: ui.ImageFilter.blur(sigmaX: 36, sigmaY: 36, tileMode: TileMode.clamp),
-                // A small decode is all a blur needs, and keeps it cheap.
-                child: Image.file(File(cover!), fit: BoxFit.cover, cacheWidth: 96, gaplessPlayback: true),
-              ),
-            ),
+          if (cover != null) _BlurredCover(path: cover!),
           DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(

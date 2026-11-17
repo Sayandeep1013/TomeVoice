@@ -209,6 +209,42 @@ void main() {
     });
   });
 
+  group('with the screen off', () {
+    test('the head is asked for a few times a second, not 25', () async {
+      final service = _Player(tmp);
+      final player = PlaybackScheduler(
+        service: service,
+        units: [for (var i = 0; i < 40; i++) ...layout.units],
+        settingsFor: (t) => const PipelineSettings().copyWith(text: t),
+        engineIdOf: () => null,
+        voiceNameOf: () => null,
+        pauseAfter: (_) => 100,
+      );
+      addTearDown(player.dispose);
+      final binding = TestWidgetsFlutterBinding.instance;
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await player.play(0);
+      await _until(() => service.made >= 3);
+      var asked = service.polled;
+      await Future<void>.delayed(const Duration(seconds: 1));
+      final seen = service.polled - asked;
+      expect(seen, greaterThan(12), reason: 'followed closely while the page can be seen');
+      binding
+        ..handleAppLifecycleStateChanged(AppLifecycleState.inactive)
+        ..handleAppLifecycleStateChanged(AppLifecycleState.hidden)
+        ..handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      asked = service.polled;
+      await Future<void>.delayed(const Duration(seconds: 1));
+      expect(service.polled - asked, lessThanOrEqualTo(5), reason: 'polled as often with the screen off');
+      binding
+        ..handleAppLifecycleStateChanged(AppLifecycleState.hidden)
+        ..handleAppLifecycleStateChanged(AppLifecycleState.inactive)
+        ..handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await player.stop();
+    });
+  });
+
   group('while paused', () {
     test('nothing is polled or made, and both start again on Play', () async {
       final service = _Player(tmp);
@@ -242,7 +278,9 @@ void main() {
       await inZone(() => player.play(0));
       // Ten seconds queued ahead (a second a sentence): it waits for room.
       await _until(() => service.made >= 10);
-      expect(repeating.where((t) => t.isActive), hasLength(1), reason: 'the head is followed while it plays');
+      final asked = service.polled;
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(service.polled, greaterThan(asked), reason: 'the head is followed while it plays');
       await inZone(() => player.pause());
       // A sentence under way when it paused is finished.
       var made = -1;
@@ -254,13 +292,12 @@ void main() {
       final set = timers.length;
       final polled = service.polled;
       await Future<void>.delayed(const Duration(seconds: 1));
-      expect(repeating.where((t) => t.isActive), isEmpty, reason: 'the 40 ms poll ran on while paused');
+      expect(repeating.where((t) => t.isActive), isEmpty, reason: 'a poll ran on while paused');
       expect(timers.length, set, reason: 'something woke on a timer while paused');
       expect(service.polled, polled, reason: 'the head was asked for while paused');
       expect(service.made, made, reason: 'speech was made while paused');
 
       await inZone(() => player.resume());
-      expect(repeating.where((t) => t.isActive), hasLength(1));
       await _until(() => service.polled > polled);
       expect(service.polled, greaterThan(polled), reason: 'Play did not follow the head again');
       await player.stop();

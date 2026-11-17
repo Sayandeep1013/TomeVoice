@@ -240,6 +240,10 @@ double nextSpeed(double now) => speedPresets.firstWhere((p) => p > now + 0.001, 
 /// A sentence heard to its end, the reading moved on from [prev] to [u]
 /// (the one after it) while [playing]: its words counted, and a chapter
 /// finished when [u] begins the next.
+/// How often the place is saved while the voice reads on (it is saved at
+/// once when it pauses, stops or the chapter changes).
+const readingSaveEvery = Duration(seconds: 30);
+
 void countHeard(ReadingLayout l, int prev, int u, {required bool playing}) {
   if (prev < 0 || u != prev + 1 || !playing || l.isEmpty) return;
   StatsStore.instance.addWords(l.wordsBefore[u] - l.wordsBefore[prev]);
@@ -368,6 +372,9 @@ class BackgroundReading {
   SleepChoice _sleep;
   Timer? _sleepTimer;
   Timer? _persistTimer;
+
+  /// The chapter the place was in at the last sentence (see [_onUnit]).
+  int _savedSection = -1;
   Timer? _statsTimer;
   DateTime _lastTick = DateTime.now();
   StreamSubscription<Map<String, Object?>>? _events;
@@ -657,8 +664,15 @@ class BackgroundReading {
       // (Joining them on fetches them too.)
       if (_extending == null) _fetchAhead(u);
     }
-    _persistTimer?.cancel();
-    _persistTimer = Timer(const Duration(milliseconds: 1500), () => unawaited(_persistNow()));
+    // Every half minute while it reads on, and soon after a chapter
+    // changes, it pauses or stops (see ReaderController._schedulePersist).
+    final section = layout.isEmpty ? -1 : layout.units[u.clamp(0, layout.units.length - 1)].sectionIndex;
+    final soon = !player.isPlaying || section != _savedSection;
+    _savedSection = section;
+    if (soon || !(_persistTimer?.isActive ?? false)) {
+      _persistTimer?.cancel();
+      _persistTimer = Timer(soon ? const Duration(milliseconds: 1500) : readingSaveEvery, () => unawaited(_persistNow()));
+    }
     // A play sets the sentence just before it starts: the card hears of it
     // as it does, not first as stopped there.
     if (player.active || _rollingOn) _updateCard();
@@ -666,6 +680,10 @@ class BackgroundReading {
 
   void _onState() {
     if (player.state.value != PlayState.idle) _parkedAt = null;
+    if (!player.isPlaying && (_persistTimer?.isActive ?? false)) {
+      _persistTimer?.cancel();
+      _persistTimer = Timer(const Duration(milliseconds: 1500), () => unawaited(_persistNow()));
+    }
     playingNow.value = playing || _rollingOn;
     _updateCard();
   }

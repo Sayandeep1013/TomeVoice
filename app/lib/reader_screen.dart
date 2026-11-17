@@ -417,8 +417,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// Scrolls the page by a distance, for travelling far.
   final _offsets = ScrollOffsetController();
 
-  /// The page's height on screen, for travelling far.
-  double _viewport = 600;
+  /// The page's height on screen, for travelling far: measured when it is
+  /// needed. (A LayoutBuilder kept it up to date, and built the whole list
+  /// again on every frame the bars folded away or came back.)
+  final _listBox = GlobalKey();
+  double get _viewport => (_listBox.currentContext?.findRenderObject() as RenderBox?)?.size.height ?? 600;
   final _positions = ItemPositionsListener.create();
 
   final _catalog = VoiceCatalog.instance;
@@ -1019,7 +1022,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     for (final p in _positions.itemPositions.value) {
       if (p.index == item) shown = p;
     }
-    var alignment = 0.15;
+    // The sentence is kept in the upper part of the screen, followed a
+    // little at a time: waited for until it reached the foot, a follow moved
+    // three quarters of the screen in a third of a second, which reads as
+    // dropped frames even when none are.
+    var alignment = 0.18;
     if (shown != null) {
       final height = shown.itemTrailingEdge - shown.itemLeadingEdge;
       if (height > 0.75) {
@@ -1031,8 +1038,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         final frac = text.isEmpty ? 0.0 : (_l.unitOffset[u] / text.length).clamp(0.0, 1.0);
         final at = shown.itemLeadingEdge + frac * height;
         if (!force && at >= 0.05 && at <= 0.75) return;
-        alignment = 0.15 - frac * height;
-      } else if (!force && shown.itemLeadingEdge >= 0.0 && shown.itemTrailingEdge <= 0.9) {
+        alignment = 0.18 - frac * height;
+      } else if (!force && shown.itemLeadingEdge >= 0.0 && shown.itemTrailingEdge <= 0.62) {
         return;
       }
     }
@@ -1050,9 +1057,20 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       unawaited(_travel(item, alignment).whenComplete(() => _programmaticScroll = false));
       return;
     }
-    unawaited(_scroll
-        .scrollTo(index: item, alignment: alignment, duration: duration, curve: Curves.easeInOutCubic)
-        .whenComplete(() => _programmaticScroll = false));
+    // Timed by how far it goes: a short move is not rushed, a long one not
+    // slow. Begun on the next frame, not the one the new sentence is drawn
+    // on, so the two do not share a frame.
+    final px = (shown.itemLeadingEdge - alignment).abs() * _viewport;
+    final ms = (duration.inMilliseconds * 0.8 + px * 0.4).clamp(280.0, 700.0).round();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.isAttached) {
+        _programmaticScroll = false;
+        return;
+      }
+      unawaited(_scroll
+          .scrollTo(index: item, alignment: alignment, duration: Duration(milliseconds: ms), curve: Curves.easeInOutSine)
+          .whenComplete(() => _programmaticScroll = false));
+    });
   }
 
   /// A long way to [item]: it scrolls there the way a short way does, up
@@ -2506,30 +2524,30 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           stops: [0, 18 / rect.height, 1 - 28 / rect.height, 1],
         ).createShader(rect),
         child: NotificationListener<ScrollNotification>(
+          key: _listBox,
           onNotification: _onScrollNotification,
-          child: LayoutBuilder(
-            builder: (context, box) {
-              _viewport = box.maxHeight;
-              return Directionality(
-                textDirection: _direction,
-                child: ScrollablePositionedList.builder(
-                  // One more item at the end when there is more to fetch: the way on.
-                  itemCount: _l.items.length + (widget.onReachedEnd == null ? 0 : 1),
-                  itemScrollController: _scroll,
-                  scrollOffsetController: _offsets,
-                  itemPositionsListener: _positions,
-                  initialScrollIndex: initial,
-                  initialAlignment: initial == 0 ? 0 : 0.12,
-                  padding: EdgeInsets.fromLTRB(side, 16, side, 120),
-                  itemBuilder: (context, i) => i == _l.items.length ? _more(context) : _item(context, i),
-                ),
-              );
-            },
+          child: Directionality(
+            textDirection: _direction,
+            child: ScrollablePositionedList.builder(
+              // One more item at the end when there is more to fetch: the way on.
+              itemCount: _l.items.length + (widget.onReachedEnd == null ? 0 : 1),
+              itemScrollController: _scroll,
+              scrollOffsetController: _offsets,
+              itemPositionsListener: _positions,
+              initialScrollIndex: initial,
+              initialAlignment: initial == 0 ? 0 : 0.12,
+              padding: EdgeInsets.fromLTRB(side, 16, side, 120),
+              itemBuilder: _itemAt,
+            ),
           ),
         ),
       ),
     );
   }
+
+  /// One item of the list: a method, not a new closure each build, so the
+  /// list's own layout does not count it as changed.
+  Widget _itemAt(BuildContext context, int i) => i == _l.items.length ? _more(context) : _item(context, i);
 
   late final _fastText = _TextScrollTarget(this);
 

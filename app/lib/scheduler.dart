@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'dart:ui' show AppLifecycleState;
+
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart' show SchedulerBinding;
 import 'package:flutter/services.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
@@ -243,6 +246,7 @@ class PlaybackScheduler {
   bool _fillDone = false;
   bool _ticking = false;
   Timer? _ticker;
+  bool _tickerOn = false;
 
   /// The fill loop waits here for room in the queue (woken by the head
   /// moving on, or by any restart): no polling while paused.
@@ -261,9 +265,9 @@ class PlaybackScheduler {
   /// to finish is called off by the resume after it.
   int _pauseToken = 0;
 
-  /// The head as last seen moving, and for how many ticks it has not.
+  /// The head as last seen moving, and for how long (ms) it has not.
   int _lastHead = -1;
-  int _stillTicks = 0;
+  int _stillMs = 0;
 
   /// The player was restarted once in this play after it stopped moving.
   bool _restarted = false;
@@ -459,7 +463,7 @@ class PlaybackScheduler {
     final owned = active;
     _gen++;
     _wake();
-    _ticker?.cancel();
+    _stopTicker();
     _rewindTimer?.cancel();
     unawaited(_focusWait?.cancel());
     if (_fade != null) {
@@ -489,7 +493,7 @@ class PlaybackScheduler {
     _rewindTimer?.cancel();
     _rewindDue = false;
     _lastHead = -1;
-    _stillTicks = 0;
+    _stillMs = 0;
     await service.cancelSynthesis();
     await service.stopPlayback();
     return gen;
@@ -497,15 +501,40 @@ class PlaybackScheduler {
 
   void _startTicker(int gen) {
     _ticker?.cancel();
+    _tickerOn = true;
     _lastHead = -1;
-    _stillTicks = 0;
-    _ticker = Timer.periodic(_tickEvery, (_) => _tick(gen));
+    _stillMs = 0;
+    _ticker = Timer(_tickEvery, () => _tickOn(gen));
+  }
+
+  /// The head asked after, then again after a while: every [_tickEvery]
+  /// while the page can be seen (the word lit, the glow), every [_tickAway]
+  /// with the screen off or the app away, where only the sentence matters.
+  /// Polled every 40 ms throughout, a reading with the screen off woke the
+  /// phone 25 times a second for nothing.
+  Future<void> _tickOn(int gen) async {
+    final every = _away ? _tickAway : _tickEvery;
+    await _tick(gen, every);
+    if (!_tickerOn || gen != _gen) return;
+    _ticker = Timer(_away ? _tickAway : _tickEvery, () => _tickOn(gen));
   }
 
   static const _tickEvery = Duration(milliseconds: 40);
+  static const _tickAway = Duration(milliseconds: 300);
+
+  static bool get _away {
+    try {
+      final s = SchedulerBinding.instance.lifecycleState;
+      return s == AppLifecycleState.paused || s == AppLifecycleState.hidden;
+    } on Object {
+      // No app around it (a test of the scheduler alone): as if seen.
+      return false;
+    }
+  }
 
   /// No polling while nothing moves (paused, finished): the head is still.
   void _stopTicker() {
+    _tickerOn = false;
     _ticker?.cancel();
     _ticker = null;
   }
@@ -829,7 +858,7 @@ class PlaybackScheduler {
     }
   }
 
-  Future<void> _tick(int gen) async {
+  Future<void> _tick(int gen, [Duration every = _tickEvery]) async {
     if (_ticking || gen != _gen) return;
     _ticking = true;
     try {
@@ -861,7 +890,7 @@ class PlaybackScheduler {
         }
         return;
       }
-      if (state.value == PlayState.playing && _stuck(pos)) {
+      if (state.value == PlayState.playing && _stuck(pos, every)) {
         await _stalled(gen);
         return;
       }
@@ -903,13 +932,14 @@ class PlaybackScheduler {
 
   /// Whether the head has stood still at [pos] for [_stallAfter] while
   /// there is audio queued past it.
-  bool _stuck(int pos) {
+  bool _stuck(int pos, Duration every) {
     if (pos != _lastHead) {
       _lastHead = pos;
-      _stillTicks = 0;
+      _stillMs = 0;
       return false;
     }
-    return ++_stillTicks * _tickEvery.inMilliseconds > _stallAfter.inMilliseconds;
+    _stillMs += every.inMilliseconds;
+    return _stillMs > _stallAfter.inMilliseconds;
   }
 
   /// The player stopped while it should be playing: the sentence is queued
