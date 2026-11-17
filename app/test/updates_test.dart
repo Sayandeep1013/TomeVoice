@@ -107,6 +107,36 @@ void main() {
     expect(log.problems, isEmpty);
   });
 
+  test('Clear empties the list as shown, and nothing else: Undo puts it back beside what came since', () async {
+    final a0 = await add('a', 'a0', 5);
+    await add('b', 'b0', 5);
+    sites.lists['a0'] = _chapters('a0', 7);
+    sites.lists['b0'] = _chapters('b0', 6);
+    final updates = Updates(store);
+    await updates.checkAll();
+    final raw = jsonDecode(File('${tmp.path}/updates.json').readAsStringSync()) as Map;
+    final all = (await updates.log()).items;
+    expect(all, hasLength(3));
+
+    // A novel on a shut secret shelf is not shown, and not cleared.
+    final shown = [for (final c in all) if (!c.path!.startsWith('b0')) c];
+    await updates.forget(shown);
+    var log = await updates.log();
+    expect(log.items.map((c) => c.path), ['b0/ch-6']);
+    expect(log.checked, isNotNull, reason: 'when the sites were last asked stays');
+    final after = jsonDecode(File('${tmp.path}/updates.json').readAsStringSync()) as Map;
+    expect({...after}..remove('new'), {...raw}..remove('new'), reason: 'everything else in the log is as it was');
+
+    // Checks go on as ever, and Undo puts the cleared ones back with the new.
+    sites.lists['a0'] = _chapters('a0', 8);
+    await updates.checkAll();
+    await updates.keepAgain(shown);
+    log = await updates.log();
+    expect(log.items.map((c) => c.path).toSet(), {'a0/ch-8', 'a0/ch-7', 'a0/ch-6', 'b0/ch-6'});
+    expect(log.items.first.path, 'a0/ch-8', reason: 'newest first');
+    expect((await store.webNovel(a0))?.chapters, hasLength(8), reason: 'the novel kept its chapters');
+  });
+
   test('a run that reaches no site is not recorded as a check; why each source failed is kept', () async {
     await add('a', 'a0', 3);
     await add('a', 'a1', 3);

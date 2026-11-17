@@ -55,7 +55,21 @@ class DownloadJob {
 
 /// How one novel's downloads stand.
 class BookDownloads {
-  const BookDownloads({required this.waiting, required this.failed, this.current, this.problem});
+  const BookDownloads({
+    required this.waiting,
+    required this.failed,
+    this.current,
+    this.problem,
+    this.done = 0,
+    this.resting = false,
+  });
+
+  /// Chapters of it downloaded since its downloads began.
+  final int done;
+
+  /// Nothing of it is downloading now: every chapter left waits for a site
+  /// that asked for a rest, or for its turn after a failed try.
+  final bool resting;
 
   /// Chapters still to download.
   final int waiting;
@@ -111,6 +125,9 @@ class DownloadQueue {
   /// Chapters downloaded since the queue last ran dry, for the notification.
   int _done = 0;
 
+  /// Each novel's chapters downloaded since its downloads began.
+  final _doneOf = <String, int>{};
+
   bool get paused => _paused;
 
   /// Whether the queue kept in library [root] is paused (asked by the
@@ -126,7 +143,9 @@ class DownloadQueue {
 
   /// The library to download into; picks up where the queue was.
   Future<void> attach(LibraryStore store) async {
+    _store?.chapterSaved.removeListener(_onSaved);
     _store = store;
+    store.chapterSaved.addListener(_onSaved);
     _file = File('${store.root.path}/downloads.json');
     try {
       if (await _file!.exists()) {
@@ -187,7 +206,51 @@ class DownloadQueue {
     }
     if (waiting == 0 && failed == 0) return null;
     final now = _running.values.where((j) => j.bookId == bookId).firstOrNull;
-    return BookDownloads(waiting: waiting, failed: failed, current: now?.name, problem: problem);
+    final at = DateTime.now();
+    final resting = now == null &&
+        waiting > 0 &&
+        _jobs.every((j) => j.bookId != bookId || j.failed != null || (j.notBefore?.isAfter(at) ?? false));
+    return BookDownloads(
+      waiting: waiting,
+      failed: failed,
+      current: now?.name,
+      problem: problem,
+      done: _doneOf[bookId] ?? 0,
+      resting: resting,
+    );
+  }
+
+  /// A chapter was saved, perhaps by something else than the queue (a
+  /// reader fetching ahead, the reading in the background): those waiting
+  /// here that are on the phone now are let go, so none is shown as still
+  /// to download.
+  void _onSaved() {
+    _pruneTimer?.cancel();
+    _pruneTimer = Timer(const Duration(milliseconds: 300), () => unawaited(_prune()));
+  }
+
+  Timer? _pruneTimer;
+
+  Future<void> _prune() async {
+    final store = _store;
+    if (store == null) return;
+    var gone = 0;
+    for (final id in {for (final j in _jobs) j.bookId}) {
+      final info = await store.webNovel(id);
+      if (info == null) continue;
+      final index = {for (var i = 0; i < info.chapters.length; i++) info.chapters[i].path: i};
+      for (final j in [..._jobs]) {
+        if (j.bookId != id || _running.containsValue(j)) continue;
+        final at = index[j.path];
+        if (at == null || !store.hasChapter(id, at)) continue;
+        _jobs.remove(j);
+        gone++;
+        if (j.failed == null) _doneOf[id] = (_doneOf[id] ?? 0) + 1;
+      }
+    }
+    if (gone == 0) return;
+    await _save();
+    _kick();
   }
 
   /// The addresses of [bookId]'s chapters waiting (not failed).
@@ -213,6 +276,11 @@ class DownloadQueue {
   /// Forget [bookId]'s downloads still waiting (all of them, when null).
   Future<void> cancel([String? bookId]) async {
     _jobs.removeWhere((j) => bookId == null || j.bookId == bookId);
+    if (bookId == null) {
+      _doneOf.clear();
+    } else {
+      _doneOf.remove(bookId);
+    }
     await _save();
     _kick();
   }
@@ -279,6 +347,8 @@ class DownloadQueue {
     }
     final waiting = [for (final j in _jobs) if (j.failed == null && !_running.containsValue(j)) j];
     if (_running.isEmpty && waiting.isEmpty) _done = 0;
+    // A novel with nothing left counts from nothing next time.
+    _doneOf.removeWhere((id, _) => !_jobs.any((j) => j.bookId == id));
     if (_running.length < _lanes && waiting.isNotEmpty) {
       // Something waits on a backoff or a site's pace: come back then.
       final now = DateTime.now();
@@ -346,6 +416,7 @@ class DownloadQueue {
       await store.saveChapterAt(job.bookId, job.path, html, language: languageCodeOf(info.plugin.lang));
       _jobs.remove(job);
       _done++;
+      _doneOf[job.bookId] = (_doneOf[job.bookId] ?? 0) + 1;
     } on Object catch (e) {
       _failed(job, e);
     } finally {

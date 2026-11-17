@@ -142,7 +142,7 @@ class SourceEngine {
       ], timeout: timeout);
       return _novels(r).isNotEmpty ? null : 'It listed no novels.';
     } on SourceException catch (e) {
-      return e.message;
+      return sourceErrorInWords(e.message);
     } on Object catch (e) {
       return friendlyError(e);
     }

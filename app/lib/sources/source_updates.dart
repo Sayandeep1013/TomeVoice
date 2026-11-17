@@ -51,7 +51,7 @@ Future<List<UpdateOutcome>> updateSources(
           : await engine.smokeTest(old!, store.codePath(old.id), old.sha256!);
       if (oldProblem == null) {
         out.add(UpdateOutcome(next,
-            updated: false, note: 'Version ${next.version} did not work ($problem), so ${old!.version} was kept.'));
+            updated: false, note: 'Version ${next.version} did not work, so ${old!.version} was kept. $problem'));
       } else {
         await store.installCode(next, code, hash);
         out.add(UpdateOutcome(next, updated: true, note: 'The site did not answer either version: $problem'));

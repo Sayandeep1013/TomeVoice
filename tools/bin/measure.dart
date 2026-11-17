@@ -7,7 +7,7 @@
 // Pass the run prefix without an extension; the .wav and .json beside it are
 // read together.
 //
-// Checks the spike's success criteria (docs/15 section 15.3) against the
+// Checks the spike's success criteria (docs/13 section 13.13) against the
 // *audio*, not against what the app believed it did. It deliberately does not
 // re-run the pipeline — measuring with the same code that produced the result
 // would let a bug certify itself. It uses only the analysis helpers, which are

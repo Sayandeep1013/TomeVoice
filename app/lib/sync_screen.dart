@@ -186,30 +186,34 @@ class _SyncScreenState extends State<SyncScreen> {
                         Text(
                           'A folder on Nextcloud, a NAS or any WebDAV server. TomeVoice keeps its files in a '
                           'TomeVoice folder there.',
-                          style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
+                          style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context))
+                              .copyWith(height: 1.45),
                         ),
-                        TextField(
-                          controller: _davUrl,
-                          keyboardType: TextInputType.url,
-                          autocorrect: false,
-                          decoration: const InputDecoration(
-                            labelText: 'WebDAV address',
-                            hintText: 'https://cloud.example.org/remote.php/dav/files/me/',
+                        const SizedBox(height: Gap.l),
+                        FormFields(children: [
+                          TextField(
+                            controller: _davUrl,
+                            keyboardType: TextInputType.url,
+                            autocorrect: false,
+                            decoration: const InputDecoration(
+                              labelText: 'WebDAV address',
+                              hintText: 'https://cloud.example.org/remote.php/dav/files/me/',
+                            ),
                           ),
-                        ),
-                        TextField(
-                          controller: _davUser,
-                          autocorrect: false,
-                          decoration: const InputDecoration(labelText: 'User name'),
-                        ),
-                        TextField(
-                          controller: _davPassword,
-                          obscureText: true,
-                          autocorrect: false,
-                          enableSuggestions: false,
-                          decoration: const InputDecoration(labelText: 'Password'),
-                        ),
-                        const SizedBox(height: Gap.s),
+                          TextField(
+                            controller: _davUser,
+                            autocorrect: false,
+                            decoration: const InputDecoration(labelText: 'User name'),
+                          ),
+                          TextField(
+                            controller: _davPassword,
+                            obscureText: true,
+                            autocorrect: false,
+                            enableSuggestions: false,
+                            decoration: const InputDecoration(labelText: 'Password'),
+                          ),
+                        ]),
+                        const SizedBox(height: Gap.m),
                         SwitchRow(
                           title: 'Sync through this server',
                           value: _prefs.webdavOn,
@@ -221,32 +225,38 @@ class _SyncScreenState extends State<SyncScreen> {
                         Text(
                           'Keeps your place in a book the same as in KOReader, on another device, through a '
                           'KOReader sync server. Works for EPUB and PDF files that are the same file in both.',
-                          style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
+                          style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context))
+                              .copyWith(height: 1.45),
                         ),
-                        TextField(
-                          controller: _koUrl,
-                          keyboardType: TextInputType.url,
-                          autocorrect: false,
-                          decoration: const InputDecoration(labelText: 'Server', hintText: 'https://sync.example.org'),
-                        ),
-                        TextField(
-                          controller: _koUser,
-                          autocorrect: false,
-                          decoration: const InputDecoration(labelText: 'User name'),
-                        ),
-                        TextField(
-                          controller: _koPassword,
-                          obscureText: true,
-                          autocorrect: false,
-                          enableSuggestions: false,
-                          decoration: InputDecoration(
-                            labelText: 'Password',
-                            hintText: _koKeyKept ? 'Kept (type to change)' : null,
+                        const SizedBox(height: Gap.l),
+                        FormFields(children: [
+                          TextField(
+                            controller: _koUrl,
+                            keyboardType: TextInputType.url,
+                            autocorrect: false,
+                            decoration:
+                                const InputDecoration(labelText: 'Server', hintText: 'https://sync.example.org'),
                           ),
-                        ),
-                        const SizedBox(height: Gap.s),
+                          TextField(
+                            controller: _koUser,
+                            autocorrect: false,
+                            decoration: const InputDecoration(labelText: 'User name'),
+                          ),
+                          TextField(
+                            controller: _koPassword,
+                            obscureText: true,
+                            autocorrect: false,
+                            enableSuggestions: false,
+                            decoration: InputDecoration(
+                              labelText: 'Password',
+                              hintText: _koKeyKept ? 'Kept (type to change)' : null,
+                            ),
+                          ),
+                        ]),
+                        const SizedBox(height: Gap.l),
                         Wrap(
                           spacing: Gap.s,
+                          runSpacing: Gap.s,
                           children: [
                             FilledButton(
                               onPressed: _busy ? null : () => unawaited(_kosyncSignIn()),

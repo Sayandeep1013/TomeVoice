@@ -41,11 +41,13 @@ hardest part of the architecture exists.
 
 ## 1.4 Scope
 
-> **Where this stands (31 October 2026).** This was the plan before the first line was
-> written. Built since: everything below for Android, plus OCR, MOBI/AZW3, export to
-> audio and opt-in sync from the v1.x list (the last three on the `next` branch). Not
-> built: Windows ("Android only for now", maybe later). Decided against for now: a Play
-> Store build, the interface in other languages, and on-device AI. Current plans are in
+> **Where this stands (1.4.0, 31 October 2026).** This was the plan before the first line
+> was written. Built since, for Android: the v1.0 list below, with some of its parts
+> built another way or not at all (the gaps are in each document's "As built" notes), and
+> from the v1.x list OCR, MOBI/AZW3, saving to audio, opt-in sync and shareable
+> pronunciation lists, all released by 1.4.0. Not built: Windows (Android only for now,
+> maybe later), cloud voices and voice cloning. Decided against for now: a Play Store
+> build, the interface in other languages, and on-device AI. Current plans are in
 > [12 — Roadmap](12-roadmap-and-milestones.md).
 
 ### In scope for v1.0

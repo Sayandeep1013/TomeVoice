@@ -3,6 +3,33 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## 1.4.2 (2026-11-18)
+
+Web novels open where you ask, and keep going.
+
+#### Fixes
+- A chapter picked from a novel's list (or a bookmark, a passage found, a chapter in Contents) opens there. Before, a book left playing or paused in the background opened at the voice's place instead. While the voice reads, the page shows the chapter picked and the voice reads on; Back to reading returns to it.
+- A chapter already on the phone opens at once. Before, the reader first fetched the next three chapters, showed "Fetching chapter 4…" meanwhile, and said it could not open the chapter if one of them failed.
+- Reading aloud goes on into the next chapter when a chapter after it cannot be had. If the next one itself cannot be had, it reads on at the next chapter on the phone; if there is none, it says the site failed rather than that the novel has ended.
+- A novel's download line counts "3 of 10", lets go of chapters something else downloaded meanwhile (they were shown as still to come until Cancel), ticks each chapter as it comes, and says when it waits for a site that asked for a rest instead of spinning.
+- In a book you have listened to, a scroll or a page turned by hand only looks around: the voice's place stays, and Back to reading returns to it. Only Read from here moves it. A book only ever read by eye keeps its place where you are.
+- Settings' cards reach closer to the screen's edges.
+- Open with TomeVoice is offered for AZW3 files that file managers label as KF8 (application/vnd.amazon.mobi8-ebook).
+- A tap on a PDF's real page that went away under the finger (the voice turned it) no longer crashes the app ([#24](https://github.com/Sayandeep1013/TomeVoice/issues/24), [#25](https://github.com/Sayandeep1013/TomeVoice/issues/25)).
+
+## 1.4.1 (2026-10-31)
+
+Fixes from the first day of 1.4.0 on a phone.
+
+#### Fixes
+- Updates has **Clear the list**: the list of new chapters empties (with Undo). The chapters stay in their novels, downloaded or not, and checks and downloads go on as before.
+- On a PDF's real pages, press and hold offers what to do there (read from the top of the page, or pick a sentence on it, shown as text) instead of reading from the top at once.
+- Back with the menu open closes the menu. On Android 16 it took TomeVoice to the background with the menu still open.
+- The forms for a catalogue (a Calibre library, Add a catalogue, signing in) and for sync have room between their fields.
+- Standard Ebooks' whole catalogue says what its Patrons Circle is before it asks for an email.
+- A source update that fails because the site sent a web page instead of its data says so in words, not as a "SyntaxError".
+- OCR tells the text engine what resolution a page was drawn at; told nothing, it took a 300 dpi page for 70 dpi and misjudged the size of everything on it.
+
 ## 1.4.0 (2026-10-31)
 
 The biggest TomeVoice yet: save a book as an audiobook, a voice for each character, an EPUB's own narration, reading that goes on when you leave the app, web novels that look after themselves, a library you can organise, and your own colours.

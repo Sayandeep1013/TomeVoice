@@ -577,10 +577,11 @@ abstract class BaseWidget : AppWidgetProvider() {
 /**
  * Now reading: the book being read (or one chosen), with play.
  *
- * Drawn to the design in docs/road-to-1.0.html: its 2 x 2 is a 176-unit
- * square and its 4 x 2 a 360 x 176 card. Each layout takes those units and
- * scales them as one piece ([s] dp a unit), so a launcher's 136 dp square
- * looks like the design, only smaller, instead of squeezing a few parts.
+ * Drawn to the design in the 1.0 plan (removed from docs/ after 1.4.0:
+ * git show v1.4.0:docs/road-to-1.0.html): its 2 x 2 is a 176-unit square
+ * and its 4 x 2 a 360 x 176 card. Each layout takes those units and scales
+ * them as one piece ([s] dp a unit), so a launcher's 136 dp square looks
+ * like the design, only smaller, instead of squeezing a few parts.
  */
 open class PlayerWidget : BaseWidget() {
     override val layout = R.layout.widget_small

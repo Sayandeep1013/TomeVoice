@@ -1,9 +1,36 @@
 # 10 — Decision Log (ADRs)
 
 Each record: the decision, the alternatives considered, why they were rejected, and what
-it costs us. Decisions are dated and may be superseded, never silently edited.
+it costs us. Decisions are dated and may be superseded, never silently edited: where the
+build went another way, a dated **Status note** under the record says how, and the
+record's text is left as it was decided.
 
 Status values: **Accepted** · **Proposed** · **Superseded** · **Open**
+
+| ADR | Decision | Status (1.4.0) |
+|---|---|---|
+| [001](#adr-001) | Flutter | Accepted; Android only so far |
+| [002](#adr-002) | Tiered TTS | Accepted; the cloud tier not built |
+| [003](#adr-003) | Synthesise to PCM, own player | Accepted; proven |
+| [004](#adr-004) | One Document Model | Accepted |
+| [005](#adr-005) | EPUB in a WebView, PDF through PDFium | **Superseded** by what was built |
+| [006](#adr-006) | sherpa-onnx | Accepted; 1.13.8 |
+| [007](#adr-007) | Kokoro gated, never the default | Accepted |
+| [008](#adr-008) | No eSpeak-NG | Superseded by ADR-014 |
+| [009](#adr-009) | Permissive voices only, an allowlist | **Superseded in part**, 2026-10-29 |
+| [010](#adr-010) | No DRM | Accepted |
+| [011](#adr-011) | Local-first | Accepted |
+| [012](#adr-012) | SQLite through Drift | **Superseded**: JSON files |
+| [013](#adr-013) | Own Windows speech plugin | Accepted, not built |
+| [014](#adr-014) | GPL-3.0 | Accepted |
+| [015](#adr-015) | Word timings with provenance | Accepted |
+| [016](#adr-016) | Dart locally, APKs in CI | Accepted |
+| [017](#adr-017) | The "specimen" look | Amended by ADR-018 |
+| [018](#adr-018) | A fashion-magazine type set | Accepted |
+| [019](#adr-019) | LNReader plugins in QuickJS | Accepted |
+
+Facts these decisions rest on that can change upstream are listed at the end, with what
+to re-check: [Recheck triggers](#recheck-triggers).
 
 ---
 
@@ -33,6 +60,10 @@ mobile; expect to write more platform plugins than a mobile-only app would
 ([ADR-013](#adr-013)). Text rendering for the EPUB view goes through a WebView rather
 than Flutter widgets ([ADR-005](#adr-005)).
 
+**Status note, 1.4.0.** Flutter held. Only the Android half exists; Windows is not
+started ([08](08-platform-windows.md)). The Android side is Kotlin over platform channels
+(`app/android_overlay`), not C/C++ through FFI.
+
 ---
 
 ## ADR-002
@@ -55,6 +86,10 @@ System is the default; neural is discovered and downloaded deliberately.
 **Consequences.** First-run quality is only as good as the user's installed system voice,
 which varies. Mitigated by making the Voice Store prominent and the first neural download
 a single tap.
+
+**Status note, 1.4.0.** System voices are the default; Piper voices arrived in 1.0.0 and
+Kokoro and Kitten in 1.4.0, all opt-in with a warning first rather than one tap. The
+bring-your-own-key cloud tier was not built.
 
 ---
 
@@ -84,6 +119,12 @@ device changes, buffering and the media session ourselves — everything `speak(
 have handled. This is the largest architectural cost in the project. It is also what
 makes the product distinctive, and it is unavoidable given the requirements.
 
+**Status note.** Proven first, by the audio spike on the phone (2026-09-01 and 02): the
+word gap measured as asked on real audio, at 1.0x and 2.0x
+([13 §13.13](13-testing-and-qa.md#1313-the-audio-spike)). Every release since has kept to
+it: `synthesizeToFile`, sherpa-onnx `generate`, a book's own recording decoded, one
+streaming `AudioTrack` that TomeVoice feeds.
+
 ---
 
 ## ADR-004
@@ -103,7 +144,8 @@ feature in [05](05-tts-controls-spec.md) is written once.
 ---
 
 ## ADR-005
-**EPUB rendered in a WebView; PDF rendered natively via PDFium** — Accepted, 2026-09-01
+**EPUB rendered in a WebView; PDF rendered natively via PDFium** — Accepted, 2026-09-01;
+**superseded by what was built** (see the status note)
 
 **Context.** An EPUB is HTML and CSS. A PDF is a page-description format. They want
 different renderers.
@@ -122,6 +164,18 @@ for EPUB; PDFium via `pdfrx` for PDF, with our own text overlay.
 **Consequences.** Two rendering paths and two highlighting implementations — an injected
 script resolving CFIs to client rects for EPUB, a quad overlay for PDF. Both feed the
 same Document Model, so the layer above is shared.
+
+**Status note, 1.4.0.** Neither half was built this way; the change was made while
+building, not recorded at the time.
+
+- **EPUB (and every other format)** is drawn with Flutter text from the Document Model:
+  a scrolling page (0.2.0) and pages cut from the same `TextPainter`s (1.0.8), with the
+  sentence and word highlighted in the same text. No WebView, no CFIs: the place is a
+  sentence ([02 §2.4](02-architecture.md#24-contract-a-the-document-model)). The cost the
+  rejected alternative named is real: a book's own CSS is not honoured.
+- **PDF text** comes from PdfBox-Android (`PdfText.kt`), its clean-up in Dart; **PDF
+  pages** are drawn by Android's own `PdfRenderer` (`PdfPages.kt`), which needs no
+  library. `pdfrx` is not used ([03 §3.3](03-document-pipeline.md#33-pdf-the-hard-one)).
 
 ---
 
@@ -161,6 +215,11 @@ excluded, or a wait for 2.0.0.
 is word timings ([C-13](09-challenges-and-solutions.md#c-13)); the plan is an upstream
 contribution to expose model durations, with proportional estimation until then.
 
+**Status note, 1.4.0.** Shipped in 1.0.0 and pinned at **1.13.8**, full-precision models
+only (the fp16 ones abort ONNX Runtime on phones). Word timings come from the pauses in
+the audio (`PauseAligner`), not from an upstream contribution
+([04 §4.7](04-tts-engine-contract.md#47-deriving-word-timings-for-neural-engines)).
+
 ---
 
 ## ADR-007
@@ -197,6 +256,12 @@ download than it needed to be. We state both reasons rather than hiding the opti
 visible "your device does not have enough memory for this voice" is more respectful than
 an unexplained absence.
 
+**Status note, 1.4.0.** Built as decided, with the gate made concrete: Kokoro
+(`kokoro-multi-lang-v1_0`, full precision, 334 MB) is offered only on phones with at
+least 5,200 MB of memory, and read with only once the phone's own speed test shows it
+keeps up. No int8 option is offered
+([04 §4.6](04-tts-engine-contract.md#46-adapter-kokoro-via-sherpa-onnx)).
+
 ---
 
 ## ADR-008
@@ -227,7 +292,8 @@ than a blocker.
 ---
 
 ## ADR-009
-**Permissively licensed voices only, from an audited allowlist** — Accepted, 2026-09-01
+**Permissively licensed voices only, from an audited allowlist** — Accepted, 2026-09-01;
+**superseded in part**, 2026-10-29
 
 **Context.** Piper's voice catalogue mixes CC0, CC-BY, MIT, Apache and non-commercial
 licences with no machine-readable commercial-use flag.
@@ -239,6 +305,14 @@ its voice, surface it in the UI, honour CC-BY attribution.
 **Consequences.** Manual audit work per voice, and re-audit on catalogue updates. Fewer
 voices at launch than a "just list everything upstream has" approach. This is the correct
 trade.
+
+**Status note, 2026-10-29.** The developer decided the GitHub build keeps every voice,
+non-commercial ones included, each with its licence shown; only a Play build would leave
+them out ([18](18-play-store-audit.md)). What stands: the catalogue is TomeVoice's own,
+shipped in the app (`tools/voice_catalog.py`, not signed or hosted), never an upstream
+list read at run time, and each voice carries the licence its model card states. In 1.4.0
+that is 180 Piper voices, of which 38 are non-commercial, 2 have no licence and 24 an
+unclear one ([06 §6.4](06-voice-catalog-and-licensing.md#64-the-per-voice-trap)).
 
 ---
 
@@ -268,10 +342,18 @@ frictionless sync a cloud-first product would have. Given the audience — peopl
 their own files, often books they care about privately — this is the right side of the
 trade.
 
+**Status note, 1.4.0.** Held. Sync arrived in 1.4.0, opt-in, through the reader's own
+WebDAV folder or KOReader sync server, carrying places, quotes, bookmarks and listening
+time, never books. Cloud voices were not built. What does go out: requests to web-novel
+sites and catalogues, voice and OCR data downloads, the starter's two web novels on a
+first launch, and the check for new versions on GitHub every few hours (on by default,
+and can be turned off).
+
 ---
 
 ## ADR-012
-**SQLite via Drift for all local state** — Accepted, 2026-09-01
+**SQLite via Drift for all local state** — Accepted, 2026-09-01; **superseded** by plain
+JSON files (see the status note)
 
 **Decision.** One database for library, reading state, settings, dictionaries, the voice
 catalogue cache and the parsed-document cache. Files (books, voice models, covers) live
@@ -279,6 +361,12 @@ on disk and are referenced by path.
 
 **Alternatives rejected.** Key-value stores lack the querying the library view needs;
 a document store adds a dependency for no gain over SQLite's JSON support.
+
+**Status note, 1.4.0.** Never built. The library is plain JSON files written atomically
+(`library.json`, each book's `parsed.json` and `cursor.json`, `prefs.json`, `marks.json`
+and the rest), readable over USB and by the widgets and Android Auto, and a backup is a
+zip of the folder ([11](11-data-model-and-storage.md)). The cost showed at scale: saving a
+place rewrote the whole index, and 1.4.0 had to batch those writes.
 
 ---
 
@@ -296,6 +384,10 @@ need *bytes plus word markers*.
 exchange we get exactly Contract B and drop a dependency we would otherwise be fighting.
 The Android side may still use platform channels to the system `TextToSpeech` API
 directly, for the same reason.
+
+**Status note, 1.4.0.** Not built: Windows is not started. The Android side did exactly
+what the last paragraph says: its own platform channel to `TextToSpeech`
+(`ReadingCore.kt`), no `flutter_tts`.
 
 ---
 
@@ -351,6 +443,18 @@ only sentence-level on neural voices until the duration-output work lands. That
 difference must be visible in the voice picker so users are not confused by it — and it
 must not be promised in marketing before it exists.
 
+**Status note.** The audio spike decided, before it had an answer (2026-09-01), what each
+answer about system voices would mean: word granularity on Google's TTS and at least one
+other engine, proceed as documented; on Google's only, proceed with the promise made
+engine-conditional; utterance granularity only, reopen this ADR; no `onRangeStart` at all,
+stop and re-decide with the developer. The answer (2026-09-02): word granularity on
+Google's TTS, the only engine on the test phone. Strictly that is the second branch, and
+how other engines report is still unmeasured; any voice that reports nothing gets timings
+from its pauses instead. Natural voices got word highlighting the same way: a new source,
+`anchored`, for timings matched to the pauses in the audio, highlighted word by word; only
+`estimated` falls back to the sentence
+([04 §4.7](04-tts-engine-contract.md#47-deriving-word-timings-for-neural-engines)).
+
 ---
 
 ## ADR-016
@@ -397,6 +501,12 @@ Acceptable during the audio spike, where iteration is local and only finished wo
 pushed to the device. It becomes a real cost in Phase 1; mitigation is either installing
 Flutter at that point or prototyping UI as static HTML/CSS locally before translating to
 widgets once.
+
+**Status note, 1.4.0.** Held, with one loosening: to check app code before a push, a
+Flutter SDK (the version CI pins) is unzipped into a scratch folder for the session, used
+for `dart analyze` and `flutter test`, and deleted afterwards; QuickJS cannot be built
+there, so those checks stub it and CI tests the real engine. Every APK is still built in
+CI ([16](16-session-handoff.md)). No Windows build exists.
 
 ---
 
@@ -475,4 +585,31 @@ to their owners.
 
 **Consequences.** About 3 MB more APK (QuickJS, the bundle). QuickJS's native build cannot
 run on the developer's Windows PC without MSVC, so local checks stub the engine and CI tests
-it (handoff finding 16).
+it ([16](16-session-handoff.md)).
+
+**Status note, 1.4.0.** Held. Since 1.4.0 each plugin runs in a QuickJS context of its own,
+its cookies kept for it alone, its requests kept off the phone's own network, and its code
+checked against its SHA-256 at install and on every load. Libraries some plugins need
+(protobufjs, @noble/ciphers) are bundled separately and loaded only for them.
+
+---
+
+## Recheck triggers
+
+The facts above were checked against primary sources on 2026-09-01 (18 claims, of which
+two were wrong and one incomplete; ADR-006, ADR-007 and ADR-008 were rewritten for it) and
+on the phone on 2026-09-02. One lesson outlived that pass: the `onRangeStart` parameter
+order was verified against the documentation and was still wrong on the device. What a
+device can settle should be settled on a device before code is built on top of it.
+
+Some of these facts change upstream. When one does, re-check what rests on it:
+
+| Watch | Trigger | What to re-check |
+|---|---|---|
+| sherpa-onnx **2.0.0** | a major release | eSpeak-NG is to be removed. Piper voices need it: migrate to a supplied `lexicon.txt` or pre-tokenised phonemes, deliberately. `app/pubspec.yaml` pins 1.13.8; do not upgrade across 2.0 by default ([ADR-006](#adr-006), [§4.8](04-tts-engine-contract.md#48-phonemisation)) |
+| sherpa-onnx word timings | a release that exposes the models' durations | natural voices could take model timings instead of pause anchors ([C-13](09-challenges-and-solutions.md#c-13)) |
+| sherpa-onnx's `tts-models` release | new or changed voices | run `tools/voice_catalog.py --check`, read each new licence ([C-23](09-challenges-and-solutions.md#c-23)); a Bengali Piper voice would lift a known limit ([12](12-roadmap-and-milestones.md)) |
+| Kokoro or Kitten licence | any upstream change | whether the HD tier can stay |
+| Android's yearly target-SDK rule | around August | bump `TARGET_SDK` in `tools/prepare_android.py`, then run the emulator job on the new Android: Back, the media session, background reading ([C-28](09-challenges-and-solutions.md#c-28)) |
+| Android 17's per-app memory limits | Android 17 stable | Kokoro's 5,200 MB gate ([C-16](09-challenges-and-solutions.md#c-16)) |
+| `flutter_qjs` (one maintainer, pinned by commit) | any move of the pin | build and test the real QuickJS engine in CI before relying on it ([ADR-019](#adr-019)) |

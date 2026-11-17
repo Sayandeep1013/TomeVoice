@@ -2,7 +2,7 @@ import 'dart:typed_data';
 
 import 'package:tomevoice_document/tomevoice_document.dart';
 
-// Who says each quotation in a book ("Level 2" in docs/road-to-1.0.html):
+// Who says each quotation in a book (docs/05 section 5.10, "Level 2"):
 // from its speech tags ("…," said Elizabeth; Elizabeth said, "…"; "…," said
 // she, for the last named speaker of that sex where nobody else could be
 // meant), a character's own beat beside the words, and the turns of an

@@ -136,6 +136,34 @@ void main() {
     expect(q.of(a), isNull);
   });
 
+  test('a chapter saved by something else (a reader fetching ahead) is let go of at once, and counted done', () async {
+    final (a, ac) = await novel('a', 'na', 4);
+    final q = queue();
+    await q.attach(store);
+    await q.pause();
+    await q.add(a, ac);
+    expect(q.of(a)!.waiting, 4);
+    // The reader fetched chapter 2 itself, beside the queue.
+    await store.saveChapterAt(a, 'na/2', '<p>Fetched by the reader, enough words to read.</p>');
+    await until(() => q.of(a)!.waiting == 3);
+    expect(q.of(a)!.done, 1);
+    expect(q.waitingPaths(a), isNot(contains('na/2')));
+    await q.resume();
+    await until(() => q.of(a) == null);
+    expect(sites.asked['na/2'], isNull, reason: 'the site was asked for a chapter on the phone');
+  });
+
+  test('a novel waiting out a rest the site asked for says so, not downloading', () async {
+    final (a, ac) = await novel('a', 'na', 1);
+    sites.pages['na/1'] = [RateLimitedException(const Duration(seconds: 30)), '<p>Words, enough to read.</p>'];
+    final q = queue(pace: Duration.zero);
+    await q.attach(store);
+    await q.add(a, ac);
+    await until(() => sites.asked['na/1'] != null && q.of(a)!.current == null);
+    expect(q.of(a)!.resting, isTrue);
+    await q.cancel(a);
+  });
+
   test('the queue is kept on disk: it carries on where it was when the app opens again', () async {
     final (a, ac) = await novel('a', 'na', 3);
     final q = queue();

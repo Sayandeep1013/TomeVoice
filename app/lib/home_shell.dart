@@ -509,20 +509,17 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
         ],
       );
     }
-    return shownGate(PopScope(
-      // Back from History goes to the library before it leaves the app.
+    return shownGate(DrawerBackScaffold(
+      // Back closes the drawer, then goes from History to the library before
+      // it leaves the app.
       canPop: _place == _Place.library,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) setState(() => _place = _Place.library);
-      },
-      child: Scaffold(
-        drawer: _drawer(context),
-        // The library arrives from the opening lockup, and each place picked
-        // in the drawer, the way a new screen does: over the same ground.
-        body: DecoratedBox(
-          decoration: BoxDecoration(gradient: Skin.ground(context)),
-          child: FadeIn(key: ValueKey(store == null), trigger: _place, child: body),
-        ),
+      onBack: () => setState(() => _place = _Place.library),
+      drawer: _drawer(context),
+      // The library arrives from the opening lockup, and each place picked
+      // in the drawer, the way a new screen does: over the same ground.
+      body: DecoratedBox(
+        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        child: FadeIn(key: ValueKey(store == null), trigger: _place, child: body),
       ),
     ));
   }

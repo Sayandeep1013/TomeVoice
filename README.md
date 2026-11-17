@@ -67,7 +67,7 @@ No account. No cloud. Your books never leave the phone.
   languages (Piper), made on the phone with no internet once downloaded, the book's
   language listed first, each with its size, quality, licence and a sample to hear.
   Kokoro (Hindi among its languages) and Kitten are there for fast phones. They are off
-  unless you choose one: a voice is a 20 to 110 MB download (Kokoro 334 MB) and works
+  unless you choose one: a voice is a 25 to 125 MB download (Kokoro 334 MB) and works
   the phone harder, about three times the processor of a built-in voice, so TomeVoice
   says so before anything downloads, tests how fast your phone runs it, and removes
   them with one tap.
@@ -239,8 +239,8 @@ There is deliberately no local Flutter or Gradle requirement
 SDK, and APKs are built by GitHub Actions.
 
 The full design is in [`docs/`](docs/README.md); picking the project up cold, start at
-the [session handoff](docs/16-session-handoff.md). Every decision and the alternatives
-it rejected: [decision log](docs/10-decisions-adr.md).
+[Start Here](docs/16-session-handoff.md). Every decision and the alternatives it
+rejected: [decision log](docs/10-decisions-adr.md).
 
 ## Licence
 

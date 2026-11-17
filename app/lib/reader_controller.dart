@@ -75,20 +75,33 @@ class ReaderController {
     required this.view,
     required ReadingCursor initialCursor,
     this.store,
+    bool chosen = false,
   })  : _layout = layout,
         cursor = ValueNotifier(layout.isEmpty
             ? 0
             : layout.unitForCursor(initialCursor, saved: initialCursor != ReadingCursor.zero)) {
+    chosenUnit = chosen && !layout.isEmpty ? cursor.value : -1;
     // This book reading on in the background: take its voice back, still
     // reading, so opening the book again does not break the flow.
     final bg = BackgroundReading.current.value;
-    final back = bg != null && bg.bookId == _book.id ? bg.takeBack(layout) : null;
-    if (bg != null && bg.bookId == _book.id && back == null) {
-      // Its chapters changed meanwhile (a web novel): start again here.
-      final u = bg.unitIn(layout);
-      if (bg.playing) _resumeAt = u;
-      cursor.value = u;
-      unawaited(bg.stop());
+    final mine = bg != null && bg.bookId == _book.id;
+    // A place picked (a chapter, a mark, a passage) while it waits paused is
+    // where the book opens: the voice's place is not put over it. Reading
+    // aloud, the voice is taken back and reads on, and the page shows what
+    // was picked, looked at (Back to reading returns to the voice).
+    final back = mine && (chosenUnit < 0 || bg.playing) ? bg.takeBack(layout) : null;
+    if (mine && back == null) {
+      if (chosenUnit >= 0) {
+        // Its place saved first, then this one over it: the place is what
+        // was picked now.
+        unawaited(bg.stop().then((_) => bg.saved).whenComplete(persist));
+      } else {
+        // Its chapters changed meanwhile (a web novel): start again here.
+        final u = bg.unitIn(layout);
+        if (bg.playing || bg.rolling != null) _resumeAt = u;
+        cursor.value = u;
+        unawaited(bg.stop());
+      }
     }
     player = back?.player ??
         readingScheduler(layout: layout, prefs: _shared, language: language, bookId: _book.id, service: _svc);
@@ -159,6 +172,16 @@ class ReaderController {
   /// the page is up; -1 for none.
   int get resumeAt => _resumeAt;
   var _resumeAt = -1;
+
+  /// The book has been read aloud: a scroll or a page turned by hand only
+  /// looks around, the voice's place kept (see LibraryStore.listenedTo).
+  bool get listened => _listened;
+  late bool _listened = store?.listenedTo(_book.id) ?? false;
+
+  /// The sentence picked to open at (a chapter, a mark, a passage), not
+  /// the place saved; -1 for none. With the voice taken back, the page
+  /// shows it while the voice reads on where it is.
+  late final int chosenUnit;
 
   StreamSubscription<Map<String, Object?>>? _events;
   Timer? _persistTimer;
@@ -589,6 +612,10 @@ class ReaderController {
   void _onPlayState() {
     final s = player.state.value;
     if (s == PlayState.playing || s == PlayState.loading) _parked = false;
+    if (s == PlayState.playing && !_listened) {
+      _listened = true;
+      unawaited(store?.markListened(_book.id));
+    }
     if (s != PlayState.idle) {
       if (!_placeShown) _showPlace(true);
       if (returnTo != null && view.mounted) {

@@ -5,6 +5,18 @@ resist ordinary unit tests: **document layout inference** and **audio timing**. 
 word gap sound right?" is not an assertion. This document is mostly about making those
 two things testable.
 
+Sections 13.1 to 13.10 are the plan of 2026-09-01, each with an **As built** note for
+1.4.0. What runs today, in short:
+
+| Where | What | Runs |
+|---|---|---|
+| `packages/tomevoice_audio/test/` | the pipeline at the buffer level: word gap, stage order, remap, punctuation, loudness, WSOLA, the pause aligner, WAV | CI's `dart-core` job, and locally with the plain Dart SDK |
+| `packages/tomevoice_document/test/` | every format, detection, encodings, segmentation, language, navigation, notes, the reading layout; `corpus/`, real books against goldens | the same |
+| `tools/` | the spike's verifier, round-tripped on synthetic runs | CI's `dart-core` job |
+| `app/test/` | 71 widget and unit test files, with local WebDAV, KOReader and OPDS servers for sync and catalogues | CI's `android-apk` job, before the APK is built |
+| `mobile-qa/` | Maestro flows and the Back and Recents tests on Android 14 and 16 emulators | CI, on pull requests and manual runs (13.11) |
+| the developer's phone | listening, and what no emulator has: real sites, a fingerprint, the phone's own voices and natural voices at speed | by hand, before each release ([16](16-session-handoff.md)) |
+
 ## 13.1 The testable-by-construction rule
 
 Both hard areas become testable if they are built as **pure functions over data**:
@@ -19,6 +31,11 @@ Both hard areas become testable if they are built as **pure functions over data*
 If either is built with the I/O tangled in, it becomes untestable and stays untested.
 This is the single most consequential testing decision in the project, and it is an
 architectural one, not a QA one.
+
+**As built.** Both held. The pipeline is exactly that function, in a package with no
+Flutter. PDF layout is Dart over the platform's text and line layout, so the corpus keeps
+a PDF as the platform's output (`*.pdftext.json`) and tests it with no PDF library in the
+loop.
 
 ## 13.2 Document pipeline tests
 
@@ -63,6 +80,16 @@ including the abbreviation, quote and bracket cases from
 that the **source-range mapping is preserved** — the alignment map is what keeps
 highlighting correct, and a rule that breaks it silently breaks the feature.
 
+**As built.** One test file per format and per stage in `packages/tomevoice_document/test/`,
+and a **corpus** of real files (`test/corpus/`: EPUB, KF8, TXT in several encodings, DOCX,
+ODT, RTF, FB2, HTML, Markdown, and PDFs as the platform's extracted text), each with a
+golden of what the parser made of it and the whole spoken text. `corpus_test.dart` fails
+on any change in what is read and names the first line that changed; checks written by
+hand cover what a listener would notice (front matter not read, notes shown and not read,
+chapters in the order of the contents). Goldens are rewritten on purpose with
+`TOMEVOICE_UPDATE_GOLDENS=1 dart test test/corpus_test.dart`; the corpus README says how
+and where each file came from. There are no reading-order percentages per category.
+
 ## 13.3 Audio pipeline tests
 
 All of these operate on buffers, with no audio device.
@@ -96,6 +123,16 @@ test catches them long before a human notices.
 Regenerated deliberately, reviewed by listening when they change. Golden files catch
 "something changed"; the measurement tests above explain *what*.
 
+**As built.** In `packages/tomevoice_audio/test/`: `word_gap_test` (gaps measured within
+±5 ms, zero gap bit-identical, no discontinuity added), `ordering_test` (stretch then gap
+gives 120 ms at 2x, gap then stretch 60 ms: the bug encoded so a refactor cannot bring it
+back; edge trim first), `remap_test` (the impulse trick: a signal silent but for an
+impulse at each word boundary, every reported boundary landing on its impulse ±2 frames),
+`pauses_test`, `punctuation_test`, `loudness_test`, `stretch_test` (WSOLA keeps a tone's
+pitch within 3% while the stub moves it),
+`align_test` (the pause aligner), `analysis_test` and `wav_roundtrip_test`. No pitch-shift
+tests (there is no shifter) and no PCM golden files.
+
 ## 13.4 Engine adapter tests
 
 Every adapter runs the same **conformance suite**, which is how we keep Contract B
@@ -115,6 +152,11 @@ honest:
 A new engine is integrated by making it pass this suite. Nothing else in the app needs to
 know it exists.
 
+**As built.** No shared conformance suite. The pieces that can be tested without a device
+are: the `onRangeStart` layout detection, the voice picking order, natural voices on a
+stand-in worker (`natural_voices_test`, `voices_test`), and the spike's verifier for
+exported device audio (13.13). The real engines are heard on the phone.
+
 ## 13.5 Timing drift measurement
 
 The metric users feel most directly. Automated form:
@@ -126,6 +168,11 @@ The metric users feel most directly. Automated form:
 
 Assert median drift under 50 ms and 95th percentile under 120 ms. Track the numbers over
 time; drift regressions arrive gradually and are invisible without a trend.
+
+**As built.** Not built as a long-passage measurement. When the pause aligner was made,
+sharing a sentence out by character count was measured against an engine's own timings
+(271 ms out on average, 610 ms at worst), which is why it was replaced
+([04 §4.7](04-tts-engine-contract.md#47-deriving-word-timings-for-neural-engines)).
 
 ## 13.6 Platform and integration tests
 
@@ -153,6 +200,12 @@ time; drift regressions arrive gradually and are invisible without a trend.
 | Per-monitor DPI | Move the window between monitors at 100/150/200% |
 | Portable mode | Assert no writes outside the app directory |
 
+**As built.** Android: the emulator job (13.11) covers Back, a swipe from Recents (reading
+and paused) and a headset's Play with the app closed, on Android 14 and 16, plus a crash
+check; the 16 KB check runs on every APK. Audio focus, Bluetooth, process death, low-memory
+phones and the OEM matrix are checked by hand on the developer's phone, where at all.
+Windows: not started.
+
 ## 13.7 Accessibility testing
 
 A release gate, not a checklist item, because a meaningful share of the audience depends
@@ -165,6 +218,12 @@ on it.
 - Every control reachable and operable by keyboard and D-pad.
 - Contrast ratios verified for all themes, including the reading themes.
 - Touch targets at least 48 dp.
+
+**As built.** `accessibility_test` and `tap_targets_test` in `app/test/`; contrast is
+computed (`contrast.dart`, WCAG 2.2) and every palette, the reader's own colours included,
+is kept readable by construction. TalkBack reads and turns the pages (1.3.0). A TalkBack
+pass is not a release gate, and the collision with TalkBack is not handled
+([C-34](09-challenges-and-solutions.md#c-34)).
 
 ## 13.8 Performance budgets
 
@@ -185,6 +244,14 @@ measured is a wish.
 | Battery, 1 hour Tier 1 playback | < 9% on a reference device |
 | Crash-free sessions | > 99.5% |
 
+**As built.** None of these is enforced in CI. What has been measured: a saved place's
+cost on the UI thread with 1,000 books (`place_writes_test`,
+[11 §11.4](11-data-model-and-storage.md#114-places)), CPU and memory per voice on the
+developer's phone ([04 §4.5](04-tts-engine-contract.md#45-adapter-piper-via-sherpa-onnx)),
+and frame pacing on the phone (`dumpsys SurfaceFlinger --latency`) while scrolling. There
+is no crash reporting: errors go to a log on the phone that the reader can read and send
+([16](16-session-handoff.md)).
+
 ## 13.9 Manual QA passes
 
 Some things only a human ear catches. Before each release:
@@ -199,6 +266,12 @@ Some things only a human ear catches. Before each release:
 - **A two-column paper**, listening for interleaved columns — this failure is obvious by
   ear and easy to miss by eye.
 
+**As built.** Each release is checked on the developer's phone (a Nothing A059, Android
+16) before it goes out: what changed, by tapping through it, with screenshots as proof,
+and by ear. Android 14 and 15 behaviour is checked only on CI's emulators. Risky checks
+(a restore, secret shelves, imports) use the separate test app (13.12), never the
+developer's own library.
+
 ## 13.10 Feedback loop
 
 Text normalisation and pronunciation are permanently incomplete
@@ -210,6 +283,10 @@ was read wrong" to a fixture:
 - Reports become table-driven test cases, so each fix is permanent.
 - Users can convert their own report into a local pronunciation entry in the same
   gesture, so they get an immediate fix whether or not we ever ship one.
+
+**As built.** The local fix exists (press and hold a word, "Fix how it's said"); the report
+does not. About → Report a problem shows the recent errors from the phone's error log (no
+titles, no text) and opens a filled-in GitHub issue for the reader to send.
 
 ## 13.11 Device flows and the emulator job
 
@@ -227,9 +304,12 @@ none of them clears the app's data.
 | `listen-from-home.yaml` | Opened from the launcher, **Listen**, then the app's own Back buttons to the shelf: where the Back test starts |
 | `listen-to-library.yaml` | The same, TomeVoice opened by another app (Maestro) instead of the launcher |
 
-`common/` holds the subflows they share: launch to the shelf (`library`), open from the
-launcher's list of apps (`from-home`), the shelf to the book's page (`open-book`,
-`book-page`), and Listen then back to the shelf (`listen-and-return`).
+`common/` holds the subflows they share: launch to the shelf (`library`, which waits for
+the starter book), skip the first-run guide (`skip-guide`), wait for the starter's two web
+novels to arrive and take their places so no tap lands where a book just was
+(`settled-shelf`), open from the launcher's list of apps (`from-home`), the shelf to the
+book's page (`open-book`, `book-page`), and Listen then back to the shelf
+(`listen-and-return`).
 
 Writing selectors:
 
@@ -265,7 +345,8 @@ adb shell dumpsys activity activities | grep -A12 "tomevoice_spike.MainActivity"
 ```
 
 No record: MainActivity was destroyed. `state=STOPPED ... finishing=false`: it only moved
-to the back.
+to the back. (The activity's class keeps the template's package,
+`app.tomevoice.tomevoice_spike`, whatever the app id.)
 
 ### The emulator job
 
@@ -297,19 +378,27 @@ for it: the release APKs build and release whatever it says.
 
 ### The Back test
 
-Back on the library leaves the app. Whatever finishes MainActivity on the way out stops the
-reading too: its `onDestroy` ends the reading service, the player and TTS.
+Back on the library leaves the app, and must never stop the book being read. Before 1.3.0
+it did: whatever finished MainActivity on the way out stopped the reading too, as its
+`onDestroy` ended the reading service, the player and TTS.
 
-- **Android 15 and older.** Flutter answers that Back with `SystemNavigator.pop()`, which
+- **Android 15 and older.** Flutter answered that Back with `SystemNavigator.pop()`, which
   calls `Activity.finish()` on a `FlutterActivity`.
 - **Android 16** (an app targeting SDK 36 gets predictive back). With nothing in Flutter to
   pop, Flutter's back callback is unregistered and the activity's own system callback takes
   the Back. Android then moves the task to the back only if the home screen launched the
   activity (`ActivityClientController.shouldMoveTaskToBack` asks for
   `LAUNCH_SOURCE_TYPE_HOME` and a main intent); otherwise it finishes it. Opened from the
-  launcher, TomeVoice keeps reading, which is why the developer's phone never showed the
-  bug; started any other way (seen here when another app starts it), it stops as on
+  launcher, TomeVoice kept reading, which is why the developer's phone never showed the
+  bug; started any other way (seen when another app starts it), it stopped as on
   Android 14.
+
+**The fix (1.3.0).** `MainActivity.popSystemNavigator` moves the task to the
+back instead of finishing it, and on Android 13 and later the activity registers its own
+back callback that does the same, so Android's predictive back puts TomeVoice behind
+however it was opened. Since 1.4.0 the reading belongs to the cached Flutter engine, not the
+activity, so even a finished activity no longer stops it ([07 §7.2](07-platform-android.md#72-background-playback)).
+The test stays, to keep it that way.
 
 The test runs twice per Android version, from the shelf with the book being read aloud
 (the images have Google's TTS engine): after `listen-from-home` (the reader's way in, the
@@ -320,8 +409,8 @@ state) whether MainActivity was destroyed or moved to the back, and logs the med
 and the reading service before and after. It reports one line, such as
 `BACK TEST: activity destroyed on API 34`, and a destroyed activity fails the job.
 
-What it found on the main of 2026-10-30 (1.2.2), reading aloud with Google's TTS (build
-run 41073818634):
+What it found on the main of 2026-10-30 (1.2.2), before the fix, reading aloud with
+Google's TTS (build run 41073818634):
 
 | | Opened from the launcher | Opened by another app |
 |---|---|---|
@@ -334,8 +423,8 @@ while a route could pop): the system, not Flutter, made each call.
 
 ### The Recents test
 
-Since branch `feat-auto` the voice is the cached Flutter engine's (`ReadingCore`), which
-outlives MainActivity while a book is read (docs/07 §7.2). Right after the Back test from
+Since 1.4.0 the voice is the cached Flutter engine's (`ReadingCore`), which
+outlives MainActivity while a book is read ([07 §7.2](07-platform-android.md#72-background-playback)). Right after the Back test from
 the launcher, with the book still reading and TomeVoice behind, the script runs three
 checks, each with `dumpsys` snapshots (`swipe-*`, `swipe-paused-*`, `headset-*`):
 
@@ -381,3 +470,89 @@ A 64-bit APK of a separate app, `app.tomevoice.test` ("TomeVoice Test"), signed 
 same key so each test build installs over the last. It sits beside TomeVoice with a library
 of its own (the starter book arrives on its first launch), so a risky build or a flow never
 touches the reader's books. It is never attached to a release.
+
+## 13.13 The audio spike
+
+The first thing built (2026-09-01 and 02) was not the reader but the part nothing on paper
+could prove: that owning the PCM ([ADR-003](10-decisions-adr.md#adr-003)) works on a real
+phone. It set out three risks. **R1**: does Android's `onRangeStart` deliver per-word frame
+positions on real engines? **R2**: does splicing silence into speech sound acceptable, or
+click and smear? **R3**: do the timings survive every stage, so the highlight stays on the
+word?
+
+**The criteria, measured, not judged**, as they stood after the build corrected them:
+
+| | Criterion | Threshold |
+|---|---|---|
+| **S1a** | The gap stage inserts exactly what was asked | inserted frames == boundaries × gap frames, exactly |
+| **S1b** | That silence is in the audio | every silence between words at least the gap, less 5 ms |
+| **S2** | The gap survives a speed change | 120 ms at 2.0x still measures 120 ms, not 60 |
+| **S3** | No splice artefacts | discontinuity at the gap edges no worse than the buffer's own |
+| **S4** | The timings match the processed audio | ordered, in range, every inserted silence on a word boundary |
+| **S5** | What the engine reports is known | a report naming the engine, whether `onRangeStart` fired, and how often |
+| **S6** | It sounds right | a person listens at 0, 120 and 250 ms and hears separated speech, not damaged speech |
+
+Three were reworded during the build, each because a test or the verifier showed the first
+wording was wrong. Real speech already has silence between words, so 120 ms of gap beside
+30 ms of natural spacing measures 150 ms: S1 became an exact frame count plus an "at least"
+check on the audio. A single discontinuity threshold blamed the resampling stub's own
+roughness on the splices (a run with no gap at all "failed"): S3 now compares the gap edges
+with the rest of the buffer. Natural and injected silence merge, so run edges sit off the
+exact splice: S4 asks only that a boundary lies within the silence.
+
+**The verifier.** `tools/bin/measure.dart` checks an exported run (a WAV and its JSON
+report) against S1 to S5 from the *audio*, not from what the app believed it did, and
+shares no code with the pipeline it checks, so a bug cannot certify itself. Silence is RMS
+over a 5 ms window below −50 dB relative to the buffer's peak, in runs of 20 ms or more.
+`--baseline` takes the same engine's 0 ms run, to allow for silences the engine makes
+itself. `tools/bin/make_fixture.dart` makes synthetic runs, and CI round-trips the verifier
+on them (120 ms at 1x and 2x, 250 ms, 0 ms) to guard the measuring instrument itself. One
+bug found while building it: `Future<int> main` does not set a process exit code, so it
+printed FAIL and exited 0, which in CI would have been a green build over a failed
+measurement; it calls `exit()`.
+
+```bash
+cd tools && dart pub get
+dart run bin/make_fixture.dart /tmp/fx 120 1.0
+dart run bin/measure.dart /tmp/fx
+dart run bin/measure.dart <run> --baseline <the same engine's 0 ms run>
+```
+
+**On the phone.** The app still has the sweep (`BatchScreen` in `app/lib/main.dart`):
+started with `--es batch true`, it makes one fixed text once per engine and speed mode,
+runs it through each gap setting, and writes a WAV and JSON pair per configuration and a
+`BATCH-COMPLETE.txt`, for `adb pull` and the verifier. It runs only in a debug build
+(`!kReleaseMode`), and CI builds release APKs only.
+
+**Results on 2026-09-02** (Nothing A059, Android 16, Google's TTS, the only engine on it):
+
+| Criterion | Result |
+|---|---|
+| S1a | 46,080 frames inserted for 120 ms, 96,000 for 250 ms, 0 for 0 ms: exact |
+| S1b | 120 ms asked: 115 to 125 ms at every boundary; 250 ms: 245 to 265 ms |
+| S2 | at 2.0x, still 115 to 125 ms |
+| S3 | gap edges 0.0507 against 0.2555 for the speech around them: five times smoother |
+| S4 | 17 timings, ordered and in range, every gap on a word boundary |
+| S5 | `onRangeStart` fired a word at a time, 17 events, its frame first ([04 §4.3](04-tts-engine-contract.md#43-adapter-android-system-tts)) |
+
+The run before found what no Dart test could: the parameter order, and the edge trim
+running last, where it took the injected silence for lead-in and cut it (46,204 frames
+trimmed just after 46,080 were inserted). The per-stage frame counts turned "the word-gap
+setting does nothing" into a five-minute diagnosis. Edge trim now runs first.
+
+**S6 failed while S1 to S5 passed.** The listener found the voice poor and the settings
+apparently dead. Four causes, none of which any criterion measured:
+
+1. Play replayed the first export it had made (a cached path never cleared), whatever the
+   sliders said.
+2. The speed slider went through the resampling stub, raising the voice nearly an octave
+   at 2x. Speed moved to the engine's own rate, which kept the pitch.
+3. Forcing `Locale.US` selected a small embedded fallback voice on a phone without US
+   English data.
+4. The fix for 3 picked an Arabic voice for English text (it sorted by quality and name,
+   and `ar-` sorts first). The language became the first key.
+
+**The lesson kept:** a criteria suite that can be fully green on broken output is
+under-specified. The arithmetic said nothing about whether a control was wired to the thing
+it names, whether the voice matched the text, or whether it was pleasant to hear. Listening
+comes before claiming success, not after.
