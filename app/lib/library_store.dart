@@ -970,7 +970,13 @@ class LibraryStore {
     await _runSaveChapter(path, index, title, html, language);
     final known = _downloads[id];
     if (known != null) _downloads[id] = Set.unmodifiable({...known, index});
+    chapterSaved.value = (id, index);
   }
+
+  /// The last web-novel chapter saved, by whatever saved it (the download
+  /// queue, a reader fetching ahead, the reading in the background): a
+  /// novel's page ticks it, and the queue lets go of it, at once.
+  final chapterSaved = ValueNotifier<(String, int)?>(null);
 
   String _chapterFile(String id, int index) => '${bookDir(id)}/ch/$index.json';
 
@@ -1391,6 +1397,25 @@ class LibraryStore {
 
   /// Whether [id] has the shape of a book id (and so is safe as a folder name).
   static bool isBookId(String id) => _bookId.hasMatch(id);
+
+  /// Whether book [id] has been read aloud: then its place is the voice's,
+  /// and a scroll or a page turned by hand only looks around (only "Read
+  /// from here" moves it). A book only ever read by eye keeps its place
+  /// where the eyes are.
+  bool listenedTo(String id) => _listened.contains(id) || File('${bookDir(id)}/listened').existsSync();
+  final _listened = <String>{};
+
+  /// Book [id] was read aloud (see [listenedTo]).
+  Future<void> markListened(String id) async {
+    if (_held || !_listened.add(id)) return;
+    try {
+      final dir = Directory(bookDir(id));
+      if (_madeDirs.add(id)) await dir.create(recursive: true);
+      await File('${dir.path}/listened').writeAsString('');
+    } on Object {
+      // Known for this run all the same.
+    }
+  }
 
   Future<ReadingCursor> cursorFor(String id) async {
     final file = File('${bookDir(id)}/cursor.json');

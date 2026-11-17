@@ -173,6 +173,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
           layout: l,
           store: _store,
           initialCursor: cursor,
+          chosenPlace: !l.isEmpty && (unit != null || chapter != null),
           autoplay: play,
           bookDir: _store.bookDir(_entry.id),
           sourcePath: _entry.sourcePath,

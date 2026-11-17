@@ -375,6 +375,24 @@ void main() {
       await finish(tester);
     });
 
+    testWidgets('in pages, in a book read aloud before, a page turned by hand only looks around: the place stays',
+        (tester) async {
+      final store = LibraryStore(_tmp);
+      ListeningPrefs.memory
+        ..pages = true
+        ..pageTurn = 'none';
+      final layout = numbered();
+      await tester.runAsync(() => store.markListened(layout.book.id));
+      await open(tester, layout, store: store);
+      await turnOn(tester, pages: 2);
+      final (first, _) = onPage(tester);
+      expect(first, greaterThan(0));
+      await tester.pump(const Duration(seconds: 2));
+      expect(await saved(tester, store, layout), 0, reason: "a page turned by hand moved the voice's place");
+      expect(find.text('Back to reading'), findsOneWidget, reason: 'no way back to the place');
+      await finish(tester);
+    });
+
     testWidgets("the book's Contents: parts as dividers, the chapter read marked, found by its number or words",
         (tester) async {
       final layout = ReadingLayout.build(ingestString(

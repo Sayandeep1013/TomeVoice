@@ -422,6 +422,84 @@ void main() {
     await tester.pump(const Duration(seconds: 10));
   });
 
+  testWidgets('a chapter picked while the novel waits paused in the background opens there, not at the voice', (tester) async {
+    late LibraryStore store;
+    late LibraryEntry entry;
+    late String id;
+    await tester.runAsync(() async {
+      store = LibraryStore(tmp);
+      id = await _addNovel(tmp, store);
+      entry = (await store.list(all: true)).firstWhere((e) => e.id == id);
+      await BackgroundReading.startFrom(store, entry);
+      final bg = BackgroundReading.current.value!;
+      await bg.player.play(bg.layout.units.indexWhere((u) => u.sectionIndex == 45));
+      await _until(() => count('playerEnqueue') > 0);
+      await bg.pause(now: true);
+    });
+    tester.view.physicalSize = const Size(1080, 2340);
+    tester.view.devicePixelRatio = 2.75;
+    addTearDown(tester.view.reset);
+    // Chapter 3, picked from the novel's list. Its page loads from disk:
+    // file reads and frames in turn until it shows.
+    await tester.pumpWidget(MaterialApp(home: WebNovelReader(store: store, entry: entry, startChapter: 2)));
+    for (var i = 0; i < 40 && find.textContaining('Part ', findRichText: true).evaluate().isEmpty; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(find.textContaining('Part 3 of the story', findRichText: true), findsWidgets,
+        reason: 'the page opened somewhere other than the chapter picked');
+    expect(find.textContaining('Part 46 of the story', findRichText: true), findsNothing);
+    expect(BackgroundReading.current.value, isNull, reason: 'the paused reading was not ended');
+    // Its place saved, then the pick over it: file writes and frames in turn.
+    var place = -1;
+    for (var i = 0; i < 40 && place != 2; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pump(const Duration(milliseconds: 50));
+      place = (await tester.runAsync(() => store.cursorFor(id)))!.sectionIndex;
+    }
+    expect(place, 2, reason: "the voice's old place was saved over the pick");
+    expect(find.byTooltip('Play'), findsOneWidget, reason: 'opening a chapter started the voice');
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 10));
+  });
+
+  testWidgets('a chapter picked while the novel reads aloud is shown; the voice reads on where it is', (tester) async {
+    late LibraryStore store;
+    late LibraryEntry entry;
+    await tester.runAsync(() async {
+      store = LibraryStore(tmp);
+      final id = await _addNovel(tmp, store);
+      entry = (await store.list(all: true)).firstWhere((e) => e.id == id);
+      await BackgroundReading.startFrom(store, entry);
+      final bg = BackgroundReading.current.value!;
+      await bg.player.play(bg.layout.units.indexWhere((u) => u.sectionIndex == 45));
+      await Future<void>.delayed(const Duration(milliseconds: 1800));
+      await _until(() => count('playerEnqueue') > 0);
+    });
+    final bg = BackgroundReading.current.value!;
+    final player = bg.player;
+    final reading = player.unit.value;
+    final picked = bg.layout.chapters.firstWhere((c) => c != 45);
+    final stops = count('playerStop');
+    tester.view.physicalSize = const Size(1080, 2340);
+    tester.view.devicePixelRatio = 2.75;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(home: WebNovelReader(store: store, entry: entry, startChapter: picked)));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 800)));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(BackgroundReading.current.value, isNull, reason: 'the page did not take the voice back');
+    expect(count('playerStop'), stops, reason: 'the voice was stopped');
+    expect(player.isPlaying, isTrue);
+    expect(bg.layout.units[player.unit.value].sectionIndex, bg.layout.units[reading].sectionIndex,
+        reason: 'the voice moved to the chapter picked');
+    expect(find.textContaining('Part ${picked + 1} of the story', findRichText: true), findsWidgets,
+        reason: 'the page did not show the chapter picked');
+    expect(find.text('Back to reading'), findsOneWidget, reason: 'no way back to the voice');
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 10));
+  });
+
   group('the sleep timer', () {
     test('fades the voice over its last half minute, then pauses it; Play is at full volume again', () async {
       final service = _Player(tmp);

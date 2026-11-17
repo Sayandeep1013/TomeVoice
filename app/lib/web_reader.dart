@@ -152,6 +152,10 @@ class _WebNovelReaderState extends State<WebNovelReader> {
   /// past the fetched chapters; null opens at the place being read.
   int? _view;
 
+  /// [_cursor] was picked (a chapter, a passage), not the place saved: the
+  /// page opens there even while the novel reads on in the background.
+  bool _chosen = false;
+
   late List<SkipRule> _skip = ReadingRules.instance.skip;
 
   @override
@@ -161,16 +165,26 @@ class _WebNovelReaderState extends State<WebNovelReader> {
     // Read aloud in the background: the page opens on the chapters the voice
     // reads, and so takes the voice back with no break (on a window of its
     // own, the voice was started again from its place).
+    // A chapter picked while it reads aloud, one of those chapters: the
+    // page shows it and the voice reads on where it is (Back to reading
+    // returns to it).
     final bg = BackgroundReading.current.value;
-    if (widget.at == null &&
-        widget.startChapter == null &&
-        bg != null &&
+    final pick = widget.at?.sectionIndex ?? widget.startChapter;
+    if (bg != null &&
         bg.bookId == _id &&
         bg.rolling == null &&
-        !bg.layout.isEmpty) {
+        !bg.layout.isEmpty &&
+        (pick == null || (bg.playing && bg.layout.chapters.contains(pick)))) {
       final layout = bg.layout;
       _show(layout);
-      _cursor = cursorOf(layout.units[bg.unit.clamp(0, layout.units.length - 1)]);
+      if (pick == null) {
+        _cursor = cursorOf(layout.units[bg.unit.clamp(0, layout.units.length - 1)]);
+      } else {
+        final first = layout.units.indexWhere((u) => u.sectionIndex == pick);
+        _cursor = widget.at ?? cursorOf(layout.units[first]);
+        _chosen = true;
+        _autoplay = widget.autoplay;
+      }
       // Every chapter the novel lists has its section.
       _total = layout.book.sections.length;
       _extendNear(_cursor.sectionIndex);
@@ -270,6 +284,7 @@ class _WebNovelReaderState extends State<WebNovelReader> {
     setState(() {
       _show(layout);
       _cursor = cursorOf(layout.units[bg.unit.clamp(0, layout.units.length - 1)]);
+      _chosen = false;
       _autoplay = false;
       _view = null;
       _generation++;
@@ -310,9 +325,13 @@ class _WebNovelReaderState extends State<WebNovelReader> {
       _total = info?.chapters.length ?? 0;
       var cursor = await _store.cursorFor(_id);
       final from = start ?? cursor.sectionIndex;
-      await fetchChapters(_store, _id, from, onProgress: (c) {
-        if (mounted) setState(() => _status = 'Fetching chapter ${c + 1}…');
-      });
+      // Only the chapter to show is waited for; those after it are fetched
+      // once it shows (see [_fetchAhead]), and one of them failing never
+      // keeps it from showing.
+      if (!_store.hasChapter(_id, from)) {
+        if (mounted) setState(() => _status = 'Fetching chapter ${from + 1}…');
+        await fetchChapters(_store, _id, from, count: 1);
+      }
       // A window of chapters round the place, not every one on the phone
       // (see LibraryStore.webWindow): its end opens the next.
       final layout = await _store.loadLayout(_id, around: at?.sectionIndex ?? from);
@@ -326,14 +345,21 @@ class _WebNovelReaderState extends State<WebNovelReader> {
       setState(() {
         _show(layout);
         _cursor = cursor;
+        _chosen = at != null || (start != null && !keepPlace);
         _autoplay = autoplay;
         _view = keepPlace ? start : null;
         _generation++;
         _status = null;
       });
       _extendNear(_view ?? cursor.sectionIndex);
+      _fetchAhead(_view ?? cursor.sectionIndex);
     } on Object catch (e) {
-      if (mounted) setState(() => _error = e);
+      if (mounted) {
+        setState(() {
+          _error = e;
+          _status = null;
+        });
+      }
     } finally {
       slow.cancel();
     }
@@ -354,7 +380,12 @@ class _WebNovelReaderState extends State<WebNovelReader> {
   void _onChapter(int chapter) {
     unawaited(ReadMarkStore.instance.reached(_store, _id, chapter).catchError((Object _) {}));
     _extendNear(chapter);
-    // (Joining them on fetches them too.)
+    _fetchAhead(chapter);
+  }
+
+  /// The chapters after [chapter] fetched quietly, a couple ahead, unless
+  /// they are here or being joined on (which fetches them too).
+  void _fetchAhead(int chapter) {
     if (_prefetching || _extending != null) return;
     final last = _lastLoaded(chapter);
     if (last - chapter >= 1 || last + 1 >= _total) return;
@@ -376,7 +407,14 @@ class _WebNovelReaderState extends State<WebNovelReader> {
       if (carried == true) {
         _follow(bg);
       } else if (carried == false) {
-        showSnack(context, 'That is the latest chapter so far. New ones appear when the site adds them.');
+        final failed = bg.failedWith;
+        showSnack(
+          context,
+          failed == null
+              ? 'That is the latest chapter so far. New ones appear when the site adds them.'
+              : 'The next chapter could not be fetched, so reading stopped here. Play tries again.',
+          long: failed != null,
+        );
       }
       return;
     }
@@ -474,6 +512,7 @@ class _WebNovelReaderState extends State<WebNovelReader> {
       layouts: window,
       store: _store,
       initialCursor: _cursor,
+      chosenPlace: _chosen,
       autoplay: _autoplay,
       bookDir: _store.bookDir(_id),
       onReachedEnd: _onEnd,

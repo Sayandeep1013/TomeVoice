@@ -231,6 +231,57 @@ void main() {
     });
   });
 
+  group('a chapter the site will not give does not end the reading', () {
+    test('one further on than the next: the next is read', () async {
+      final (store, id) = await novel();
+      final bg = await listen(store, id);
+      site
+        ..offline = true
+        ..failing.addAll({61, 62});
+      final enqueued = count('playerEnqueue');
+      await bg.player.play(bg.layout.units.length - 1);
+      await _until(() => count('playerEnqueue') > enqueued);
+      onStop = () async {
+        site.offline = false;
+      };
+      head = 1 << 30;
+      await _until(() => bg.player.isPlaying && reading(bg) > 59);
+      expect(reading(bg), 60, reason: 'a failure two chapters on stopped the reading');
+      expect(bg.failedWith, isNull);
+    });
+
+    test('the next itself: the next on the phone is read', () async {
+      final (store, id) = await novel();
+      await store.saveChapter(id, 62, 'Chapter 63', _chapter(62));
+      final bg = await listen(store, id);
+      site
+        ..offline = true
+        ..failing.addAll({60, 61});
+      final enqueued = count('playerEnqueue');
+      await bg.player.play(bg.layout.units.length - 1);
+      await _until(() => count('playerEnqueue') > enqueued);
+      onStop = () async {
+        site.offline = false;
+      };
+      head = 1 << 30;
+      await _until(() => bg.player.isPlaying && reading(bg) > 59);
+      expect(reading(bg), 62, reason: 'it stopped instead of reading on at the next chapter on the phone');
+    });
+
+    test('nothing to read on to: it stops, and says the site failed, not that the novel ended', () async {
+      final (store, id) = await novel();
+      final bg = await listen(store, id);
+      site.offline = true;
+      final enqueued = count('playerEnqueue');
+      await bg.player.play(bg.layout.units.length - 1);
+      await _until(() => count('playerEnqueue') > enqueued);
+      head = 1 << 30;
+      await _until(() => BackgroundReading.current.value == null);
+      expect(BackgroundReading.current.value, isNull);
+      expect(bg.failedWith, isNotNull);
+    });
+  });
+
   group('chapters joined on as the voice finishes are read, not passed over', () {
     test('in the background', () async {
       final (store, id) = await novel();
@@ -394,11 +445,15 @@ class _Site extends SourceEngine {
   Completer<void>? gate;
   var offline = false;
 
+  /// Chapters (from 0) the site will not give: it is busy, or they fail.
+  final failing = <int>{};
+
   @override
   Future<String> chapter(PluginInfo p, String path) async {
     final wait = gate;
     if (wait != null) await wait.future;
     if (offline) throw const SocketException('offline');
+    if (failing.contains(int.parse(path.substring(1)))) throw const SocketException('the site is busy');
     return _chapter(int.parse(path.substring(1)));
   }
 

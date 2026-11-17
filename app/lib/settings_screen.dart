@@ -309,8 +309,11 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
               ScreenTopBar(title: 'Settings', onBack: () => Navigator.of(context).maybePop()),
               Expanded(
                 child: ListView(
+                  // Closer to the screen's edges than other pages: the
+                  // cards line up with the back button and the rows inside
+                  // them get the room.
                   padding: EdgeInsets.fromLTRB(
-                      Gap.page, 0, Gap.page, Gap.xxl + MediaQuery.viewPaddingOf(context).bottom),
+                      Gap.m, 0, Gap.m, Gap.xxl + MediaQuery.viewPaddingOf(context).bottom),
                   children: [
                     _Group(
                       title: 'Appearance',

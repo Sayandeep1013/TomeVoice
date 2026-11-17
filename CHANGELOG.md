@@ -3,6 +3,19 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## Unreleased
+
+Web novels open where you ask, and keep going.
+
+#### Fixes
+- A chapter picked from a novel's list (or a bookmark, a passage found, a chapter in Contents) opens there. Before, a book left playing or paused in the background opened at the voice's place instead. While the voice reads, the page shows the chapter picked and the voice reads on; Back to reading returns to it.
+- A chapter already on the phone opens at once. Before, the reader first fetched the next three chapters, showed "Fetching chapter 4…" meanwhile, and said it could not open the chapter if one of them failed.
+- Reading aloud goes on into the next chapter when a chapter after it cannot be had. If the next one itself cannot be had, it reads on at the next chapter on the phone; if there is none, it says the site failed rather than that the novel has ended.
+- A novel's download line counts "3 of 10", lets go of chapters something else downloaded meanwhile (they were shown as still to come until Cancel), ticks each chapter as it comes, and says when it waits for a site that asked for a rest instead of spinning.
+- In a book you have listened to, a scroll or a page turned by hand only looks around: the voice's place stays, and Back to reading returns to it. Only Read from here moves it. A book only ever read by eye keeps its place where you are.
+- Settings' cards reach closer to the screen's edges.
+- A tap on a PDF's real page that went away under the finger (the voice turned it) no longer crashes the app ([#24](https://github.com/Sayandeep1013/TomeVoice/issues/24), [#25](https://github.com/Sayandeep1013/TomeVoice/issues/25)).
+
 ## 1.4.1 (2026-10-31)
 
 Fixes from the first day of 1.4.0 on a phone.

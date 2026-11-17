@@ -154,6 +154,7 @@ class _BookLoaderState extends State<BookLoader> {
                     layout: data.$1,
                     store: widget.store,
                     initialCursor: data.$2,
+                    chosenPlace: widget.at != null,
                     autoplay: widget.autoplay,
                     bookDir: widget.store.bookDir(widget.entry.id),
                     sourcePath: widget.entry.sourcePath,
@@ -246,6 +247,7 @@ class ReaderScreen extends StatefulWidget {
     required this.layout,
     this.store,
     this.initialCursor = ReadingCursor.zero,
+    this.chosenPlace = false,
     this.autoplay = false,
     this.bookDir,
     this.sourcePath,
@@ -271,6 +273,11 @@ class ReaderScreen extends StatefulWidget {
 
   final LibraryStore? store;
   final ReadingCursor initialCursor;
+
+  /// [initialCursor] was picked (a chapter, a mark, a passage found), not
+  /// the place saved: it is where the book opens, even while the book reads
+  /// on in the background (see ReaderController.chosenUnit).
+  final bool chosenPlace;
   final bool autoplay;
 
   /// The end of what is here was reached (a web novel whose next chapters
@@ -398,6 +405,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   late final int _startItem = () {
     if (_l.isEmpty) return 0;
     final cursorItem = _l.unitItem[_cursor.value.clamp(0, _l.units.length - 1)];
+    // Picked while the voice reads on: shown, the voice's place kept.
+    final chosen = _reader.chosenUnit;
+    if (chosen >= 0 && _reader.tookBack) return _l.unitItem[chosen.clamp(0, _l.units.length - 1)];
     final view = widget.viewSection;
     final c = view == null ? -1 : _l.chapters.indexOf(view);
     return c < 0 ? cursorItem : _l.chapterFirstItem[c];
@@ -445,7 +455,13 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     WidgetsBinding.instance.addObserver(this);
     // The place and the voice: this book's reading in the background taken
     // back if it reads on there, else a voice of its own.
-    _reader = ReaderController(layout: widget.layout, view: this, initialCursor: widget.initialCursor, store: widget.store);
+    _reader = ReaderController(
+      layout: widget.layout,
+      view: this,
+      initialCursor: widget.initialCursor,
+      store: widget.store,
+      chosen: widget.chosenPlace,
+    );
     widget.layouts?.addListener(_onLayouts);
     _player.word.addListener(_onWord);
     MarkStore.instance.changes.addListener(_onMarks);
@@ -468,6 +484,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (_reader.resumeAt >= 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(_player.play(_cursor.value));
+      });
+    } else if (widget.autoplay && _reader.tookBack && _reader.chosenUnit >= 0) {
+      // Asked to read what was picked, while the voice read elsewhere.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_reader.goTo(_reader.chosenUnit, play: true));
       });
     } else if (widget.autoplay && !_reader.tookBack) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -756,6 +777,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   /// The voice is reading, or paused in the middle of it.
   bool get _listening => _player.state.value != PlayState.idle;
+
+  /// A move by hand (a scroll, a page turned, the fast scroller) is a look
+  /// around, the place kept: while the voice reads or waits paused, and in
+  /// any book read aloud before. Only "Read from here" moves the place then.
+  bool get _looking => _listening || _reader.listened;
 
   /// Full screen and the volume keys, as the prefs and the moment ask. The
   /// keys turn pages only while nothing is read aloud: then they are for
@@ -1096,8 +1122,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (n is ScrollStartNotification) _eyesTimer?.cancel();
     if (n is ScrollStartNotification && n.dragDetails != null && !_programmaticScroll) {
       // Listening, a scroll is a look around: the voice keeps its place.
-      // Reading, the place goes where the reader does.
-      if (_listening) {
+      // Reading by eye, the place goes where the reader does.
+      if (_looking) {
         _detached.value = true;
       } else {
         _eyes = true;
@@ -1121,7 +1147,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// it was last heard.
   void _placeFromEyes() {
     _eyes = false;
-    if (!mounted || _listening || _l.isEmpty) return;
+    if (!mounted || _looking || _l.isEmpty) return;
     final u = _unitAtEyes();
     if (u != null) _reader.moveQuietly(u);
   }
@@ -1160,7 +1186,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (!byHand) return;
     if (_chrome.value) _chrome.value = false;
     _reader.lastScroll = DateTime.now();
-    if (_listening) {
+    if (_looking) {
       _detached.value = true;
       // Fetch ahead of where the reader is looking, as on the scroll.
       widget.onChapterChanged?.call(_l.units[unit].sectionIndex);
@@ -1176,7 +1202,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _pdfTurned = true;
     if (!byHand || _l.isEmpty) return;
     _reader.lastScroll = DateTime.now();
-    if (_listening) {
+    if (_looking) {
       _detached.value = true;
     } else {
       _reader.moveQuietly(_l.unitForPage(page));
@@ -1226,7 +1252,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         setState(() => _prefs.pdfPages = false);
         _prefs.save();
         // Listening, the voice reads on where it is; the text shows this page.
-        if (_listening) {
+        if (_looking) {
           _detached.value = true;
         } else {
           _reader.moveQuietly(unit);
@@ -2516,7 +2542,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _reader.lastScroll = DateTime.now();
     _eyesTimer?.cancel();
     if (dragging) {
-      if (_listening) {
+      if (_looking) {
         _detached.value = true;
       } else {
         _eyes = true;

@@ -851,6 +851,13 @@ class _ZoomPageState extends State<_ZoomPage> with SingleTickerProviderStateMixi
   void _up(PointerUpEvent e) {
     if (e.pointer != _finger) return;
     _finger = null;
+    // The page went while the finger was on it (the voice turned it, the
+    // crop or the spread changed): its finger still lifts here, but there
+    // is no page left to have tapped.
+    if (!mounted) {
+      _tapAt = null;
+      return;
+    }
     final size = context.size;
     // Held long, it was a press and hold (read from here), not a tap.
     final tap = _tap && size != null && e.timeStamp - _downTime < kLongPressTimeout && widget.quiet(e.localPosition, size);

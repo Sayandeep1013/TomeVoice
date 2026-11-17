@@ -409,6 +409,10 @@ class BackgroundReading {
   /// null when something else stopped it first.
   Future<bool?>? get rolling => _rolling;
 
+  /// Why the last move into the next chapters failed, when it was not
+  /// simply the end of what the site lists.
+  Object? failedWith;
+
   /// Take over [player], reading [layout] of [bookId], from a reader whose
   /// page is closing (or handing its reading on, see [readOn]). A player
   /// not yet reading (handed on to read on, or about to start) leaves the
@@ -710,15 +714,27 @@ class BackgroundReading {
       final last = layout.units[unit.clamp(0, layout.units.length - 1)].sectionIndex;
       var start = layout.units.indexWhere((u) => u.sectionIndex > last);
       if (start < 0) {
-        await fetchChapters(store, bookId, last + 1);
+        // The next chapter only: one further on that the site will not give
+        // now must not end the reading. Not to be had (offline, the site
+        // busy), the next chapter on the phone is read instead.
+        var to = last + 1;
+        if (!store.hasChapter(bookId, to)) {
+          try {
+            await fetchChapters(store, bookId, to, count: 1);
+          } on Object {
+            final later = [for (final c in store.downloadedChapters(bookId)) if (c > last) c];
+            if (later.isEmpty) rethrow;
+            to = later.reduce((a, b) => a < b ? a : b);
+          }
+        }
         // A window of chapters from there, not every one on the phone.
-        var next = await store.loadLayout(bookId, around: last + 1);
-        start = next.units.indexWhere((u) => u.sectionIndex > last);
+        var next = await store.loadLayout(bookId, around: to);
+        start = next.units.indexWhere((u) => u.sectionIndex >= to);
         if (start < 0) {
           // The last chapter the site listed: ask it for new ones.
           final after = await refreshWebChapters(store, bookId, last);
           if (after == null) return false;
-          await fetchChapters(store, bookId, after);
+          await fetchChapters(store, bookId, after, count: 1);
           next = await store.loadLayout(bookId, around: after);
           start = next.units.indexWhere((u) => u.sectionIndex >= after);
           if (start < 0) return false;
@@ -745,7 +761,8 @@ class BackgroundReading {
       _armSleep();
       await player.play(start);
       return true;
-    } on Object {
+    } on Object catch (e) {
+      failedWith = e;
       return identical(current.value, this) ? false : null;
     }
   }

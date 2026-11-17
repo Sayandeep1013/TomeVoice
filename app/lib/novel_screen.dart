@@ -119,6 +119,7 @@ class _NovelScreenState extends State<NovelScreen> {
   void initState() {
     super.initState();
     _store.changes.addListener(_refreshLocal);
+    _store.chapterSaved.addListener(_chapterSaved);
     _store.placeChanges.addListener(_placeSaved);
     LibraryStore.secretOpen.addListener(_secretChanged);
     DownloadQueue.instance.changes.addListener(_queueChanged);
@@ -131,12 +132,20 @@ class _NovelScreenState extends State<NovelScreen> {
   void dispose() {
     // Downloads carry on without the page (see DownloadQueue).
     _store.changes.removeListener(_refreshLocal);
+    _store.chapterSaved.removeListener(_chapterSaved);
     _store.placeChanges.removeListener(_placeSaved);
     LibraryStore.secretOpen.removeListener(_secretChanged);
     DownloadQueue.instance.changes.removeListener(_queueChanged);
     ReadMarkStore.instance.changes.removeListener(_refreshLocal);
     _scroll.dispose();
     super.dispose();
+  }
+
+  /// A chapter of this novel came down, whatever fetched it: ticked now,
+  /// not when the queue next moves.
+  void _chapterSaved() {
+    final saved = _store.chapterSaved.value;
+    if (saved != null && saved.$1 == _id && mounted) unawaited(_refreshLocal());
   }
 
   /// The queue moved on: this novel's progress, and the ticks of chapters
@@ -797,11 +806,14 @@ class _NovelScreenState extends State<NovelScreen> {
   Widget _downloadLine(BuildContext context, BookDownloads d) {
     final q = DownloadQueue.instance;
     final waiting = d.waiting > 0;
+    final total = d.done + d.waiting;
     final text = [
       if (waiting)
         q.paused
             ? 'Paused · ${d.waiting} to go'
-            : 'Downloading · ${d.waiting} to go${d.current == null ? '' : ' · ${d.current}'}',
+            : d.resting
+                ? 'Waiting to try again (the site asked for a rest) · ${d.waiting} to go'
+                : 'Downloading · ${d.done + 1} of $total${d.current == null ? '' : ' · ${d.current}'}',
       if (d.failed > 0) '${d.failed} could not be downloaded${d.problem == null ? '' : ': ${d.problem}'}',
     ].join('\n');
     return Padding(
@@ -811,10 +823,16 @@ class _NovelScreenState extends State<NovelScreen> {
           SizedBox(
             width: 16,
             height: 16,
-            child: waiting && !q.paused
+            child: waiting && !q.paused && !d.resting
                 ? const CircularProgressIndicator(strokeWidth: 2)
-                : Icon(d.failed > 0 ? Icons.error_outline_rounded : Icons.pause_rounded,
-                    size: 16, color: Skin.inkFaintOn(context)),
+                : Icon(
+                    d.failed > 0
+                        ? Icons.error_outline_rounded
+                        : d.resting
+                            ? Icons.schedule_rounded
+                            : Icons.pause_rounded,
+                    size: 16,
+                    color: Skin.inkFaintOn(context)),
           ),
           const SizedBox(width: Gap.m),
           Expanded(child: Text(text, maxLines: 4, overflow: TextOverflow.ellipsis, style: Skin.label(context))),
