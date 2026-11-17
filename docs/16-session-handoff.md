@@ -6,6 +6,41 @@ release it, how to check it on a phone, and the findings that cost days. As of 1
 git history (`git show v1.4.0:docs/16-session-handoff.md`); what each release changed is
 in the [changelog](../CHANGELOG.md).
 
+## Resume here (the next session)
+
+The working plan is **`docs/plan-2026-11-17.html`**. Its **Progress** table says what is done, and its **Order of work** says what is next. A session told just "continue" picks up from these steps, in order:
+
+1. **Finish two phone checks of 1.5.0** in the test app ("TomeVoice Test", `app.tomevoice.test`, already on the owner's phone). On 18 November the owner had the notification shade open, so these were not done:
+   - with the voice reading and another chapter picked from the list, the player reads "READING CHAPTER …" and shows Pause;
+   - a tap on the reading card in the notification shade opens the book where the voice reads.
+2. **Batch 4, comforts**, the diary/notebook look first (plan section 13):
+   - a Notebook (grid) paper among the reader's papers;
+   - Saved as a notebook: one page per book, the cover "taped" at the top, notes in an open-licence handwritten font (Caveat or Kalam), coloured numbered tabs down the edge;
+   - Contents as coloured tabs.
+
+   Then:
+   - Contents and Scroll/Pages buttons in the reader's top bar;
+   - a search field on Natural voices;
+   - Anx-inspired comforts (letter spacing, font weight, alignment, your own fonts, TXT chapter rules, replace a book's file);
+   - Project Gutenberg's OPDS 2 feed (the XML feed retires in 2027);
+   - DJVU.
+3. **Batch 5:**
+   - the AI reading helper, built as the owner chose: all four jobs, spoilers never past their place, their own key with no server, spoken in the reading voice, shown on the notebook page;
+   - cloud voices (Azure first, then ElevenLabs, then any OpenAI-compatible endpoint);
+   - the Paradee voice (not drop-in for sherpa-onnx: ask upstream, or run it with ONNX Runtime ourselves).
+
+Still open, carried in the plan:
+- **The owner's AZW3 file.** Waiting for the file, or the message it showed. It could be DRM, or HUFF/CDIC compression, which we can't read yet.
+- **A stray "Back to reading" pill** once, in pages mode, before Play. Not reproduced.
+- **One unexplained pause** of a background reading on 18 November at 03:53. It came about a second after a tap and was not reproduced in a clean run. No audio-focus loss was logged.
+- **Android 17 runs app animations at 60 Hz** when nothing touches the screen. That is left as is, for battery.
+
+How the work is done here (the owner's standing choices, also in Claude's memory for this project):
+- Each batch is built on a branch named `fix-…` or `feat-…`, never `vX.Y.Z`. It is checked locally (tools/phone/README.md), then by CI and on the phone **in the test app only**, then merged into `next`.
+- Releases go `next` → `main` by pull request, and the PR's emulator jobs must pass. Then a draft GitHub release, then `gh workflow run build.yml --ref main -f release_tag=vX.Y.Z`.
+- Phone checks: tap by label, portrait, a screenshot for every claim. Before each tap, make sure the test app is in front (`tools/phone/ui.py` refuses otherwise). Stop if the owner is using the phone.
+- Updates in plain words after each batch. A finished batch gets a dated changelog section and a release.
+
 ## Where things stand
 
 - **1.5.0** is the latest release (18 November 2026): smoother, lighter on the battery,
