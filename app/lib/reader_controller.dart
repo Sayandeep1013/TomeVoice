@@ -218,6 +218,14 @@ class ReaderController {
   bool get placeAway => _placeAway;
   bool _placeAway = false;
 
+  /// Whether this book's voice reads, while [placeAway] with it reading
+  /// (or paused) in the background: the player's button shows it.
+  ValueListenable<bool>? get voicePlaying {
+    if (!_placeAway) return null;
+    final bg = BackgroundReading.current.value;
+    return bg != null && bg.bookId == _book.id ? bg.playingNow : null;
+  }
+
   /// Leave [placeAway]: the background reading of this book, if any,
   /// stopped (its place saved), and this page's own voice takes over.
   Future<void> _takeOver() async {

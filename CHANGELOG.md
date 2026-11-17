@@ -3,7 +3,7 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
-## Unreleased
+## 1.5.0 (2026-11-18)
 
 Smoother, lighter on the battery, and a voice that reads "..." and commas as people do.
 

@@ -20,7 +20,7 @@ Before 1.4.0 went out, a second review of all its new code found 47 problems; al
 fixed, and an emulator crash in the reader (a fade drawn through a following layer) was
 found on CI and fixed.
 
-1.4.1 (31 October, published by hand) and 1.4.2 (18 November) fixed what a first weeks of
+1.4.1 (31 October, published by hand), 1.4.2 and 1.5.0 (18 November) fixed what a first weeks of
 daily use found: web novels opening the chapter asked for, at once, and reading on past a
 chapter the site would not give; see the changelog. What comes after is planned in
 `docs/plan-2026-11-17.html` (smoothness and battery, how the voice sounds, reader comforts,

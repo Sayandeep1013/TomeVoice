@@ -1829,6 +1829,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       cover: _cover,
       onSleep: () => showListenSheet(context, _listen),
       onSave: () => unawaited(_save(MarkKind.quote)),
+      voice: _reader.voicePlaying,
     );
     // Out to the screen's own edges, past the safe area (the camera's side,
     // the gesture bar): ending inside the screen, the haze showed a hard edge.

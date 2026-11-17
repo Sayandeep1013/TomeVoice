@@ -8,7 +8,9 @@ in the [changelog](../CHANGELOG.md).
 
 ## Where things stand
 
-- **1.4.2** is the latest release (18 November 2026). 1.4.1 was published by hand,
+- **1.5.0** is the latest release (18 November 2026): smoother, lighter on the battery,
+  a voice that reads "..." and commas better, and chapters picked only looked at. 1.4.2
+  came the same day. 1.4.1 was published by hand,
   its APKs built from `next` at `62a6628` (its tag was moved there afterwards). `main` is the last release; work
   happens on `next`, which carries the fixes listed under "Unreleased" in the changelog,
   and goes to `main` by pull request.
