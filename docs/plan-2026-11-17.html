@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TomeVoice Plan, 17 November</title>
+<style>
+:root{--bg:#f6f3ec;--card:#fffdf8;--ink:#1f1c17;--soft:#5d574c;--line:#e3ddd0;--accent:#7a4bd1;--ok:#2f7d4f;--warn:#a2620b;--bad:#b3261e;--code:#efe9dc;--tag:#ece4fb}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#15130f;--card:#1e1b16;--ink:#ece6da;--soft:#aaa192;--line:#353027;--accent:#b38cff;--ok:#6cc58f;--warn:#e0a648;--bad:#ff8a80;--code:#2a261f;--tag:#2c2340}}
+:root[data-theme="dark"]{--bg:#15130f;--card:#1e1b16;--ink:#ece6da;--soft:#aaa192;--line:#353027;--accent:#b38cff;--ok:#6cc58f;--warn:#e0a648;--bad:#ff8a80;--code:#2a261f;--tag:#2c2340}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:920px;margin:0 auto;padding:28px 16px 80px}
+h1{font-size:1.9rem;margin:.2em 0 .1em}
+h2{font-size:1.35rem;margin:2.2em 0 .6em;padding-bottom:.3em;border-bottom:2px solid var(--line)}
+h3{font-size:1.08rem;margin:1.4em 0 .4em}
+p,li{color:var(--ink)}
+.sub{color:var(--soft);margin:0 0 1.2em}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:12px 0}
+.card h3{margin-top:0}
+code{background:var(--code);padding:1px 5px;border-radius:5px;font-size:.88em;word-break:break-word}
+.done{display:inline-block;font-size:.75rem;font-weight:700;padding:2px 8px;border-radius:99px;background:var(--ok);color:var(--card);margin-left:6px;vertical-align:2px}
+.pill{display:inline-block;font-size:.75rem;font-weight:600;padding:2px 8px;border-radius:99px;background:var(--tag);color:var(--accent);margin-right:4px;vertical-align:2px}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.k{font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:.92rem;margin:8px 0}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--soft);font-weight:600}
+.scroll{overflow-x:auto}
+nav ol{columns:2;gap:24px;padding-left:20px}
+@media (max-width:620px){nav ol{columns:1}h1{font-size:1.5rem}}
+.q{border-left:4px solid var(--accent)}
+.alert{border-left:4px solid var(--bad)}
+small{color:var(--soft)}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+<main>
+<h1>TomeVoice: where 1.4.1 stands and what comes next</h1>
+<p class="sub">17 November 2026. Your notes from the last 2&ndash;3 weeks, the 1.4.1 release, the GitHub issues, Anx Reader, and the research you asked for. Every bug below was traced to its code and checked by reading it. None has been fixed or tested on the phone yet.</p>
+
+<nav class="card"><ol>
+<li><a href="#progress">Progress</a></li>
+<li><a href="#remind">Two reminders</a></li>
+<li><a href="#release">The 1.4.1 release, audited</a></li>
+<li><a href="#novels">Web novels: chapters and downloads</a></li>
+<li><a href="#speech">How the voice sounds</a></li>
+<li><a href="#smooth">Smoothness (frames)</a></li>
+<li><a href="#battery">Battery</a></li>
+<li><a href="#small">Small UI fixes</a></li>
+<li><a href="#quick">Quick additions: Paradee, voice search</a></li>
+<li><a href="#anx">Ideas from Anx Reader</a></li>
+<li><a href="#helper">The reading helper (AI)</a></li>
+<li><a href="#cloud">ElevenLabs and expressive voices</a></li>
+<li><a href="#zlib">Z-Library and file formats</a></li>
+<li><a href="#diary">The diary look</a></li>
+<li><a href="#order">Order of work</a></li>
+<li><a href="#questions">What I need from you</a></li>
+</ol></nav>
+
+<div class="card" id="progress">
+<h3>Progress, 18 November</h3>
+<div class="scroll"><table>
+<tr><th>Item</th><th>State</th><th>How it was checked</th></tr>
+<tr><td>A1 chapter picked opens there</td><td class="ok">Done</td><td>Two new widget tests (paused, and reading aloud); on the phone, chapter 1 picked while the voice read chapter 3 opened chapter 1.</td></tr>
+<tr><td>A2 opens at once</td><td class="ok">Done</td><td>On the phone, a chapter not on the phone opened in under 1.5 s, with no &ldquo;Fetching chapter 5&rdquo;.</td></tr>
+<tr><td>A3 download line</td><td class="ok">Done</td><td>Two new queue tests: a chapter saved elsewhere is let go at once and counted; a site's rest shows as waiting.</td></tr>
+<tr><td>A4 scroll only looks around</td><td class="ok">Done</td><td>New test: in a book read aloud before, a page turned by hand keeps the place and shows Back to reading.</td></tr>
+<tr><td>A5 reading on past a failed chapter</td><td class="ok">Done</td><td>Three new tests: a failure two chapters on; the next failing (the next one on the phone is read); nothing to read on to (stops, says the site failed).</td></tr>
+<tr><td>A6 the view follows the voice into the next chapter</td><td class="ok">Works</td><td>Recorded on the phone in scroll and pages, with the phone voice and with Cori (natural) plus a phone voice for dialogue. Page, chapter title and word highlight all followed. One stray Back to reading pill before Play is to look at with batch 2's page work.</td></tr>
+<tr><td>Crash #24/#25, Settings width, AZW3 Open with</td><td class="ok">Done</td><td>Analyzer clean; CI's whole test suite passed on Linux.</td></tr>
+<tr><td>Error logs</td><td class="ok">Checked</td><td>GitHub: only #24/#25. Your app's Report a problem: only that crash. The test app's log: empty after all tests. Your phone now reports Android 17 (API 37).</td></tr>
+<tr><td>Your AZW3 file</td><td class="warn">Waiting</td><td>Not on the phone; needs the file or its message (DRM and HUFF/CDIC are the other two causes).</td></tr>
+<tr><td>Release 1.4.2</td><td class="warn">In progress</td><td>Pull request to main with the emulator tests, then CI's release run.</td></tr>
+</table></div>
+</div>
+
+<h2 id="remind">1. Two reminders</h2>
+<div class="card alert">
+<h3>Reach and Google verification, with one change</h3>
+<p>You asked to be reminded of two jobs only you can do: getting TomeVoice in front of people (IzzyOnDroid, Obtainium, a short video, a social preview image), and Google's Android developer verification.</p>
+<p><span class="k bad">IzzyOnDroid is now likely closed to us.</span> Its inclusion policy reads: <em>&ldquo;Vibe-coded apps will be rejected&rdquo;</em> and <em>&ldquo;the code itself should be free of [LLM-generated text]&rdquo;</em>. It also rejects apps that &ldquo;integrate with&rdquo; LLM services. TomeVoice's code is written with Claude, and the commits say so. Hiding that would break their transparency rule (&ldquo;any lack of transparency &hellip; can lead to the project being degraded to rejected state&rdquo;). <small>Source: izzyondroid.org/docs/general/AppInclusionPolicy, read today.</small></p>
+<p>What still works: <b>Obtainium</b> (installs straight from GitHub releases, with no review), the <b>video and preview image</b>, and Google verification. F-Droid's main repository has no such rule, but it builds from source with its own build server. It is a bigger job and can be looked at later.</p>
+</div>
+
+<h2 id="release">2. The 1.4.1 release, audited</h2>
+<p>1.4.1 was released by hand on 31 October after the credits ran out mid-session. This is what that left behind:</p>
+<div class="scroll"><table>
+<tr><th>Found</th><th>Why it matters</th><th>Fix</th></tr>
+<tr><td>The tag <code>v1.4.1</code> points at <code>deea7f6</code>, the same commit as <code>v1.4.0</code> (it says <code>1.4.0+28</code>).</td><td>Anyone building 1.4.1 from its tag gets 1.4.0. The tag does not match the APK.</td><td>Point the tag at the commit that was really built, or say so in the notes. <i>Your call, see the questions.</i></td></tr>
+<tr><td>The APK came from a manual CI run on <code>next</code> at <code>62a6628</code> (run 41191420856).</td><td>That same commit had just made manual runs skip the emulator tests, so 1.4.1's device flows never ran. The phone check never happened either.</td><td>The next release goes through the documented path: a pull request to <code>main</code> (emulator job), then a CI release run that checks the app id, the signing certificate and the 16 KB alignment.</td></tr>
+<tr><td><code>main</code> never got the 1.4.1 commits. It is still at 1.4.0.</td><td><code>main</code> is meant to equal the last release.</td><td>Fixed by the next pull request <code>next</code> &rarr; <code>main</code>.</td></tr>
+<tr><td>The files are named <code>app-release.apk</code> / <code>app-release-32bit.apk</code>, not <code>TomeVoice-1.4.1.apk</code>. The notes promise the latter.</td><td>The in-app updater still finds them (it only looks for <code>.apk</code> and <code>-32bit.apk</code>; checked in <code>app_update.dart:146</code>). It is untidy, not broken.</td><td>The next CI release names them correctly.</td></tr>
+<tr><td>The release notes are generic (&ldquo;final polish&rdquo;, &ldquo;a pass on the issues&rdquo;) and don't list what 1.4.1 changed. The changelog in the repo does.</td><td>Readers can't tell what changed.</td><td>Replace the notes with the changelog's 1.4.1 section.</td></tr>
+<tr><td>The one CI failure before it (run 41190577668) was a test written wrong, fixed in <code>62a6628</code>.</td><td>I read the change: the test was wrong, not the app. <span class="ok">Fine.</span></td><td>&mdash;</td></tr>
+<tr><td><b>Issues #24 and #25</b> are the same crash, reported twice: <code>_ZoomPageState._up</code>, <code>pages_view.dart:848</code>, &ldquo;Null check operator&rdquo;.</td><td>On a PDF's real pages, a page is removed while a finger is still on it: the voice turns the page, or the crop or spread changes. When the finger lifts, the code asks the gone page for its size.</td><td>Return early when the page is gone (<code>if (!mounted)</code>) in the finger-up and cancel handlers. Close both issues with the fix.</td></tr>
+</table></div>
+<p><b>Still to check on the phone</b> (in 1.4.1, never checked there): Clear the list on Updates (with Undo); holding a PDF's real page offers &ldquo;Read from the top / Pick a sentence&rdquo;; Back with the menu open closes it (Android 16); room between fields in the catalogue and sync forms; Standard Ebooks' Patrons Circle text; a failed source update says why in words; OCR knows the page's resolution.</p>
+
+<h2 id="novels">3. Web novels: chapters and downloads</h2>
+<p>Your notes here come down to three root causes.</p>
+
+<div class="card"><h3><span class="pill">A1</span> Any chapter you tap opens where you stopped <span class="bad">(the &ldquo;very bad bug&rdquo;)</span> <span class="done">Done &middot; 1.4.2</span></h3>
+<p><b>Cause, confirmed.</b> When you leave a book while it is reading or paused, it keeps a &ldquo;reading in the background&rdquo; session; for a daily listener that is nearly always. The novel page passes the chapter you tapped to the reader correctly. The reader's controller then sees the background session and puts the voice's place over your choice (<code>reader_controller.dart:84-99</code>). The novel page already skips this when you pick a chapter (<code>web_reader.dart:166</code>), but the controller doesn't know you picked one.</p>
+<p>It also hits a bookmark, a search result, an Updates entry, and Contents after the voice moved on.</p>
+<p><b>Fix.</b> Tell the controller &ldquo;this place was chosen&rdquo;. Then it keeps your chapter, saves the background session's place, and doesn't play. The Focus / Back-to-reading button stays the way back to the voice, as you said. <b>Test:</b> a background session at chapter 5, open chapter 1, and the reader must be at chapter 1, silent.</p></div>
+
+<div class="card"><h3><span class="pill">A2</span> Tap chapter 1 (already downloaded) and it hangs on &ldquo;Fetching chapter 4&hellip;&rdquo; <span class="done">Done &middot; 1.4.2</span></h3>
+<p><b>Cause, confirmed.</b> Before showing anything, the reader waits until it has downloaded the next <b>three</b> chapters (<code>web_reader.dart:313</code>, with <code>_ahead = 3</code>). It fetches them one after another, each allowed up to 90 seconds. If one fails (rate limit, Cloudflare check, timeout), it says it couldn't open the chapter, though chapter 1 is on the phone. This fetching also runs beside the download queue, so the two fight over the same site, which makes stalls more likely.</p>
+<p><b>Fix.</b> Open the chapter you tapped at once. Fetch it only if it's missing. Fetch the next chapters afterwards, quietly, through the download queue, and never fail the page because of them.</p></div>
+
+<div class="card"><h3><span class="pill">A3</span> The download spinner never ends; Cancel shows the chapters were already downloaded <span class="done">Done &middot; 1.4.2</span></h3>
+<p><b>Cause, confirmed.</b> Chapters are saved by several paths: the reader, the background reading, the queue. When one of the others saves a chapter, the queue still counts it as &ldquo;to go&rdquo; (<code>download_queue.dart:174</code>), and the novel page isn't told it was saved (<code>library_store.dart:968</code>). Cancel empties the queue, the page refreshes, and the ticks suddenly appear. Jobs waiting up to 10 minutes after a site said &ldquo;slow down&rdquo; also show as a spinning &ldquo;Downloading&rdquo;.</p>
+<p><b>Fix.</b> The queue drops chapters already on the phone. A saved chapter tells the page straight away. The line shows <i>&ldquo;3 of 10&rdquo;</i>, and &ldquo;Waiting to retry (site busy)&rdquo; without a spinner.</p></div>
+
+<div class="card"><h3><span class="pill">A4</span> Scrolled into a later chapter, tapped, and Play now starts there <span class="done">Done &middot; 1.4.2</span></h3>
+<p><b>Cause, confirmed. This is how it was built, and tests pin it.</b> While the voice is stopped, scrolling by hand moves your place when the scroll ends (<code>reader_screen.dart:1121</code>). The tap only stopped the fling, so it looks as if the tap did it. &ldquo;Stopped&rdquo; is also true more often than you'd think: after opening any chapter, after Next chapter while paused, and after the voice moves into a new window.</p>
+<p><b>Fix: needs your decision.</b> My recommendation: once a book has been listened to, scrolling only <i>looks around</i>, and the &ldquo;Back to reading&rdquo; pill shows. Only &ldquo;Read from here&rdquo; moves the place. Paused counts as listening too.</p></div>
+
+<div class="card"><h3><span class="pill">A5</span> Reading stops at a chapter change after a while <span class="done">Done &middot; 1.4.2</span></h3>
+<p><b>Two causes found by reading the code; likely.</b></p>
+<ol><li>Going into the next chapter, it fetches three chapters ahead. If the <i>second or third</i> fails, it stops the whole reading, even though the next chapter came down. It then says &ldquo;That is the latest chapter so far&rdquo;, which is wrong (<code>listening_session.dart:713</code>).</li>
+<li>If you open the novel, or touch Contents or Next, while the voice is between chapters (fetching), the new page stops the voice instead of carrying it on (<code>reader_controller.dart:91</code>).</li></ol>
+<p><b>Fix.</b> Fetch only the next chapter, and retry it. Count &ldquo;between chapters&rdquo; as playing.</p></div>
+
+<div class="card"><h3><span class="pill">A6</span> &ldquo;The focus while changing chapters&rdquo; <span class="done">Done &middot; 1.4.2</span></h3>
+<p>Probably A1 and A4 seen from inside the reader. One more cause: when the voice rolls into a new set of chapters, the page is rebuilt at the voice and drops where you were looking. <i>I'll ask what you meant.</i></p></div>
+
+<h2 id="speech">4. How the voice sounds</h2>
+<div class="card"><h3><span class="pill">B1</span> &ldquo;...&rdquo; makes the voice speed up</h3>
+<p><b>Nothing handles this today.</b> &ldquo;...&rdquo; followed by a capital cuts the sentence in two, so &ldquo;I... I don't know&rdquo; makes a tiny unit &ldquo;I...&rdquo; that the voice rushes. The single character &ldquo;&hellip;&rdquo; never cuts, so books that use one or the other read differently. &ldquo;. . .&rdquo; with spaces makes empty units with pauses. The 300 ms ellipsis pause only fires in narrow cases.</p>
+<p><b>Fix: an ellipsis rule.</b> Every form (<code>...</code>, <code>&hellip;</code>, <code>. . .</code>, <code>....</code>) becomes one mark, read as a held breath: the voice keeps going and a set pause is added (Settings &rarr; Reading rules, on by default, with the pause length adjustable). It also stops cutting sentences at ellipses inside speech, turns <code>--</code> into a dash, and folds <code>!!!</code> and <code>?!?</code> into one mark.</p></div>
+
+<div class="card"><h3><span class="pill">B2</span> Natural voices go silent for 0.2&ndash;0.3 s mid-sentence</h3>
+<p><b>Cause, confirmed in code. It matches your description exactly.</b> Any sentence over 90 characters is cut at its first comma after about 40 characters, and each piece is made separately (<code>neural_voices.dart:1162</code>). At the join, the piece keeps up to 180 ms of the voice's own tail, and then the comma pause (150 ms) is added <i>on top</i>. That is about 230&ndash;345 ms of silence after 7&ndash;8 words, every long sentence. The cut exists only so a jump starts faster.</p>
+<p><b>Fix.</b> Cut only very long sentences (over ~200 characters). At a cut, never stack the comma pause on the voice's own. For natural voices, top the pause up to a target length instead of always adding.</p></div>
+
+<div class="card"><h3><span class="pill">B3</span> Speed swings, extra pauses, two words run together</h3>
+<p>The same separate pieces (B1, B2, and a quote split from its narration) are each timed by the voice on its own, so short ones come out fast and long ones slow. When a quote and its narration are joined, each part's own padding is never trimmed, so a phone voice leaves 100&ndash;300 ms at every quote edge. A natural voice with no padding runs straight into the next part. A plain hyphen counts as a dash, so &ldquo;well-known&rdquo; can get a pause in the middle.</p>
+<p><b>Fix.</b> Trim each part, then put one set gap between parts. A hyphen is a dash only with spaces around it.</p></div>
+
+<div class="card"><h3><span class="pill">B4</span> The word is lit sometimes; other times only the sentence</h3>
+<p><b>Cause, confirmed.</b> A word is lit only when its timing is known, not guessed. Natural voices find word timing from the small pauses in the audio. A pause must be 70 ms long and 40 dB below the peak, and Kokoro and Piper rarely dip that far at commas. Any stretch longer than 3.5 s without such a pause loses word lighting. With phone voices, short sentences sometimes give timings the code can't read, and it then keeps the guessed timings instead of working them out from the audio.</p>
+<p><b>Fix.</b> Use a looser pause rule, allow longer stretches, and fall back to the audio when the phone's timings are unclear. A guessed word gets a soft highlight rather than none. A debug count per chapter (words lit vs. guessed) will prove it.</p></div>
+
+<h2 id="smooth">5. Smoothness (frames)</h2>
+<div class="card"><h3><span class="pill">C1</span> Hiding or bringing back the player lags, worst while playing</h3>
+<p><b>Cause, high confidence.</b> In scroll mode the bars fold by changing their <i>height</i> over 220 ms, so the text area changes size on every frame. Each frame rebuilds about five screens of paragraphs and redoes the fade mask (<code>reader_chrome.dart:233</code>, <code>reader_screen.dart:2484</code>). During playback, the glow and word repaints add to it.</p>
+<p><b>Fix.</b> Lay the bars over the text, as pages already do, sliding and fading without changing the text's size.</p></div>
+
+<div class="card"><h3><span class="pill">C2</span> Following the voice (scroll and page turns) skips frames</h3>
+<ul><li><b>Scroll:</b> it waits until the sentence is near the bottom (90%), then jumps up to three quarters of a screen in 360 ms. That is 90&ndash;180 px a frame, which looks like dropped frames even when none are dropped. <b>Fix:</b> follow sooner with shorter, gentler moves, and start the scroll on the frame after the sentence change, not the same one.</li>
+<li><b>Curl pages:</b> every frame of a turn rebuilds all three leaves, works out their accessibility text, and draws a blurred shadow. The leaves are also torn down and rebuilt at the start and end of each turn. Every word repaints the whole page. At a new chapter, the whole chapter is cut into pages in one frame. <b>Fix:</b> build the leaves once per turn, use a gradient shadow, repaint only the spoken line, and cut chapters a little per frame.</li>
+<li><b>To check:</b> the phone may drop to 60 Hz when you aren't touching it, so turns driven by the voice may run at half rate. Measurable; if so, ask for 120 Hz while reading.</li></ul></div>
+
+<div class="card"><h3><span class="pill">C3</span> The constant lag</h3>
+<ul><li><b>The voice glow never stops.</b> While the voice reads, it asks for a frame about every 33 ms, even when it is hidden or covered (<code>voice_glow.dart:151</code>). That is about 30 full-screen redraws a second, for nothing.</li>
+<li>A full-screen fade mask over the text adds an extra render pass on every frame.</li>
+<li>Each spoken word re-lays out the whole paragraph in scroll mode.</li>
+<li>Now Playing's blurred cover is blurred again on every frame.</li></ul>
+<p><b>Fix:</b> the glow stops when it can't be seen; two thin gradient strips replace the mask; the word is painted behind fixed text; the cover is blurred once.</p></div>
+<p><small>Each fix gets measured before and after on your phone (frame times from SurfaceFlinger), as before.</small></p>
+
+<h2 id="battery">6. Battery</h2>
+<p>Your screenshot: TomeVoice 26% (1 min on screen, 1 h 56 min in the background), plus &ldquo;Speech Recognition and Synthesis&rdquo; 22%. The second one is Google's voice engine. Its cost is TomeVoice's too: a phone voice was speaking (as the reader, for dialogue, or standing in after a natural voice failed). Together that is nearly half the battery for two hours of listening. Ranked by likely cost:</p>
+<div class="scroll"><table>
+<tr><th>#</th><th>What runs with the screen off</th><th>Fix</th></tr>
+<tr><td>D1</td><td><b>Wake-ups: about 63 a second.</b> The glow's 26 ms timer keeps running with nothing to draw, and the player is polled every 40 ms with the screen off. <span class="ok">Confirmed.</span></td><td>Stop the glow when unseen; poll every 250&ndash;500 ms in the background.</td></tr>
+<tr><td>D2</td><td>Making the speech: natural voices use 4 CPU threads; with a phone voice, Google's engine does the work.</td><td>2 threads when the speed test shows the voice keeps up; a &ldquo;long session&rdquo; tip; warn when a Google voice needs the internet.</td></tr>
+<tr><td>D3</td><td>The audio output uses a small 0.5 s buffer in normal mode.</td><td>Power-saving audio mode with a 2&ndash;4 s buffer (word highlight is unaffected).</td></tr>
+<tr><td>D4</td><td>Your place is saved to storage, with a forced flush, after <i>every sentence</i>. The home widget redraws and the media card updates every sentence too.</td><td>Save every 30 s while playing, and at pause, stop, chapter change or leaving. No widget redraws while reading in the background.</td></tr>
+<tr><td>D5</td><td>For each sentence: a fresh worker, the audio written to a file and read back.</td><td>One lasting worker; audio passed in memory.</td></tr>
+</table></div>
+<p><small>Already right: the wake lock is let go on pause, nothing ticks while paused, voices unload after 3 idle minutes. Measured on the phone with battery stats over 30-minute screen-off listens, before and after.</small></p>
+
+<h2 id="small">7. Small UI fixes</h2>
+<ul>
+<li><b>Wider Settings cards.</b> <span class="done">Done &middot; 1.4.2</span> The gap to the screen edge is 20 dp (<code>settings_screen.dart:313</code>, <code>Gap.page</code>). Set it to 12 dp there only, which lines the cards up with the back button. Other screens keep 20.</li>
+<li><b>&ldquo;No contents, no page view for EPUBs&rdquo;: both exist, but they're hidden.</b> Contents opens by tapping the book title in the top bar; the only hint is a tiny arrow, and it's gone when the bars are hidden. Pages mode for EPUBs is in Aa &rarr; Read &rarr; Layout, seventh section down. PDFs get a top-bar button, which is why it looks PDF-only. <b>Fix:</b> a Contents button and a Scroll/Pages toggle in the top bar, and Layout first in the Read tab.</li>
+<li><b>The crash in issues #24/#25</b> (see section 2). <span class="done">Done &middot; 1.4.2</span></li>
+</ul>
+
+<h2 id="quick">8. Quick additions</h2>
+<div class="card"><h3>Paradee voice</h3>
+<p><b>Paradee-8M</b> (Hugging Face <code>sahilmahendrakar/Paradee-8M-v1.2</code>, Apache-2.0, released late October) is an English voice distilled from Kokoro, with 4 voices (af_heart, bf_isabella, am_puck, bm_fable). It is <b>8.5 MB</b> (int8) against Kokoro's 334 MB, and its quality scores (UTMOS) sit close to Kokoro's.</p>
+<p><b>The catch: it is not drop-in.</b> Its ONNX inputs differ from what sherpa-onnx's Kokoro support expects (a voice number instead of a style vector), and sherpa-onnx doesn't support it. Two ways:</p>
+<ol><li>ask the sherpa-onnx project to support it, which costs us nothing;</li>
+<li>run it ourselves with ONNX Runtime and a phonemiser in Kokoro's format.</li></ol>
+<p>Option 2 is a few days' work but feasible. <b>Recommendation:</b> open the request now, then build option 2 if there's no answer in a couple of weeks. A tiny, Kokoro-like English voice is worth having for phones too slow for Kokoro.</p></div>
+<div class="card"><h3>Search on the Natural voices page</h3>
+<p>About 180 voices in 42 languages, with no search. Add a search field at the top that matches name, language, accent and gender (&ldquo;british female&rdquo;, &ldquo;hindi&rdquo;). Small.</p></div>
+
+<h2 id="anx">9. Ideas from Anx Reader</h2>
+<p>Only from its README, docs, release notes and issues, not its code, as you asked. You have version 1.14.0 installed at <code>G:\AnxReader</code>. Things TomeVoice lacks that fit it:</p>
+<div class="scroll"><table>
+<tr><th>Feature</th><th>Verdict</th><th>Why</th></tr>
+<tr><td>&ldquo;Previously&rdquo; recap when you reopen a book after a while (bring your own AI key)</td><td class="ok">Worth it</td><td>The heart of your reading helper, and it can be <i>read aloud</i> before the book resumes. Anx can't do that.</td></tr>
+<tr><td>Chapter summary, saved, with Regenerate</td><td class="ok">Worth it</td><td>Same AI setup; saved so you don't pay twice.</td></tr>
+<tr><td>Explain or define selected text with AI</td><td class="ok">Worth it</td><td>Extends our press-and-hold lookup.</td></tr>
+<tr><td>Letter spacing, font weight, text alignment</td><td class="ok">Worth it</td><td>Reader comforts (you asked for these on 31 Oct).</td></tr>
+<tr><td>Your own fonts</td><td class="ok">Worth it</td><td>Often asked for; cheap.</td></tr>
+<tr><td>Your own chapter rules for TXT files (a pattern, or split by word count)</td><td class="ok">Worth it</td><td>Web-novel TXT dumps often have no chapters.</td></tr>
+<tr><td>Replace a book's file, keeping place and notes</td><td class="ok">Worth it</td><td>For a corrected EPUB. Small.</td></tr>
+<tr><td>Editable AI prompts and your own prompt buttons</td><td class="warn">Maybe</td><td>Cheap once AI exists.</td></tr>
+<tr><td>Tap zones (3&times;3 grid), e-ink mode, notes as CSV, a yearly reading heatmap</td><td class="warn">Maybe</td><td>Small each.</td></tr>
+<tr><td>Chat with the whole book, AI mind maps, AI tidying the shelf</td><td class="bad">Skip for now</td><td>Large, costly in tokens; one Anx user hit 194k tokens in one request.</td></tr>
+<tr><td>Whole-book translation, background images, vertical CJK, the interface in other languages</td><td class="bad">Skip</td><td>Off focus, or already decided against.</td></tr>
+</table></div>
+<p>Anx's AI, briefly: you bring your own key (OpenAI-compatible, Claude, Gemini; DeepSeek, OpenRouter and Ollama through the first). It offers a chapter summary, a &ldquo;previously&rdquo; recap after a set time away, AI on a selection (dictionary, translation, chat), a chat panel that can search the book's text, and editable prompts. Nothing is free inside it.</p>
+
+<h2 id="helper">10. The reading helper (AI)</h2>
+<p>From your ChatGPT chat (&ldquo;Build Shadow Slave AI&rdquo;): the goal is an assistant that answers <i>factually with chapter citations</i>, can <i>theorise</i> with you across hundreds of chapters, takes new chapters of an ongoing novel, and <b>never spoils past where you are</b>. The chat proposed a server with Postgres, Neo4j and GraphRAG. That is right for a research project and far too heavy for a phone app.</p>
+<p><b>A phone-sized version, free to run:</b></p>
+<ol>
+<li><b>Notes kept as you read, on the phone.</b> When a chapter is finished, one small AI call writes a short summary and a list of who and what appeared (names, aliases, places). These are saved with the book. That gives a running memory of the story up to your place, never past it, so spoiler safety comes from how it's built.</li>
+<li><b>Recap where you left off</b>, read aloud in your voice: built from the last few chapter notes. Costs almost nothing.</li>
+<li><b>&ldquo;Who is this?&rdquo;</b> on a held name: answered from the notes, with the chapters where the name appeared.</li>
+<li><b>Ask the book</b> (theory mode later): find the matching chapters on the phone (word search over the text and notes, no server), and send only those passages, with chapter numbers, to the AI. The answer cites chapters.</li>
+<li><b>The AI:</b> your own key. Gemini's free tier fits best: a huge context, and free within daily limits, though Google may use free-tier data for training. OpenRouter is the &ldquo;any model&rdquo; option. A key is stored in Android's keystore. No TomeVoice server, so nothing to host or pay for.</li>
+</ol>
+<p><b>Before designing it, I'll ask you about the qualities you want</b> (you asked for this first). That comes in the next questions round, not this one.</p>
+<p class="warn"><small>Note: with this feature, IzzyOnDroid is ruled out twice over (section 1). F-Droid would list it under its &ldquo;non-free network services&rdquo; flag, which is allowed.</small></p>
+
+<h2 id="cloud">11. ElevenLabs and expressive voices (your CrushOn question)</h2>
+<p><b>What CrushOn uses:</b> not public. Their site blocks fetching, and no review or document names the voice provider. Anything said about it (ElevenLabs, Fish, MiniMax) is a guess. The slow &ldquo;whole reply first&rdquo; behaviour you saw suggests they make the full reply before playing it.</p>
+<p><b>Can it be real-time book reading? Yes.</b> TomeVoice already makes speech a sentence ahead, so a cloud voice slots in the same way: send the next sentences while the current one plays. ElevenLabs Flash starts in about 75 ms and gives timings per character, so word highlighting works. The real limit is <b>cost</b>. An average 100k-word novel (~550k characters, ~11 hours):</p>
+<div class="scroll"><table>
+<tr><th>Service (your own key)</th><th>Cost for that novel</th><th>Free each month</th><th>Word highlight</th><th>Feel</th></tr>
+<tr><td>Azure neural voices</td><td>~$8</td><td><b>500k characters</b> (almost a novel)</td><td class="ok">Yes</td><td>Good; some voices have styles</td></tr>
+<tr><td>ElevenLabs Flash v2.5</td><td>~$22</td><td>10k characters</td><td class="ok">Yes</td><td>Very expressive</td></tr>
+<tr><td>ElevenLabs v3</td><td>~$44</td><td>10k characters</td><td class="ok">Yes</td><td>The most expressive</td></tr>
+<tr><td>Gemini Flash TTS</td><td>~$9 (until Dec), then ~$17</td><td>Free tier, rate-limited</td><td class="bad">No</td><td>Expressive, takes style prompts</td></tr>
+<tr><td>OpenAI gpt-4o-mini-tts</td><td>~$10</td><td>none</td><td class="bad">No</td><td>Expressive</td></tr>
+</table></div>
+<p><b>Recommendation:</b> an optional &ldquo;Cloud voice (your key)&rdquo; with Azure first (word highlight, and nearly a novel free each month). Then ElevenLabs for the expressive feel, then any OpenAI-compatible endpoint. Each sentence's audio is cached so re-listening is free. This stays opt-in; the offline voices remain the default.</p>
+
+<h2 id="zlib">12. Z-Library and file formats</h2>
+<div class="card alert"><p><b>I recommend not building Z-Library in.</b></p>
+<ul>
+<li>It is a criminally indicted piracy service (US case of November 2022), its domains are seized again and again, and it has no official API. It now works through personal login domains, Tor, and mirrors that users run themselves.</li>
+<li>A built-in Z-Library browser invites a DMCA takedown of the GitHub repository, which takes the forks with it and would end the open-source project.</li>
+<li>F-Droid refuses apps that infringe copyright.</li>
+<li>Anna's Archive is in the same position, with court orders against it in 2026.</li>
+</ul>
+<p>The app already lets anyone add an OPDS catalogue by URL. That keeps TomeVoice neutral, the way KOReader and Moon+ do it.</p></div>
+<p><b>Formats.</b> Z-Library's format filter lists TXT, PDF, FB2, EPUB, LIT, MOBI, RTF, DJVU, AZW and AZW3. TomeVoice already reads all of them except <b>DJVU</b> and <b>LIT</b>. Old Word <b>.doc</b>, <b>CHM</b> and comics (<b>CBZ/CBR</b>) are also missing.</p>
+<ul>
+<li><b>AZW3 / MOBI / AZW / PRC:</b> <span class="ok">supported</span>, as long as the file has no DRM.</li>
+<li><b>DJVU:</b> worth adding. Many scanned books come in it. It needs a DjVu decoder (djvulibre, GPL, native) to read the hidden text layer or show the pages for OCR. Medium-sized job.</li>
+<li><b>.doc</b> (old Word): medium. Its text can be pulled out without a big library.</li>
+<li><b>LIT, CHM:</b> rare; CHM is simple HTML in a container (small), LIT is an old Microsoft format (skip).</li>
+<li><b>CBZ/CBR:</b> comics are pictures. Only useful with OCR. Low priority.</li>
+</ul>
+<p><b>Also found:</b> Project Gutenberg plans to retire its current catalogue feed (XML OPDS) in 2027 in favour of OPDS 2 (JSON). Our Gutenberg catalogue needs to move before then.</p>
+
+<h2 id="diary">13. The diary look</h2>
+<p>The picture is a spiral-bound field notebook: grid paper, coloured numbered tabs down the edge, a taped photo with a handwritten caption, small numbered page badges, and a handwritten line at the end. It's from a game, so we take the idea only, never its art.</p>
+<ul>
+<li><b>Saved as a notebook</b> (best fit): quotes, highlights and notes on grid or ruled paper, one page per book, the book's cover taped at the top like the photo, your note in a handwritten font, and coloured tabs on the edge to jump between books.</li>
+<li><b>Contents as tabs</b>: a book's parts or arcs as coloured tabs down the side of the chapter list.</li>
+<li><b>The reading helper's recap</b> on a notebook page: &ldquo;Previously, in chapter 412&hellip;&rdquo;.</li>
+<li>A <b>Notebook</b> paper (grid) among the reader's papers: a theme option, cheap.</li>
+</ul>
+<p><small>The handwritten font needs an open licence (Caveat, or Kalam, both SIL OFL).</small></p>
+
+<h2 id="order">14. Order of work</h2>
+<p>Each batch is fixed, tested in CI, checked on your phone (with screenshots), then released properly through <code>main</code>. You'll get a check list for each one before release.</p>
+<div class="scroll"><table>
+<tr><th>Batch</th><th>What</th><th>Release</th></tr>
+<tr><td><b>1. Make 1.4.1 right, fix the worst</b></td><td>Release hygiene (notes, tag, <code>main</code>); the crash #24/#25; A1 chapter opens the right place; A2 opens at once; A3 download counts; A5 reading on across chapters; Settings width.</td><td>1.4.2</td></tr>
+<tr><td><b>2. Smooth and light</b></td><td>C1&ndash;C3 and D1&ndash;D5, each measured before and after on the phone; A4 (as you decide); A6.</td><td>1.4.3</td></tr>
+<tr><td><b>3. How it sounds</b></td><td>B1 ellipsis rule, B2 no gaps, B3 joins, B4 word highlight; Contents and Pages buttons in view; natural voice search.</td><td>1.5.0</td></tr>
+<tr><td><b>4. Comforts</b></td><td>Anx-inspired: spacing, weight, alignment, your own fonts, TXT chapter rules, replace a book's file; Notebook paper and the Saved notebook; Gutenberg OPDS 2; DJVU.</td><td>1.5.x</td></tr>
+<tr><td><b>5. Helper and voices</b></td><td>The reading helper (after you've said what you want); the cloud voice (Azure, then ElevenLabs); Paradee.</td><td>1.6</td></tr>
+</table></div>
+
+<h2 id="questions">15. What I need from you</h2>
+<div class="card q"><ol>
+<li class="ok">A4, answered: only &ldquo;Read from here&rdquo; moves the place; scrolling looks around. Paused counts as listening.</li>
+<li class="ok">A6, answered: the view must follow the voice into the next chapter and keep the highlight.</li>
+<li class="ok">Battery day, answered: a natural narrator with a phone voice for dialogue, which is why Google's engine shows 22%. Batch 2 measures both.</li>
+<li class="ok">v1.4.1, done 17 Nov: the tag now points at <code>62a6628</code> (what was built), and the notes are the changelog's section plus how it was released.</li>
+<li class="ok">Reading helper, answered: all four jobs (recap, who/what is this, ask with citations, theorise); spoilers <b>never past my place</b>; <b>your own key, no server</b>; spoken in the reading voice, and shown on a notebook page per book.</li>
+</ol></div>
+</main>
+</body>
+</html>

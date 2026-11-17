@@ -8,7 +8,8 @@ in the [changelog](../CHANGELOG.md).
 
 ## Where things stand
 
-- **1.4.0** is the latest release (31 October 2026). `main` is the last release; work
+- **1.4.2** is the latest release (18 November 2026). 1.4.1 was published by hand,
+  its APKs built from `next` at `62a6628` (its tag was moved there afterwards). `main` is the last release; work
   happens on `next`, which carries the fixes listed under "Unreleased" in the changelog,
   and goes to `main` by pull request.
 - **Android only.** Windows is not started ([08](08-platform-windows.md)); there is no Play

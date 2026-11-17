@@ -3,7 +3,7 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
-## Unreleased
+## 1.4.2 (2026-11-18)
 
 Web novels open where you ask, and keep going.
 
