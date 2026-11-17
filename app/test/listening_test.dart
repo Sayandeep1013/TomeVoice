@@ -572,6 +572,7 @@ void main() {
     expect(count('playerStop'), stops, reason: 'the voice was stopped');
     expect(find.text('Back to reading'), findsOneWidget, reason: 'no way back to the voice');
     expect(find.byTooltip('Pause'), findsOneWidget, reason: "the player's button does not show the voice reading");
+    expect(find.textContaining('READING CHAPTER 46'), findsOneWidget, reason: "the player does not name the voice's chapter");
     // Pause pauses the voice where it is, the chapter still shown.
     await tester.tap(find.byTooltip('Pause'));
     await tester.pump();

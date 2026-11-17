@@ -9,6 +9,8 @@ Smoother, lighter on the battery, and a voice that reads "..." and commas as peo
 
 #### Looking at another chapter
 - A chapter picked from a novel's list (or Contents, a bookmark, a passage found) is only looked at: the voice reads on where it is, or stays paused there, and Continue goes on from the voice's place, not from the chapter opened. Only Read from here moves it. Back to reading returns to the voice. In a book only ever read by eye, the place still follows what you open.
+- Meanwhile the player is the voice's: it says which chapter is being read, shows Pause while it reads, and its buttons and scrubber move the voice. A tap on it goes back to the voice.
+- A tap on the reading card in the notification shade opens the book where the voice is reading, not the page of the app last shown.
 
 #### Listening
 - "I... I don't know" is read as one sentence, not "I..." rushed on its own; ". . ." is one mark. Your books, and web-novel chapters already downloaded, are split again when you open them.

@@ -951,6 +951,14 @@ class BackgroundReading {
 
   int _chapterStart(int chapter) => layout.chapterFirstUnit[chapter.clamp(0, layout.chapters.length - 1)];
 
+  /// Move the voice to sentence [u] (reading on there, or waiting there,
+  /// paused), as the card's buttons do: a book's page looking at another
+  /// chapter steers it with its player (see ReaderController.placeAway).
+  void moveTo(int u) => _moveTo(u);
+
+  /// The first sentence of chapter [chapter] (an index into the layout's).
+  int chapterStart(int chapter) => _chapterStart(chapter);
+
   /// The card moved the place: reading carries on there, or, paused, waits
   /// there for Play.
   void _moveTo(int u) {

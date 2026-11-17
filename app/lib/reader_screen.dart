@@ -19,6 +19,7 @@ import 'export_audio_sheet.dart';
 import 'fast_scroller.dart';
 import 'highlights.dart';
 import 'library_store.dart';
+import 'listening_session.dart' show BackgroundReading;
 import 'book_search.dart';
 import 'listen_sheet.dart';
 import 'marks.dart';
@@ -473,6 +474,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       lookAt: widget.lookAt,
     );
     widget.layouts?.addListener(_onLayouts);
+    _watched = _voiceElsewhere;
+    _watched?.layouts.addListener(_voiceMoved);
+    BackgroundReading.current.addListener(_voiceMoved);
     _player.word.addListener(_onWord);
     MarkStore.instance.changes.addListener(_onMarks);
     _onMarks();
@@ -523,6 +527,21 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   @override
   Future<void> Function({required bool play})? get toThePlace => widget.toThePlace;
+
+  /// This book's voice in the background while the page looks at another
+  /// chapter (ReaderController.placeAway), or null.
+  BackgroundReading? get _voiceElsewhere {
+    if (!_reader.placeAway) return null;
+    final bg = BackgroundReading.current.value;
+    return bg != null && bg.bookId == _book.id && !bg.layout.isEmpty ? bg : null;
+  }
+
+  /// The voice elsewhere moved on into new chapters (a new player and
+  /// layout) or ended: the player is built again for it.
+  BackgroundReading? _watched;
+  void _voiceMoved() {
+    if (mounted) setState(() {});
+  }
 
   @override
   double Function(int u)? get progressOf => widget.progressOf;
@@ -822,6 +841,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   @override
   void dispose() {
+    // First: closing the page hands its voice to the background, which
+    // would ask this page to be built again.
+    _watched?.layouts.removeListener(_voiceMoved);
+    BackgroundReading.current.removeListener(_voiceMoved);
     final open = _nowPlaying;
     final nav = _nowPlayingNav;
     if (open != null && nav != null && open.isActive) {
@@ -1805,25 +1828,34 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     // A phone on its side: the player floats over the foot of the text as
     // one row, so the text keeps the height.
     final rail = size.width > size.height && size.height < 600;
+    // Looking at another chapter while this book's voice reads (or waits)
+    // in the background: the player is the voice's, its chapter and its
+    // place, and its buttons move it there.
+    final voice = _voiceElsewhere;
     final bar = ReaderPlayerBar(
       key: _barKey,
-      layout: _l,
-      cursor: _cursor,
-      player: _player,
+      layout: voice?.layout ?? _l,
+      cursor: voice?.player.unit ?? _cursor,
+      player: voice?.player ?? _player,
       speed: _speed,
       voiceLabel: _voiceLabel(),
-      sleepNote: _reader.sleepNote,
+      sleepNote: voice == null ? _reader.sleepNote : null,
       onPlay: _reader.togglePlay,
-      onPrevSentence: () => _reader.goTo(_cursor.value - 1),
-      onNextSentence: () => _reader.goTo(_cursor.value + 1),
-      onPrevChapter: () => _reader.goChapter(-1),
-      onNextChapter: () => _reader.goChapter(1),
-      moreAfter: widget.onReachedEnd != null,
-      progressOf: widget.progressOf,
-      onSeekInChapter: (u) => _reader.goTo(u),
+      onPrevSentence: voice != null ? () => voice.moveTo(voice.unit - 1) : () => _reader.goTo(_cursor.value - 1),
+      onNextSentence: voice != null ? () => voice.moveTo(voice.unit + 1) : () => _reader.goTo(_cursor.value + 1),
+      onPrevChapter: voice != null
+          ? () => voice.moveTo(voice.chapterStart(voice.layout.chapterOfUnit(voice.unit) - 1))
+          : () => _reader.goChapter(-1),
+      onNextChapter: voice != null
+          ? () => voice.moveTo(voice.chapterStart(voice.layout.chapterOfUnit(voice.unit) + 1))
+          : () => _reader.goChapter(1),
+      moreAfter: voice == null && widget.onReachedEnd != null,
+      progressOf: voice != null ? (u) => progressFraction(voice.layout.units, u) : widget.progressOf,
+      onSeekInChapter: voice != null ? voice.moveTo : (u) => _reader.goTo(u),
+      elsewhere: voice != null,
       onSpeed: () => showListenSheet(context, _listen, focus: ListenFocus.speed),
       onVoice: () => showListenSheet(context, _listen),
-      onExpand: _openNowPlaying,
+      onExpand: voice != null ? () => _reader.follow() : _openNowPlaying,
       dock: rail,
       title: _book.metadata.title,
       cover: _cover,
