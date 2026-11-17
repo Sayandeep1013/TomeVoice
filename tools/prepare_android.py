@@ -296,6 +296,9 @@ DOC_MIME_TYPES = [
     "text/rtf",
     "application/x-mobipocket-ebook",
     "application/vnd.amazon.ebook",
+    # AZW3 (KF8), as file managers and browsers label it.
+    "application/vnd.amazon.mobi8-ebook",
+    "application/x-mobi8-ebook",
     "application/x-fictionbook+xml",
     "text/plain",
     "text/markdown",

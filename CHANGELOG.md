@@ -14,6 +14,7 @@ Web novels open where you ask, and keep going.
 - A novel's download line counts "3 of 10", lets go of chapters something else downloaded meanwhile (they were shown as still to come until Cancel), ticks each chapter as it comes, and says when it waits for a site that asked for a rest instead of spinning.
 - In a book you have listened to, a scroll or a page turned by hand only looks around: the voice's place stays, and Back to reading returns to it. Only Read from here moves it. A book only ever read by eye keeps its place where you are.
 - Settings' cards reach closer to the screen's edges.
+- Open with TomeVoice is offered for AZW3 files that file managers label as KF8 (application/vnd.amazon.mobi8-ebook).
 - A tap on a PDF's real page that went away under the finger (the voice turned it) no longer crashes the app ([#24](https://github.com/Sayandeep1013/TomeVoice/issues/24), [#25](https://github.com/Sayandeep1013/TomeVoice/issues/25)).
 
 ## 1.4.1 (2026-10-31)
