@@ -7,6 +7,9 @@ Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoi
 
 Smoother, lighter on the battery, and a voice that reads "..." and commas as people do.
 
+#### Looking at another chapter
+- A chapter picked from a novel's list (or Contents, a bookmark, a passage found) is only looked at: the voice reads on where it is, or stays paused there, and Continue goes on from the voice's place, not from the chapter opened. Only Read from here moves it. Back to reading returns to the voice. In a book only ever read by eye, the place still follows what you open.
+
 #### Listening
 - "I... I don't know" is read as one sentence, not "I..." rushed on its own; ". . ." is one mark. Your books, and web-novel chapters already downloaded, are split again when you open them.
 - Natural voices no longer pause twice at a comma (their own pause and the one set): the pause set is how long it is in all. A long sentence is made in pieces only over 200 characters, so there are far fewer short silences mid-sentence.

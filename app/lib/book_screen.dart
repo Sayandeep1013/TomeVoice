@@ -157,13 +157,16 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
   }
 
   Future<void> _open(ReadingLayout l, {required bool play, int? chapter, int? unit}) async {
-    final cursor = l.isEmpty
-        ? await _store.cursorFor(_entry.id)
+    final cursor = await _store.cursorFor(_entry.id);
+    // A chapter or a sentence picked is looked at; the place stays (see
+    // ReaderScreen.lookAt). Play on it reads from there.
+    final look = l.isEmpty
+        ? null
         : unit != null
             ? cursorOf(l.units[unit.clamp(0, l.units.length - 1)])
             : chapter != null
                 ? cursorOf(l.units[l.chapterFirstUnit[chapter]])
-                : await _store.cursorFor(_entry.id);
+                : null;
     if (!mounted) return;
     await Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => BookTint(
@@ -173,7 +176,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
           layout: l,
           store: _store,
           initialCursor: cursor,
-          chosenPlace: !l.isEmpty && (unit != null || chapter != null),
+          lookAt: look,
           autoplay: play,
           bookDir: _store.bookDir(_entry.id),
           sourcePath: _entry.sourcePath,

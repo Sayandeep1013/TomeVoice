@@ -1837,8 +1837,9 @@ void main() {
       expect(find.text('Chapters'), findsOneWidget);
       expect(find.text('Chapter 1'), findsOneWidget);
 
-      // A chapter opens the reader right there.
+      // A chapter opens the reader right there (the place read first).
       await tester.tap(find.text('Chapter 2'));
+      await settleIo(tester, until: () => find.byType(ReaderScreen).evaluate().isNotEmpty);
       await tester.pumpAndSettle();
       expect(find.byType(ReaderScreen), findsOneWidget);
       expect(washed(tester), 'Chapter 2');

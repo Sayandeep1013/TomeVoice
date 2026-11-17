@@ -475,6 +475,9 @@ class _Installed extends SourceStore {
 /// A book's page, as its reading sees it; [web] for a web novel's, whose
 /// next chapters are still on the site.
 class _Page implements ReaderView {
+  @override
+  Future<void> Function({required bool play})? get toThePlace => null;
+
   _Page({this.web = false});
 
   final bool web;

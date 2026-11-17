@@ -103,12 +103,13 @@ class BookLoader extends StatefulWidget {
 class _BookLoaderState extends State<BookLoader> {
   // The place is read after the layout: loading may re-parse the book and
   // carry the saved place over to the new structure first.
-  late final Future<(ReadingLayout, ReadingCursor)> _load = () async {
+  late final Future<(ReadingLayout, ReadingCursor, ReadingCursor?)> _load = () async {
     final layout = await widget.store.loadLayout(widget.entry.id);
-    final at = widget.at;
-    if (at != null && !layout.isEmpty) return (layout, cursorOf(layout.units[unitOfMark(layout, at)]));
     final cursor = await widget.store.cursorFor(widget.entry.id);
-    return (layout, cursor);
+    final at = widget.at;
+    // A mark opened: looked at, the place kept (see ReaderScreen.lookAt).
+    if (at != null && !layout.isEmpty) return (layout, cursor, cursorOf(layout.units[unitOfMark(layout, at)]));
+    return (layout, cursor, null);
   }();
 
   /// The reader's first frame is heavy (every paragraph on screen laid
@@ -154,7 +155,7 @@ class _BookLoaderState extends State<BookLoader> {
                     layout: data.$1,
                     store: widget.store,
                     initialCursor: data.$2,
-                    chosenPlace: widget.at != null,
+                    lookAt: data.$3,
                     autoplay: widget.autoplay,
                     bookDir: widget.store.bookDir(widget.entry.id),
                     sourcePath: widget.entry.sourcePath,
@@ -247,7 +248,8 @@ class ReaderScreen extends StatefulWidget {
     required this.layout,
     this.store,
     this.initialCursor = ReadingCursor.zero,
-    this.chosenPlace = false,
+    this.lookAt,
+    this.toThePlace,
     this.autoplay = false,
     this.bookDir,
     this.sourcePath,
@@ -274,10 +276,15 @@ class ReaderScreen extends StatefulWidget {
   final LibraryStore? store;
   final ReadingCursor initialCursor;
 
-  /// [initialCursor] was picked (a chapter, a mark, a passage found), not
-  /// the place saved: it is where the book opens, even while the book reads
-  /// on in the background (see ReaderController.chosenUnit).
-  final bool chosenPlace;
+  /// Something picked to look at (a chapter, a mark, a passage found): the
+  /// book opens showing it, and the place ([initialCursor]) and the voice
+  /// stay where they are (see ReaderController.lookUnit).
+  final ReadingCursor? lookAt;
+
+  /// Open the page again at the place, when it is not among this page's
+  /// chapters (a web novel's window round what was picked); see
+  /// ReaderView.toThePlace.
+  final Future<void> Function({required bool play})? toThePlace;
   final bool autoplay;
 
   /// The end of what is here was reached (a web novel whose next chapters
@@ -405,9 +412,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   late final int _startItem = () {
     if (_l.isEmpty) return 0;
     final cursorItem = _l.unitItem[_cursor.value.clamp(0, _l.units.length - 1)];
-    // Picked while the voice reads on: shown, the voice's place kept.
-    final chosen = _reader.chosenUnit;
-    if (chosen >= 0 && _reader.tookBack) return _l.unitItem[chosen.clamp(0, _l.units.length - 1)];
+    // Something picked to look at: shown, the place kept.
+    final look = _reader.lookUnit;
+    if (look >= 0) return _l.unitItem[look.clamp(0, _l.units.length - 1)];
     final view = widget.viewSection;
     final c = view == null ? -1 : _l.chapters.indexOf(view);
     return c < 0 ? cursorItem : _l.chapterFirstItem[c];
@@ -463,14 +470,14 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       view: this,
       initialCursor: widget.initialCursor,
       store: widget.store,
-      chosen: widget.chosenPlace,
+      lookAt: widget.lookAt,
     );
     widget.layouts?.addListener(_onLayouts);
     _player.word.addListener(_onWord);
     MarkStore.instance.changes.addListener(_onMarks);
     _onMarks();
     _positions.itemPositions.addListener(_onPositions);
-    if (!_l.isEmpty && _startItem != _l.unitItem[_cursor.value.clamp(0, _l.units.length - 1)]) {
+    if (!_l.isEmpty && (_reader.placeAway || _startItem != _l.unitItem[_cursor.value.clamp(0, _l.units.length - 1)])) {
       _detached.value = true;
       _viewChapter.value = _l.items[_startItem].chapter;
     }
@@ -488,10 +495,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(_player.play(_cursor.value));
       });
-    } else if (widget.autoplay && _reader.tookBack && _reader.chosenUnit >= 0) {
-      // Asked to read what was picked, while the voice read elsewhere.
+    } else if (widget.autoplay && _reader.lookUnit >= 0) {
+      // Asked to read what was picked (Play on a chapter): as Read from here.
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(_reader.goTo(_reader.chosenUnit, play: true));
+        if (mounted) unawaited(_reader.goTo(_reader.lookUnit, play: true));
       });
     } else if (widget.autoplay && !_reader.tookBack) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -513,6 +520,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   @override
   ValueChanged<int>? get onChapterChanged => widget.onChapterChanged;
+
+  @override
+  Future<void> Function({required bool play})? get toThePlace => widget.toThePlace;
 
   @override
   double Function(int u)? get progressOf => widget.progressOf;
