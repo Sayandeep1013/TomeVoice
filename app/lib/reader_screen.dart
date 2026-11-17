@@ -1974,6 +1974,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   Widget _scrollReading(BuildContext context, Widget bar, bool rail) {
     _pdfSpread = MediaQuery.sizeOf(context).width > MediaQuery.sizeOf(context).height &&
         MediaQuery.sizeOf(context).width >= 600;
+    // Upright, on the text (not a PDF's real pages, which keep the bars):
+    // the bars are laid over the text, which keeps its size.
+    if (!rail && !_showPages) return _scrollUnderBars(context, bar);
     return Column(
       children: [
         // A PDF's real pages keep the bars: a tap there reads from the page.
@@ -2039,6 +2042,91 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           ),
         ),
         if (!rail) _overLight(FoldingBar(shown: _scrollBars, keep: _showPages, top: false, child: bar)),
+      ],
+    );
+  }
+
+  /// The bars' heights over the scrolling text (see [_scrollUnderBars]),
+  /// and how far they are shown: 1 shown, 0 put away, between as they go.
+  final _topBarHeight = ValueNotifier<double>(0);
+  final _footBarHeight = ValueNotifier<double>(0);
+
+  /// A bar measured anew (the first time, the phone turned, the player's
+  /// size changed): the text makes its room again. Once, not every frame.
+  void _barMeasured(ValueNotifier<double> height, Size size) {
+    if (!mounted || (height.value - size.height).abs() < 0.5) return;
+    setState(() => height.value = size.height);
+  }
+
+  /// The book as one long page, upright: the top bar and the player slide
+  /// over it, and the text's fade at each edge follows them, drawn again
+  /// but never laid out again. (Folded away into the page's edges, the bars
+  /// changed the text's size on every frame they moved, the whole list laid
+  /// out anew each time, and the bars came and went at half the screen's
+  /// frame rate while the voice read.)
+  Widget _scrollUnderBars(BuildContext context, Widget bar) {
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: ValueListenableBuilder<bool>(
+            valueListenable: _veiled,
+            builder: (context, veiled, text) => AnimatedOpacity(
+              opacity: veiled ? 0 : 1,
+              // Out quickly, back as it glides in.
+              duration: veiled ? _veil : Motion.standard,
+              curve: veiled ? Curves.easeIn : Motion.out,
+              child: text,
+            ),
+            child: _tapForBars(toned(context, _style.tone, _text(context, underBars: true))),
+          ),
+        ),
+        // The page's light over the text, under the bars and the pills.
+        Positioned.fill(child: LightVeil(light: _light)),
+        Positioned(
+          left: 0,
+          right: 0,
+          top: 0,
+          // Clipped while it slides away: over the status bar it showed.
+          child: ClipRect(
+            child: SlidingBar(
+              shown: _scrollBars,
+              top: true,
+              child: SizeReport(onSize: (s) => _barMeasured(_topBarHeight, s), child: _topBar(context)),
+            ),
+          ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: SlidingBar(
+            shown: _scrollBars,
+            top: false,
+            child: SizeReport(onSize: (s) => _barMeasured(_footBarHeight, s), child: bar),
+          ),
+        ),
+        ValueListenableBuilder<double>(
+          valueListenable: _footBarHeight,
+          builder: (context, foot, pill) => ValueListenableBuilder<bool>(
+            valueListenable: _scrollBars,
+            builder: (context, shown, pill) => AnimatedPositioned(
+              duration: Motion.of(context, Motion.standard),
+              curve: Motion.out,
+              left: 0,
+              right: 0,
+              bottom: shown ? foot + 10 : 10,
+              child: pill!,
+            ),
+            child: pill,
+          ),
+          child: Center(
+            child: AnimatedSwitcher(
+              duration: Motion.of(context, Motion.standard),
+              transitionBuilder: fadeRise,
+              child: _pill(context),
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -2481,7 +2569,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         onSettings: () => showListenSheet(context, _listen, focus: ListenFocus.read),
       );
 
-  Widget _text(BuildContext context) {
+  Widget _text(BuildContext context, {bool underBars = false}) {
     if (_l.isEmpty) {
       return Center(
         child: Padding(
@@ -2509,21 +2597,29 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     // whole emulator, on API 34 and 36 alike.)
     // A long book has a thumb at the edge: dragged, it goes straight through
     // the book, the bubble naming the chapter.
-    return FastScroller(
-      target: _fastText,
-      top: 8,
-      bottom: 16,
-      labelAt: (f) => _l.chapterTitle(_l.items[(f * (_l.items.length - 1)).round()].chapter),
-      onDrag: _onFastScroll,
-      child: ShaderMask(
-        blendMode: BlendMode.dstIn,
-        shaderCallback: (rect) => LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: const [Colors.transparent, Colors.black, Colors.black, Colors.transparent],
-          stops: [0, 18 / rect.height, 1 - 28 / rect.height, 1],
-        ).createShader(rect),
-        child: NotificationListener<ScrollNotification>(
+    // Under the bars (see _scrollUnderBars): room above the first line and
+    // below the last for the bars, and the fade at each edge as far in as
+    // each bar reaches while shown, following it as it goes.
+    final top = underBars ? _topBarHeight.value : 0.0;
+    final foot = underBars ? _footBarHeight.value : 0.0;
+    _roomTop = top;
+    _roomFoot = foot;
+    Widget faded(double t, Widget child) => ShaderMask(
+          blendMode: BlendMode.dstIn,
+          shaderCallback: (rect) {
+            final h = rect.height <= 0 ? 1.0 : rect.height;
+            final a = (t * top / h).clamp(0.0, 0.5);
+            final b = (1 - t * foot / h).clamp(0.5, 1.0);
+            return LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: const [Colors.transparent, Colors.transparent, Colors.black, Colors.black, Colors.transparent, Colors.transparent],
+              stops: [0, a, (a + 18 / h).clamp(a, b), (b - 28 / h).clamp(a, b), b, 1],
+            ).createShader(rect);
+          },
+          child: child,
+        );
+    final list = NotificationListener<ScrollNotification>(
           key: _listBox,
           onNotification: _onScrollNotification,
           child: Directionality(
@@ -2536,18 +2632,52 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
               itemPositionsListener: _positions,
               initialScrollIndex: initial,
               initialAlignment: initial == 0 ? 0 : 0.12,
+              // The room under the bars is the first and last items' own
+              // (see _itemAt): given to the list as padding, it moved the
+              // text by as much when a scroll was stopped.
               padding: EdgeInsets.fromLTRB(side, 16, side, 120),
               itemBuilder: _itemAt,
             ),
           ),
-        ),
-      ),
+        );
+    return FastScroller(
+      target: _fastText,
+      top: 8 + top,
+      bottom: 16 + foot,
+      labelAt: (f) => _l.chapterTitle(_l.items[(f * (_l.items.length - 1)).round()].chapter),
+      onDrag: _onFastScroll,
+      child: underBars
+          ? ValueListenableBuilder<bool>(
+              valueListenable: _scrollBars,
+              builder: (context, shown, list) => TweenAnimationBuilder<double>(
+                tween: Tween(end: shown ? 1 : 0),
+                duration: Motion.of(context, Motion.standard),
+                curve: Motion.out,
+                builder: (context, t, list) => faded(t, list!),
+                child: list,
+              ),
+              child: list,
+            )
+          : faded(0, list),
     );
   }
 
   /// One item of the list: a method, not a new closure each build, so the
   /// list's own layout does not count it as changed.
-  Widget _itemAt(BuildContext context, int i) => i == _l.items.length ? _more(context) : _item(context, i);
+  Widget _itemAt(BuildContext context, int i) {
+    final item = i == _l.items.length ? _more(context) : _item(context, i);
+    final last = i == _l.items.length - (widget.onReachedEnd == null ? 1 : 0);
+    if ((i != 0 || _roomTop == 0) && (!last || _roomFoot == 0)) return item;
+    return Padding(
+      padding: EdgeInsets.only(top: i == 0 ? _roomTop : 0, bottom: last ? _roomFoot : 0),
+      child: item,
+    );
+  }
+
+  /// Room above the book's first line and below its last for the bars laid
+  /// over the text (see _scrollUnderBars); none when they are not.
+  double _roomTop = 0;
+  double _roomFoot = 0;
 
   late final _fastText = _TextScrollTarget(this);
 
