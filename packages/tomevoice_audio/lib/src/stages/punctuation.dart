@@ -19,7 +19,14 @@ class PunctuationPauses {
     this.dashMs = 180,
     this.ellipsisMs = 300,
     this.quoteMs = 0,
+    this.topUp = false,
   });
+
+  /// Each pause is how long the silence there is in all, the voice's own
+  /// included, not that much more: for voices that already pause well at
+  /// punctuation (the natural voices), where adding to theirs doubled every
+  /// comma's pause.
+  final bool topUp;
 
   /// `,`
   final int commaMs;
@@ -54,6 +61,7 @@ class PunctuationPauses {
     int? dashMs,
     int? ellipsisMs,
     int? quoteMs,
+    bool? topUp,
   }) =>
       PunctuationPauses(
         commaMs: commaMs ?? this.commaMs,
@@ -62,6 +70,7 @@ class PunctuationPauses {
         dashMs: dashMs ?? this.dashMs,
         ellipsisMs: ellipsisMs ?? this.ellipsisMs,
         quoteMs: quoteMs ?? this.quoteMs,
+        topUp: topUp ?? this.topUp,
       );
 }
 
@@ -110,13 +119,16 @@ class PunctuationPauseStage implements PipelineStage {
       final ms = _pauseAfter(timings[k].charEnd);
       if (ms <= 0) continue;
 
-      final frames = input.msToFrames(ms);
+      var frames = input.msToFrames(ms);
       if (frames <= 0) continue;
 
       quiet ??= AudioAnalysis.findSilences(input, thresholdDb: quietDb, minDurationMs: 20, windowMs: 2);
-      final at = _placeFor(input, timings, k, quiet);
-      if (at == null) continue;
-      marks.add((at: at, frames: frames));
+      final place = _placeFor(input, timings, k, quiet);
+      if (place == null) continue;
+      // Topped up: only what the voice's own pause there lacks.
+      if (pauses.topUp) frames -= place.already;
+      if (frames <= 0) continue;
+      marks.add((at: place.at, frames: frames));
     }
 
     if (marks.isEmpty) return StageResult.unchanged(input);
@@ -161,7 +173,7 @@ class PunctuationPauseStage implements PipelineStage {
   /// Where the pause after word [k] goes: the middle of the voice's own
   /// pause at its boundary, or, with no pause there, the boundary itself when
   /// an engine reported it, else nowhere.
-  int? _placeFor(AudioBuffer input, List<WordTiming> timings, int k, List<SilenceRun> quiet) {
+  ({int at, int already})? _placeFor(AudioBuffer input, List<WordTiming> timings, int k, List<SilenceRun> quiet) {
     final t = timings[k];
     final b = t.frameEnd.clamp(0, input.frameCount);
     final reliable = t.source.reliable;
@@ -182,8 +194,8 @@ class PunctuationPauseStage implements PipelineStage {
         bestDistance = distance;
       }
     }
-    if (best != null) return (best.startFrame + best.frameCount ~/ 2).clamp(0, input.frameCount);
-    return reliable ? b : null;
+    if (best != null) return (at: (best.startFrame + best.frameCount ~/ 2).clamp(0, input.frameCount), already: best.frameCount);
+    return reliable ? (at: b, already: 0) : null;
   }
 
   /// Looks at the characters immediately after a word to decide what, if
@@ -208,12 +220,20 @@ class PunctuationPauseStage implements PipelineStage {
     }
 
     final c = text[i];
+    // A dash set apart by spaces (" - ", " — ", " -- "): an aside.
+    if (c == ' ' && i + 2 < text.length && '-—–'.contains(text[i + 1]) &&
+        (text[i + 2] == ' ' || text[i + 2] == '-')) {
+      return pauses.dashMs;
+    }
     // Chinese and Japanese marks count as theirs (，、 a comma, ；a clause, ：a colon).
     final base = switch (c) {
       ',' || '，' || '、' => pauses.commaMs,
       ';' || '；' => pauses.clauseMs,
       ':' || '：' => pauses.colonMs,
-      '—' || '–' || '-' => pauses.dashMs,
+      '—' || '–' => pauses.dashMs,
+      // A hyphen is a dash only spaced (" - ") or doubled ("--"): "well-known"
+      // has no pause in it.
+      '-' when i + 1 < text.length && (text[i + 1] == ' ' || text[i + 1] == '-') => pauses.dashMs,
       _ => 0,
     };
 

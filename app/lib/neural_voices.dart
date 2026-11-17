@@ -1159,7 +1159,7 @@ final _storyZh = String.fromCharCodes(const [
 /// [min] characters, when it is longer than [over]. Each piece keeps its
 /// mark, so the voice still says it as a clause; [start] is where it begins
 /// in [text].
-List<({int start, String text})> clausePieces(String text, {int over = 90, int min = 40}) {
+List<({int start, String text})> clausePieces(String text, {int over = 200, int min = 70}) {
   if (text.length <= over) return [(start: 0, text: text)];
   final out = <({int start, String text})>[];
   var from = 0;

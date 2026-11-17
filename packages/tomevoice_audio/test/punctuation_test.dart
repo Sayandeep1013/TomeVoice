@@ -37,7 +37,57 @@ void main() {
     return out.audio.frameCount - f.audio.frameCount;
   }
 
+  group('topped up (natural voices)', () {
+    ({AudioBuffer audio, List<WordTiming> timings}) withGaps(String text, double gapMs) {
+      final words = [for (final m in RegExp(r'[A-Za-z0-9]+').allMatches(text)) (start: m.start, end: m.end)];
+      final built = syntheticSpeech(words: words.length, wordMs: 150, naturalGapMs: gapMs);
+      return (
+        audio: built.audio,
+        timings: [
+          for (var i = 0; i < words.length; i++)
+            WordTiming(
+              charStart: words[i].start,
+              charEnd: words[i].end,
+              frameStart: built.timings[i].frameStart,
+              frameEnd: built.timings[i].frameEnd,
+              source: WordTimingSource.anchored,
+            ),
+        ],
+      );
+    }
+
+    const text = 'one two, three four';
+    const comma = PunctuationPauses(commaMs: 200, clauseMs: 0, colonMs: 0, dashMs: 0, ellipsisMs: 0);
+
+    test("a voice's own 120 ms pause at a comma is made 200 ms in all, not 320", () {
+      final f = withGaps(text, 120);
+      final out = PunctuationPauseStage(text: text, pauses: comma.copyWith(topUp: true)).process(f.audio, f.timings);
+      final added = out.audio.frameCount - f.audio.frameCount;
+      expect(added, closeTo(f.audio.msToFrames(80), f.audio.msToFrames(25)));
+    });
+
+    test('a pause already as long as asked is left as it is', () {
+      final f = withGaps(text, 260);
+      final out = PunctuationPauseStage(text: text, pauses: comma.copyWith(topUp: true)).process(f.audio, f.timings);
+      expect(out.audio.frameCount, f.audio.frameCount);
+    });
+
+    test('not topped up (the phone voices), the pause is added as before', () {
+      final f = withGaps(text, 120);
+      final out = PunctuationPauseStage(text: text, pauses: comma).process(f.audio, f.timings);
+      expect(out.audio.frameCount - f.audio.frameCount, f.audio.msToFrames(200));
+    });
+  });
+
   group('punctuation pauses', () {
+    test('a hyphen inside a word is no dash; a spaced or doubled one is', () {
+      const dash = PunctuationPauses(commaMs: 0, clauseMs: 0, colonMs: 0, dashMs: 180, ellipsisMs: 0);
+      final f = forText('a well-known face');
+      expect(insertedFrames('a well-known face', dash), 0, reason: 'a pause inside "well-known"');
+      expect(insertedFrames('wait - then go', dash), f.audio.msToFrames(180));
+      expect(insertedFrames('wait-- then go', dash), f.audio.msToFrames(180));
+    });
+
     test('inserts after a comma and nowhere else', () {
       const text = 'one two, three four';
       const pauses = PunctuationPauses(

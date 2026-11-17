@@ -31,7 +31,8 @@ const _channel = MethodChannel('tomevoice/tts');
 /// The first sentence is long and has its clauses: a natural voice makes it
 /// in three pieces.
 const _long = 'The rain came down over the harbour all night, and the boats knocked together at '
-    'their moorings, while the keeper slept on in his chair by the lamp.';
+    'their moorings, while the keeper slept by the lamp, dreaming of the summer the whole bay froze, '
+    'and nobody sailed out past the old stone point for a month or more that year.';
 
 final _book = ingestString(
   [

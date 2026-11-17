@@ -147,8 +147,13 @@ class ListeningPrefs {
 
   /// The listening settings as [voice] is heard with them in [book]: the
   /// voice's own pitch, and the book's own speed if it has one.
-  PipelineSettings settingsFor(String? voice, {String? book}) =>
-      settings.copyWith(pitchSemitones: pitchOf(voice), speedScale: speedFor(book));
+  /// A natural voice pauses well at punctuation itself: its pauses are
+  /// topped up to the lengths set, not added to (which doubled each comma's).
+  PipelineSettings settingsFor(String? voice, {String? book}) => settings.copyWith(
+        pitchSemitones: pitchOf(voice),
+        speedScale: speedFor(book),
+        punctuation: (voice?.startsWith('neural:') ?? false) ? settings.punctuation.copyWith(topUp: true) : null,
+      );
 
   /// Book id -> its own speed, for a book given one ("for this book only"):
   /// people read fiction at 1x and skim reports at 2.5x (docs/05 section

@@ -2,6 +2,24 @@ import 'package:test/test.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 void main() {
+  test('a chapter downloaded before is split again where a stammer met an ellipsis', () {
+    const text = '"I... I do not know." He left.';
+    // As an older build stored it: "I..." a sentence of its own.
+    final old = Block(
+      id: 'b',
+      role: BlockRole.paragraph,
+      text: text,
+      sentences: const [
+        Sentence(startOffset: 0, endOffset: 5, words: []),
+        Sentence(startOffset: 5, endOffset: 22, words: []),
+        Sentence(startOffset: 23, endOffset: 31, words: []),
+      ],
+      anchor: OffsetAnchor(0, text.length),
+    );
+    final s = cleanWebChapter(Section(id: 'ch0', index: 0, title: 'One', blocks: [old]));
+    expect([for (final x in s.blocks.single.sentences) x.of(text)], ['"I... I do not know."', 'He left.']);
+  });
+
   group('web chapters', () {
     test('site furniture is not read aloud; the story is', () {
       final s = webChapterSection(index: 0, title: 'Chapter 1', html: '''

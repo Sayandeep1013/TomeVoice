@@ -138,7 +138,7 @@ void main() {
 
   test('a chapter saved by something else (a reader fetching ahead) is let go of at once, and counted done', () async {
     final (a, ac) = await novel('a', 'na', 4);
-    final q = queue();
+    final q = queue(pace: Duration.zero);
     await q.attach(store);
     await q.pause();
     await q.add(a, ac);
