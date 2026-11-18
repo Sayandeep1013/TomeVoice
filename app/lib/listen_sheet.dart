@@ -1140,7 +1140,7 @@ class ReadingControls extends StatelessWidget {
           const SectionTitle('Weight'),
           const SizedBox(height: Gap.m),
           ChoiceRow<int>(
-            options: const [(300, 'Light'), (400, 'Regular'), (500, 'Medium'), (600, 'Bold')],
+            options: const [(300, 'Lighter'), (400, 'Regular'), (500, 'Medium'), (600, 'Bold')],
             value: prefs.textWeight,
             onChanged: (w) => _apply(() => prefs.textWeight = w),
           ),
