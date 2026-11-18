@@ -20,9 +20,11 @@ import 'saved_screen.dart';
 import 'listen_sheet.dart';
 import 'prefs.dart';
 import 'reader_screen.dart';
+import 'relayout.dart';
 import 'rules_screen.dart';
 import 'speakers.dart' show Character;
 import 'speech_service.dart';
+import 'text_chapters_sheet.dart';
 import 'theme.dart';
 import 'ui.dart';
 import 'voices.dart';
@@ -282,6 +284,10 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                     ? null
                     : Padding(padding: const EdgeInsets.only(top: Gap.s), child: _characters(context)),
               ),
+              // A TXT file's chapters are only what TomeVoice could find in
+              // it: its reader can say where they start.
+              if (e.source == SourceKind.text)
+                Padding(padding: const EdgeInsets.only(top: Gap.s), child: _textChapters(context)),
             ],
           ),
         ),
@@ -696,6 +702,85 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
         ),
       ),
     );
+  }
+
+  /// How a TXT book is cut into chapters, under its voice: found by
+  /// TomeVoice, or as its reader said (see showTextChapters).
+  Widget _textChapters(BuildContext context) => Material(
+        color: Skin.capsuleOn(context),
+        borderRadius: BorderRadius.circular(Radii.row + 4),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(Radii.row + 4),
+          onTap: _layout == null ? null : _changeChapters,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: Gap.l, vertical: 14),
+            child: Row(
+              children: [
+                Icon(Icons.format_list_numbered_rounded, color: Skin.accentInkOf(context)),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Eyebrow('Chapters'),
+                      const SizedBox(height: 2),
+                      Text(
+                        _splitting ? 'Splitting the book…' : textChaptersLabel(_entry.textChapters),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Skin.ui(size: 15.5, weight: FontWeight.w600, color: Skin.inkOn(context)),
+                      ),
+                    ],
+                  ),
+                ),
+                Text('Change', style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentInkOf(context))),
+              ],
+            ),
+          ),
+        ),
+      );
+
+  /// Set while the book is being split again.
+  bool _splitting = false;
+
+  /// The book cut into chapters another way: split again, its place, its
+  /// bookmarks and quotes carried with their words (see splitTextBook).
+  Future<void> _changeChapters() async {
+    final was = _layout;
+    if (was == null || _splitting) return;
+    final rule = await showTextChapters(
+      context,
+      title: _entry.title,
+      current: _entry.textChapters,
+      load: () => _store.textOf(_entry.id),
+    );
+    if (rule == null || !mounted) return;
+    // The chapters go while it is split, and nothing opens meanwhile.
+    setState(() {
+      _splitting = true;
+      _layout = null;
+    });
+    try {
+      final layout = await splitTextBook(_store, _entry.id, rule);
+      final cursor = await _store.cursorFor(_entry.id);
+      if (!mounted) return;
+      setState(() {
+        _layout = layout;
+        _cursor = cursor;
+      });
+      await _refreshEntry();
+      if (!mounted) return;
+      final n = layout.chapters.length;
+      showSnack(context,
+          'Split into $n ${n == 1 ? 'chapter' : 'chapters'}. Your place, bookmarks and quotes are where they were.');
+    } on Object catch (e) {
+      debugPrint('Splitting the book failed: $e');
+      if (!mounted) return;
+      setState(() => _layout = was);
+      showSnack(context, 'The book could not be split again. It is as it was.');
+    } finally {
+      if (mounted) setState(() => _splitting = false);
+    }
   }
 
   /// The book's characters, and the voices their lines are read in: under

@@ -3,6 +3,11 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## Unreleased
+
+#### Reading comforts
+- **Your own chapters for a TXT book:** a web novel saved as one file often heads its chapters in a way TomeVoice does not know ("#12 The Gate"), and was read as one long chapter or as parts that start mid-chapter. A TXT book's page has **Chapters**: found by TomeVoice, at lines that start with what you type (or match a regular expression, such as `^#d+`), or every 1,000 to 5,000 words. It shows how many chapters that makes and their first titles before anything changes. The book is split again; your place, bookmarks and quotes stay with their words, and the choice is kept with the book (in backups too).
+
 ## 1.5.0 (2026-11-18)
 
 Smoother, lighter on the battery, and a voice that reads "..." and commas as people do.
