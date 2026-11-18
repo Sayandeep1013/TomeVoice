@@ -17,6 +17,7 @@ Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoi
 - Your own font: add a .ttf or .otf file under the fonts in Aa, Read. It is kept with your library, so a backup carries it.
 - Replace the file (a book's menu): pick a corrected edition and it takes the book's place. Your place, quotes, bookmarks, voices, rules and shelf go with it, found again by their sentences.
 - Natural voices has a search field: a name, a language, an accent ("british") or "female".
+- **Your own chapters for a TXT book:** a web novel saved as one file often heads its chapters in a way TomeVoice does not know ("#12 The Gate"), and was read as one long chapter or as parts that start mid-chapter. A TXT book's page has **Chapters**: found by TomeVoice, at lines that start with what you type (or match a regular expression, such as `^#d+`), or every 1,000 to 5,000 words. It shows how many chapters that makes and their first titles before anything changes. The book is split again; your place, bookmarks and quotes stay with their words, and the choice is kept with the book (in backups too).
 
 #### Catalogues
 - Project Gutenberg opens its new catalogue (OPDS 2), as its older one is retired in 2027: Recently Added, Most Popular, its bookshelves and subjects, search, and each book's EPUB with its cover. If the new one cannot be had, the older one opens as before. Any catalogue you add that speaks OPDS 2 now opens too, instead of saying TomeVoice cannot read it yet.

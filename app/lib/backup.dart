@@ -387,6 +387,17 @@ Future<AddReport> addToLibrary(Directory root, StagedBackup staged, {bool settin
         for (final k in const ['cursor', 'progress', 'where', 'openedAt'])
           if (m.containsKey(k)) k: m[k],
       };
+      // A TXT book cut into other chapters there: the place is in those, so
+      // the rule and the text cut by it come with it.
+      if (jsonEncode(books[here]['chapters']) != jsonEncode(m['chapters'])) {
+        final parsed = File('${dir.path}/parsed.json');
+        if (await parsed.exists()) {
+          await Directory('${root.path}/books/$id').create(recursive: true);
+          await parsed.copy('${root.path}/books/$id/parsed.json');
+        }
+        final kept = {...books[here]}..remove('chapters');
+        books[here] = {...kept, if (m['chapters'] != null) 'chapters': m['chapters']};
+      }
       changed = true;
     }
     // How the reader organised it: see _organised.

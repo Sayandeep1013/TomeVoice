@@ -23,12 +23,16 @@ import 'model.dart';
 /// is decoded by [legacyDecoder]; without one such a book fails with a
 /// [LegacyEncodingException]. A decoder that has to wait (a platform
 /// channel) goes through [ingestBytesAsync] instead.
+///
+/// [textChapters]: how a plain-text book is cut into chapters, when its
+/// reader set a rule for it (see [TextChapters]); other books ignore it.
 Book ingestBytes(
   Uint8List bytes, {
   String? filename,
   String? mime,
   String? id,
   LegacyDecoder? legacyDecoder,
+  TextChapters textChapters = const TextChapters.auto(),
 }) {
   // A song or a picture is refused by what it is, whatever it is called.
   switch (mediaKindOf(bytes)) {
@@ -41,7 +45,7 @@ Book ingestBytes(
   final kind = detectFormat(bytes, filename: filename, mime: mime);
   final bookId = id ?? bookIdOf(bytes);
   try {
-    return _finish(_parse(kind, bytes, bookId, filename, legacyDecoder));
+    return _finish(_parse(kind, bytes, bookId, filename, legacyDecoder, textChapters));
   } on EncryptedDocumentException {
     rethrow;
   } on UnsupportedDocumentException {
@@ -72,7 +76,14 @@ String _kindName(SourceKind kind) => switch (kind) {
       _ => 'text',
     };
 
-Book _parse(SourceKind kind, Uint8List bytes, String bookId, String? filename, LegacyDecoder? legacy) {
+Book _parse(
+  SourceKind kind,
+  Uint8List bytes,
+  String bookId,
+  String? filename,
+  LegacyDecoder? legacy,
+  TextChapters textChapters,
+) {
   final Book book;
   switch (kind) {
     case SourceKind.epub:
@@ -91,7 +102,7 @@ Book _parse(SourceKind kind, Uint8List bytes, String bookId, String? filename, L
     case SourceKind.markdown:
     case SourceKind.html:
       if (looksBinary(bytes)) throw _unknownFormat(filename, bytes);
-      book = parseText(bytes, id: bookId, filename: filename, kind: kind, legacy: legacy);
+      book = parseText(bytes, id: bookId, filename: filename, kind: kind, legacy: legacy, chapters: textChapters);
     case SourceKind.pdf:
       throw const UnsupportedDocumentException(
         'PDF text has to be extracted on the device first; call ingestPdfText.',
@@ -128,15 +139,41 @@ Future<Book> ingestBytesAsync(
   String? mime,
   String? id,
   required Future<String> Function(Uint8List bytes, String charset) decodeLegacy,
-}) async {
+  TextChapters textChapters = const TextChapters.auto(),
+}) =>
+    _withLegacyAnswers(
+      (legacy) => ingestBytes(
+        bytes,
+        filename: filename,
+        mime: mime,
+        id: id,
+        legacyDecoder: legacy,
+        textChapters: textChapters,
+      ),
+      decodeLegacy,
+    );
+
+/// [plainTextOf] with a decoder that answers later, as [ingestBytesAsync].
+Future<String> plainTextOfAsync(
+  Uint8List bytes, {
+  required Future<String> Function(Uint8List bytes, String charset) decodeLegacy,
+}) =>
+    _withLegacyAnswers((legacy) => plainTextOf(bytes, legacy: legacy), decodeLegacy);
+
+/// What [read] gives with [decodeLegacy]'s answers: run once to learn which
+/// stretches need it, those decoded, and run again with the answers.
+Future<T> _withLegacyAnswers<T>(
+  T Function(LegacyDecoder legacy) read,
+  Future<String> Function(Uint8List bytes, String charset) decodeLegacy,
+) async {
   final answers = _Answers();
   for (var pass = 0;; pass++) {
     final asked = <(Uint8List, String)>[];
-    Book? book;
+    T? out;
     Object? error;
     StackTrace? trace;
     try {
-      book = ingestBytes(bytes, filename: filename, mime: mime, id: id, legacyDecoder: (b, charset) {
+      out = read((b, charset) {
         final hit = answers.of(b, charset);
         if (hit != null) return hit;
         asked.add((Uint8List.fromList(b), charset));
@@ -150,7 +187,7 @@ Future<Book> ingestBytesAsync(
     if (asked.isEmpty || pass >= 3) {
       if (error != null) Error.throwWithStackTrace(error, trace!);
       if (asked.isNotEmpty) throw LegacyEncodingException(asked.first.$2);
-      return book!;
+      return out as T;
     }
     for (final (b, charset) in asked) {
       answers.add(b, charset, await decodeLegacy(b, charset));

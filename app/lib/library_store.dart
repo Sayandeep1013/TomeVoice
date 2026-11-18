@@ -1290,6 +1290,7 @@ class LibraryStore {
       pdf: pdf,
       token: RootIsolateToken.instance,
       notes: notes,
+      chapters: entry == null ? null : (entry.source == SourceKind.text ? entry.textChapters : const TextChapters.auto()),
     );
     final (:layout, :remade) = await _runLoad(job);
     // Made again as it opened: a layout loaded before is the old making's.
@@ -1321,6 +1322,54 @@ class LibraryStore {
     }
     if (entry != null) await _noteDetails(entry, layout);
     return layout;
+  }
+
+  /// TXT book [id] cut into chapters by [rule] from now on (its page's
+  /// Chapters). Its text is cut again at once, as a book is parsed anew when
+  /// it opens (see _loadLayout): its place is carried across by its words,
+  /// and its bookmarks and quotes are moved to where their words are now.
+  /// The book's layout after.
+  Future<ReadingLayout> setTextChapters(String id, TextChapters rule) async {
+    final before = await loadLayout(id);
+    final entry = (await list()).where((e) => e.id == id).firstOrNull;
+    if (entry == null || entry.source != SourceKind.text || entry.textChapters == rule) return before;
+    Future<void> keep(TextChapters r) => _change((now) => [
+          for (final e in now)
+            if (e.id == id) e.copyWith(textChapters: r) else e,
+        ]);
+    await keep(rule);
+    final ReadingLayout after;
+    try {
+      after = await loadLayout(id);
+    } on Object {
+      // Not split: the book keeps the chapters it has.
+      await keep(entry.textChapters);
+      rethrow;
+    }
+    await MarkStore.instance.refile(id, before, after);
+    // The place, carried across, is named by its chapter now.
+    if (!after.isEmpty) {
+      final u = after.unitForCursor(await cursorFor(id), saved: true);
+      final where = after.chapterTitle(after.chapterOfUnit(u));
+      await _change((now) => [
+            for (final e in now)
+              if (e.id == id && e.where != null) e.copyWith(where: where) else e,
+          ]);
+    }
+    return after;
+  }
+
+  /// TXT book [id]'s text as its chapters are cut from it, to show what a
+  /// chapter rule would make of it before it is set (see
+  /// previewTextChapters).
+  Future<String> textOf(String id) async {
+    final entry = (await list()).where((e) => e.id == id).firstOrNull;
+    final source = entry?.sourcePath;
+    if (source == null || !File(source).existsSync()) {
+      throw const ParseException('This book\'s file is missing. Import it again.');
+    }
+    final token = RootIsolateToken.instance;
+    return Isolate.run(() => _textOf(source, token));
   }
 
   /// What a book imported before they were kept gets on its first opening:
@@ -2121,6 +2170,8 @@ typedef _ImportJob = ({
 
 /// [pdf]: a PDF's text as the platform has just read it again, when the
 /// book was read by an older PDF reader (see [LibraryStore.loadLayout]).
+/// [chapters]: how a TXT book is to be cut into chapters; null for as it
+/// was kept (a book not in the index as it is shown).
 typedef _LoadJob = ({
   String booksDir,
   String id,
@@ -2128,24 +2179,45 @@ typedef _LoadJob = ({
   Map<String, Object?>? pdf,
   RootIsolateToken? token,
   bool notes,
+  TextChapters? chapters,
 });
 
 /// [bytes] as a book, on a background isolate. Text in an East Asian legacy
 /// encoding (GBK, Big5, Shift_JIS, EUC-KR...) is decoded by Android's own
 /// charsets through [token]; without one (tests) such a book is refused, as
 /// it was misread before.
+///
+/// [chapters]: how a TXT book is cut into chapters (see [TextChapters]).
 Future<Book> _ingest(Uint8List bytes,
-    {String? filename, String? mime, String? id, RootIsolateToken? token}) async {
-  if (token == null) return ingestBytes(bytes, filename: filename, mime: mime, id: id);
+    {String? filename,
+    String? mime,
+    String? id,
+    RootIsolateToken? token,
+    TextChapters chapters = const TextChapters.auto()}) async {
+  if (token == null) return ingestBytes(bytes, filename: filename, mime: mime, id: id, textChapters: chapters);
   BackgroundIsolateBinaryMessenger.ensureInitialized(token);
-  return ingestBytesAsync(bytes, filename: filename, mime: mime, id: id, decodeLegacy: (b, charset) async {
-    final text = await const MethodChannel('tomevoice/tts').invokeMethod<String>(
-      'decodeCharset',
-      {'bytes': b, 'charset': charset},
-    );
-    if (text == null) throw LegacyEncodingException(charset);
-    return text;
-  });
+  return ingestBytesAsync(bytes,
+      filename: filename, mime: mime, id: id, textChapters: chapters, decodeLegacy: _decodeLegacy);
+}
+
+/// Text in an East Asian legacy encoding, decoded by Android's charsets
+/// (see [_ingest]).
+Future<String> _decodeLegacy(Uint8List b, String charset) async {
+  final text = await const MethodChannel('tomevoice/tts').invokeMethod<String>(
+    'decodeCharset',
+    {'bytes': b, 'charset': charset},
+  );
+  if (text == null) throw LegacyEncodingException(charset);
+  return text;
+}
+
+/// A TXT book's text as its chapters are cut from it (see [plainTextOf]),
+/// read from its file [path] on a background isolate.
+Future<String> _textOf(String path, RootIsolateToken? token) async {
+  final bytes = File(path).readAsBytesSync();
+  if (token == null) return plainTextOf(bytes);
+  BackgroundIsolateBinaryMessenger.ensureInitialized(token);
+  return plainTextOfAsync(bytes, decodeLegacy: _decodeLegacy);
 }
 
 /// A book made from a file, and anything the reader should hear about it.
@@ -2185,18 +2257,21 @@ Future<_Imported> _import(_ImportJob job) async {
   // A scan read by OCR before: the text OCR gave it stands, and its pages
   // are not read again (they have no text of their own).
   final ocr = pdf == null ? null : readOcrText('${job.booksDir}/$id');
+  // The same TXT file imported again: cut into chapters as its reader had
+  // it, so that the place it keeps (LibraryEntry.organisedAs) is in them.
+  final chapters = pdf == null ? _chaptersOf('${job.booksDir}/$id') : const TextChapters.auto();
   if (ocr != null) {
     book = _pdfBook(id, ocr, job.name);
   } else if (pdf != null) {
     book = _pdfBook(id, pdf, job.name);
   } else {
-    book = await _ingest(bytes, filename: job.name, mime: job.mime, id: id, token: job.token);
+    book = await _ingest(bytes, filename: job.name, mime: job.mime, id: id, token: job.token, chapters: chapters);
   }
 
   final dir = Directory('${job.booksDir}/$id')..createSync(recursive: true);
   final dest = File('${dir.path}/source${_ext(job.name)}');
   dest.writeAsBytesSync(bytes, flush: true);
-  _writeParsed(dir.path, book);
+  _writeParsed(dir.path, book, chapters: chapters);
   _writeImages(dir.path, bytes, book);
 
   final entry = LibraryEntry(
@@ -2387,11 +2462,31 @@ Book _withDetails(Book book, BookMetadata d) {
   );
 }
 
-void _writeParsed(String dir, Book book) {
+/// [book] kept in [dir], with the chapter rule it was cut by, when its
+/// reader set one ([chapters]): a book kept by another rule is cut again
+/// as it opens (see _loadLayout).
+void _writeParsed(String dir, Book book, {TextChapters chapters = const TextChapters.auto()}) {
   _writeWholeSync(
     File('$dir/parsed.json'),
-    jsonEncode({'v': _parsedVersion, 'n': _narrationVersion, 'book': book.toJson()}),
+    jsonEncode({
+      'v': _parsedVersion,
+      'n': _narrationVersion,
+      if (!chapters.isAuto) 'chapters': chapters.toJson(),
+      'book': book.toJson(),
+    }),
   );
+}
+
+/// The chapter rule the book kept in [dir] was cut by: TomeVoice's own when
+/// none was set, or nothing can be read there.
+TextChapters _chaptersOf(String dir) {
+  try {
+    final raw = jsonDecode(File('$dir/parsed.json').readAsStringSync());
+    if (raw is Map) return TextChapters.fromJson(raw['chapters']);
+  } on Object {
+    // A new book, or one to be read again from its file.
+  }
+  return const TextChapters.auto();
 }
 
 /// Whether [raw], an EPUB stored before its narration was looked for, has
@@ -2536,13 +2631,21 @@ Future<({ReadingLayout layout, bool remade})> _loadLayout(_LoadJob job) async {
       // from the book's own file.
     }
   }
+  // The chapter rule the book was kept with, and the one it is to have.
+  final kept = raw is Map ? TextChapters.fromJson(raw['chapters']) : const TextChapters.auto();
+  final chapters = job.chapters ?? kept;
   if (raw != null) {
-    if (raw is Map && raw['v'] == _parsedVersion && raw['book'] is Map && !_narrationUnread(raw, job.sourcePath, dir)) {
+    if (raw is Map &&
+        raw['v'] == _parsedVersion &&
+        raw['book'] is Map &&
+        !_narrationUnread(raw, job.sourcePath, dir) &&
+        kept == chapters) {
       book = Book.fromJson(Map<String, Object?>.from(raw['book'] as Map));
     } else if (raw is Map) {
       // Written by an older build. Parse the source again so the book gets
       // today's sentence splitting, language detection and pictures; PDFs
-      // need the platform for that, so they keep what they have.
+      // need the platform for that, so they keep what they have. A TXT book
+      // whose reader set another chapter rule is cut again the same way.
       final inner = raw['book'];
       final legacy = Book.fromJson(
         Map<String, Object?>.from(inner is Map ? inner : raw),
@@ -2557,13 +2660,14 @@ Future<({ReadingLayout layout, bool remade})> _loadLayout(_LoadJob job) async {
             filename: legacy.sourceName ?? source.path,
             id: job.id,
             token: job.token,
+            chapters: chapters,
           );
           // An article's byline, site and address came with it, not in its
           // file (see importMade): they stay.
           if (legacy.metadata.identifier != null && book.metadata.identifier == null) {
             book = _withDetails(book, legacy.metadata);
           }
-          _writeParsed(dir, book);
+          _writeParsed(dir, book, chapters: chapters);
           _writeImages(dir, bytes, book);
         } on Object {
           book = withResolvedLanguage(legacy);
@@ -2595,8 +2699,8 @@ Future<({ReadingLayout layout, bool remade})> _loadLayout(_LoadJob job) async {
       throw const ParseException('This book\'s files are missing. Import it again.');
     }
     final bytes = source.readAsBytesSync();
-    book = await _ingest(bytes, filename: source.path, id: job.id, token: job.token);
-    _writeParsed(dir, book);
+    book = await _ingest(bytes, filename: source.path, id: job.id, token: job.token, chapters: chapters);
+    _writeParsed(dir, book, chapters: chapters);
     _writeImages(dir, bytes, book);
   }
   // PDFs stored one section per page get real chapters from their own text.
@@ -2755,6 +2859,7 @@ class LibraryEntry {
     this.series,
     this.seriesIndex,
     this.textPrint,
+    this.textChapters = const TextChapters.auto(),
   });
 
   final String id;
@@ -2819,6 +2924,10 @@ class LibraryEntry {
   /// a book imported before; empty for a text too short to have one.
   final String? textPrint;
 
+  /// For a TXT book: how it is cut into chapters, when its reader chose
+  /// (its page's Chapters); TomeVoice's own finding otherwise.
+  final TextChapters textChapters;
+
   bool get isWeb => source == SourceKind.web;
 
   /// The series it is in, if any.
@@ -2835,13 +2944,15 @@ class LibraryEntry {
       copyWith(coverMode: mode, customCover: custom, clearCustomCover: custom == null);
 
   /// This book, made again (imported again, or read by OCR), with what the
-  /// reader gave [previous]: its tags, and its series or that it has none.
+  /// reader gave [previous]: its tags, its series or that it has none, and
+  /// the chapters it is cut into.
   LibraryEntry organisedAs(LibraryEntry previous) => copyWith(
         tags: previous.tags,
         series: previous.series,
         seriesIndex: previous.series == null ? null : previous.seriesIndex,
         clearSeriesIndex: previous.series != null && previous.seriesIndex == null,
         textPrint: textPrint ?? previous.textPrint,
+        textChapters: previous.textChapters,
       );
 
   DateTime get lastTouched => openedAt ?? addedAt;
@@ -2882,6 +2993,7 @@ class LibraryEntry {
     double? seriesIndex,
     bool clearSeriesIndex = false,
     String? textPrint,
+    TextChapters? textChapters,
   }) =>
       LibraryEntry(
         id: id,
@@ -2909,6 +3021,7 @@ class LibraryEntry {
         series: series ?? this.series,
         seriesIndex: clearSeriesIndex ? null : (seriesIndex ?? this.seriesIndex),
         textPrint: textPrint ?? this.textPrint,
+        textChapters: textChapters ?? this.textChapters,
       );
 
   Map<String, Object?> toJson() => {
@@ -2937,6 +3050,7 @@ class LibraryEntry {
         if (series != null) 'series': series,
         if (seriesIndex != null) 'seriesIndex': seriesIndex,
         if (textPrint != null) 'print': textPrint,
+        if (!textChapters.isAuto) 'chapters': textChapters.toJson(),
       };
 
   static LibraryEntry fromJson(Map<String, Object?> json) => LibraryEntry(
@@ -2984,6 +3098,7 @@ class LibraryEntry {
             ? (json['seriesIndex'] as num?)?.toDouble()
             : _titleSeries(json)?.index,
         textPrint: json['print'] as String?,
+        textChapters: TextChapters.fromJson(json['chapters']),
       );
 
   /// The series an entry's title names, for a book that is a book: a web

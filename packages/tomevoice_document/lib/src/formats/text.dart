@@ -6,19 +6,196 @@ import '../model.dart';
 import '../segment.dart';
 import 'html_blocks.dart';
 
+/// [chapters]: how a plain-text book (not Markdown or HTML) is cut into
+/// chapters; see [TextChapters].
 Book parseText(
   Uint8List bytes, {
   required String id,
   String? filename,
   SourceKind kind = SourceKind.text,
   LegacyDecoder? legacy,
+  TextChapters chapters = const TextChapters.auto(),
 }) =>
     parseTextString(
       decodeText(bytes, legacy: legacy, markup: kind == SourceKind.html),
       id: id,
       filename: filename,
       kind: kind,
+      chapters: chapters,
     );
+
+/// A plain-text file's text as its chapters are cut from it: decoded as
+/// [parseText] decodes it, without Project Gutenberg's header and licence.
+/// What [previewTextChapters] is given.
+String plainTextOf(Uint8List bytes, {LegacyDecoder? legacy}) =>
+    _withoutGutenbergLicence(_normalised(decodeText(bytes, legacy: legacy)).replaceAll(_ownMarks, ''));
+
+String _normalised(String raw) => raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+
+/// What a chapter rule is: TomeVoice's own finding, lines the reader names,
+/// or a count of words.
+enum TextChapterKind { auto, lines, words }
+
+/// How a plain-text book is cut into chapters.
+///
+/// TomeVoice finds chapter lines it knows ("Chapter 12", "第12章", "XII"),
+/// and cuts a long text with none into parts of about 4,000 words. Web
+/// novels saved as one TXT file often head their chapters some other way
+/// ("#12 The Gate", "Ep. 12"), and are then read as parts that start in
+/// the middle of a chapter. The reader can name the lines instead: what
+/// they start with, or (for those who know them) a regular expression;
+/// or have the book cut every so many words.
+class TextChapters {
+  const TextChapters.auto()
+      : kind = TextChapterKind.auto,
+        pattern = '',
+        regex = false,
+        words = 0;
+
+  /// Chapters start at lines beginning with [pattern] (capitals or not),
+  /// or with [regex], at lines the regular expression [pattern] matches.
+  const TextChapters.lines(this.pattern, {this.regex = false})
+      : kind = TextChapterKind.lines,
+        words = 0;
+
+  /// A chapter every [words] words or so, cut where a paragraph ends (or a
+  /// sentence, in a paragraph longer than that).
+  const TextChapters.words(this.words)
+      : kind = TextChapterKind.words,
+        pattern = '',
+        regex = false;
+
+  final TextChapterKind kind;
+  final String pattern;
+  final bool regex;
+  final int words;
+
+  /// The fewest words a chapter rule of words may ask for.
+  static const fewestWords = 200;
+
+  bool get isAuto => kind == TextChapterKind.auto;
+
+  /// Why this rule cannot be used, in plain words; null when it can. A
+  /// book is never cut by a rule that cannot: it keeps TomeVoice's own
+  /// chapters instead.
+  String? get problem {
+    switch (kind) {
+      case TextChapterKind.auto:
+        return null;
+      case TextChapterKind.words:
+        return words < fewestWords ? 'A chapter needs at least $fewestWords words.' : null;
+      case TextChapterKind.lines:
+        if (pattern.trim().isEmpty) return 'Say what a chapter’s first line starts with.';
+        if (regex && _compile(pattern) == null) {
+          return 'TomeVoice can’t read this pattern. Check its brackets and backslashes.';
+        }
+        return null;
+    }
+  }
+
+  /// Whether [line] (one line, or a paragraph) starts a chapter by this
+  /// rule; null for a rule that is not of lines, or cannot be used.
+  bool Function(String line)? get lineTest {
+    if (kind != TextChapterKind.lines || problem != null) return null;
+    if (regex) {
+      final re = _compile(pattern)!;
+      return (line) {
+        final t = line.trim();
+        return t.isNotEmpty && t.length <= _longestTitle && re.hasMatch(t);
+      };
+    }
+    final start = collapseWhitespace(pattern).toLowerCase();
+    return (line) {
+      final t = collapseWhitespace(line);
+      return t.isNotEmpty && t.length <= _longestTitle && t.toLowerCase().startsWith(start);
+    };
+  }
+
+  /// [pattern] as a regular expression, capitals or not; null when it is
+  /// not one. With \p{...} and the like where it can, as JavaScript reads
+  /// them; written for the older rules (an escaped "_"), as those read it.
+  static RegExp? _compile(String pattern) {
+    for (final unicode in const [true, false]) {
+      try {
+        return RegExp(pattern, caseSensitive: false, unicode: unicode);
+      } on FormatException {
+        // Tried the other way, then given up.
+      }
+    }
+    return null;
+  }
+
+  Map<String, Object?> toJson() => switch (kind) {
+        TextChapterKind.auto => {'kind': 'auto'},
+        TextChapterKind.lines => {'kind': 'lines', 'pattern': pattern, if (regex) 'regex': true},
+        TextChapterKind.words => {'kind': 'words', 'words': words},
+      };
+
+  /// The rule [json] holds; TomeVoice's own for anything else.
+  static TextChapters fromJson(Object? json) {
+    if (json is! Map) return const TextChapters.auto();
+    switch (json['kind']) {
+      case 'lines':
+        final p = json['pattern'];
+        return p is String ? TextChapters.lines(p, regex: json['regex'] == true) : const TextChapters.auto();
+      case 'words':
+        final n = json['words'];
+        return n is num ? TextChapters.words(n.toInt()) : const TextChapters.auto();
+    }
+    return const TextChapters.auto();
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is TextChapters &&
+      other.kind == kind &&
+      other.pattern == pattern &&
+      other.regex == regex &&
+      other.words == words;
+
+  @override
+  int get hashCode => Object.hash(kind, pattern, regex, words);
+}
+
+/// A line longer than this is a paragraph, whatever it starts with.
+const _longestTitle = 100;
+
+/// Fewer characters than this are not a chapter (see isReadingSection).
+const _slightest = 80;
+
+/// What [rule] makes of [text] (see [plainTextOf]): how many chapters, the
+/// titles of the first [titles] of them ([fallbackTitle] for the text
+/// before the first chapter line), and whether the rule cut them (false
+/// when it cannot be used, or no line is as it says: the book then keeps
+/// TomeVoice's own chapters). Quick enough to follow each letter typed: no
+/// block is made and no sentence found, except to cut a paragraph longer
+/// than a rule of words.
+({int count, List<String> titles, bool ruled}) previewTextChapters(
+  String text,
+  TextChapters rule, {
+  String fallbackTitle = 'Opening',
+  int titles = 5,
+}) {
+  final plan = _plan(text, rule);
+  // A piece with next to nothing in it (the title line before the first
+  // chapter) is not listed as a chapter by the reader (isReadingSection),
+  // and is not counted here.
+  final p = plan.paragraphs;
+  final cuts = [
+    for (var c = 0; c < plan.cuts.length; c++)
+      if (p
+              .sublist(plan.cuts[c].at, c + 1 < plan.cuts.length ? plan.cuts[c + 1].at : p.length)
+              .fold<int>(0, (n, x) => n + x.length + 1) >=
+          _slightest)
+        plan.cuts[c],
+  ];
+  final shown = cuts.isEmpty ? plan.cuts : cuts;
+  return (
+    count: shown.length,
+    titles: [for (final c in shown.take(titles)) c.title ?? fallbackTitle],
+    ruled: plan.ruled,
+  );
+}
 
 /// Noncharacters TomeVoice uses inside its own pipeline; never book text.
 final _ownMarks = RegExp('[${String.fromCharCode(0xFDD0)}-${String.fromCharCode(0xFDD2)}]');
@@ -35,8 +212,9 @@ Book parseTextString(
   String? title,
   String? author,
   bool marked = false,
+  TextChapters chapters = const TextChapters.auto(),
 }) {
-  raw = raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+  raw = _normalised(raw);
   if (!marked) raw = raw.replaceAll(_ownMarks, '');
   // A Gutenberg file names its book in its header: its name is a number.
   final header = kind == SourceKind.text ? _gutenbergHeader(raw) : null;
@@ -61,7 +239,11 @@ Book parseTextString(
   return assembleBook(
     id: id,
     metadata: metadata,
-    sections: sectionsFromPlainText(raw, fallbackTitle: title),
+    sections: sectionsFromPlainText(
+      raw,
+      fallbackTitle: title,
+      chapters: kind == SourceKind.text ? chapters : const TextChapters.auto(),
+    ),
     source: kind,
     filename: filename,
   );
@@ -133,10 +315,101 @@ String _withoutGutenbergLicence(String raw) {
 /// blank lines at all. Treating the second shape like the first turned a
 /// whole novel into a single paragraph; the first like the second, every
 /// line of a story into a sentence of its own.
+///
+/// [chapters] says where chapters start: TomeVoice's own finding unless the
+/// reader set a rule for the book (see [TextChapters]).
 List<DraftSection> sectionsFromPlainText(
   String raw, {
   required String fallbackTitle,
+  TextChapters chapters = const TextChapters.auto(),
 }) {
+  final plan = _plan(raw, chapters);
+  final p = plan.paragraphs;
+  return [
+    for (var c = 0; c < plan.cuts.length; c++)
+      (
+        title: plan.cuts[c].title ?? fallbackTitle,
+        blocks: [
+          for (var i = plan.cuts[c].at; i < (c + 1 < plan.cuts.length ? plan.cuts[c + 1].at : p.length); i++)
+            makeBlock(
+              role: plan.headings.contains(i) || _looksLikeHeading(p[i]) ? BlockRole.heading : BlockRole.paragraph,
+              text: p[i],
+            ),
+        ],
+      ),
+  ];
+}
+
+/// A text's paragraphs, which of them are chapter lines (headings), and
+/// where its chapters start: at paragraph [at], titled [title] (null: the
+/// book's own title, for the text before its first chapter line or a
+/// text in one piece); and whether the reader's rule cut it ([ruled]).
+typedef _Plan = ({
+  List<String> paragraphs,
+  Set<int> headings,
+  List<({int at, String? title})> cuts,
+  bool ruled,
+});
+
+/// Where [raw]'s chapters start by [rule], worked out on its paragraphs'
+/// text alone: [sectionsFromPlainText] makes the blocks after, and
+/// [previewTextChapters] needs none.
+_Plan _plan(String raw, TextChapters rule) {
+  // A rule that cannot be used (a pattern with a mistake) leaves the book
+  // as TomeVoice cuts it.
+  final lineTest = rule.lineTest;
+  final words = rule.kind == TextChapterKind.words && rule.problem == null ? rule.words : null;
+  final isChapter = lineTest ?? looksLikeChapterLine;
+  var paragraphs = _paragraphs(raw, isChapter, own: lineTest != null);
+  if (words != null) {
+    // A paragraph longer than a chapter (a whole story on one line) is cut
+    // where its sentences end.
+    paragraphs = [
+      for (final p in paragraphs)
+        if (_wordsIn(p) > words) ..._bySentences(p, words) else p,
+    ];
+  }
+  final headings = {
+    for (var i = 0; i < paragraphs.length; i++)
+      if (isChapter(paragraphs[i])) i,
+  };
+  if (words != null) {
+    return (
+      paragraphs: paragraphs,
+      headings: headings,
+      cuts: _wordCuts(paragraphs, words, tail: words ~/ 3),
+      ruled: true,
+    );
+  }
+  // One "chapter" line in a whole file is probably prose, not structure;
+  // lines the reader named are chapters however few.
+  if (headings.length >= (lineTest != null ? 1 : 2)) {
+    final starts = headings.toList()..sort();
+    return (
+      paragraphs: paragraphs,
+      headings: headings,
+      cuts: [
+        if (starts.first > 0) (at: 0, title: null),
+        for (final i in starts) (at: i, title: paragraphs[i]),
+      ],
+      ruled: lineTest != null,
+    );
+  }
+  if (lineTest != null) return _plan(raw, const TextChapters.auto());
+  final total = paragraphs.fold<int>(0, (n, p) => n + _wordsIn(p));
+  return (
+    paragraphs: paragraphs,
+    headings: headings,
+    cuts: total < _partWords * 2 ? [(at: 0, title: null)] : _wordCuts(paragraphs, _partWords, tail: _partWords ~/ 3),
+    ruled: false,
+  );
+}
+
+/// [raw]'s paragraphs, in either shape (see [sectionsFromPlainText]); in
+/// text whose paragraphs are set apart by blank lines, a line that
+/// [isChapter] says heads a chapter is a paragraph of its own; with
+/// [own] (the reader's rule), the line after it starts another.
+List<String> _paragraphs(String raw, bool Function(String line) isChapter, {bool own = false}) {
   final lines = raw.split('\n');
   final nonEmpty = lines.where((l) => l.trim().isNotEmpty).length;
   var blank = 0;
@@ -159,7 +432,9 @@ List<DraftSection> sectionsFromPlainText(
     for (final l in lines) {
       if (l.trim().isEmpty) {
         flush();
-      } else if (buf.isNotEmpty && looksLikeChapterLine(l)) {
+      } else if (isChapter(l) && (buf.isNotEmpty || own)) {
+        // A line the reader named stands alone even where no blank line
+        // follows it; TomeVoice's own finding is left as it always was.
         flush();
         buf.add(l);
         flush();
@@ -174,31 +449,7 @@ List<DraftSection> sectionsFromPlainText(
       if (t.isNotEmpty) paragraphs.add(t);
     }
   }
-
-  final sections = <DraftSection>[];
-  String? title = fallbackTitle;
-  var blocks = <Block>[];
-  var chapters = 0;
-  for (final p in paragraphs) {
-    if (looksLikeChapterLine(p)) {
-      if (blocks.isNotEmpty) sections.add((title: title, blocks: blocks));
-      chapters++;
-      title = p;
-      blocks = [makeBlock(role: BlockRole.heading, text: p)];
-      continue;
-    }
-    blocks.add(makeBlock(
-      role: _looksLikeHeading(p) ? BlockRole.heading : BlockRole.paragraph,
-      text: p,
-    ));
-  }
-  if (blocks.isNotEmpty) sections.add((title: title, blocks: blocks));
-
-  // One "chapter" line in a whole file is probably prose, not structure.
-  if (chapters < 2) {
-    return _parts([for (final s in sections) ...s.blocks], fallbackTitle);
-  }
-  return sections;
+  return paragraphs;
 }
 
 /// About a chapter's worth of words: a long text with no chapters of its
@@ -206,31 +457,46 @@ List<DraftSection> sectionsFromPlainText(
 /// has places to jump to and a chapter to finish.
 const _partWords = 4000;
 
-List<DraftSection> _parts(List<Block> blocks, String title) {
-  final total = blocks.fold<int>(0, (n, b) => n + countWords(b.text));
-  if (total < _partWords * 2) return [(title: title, blocks: blocks)];
-  final out = <DraftSection>[];
-  var part = <Block>[];
+/// [p]'s words, as its block will count them (without TomeVoice's own
+/// marks, which the block takes out).
+int _wordsIn(String p) => countWords(p.contains(_ownMarks) ? p.replaceAll(_ownMarks, '') : p);
+
+/// Parts of about [size] words each, cut where a paragraph ends, titled
+/// "Part 1", "Part 2"... A last part shorter than [tail] words joins the
+/// one before it rather than standing alone; a text that makes only one
+/// part is not called one.
+List<({int at, String? title})> _wordCuts(List<String> paragraphs, int size, {required int tail}) {
+  final starts = [0];
   var words = 0;
-  for (final b in blocks) {
-    part.add(b);
-    words += countWords(b.text);
-    if (words >= _partWords) {
-      out.add((title: 'Part ${out.length + 1}', blocks: part));
-      part = [];
+  for (var i = 0; i < paragraphs.length; i++) {
+    words += _wordsIn(paragraphs[i]);
+    if (words >= size && i + 1 < paragraphs.length) {
+      starts.add(i + 1);
       words = 0;
     }
   }
-  if (part.isNotEmpty) {
-    // A short tail joins the part before it rather than standing alone.
-    if (words < _partWords ~/ 3 && out.isNotEmpty) {
-      final last = out.removeLast();
-      out.add((title: last.title, blocks: [...last.blocks, ...part]));
-    } else {
-      out.add((title: 'Part ${out.length + 1}', blocks: part));
+  if (starts.length > 1 && words < tail) starts.removeLast();
+  if (starts.length == 1) return const [(at: 0, title: null)];
+  return [for (var n = 0; n < starts.length; n++) (at: starts[n], title: 'Part ${n + 1}')];
+}
+
+/// [p], a paragraph longer than [size] words, as pieces of about that many,
+/// each ending where a sentence does.
+List<String> _bySentences(String p, int size) {
+  final out = <String>[];
+  var from = 0;
+  var words = 0;
+  for (final s in segmentSentences(p, words: false)) {
+    words += _wordsIn(p.substring(s.startOffset, s.endOffset));
+    if (words >= size) {
+      out.add(p.substring(from, s.endOffset).trim());
+      from = s.endOffset;
+      words = 0;
     }
   }
-  return out;
+  final rest = p.substring(from).trim();
+  if (rest.isNotEmpty) out.add(rest);
+  return [for (final piece in out) if (piece.isNotEmpty) piece];
 }
 
 /// Join hard-wrapped lines into one paragraph, mending words that were
