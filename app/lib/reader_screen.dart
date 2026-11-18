@@ -14,6 +14,8 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 import 'ai/ai_keys.dart';
 import 'ai/memory/memory_db.dart';
 import 'ai/memory/memory_service.dart';
+import 'ai/memory/theories.dart';
+import 'ai/memory/theories_screen.dart';
 import 'ai/talk/name_card.dart';
 import 'ai/talk/talk_sheet.dart';
 import 'auto_scroll.dart';
@@ -506,6 +508,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _chrome.addListener(_onChrome);
     unawaited(_loadPrefs());
     unawaited(_reader.loadCover());
+    // A theory of the reader's the story has settled, at a chapter they
+    // have now reached: said once, a moment after the book opens.
+    Future<void>.delayed(const Duration(seconds: 2), () {
+      if (mounted) unawaited(_tellTheories());
+    });
     if (_reader.resumeAt >= 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(_player.play(_cursor.value));
@@ -2538,6 +2545,33 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       firstQuestion: first,
       onLook: _lookAtPlace,
     );
+  }
+
+  Future<void> _tellTheories() async {
+    final store = widget.store;
+    if (store == null || !_talkable) return;
+    final path = MemoryDb.pathIn(store.bookDir(_book.id));
+    final news = await untoldOff(path, _memoryChapter(_cursor.value));
+    if (news.isEmpty || !mounted) return;
+    final t = news.first;
+    final what = switch (t.status) {
+      'confirmed' => 'was right',
+      'busted' => 'was wrong',
+      _ => 'was partly right',
+    };
+    showSnack(
+      context,
+      news.length == 1
+          ? 'Your theory from chapter ${t.ch + 1} $what: chapter ${t.decidedCh! + 1} settled it.'
+          : '${news.length} of your theories have been settled by what you have read.',
+      margin: _snackMargin,
+      long: true,
+      actionLabel: 'See',
+      onAction: () => unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => TheoriesScreen(bookTitle: _book.metadata.title, memoryPath: path, here: _memoryChapter(_cursor.value)),
+      ))),
+    );
+    await markToldOff(path, [for (final x in news) x.id]);
   }
 
   /// The spoiler line, with the guard on: the furthest of the chapter here

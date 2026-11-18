@@ -10,6 +10,7 @@ import '../ai_router.dart';
 import 'chapter_notes.dart';
 import 'graph.dart';
 import 'memory_db.dart';
+import 'theories.dart';
 
 /// A batch of chapters ready to send: the prompt, and where each chapter's
 /// passages start, to place what the notes say.
@@ -335,6 +336,7 @@ class MemoryBuilder {
         } else {
           most = l.chapters;
           tokens = l.tokens;
+          await _checkTheories(batch.chapters);
         }
         await refreshCounts();
       }
@@ -372,6 +374,45 @@ class MemoryBuilder {
         error: e.until == null ? (e.last?.message ?? 'No key can build memories') : null,
       );
       return false;
+    }
+  }
+
+  /// The reader's open theories held up to the chapters just noted: those
+  /// they clearly settle get their verdict (kept hidden from the reader
+  /// until they reach that chapter). Passed over when no key can do it.
+  Future<void> _checkTheories(List<int> chapters) async {
+    final p = path;
+    final open = await Isolate.run(() => openTheories(p));
+    final last = chapters.reduce(math.max);
+    final due = [for (final t in open) if (t.ch < last) t];
+    if (due.isEmpty) return;
+    final text = await Isolate.run(() => chaptersForCheck(p, chapters));
+    if (text.trim().isEmpty) return;
+    try {
+      final reply = await router.chat(
+        AiJob.builder,
+        [aiMessage('user', theoryCheckPrompt(due, text))],
+        json: true,
+        temperature: 0.1,
+      );
+      final v = jsonObjectIn(reply.text);
+      final ids = {for (final t in due) t.id: t};
+      for (final r in (v['verdicts'] as List? ?? const [])) {
+        if (r is! Map) continue;
+        final id = (r['id'] as num?)?.toInt();
+        final status = '${r['status'] ?? ''}'.toLowerCase();
+        final ch = ((r['ch'] as num?)?.toInt() ?? (last + 1)) - 1;
+        final t = id == null ? null : ids[id];
+        if (t == null || !const {'confirmed', 'busted', 'mixed'}.contains(status)) continue;
+        // Settled in one of these chapters, after the theory was stated.
+        final at = chapters.contains(ch) && ch > t.ch ? ch : last;
+        final why = '${r['why'] ?? ''}'.trim();
+        await Isolate.run(() => keepVerdict(p, t.id, status, at, why));
+      }
+    } on AiResting {
+      return;
+    } on NotesFormatException {
+      return;
     }
   }
 

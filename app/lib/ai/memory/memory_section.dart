@@ -9,6 +9,7 @@ import '../ai_screen.dart' show tokenCount, wakeTime;
 import 'graph_screen.dart';
 import 'memory_builder.dart';
 import 'memory_service.dart';
+import 'theories_screen.dart';
 import 'whos_who_screen.dart';
 
 /// A book's page > Memory: what the AI companion remembers of the book,
@@ -102,6 +103,15 @@ class _BookMemorySectionState extends State<BookMemorySection> {
     ));
   }
 
+  Future<void> _openTheories() async {
+    final here = await _service.hereOf(widget.bookId);
+    if (!mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) =>
+          TheoriesScreen(bookTitle: widget.bookTitle, memoryPath: _service.pathOf(widget.bookId), here: here),
+    ));
+  }
+
   Future<void> _forget() async {
     final sure = await confirm(context,
         title: 'Forget what it remembers?',
@@ -187,6 +197,12 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                     onPressed: () => unawaited(_build()),
                     icon: const Icon(Icons.auto_awesome_rounded, size: 18),
                     label: Text(s.noted == 0 ? 'Build memory' : 'Go on building'),
+                  ),
+                if (s.exists && s.noted > 0)
+                  OutlinedButton.icon(
+                    onPressed: () => unawaited(_openTheories()),
+                    icon: const Icon(Icons.lightbulb_outline_rounded, size: 18),
+                    label: const Text('Theories'),
                   ),
                 if (s.entities > 0) ...[
                   OutlinedButton.icon(

@@ -170,9 +170,17 @@ class MemoryService {
   /// The spoiler line of [id] away from the reader: with the guard on, the
   /// furthest of where the reader is and "I've read up to"; null when off.
   Future<int?> lineOf(String id) async {
-    final store = _store;
     final s = _n(id).value;
-    if (store == null || !s.guard) return null;
+    if (_store == null || !s.guard) return null;
+    final here = await hereOf(id);
+    final read = s.readUpTo;
+    return read == null || read < here ? here : read;
+  }
+
+  /// The chapter the reader is at in [id], in the memory's numbering.
+  Future<int> hereOf(String id) async {
+    final store = _store;
+    if (store == null) return 0;
     final entry = (await store.list(all: true)).where((e) => e.id == id).firstOrNull;
     final cursor = await store.cursorFor(id);
     var here = 0;
@@ -184,8 +192,7 @@ class MemoryService {
         if (!l.isEmpty) here = l.unitChapter[l.unitForCursor(cursor, saved: true).clamp(0, l.units.length - 1)];
       }
     }
-    final read = s.readUpTo;
-    return read == null || read < here ? here : read;
+    return here;
   }
 
   /// Book [id]'s memory, kept up to date while it is watched.

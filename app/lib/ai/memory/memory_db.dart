@@ -83,7 +83,7 @@ class MemoryDb {
   final Database db;
   final String path;
 
-  static const version = 1;
+  static const version = 2;
 
   static String pathIn(String bookDir) => '$bookDir/memory.db';
 
@@ -119,6 +119,8 @@ class MemoryDb {
     db.execute('BEGIN');
     try {
       if (have < 1) _schema1();
+      // 2: whether the reader has been told a theory's verdict.
+      if (have < 2) db.execute('ALTER TABLE theories ADD COLUMN told INTEGER DEFAULT 0');
       db.execute('PRAGMA user_version = $version');
       db.execute('COMMIT');
     } on Object {

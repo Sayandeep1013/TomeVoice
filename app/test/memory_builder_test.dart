@@ -14,6 +14,7 @@ import 'package:tomevoice_spike/ai/memory/chapter_notes.dart';
 import 'package:tomevoice_spike/ai/memory/graph.dart';
 import 'package:tomevoice_spike/ai/memory/memory_builder.dart';
 import 'package:tomevoice_spike/ai/memory/memory_db.dart';
+import 'package:tomevoice_spike/ai/memory/theories.dart';
 import 'package:tomevoice_spike/ai/memory/word_index.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/speech_service.dart';
@@ -323,6 +324,34 @@ void main() {
       final made = ((asked.single['messages'] as List).last as Map)['content'] as String;
       expect(made, contains('Chapter 25: Chapter 24 happens.'));
       expect(made, isNot(contains('Chapter 26:')));
+    });
+
+    test("a theory checked as chapters are noted; its verdict hidden until the reader reaches it", () async {
+      final path = await book(3);
+      final id = addTheory(path, 'Mira is walking home.', 0);
+      answer = (req, body) {
+        final prompt = ((body['messages'] as List).last as Map)['content'] as String;
+        if (prompt.contains('stated these theories')) {
+          return reply(req, 200, chat(jsonEncode({
+            'verdicts': [
+              {'id': id, 'status': 'confirmed', 'ch': 3, 'why': 'She reaches her door.'},
+            ],
+          })));
+        }
+        return reply(req, 200, chat(notesFor(body)));
+      };
+      final b = MemoryBuilder(path: path, router: AiRouter(pause: Duration.zero), limits: (tokens: 40000, chapters: 8));
+      expect((await b.run()).phase, BuildPhase.done);
+      final asked = sent.where((b) => (((b['messages'] as List).last as Map)['content'] as String).contains('stated these theories'));
+      expect(asked.single.toString(), contains('#$id (stated at chapter 1): Mira is walking home.'));
+      // At chapter 2 the reader cannot know yet; at 3 they can, once.
+      expect(theoriesAt(path, 1).single.status, 'open');
+      expect(untold(path, 1), isEmpty);
+      final known = theoriesAt(path, 2).single;
+      expect((known.status, known.decidedCh, known.verdict), ('confirmed', 2, 'She reaches her door.'));
+      expect(untold(path, 2).single.id, id);
+      markTold(path, [id]);
+      expect(untold(path, 2), isEmpty);
     });
 
     test('a broken reply is asked again with what was wrong; a chapter that will not come is passed over', () async {

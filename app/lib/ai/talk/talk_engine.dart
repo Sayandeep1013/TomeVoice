@@ -144,6 +144,11 @@ class TalkEngine {
   final AnswerLength length;
 
   final _history = <Map<String, Object?>>[];
+
+  /// How a theory is answered.
+  static const _weigh = 'Weigh it honestly, as a friend who has read as far as they have: what in the story so far '
+      'supports it, what speaks against it (cite both), what is still unknown, and how likely it seems. Do not '
+      'confirm or deny it from anything past where they are.';
   final sources = <int, TalkSource>{};
   var _next = 1;
 
@@ -182,7 +187,8 @@ class TalkEngine {
     return b.toString().trim();
   }
 
-  /// [question] answered; [onText] has each piece as it comes.
+  /// [question] answered; [onText] has each piece as it comes. With
+  /// [theory], [question] is a theory of the reader's, weighed.
   Future<TalkAnswer> ask(
     String question, {
     int? line,
@@ -190,6 +196,7 @@ class TalkEngine {
     String passage = '',
     List<String> journal = const [],
     void Function(String piece)? onText,
+    bool theory = false,
   }) async {
     final input = PackInput(
       path: memoryPath,
@@ -207,7 +214,11 @@ class TalkEngine {
     final messages = [
       aiMessage('system', _system(line)),
       ..._history,
-      aiMessage('user', '${material.isEmpty ? 'No material yet.' : 'Material:\n$material'}\n\n---\nThe reader asks: $question'),
+      aiMessage(
+        'user',
+        '${material.isEmpty ? 'No material yet.' : 'Material:\n$material'}\n\n---\n'
+            '${theory ? 'The reader has a theory: $question\n\n$_weigh' : 'The reader asks: $question'}',
+      ),
     ];
     final reply = await _converse(messages, line, onText);
     _history

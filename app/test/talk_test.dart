@@ -323,6 +323,7 @@ class _Said extends TalkEngine {
     String passage = '',
     List<String> journal = const [],
     void Function(String piece)? onText,
+    bool theory = false,
   }) async =>
       TalkAnswer(text, cites);
 }

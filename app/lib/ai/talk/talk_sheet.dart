@@ -8,6 +8,7 @@ import '../../ui.dart';
 import '../ai_router.dart';
 import '../ai_screen.dart' show wakeTime;
 import '../memory/memory_db.dart';
+import '../memory/theories.dart';
 import 'talk_engine.dart';
 
 /// One turn shown in the sheet.
@@ -108,6 +109,10 @@ class _TalkSheetState extends State<TalkSheet> {
   bool _busy = false;
   JournalStamp? _stamp;
 
+  /// The next thing sent is a theory: kept, weighed, and checked as the
+  /// story goes on.
+  bool _theory = false;
+
   JournalStore get _journal => widget.journal ?? JournalStore.instance;
 
   @override
@@ -175,14 +180,17 @@ class _TalkSheetState extends State<TalkSheet> {
     final q = question.trim();
     if (q.isEmpty || _busy) return;
     _stamp ??= widget.stampNow();
+    final theory = _theory;
     final answer = _Turn.ai();
     setState(() {
       _busy = true;
+      _theory = false;
       _turns
-        ..add(_Turn.mine(q))
+        ..add(_Turn.mine(theory ? 'My theory: $q' : q))
         ..add(answer);
       _input.clear();
     });
+    if (theory) unawaited(addTheoryOff(widget.memoryPath, q, widget.here() ?? 0));
     _toEnd();
     final line = widget.line();
     try {
@@ -192,6 +200,7 @@ class _TalkSheetState extends State<TalkSheet> {
         here: widget.here(),
         passage: widget.passage(),
         journal: _journalLines(line),
+        theory: theory,
         onText: (piece) {
           if (!mounted) return;
           setState(() => answer.text += piece);
@@ -261,6 +270,11 @@ class _TalkSheetState extends State<TalkSheet> {
                               'What mysteries are still open?',
                             ])
                               ActionChip(label: Text(s), onPressed: () => unawaited(_ask(s))),
+                            ActionChip(
+                              avatar: const Icon(Icons.lightbulb_outline_rounded, size: 18),
+                              label: const Text('I have a theory…'),
+                              onPressed: () => setState(() => _theory = true),
+                            ),
                           ],
                         ),
                       ],
@@ -278,6 +292,13 @@ class _TalkSheetState extends State<TalkSheet> {
                 padding: const EdgeInsets.fromLTRB(Gap.l, Gap.s, Gap.s, Gap.s),
                 child: Row(
                   children: [
+                    IconButton(
+                      tooltip: _theory ? 'Ask instead' : 'State a theory',
+                      isSelected: _theory,
+                      icon: const Icon(Icons.lightbulb_outline_rounded),
+                      selectedIcon: Icon(Icons.lightbulb_rounded, color: Skin.accentInkOf(context)),
+                      onPressed: () => setState(() => _theory = !_theory),
+                    ),
                     Expanded(
                       child: TextField(
                         controller: _input,
@@ -286,7 +307,9 @@ class _TalkSheetState extends State<TalkSheet> {
                         textCapitalization: TextCapitalization.sentences,
                         textInputAction: TextInputAction.send,
                         onSubmitted: (v) => unawaited(_ask(v)),
-                        decoration: const InputDecoration(hintText: 'Ask about the book'),
+                        decoration: InputDecoration(
+                          hintText: _theory ? 'Your theory: what you think is going on' : 'Ask about the book',
+                        ),
                       ),
                     ),
                     IconButton(
