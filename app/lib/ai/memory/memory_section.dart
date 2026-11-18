@@ -48,6 +48,43 @@ class _BookMemorySectionState extends State<BookMemorySection> {
   }
 
   Future<void> _build() async {
+    // A web novel's chapters not on the phone: fetched first, if wanted.
+    final missing = await _service.missingChapters(widget.bookId);
+    if (missing.isNotEmpty && mounted) {
+      final fetch = await showModalBottomSheet<bool>(
+        context: context,
+        sheetAnimationStyle: sheetMotion(context),
+        useSafeArea: true,
+        builder: (ctx) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(Gap.l, 0, Gap.l, Gap.l),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SheetHeader('${missing.length} ${missing.length == 1 ? 'chapter is' : 'chapters are'} not on the phone'),
+                Text(
+                  'The memory is made from the chapters on the phone. Download the rest up to where you are, and '
+                  'they join the memory as they come: one at a time, gently on the site'
+                  '${missing.length > 200 ? ', so this many takes some hours' : ''}.',
+                  style: Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkSoftOn(context)).copyWith(height: 1.4),
+                ),
+                const SizedBox(height: Gap.l),
+                FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Download them, and build')),
+                const SizedBox(height: Gap.s),
+                OutlinedButton(
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                  child: const Text('Build with what is here'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      if (fetch == null || !mounted) return;
+      if (fetch) await _service.download(widget.bookId, missing);
+    }
+    if (!mounted) return;
     final est = await _service.estimate(widget.bookId);
     if (!mounted) return;
     if (est.chapters == 0) {

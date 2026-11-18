@@ -1,10 +1,13 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
+import '../../download_queue.dart';
 import '../../library_store.dart';
+import '../../sources/models.dart' show ChapterItem;
 import '../ai_keys.dart';
 import '../ai_router.dart';
 import 'memory_builder.dart';
@@ -26,7 +29,11 @@ class BookMemoryState {
     this.guard = false,
     this.readUpTo,
     this.bytes = 0,
+    this.begun = false,
   });
+
+  /// The reader asked for it to be built: kept up from then on.
+  final bool begun;
 
   final bool exists;
 
@@ -66,6 +73,7 @@ class BookMemoryState {
     int? readUpTo,
     bool clearReadUpTo = false,
     int? bytes,
+    bool? begun,
   }) =>
       BookMemoryState(
         exists: exists ?? this.exists,
@@ -79,6 +87,7 @@ class BookMemoryState {
         guard: guard ?? this.guard,
         readUpTo: clearReadUpTo ? null : (readUpTo ?? this.readUpTo),
         bytes: bytes ?? this.bytes,
+        begun: begun ?? this.begun,
       );
 }
 
@@ -91,6 +100,7 @@ typedef _Read = ({
   bool guard,
   int? readUpTo,
   int bytes,
+  bool begun,
 });
 
 _Read _read(String path) {
@@ -110,6 +120,7 @@ _Read _read(String path) {
       guard: m.meta('guard') == 'on',
       readUpTo: int.tryParse(m.meta('readUpTo') ?? ''),
       bytes: m.bytes,
+      begun: m.meta('begun') == '1',
     );
   } finally {
     m.close();
@@ -124,6 +135,12 @@ void _setMeta(String path, String k, String? v) {
     m.close();
   }
 }
+
+// Off the UI thread's isolate, from functions of their own: a closure made
+// in the service's methods would carry the service (and the library, and
+// the zone it runs in), which cannot be sent to another isolate.
+Future<_Read> _readOff(String path) => Isolate.run(() => _read(path));
+Future<void> _setMetaOff(String path, String k, String? v) => Isolate.run(() => _setMeta(path, k, v));
 
 /// Every book's memory, for the pages that show it and the work that makes
 /// it: the word index made on the phone, then the Builder's notes, one book
@@ -158,12 +175,37 @@ class MemoryService {
     final saved = _store?.chapterSaved.value;
     if (saved == null) return;
     final id = saved.$1;
-    _afterSaves.remove(id)?.cancel();
+    // Not put off by every save: while a download goes on, what has come
+    // joins the memory every twenty seconds or so.
+    if (_afterSaves[id]?.isActive ?? false) return;
     _afterSaves[id] = Timer(const Duration(seconds: 20), () {
       _afterSaves.remove(id);
       unawaited(keepUp(id, force: true));
     });
   }
+
+  /// A web novel's chapters up to where the reader is (or "I've read up
+  /// to") that are not on the phone, nor waiting to download: to fetch
+  /// before its memory is built. Empty for a book that is not a web novel.
+  Future<List<ChapterItem>> missingChapters(String id) async {
+    final store = _store;
+    if (store == null) return const [];
+    final info = await store.webNovel(id);
+    if (info == null) return const [];
+    final here = await hereOf(id);
+    final read = _n(id).value.readUpTo;
+    final upTo = math.max(here, read ?? 0);
+    final on = store.downloadedChapters(id);
+    final waiting = DownloadQueue.instance.waitingPaths(id);
+    return [
+      for (var i = 0; i <= upTo && i < info.chapters.length; i++)
+        if (!on.contains(i) && !waiting.contains(info.chapters[i].path)) info.chapters[i],
+    ];
+  }
+
+  /// [chapters] of [id] sent to the download queue (one at a time, gentle
+  /// on the site); as they come they join the memory.
+  Future<int> download(String id, List<ChapterItem> chapters) => DownloadQueue.instance.add(id, chapters);
 
   /// A book whose memory the reader has begun is kept up as they read: its
   /// new chapters (read, or downloaded) indexed and noted. Not a book never
@@ -178,7 +220,7 @@ class MemoryService {
     if (!force && last != null && DateTime.now().difference(last) < const Duration(seconds: 90)) return;
     if (_builders.values.any((b) => b.running) || _wakes.isNotEmpty) return;
     await refresh(id);
-    if (_n(id).value.noted == 0) return;
+    if (_n(id).value.noted == 0 && !_n(id).value.begun) return;
     _keptAt[id] = DateTime.now();
     await build(id);
   }
@@ -256,7 +298,7 @@ class MemoryService {
       _n(id).value = _n(id).value.copyWith(exists: false, indexed: 0, noted: 0, entities: 0, bytes: 0);
       return;
     }
-    final r = await Isolate.run(() => _read(path));
+    final r = await _readOff(path);
     final n = _n(id);
     n.value = n.value.copyWith(
       exists: true,
@@ -269,6 +311,7 @@ class MemoryService {
       readUpTo: r.readUpTo,
       clearReadUpTo: r.readUpTo == null,
       bytes: r.bytes,
+      begun: r.begun,
     );
   }
 
@@ -320,6 +363,11 @@ class MemoryService {
       if (e.key != id && e.value.running) e.value.pause();
     }
     if (_n(id).value.indexing == null) await index(id);
+    if (!_n(id).value.begun) {
+      final path = _path(id);
+      await _setMetaOff(path, 'begun', '1');
+      _n(id).value = _n(id).value.copyWith(begun: true);
+    }
     final s = await _builder(id).run();
     await refresh(id);
     if (s.phase == BuildPhase.resting && s.until != null) {
@@ -341,14 +389,14 @@ class MemoryService {
   /// The spoiler guard for [id]: on, the AI keeps to what was read.
   Future<void> setGuard(String id, bool on) async {
     final path = _path(id);
-    await Isolate.run(() => _setMeta(path, 'guard', on ? 'on' : null));
+    await _setMetaOff(path, 'guard', on ? 'on' : null);
     _n(id).value = _n(id).value.copyWith(exists: true, guard: on);
   }
 
   /// "I've read up to chapter [ch]" (0-based), or null to go by the place.
   Future<void> setReadUpTo(String id, int? ch) async {
     final path = _path(id);
-    await Isolate.run(() => _setMeta(path, 'readUpTo', ch?.toString()));
+    await _setMetaOff(path, 'readUpTo', ch?.toString());
     _n(id).value = _n(id).value.copyWith(exists: true, readUpTo: ch, clearReadUpTo: ch == null);
   }
 
