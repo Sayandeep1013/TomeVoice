@@ -36,6 +36,10 @@ dependencies:
   # catalogue tests check. BSD-3-Clause (Dart team). Already in the
   # documents package.
   crypto: ^3.0.5
+  # SQLite (with full-text search), for each book's memory: the word index,
+  # the chapter notes and the graph. Public domain; FFI, so it works in
+  # background isolates too.
+  sqlite3: ^3.9.1
   # QuickJS, to run LNReader source plugins (web novels). MIT, as is the
   # QuickJS it vendors. Pinned by commit: a single-maintainer git package,
   # the one Mangayomi uses. Builds through Flutter's native-assets hook.
