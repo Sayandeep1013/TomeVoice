@@ -1499,9 +1499,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           _hit = i;
           _hitQuery = query;
         });
-        _detached.value = false;
         if (_inPages) _chrome.value = true;
-        _reader.jump(hits[i].unit);
+        _goOrLook(hits[i].unit);
       },
     ));
   }
@@ -1510,7 +1509,41 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (_hits.isEmpty) return;
     _auto.stop();
     setState(() => _hit = (_hit + delta) % _hits.length);
-    unawaited(_reader.goTo(_hits[_hit].unit));
+    if (_looking) {
+      _lookAt(_hits[_hit].unit);
+    } else {
+      unawaited(_reader.goTo(_hits[_hit].unit));
+    }
+  }
+
+  /// Somewhere picked in the book (a chapter in Contents, a bookmark, a
+  /// passage found): in a book being listened to, only looked at, as the
+  /// same picked from the book's page is; the voice reads on (or waits
+  /// paused) at its place, and Back to reading returns to it. Only Read
+  /// from here moves it. A book read only by eye goes there.
+  void _goOrLook(int unit) {
+    if (_looking) {
+      _lookAt(unit);
+    } else {
+      _detached.value = false;
+      _reader.jump(unit);
+    }
+  }
+
+  /// Show [unit] without moving the place: a look around.
+  void _lookAt(int unit) {
+    if (_l.isEmpty) return;
+    final u = unit.clamp(0, _l.units.length - 1);
+    _detached.value = true;
+    _viewChapter.value = _l.chapterOfUnit(u);
+    if (_inPages) {
+      _paged.showUnit(u, animate: false);
+      return;
+    }
+    if (!_scroll.isAttached) return;
+    _programmaticScroll = true;
+    _scroll.jumpTo(index: _l.unitItem[u], alignment: 0.12);
+    _programmaticScroll = false;
   }
 
   // ---------------------------------------------------------- auto-scroll
@@ -2317,7 +2350,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       onOpen: (u) {
         _auto.stop();
         if (_inPages) _chrome.value = true;
-        _reader.jump(u);
+        _goOrLook(u);
       },
       onRemove: (m) async {
         await MarkStore.instance.remove(m.id);
@@ -3000,7 +3033,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     ).then((chapter) {
       if (chapter == null || !mounted) return;
       _auto.stop();
-      _reader.jump(_l.chapterFirstUnit[chapter]);
+      _goOrLook(_l.chapterFirstUnit[chapter]);
     }));
   }
 }

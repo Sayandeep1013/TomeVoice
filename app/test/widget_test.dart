@@ -973,7 +973,9 @@ void main() {
       await finish(tester);
     });
 
-    testWidgets('a jump while paused leaves a way back', (tester) async {
+    testWidgets('a chapter picked in Contents while paused is only looked at, with the way back', (tester) async {
+      // Paused counts as listening (the owner's choice, 18 November): the
+      // voice keeps its place, and Back to reading returns to it.
       withSound();
       final store = LibraryStore(_tmp);
       final nav = await pumpShelf(tester);
@@ -987,7 +989,10 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Chapter 2: Beta').last);
       await tester.pumpAndSettle();
-      expect(find.text('Back to where you were'), findsOneWidget);
+      // Looking, not moved: the way back is to the voice, not to a place
+      // left behind.
+      expect(find.text('Back to reading'), findsOneWidget);
+      expect(find.text('Back to where you were'), findsNothing);
       await finish(tester);
     });
 
