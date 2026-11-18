@@ -50,4 +50,23 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.bySemanticsLabel('Part 1: Of the Shore'), findsNothing);
   });
+
+  testWidgets("chapters joined to their part's name share its tab, and show their own names", (tester) async {
+    // As Flatland's contents join them: "Part I: This World · I: Of …".
+    final joined = [
+      'Preface',
+      for (final (part, n) in [('Part I: This World', 12), ('Part II: Other Worlds', 10)])
+        for (var c = 1; c <= n; c++) '$part · Chapter $c',
+    ];
+    await pump(tester, of: joined);
+    expect(find.bySemanticsLabel('Part I: This World'), findsOneWidget);
+    expect(find.bySemanticsLabel('Part II: Other Worlds'), findsOneWidget);
+    // A chapter in a part reads as a chapter, by its own name.
+    expect(find.text('Chapter 3'), findsWidgets);
+    expect(find.textContaining('PART I'), findsNothing);
+
+    await tester.tap(find.bySemanticsLabel('Part II: Other Worlds'));
+    await tester.pumpAndSettle();
+    selected(tester, 'Part II: Other Worlds', true);
+  });
 }

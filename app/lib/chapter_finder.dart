@@ -106,14 +106,28 @@ class _ChapterFinderState extends State<ChapterFinder> {
 
   int _number(int i) => widget.numberOf?.call(i) ?? i + 1;
 
-  /// The book's parts, where [ChapterFinder.parts] reads them: the rows
-  /// that are a part's title. Two or more get tabs down the side.
+  /// The book's parts, where [ChapterFinder.parts] reads them: the first
+  /// row of each, a part's own title ("Part II") or its first chapter's
+  /// ("Part II · I: Of Spaceland", as a book's contents join them). Two or
+  /// more get tabs down the side.
   late final List<int> _parts = !widget.parts
       ? const []
       : [
           for (var i = 0; i < widget.titles.length; i++)
-            if (ChapterRow.isPart(widget.titles[i])) i,
+            if (ChapterRow.partOf(widget.titles[i]) case final p?)
+              if (i == 0 || ChapterRow.partOf(widget.titles[i - 1]) != p) i,
         ];
+
+  /// The part (an index into [_parts]) row [i] is in, or null for a row in
+  /// none (a preface before the first part).
+  int? _partAt(int i) {
+    if (ChapterRow.partOf(widget.titles[i]) == null) return null;
+    int? at;
+    for (var p = 0; p < _parts.length && _parts[p] <= i; p++) {
+      at = p;
+    }
+    return at;
+  }
 
   /// The tab of [part] (an index into [_parts]).
   Color _tabColour(BuildContext context, int part) => NotebookInk.of(context).tab(part);
@@ -192,8 +206,8 @@ class _ChapterFinderState extends State<ChapterFinder> {
                               numberWidth: widget.numberWidth,
                               parts: widget.parts,
                               onPhone: widget.onPhone?.contains(i) ?? false,
-                              tab: _parts.length >= 2 && _parts.contains(i)
-                                  ? _tabColour(context, _parts.indexOf(i))
+                              tab: _parts.length >= 2
+                                  ? switch (_partAt(i)) { final p? => _tabColour(context, p), _ => null }
                                   : null,
                             );
                           },
@@ -242,7 +256,7 @@ extension on _ChapterFinderState {
                     child: Semantics(
                       button: true,
                       selected: open,
-                      label: widget.titles[_parts[p]],
+                      label: ChapterRow.partOf(widget.titles[_parts[p]]) ?? widget.titles[_parts[p]],
                       excludeSemantics: true,
                       child: GestureDetector(
                         behavior: HitTestBehavior.opaque,
@@ -293,7 +307,18 @@ class ChapterRow extends StatelessWidget {
   final Color? tab;
 
   /// Whether [title] reads as a part's ("Part II: Reborn").
-  static bool isPart(String title) => _part.hasMatch(title);
+  static bool isPart(String title) => _part.hasMatch(title) && !title.contains(_joiner);
+
+  /// The part [title] is in ("Part I: This World" of "Part I: This World ·
+  /// I: Of the Nature of Flatland", as a book's contents join a part and
+  /// its chapter), or the part it is ("Part II"); null when it names none.
+  static String? partOf(String title) {
+    if (!_part.hasMatch(title)) return null;
+    final i = title.indexOf(_joiner);
+    return i < 0 ? title : title.substring(0, i);
+  }
+
+  static const _joiner = ' · ';
 
   final int number;
   final String title;
@@ -310,7 +335,14 @@ class ChapterRow extends StatelessWidget {
     // The row being read is washed in the accent; its number, title and
     // sign are in the accent as type, which reads on the wash.
     final ink = Skin.accentInkOf(context);
-    final part = parts && _part.hasMatch(title);
+    // A part's own title reads as a divider. A chapter its part's name is
+    // joined to is a chapter: with its part's tab colour beside it, its own
+    // name is enough.
+    final part = parts && isPart(title);
+    final joined = title.indexOf(_joiner);
+    final shown = parts && tab != null && joined > 0 && _part.hasMatch(title)
+        ? title.substring(joined + _joiner.length)
+        : title;
     return Material(
       color: current ? Skin.accentOf(context).withValues(alpha: 0.14) : Colors.transparent,
       borderRadius: BorderRadius.circular(Radii.row),
@@ -347,11 +379,25 @@ class ChapterRow extends StatelessWidget {
                           ),
                         ],
                       )
-                    : Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Skin.title(context, size: 17, color: current ? ink : null),
+                    : Row(
+                        children: [
+                          if (tab != null) ...[
+                            Container(
+                              width: 4,
+                              height: 18,
+                              decoration: BoxDecoration(color: tab, borderRadius: BorderRadius.circular(2)),
+                            ),
+                            const SizedBox(width: Gap.s),
+                          ],
+                          Expanded(
+                            child: Text(
+                              shown,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Skin.title(context, size: 17, color: current ? ink : null),
+                            ),
+                          ),
+                        ],
                       ),
               ),
               if (current)
