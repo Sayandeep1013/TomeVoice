@@ -264,5 +264,29 @@ void main() {
       expect(calls, 3);
       expect(ring.stateOf('a').refused, isNull);
     });
+
+    test("a provider in trouble: its key rests a while, longer each time, and the work waits, not fails", () async {
+      final ring = AiRing.instance;
+      await ring.put(key('a', base: provider.url));
+      var down = true;
+      provider.answer = (req, k, body) => down ? reply(req, 500, 'The server had an error') : reply(req, 200, said('Back.'));
+      var now = DateTime(2026, 11, 19, 10);
+      final router = AiRouter(client: client, pause: Duration.zero, clock: () => now);
+      for (final minutes in [1, 2, 5, 10, 10]) {
+        await expectLater(
+          router.chat(AiJob.builder, [aiMessage('user', 'x')]),
+          throwsA(isA<AiResting>().having((e) => e.until, 'until', now.add(Duration(minutes: minutes)))),
+        );
+        now = now.add(Duration(minutes: minutes, seconds: 1));
+      }
+      down = false;
+      expect((await router.chat(AiJob.builder, [aiMessage('user', 'x')])).text, 'Back.');
+      // Well again: the next trouble rests it a minute.
+      down = true;
+      await expectLater(
+        router.chat(AiJob.builder, [aiMessage('user', 'x')]),
+        throwsA(isA<AiResting>().having((e) => e.until, 'until', now.add(const Duration(minutes: 1)))),
+      );
+    });
   });
 }

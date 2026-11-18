@@ -593,7 +593,13 @@ class MemoryService {
   /// [id]'s memory deleted, all of it.
   Future<void> forget(String id) async {
     pause(id);
-    _builders.remove(id);
+    // A batch on its way would write into the new, empty memory: wait for
+    // it to come back first (a minute at most).
+    final b = _builders.remove(id);
+    for (var i = 0; b != null && b.running && i < 240; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    _paused.remove(id);
     final f = File(_path(id));
     if (await f.exists()) await f.delete();
     _n(id).value = const BookMemoryState();

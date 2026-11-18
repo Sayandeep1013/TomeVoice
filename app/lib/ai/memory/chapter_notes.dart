@@ -227,8 +227,8 @@ List<ChapterNotes> parseChapterNotes(String reply, List<int> expected, {int pass
                 NoteEntity(
                   ref: _str(e['ref']) ?? 'new:${_str(e['name'])}',
                   kind: (_str(e['kind']) ?? 'term').toLowerCase(),
-                  name: _str(e['name'])!,
-                  aliases: _strs(e['aliases']),
+                  name: tidyName(_str(e['name'])!),
+                  aliases: [for (final a in _strs(e['aliases'])) tidyName(a)],
                   about: _str(e['about']),
                 ),
           ],
@@ -309,7 +309,7 @@ Return one JSON object, nothing else:
 {"chapters": [{
   "ch": <the chapter number given>,
   "summary": "<what happens, 60 to 120 words, plain and specific, in story order>",
-  "entities": [{"ref": "e12" or "new:Name", "kind": "<one of the kinds>", "name": "<fullest name used>", "aliases": ["<other names, titles, nicknames used for them here>"], "about": "<one line: who or what it is; only for new ones, or when this chapter changes what they are>"}],
+  "entities": [{"ref": "e12" or "new:Name", "kind": "<one of the kinds>", "name": "<fullest name used, as written in the text, with its spaces: Mountain King, not Mountain_King>", "aliases": ["<other names, titles, nicknames used for them here>"], "about": "<one line: who or what it is; only for new ones, or when this chapter changes what they are>"}],
   "events": [{"what": "<what happened, one sentence>", "who": [refs who did it], "to": [refs it was done to], "where": "<place ref>", "with": [refs of items or powers used], "why": "<why, when the text says or shows it>", "result": "<what came of it>", "at": <passage>, "importance": <1 passing … 5 changes the story>, "after": ["v31" or "#2": earlier events it follows from]}],
   "facts": [{"of": "<ref>", "attr": "<rank, title, status, location, holder, appearance, age, power, affiliation, alive, …>", "value": "<its value from here on>", "at": <passage>}],
   "relations": [{"a": "<ref>", "rel": "<ally of, enemy of, sibling of, parent of, child of, mentor of, servant of, member of, leader of, rival of, loves, owns, bound to, …>", "b": "<ref>", "change": "begins" or "ends", "at": <passage>, "note": "<how, in a few words>"}],
@@ -369,4 +369,20 @@ String chapterForBuilder(int ch, String title, List<String> passages) {
     b.writeln('[${i + 1}] $p');
   }
   return b.toString();
+}
+
+/// A name as a reader writes it: some models give names as identifiers
+/// (Mountain_King, LordOfTheDead); spaces put back, and the small words of
+/// a split name lowercased. A name with one inner capital (McDonald,
+/// DeShawn) is left as it is.
+String tidyName(String name) {
+  var t = name.trim();
+  if (t.contains('_')) t = t.replaceAll(RegExp(r'_+'), ' ').trim();
+  if (!t.contains(' ') && RegExp(r'[a-z][A-Z]').allMatches(t).length >= 2) {
+    const small = {'of', 'the', 'and', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'from', 'with', 'by'};
+    final words = t.replaceAllMapped(RegExp(r'([a-z])([A-Z])'), (m) => '${m[1]} ${m[2]}').split(' ');
+    t = [for (var i = 0; i < words.length; i++) i > 0 && small.contains(words[i].toLowerCase()) ? words[i].toLowerCase() : words[i]]
+        .join(' ');
+  }
+  return t;
 }

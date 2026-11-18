@@ -222,6 +222,16 @@ void main() {
       expect(m.db.select("SELECT count(*) n FROM facts WHERE attr = 'description'").first['n'], 1);
     });
 
+    test('names given as identifiers are written as a reader would', () {
+      expect(tidyName('Mountain_King'), 'Mountain King');
+      expect(tidyName("Puppeteer's_Shroud"), "Puppeteer's Shroud");
+      expect(tidyName('LordOfTheDead'), 'Lord of the Dead');
+      expect(tidyName('McDonald'), 'McDonald');
+      expect(tidyName('CentralChamber'), 'CentralChamber');
+      expect(tidyName('Sunless'), 'Sunless');
+      expect(normName('Mountain_King'), normName('Mountain King'));
+    });
+
     test('a chapter noted late slots into its place in time, not over what came after', () {
       final made = <String, int>{};
       g.apply(
