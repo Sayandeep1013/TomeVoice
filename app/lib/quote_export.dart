@@ -18,11 +18,14 @@ typedef BookQuotes = ({String title, String author, List<Mark> quotes, List<Jour
 /// book, leaving out what Saved does not show (a shut secret shelf's, see
 /// LibraryStore.marksShown). Books in the order of their newest quote, as
 /// Saved shows them.
-Future<List<BookQuotes>> quotesToExport(LibraryStore store, {String? bookId}) async {
+///
+/// With [journal], the journal instead of the quotes (the Journal's own
+/// Export).
+Future<List<BookQuotes>> quotesToExport(LibraryStore store, {String? bookId, bool journal = false}) async {
   final shown = await store.marksShown();
   final entries = {for (final e in await store.list(all: true)) e.id: e};
   final byBook = <String, List<Mark>>{};
-  for (final m in MarkStore.instance.all) {
+  for (final m in journal ? const <Mark>[] : MarkStore.instance.all) {
     if (m.kind != MarkKind.quote || !shown(m)) continue;
     if (bookId != null && m.bookId != bookId) continue;
     byBook.putIfAbsent(m.bookId, () => []).add(m);
@@ -30,20 +33,20 @@ Future<List<BookQuotes>> quotesToExport(LibraryStore store, {String? bookId}) as
   // The journal too, as Saved shows it: not a book's on a shut secret
   // shelf (in the library, but not on the shelves shown).
   final shelved = {for (final e in await store.list()) e.id};
-  final journal = <String, List<JournalEntry>>{};
-  for (final j in JournalStore.instance.all) {
+  final thoughts = <String, List<JournalEntry>>{};
+  for (final j in journal ? JournalStore.instance.all : const <JournalEntry>[]) {
     if (bookId != null && j.bookId != bookId) continue;
     if (entries.containsKey(j.bookId) && !shelved.contains(j.bookId)) continue;
-    journal.putIfAbsent(j.bookId, () => []).add(j);
+    thoughts.putIfAbsent(j.bookId, () => []).add(j);
     byBook.putIfAbsent(j.bookId, () => []);
   }
   return [
     for (final MapEntry(key: id, value: marks) in byBook.entries)
       (
-        title: entries[id]?.title ?? marks.firstOrNull?.bookTitle ?? journal[id]?.first.bookTitle ?? '',
+        title: entries[id]?.title ?? marks.firstOrNull?.bookTitle ?? thoughts[id]?.first.bookTitle ?? '',
         author: entries[id]?.authorLine ?? '',
         quotes: marks,
-        journal: journal[id] ?? const [],
+        journal: thoughts[id] ?? const [],
       ),
   ];
 }
@@ -203,7 +206,10 @@ Future<void> exportQuotes(BuildContext context, List<BookQuotes> books, {require
 
 /// The Export button of Saved and of a book's page.
 class ExportQuotesButton extends StatelessWidget {
-  const ExportQuotesButton({super.key, required this.store, this.bookId});
+  const ExportQuotesButton({super.key, required this.store, this.bookId, this.journal = false});
+
+  /// The journal's, not the quotes.
+  final bool journal;
 
   final LibraryStore store;
 
@@ -215,11 +221,12 @@ class ExportQuotesButton extends StatelessWidget {
         tooltip: 'Export as Markdown',
         icon: Icon(Icons.ios_share_rounded, size: 22, color: Skin.inkSoftOn(context)),
         onPressed: () async {
-          final books = await quotesToExport(store, bookId: bookId);
+          final books = await quotesToExport(store, bookId: bookId, journal: journal);
           if (!context.mounted) return;
+          final what = journal ? 'Journal' : 'TomeVoice';
           final name = bookId != null && books.length == 1
-              ? exportFileName(books.single.title)
-              : 'TomeVoice ${exportFileName(_today())}';
+              ? (journal ? 'Journal ${exportFileName(books.single.title)}' : exportFileName(books.single.title))
+              : '$what ${exportFileName(_today())}';
           await exportQuotes(context, books, fileName: name);
         },
       );

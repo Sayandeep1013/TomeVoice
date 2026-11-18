@@ -12,12 +12,13 @@ import 'marks.dart';
 import 'page_tone.dart';
 import 'theme.dart';
 
-/// Saved as a field notebook: a page a book, its cover taped at the top,
-/// its quotes on squared paper with their highlighter's colour, your notes
-/// in handwriting, and coloured, numbered tabs down the edge to turn to a
-/// book. The idea of a spiral-bound field notebook, drawn here from scratch.
-class SavedNotebook extends StatefulWidget {
-  const SavedNotebook({
+/// A field notebook, a page a book: its cover taped at the top, what was
+/// written about it in handwriting on squared paper (the journal; quotes
+/// under their highlighter's colour too, when given), and coloured,
+/// numbered tabs down the edge to turn to a book. The idea of a
+/// spiral-bound field notebook, drawn here from scratch.
+class NotebookPages extends StatefulWidget {
+  const NotebookPages({
     super.key,
     required this.pages,
     required this.books,
@@ -56,7 +57,7 @@ class SavedNotebook extends StatefulWidget {
   final void Function(Mark) onAction;
 
   @override
-  State<SavedNotebook> createState() => _SavedNotebookState();
+  State<NotebookPages> createState() => _NotebookPagesState();
 }
 
 /// The notebook's colours: its paper, its pens and its tabs, by day and by
@@ -115,7 +116,7 @@ class NotebookInk {
 TextStyle handwriting(double size, Color color, {FontWeight weight = FontWeight.w500}) =>
     TextStyle(fontFamily: 'Caveat', fontSize: size, height: 1.15, color: color, fontWeight: weight);
 
-class _SavedNotebookState extends State<SavedNotebook> {
+class _NotebookPagesState extends State<NotebookPages> {
   late final PageController _pages = PageController();
   final _tabs = ScrollController();
   int _at = 0;
@@ -124,7 +125,7 @@ class _SavedNotebookState extends State<SavedNotebook> {
   static const _tabHeight = 46.0;
 
   @override
-  void didUpdateWidget(SavedNotebook old) {
+  void didUpdateWidget(NotebookPages old) {
     super.didUpdateWidget(old);
     // A book's last mark removed: its page goes, and the one after takes
     // its place.

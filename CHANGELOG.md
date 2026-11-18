@@ -3,17 +3,18 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
-## Unreleased
+## 1.6.0 (2026-11-18)
+
+Your reading journal, a notebook to keep it in, and reading made more your own.
 
 #### Your reading journal
 - Write what you think as you read or listen: the pen on the player (also Write in the journal in a book's menu, and its page's Journal) opens a notebook page. It asks how you feel (Loving it, Good, Mixed, Meh, Frustrated, or a word of your own), why, what stood out and what you think happens next; skip any, or turn to a blank page and write freely.
 - Done stamps the entry with where the story had reached: the chapter the voice is reading, or your place. If the voice read on while you wrote, it says so ("chapters 4 to 6").
-- Your entries are on each book's notebook page in Saved, in handwriting, and in Saved's new Journal list; tap one to change it, hold it to remove it. They go in backups and in the Markdown export, and move with a book whose file you replace.
+- **Journal**, in the menu (and See all from a book's page): a notebook with a page for each book, its cover taped at the top, your entries in handwriting on squared paper, and numbered tabs in colour down the edge to turn to a book; or, with the button beside its title, a list. It stays as you left it. Tap an entry to change it (the questions you skipped are there to answer), hold it to remove it. Export makes a Markdown file of it. Your journal goes in backups, and moves with a book whose file you replace.
 - Settings, Journal: change the questions, add your own (answered in words, or by a tap on answers you set), and, if you like, a quiet offer to write at each chapter's end. It is off unless you turn it on; the voice never stops for it.
 
 #### The notebook look
-- Saved can be a notebook (the button beside Saved's title): a page for each book, its cover taped at the top, your quotes in their highlighter's colour on squared paper, your notes in handwriting, and numbered tabs in colour down the edge to turn to a book. Press and hold a quote to add a note, share or remove it. It stays as you left it.
-- A Notebook paper among the reader's pages (Aa, Read): cream, squared in blue-grey, a fountain pen's ink and a red pen for the voice.
+- A Notebook paper among the reader's pages (Aa, Read): cream, squared in blue-grey, a fountain pen's ink and a red pen for the voice; as two pages (a tablet, a phone on its side), a spiral binding down the middle.
 - A book's Contents with parts has a coloured tab for each down its side: a tap opens the part, and the part in view stands out. Each part's divider carries its tab's colour.
 - The handwriting is Caveat (SIL Open Font License), listed in About with the other fonts.
 

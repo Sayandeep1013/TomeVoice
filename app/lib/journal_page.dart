@@ -473,7 +473,11 @@ Future<void> removeJournalEntry(BuildContext context, JournalEntry entry) async 
 /// On a book's page: its journal, the latest entries on a strip of the
 /// notebook's paper, and Write.
 class BookJournalSection extends StatelessWidget {
-  const BookJournalSection({super.key, required this.bookId, required this.bookTitle, required this.stampNow});
+  const BookJournalSection(
+      {super.key, required this.bookId, required this.bookTitle, required this.stampNow, this.onSeeAll});
+
+  /// The book's whole journal (the Journal, this book's alone).
+  final VoidCallback? onSeeAll;
 
   final String bookId;
   final String bookTitle;
@@ -497,6 +501,8 @@ class BookJournalSection extends StatelessWidget {
                     icon: const Icon(Icons.edit_outlined, size: 18),
                     label: const Text('Write'),
                   ),
+                  if (entries.length > 3 && onSeeAll != null)
+                    TextButton(onPressed: onSeeAll, child: const Text('See all')),
                 ],
               ),
               // None yet: the row alone (the pen on the player says the rest).

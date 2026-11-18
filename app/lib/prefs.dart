@@ -63,7 +63,7 @@ class ListeningPrefs {
     this.updateEvery = 'daily',
     this.novelUpdates = false,
     this.gridView = true,
-    this.savedNotebook = false,
+    this.journalNotebook = true,
     this.journalQuestions,
     this.journalAsk = false,
     this.sort = LibrarySort.recent,
@@ -335,8 +335,9 @@ class ListeningPrefs {
   /// The library as a grid of covers instead of a list.
   bool gridView;
 
-  /// Saved as a notebook, a page a book, instead of a list.
-  bool savedNotebook;
+  /// The journal as a notebook, a page a book (its first look), or as a
+  /// list.
+  bool journalNotebook;
 
   /// The journal's questions as the reader set them (journal.dart's
   /// JournalQuestion, as JSON); null for TomeVoice's own.
@@ -508,7 +509,7 @@ class ListeningPrefs {
         'updateEvery': updateEvery,
         if (novelUpdates) 'novelUpdates': true,
         'gridView': gridView,
-        'savedNotebook': savedNotebook,
+        'journalNotebook': journalNotebook,
         if (journalQuestions != null) 'journalQuestions': journalQuestions,
         'journalAsk': journalAsk,
         'sort': sort.name,
@@ -607,7 +608,7 @@ class ListeningPrefs {
         themeMode: ThemeMode.values.where((m) => m.name == json['themeMode']).firstOrNull ??
             ThemeMode.system,
         gridView: json['gridView'] as bool? ?? true,
-        savedNotebook: json['savedNotebook'] as bool? ?? false,
+        journalNotebook: json['journalNotebook'] as bool? ?? true,
         journalQuestions: json['journalQuestions'] is List ? List<Object?>.from(json['journalQuestions'] as List) : null,
         journalAsk: json['journalAsk'] as bool? ?? false,
         paletteId: json['palette'] as String? ?? 'forest',

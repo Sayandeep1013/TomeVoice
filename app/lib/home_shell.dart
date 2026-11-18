@@ -20,6 +20,7 @@ import 'export_audio_sheet.dart';
 import 'guide.dart';
 import 'history_screen.dart';
 import 'journal.dart';
+import 'journal_screen.dart';
 import 'library_screen.dart';
 import 'library_store.dart';
 import 'listening_session.dart' show BackgroundReading;
@@ -579,6 +580,9 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
                   selected: _place == _Place.history, onTap: () => _go(_Place.history)),
               _item(context, Icons.bookmarks_outlined, Icons.bookmarks_rounded, 'Saved',
                   onTap: () => _push((s) => SavedScreen(store: s))),
+              // The reading journal: what was thought, a page a book.
+              _item(context, Icons.edit_note_outlined, Icons.edit_note_rounded, 'Journal',
+                  onTap: () => _push((s) => JournalScreen(store: s))),
               _item(context, Icons.insights_outlined, Icons.insights_rounded, 'Stats',
                   onTap: () => _push((s) => StatsScreen(store: s))),
               const Padding(

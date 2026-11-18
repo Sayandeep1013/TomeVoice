@@ -15,6 +15,7 @@ import 'export_audio_sheet.dart';
 import 'fast_scroller.dart';
 import 'journal.dart' show JournalStamp;
 import 'journal_page.dart';
+import 'journal_screen.dart';
 import 'library_store.dart';
 import 'novel_move.dart' show chapterNumberOf;
 import 'listening_session.dart' show BackgroundReading;
@@ -325,7 +326,14 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
       SliverPadding(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
         sliver: SliverToBoxAdapter(
-          child: BookJournalSection(bookId: _entry.id, bookTitle: _entry.title, stampNow: _stampNow),
+          child: BookJournalSection(
+            bookId: _entry.id,
+            bookTitle: _entry.title,
+            stampNow: _stampNow,
+            onSeeAll: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => JournalScreen(store: _store, bookId: _entry.id)),
+            ),
+          ),
         ),
       ),
     ];
