@@ -58,8 +58,9 @@ String searchWords(String question) => [
         if (w.length > 2 && !_stop.contains(w)) w,
     ].take(8).join(' ');
 
-/// Chapter [ch] as the reader counts it.
-String chapterLabel(int ch) => 'ch ${ch + 1}';
+/// Chapter [ch] as the reader counts it; before the first, an earlier book
+/// of the series.
+String chapterLabel(int ch) => ch < 0 ? 'an earlier book' : 'ch ${ch + 1}';
 
 MemoryPlace? _place(Map<String, Object?> r, {String ch = 'ch'}) {
   final c = r[ch] as int?;
@@ -108,8 +109,10 @@ List<PackItem> buildPack(PackInput i) {
       [here],
     )) {
       final from = r['from_ch'] as int, to = r['to_ch'] as int;
-      items.add(PackItem('The story so far', 'Chapters ${from + 1}–${to + 1}: ${r['summary']}',
-          place: MemoryPlace(chapter: from, section: from)));
+      items.add(from < 0
+          ? PackItem('The story so far', 'Before this book (the earlier books of the series): ${r['summary']}')
+          : PackItem('The story so far', 'Chapters ${from + 1}–${to + 1}: ${r['summary']}',
+              place: MemoryPlace(chapter: from, section: from)));
     }
     for (final r in m.db.select(
       'SELECT n.ch, n.summary, c.section FROM notes n JOIN chapters c ON c.ch = n.ch WHERE n.ch <= ? ORDER BY n.ch DESC LIMIT 6',
@@ -181,7 +184,7 @@ List<PackItem> cardItems(MemoryDb m, int id, int at) {
       head,
       '$name (${e['kind']})${names.isEmpty ? '' : ', also called ${names.take(8).join(', ')}'}. '
       '${e['about'] ?? ''} First met in ${chapterLabel(first ?? 0)}.',
-      place: first == null ? null : MemoryPlace(chapter: first, section: first),
+      place: first == null || first < 0 ? null : MemoryPlace(chapter: first, section: first),
     ),
   ];
   for (final f in m.db.select(

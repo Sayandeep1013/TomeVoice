@@ -13,6 +13,8 @@ import 'package:tomevoice_spike/ai/memory/graph_screen.dart';
 import 'package:tomevoice_spike/ai/memory/hand_off.dart';
 import 'package:tomevoice_spike/ai/memory/ledger.dart';
 import 'package:tomevoice_spike/ai/memory/memory_db.dart';
+import 'package:tomevoice_spike/ai/memory/series.dart';
+import 'package:tomevoice_spike/ai/talk/answer_pack.dart';
 import 'package:tomevoice_spike/ai/memory/whos_who_screen.dart';
 
 /// Sunny meets Cassie (ch 1, allies), fights beside her twice (ch 2), they
@@ -102,6 +104,26 @@ void main() {
     expect(kept, contains('please do not reveal anything after it'));
     expect(kept, isNot(contains('Nephis')));
     expect(kept, contains('Sunless ally of Cassie'));
+  });
+
+  test("a series: the next book's memory starts with the cast, how they stood, open threads and the story", () {
+    final first = _memory(tmp);
+    final m = MemoryDb.open(first);
+    m.db.execute("INSERT INTO threads(title, norm, about, raised_ch, status) VALUES ('Who is the Weaver?', 'who is weaver', NULL, 0, 'open')");
+    m.db.execute("INSERT INTO facts(entity, attr, value, from_ch) SELECT id, 'rank', 'Awakened', 3 FROM entities WHERE name = 'Sunless'");
+    m.close();
+    final second = '${tmp.path}/two/memory.db';
+    MemoryDb.open(second).close();
+    expect(followOn(second, first), 4);
+    expect(ledger(second, query: 'sunny').single.firstCh, beforeThisBook);
+    final pack = buildPack(PackInput(path: second, question: 'What rank is Sunny?', here: 0)).map((i) => i.text).join(' | ');
+    expect(pack, contains('rank: Awakened'));
+    expect(pack, contains('First met in an earlier book'));
+    expect(pack, contains('"Who is the Weaver?" (raised an earlier book)'));
+    expect(pack, contains('Before this book (the earlier books of the series): s s s s'));
+    // Again: no one made twice.
+    followOn(second, first);
+    expect(ledger(second).length, 4);
   });
 
   test('laid out the same each time, inside its square, linked nodes nearer', () {

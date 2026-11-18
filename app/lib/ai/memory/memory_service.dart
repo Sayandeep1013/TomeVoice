@@ -12,6 +12,7 @@ import '../ai_keys.dart';
 import '../ai_router.dart';
 import 'memory_builder.dart';
 import 'memory_db.dart';
+import 'series.dart';
 import 'word_index.dart';
 
 /// Where a book's memory stands, as its page shows it.
@@ -410,6 +411,17 @@ class MemoryService {
     final path = _path(id);
     await _setMetaOff(path, 'readUpTo', ch?.toString());
     _n(id).value = _n(id).value.copyWith(exists: true, readUpTo: ch, clearReadUpTo: ch == null);
+  }
+
+  /// [id]'s memory made to follow on from [previous]'s (the book before it
+  /// in a series): its cast, how they stood, open threads and story carried
+  /// over. How many people and things came over.
+  Future<int> followOnFrom(String id, String previous) async {
+    final path = _path(id);
+    final n = await followOnOff(path, _path(previous));
+    await _setMetaOff(path, 'follows', previous);
+    await refresh(id);
+    return n;
   }
 
   /// [id]'s memory deleted, all of it.

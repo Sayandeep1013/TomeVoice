@@ -164,6 +164,47 @@ class _BookMemorySectionState extends State<BookMemorySection> {
     );
   }
 
+  /// The book before this one in a series, picked from the books with a
+  /// memory: what it remembers carried over.
+  Future<void> _followOn() async {
+    final books = [
+      for (final b in await _service.booksWithMemory())
+        if (b.id != widget.bookId) b,
+    ];
+    if (!mounted) return;
+    if (books.isEmpty) {
+      showSnack(context, 'Build the memory of the book before this one first, then link them here.');
+      return;
+    }
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      sheetAnimationStyle: sheetMotion(context),
+      useSafeArea: true,
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SheetHeader('Follows on from', subtitle: 'The book before this one in its series'),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final b in books)
+                    ListTile(title: Text(b.title), onTap: () => Navigator.of(ctx).pop(b.id)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    final n = await _service.followOnFrom(widget.bookId, picked);
+    if (mounted) showSnack(context, '$n people, places and things carried over. Building goes on from them.');
+  }
+
   Future<void> _forget() async {
     final sure = await confirm(context,
         title: 'Forget what it remembers?',
@@ -211,13 +252,16 @@ class _BookMemorySectionState extends State<BookMemorySection> {
             Row(
               children: [
                 const Expanded(child: SectionTitle('Memory', note: 'AI')),
-                if (s.exists)
-                  PopupMenuButton<String>(
+                PopupMenuButton<String>(
                     tooltip: 'More about the memory',
                     onSelected: (v) {
                       if (v == 'forget') unawaited(_forget());
+                      if (v == 'follows') unawaited(_followOn());
                     },
-                    itemBuilder: (_) => const [PopupMenuItem(value: 'forget', child: Text('Forget this memory'))],
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(value: 'follows', child: Text('Follows on from another book…')),
+                      if (s.exists) const PopupMenuItem(value: 'forget', child: Text('Forget this memory')),
+                    ],
                   ),
               ],
             ),

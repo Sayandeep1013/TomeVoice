@@ -172,7 +172,7 @@ class _WhosWhoScreenState extends State<WhosWhoScreen> {
                                 subtitle: Text(
                                   [
                                     if (e.about != null && e.about!.isNotEmpty) e.about!,
-                                    '${kindLabel(e.kind)} · first in chapter ${(e.firstCh ?? 0) + 1} · '
+                                    '${kindLabel(e.kind)} · ${(e.firstCh ?? 0) < 0 ? 'from an earlier book' : 'first in chapter ${(e.firstCh ?? 0) + 1}'} · '
                                         'in ${e.mentions} ${e.mentions == 1 ? 'chapter' : 'chapters'}',
                                   ].join('\n'),
                                   maxLines: 3,
