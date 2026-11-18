@@ -512,7 +512,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     // A theory of the reader's the story has settled, at a chapter they
     // have now reached: said once, a moment after the book opens.
     Future<void>.delayed(const Duration(seconds: 2), () {
-      if (mounted) unawaited(_tellTheories());
+      if (!mounted) return;
+      unawaited(_tellTheories());
+      // A book whose memory is begun: what was added since, noted.
+      if (_talkable) unawaited(MemoryService.instance.keepUp(_book.id));
     });
     if (_reader.resumeAt >= 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1388,6 +1391,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final c = _l.chapterOfUnit(_cursor.value);
     final was = _voiceChapter;
     _voiceChapter = c;
+    if (was != null && c != was && _talkable) unawaited(MemoryService.instance.keepUp(_book.id));
     if (was == null || c != was + 1 || !_player.isPlaying || !_prefs.journalAsk || !mounted) return;
     final last = _l.chapterFirstUnit[c] - 1;
     final done = stampAt(_l, last, numberOf: _chapterNumber);

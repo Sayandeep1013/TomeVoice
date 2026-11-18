@@ -14,9 +14,11 @@ import 'package:tomevoice_spike/ai/memory/chapter_notes.dart';
 import 'package:tomevoice_spike/ai/memory/graph.dart';
 import 'package:tomevoice_spike/ai/memory/memory_builder.dart';
 import 'package:tomevoice_spike/ai/memory/memory_db.dart';
+import 'package:tomevoice_spike/ai/memory/memory_service.dart';
 import 'package:tomevoice_spike/ai/memory/theories.dart';
 import 'package:tomevoice_spike/ai/memory/word_index.dart';
 import 'package:tomevoice_spike/library_store.dart';
+import 'package:tomevoice_spike/sources/models.dart';
 import 'package:tomevoice_spike/speech_service.dart';
 
 const _p = MemoryPlace(chapter: 0, section: 0);
@@ -352,6 +354,42 @@ void main() {
       expect(untold(path, 2).single.id, id);
       markTold(path, [id]);
       expect(untold(path, 2), isEmpty);
+    });
+
+    test('kept up as it is read: a begun memory takes in new chapters; a book never built is left alone', () async {
+      const plugin = PluginInfo(id: 'fake', name: 'Fake', site: 'https://fake.site/', lang: 'English', version: '1', url: 'u');
+      final id = (await store.addWebNovel(
+        plugin,
+        SourceNovel(path: 'n', name: 'Road', chapters: [
+          for (var i = 0; i < 6; i++) ChapterItem(name: 'Chapter ${i + 1}', path: 'c$i'),
+        ]),
+      ))
+          .id;
+      for (var i = 0; i < 3; i++) {
+        await store.saveChapterAt(id, 'c$i', '<p>Mira walked on. The road was long.</p>');
+      }
+      answer = (req, body) => reply(req, 200, chat(notesFor(body)));
+      final service = MemoryService.instance
+        ..reset()
+        ..attach(store, router: AiRouter(pause: Duration.zero));
+      addTearDown(service.reset);
+      // Never built: nothing is spent on it.
+      await service.keepUp(id, force: true);
+      expect(sent, isEmpty);
+
+      await service.build(id);
+      expect(service.stateOf(id).value.noted, 3);
+      final calls = sent.length;
+      await store.saveChapterAt(id, 'c3', '<p>Mira reached the river.</p>');
+      await store.saveChapterAt(id, 'c4', '<p>Mira crossed it.</p>');
+      await service.keepUp(id, force: true);
+      expect(service.stateOf(id).value.noted, 5);
+      expect(sent.length, greaterThan(calls));
+      // Not again so soon, unless forced.
+      final now = sent.length;
+      await store.saveChapterAt(id, 'c5', '<p>Mira rested.</p>');
+      await service.keepUp(id);
+      expect(sent.length, now);
     });
 
     test('a broken reply is asked again with what was wrong; a chapter that will not come is passed over', () async {

@@ -143,12 +143,54 @@ class MemoryService {
   final _wakes = <String, Timer>{};
 
   void attach(LibraryStore store, {AiRouter? router}) {
+    _store?.chapterSaved.removeListener(_onSaved);
     _store = store;
     _router = router;
+    store.chapterSaved.addListener(_onSaved);
+  }
+
+  /// When each book was last kept up, and the wait after a web novel's
+  /// chapters are saved (a download of many saves one by one).
+  final _keptAt = <String, DateTime>{};
+  final _afterSaves = <String, Timer>{};
+
+  void _onSaved() {
+    final saved = _store?.chapterSaved.value;
+    if (saved == null) return;
+    final id = saved.$1;
+    _afterSaves.remove(id)?.cancel();
+    _afterSaves[id] = Timer(const Duration(seconds: 20), () {
+      _afterSaves.remove(id);
+      unawaited(keepUp(id, force: true));
+    });
+  }
+
+  /// A book whose memory the reader has begun is kept up as they read: its
+  /// new chapters (read, or downloaded) indexed and noted. Not a book never
+  /// built (no quota spent on it unasked), and not while another book's
+  /// memory is being built (that one goes on first). At most every minute
+  /// and a half, unless [force].
+  Future<void> keepUp(String id, {bool force = false}) async {
+    final store = _store;
+    if (store == null || !maySend(id) || !AiRing.instance.hasKeys) return;
+    if (!File(_path(id)).existsSync()) return;
+    final last = _keptAt[id];
+    if (!force && last != null && DateTime.now().difference(last) < const Duration(seconds: 90)) return;
+    if (_builders.values.any((b) => b.running) || _wakes.isNotEmpty) return;
+    await refresh(id);
+    if (_n(id).value.noted == 0) return;
+    _keptAt[id] = DateTime.now();
+    await build(id);
   }
 
   @visibleForTesting
   void reset() {
+    _store?.chapterSaved.removeListener(_onSaved);
+    for (final t in _afterSaves.values) {
+      t.cancel();
+    }
+    _afterSaves.clear();
+    _keptAt.clear();
     for (final t in _wakes.values) {
       t.cancel();
     }
