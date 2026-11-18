@@ -1307,6 +1307,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
             for (final f in const [
               'EPUB',
               'PDF',
+              'DJVU',
               'DOCX',
               'MOBI',
               'AZW3',

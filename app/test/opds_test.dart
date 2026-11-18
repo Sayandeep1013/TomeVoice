@@ -145,6 +145,8 @@ void main() {
       expect(formatOf('application/x-mobipocket-ebook', u('1342.kindle.images'))!.label, 'MOBI');
       expect(formatOf('application/x-mobipocket-ebook', u('a.azw3'))!.extension, '.azw3');
       expect(formatOf('application/pdf; charset=binary', u('a'))!.label, 'PDF');
+      expect(formatOf('image/vnd.djvu', u('a'))!.extension, '.djvu');
+      expect(formatOf('image/x-djvu', u('a'))!.label, 'DjVu');
       expect(formatOf('application/xhtml+xml', u('page')), isNull, reason: 'a web page, not a file');
       expect(formatOf('application/x-cbz', u('a')), isNull);
     });

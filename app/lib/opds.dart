@@ -63,6 +63,7 @@ BookFormat? formatOf(String type, Uri href) {
     'text/plain' => (label: 'Text', extension: '.txt', rank: 8),
     'text/markdown' => (label: 'Markdown', extension: '.md', rank: 9),
     'application/pdf' => (label: 'PDF', extension: '.pdf', rank: 10),
+    'image/vnd.djvu' || 'image/x-djvu' => (label: 'DjVu', extension: '.djvu', rank: 11),
     _ => null,
   };
 }

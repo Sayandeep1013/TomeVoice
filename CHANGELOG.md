@@ -3,6 +3,11 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## Unreleased
+
+#### Formats
+- DjVu books (.djvu, .djv) open, read by the hidden text under their pages: the OCR that archive.org's scans, and most others, carry. Its paragraphs are kept, running heads and page numbers left out, words broken at line ends mended, and its bookmarks become its chapters. A DjVu whose pages are only pictures says so instead of opening empty, and one kept as a file a page asks to be bundled into one file first.
+
 ## 1.5.0 (2026-11-18)
 
 Smoother, lighter on the battery, and a voice that reads "..." and commas as people do.

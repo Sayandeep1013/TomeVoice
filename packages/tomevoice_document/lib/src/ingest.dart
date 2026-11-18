@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 
 import 'detect.dart';
 import 'encoding.dart';
+import 'formats/djvu.dart';
 import 'formats/epub.dart';
 import 'formats/fb2.dart';
 import 'formats/mobi.dart';
@@ -69,6 +70,7 @@ String _kindName(SourceKind kind) => switch (kind) {
       SourceKind.html => 'HTML',
       SourceKind.markdown => 'Markdown',
       SourceKind.pdf => 'PDF',
+      SourceKind.djvu => 'DjVu',
       _ => 'text',
     };
 
@@ -87,6 +89,8 @@ Book _parse(SourceKind kind, Uint8List bytes, String bookId, String? filename, L
       book = parseMobi(bytes, id: bookId, filename: filename);
     case SourceKind.rtf:
       book = parseRtf(bytes, id: bookId, filename: filename, legacy: legacy);
+    case SourceKind.djvu:
+      book = parseDjvu(bytes, id: bookId, filename: filename);
     case SourceKind.text:
     case SourceKind.markdown:
     case SourceKind.html:
@@ -237,14 +241,14 @@ UnsupportedDocumentException _unknownFormat(String? filename, Uint8List bytes) {
       'Old Word .doc files are not supported. Save it as .docx and import that.',
     );
   }
-  if (RegExp(r'\.(cbz|cbr|djvu|jpg|jpeg|png|webp)$').hasMatch(name) || _isPictureZip(bytes)) {
+  if (RegExp(r'\.(cbz|cbr|jpg|jpeg|png|webp)$').hasMatch(name) || _isPictureZip(bytes)) {
     return _pictures;
   }
   if (RegExp(r'\.(mp3|m4a|m4b|ogg|wav|flac|opus)$').hasMatch(name)) {
     return _audio;
   }
   return const UnsupportedDocumentException(
-    'TomeVoice does not recognise this file. It reads EPUB, PDF, DOCX, ODT, '
+    'TomeVoice does not recognise this file. It reads EPUB, PDF, DjVu, DOCX, ODT, '
     'MOBI/AZW, FB2, RTF, HTML, Markdown and plain text.',
   );
 }

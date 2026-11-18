@@ -1106,12 +1106,15 @@ const _fileLimit = 200 * 1024 * 1024;
 
 /// Files TomeVoice imports, by extension.
 const _bookExtensions = {
-  'epub', 'pdf', 'mobi', 'azw', 'azw3', 'kf8', 'prc', 'pdb', 'fb2', 'docx', 'odt', 'rtf', 'txt', 'md', 'markdown',
+  'epub', 'pdf', 'djvu', 'djv', 'mobi', 'azw', 'azw3', 'kf8', 'prc', 'pdb', 'fb2', 'docx', 'odt', 'rtf', 'txt', 'md',
+  'markdown',
 };
 
 /// Files TomeVoice imports, by type.
 const _bookTypes = {
   'application/pdf': 'pdf',
+  'image/vnd.djvu': 'djvu',
+  'image/x-djvu': 'djvu',
   'application/epub+zip': 'epub',
   'application/x-mobipocket-ebook': 'mobi',
   'application/vnd.amazon.ebook': 'azw3',
@@ -1322,7 +1325,10 @@ String _fileName(String? disposition, Uri url, String type) {
   if (name.isEmpty) name = 'document';
   if (name.length > 120) name = name.substring(name.length - 120);
   final wanted = _bookTypes[type];
-  if (wanted != null && _extension(name) != wanted && !(wanted == 'azw3' && _extension(name).startsWith('azw'))) {
+  if (wanted != null &&
+      _extension(name) != wanted &&
+      !(wanted == 'azw3' && _extension(name).startsWith('azw')) &&
+      !(wanted == 'djvu' && _extension(name) == 'djv')) {
     name = '$name.$wanted';
   }
   return name;
