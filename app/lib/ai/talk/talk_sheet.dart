@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../journal.dart';
+import '../../prefs.dart';
 import '../../theme.dart';
 import '../../ui.dart';
 import '../ai_router.dart';
@@ -42,6 +43,8 @@ Future<void> showTalk(
   required void Function(MemoryPlace place) onLook,
   String? firstQuestion,
   TalkEngine? engine,
+  Future<void> Function(String text)? onSay,
+  VoidCallback? onHush,
 }) =>
     showModalBottomSheet<void>(
       context: context,
@@ -61,6 +64,8 @@ Future<void> showTalk(
         onLook: onLook,
         firstQuestion: firstQuestion,
         engine: engine,
+        onSay: onSay,
+        onHush: onHush,
       ),
     );
 
@@ -80,6 +85,8 @@ class TalkSheet extends StatefulWidget {
     this.firstQuestion,
     this.engine,
     this.journal,
+    this.onSay,
+    this.onHush,
   });
 
   final String bookId;
@@ -95,6 +102,10 @@ class TalkSheet extends StatefulWidget {
   final String? firstQuestion;
   final TalkEngine? engine;
   final JournalStore? journal;
+
+  /// An answer said aloud in the reading voice, and the saying stopped.
+  final Future<void> Function(String text)? onSay;
+  final VoidCallback? onHush;
 
   @override
   State<TalkSheet> createState() => _TalkSheetState();
@@ -122,8 +133,16 @@ class _TalkSheetState extends State<TalkSheet> {
     if (q != null) WidgetsBinding.instance.addPostFrameCallback((_) => unawaited(_ask(q)));
   }
 
+  ListeningPrefs get _prefs => ListeningPrefs.loaded ?? ListeningPrefs.memory;
+
+  void _say(String text) {
+    final say = widget.onSay;
+    if (say != null) unawaited(say(text));
+  }
+
   @override
   void dispose() {
+    widget.onHush?.call();
     unawaited(_keep());
     _input.dispose();
     _scroll.dispose();
@@ -214,6 +233,7 @@ class _TalkSheetState extends State<TalkSheet> {
           ..sources = a.sources
           ..done = true;
       });
+      if (_prefs.aiSpeak) _say(a.text);
     } on AiResting catch (e) {
       if (!mounted) return;
       setState(() => answer.error = e.until != null
@@ -242,9 +262,30 @@ class _TalkSheetState extends State<TalkSheet> {
         padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
         child: Column(
           children: [
-            SheetHeader(
-              'Talk about ${widget.bookTitle}',
-              subtitle: line == null ? 'Kept in your journal' : 'Keeping to chapter ${line + 1}',
+            Row(
+              children: [
+                Expanded(
+                  child: SheetHeader(
+                    'Talk about ${widget.bookTitle}',
+                    subtitle: line == null ? 'Kept in your journal' : 'Keeping to chapter ${line + 1}',
+                  ),
+                ),
+                if (widget.onSay != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: Gap.s),
+                    child: IconButton(
+                      tooltip: _prefs.aiSpeak ? 'Answers aloud: on' : 'Answers aloud: off',
+                      isSelected: _prefs.aiSpeak,
+                      icon: const Icon(Icons.volume_off_rounded),
+                      selectedIcon: const Icon(Icons.volume_up_rounded),
+                      onPressed: () {
+                        setState(() => _prefs.aiSpeak = !_prefs.aiSpeak);
+                        _prefs.save();
+                        if (!_prefs.aiSpeak) widget.onHush?.call();
+                      },
+                    ),
+                  ),
+              ],
             ),
             Expanded(
               child: _turns.isEmpty
@@ -364,13 +405,25 @@ class _TalkSheetState extends State<TalkSheet> {
     }
     return Padding(
       padding: const EdgeInsets.only(top: Gap.m, right: 24),
-      child: CitedText(
-        text: t.text,
-        sources: t.sources,
-        onLook: (p) {
-          Navigator.of(context).maybePop();
-          widget.onLook(p);
-        },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CitedText(
+            text: t.text,
+            sources: t.sources,
+            onLook: (p) {
+              Navigator.of(context).maybePop();
+              widget.onLook(p);
+            },
+          ),
+          if (t.done && widget.onSay != null)
+            TextButton.icon(
+              style: TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: EdgeInsets.zero),
+              onPressed: () => _say(t.text),
+              icon: const Icon(Icons.replay_rounded, size: 16),
+              label: const Text('Say it again'),
+            ),
+        ],
       ),
     );
   }

@@ -40,6 +40,31 @@ final citeMarks = RegExp(r'\[S\d+(?:\s*,\s*S?\d+)*\]');
 List<int> citeNumbers(String mark) =>
     [for (final m in RegExp(r'\d+').allMatches(mark)) int.parse(m.group(0)!)];
 
+/// An answer as it is said aloud: no citation marks, no markdown.
+String spokenAnswer(String text) => text
+    .replaceAll(citeMarks, '')
+    .replaceAll(RegExp(r'[*_#`>]+'), '')
+    .replaceAll(RegExp(r'[ \t]{2,}'), ' ')
+    .replaceAllMapped(RegExp(r' ([.,;:!?])'), (m) => m.group(1)!)
+    .trim();
+
+/// [text] in pieces of a sentence or a few, each one said at a time.
+List<String> spokenPieces(String text) {
+  final sentences = text.split(RegExp(r'(?<=[.!?…])\s+')).where((s) => s.trim().isNotEmpty);
+  final out = <String>[];
+  final b = StringBuffer();
+  for (final s in sentences) {
+    if (b.isNotEmpty && b.length + s.length > 220) {
+      out.add(b.toString());
+      b.clear();
+    }
+    if (b.isNotEmpty) b.write(' ');
+    b.write(s.trim());
+  }
+  if (b.isNotEmpty) out.add(b.toString());
+  return out;
+}
+
 /// How long the reader likes answers.
 enum AnswerLength {
   short('Short', 'Answer in two or three sentences.'),

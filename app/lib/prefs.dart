@@ -66,6 +66,7 @@ class ListeningPrefs {
     this.journalNotebook = false,
     this.journalQuestions,
     this.journalAsk = false,
+    this.aiSpeak = true,
     this.sort = LibrarySort.recent,
     this.bookColours = true,
     this.naturalVoices,
@@ -347,6 +348,9 @@ class ListeningPrefs {
   /// turned on).
   bool journalAsk;
 
+  /// Talk's answers said aloud in the reading voice (on unless turned off).
+  bool aiSpeak;
+
   /// Order of books in the library.
   LibrarySort sort;
 
@@ -512,6 +516,7 @@ class ListeningPrefs {
         'journalNotebook': journalNotebook,
         if (journalQuestions != null) 'journalQuestions': journalQuestions,
         'journalAsk': journalAsk,
+        'aiSpeak': aiSpeak,
         'sort': sort.name,
         'bookColours': bookColours,
         if (naturalVoices != null) 'naturalVoices': naturalVoices,
@@ -611,6 +616,7 @@ class ListeningPrefs {
         journalNotebook: json['journalNotebook'] as bool? ?? false,
         journalQuestions: json['journalQuestions'] is List ? List<Object?>.from(json['journalQuestions'] as List) : null,
         journalAsk: json['journalAsk'] as bool? ?? false,
+        aiSpeak: json['aiSpeak'] as bool? ?? true,
         paletteId: json['palette'] as String? ?? 'forest',
         ownPage: colourFromHex(json['ownPage']),
         ownAccent: colourFromHex(json['ownAccent']),

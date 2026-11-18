@@ -132,6 +132,15 @@ void main() {
       expect(findCard(path, 'academy', 'Sunny walks to the academy.', null), isNull);
     });
 
+    test('an answer as it is said aloud: no marks, in pieces of a sentence or a few', () {
+      expect(spokenAnswer('He is **still** a Sleeper [S2]. He walked on [S3, S5].'), 'He is still a Sleeper. He walked on.');
+      final long = List.generate(12, (i) => 'Sentence $i is a fairly ordinary sentence of the answer.').join(' ');
+      final pieces = spokenPieces(long);
+      expect(pieces.length, greaterThan(2));
+      expect(pieces.every((p) => p.length <= 240), isTrue);
+      expect(pieces.join(' '), long);
+    });
+
     test("the tools keep to the line too", () {
       final path = _memory(tmp);
       expect(runTool(path, 'read_chapter', {'chapter': 5}, 1).single.text, contains('past where the reader is'));

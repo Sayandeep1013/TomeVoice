@@ -17,6 +17,7 @@ import 'ai/memory/memory_service.dart';
 import 'ai/memory/theories.dart';
 import 'ai/memory/theories_screen.dart';
 import 'ai/talk/name_card.dart';
+import 'ai/talk/talk_engine.dart' show spokenAnswer, spokenPieces;
 import 'ai/talk/talk_sheet.dart';
 import 'auto_scroll.dart';
 import 'book_tint.dart';
@@ -2544,7 +2545,64 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       passage: _passageSoFar,
       firstQuestion: first,
       onLook: _lookAtPlace,
+      onSay: _sayAnswer,
+      onHush: _hush,
     );
+  }
+
+  /// Which Talk answer is being said: a new one, or a hush, moves it on,
+  /// and the one before stops.
+  int _saying = 0;
+  bool _answerAloud = false;
+
+  /// The book was reading when an answer began: it reads on once the last
+  /// answer is done, or Talk is closed.
+  bool _bookWaits = false;
+
+  /// [text] said in the reading voice, a sentence or so at a time; the book
+  /// paused for it, and read on from where it was once the answer is done.
+  Future<void> _sayAnswer(String text) async {
+    final me = ++_saying;
+    if (_answerAloud) await _svc.stopPlayback();
+    if (_player.isPlaying) {
+      _bookWaits = true;
+      await _player.pause(now: true);
+    }
+    _answerAloud = true;
+    for (final piece in spokenPieces(spokenAnswer(text))) {
+      if (me != _saying || !mounted) break;
+      try {
+        await speakSample(
+          voiceName: _listen.voiceName ?? '',
+          text: piece,
+          settings: _prefs.settingsFor(_listen.voiceName, book: _book.id),
+          engineId: _prefs.engineId ?? _catalog.engineId,
+        );
+      } on Object catch (e) {
+        debugPrint('Talk answer could not be said: $e');
+        break;
+      }
+    }
+    if (me != _saying) return;
+    _answerAloud = false;
+    if (_bookWaits && mounted) {
+      _bookWaits = false;
+      await _player.play(_cursor.value);
+    }
+  }
+
+  /// An answer being said stops; the book's own reading is left alone.
+  void _hush() {
+    if (!_answerAloud) return;
+    _saying++;
+    _answerAloud = false;
+    unawaited(() async {
+      await _svc.stopPlayback();
+      if (_bookWaits && mounted) {
+        _bookWaits = false;
+        await _player.play(_cursor.value);
+      }
+    }());
   }
 
   Future<void> _tellTheories() async {
