@@ -1889,6 +1889,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       progressOf: voice != null ? (u) => progressFraction(voice.layout.units, u) : widget.progressOf,
       onSeekInChapter: voice != null ? voice.moveTo : (u) => _reader.goTo(u),
       elsewhere: voice != null,
+      // Looking at another chapter of this one: the bar still names the
+      // voice's.
+      looking: voice == null ? _detached : null,
+      viewChapter: voice == null ? _viewChapter : null,
       onSpeed: () => showListenSheet(context, _listen, focus: ListenFocus.speed),
       onVoice: () => showListenSheet(context, _listen),
       onExpand: voice != null ? () => _reader.follow() : _openNowPlaying,

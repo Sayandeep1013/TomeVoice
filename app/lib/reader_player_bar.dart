@@ -39,7 +39,15 @@ class ReaderPlayerBar extends StatelessWidget {
     this.onSave,
     this.voice,
     this.elsewhere = false,
+    this.looking,
+    this.viewChapter,
   });
+
+  /// Looking around ([looking]) at chapter [viewChapter] of this book while
+  /// the voice is in another: the bar names the voice's chapter, as with
+  /// [elsewhere].
+  final ValueListenable<bool>? looking;
+  final ValueListenable<int>? viewChapter;
 
   /// The voice reads another chapter than the page shows: the bar names
   /// it, and is the voice's (see ReaderController.placeAway).
@@ -327,11 +335,14 @@ class ReaderPlayerBar extends StatelessWidget {
         borderRadius: BorderRadius.circular(Radii.card + 4),
         boxShadow: Skin.lift(context),
       ),
-      child: ValueListenableBuilder<int>(
-        valueListenable: cursor,
-        builder: (context, u, _) {
+      child: ListenableBuilder(
+        listenable: Listenable.merge([cursor, looking, viewChapter]),
+        builder: (context, _) {
+          final u = cursor.value;
           final empty = layout.isEmpty;
           final (:chapter, :first, :count, :minutes, :pct) = _at(u);
+          final away = elsewhere ||
+              (looking?.value == true && viewChapter != null && viewChapter!.value != chapter && !empty);
           final inChapter = (u - first).clamp(0, count - 1);
           final partial = progressOf != null;
           return Column(
@@ -357,7 +368,7 @@ class ReaderPlayerBar extends StatelessWidget {
                               child: Text(
                                 // With a sleep timer there is no room for all three.
                                 [
-                                  if (elsewhere) 'READING ${layout.chapterTitle(chapter).toUpperCase()}'
+                                  if (away) 'READING ${layout.chapterTitle(chapter).toUpperCase()}'
                                   else if (sleepNote == null) '$pct%',
                                   partial ? '${durationLabel(minutes)} LEFT IN CHAPTER' : '${durationLabel(minutes)} LEFT',
                                   if (sleepNote != null) sleepNote!,

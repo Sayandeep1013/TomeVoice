@@ -996,6 +996,41 @@ void main() {
       await finish(tester);
     });
 
+    testWidgets("while another chapter is looked at, the player names the voice's", (tester) async {
+      withSound();
+      final store = LibraryStore(_tmp);
+      final long = ingestString(
+        [
+          for (final (n, name) in [(1, 'Alpha'), (2, 'Beta'), (3, 'Gamma')]) ...[
+            '# Chapter $n: $name',
+            for (var p = 0; p < 30; p++) 'Paragraph $p of chapter $n goes on long enough to fill a line or two of the page.',
+          ],
+        ].join('\n\n'),
+        filename: 'long.md',
+      );
+      final nav = await pumpShelf(tester);
+      unawaited(nav.push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(layout: ReadingLayout.build(long), store: store))));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump(const Duration(milliseconds: 300));
+      // Playing, the voice's glow never settles: frames enough for a sheet.
+      Future<void> frames() async {
+        for (var i = 0; i < 16; i++) {
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+      }
+
+      await tester.tap(find.byKey(const ValueKey('contents')));
+      await frames();
+      await tester.tap(find.text('Chapter 3: Gamma').last);
+      await frames();
+      expect(find.text('Back to reading'), findsOneWidget);
+      expect(find.textContaining('READING CHAPTER 1'), findsOneWidget, reason: "the voice's chapter, named");
+      await tester.tap(find.byTooltip('Pause'));
+      await tester.pump(const Duration(milliseconds: 300));
+      await finish(tester);
+    });
+
     testWidgets('another book played stops the one in the background; off, Back stops', (tester) async {
       withSound();
       final store = LibraryStore(_tmp);
