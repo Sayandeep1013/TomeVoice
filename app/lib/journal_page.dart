@@ -279,11 +279,7 @@ class _JournalPageState extends State<JournalPage> {
                                 keyboardType: TextInputType.multiline,
                                 textCapitalization: TextCapitalization.sentences,
                                 style: handwriting(23, ink.pen).copyWith(height: 1.25),
-                                decoration: InputDecoration(
-                                  border: InputBorder.none,
-                                  hintText: 'Write whatever comes…',
-                                  hintStyle: handwriting(23, soft.withValues(alpha: 0.6)),
-                                ),
+                                decoration: _onPaper('Write whatever comes…', handwriting(23, soft.withValues(alpha: 0.6))),
                               ),
                             )
                           : ListView(
@@ -329,12 +325,7 @@ class _JournalPageState extends State<JournalPage> {
               }),
               textCapitalization: TextCapitalization.sentences,
               style: handwriting(22, ink.pen),
-              decoration: InputDecoration(
-                isDense: true,
-                border: InputBorder.none,
-                hintText: 'or something more…',
-                hintStyle: handwriting(20, soft.withValues(alpha: 0.6)),
-              ),
+              decoration: _onPaper('or something more…', handwriting(20, soft.withValues(alpha: 0.6))),
             ),
           ] else
             TextField(
@@ -345,17 +336,26 @@ class _JournalPageState extends State<JournalPage> {
               keyboardType: TextInputType.multiline,
               textCapitalization: TextCapitalization.sentences,
               style: handwriting(22, ink.pen).copyWith(height: 1.25),
-              decoration: InputDecoration(
-                isDense: true,
-                border: InputBorder.none,
-                hintText: 'Write here…',
-                hintStyle: handwriting(20, soft.withValues(alpha: 0.6)),
-              ),
+              decoration: _onPaper('Write here…', handwriting(20, soft.withValues(alpha: 0.6))),
             ),
         ],
       ),
     );
   }
+
+  /// A field written straight onto the paper: none of the app's own boxes
+  /// (its fields are filled capsules), only the words.
+  static InputDecoration _onPaper(String hint, TextStyle hintStyle) => InputDecoration(
+        isDense: true,
+        filled: false,
+        border: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
+        disabledBorder: InputBorder.none,
+        contentPadding: const EdgeInsets.symmetric(vertical: 6),
+        hintText: hint,
+        hintStyle: hintStyle,
+      );
 
   /// A pick as a round sticker: filled in its colour when picked.
   Widget _sticker(BuildContext context, int i, String pick, Color colour, NotebookInk ink) {
