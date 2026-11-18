@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'graph.dart' show because;
 import 'memory_db.dart';
 
 /// Meaning search: each chapter's summary and each event kept as a vector
@@ -44,7 +45,7 @@ List<MeaningItem> pendingMeaning(String path, String model, {int limit = 256}) {
           owner: 'event',
           id: r['id'] as int,
           ch: r['ch'] as int,
-          text: [r['what'], if (r['why'] != null) 'because ${r['why']}', if (r['result'] != null) '→ ${r['result']}'].join(' '),
+          text: [r['what'], if (r['why'] != null) because(r['why'] as String), if (r['result'] != null) '→ ${r['result']}'].join(' '),
         ),
     ];
     return [...notes, ...events];
@@ -146,7 +147,7 @@ List<MeaningHit> meaningSearch(String path, String model, List<double> query, {i
         out.add(MeaningHit(
           owner: owner,
           ch: ch,
-          text: '${e['what']}${e['why'] == null ? '' : ', because ${e['why']}'}${e['result'] == null ? '' : ' → ${e['result']}'}',
+          text: '${e['what']}${e['why'] == null ? '' : ', ${because(e['why'] as String)}'}${e['result'] == null ? '' : ' → ${e['result']}'}',
           score: score,
           place: MemoryPlace(
             chapter: ch,

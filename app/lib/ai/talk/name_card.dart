@@ -9,6 +9,9 @@ import '../memory/graph.dart';
 import '../memory/memory_db.dart';
 import 'answer_pack.dart';
 
+/// A held word as a name: "Oren's" is Oren.
+String bareName(String word) => word.trim().replaceFirst(RegExp("['’]s\$"), '');
+
 /// A card as the sheet shows it: the entity's name, and its lines.
 typedef FoundCard = ({String name, List<PackItem> items});
 
@@ -20,7 +23,8 @@ FoundCard? findCard(String path, String word, String sentence, int? at) {
   final m = MemoryDb.open(path);
   try {
     final g = BookGraph(m);
-    final w = normName(word);
+    final bare = bareName(word);
+    final w = normName(bare);
     int? id;
     // A name in the sentence that has the word in it: "Changing Star" for a
     // hold on "Star".
@@ -34,7 +38,7 @@ FoundCard? findCard(String path, String word, String sentence, int? at) {
         }
       }
     }
-    id ??= g.byName(word);
+    id ??= g.byName(bare);
     if (id == null) return null;
     final items = cardItems(m, id, at ?? 1 << 30);
     if (items.isEmpty) return null;
@@ -76,7 +80,7 @@ Future<void> showNameCard(
   final card = await Isolate.run(() => findCard(path, word, sentence, line));
   if (!context.mounted) return;
   if (card == null) {
-    showSnack(context, 'Nothing is remembered about "$word" yet. Build the memory from the book\'s page, or ask in Talk.');
+    showSnack(context, 'Nothing is remembered about "${bareName(word)}" yet. Build the memory from the book\'s page, or ask in Talk.');
     return;
   }
   await showModalBottomSheet<void>(

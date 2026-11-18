@@ -2690,55 +2690,59 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _goOrLook(_l.unitForCursor(at, saved: true));
   }
 
-  /// The pills, in the middle over the player, and the journal's pen at
-  /// their right: a button of its own, so the player's controls keep their
-  /// places, and it comes and goes with the bars as the pills do.
+  /// The pills, in the middle over the player, and at the right Talk (once
+  /// the AI has a key) and the journal's pen: buttons of their own, so the
+  /// player's controls keep their places, coming and going with the bars as
+  /// the pills do. Upright they stand one above the other; on its side, one
+  /// beside the other. Their edge is the player's (its side margin).
   Widget _pillAndPen(BuildContext context, Widget pill) {
-    // The pen's own width beside the pills, kept on both sides so they stay
-    // in the middle; Talk on the other side, once the AI has a key.
-    const room = 56.0;
-    return Row(
-      // On one foot line: the pills stay where they were before the pen
-      // stood beside them.
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        SizedBox(
-          width: room,
-          child: ListenableBuilder(
-            listenable: Listenable.merge([AiRing.instance, MemoryService.instance.stateOf(_book.id)]),
-            builder: (context, _) => !_talkable
-                ? const SizedBox.shrink()
-                : Center(
-                    child: Material(
-                      color: Skin.darkOn(context),
-                      shape: const CircleBorder(),
-                      elevation: 4,
-                      child: IconButton(
-                        tooltip: 'Talk about the book',
-                        icon: Icon(Icons.auto_awesome_outlined, size: 20, color: Skin.onDark(context)),
-                        onPressed: () => unawaited(_talk()),
-                      ),
-                    ),
-                  ),
+    const size = 48.0;
+    const edge = Gap.m;
+    final upright = MediaQuery.orientationOf(context) == Orientation.portrait;
+    Widget button(String tip, IconData icon, VoidCallback onTap) => Material(
+          color: Skin.darkOn(context),
+          shape: const CircleBorder(),
+          elevation: 4,
+          child: IconButton(
+            tooltip: tip,
+            icon: Icon(icon, size: 20, color: Skin.onDark(context)),
+            onPressed: onTap,
           ),
-        ),
-        Expanded(child: Center(child: pill)),
-        SizedBox(
-          width: room,
-          child: Center(
-            child: Material(
-              color: Skin.darkOn(context),
-              shape: const CircleBorder(),
-              elevation: 4,
-              child: IconButton(
-                tooltip: 'Write in your journal',
-                icon: Icon(Icons.edit_outlined, size: 20, color: Skin.onDark(context)),
-                onPressed: _write,
-              ),
-            ),
-          ),
-        ),
-      ],
+        );
+    return ListenableBuilder(
+      listenable: Listenable.merge([AiRing.instance, MemoryService.instance.stateOf(_book.id)]),
+      builder: (context, _) {
+        final buttons = [
+          if (_talkable) button('Talk about the book', Icons.auto_awesome_outlined, () => unawaited(_talk())),
+          button('Write in your journal', Icons.edit_outlined, _write),
+        ];
+        final group = upright
+            ? Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final (i, b) in buttons.indexed) ...[if (i > 0) const SizedBox(height: Gap.s), b],
+                ],
+              )
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final (i, b) in buttons.indexed) ...[if (i > 0) const SizedBox(width: Gap.s), b],
+                ],
+              );
+        // As wide on the left as the buttons take on the right, so the pills
+        // stay in the middle.
+        final room = edge + (upright ? size : buttons.length * size + (buttons.length - 1) * Gap.s);
+        return Row(
+          // On one foot line: the pills stay where they were before the
+          // buttons stood beside them.
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            SizedBox(width: room),
+            Expanded(child: Center(child: pill)),
+            Padding(padding: const EdgeInsets.only(right: edge), child: group),
+          ],
+        );
+      },
     );
   }
 

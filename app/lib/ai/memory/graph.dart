@@ -21,6 +21,37 @@ String normName(String s) {
   return t;
 }
 
+/// What entity [id] is, as known at chapter [at]: the description that
+/// held then, or its first words.
+String? describedAt(MemoryDb m, int id, int at) {
+  final d = m.db.select(
+    "SELECT value FROM facts WHERE entity = ? AND attr = 'description' AND from_ch <= ? ORDER BY from_ch DESC LIMIT 1",
+    [id, at],
+  );
+  if (d.isNotEmpty) return d.first['value'] as String;
+  return m.db.select('SELECT about FROM entities WHERE id = ?', [id]).firstOrNull?['about'] as String?;
+}
+
+/// The SQL for an entity's description at chapter [line], for a query on
+/// entities `e`.
+String describedSql(int line) =>
+    "coalesce((SELECT f.value FROM facts f WHERE f.entity = e.id AND f.attr = 'description' AND f.from_ch <= $line "
+    'ORDER BY f.from_ch DESC LIMIT 1), e.about)';
+
+/// A reason as it follows an event: "because …", without a "because" the
+/// model already gave, and its first word in lower case when it is only a
+/// small word ("To cause wrecks" reads "because to cause wrecks").
+String because(String why) {
+  var t = why.trim();
+  final lead = RegExp(r'^because\s+', caseSensitive: false);
+  t = t.replaceFirst(lead, '');
+  final first = t.split(' ').first;
+  const small = {'to', 'so', 'he', 'she', 'it', 'they', 'his', 'her', 'their', 'the', 'a', 'an', 'in', 'for', 'of', 'as', 'out'};
+  if (small.contains(first.toLowerCase()) && first.isNotEmpty) t = first.toLowerCase() + t.substring(first.length);
+  if (t.endsWith('.')) t = t.substring(0, t.length - 1);
+  return 'because $t';
+}
+
 /// The words of [text], normalised, for finding known names in it.
 List<String> _words(String text) => normName(text).split(' ').where((w) => w.isNotEmpty).toList();
 
@@ -54,6 +85,24 @@ class BookGraph {
     (_alias[norm] ??= {}).add(id);
     _longest = math.max(_longest, norm.split(' ').length);
   }
+
+  /// [about] as what entity [id] is from chapter [ch]: its first words, or,
+  /// once it has some, a description that holds from [ch] on (as a rank
+  /// does), so a card at an earlier chapter is not told what comes later.
+  void describe(int id, String about, int ch) {
+    final e = m.db.select('SELECT about, first_ch FROM entities WHERE id = ?', [id]).firstOrNull;
+    if (e == null) return;
+    if (e['about'] == null || (e['first_ch'] as int?) == ch) {
+      m.db.execute('UPDATE entities SET about = ? WHERE id = ?', [about, id]);
+      return;
+    }
+    if (normName(aboutAt(id, ch) ?? '') == normName(about)) return;
+    m.db.execute("UPDATE facts SET until_ch = ? WHERE entity = ? AND attr = 'description' AND until_ch IS NULL", [ch, id]);
+    m.db.execute("INSERT INTO facts(entity, attr, value, from_ch) VALUES (?, 'description', ?, ?)", [id, about, ch]);
+  }
+
+  /// What entity [id] is, as known at chapter [at].
+  String? aboutAt(int id, int at) => describedAt(m, id, at);
 
   /// The entity [id] stands for now (a merged one, the one it went into).
   int? live(int id) {
@@ -173,7 +222,7 @@ class BookGraph {
       for (final a in e.aliases) {
         alias(id, a, ch);
       }
-      if (e.about != null) m.db.execute('UPDATE entities SET about = ? WHERE id = ?', [e.about, id]);
+      if (e.about != null) describe(id, e.about!, ch);
       _appears(id, ch);
     }
 
@@ -388,14 +437,15 @@ class BookGraph {
       ];
       final facts = [
         for (final f in m.db.select(
-            'SELECT attr, value FROM facts WHERE entity = ? AND until_ch IS NULL AND from_ch < ? ORDER BY from_ch DESC LIMIT 6',
+            "SELECT attr, value FROM facts WHERE entity = ? AND until_ch IS NULL AND from_ch < ? AND attr != 'description' "
+            'ORDER BY from_ch DESC LIMIT 6',
             [id, first]))
           '${f['attr']}: ${f['value']}',
       ];
       lines.add([
         'e$id ${r['kind']} "${r['name']}"',
         if (names.isNotEmpty) 'aka ${names.join(', ')}',
-        if ((r['about'] as String?)?.isNotEmpty ?? false) '— ${r['about']}',
+        if ((aboutAt(id, first) ?? '').isNotEmpty) '— ${aboutAt(id, first)}',
         if (facts.isNotEmpty) '| ${facts.join('; ')}',
       ].join(' '));
     }

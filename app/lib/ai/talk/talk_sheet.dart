@@ -166,6 +166,7 @@ class _TalkSheetState extends State<TalkSheet> {
           };
           return labels.isEmpty ? '' : ' (${labels.join(', ')})';
         })
+        .replaceAll('**', '')
         .replaceAll(RegExp(r'[ \t]{2,}'), ' ')
         .replaceAllMapped(RegExp(r'\s+([.,;:!?])'), (m) => m.group(1)!)
         .trim();
@@ -449,7 +450,7 @@ class CitedText extends StatelessWidget {
     final spans = <InlineSpan>[];
     var at = 0;
     for (final m in citeMarks.allMatches(text)) {
-      if (m.start > at) spans.add(TextSpan(text: text.substring(at, m.start)));
+      if (m.start > at) spans.addAll(_marked(text.substring(at, m.start)));
       final seen = <String>{};
       for (final n in citeNumbers(m.group(0)!)) {
         final s = sources[n];
@@ -476,7 +477,22 @@ class CitedText extends StatelessWidget {
       }
       at = m.end;
     }
-    if (at < text.length) spans.add(TextSpan(text: text.substring(at)));
+    if (at < text.length) spans.addAll(_marked(text.substring(at)));
     return Text.rich(TextSpan(style: style, children: spans));
+  }
+
+  /// [text] with its **bold** (and *slanted*) words drawn so, the marks gone.
+  static List<InlineSpan> _marked(String text) {
+    final out = <InlineSpan>[];
+    var at = 0;
+    for (final m in RegExp(r'\*\*(.+?)\*\*|(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])').allMatches(text)) {
+      if (m.start > at) out.add(TextSpan(text: text.substring(at, m.start)));
+      out.add(m.group(1) != null
+          ? TextSpan(text: m.group(1), style: const TextStyle(fontWeight: FontWeight.w700))
+          : TextSpan(text: m.group(2), style: const TextStyle(fontStyle: FontStyle.italic)));
+      at = m.end;
+    }
+    if (at < text.length) out.add(TextSpan(text: text.substring(at)));
+    return out;
   }
 }

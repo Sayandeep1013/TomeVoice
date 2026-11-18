@@ -198,13 +198,13 @@ List<PackItem> cardItems(MemoryDb m, int id, int at) {
     PackItem(
       head,
       '$name (${e['kind']})${names.isEmpty ? '' : ', also called ${names.take(8).join(', ')}'}. '
-      '${e['about'] ?? ''} First met in ${chapterLabel(first ?? 0)}.',
+      '${describedAt(m, id, at) ?? ''} First met in ${chapterLabel(first ?? 0)}.',
       place: first == null || first < 0 ? null : MemoryPlace(chapter: first, section: first),
     ),
   ];
   for (final f in m.db.select(
     'SELECT attr, value, from_ch ch, sec, blk, sen FROM facts WHERE entity = ? AND from_ch <= ? '
-    'AND (until_ch IS NULL OR until_ch > ?) ORDER BY from_ch',
+    "AND (until_ch IS NULL OR until_ch > ?) AND attr != 'description' ORDER BY from_ch",
     [id, at, at],
   )) {
     out.add(PackItem(head, '${f['attr']}: ${f['value']} (from ${chapterLabel(f['ch'] as int)})', place: _place(f)));
@@ -231,7 +231,7 @@ List<PackItem> cardItems(MemoryDb m, int id, int at) {
     out.add(PackItem(
       head,
       '${chapterLabel(v['ch'] as int)}: ${v['what']}'
-      '${v['why'] == null ? '' : ', because ${v['why']}'}${v['result'] == null ? '' : ' → ${v['result']}'}',
+      '${v['why'] == null ? '' : ', ${because(v['why'] as String)}'}${v['result'] == null ? '' : ' → ${v['result']}'}',
       place: _place(v),
     ));
   }
@@ -269,7 +269,7 @@ List<PackItem> runTool(String path, String name, Map<String, Object?> args, int?
             [id, from, to],
           ))
             PackItem('Events', '${chapterLabel(v['ch'] as int)}: ${v['what']}'
-                '${v['why'] == null ? '' : ', because ${v['why']}'}${v['result'] == null ? '' : ' → ${v['result']}'}',
+                '${v['why'] == null ? '' : ', ${because(v['why'] as String)}'}${v['result'] == null ? '' : ' → ${v['result']}'}',
                 place: _place(v)),
         ];
       case 'chapter_notes':

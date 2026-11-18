@@ -46,7 +46,7 @@ List<LedgerEntry> ledger(String path, {int? at, String? kind, String query = '',
     };
     return [
       for (final r in m.db.select(
-        'SELECT e.id, e.kind, e.name, e.about, e.first_ch, '
+        'SELECT e.id, e.kind, e.name, ${describedSql(line)} about, e.first_ch, '
         '(SELECT count(*) FROM appearances a WHERE a.entity = e.id AND a.ch <= $line) seen '
         'FROM entities e WHERE $where ORDER BY $orderBy LIMIT 2000',
         [if (kind != null) kind, if (q.isNotEmpty) '%$q%'],
@@ -253,8 +253,8 @@ Map<int, ({double x, double y})> layoutGraph(GraphData g, {double size = 1000, i
     }
     for (var i = 0; i < n; i++) {
       // A pull to the middle keeps lone nodes from drifting off.
-      dx[i] += (size / 2 - x[i]) * 0.02 * k / 10;
-      dy[i] += (size / 2 - y[i]) * 0.02 * k / 10;
+      dx[i] += (size / 2 - x[i]) * 0.06 * k / 10;
+      dy[i] += (size / 2 - y[i]) * 0.06 * k / 10;
       final d = math.max(0.01, math.sqrt(dx[i] * dx[i] + dy[i] * dy[i]));
       x[i] += dx[i] / d * math.min(d, heat);
       y[i] += dy[i] / d * math.min(d, heat);
@@ -267,7 +267,22 @@ Map<int, ({double x, double y})> layoutGraph(GraphData g, {double size = 1000, i
     }
     heat = math.max(1, heat * 0.985);
   }
-  return {for (final v in g.nodes) v.id: (x: x[index[v.id]!], y: y[index[v.id]!])};
+  // The web spread to fill the square, one scale both ways, with room at
+  // its edges for the names drawn under the nodes (cut off at the screen's
+  // edge on the phone).
+  const margin = 0.12;
+  var minX = x.reduce(math.min), maxX = x.reduce(math.max);
+  var minY = y.reduce(math.min), maxY = y.reduce(math.max);
+  final span = math.max(math.max(maxX - minX, maxY - minY), 1.0);
+  final scale = size * (1 - 2 * margin) / span;
+  final offX = (size - (maxX - minX) * scale) / 2, offY = (size - (maxY - minY) * scale) / 2;
+  return {
+    for (final v in g.nodes)
+      v.id: (
+        x: n == 1 ? size / 2 : offX + (x[index[v.id]!] - minX) * scale,
+        y: n == 1 ? size / 2 : offY + (y[index[v.id]!] - minY) * scale,
+      ),
+  };
 }
 
 /// The graph at a chapter and where its nodes sit, made together off the

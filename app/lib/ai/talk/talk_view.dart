@@ -14,7 +14,7 @@ class TalkTranscript extends StatelessWidget {
   final JournalEntry entry;
 
   /// An answer's [S3] marks taken out: the places they named are not kept.
-  static String plain(String text) => text.replaceAll(citeMarks, '').replaceAllMapped(RegExp(r' +([.,;:!?])'), (m) => m.group(1)!);
+  static String plain(String text) => text.replaceAll(citeMarks, '').replaceAll('**', '').replaceAllMapped(RegExp(r' +([.,;:!?])'), (m) => m.group(1)!);
 
   @override
   Widget build(BuildContext context) => Scaffold(

@@ -199,6 +199,35 @@ void main() {
       expect(m.db.select('SELECT noted FROM chapters WHERE ch = 0').single['noted'], 0);
     });
 
+    test("what someone is, as known at a chapter: a later description does not leak back", () {
+      g.apply(
+        const ChapterNotes(chapter: 0, summary: 's', entities: [
+          NoteEntity(ref: 'new:Oren', kind: 'person', name: 'Captain Oren', about: 'A harbour captain'),
+        ]),
+        _places(0, 1),
+        {},
+      );
+      final oren = g.byName('Captain Oren')!;
+      g.apply(
+        ChapterNotes(chapter: 2, summary: 's', entities: [
+          NoteEntity(ref: 'e$oren', kind: 'person', name: 'Captain Oren', about: 'The wrecker who rang the bell'),
+        ]),
+        _places(2, 1),
+        {},
+      );
+      expect(describedAt(m, oren, 0), 'A harbour captain');
+      expect(describedAt(m, oren, 1), 'A harbour captain');
+      expect(describedAt(m, oren, 2), 'The wrecker who rang the bell');
+      // Not a fact of its own on the card.
+      expect(m.db.select("SELECT count(*) n FROM facts WHERE attr = 'description'").first['n'], 1);
+    });
+
+    test('a reason reads after its event without a doubled because', () {
+      expect(because('To cause shipwrecks'), 'because to cause shipwrecks');
+      expect(because('Because he wanted gold.'), 'because he wanted gold');
+      expect(because('Oren feared the Order'), 'because Oren feared the Order');
+    });
+
     test('names compare without case, accents, marks or "the"', () {
       expect(normName('The Lord-of-Shadows!'), 'lord of shadows');
       expect(normName('Éclair'), 'eclair');

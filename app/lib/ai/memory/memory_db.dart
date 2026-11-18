@@ -110,6 +110,10 @@ class MemoryDb {
   void close() => db.close();
 
   void _setUp() {
+    // Talk reads while a theory is kept, or while the Builder writes: each
+    // waits its turn for a moment rather than failing at once ("database
+    // is locked", met on the phone).
+    db.execute('PRAGMA busy_timeout = 8000');
     // One file, no -wal beside it: a backup or a move takes the book's
     // folder as it is.
     db.execute('PRAGMA journal_mode = DELETE');

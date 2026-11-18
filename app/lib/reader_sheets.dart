@@ -63,7 +63,7 @@ Future<String?> showSentenceActions(
                 if (ai && word.isNotEmpty)
                   SheetAction(
                     icon: Icons.person_search_rounded,
-                    label: 'Who or what is "$word"?',
+                    label: 'Who or what is "${word.replaceFirst(RegExp("['’]s\$"), '')}"?',
                     onTap: () => Navigator.pop(ctx, 'who'),
                   ),
                 SheetAction(icon: Icons.format_quote_rounded, label: 'Save as a quote', onTap: () => Navigator.pop(ctx, 'quote')),

@@ -130,6 +130,9 @@ void main() {
       expect(card.items.map((i) => i.text).join(' | '), contains('rank: Sleeper'));
       expect(findCard(path, 'Sunny', '', null)!.items.map((i) => i.text).join(' | '), contains('rank: Awakened'));
       expect(findCard(path, 'academy', 'Sunny walks to the academy.', null), isNull);
+      // "Sunny's" is Sunny.
+      expect(findCard(path, "Sunny's", "Sunny's sword shone.", null)!.name, 'Sunless');
+      expect(bareName('Oren’s'), 'Oren');
     });
 
     test('an answer as it is said aloud: no marks, in pieces of a sentence or a few', () {

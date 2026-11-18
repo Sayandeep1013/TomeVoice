@@ -10,6 +10,7 @@ import '../../speech_service.dart';
 import '../../theme.dart';
 import '../../ui.dart';
 import '../talk/answer_pack.dart' show chapterLabel;
+import 'graph.dart' show describedSql;
 import 'memory_db.dart';
 import 'theories.dart';
 
@@ -50,7 +51,7 @@ String handOffMarkdown(
 
     b.writeln('## Who and what matters\n');
     for (final e in m.db.select(
-      'SELECT e.id, e.name, e.kind, e.about, e.first_ch, '
+      'SELECT e.id, e.name, e.kind, ${describedSql(at)} about, e.first_ch, '
       '(SELECT count(*) FROM appearances a WHERE a.entity = e.id AND a.ch <= ?) seen FROM entities e '
       'WHERE e.merged_into IS NULL AND coalesce(e.first_ch, 0) <= ? ORDER BY seen DESC LIMIT ?',
       [at, at, cast],
@@ -62,7 +63,8 @@ String handOffMarkdown(
       ]..remove(e['name']);
       final facts = [
         for (final f in m.db.select(
-            'SELECT attr, value FROM facts WHERE entity = ? AND from_ch <= ? AND (until_ch IS NULL OR until_ch > ?)',
+            'SELECT attr, value FROM facts WHERE entity = ? AND from_ch <= ? AND (until_ch IS NULL OR until_ch > ?) '
+            "AND attr != 'description'",
             [id, at, at]))
           '${f['attr']}: ${f['value']}',
       ];
