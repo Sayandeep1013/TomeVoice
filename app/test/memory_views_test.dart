@@ -79,12 +79,18 @@ void main() {
     final path = _memory(tmp);
     final sunny = ledger(path, query: 'sunny').single.id;
     final cassie = ledger(path, query: 'cassie').single.id;
-    bool linked(GraphData g, String label) =>
-        g.edges.any((e) => {e.a, e.b}.containsAll({sunny, cassie}) && e.label == label);
-    expect(linked(graphAt(path, at: 2), 'ally of'), isTrue);
-    final after = graphAt(path);
-    expect(linked(after, 'ally of'), isFalse, reason: 'they parted in chapter 4');
-    expect(linked(after, '2 events together'), isTrue);
+    // Every link keeps the chapters it held, so the timeline can show any
+    // chapter without the nodes moving: allies from chapter 2, parted in 4.
+    final ally = graphAt(path).edges.singleWhere((e) => {e.a, e.b}.containsAll({sunny, cassie}));
+    expect((ally.label, ally.kind, ally.fromCh, ally.untilCh), ('ally of', LinkKind.bond, 1, 3));
+    expect(ally.at(2), isTrue);
+    expect(ally.at(3), isFalse, reason: 'they parted in chapter 4');
+    // Up to chapter 3 it had not ended yet.
+    expect(graphAt(path, at: 2).edges.where((e) => e.related).single.untilCh, isNull);
+    expect(linkKindOf('sworn enemy of'), LinkKind.conflict);
+    expect(linkKindOf('member of'), LinkKind.belongs);
+    expect(linkKindOf('elder sister of'), LinkKind.family);
+    expect(mainOf(path), sunny);
     expect(graphAt(path, at: 0).nodes.map((n) => n.name).toSet(), {'Sunless', 'Forgotten Shore'});
     expect(graphAt(path, kinds: {'place'}).nodes.single.name, 'Forgotten Shore');
     // Round one: Nephis knows nobody yet.
@@ -161,7 +167,8 @@ void main() {
     await tester.tap(find.byTooltip('The memory graph'));
     await settle();
     expect(find.byType(MemoryGraphScreen), findsOneWidget);
-    expect(find.textContaining('4 shown'), findsOneWidget);
+    // It opens round the main character.
+    expect(find.text('Round Sunless'), findsOneWidget);
     final painter = tester.widget<CustomPaint>(
         find.descendant(of: find.byType(InteractiveViewer), matching: find.byType(CustomPaint)).first).painter as GraphPainter;
     final sunny = painter.data.nodes.firstWhere((n) => n.name == 'Sunless');
@@ -172,8 +179,13 @@ void main() {
     expect(scale, lessThan(1));
     await tester.tapAt(box.topLeft + Offset(at.x, at.y) * scale);
     await tester.pump();
-    expect(find.textContaining('Sunless · people'), findsOneWidget);
-    expect(find.text('Centre on'), findsOneWidget);
+    for (var i = 0; i < 10; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 40)));
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(find.text('Sunless'), findsOneWidget);
+    expect(find.text('Centre here'), findsOneWidget);
+    expect(find.text('Linked with…'), findsOneWidget);
     await tester.pump(const Duration(seconds: 1));
   });
 }
