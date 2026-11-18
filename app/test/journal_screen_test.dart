@@ -61,12 +61,19 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('a notebook first, a page a book, its tabs turning to one; then a list, remembered', (tester) async {
+  testWidgets('a list first; the notebook once picked, a page a book, its tabs turning to one; remembered', (tester) async {
     await thought('m', 'Middlemarch', 3, 'Dorothea deserves better.', minutes: 5);
     await thought('p', 'Persuasion', 7, 'Anne waited long enough.');
     await pump(tester, JournalScreen(store: store));
 
+    // The list is the first look (the owner's choice, 18 November).
+    expect(find.byType(NotebookPages), findsNothing);
+    expect(find.text('Anne waited long enough.'), findsOneWidget);
+    expect(find.text('Dorothea deserves better.'), findsOneWidget);
+    await tester.tap(find.byTooltip('Show as a notebook'));
+    await tester.pumpAndSettle();
     expect(find.byType(NotebookPages), findsOneWidget);
+    expect(ListeningPrefs.memory.journalNotebook, isTrue);
     // The newest book's page first.
     expect(find.text('Anne waited long enough.'), findsOneWidget);
     await tester.tap(find.bySemanticsLabel('Page 2: Middlemarch'));
@@ -78,8 +85,6 @@ void main() {
     await tester.tap(find.byTooltip('Show as a list'));
     await tester.pumpAndSettle();
     expect(find.byType(NotebookPages), findsNothing);
-    expect(find.text('Anne waited long enough.'), findsOneWidget);
-    expect(find.text('Dorothea deserves better.'), findsOneWidget);
     expect(ListeningPrefs.memory.journalNotebook, isFalse);
     await tester.pump(const Duration(seconds: 5));
   });
@@ -87,7 +92,6 @@ void main() {
   testWidgets("one book's journal alone, from its page", (tester) async {
     await thought('m', 'Middlemarch', 3, 'Dorothea deserves better.');
     await thought('p', 'Persuasion', 7, 'Anne waited long enough.');
-    ListeningPrefs.memory.journalNotebook = false;
     await pump(tester, JournalScreen(store: store, bookId: 'm'));
     expect(find.text('Dorothea deserves better.'), findsOneWidget);
     expect(find.text('Anne waited long enough.'), findsNothing);

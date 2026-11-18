@@ -12,7 +12,7 @@ import 'theme.dart';
 import 'ui.dart';
 
 /// The reading journal, apart from Saved: what was thought about each book,
-/// as a notebook (a page a book, the first look) or as a list, newest book
+/// as a list (the first look) or as a notebook, a page a book, newest book
 /// first. With [bookId], one book's alone (from its page).
 class JournalScreen extends StatefulWidget {
   const JournalScreen({super.key, required this.store, this.bookId});

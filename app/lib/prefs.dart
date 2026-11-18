@@ -63,7 +63,7 @@ class ListeningPrefs {
     this.updateEvery = 'daily',
     this.novelUpdates = false,
     this.gridView = true,
-    this.journalNotebook = true,
+    this.journalNotebook = false,
     this.journalQuestions,
     this.journalAsk = false,
     this.sort = LibrarySort.recent,
@@ -335,8 +335,8 @@ class ListeningPrefs {
   /// The library as a grid of covers instead of a list.
   bool gridView;
 
-  /// The journal as a notebook, a page a book (its first look), or as a
-  /// list.
+  /// The journal as a notebook, a page a book, or as a list (its first
+  /// look; the notebook only once the reader picks it).
   bool journalNotebook;
 
   /// The journal's questions as the reader set them (journal.dart's
@@ -608,7 +608,7 @@ class ListeningPrefs {
         themeMode: ThemeMode.values.where((m) => m.name == json['themeMode']).firstOrNull ??
             ThemeMode.system,
         gridView: json['gridView'] as bool? ?? true,
-        journalNotebook: json['journalNotebook'] as bool? ?? true,
+        journalNotebook: json['journalNotebook'] as bool? ?? false,
         journalQuestions: json['journalQuestions'] is List ? List<Object?>.from(json['journalQuestions'] as List) : null,
         journalAsk: json['journalAsk'] as bool? ?? false,
         paletteId: json['palette'] as String? ?? 'forest',
