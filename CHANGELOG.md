@@ -3,6 +3,11 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## Unreleased
+
+#### Catalogues
+- Project Gutenberg opens its new catalogue (OPDS 2), as its older one is retired in 2027: Recently Added, Most Popular, its bookshelves and subjects, search, and each book's EPUB with its cover. If the new one cannot be had, the older one opens as before. Any catalogue you add that speaks OPDS 2 now opens too, instead of saying TomeVoice cannot read it yet.
+
 ## 1.5.0 (2026-11-18)
 
 Smoother, lighter on the battery, and a voice that reads "..." and commas as people do.
