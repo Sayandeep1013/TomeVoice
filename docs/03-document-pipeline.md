@@ -35,6 +35,7 @@ trusted.
 |---|---|
 | `%PDF-` | PDF |
 | `{\rtf` | RTF |
+| `AT&TFORM` | DjVu |
 | `BOOKMOBI` / `TEXtREAd` in the PalmDB header | MOBI / AZW / AZW3 / PRC |
 | zip with `mimetype` = `application/epub+zip`, or `META-INF/container.xml` | EPUB |
 | zip with `word/document.xml` | DOCX |
@@ -191,6 +192,19 @@ As built:
   message instead of garbage; a cut-short file says so.
 - **FB2** (`formats/fb2.dart`): plain XML, often declared as windows-1251 or KOI8-R; its
   `sequence` gives the series.
+- **DjVu** (`formats/djvu.dart`, `formats/bzz.dart`): a scan, read by its hidden text
+  layer (the OCR under each page that archive.org's and most other scans carry); the
+  pictures are never decoded. The IFF container is walked in Dart: one page (FORM:DJVU)
+  or a bundled book (FORM:DJVM and its DIRM directory, pages in its order, text in a file
+  a page includes found too). TXTz, the outline (NAVM), annotations (ANTz, for the
+  metadata's title and author) and the directory are BZZ-packed: a ZP-coder, a
+  move-to-front list and a Burrows-Wheeler sort, ported from DjVuLibre. A page's zones
+  say where its paragraphs and lines are; lines OCR left without paragraphs are told apart
+  by the space between them, and lines cut into pieces are joined. The pages then go
+  through the PDF path (`bookFromPdfText`, with the zones' boxes as its line layout):
+  running heads and page numbers left out, words broken at line ends mended, bookmarks
+  made chapters, each block keeping its page. A DjVu whose pages are only pictures is
+  refused with its own message, and so is one kept as a file a page ("indirect").
 - **RTF** (`formats/rtf.dart`): a small tokeniser that keeps the text, paragraph breaks
   and escaped characters, drops font tables, pictures and headers, and shows notes after
   their paragraph without reading them.

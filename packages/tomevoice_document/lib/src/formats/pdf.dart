@@ -206,6 +206,9 @@ bool _isTitle(String text, String title) {
 /// as from an older caller, the text is read as drawn. [raised] says which
 /// runs of a line are set smaller and raised (see [pdfRaisedFromPlatform]):
 /// a note's mark there is shown and not said.
+///
+/// [source] is the kind of file the pages came from: a DjVu's text layer is
+/// read the same way (see parseDjvu).
 Book bookFromPdfText({
   required String id,
   required List<String> pages,
@@ -215,6 +218,7 @@ Book bookFromPdfText({
   String? title,
   String? author,
   String? filename,
+  SourceKind source = SourceKind.pdf,
 }) {
   const scanned = UnsupportedDocumentException(
     'This PDF has no selectable text — it looks like scanned page images. '
@@ -336,13 +340,15 @@ Book bookFromPdfText({
   return assembleBook(
     id: id,
     metadata: BookMetadata(
-      title: named != null && named.isNotEmpty ? named : (titleFromFilename(filename) ?? 'Untitled PDF'),
+      title: named != null && named.isNotEmpty
+          ? named
+          : (titleFromFilename(filename) ?? (source == SourceKind.djvu ? 'Untitled DjVu' : 'Untitled PDF')),
       authors: (author ?? '').trim().isEmpty ? const [] : [author!.trim()],
     ),
     sections: chapters.isNotEmpty
         ? _sectionsFromOutline(paras, chapters)
         : _sectionsFromHeadings(paras, front: front),
-    source: SourceKind.pdf,
+    source: source,
     filename: filename,
   );
 }

@@ -56,7 +56,6 @@ void main() {
         'gif': _file('GIF89a'.codeUnits, fill: _noise),
         'webp': _file([...'RIFF'.codeUnits, 0x24, 0x08, 0, 0, ...'WEBP'.codeUnits], fill: _noise),
         'bmp': _file([0x42, 0x4D, 0x36, 0x10, 0x0E, 0, 0, 0, 0, 0, 0x36, 0, 0, 0], fill: _noise),
-        'djvu': _file('AT&TFORM'.codeUnits, fill: _noise),
         'tiff': _file([0x49, 0x49, 0x2A, 0x00], fill: _noise),
         'heic': _file([0, 0, 0, 0x18, ...'ftypheic'.codeUnits], fill: _noise),
       };

@@ -47,7 +47,7 @@ MediaKind? mediaKindOf(Uint8List b) {
 
   if (at(0, String.fromCharCodes(const [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))) return MediaKind.picture;
   if (b.length >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF) return MediaKind.picture;
-  if (at(0, 'GIF87a') || at(0, 'GIF89a') || (at(0, 'RIFF') && at(8, 'WEBP')) || at(0, 'AT&TFORM')) {
+  if (at(0, 'GIF87a') || at(0, 'GIF89a') || (at(0, 'RIFF') && at(8, 'WEBP'))) {
     return MediaKind.picture;
   }
   // TIFF, in either byte order.
@@ -62,7 +62,8 @@ MediaKind? mediaKindOf(Uint8List b) {
 
 /// Magic bytes first, then the name, then the MIME type. Never trust the
 /// extension alone: phones hand over EPUBs as `.zip`, `.bin` or no name.
-/// Sound and pictures ([mediaKindOf]) are [SourceKind.unknown].
+/// Sound and pictures ([mediaKindOf]) are [SourceKind.unknown]. A DjVu is a
+/// book of pictures too, but read for the text under them (see parseDjvu).
 SourceKind detectFormat(Uint8List bytes, {String? filename, String? mime}) {
   final name = (filename ?? '').toLowerCase();
   final type = (mime ?? '').toLowerCase();
@@ -74,6 +75,7 @@ SourceKind detectFormat(Uint8List bytes, {String? filename, String? mime}) {
     if (head.startsWith('%PDF-')) return SourceKind.pdf;
     if (head.startsWith(r'{\rtf')) return SourceKind.rtf;
   }
+  if (bytes.length >= 8 && String.fromCharCodes(bytes.sublist(0, 8)) == 'AT&TFORM') return SourceKind.djvu;
 
   if (bytes.length >= 68) {
     final palm = String.fromCharCodes(bytes.sublist(60, 68));
@@ -106,6 +108,7 @@ SourceKind detectFormat(Uint8List bytes, {String? filename, String? mime}) {
 
   if (name.endsWith('.epub') || type.contains('epub')) return SourceKind.epub;
   if (name.endsWith('.pdf') || type.contains('pdf')) return SourceKind.pdf;
+  if (RegExp(r'\.djvu?$').hasMatch(name) || type.contains('djvu')) return SourceKind.djvu;
   if (name.endsWith('.docx')) return SourceKind.docx;
   if (name.endsWith('.odt')) return SourceKind.odt;
   if (name.endsWith('.fb2') || name.endsWith('.fb2.zip')) return SourceKind.fb2;
