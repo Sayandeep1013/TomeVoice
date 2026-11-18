@@ -164,6 +164,22 @@ class _BookMemorySectionState extends State<BookMemorySection> {
     );
   }
 
+  /// "I've read up to chapter N": for a book read elsewhere before, so the
+  /// spoiler guard keeps to there, not to where TomeVoice's place is.
+  Future<void> _readUpTo(BookMemoryState s) async {
+    final typed = await askText(
+      context,
+      title: "I've read up to chapter",
+      message: 'For a book you read partly elsewhere: with the spoiler guard on, the AI keeps to this chapter '
+          'or your place here, whichever is further. Leave it empty to go by your place alone.',
+      initial: s.readUpTo == null ? '' : '${s.readUpTo! + 1}',
+      hint: '1800',
+    );
+    if (typed == null) return;
+    final n = int.tryParse(typed.trim());
+    await _service.setReadUpTo(widget.bookId, n == null || n < 1 ? null : n - 1);
+  }
+
   /// The book before this one in a series, picked from the books with a
   /// memory: what it remembers carried over.
   Future<void> _followOn() async {
@@ -258,10 +274,18 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                       if (v == 'forget') unawaited(_forget());
                       if (v == 'follows') unawaited(_followOn());
                       if (v == 'private') unawaited(_service.setPrivate(widget.bookId, !s.private));
+                      if (v == 'read') unawaited(_readUpTo(s));
                     },
                     itemBuilder: (_) => [
-                      if (!s.private)
+                      if (!s.private) ...[
+                        PopupMenuItem(
+                          value: 'read',
+                          child: Text(s.readUpTo == null
+                              ? "I've read up to chapter…"
+                              : "I've read up to chapter ${s.readUpTo! + 1}…"),
+                        ),
                         const PopupMenuItem(value: 'follows', child: Text('Follows on from another book…')),
+                      ],
                       PopupMenuItem(
                         value: 'private',
                         child: Text(s.private ? 'Let the AI read this book' : 'Keep this book away from the AI'),
