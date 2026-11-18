@@ -3,8 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor, ReadingLayout;
 
+import 'book_card.dart';
 import 'journal.dart';
+import 'library_store.dart';
+import 'listening_session.dart' show BackgroundReading;
 import 'notebook.dart';
+import 'novel_move.dart' show chapterNumberOf;
 import 'prefs.dart';
 import 'theme.dart';
 import 'ui.dart';
@@ -530,4 +534,80 @@ class BookJournalSection extends StatelessWidget {
           );
         },
       );
+}
+
+/// Where the story is in book [e], for an entry written away from its
+/// reader (the Journal's Write): the voice's sentence when it reads this
+/// book, else the saved place, found in the book as it is laid out.
+Future<JournalStamp> stampForBook(LibraryStore store, LibraryEntry e) async {
+  final bg = BackgroundReading.current.value;
+  if (bg != null && bg.bookId == e.id) {
+    return stampAt(bg.layout, bg.unit, numberOf: (c) => chapterNumberOf(bg.layout.chapterTitle(c))?.floor() ?? c + 1);
+  }
+  final cursor = await store.cursorFor(e.id);
+  try {
+    final layout = await store.loadLayout(e.id, around: e.isWeb ? cursor.sectionIndex : null);
+    if (layout.isEmpty) throw StateError('empty');
+    return stampAt(layout, layout.unitForCursor(cursor, saved: true),
+        numberOf: e.isWeb ? (c) => chapterNumberOf(layout.chapterTitle(c))?.floor() ?? c + 1 : null);
+  } on Object {
+    // Not to be read now: the chapter its place is in, as it is counted.
+    return JournalStamp(at: cursor, chapter: cursor.sectionIndex, number: cursor.sectionIndex + 1);
+  }
+}
+
+/// Which book to write about: the library's, the most lately opened first.
+Future<LibraryEntry?> pickBookToWrite(BuildContext context, LibraryStore store) async {
+  final books = [...await store.list()]..sort((a, b) {
+      final x = a.openedAt, y = b.openedAt;
+      if (x == null && y == null) return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+      if (x == null) return 1;
+      if (y == null) return -1;
+      return y.compareTo(x);
+    });
+  if (!context.mounted) return null;
+  if (books.isEmpty) {
+    showSnack(context, 'Add a book first: the journal is written about one.');
+    return null;
+  }
+  return showModalBottomSheet<LibraryEntry>(
+    context: context,
+    sheetAnimationStyle: sheetMotion(context),
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (context) => ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.75),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SheetHeader('Write about', subtitle: 'The book you were last in, first'),
+          Flexible(
+            child: ListView(
+              shrinkWrap: true,
+              padding: const EdgeInsets.only(bottom: Gap.l),
+              children: [
+                for (final b in books)
+                  ListTile(
+                    leading: SizedBox(width: 30, child: BookCover(entry: b, width: 30, titled: false)),
+                    title: Text(b.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    subtitle: b.authorLine.isEmpty
+                        ? null
+                        : Text(b.authorLine, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    onTap: () => Navigator.of(context).pop(b),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+/// The Journal's Write: a new entry about [e], stamped where its story is.
+Future<void> writeAbout(BuildContext context, LibraryStore store, LibraryEntry e) async {
+  final stamp = await stampForBook(store, e);
+  if (!context.mounted) return;
+  await openJournal(context, bookId: e.id, bookTitle: e.title, stampNow: () => stamp);
 }

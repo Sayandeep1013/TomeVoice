@@ -14,6 +14,7 @@ import 'package:tomevoice_spike/marks.dart';
 import 'package:tomevoice_spike/notebook.dart';
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/saved_screen.dart';
+import 'package:tomevoice_spike/speech_service.dart';
 
 void main() {
   late Directory tmp;
@@ -107,5 +108,38 @@ void main() {
     expect(find.textContaining('Journal'), findsNothing);
     expect(find.byTooltip('Show as a notebook'), findsNothing);
     expect(find.text('Dorothea deserves better.'), findsNothing);
+  });
+
+  testWidgets('Write asks which book, the last opened first, and opens its page at its place', (tester) async {
+    await tester.runAsync(() async {
+      final f = File('${tmp.path}/incoming/x/tide.md')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('# Chapter 1: Low\n\nThe tide went out.\n\n# Chapter 2: High\n\nThe tide came in.');
+      await store.importFile(PickedFile(path: f.path, name: 'tide.md'));
+    });
+    await pump(tester, JournalScreen(store: store));
+    expect(find.text('No journal yet'), findsOneWidget);
+
+    Future<void> settle() async {
+      for (var i = 0; i < 20; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
+        await tester.pump(const Duration(milliseconds: 60));
+      }
+    }
+
+    await tester.tap(find.text('Write'));
+    await settle();
+    expect(find.text('Write about'), findsOneWidget);
+    await tester.tap(find.text('tide').last);
+    await settle();
+    expect(find.text('HOW AM I FEELING?'), findsOneWidget);
+    expect(find.text('WRITING AT CHAPTER 1'), findsOneWidget);
+
+    await tester.tap(find.text('Good'));
+    await tester.tap(find.text('Done'));
+    await settle();
+    expect(JournalStore.instance.all.single.stamp.label, 'up to chapter 1');
+    expect(find.text('No journal yet'), findsNothing);
+    await tester.pump(const Duration(seconds: 5));
   });
 }

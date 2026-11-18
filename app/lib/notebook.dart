@@ -28,7 +28,11 @@ class NotebookPages extends StatefulWidget {
     this.journal = const {},
     this.onJournal,
     this.onJournalHold,
+    this.onWrite,
   });
+
+  /// Write a new entry for the book of a page (the Journal's own pages).
+  final void Function(String bookId)? onWrite;
 
   /// A page a book, in order: its id and what was saved from it, newest
   /// first (none, for a book with only its journal).
@@ -208,6 +212,7 @@ class _NotebookPagesState extends State<NotebookPages> {
                           entries: widget.journal[widget.pages[i].$1] ?? const [],
                           onJournal: widget.onJournal,
                           onJournalHold: widget.onJournalHold,
+                          onWrite: widget.onWrite == null ? null : () => widget.onWrite!(widget.pages[i].$1),
                           book: widget.books[widget.pages[i].$1],
                           gone: !widget.present(widget.pages[i].$1),
                           ink: ink,
@@ -325,6 +330,7 @@ class _NotebookPage extends StatelessWidget {
     this.entries = const [],
     this.onJournal,
     this.onJournalHold,
+    this.onWrite,
     required this.book,
     required this.gone,
     required this.ink,
@@ -335,6 +341,9 @@ class _NotebookPage extends StatelessWidget {
   final int number;
   final String bookId;
   final List<Mark> marks;
+
+  /// Write a new entry for this book.
+  final VoidCallback? onWrite;
   final String title;
 
   /// The book's journal, newest first.
@@ -395,6 +404,16 @@ class _NotebookPage extends StatelessWidget {
                     style: handwriting(17, soft),
                   ),
                   if (gone) Text('no longer in your library', style: handwriting(17, tone.accent!)),
+                  if (onWrite != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: Gap.xs),
+                      child: TextButton.icon(
+                        style: TextButton.styleFrom(foregroundColor: ink.pen, padding: EdgeInsets.zero),
+                        onPressed: onWrite,
+                        icon: const Icon(Icons.edit_outlined, size: 18),
+                        label: Text('Write', style: handwriting(20, ink.pen, weight: FontWeight.w700)),
+                      ),
+                    ),
                 ],
               ),
             ),

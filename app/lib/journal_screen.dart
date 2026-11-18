@@ -69,6 +69,19 @@ class _JournalScreenState extends State<JournalScreen> {
     });
   }
 
+  /// A new entry: about [bookId] when given (a page's or a list's Write),
+  /// else about the book picked.
+  Future<void> _write([String? bookId]) async {
+    final id = bookId ?? widget.bookId;
+    final book = id == null ? await pickBookToWrite(context, widget.store) : _books[id];
+    if (!mounted) return;
+    if (book == null) {
+      if (id != null) showSnack(context, 'That book is no longer in your library.');
+      return;
+    }
+    await writeAbout(context, widget.store, book);
+  }
+
   /// An entry opened to change it, its stamp kept.
   Future<void> _edit(JournalEntry e) =>
       openJournal(context, bookId: e.bookId, bookTitle: e.bookTitle, stampNow: () => e.stamp, entry: e);
@@ -95,6 +108,13 @@ class _JournalScreenState extends State<JournalScreen> {
       byBook.putIfAbsent(e.bookId, () => []).add(e);
     }
     return Scaffold(
+      floatingActionButton: !_loaded
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: () => unawaited(_write()),
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text('Write'),
+            ),
       body: DecoratedBox(
         decoration: BoxDecoration(gradient: Skin.ground(context)),
         child: SafeArea(
@@ -134,8 +154,8 @@ class _JournalScreenState extends State<JournalScreen> {
                           title: q.isNotEmpty ? 'Nothing matches' : 'No journal yet',
                           body: q.isNotEmpty
                               ? 'Try other words.'
-                              : 'Tap the pen on the player while you read or listen, and write how the book '
-                                  'makes you feel. Each entry keeps the chapter you were at.',
+                              : 'Tap Write, or the pen on the player while you read or listen, and write how the '
+                                  'book makes you feel. Each entry keeps the chapter you were at.',
                         )
                       : _notebook
                       ? NotebookPages(
@@ -147,6 +167,7 @@ class _JournalScreenState extends State<JournalScreen> {
                           journal: byBook,
                           onJournal: (e) => unawaited(_edit(e)),
                           onJournalHold: (e) => unawaited(removeJournalEntry(context, e)),
+                          onWrite: (id) => unawaited(_write(id)),
                         )
                       : _list(context, byBook),
                 ),
@@ -162,13 +183,26 @@ class _JournalScreenState extends State<JournalScreen> {
   Widget _list(BuildContext context, Map<String, List<JournalEntry>> byBook) {
     final ink = NotebookInk.of(context);
     return ListView(
-      padding: EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.xxl + MediaQuery.viewPaddingOf(context).bottom),
+      // Room under the last entry for the Write button.
+      padding: EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, 96 + MediaQuery.viewPaddingOf(context).bottom),
       children: [
         for (final MapEntry(key: id, value: entries) in byBook.entries) ...[
           Padding(
             padding: const EdgeInsets.only(top: Gap.l, bottom: Gap.s),
-            child: Text(_books[id]?.title ?? entries.first.bookTitle,
-                maxLines: 1, overflow: TextOverflow.ellipsis, style: Skin.title(context, size: 17)),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(_books[id]?.title ?? entries.first.bookTitle,
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: Skin.title(context, size: 17)),
+                ),
+                if (_books.containsKey(id))
+                  TextButton.icon(
+                    onPressed: () => unawaited(_write(id)),
+                    icon: const Icon(Icons.edit_outlined, size: 18),
+                    label: const Text('Write'),
+                  ),
+              ],
+            ),
           ),
           DecoratedBox(
             key: ValueKey('journal $id'),
