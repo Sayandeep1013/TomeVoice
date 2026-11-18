@@ -14,6 +14,7 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 import 'ai/ai_keys.dart';
 import 'ai/memory/memory_db.dart';
 import 'ai/memory/memory_service.dart';
+import 'ai/talk/name_card.dart';
 import 'ai/talk/talk_sheet.dart';
 import 'auto_scroll.dart';
 import 'book_tint.dart';
@@ -1475,6 +1476,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       sentence: sentence,
       word: word,
       web: web,
+      ai: _talkable,
       onSaveAsAudio: () => unawaited(showSaveAsAudio(
         context,
         layout: _l,
@@ -1492,6 +1494,20 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     switch (picked) {
       case 'read':
         await _reader.goTo(unit, play: true);
+      case 'explain':
+        await _talk(first: 'Explain this, as it stands in the story here: "$sentence"');
+      case 'who':
+        final store = widget.store;
+        if (store == null) return;
+        await showNameCard(
+          context,
+          memoryPath: MemoryDb.pathIn(store.bookDir(_book.id)),
+          word: word,
+          sentence: sentence,
+          line: _talkLine(),
+          onLook: _lookAtPlace,
+          onAsk: (q) => unawaited(_talk(first: q)),
+        );
       case 'quote':
         // Widen it to the sentences around, add a note, then keep it.
         final choice = await showQuoteSheet(context, layout: _l, unit: unit);
@@ -2510,7 +2526,6 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   Future<void> _talk({String? first}) async {
     final store = widget.store;
     if (store == null) return;
-    final memory = MemoryService.instance.stateOf(_book.id);
     await showTalk(
       context,
       bookId: _book.id,
@@ -2518,24 +2533,31 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       memoryPath: MemoryDb.pathIn(store.bookDir(_book.id)),
       stampNow: _stampNow,
       here: () => _memoryChapter(_cursor.value),
-      line: () {
-        final s = memory.value;
-        if (!s.guard) return null;
-        final here = _memoryChapter(_cursor.value);
-        return s.readUpTo == null || s.readUpTo! < here ? here : s.readUpTo;
-      },
+      line: _talkLine,
       passage: _passageSoFar,
       firstQuestion: first,
-      onLook: (place) {
-        final at = ReadingCursor(sectionIndex: place.section, blockIndex: place.block, sentenceIndex: place.sentence);
-        final has = _l.chapters.contains(place.section) || _book.source != SourceKind.web;
-        if (!has) {
-          showSnack(context, 'Chapter ${place.chapter + 1} is not open here. Open it from Contents to read it.');
-          return;
-        }
-        _goOrLook(_l.unitForCursor(at, saved: true));
-      },
+      onLook: _lookAtPlace,
     );
+  }
+
+  /// The spoiler line, with the guard on: the furthest of the chapter here
+  /// and "I've read up to". Null with it off.
+  int? _talkLine() {
+    final s = MemoryService.instance.stateOf(_book.id).value;
+    if (!s.guard) return null;
+    final here = _memoryChapter(_cursor.value);
+    return s.readUpTo == null || s.readUpTo! < here ? here : s.readUpTo;
+  }
+
+  /// A place an answer or a card cites, looked at (the voice reads on).
+  void _lookAtPlace(MemoryPlace place) {
+    final at = ReadingCursor(sectionIndex: place.section, blockIndex: place.block, sentenceIndex: place.sentence);
+    final has = _l.chapters.contains(place.section) || _book.source != SourceKind.web;
+    if (!has) {
+      showSnack(context, 'Chapter ${place.chapter + 1} is not open here. Open it from Contents to read it.');
+      return;
+    }
+    _goOrLook(_l.unitForCursor(at, saved: true));
   }
 
   /// The pills, in the middle over the player, and the journal's pen at

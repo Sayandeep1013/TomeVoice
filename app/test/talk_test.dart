@@ -18,6 +18,7 @@ import 'package:tomevoice_spike/ai/memory/chapter_notes.dart';
 import 'package:tomevoice_spike/ai/memory/graph.dart';
 import 'package:tomevoice_spike/ai/memory/memory_db.dart';
 import 'package:tomevoice_spike/ai/talk/answer_pack.dart';
+import 'package:tomevoice_spike/ai/talk/name_card.dart';
 import 'package:tomevoice_spike/ai/talk/talk_engine.dart';
 import 'package:tomevoice_spike/ai/talk/talk_sheet.dart';
 import 'package:tomevoice_spike/journal.dart';
@@ -120,6 +121,15 @@ void main() {
       expect(text, contains('rank: Awakened'));
       expect(text, isNot(contains('"Who is the Weaver?" (raised')), reason: 'a resolved thread is not open');
       expect(text, contains('Daemon of Fate'));
+    });
+
+    test('a held word finds its card by any of its names, as it stood at the line', () {
+      final path = _memory(tmp);
+      final card = findCard(path, 'Sunny', 'Sunny walks to the academy with Cassie.', 1)!;
+      expect(card.name, 'Sunless');
+      expect(card.items.map((i) => i.text).join(' | '), contains('rank: Sleeper'));
+      expect(findCard(path, 'Sunny', '', null)!.items.map((i) => i.text).join(' | '), contains('rank: Awakened'));
+      expect(findCard(path, 'academy', 'Sunny walks to the academy.', null), isNull);
     });
 
     test("the tools keep to the line too", () {
