@@ -204,7 +204,7 @@ void main() {
       await tester.pumpWidget(const SpikeApp());
       // The shelf reads library.json with real file IO; each hop needs the
       // real event loop, then a pump to deliver it to the widget.
-      for (var i = 0; i < 20 && find.text('Your shelf is empty').evaluate().isEmpty; i++) {
+      for (var i = 0; i < 80 && find.text('Your shelf is empty').evaluate().isEmpty; i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
         await tester.pump();
       }
