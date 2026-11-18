@@ -81,6 +81,7 @@ class Mark {
 
   Mark _with({
     ReadingCursor? at,
+    String? chapter,
     String? note,
     bool clearNote = false,
     MarkColour? colour,
@@ -96,7 +97,7 @@ class Mark {
         text: text,
         created: created,
         span: span,
-        chapter: chapter,
+        chapter: chapter ?? this.chapter,
         note: clearNote ? null : (note ?? this.note),
         colour: colour ?? this.colour,
         edited: edited ?? this.edited,
@@ -111,8 +112,8 @@ class Mark {
   /// The same quote washed in [colour].
   Mark withColour(MarkColour colour) => _with(colour: colour, edited: DateTime.now().toUtc());
 
-  /// The same mark at [place].
-  Mark movedTo(ReadingCursor place) => _with(at: place);
+  /// The same mark at [place], in the chapter named [chapter] when given.
+  Mark movedTo(ReadingCursor place, {String? chapter}) => _with(at: place, chapter: chapter);
 
   /// The same mark, its book taken out of the library from an open shelf.
   Mark leftAt(DateTime when) => _with(left: when);
@@ -365,9 +366,44 @@ class MarkStore {
     await _save();
   }
 
+  /// Book [bookId] was cut into chapters again (LibraryStore.setTextChapters):
+  /// each mark goes from where it was in [before] to where its words are in
+  /// [after], found as a saved place is (see relocateCursor), and is named
+  /// by its chapter there. One write.
+  Future<void> refile(String bookId, ReadingLayout before, ReadingLayout after) async {
+    if (before.isEmpty || after.isEmpty || !_all.any((m) => m.bookId == bookId)) return;
+    var moved = false;
+    final next = <Mark>[];
+    for (final m in _all) {
+      if (m.bookId != bookId) {
+        next.add(m);
+        continue;
+      }
+      final from = cursorOf(before.units[unitOfMark(before, m)]);
+      final u = relocateCursor(before.units, from, after).clamp(0, after.units.length - 1);
+      final at = cursorOf(after.units[u]);
+      final chapter = m.chapter == null ? null : after.chapterTitle(after.chapterOfUnit(u));
+      final same = at.sectionIndex == m.at.sectionIndex &&
+          at.blockIndex == m.at.blockIndex &&
+          at.sentenceIndex == m.at.sentenceIndex &&
+          chapter == m.chapter;
+      moved |= !same;
+      next.add(same ? m : m.movedTo(at, chapter: chapter));
+    }
+    if (!moved) return;
+    _all = next;
+    await _save();
+  }
+
   /// Book [from]'s marks are book [to]'s now (a web novel moved to another
   /// source), each at its chapter there, [chapter]. One write.
-  Future<void> moveBook(String from, String to, int Function(int chapter) chapter) async {
+  Future<void> moveBook(String from, String to, int Function(int chapter) chapter) =>
+      rebook(from, to, (at) => at.copyWith(sectionIndex: chapter(at.sectionIndex)));
+
+  /// Book [from]'s marks are book [to]'s now, each at [place] of where it
+  /// was (a web novel moved to another source; a book's file replaced by
+  /// another edition). One write.
+  Future<void> rebook(String from, String to, ReadingCursor Function(ReadingCursor at) place) async {
     if (!_all.any((m) => m.bookId == from)) return;
     _all = [
       for (final m in _all)
@@ -379,7 +415,7 @@ class MarkStore {
             bookId: to,
             bookTitle: m.bookTitle,
             kind: m.kind,
-            at: m.at.copyWith(sectionIndex: chapter(m.at.sectionIndex)),
+            at: place(m.at),
             text: m.text,
             created: m.created,
             span: m.span,

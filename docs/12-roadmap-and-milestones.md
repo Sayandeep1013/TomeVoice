@@ -69,6 +69,7 @@ scheduled.
 | No natural voice for Bengali | sherpa-onnx has not converted rhasspy's `bn_BD-google-medium` Piper voice | Convert it with sherpa-onnx's Piper export scripts, check its espeak-ng Bengali front end, then judge it by ear |
 | Android Auto untested | No car with Android Auto | Google's Desktop Head Unit emulator on a PC (it needs Android SDK tools), or a friend's car |
 | Old Word `.doc` and HUFF/CDIC-compressed Kindle books are refused | No parser for either | A parser for each, as for MOBI's PalmDOC |
+| A DjVu with no text layer, and one kept as a file a page ("indirect"), are refused | DjVu is read by its hidden text only: its pictures (IW44, JB2) are not decoded, so OCR cannot run on them; an indirect book is many files and the app opens one | A JB2 and IW44 decoder feeding the OCR scanned PDFs get; for indirect books, picking the folder |
 | Bengali PDFs set in legacy fonts (Bijoy, SutonnyMJ) read as Latin gibberish | The file's text is not Unicode | A conversion from those fonts' encodings to Unicode |
 | Natural voices have no pitch control | No pitch shifter was built ([C-14](09-challenges-and-solutions.md#c-14)) | A formant-preserving shift in DSP |
 | How TTS engines other than Google's report word timings is unmeasured | The test phone had only Google's | Measure on a phone with another engine (Samsung's, eSpeak's) |

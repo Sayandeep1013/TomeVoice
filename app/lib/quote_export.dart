@@ -4,34 +4,49 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData, PlatformException;
 
 import 'folders.dart';
+import 'journal.dart';
 import 'library_store.dart';
 import 'marks.dart';
 import 'prefs.dart';
 import 'theme.dart';
 import 'ui.dart';
 
-/// One book's quotes, as they go into a Markdown export.
-typedef BookQuotes = ({String title, String author, List<Mark> quotes});
+/// One book's quotes and journal, as they go into a Markdown export.
+typedef BookQuotes = ({String title, String author, List<Mark> quotes, List<JournalEntry> journal});
 
 /// The quotes to export: every book's ([bookId] null) or one book's, by
 /// book, leaving out what Saved does not show (a shut secret shelf's, see
 /// LibraryStore.marksShown). Books in the order of their newest quote, as
 /// Saved shows them.
-Future<List<BookQuotes>> quotesToExport(LibraryStore store, {String? bookId}) async {
+///
+/// With [journal], the journal instead of the quotes (the Journal's own
+/// Export).
+Future<List<BookQuotes>> quotesToExport(LibraryStore store, {String? bookId, bool journal = false}) async {
   final shown = await store.marksShown();
   final entries = {for (final e in await store.list(all: true)) e.id: e};
   final byBook = <String, List<Mark>>{};
-  for (final m in MarkStore.instance.all) {
+  for (final m in journal ? const <Mark>[] : MarkStore.instance.all) {
     if (m.kind != MarkKind.quote || !shown(m)) continue;
     if (bookId != null && m.bookId != bookId) continue;
     byBook.putIfAbsent(m.bookId, () => []).add(m);
   }
+  // The journal too, as Saved shows it: not a book's on a shut secret
+  // shelf (in the library, but not on the shelves shown).
+  final shelved = {for (final e in await store.list()) e.id};
+  final thoughts = <String, List<JournalEntry>>{};
+  for (final j in journal ? JournalStore.instance.all : const <JournalEntry>[]) {
+    if (bookId != null && j.bookId != bookId) continue;
+    if (entries.containsKey(j.bookId) && !shelved.contains(j.bookId)) continue;
+    thoughts.putIfAbsent(j.bookId, () => []).add(j);
+    byBook.putIfAbsent(j.bookId, () => []);
+  }
   return [
     for (final MapEntry(key: id, value: marks) in byBook.entries)
       (
-        title: entries[id]?.title ?? marks.first.bookTitle,
+        title: entries[id]?.title ?? marks.firstOrNull?.bookTitle ?? thoughts[id]?.first.bookTitle ?? '',
         author: entries[id]?.authorLine ?? '',
         quotes: marks,
+        journal: thoughts[id] ?? const [],
       ),
   ];
 }
@@ -42,7 +57,7 @@ Future<List<BookQuotes>> quotesToExport(LibraryStore store, {String? bookId}) as
 String quotesMarkdown(List<BookQuotes> books) {
   final out = StringBuffer();
   for (final b in books) {
-    if (b.quotes.isEmpty) continue;
+    if (b.quotes.isEmpty && b.journal.isEmpty) continue;
     if (out.isNotEmpty) out.write('\n');
     out.writeln('# ${_inline(b.title.isEmpty ? 'Untitled' : b.title)}');
     if (b.author.trim().isNotEmpty) out.writeln('\n*${_inline(b.author.trim())}*');
@@ -65,6 +80,29 @@ String quotesMarkdown(List<BookQuotes> books) {
         out.writeln('- Note: ${note.split('\n').map((l) => l.trim()).join('\n  ')}');
       }
       out.writeln('- Colour: ${m.colour.label}');
+    }
+    // The journal, in the order it was written.
+    if (b.journal.isNotEmpty) {
+      out.writeln('\n## Journal');
+      for (final j in [...b.journal]..sort((x, y) => x.created.compareTo(y.created))) {
+        final d = j.created.toLocal();
+        String two(int n) => n.toString().padLeft(2, '0');
+        final label = j.stamp.label;
+        out.writeln('\n### ${_inline('${label[0].toUpperCase()}${label.substring(1)}')}, '
+            '${d.year}-${two(d.month)}-${two(d.day)}');
+        out.writeln();
+        if (j.isPage) {
+          for (final line in j.page.trim().split('\n')) {
+            out.writeln(_lineStart(line.trim()));
+          }
+        } else {
+          for (final a in j.answers) {
+            if (a.isEmpty) continue;
+            final said = [if (a.pick != null) a.pick!.trim(), if (a.text.trim().isNotEmpty) a.text.trim()].join(': ');
+            out.writeln('- **${_inline(a.question)}** ${said.split('\n').map((l) => l.trim()).join('\n  ')}');
+          }
+        }
+      }
     }
   }
   return out.toString();
@@ -168,7 +206,10 @@ Future<void> exportQuotes(BuildContext context, List<BookQuotes> books, {require
 
 /// The Export button of Saved and of a book's page.
 class ExportQuotesButton extends StatelessWidget {
-  const ExportQuotesButton({super.key, required this.store, this.bookId});
+  const ExportQuotesButton({super.key, required this.store, this.bookId, this.journal = false});
+
+  /// The journal's, not the quotes.
+  final bool journal;
 
   final LibraryStore store;
 
@@ -180,11 +221,12 @@ class ExportQuotesButton extends StatelessWidget {
         tooltip: 'Export as Markdown',
         icon: Icon(Icons.ios_share_rounded, size: 22, color: Skin.inkSoftOn(context)),
         onPressed: () async {
-          final books = await quotesToExport(store, bookId: bookId);
+          final books = await quotesToExport(store, bookId: bookId, journal: journal);
           if (!context.mounted) return;
+          final what = journal ? 'Journal' : 'TomeVoice';
           final name = bookId != null && books.length == 1
-              ? exportFileName(books.single.title)
-              : 'TomeVoice ${exportFileName(_today())}';
+              ? (journal ? 'Journal ${exportFileName(books.single.title)}' : exportFileName(books.single.title))
+              : '$what ${exportFileName(_today())}';
           await exportQuotes(context, books, fileName: name);
         },
       );

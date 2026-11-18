@@ -28,6 +28,7 @@ class Catalogue {
     this.user,
     this.preset = false,
     this.emailOnly = false,
+    this.fallback,
   });
 
   final String id;
@@ -44,6 +45,10 @@ class Catalogue {
   /// Signs in with an email address and no password (Standard Ebooks).
   final bool emailOnly;
 
+  /// Another address for its front page, read when [url] cannot be (a
+  /// built-in one's older feed).
+  final String? fallback;
+
   Catalogue withUser(String? user) => Catalogue(
         id: id,
         title: title,
@@ -52,6 +57,7 @@ class Catalogue {
         user: user == null || user.trim().isEmpty ? null : user.trim(),
         preset: preset,
         emailOnly: emailOnly,
+        fallback: fallback,
       );
 
   Map<String, Object?> toJson() => {'id': id, 'title': title, 'url': url, if (user != null) 'user': user};
@@ -66,13 +72,16 @@ class Catalogue {
     );
   }
 
-  /// Free to everyone.
+  /// Free to everyone. Its OPDS 2 (JSON) catalogue; the Atom one it retires
+  /// in 2027 is read while the new one cannot be. Built-in catalogues are
+  /// kept by id, never by address, so this reaches everyone at once.
   static const gutenberg = Catalogue(
     id: 'gutenberg',
     title: 'Project Gutenberg',
-    url: 'https://www.gutenberg.org/ebooks.opds/',
+    url: 'https://www.gutenberg.org/opds/',
     subtitle: 'Over 70,000 free ebooks, most of them classics',
     preset: true,
+    fallback: 'https://www.gutenberg.org/ebooks.opds/',
   );
 
   /// Standard Ebooks' newest books, as a feed open to everyone.
@@ -150,7 +159,12 @@ class CatalogueStore {
 
   /// A client for [c], signed in as it is set up.
   Future<OpdsClient> client(Catalogue c) async =>
-      OpdsClient(Uri.parse(c.url), user: c.user, password: c.emailOnly ? '' : await password(c));
+      OpdsClient(
+        Uri.parse(c.url),
+        user: c.user,
+        password: c.emailOnly ? '' : await password(c),
+        fallback: c.fallback == null ? null : Uri.parse(c.fallback!),
+      );
 }
 
 /// The shelves a book from a catalogue may go to: never a secret one,

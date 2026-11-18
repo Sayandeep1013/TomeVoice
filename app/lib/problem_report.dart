@@ -35,13 +35,26 @@ String deviceName(DeviceInfo d) {
 /// Every word a report says: what happened (the reader's to write), this
 /// app and phone, and the last errors from the log, newest first, as many
 /// as keep the link that opens it on GitHub within [maxLink] characters.
-/// [errors] are the log's, oldest first.
+/// [errors] are the log's, oldest first. Only this version's errors are sent:
+/// those an older version met were fixed since or not met again, and sent
+/// again they read as new (issues #24, #25 and #28 were one 1.4.1 error).
+/// They are counted, and stay on the phone.
 ProblemReport problemReport({
   required String version,
   DeviceInfo? device,
   required List<ErrorEntry> errors,
   int maxLink = reportLinkMax,
 }) {
+  bool older(ErrorEntry e) => version.isNotEmpty && e.version.isNotEmpty && e.version != version;
+  final earlier = errors.where(older).toList();
+  final current = errors.where((e) => !older(e)).toList();
+  final versions = {for (final e in earlier.reversed) e.version}.toList();
+  final olderLine = earlier.isEmpty
+      ? null
+      : '${earlier.length == 1 ? 'One error' : '${earlier.length} errors'} from '
+          '${versions.length == 1 ? 'TomeVoice ${versions.single}' : 'older versions (${versions.join(', ')})'} '
+          '${earlier.length == 1 ? 'is' : 'are'} kept on the phone, left out here: '
+          'fixed since, or not met again in $version.';
   final app = version.isEmpty ? 'TomeVoice' : 'TomeVoice $version';
   final title = 'Problem in $app';
   final name = device == null ? '' : deviceName(device);
@@ -52,7 +65,7 @@ ProblemReport problemReport({
     if (name.isNotEmpty) '- $name',
   ];
   String body(List<ErrorEntry> shown) {
-    final left = errors.length - shown.length;
+    final left = current.length - shown.length;
     return [
       '### What happened',
       '',
@@ -64,10 +77,12 @@ ProblemReport problemReport({
       '',
       '### Last errors',
       '',
-      if (errors.isEmpty)
+      if (current.isEmpty && earlier.isEmpty)
         'None: the error log on this phone is empty.'
+      else if (current.isEmpty)
+        'None from this version.'
       else if (shown.isEmpty)
-        'The log on the phone holds ${errors.length == 1 ? 'one error' : '${errors.length} errors'}, '
+        'The log on the phone holds ${current.length == 1 ? 'one error' : '${current.length} errors'}, '
             'but even the newest is too long to send this way.'
       else ...[
         "From the error log TomeVoice keeps on the phone, newest first. It never holds a book's title or text.",
@@ -84,10 +99,11 @@ ProblemReport problemReport({
               'left out here to keep this short.',
         ],
       ],
+      if (olderLine != null) ...['', olderLine],
     ].join('\n');
   }
 
-  final newest = errors.reversed.take(reportErrors).toList();
+  final newest = current.reversed.take(reportErrors).toList();
   for (var n = newest.length; n > 0; n--) {
     final report = (title: title, body: body(newest.sublist(0, n)));
     if (issueLink(report).toString().length <= maxLink) return report;

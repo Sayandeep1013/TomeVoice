@@ -93,6 +93,9 @@ class ErrorLog {
   /// on the phone by a restore (backup.dart).
   static const fileName = 'errors.jsonl';
 
+  /// When the app last asked Android how its runs ended (PastExits.kt).
+  static const exitsName = 'errors.exits';
+
   File? _file;
   List<ErrorEntry> _entries = const [];
   Timer? _saveTimer;
@@ -161,6 +164,26 @@ class ErrorLog {
     _entries = _newest([...read, ..._entries]);
     _rescrub();
     if (_entries.isNotEmpty) _scheduleSave();
+  }
+
+  /// How runs ended where nothing in the app could hear it (a crash in
+  /// native code, Android ending it for not responding), as Android kept
+  /// them (PastExits.kt): added at their own time, scrubbed as the rest.
+  void addPast(List<Object?> exits) {
+    final got = [
+      for (final x in exits)
+        if (ErrorEntry.fromJson(x) case final e?)
+          e._with(
+            message: scrubError(e.message, private: _private),
+            stack: [
+              for (final l in e.stack.split('\n'))
+                if (l.isNotEmpty) scrubLine(l, private: _private),
+            ].join('\n'),
+          ),
+    ];
+    if (got.isEmpty) return;
+    _entries = _newest([..._entries, ...got]);
+    _scheduleSave();
   }
 
   /// [error] met with [stack]: taken down, never thrown on.
@@ -356,6 +379,7 @@ Future<void> openErrorLog() async {
     final dir = await SourcesBridge.sourcesRoot();
     if (dir != null) await ErrorLog.instance.attach(Directory(dir));
     ErrorLog.instance.version = await const SpeechService().appVersion() ?? '';
+    ErrorLog.instance.addPast(await SourcesBridge.pastExits());
   } on Object {
     // No log this time; nothing else depends on it.
   }

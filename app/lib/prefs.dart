@@ -35,6 +35,9 @@ class ListeningPrefs {
     this.pdfCrop = false,
     this.bookFont = BookFont.newsreader,
     this.lineHeight = 1.6,
+    this.letterSpacing = 0,
+    this.textWeight = 400,
+    this.ownFont,
     this.margin = 22,
     this.justify = false,
     this.indent = false,
@@ -60,6 +63,9 @@ class ListeningPrefs {
     this.updateEvery = 'daily',
     this.novelUpdates = false,
     this.gridView = true,
+    this.journalNotebook = true,
+    this.journalQuestions,
+    this.journalAsk = false,
     this.sort = LibrarySort.recent,
     this.bookColours = true,
     this.naturalVoices,
@@ -234,6 +240,17 @@ class ListeningPrefs {
   /// Line height of the page, as a multiple of the text size.
   double lineHeight;
 
+  /// Space added between letters, in logical pixels (none by default; a
+  /// little less, or more for eyes that run letters together).
+  double letterSpacing;
+
+  /// How heavy the page's type is: 300 light to 600 bold, 400 as designed.
+  int textWeight;
+
+  /// The reader's own font (BookFont.own): its file's name in the
+  /// library's fonts folder (own_fonts.dart).
+  String? ownFont;
+
   /// Side margin of the page, in logical pixels.
   double margin;
 
@@ -318,6 +335,18 @@ class ListeningPrefs {
   /// The library as a grid of covers instead of a list.
   bool gridView;
 
+  /// The journal as a notebook, a page a book (its first look), or as a
+  /// list.
+  bool journalNotebook;
+
+  /// The journal's questions as the reader set them (journal.dart's
+  /// JournalQuestion, as JSON); null for TomeVoice's own.
+  List<Object?>? journalQuestions;
+
+  /// At a chapter's end, a quiet offer to write about it (off unless
+  /// turned on).
+  bool journalAsk;
+
   /// Order of books in the library.
   LibrarySort sort;
 
@@ -398,6 +427,10 @@ class ListeningPrefs {
     return prefs;
   }
 
+  /// The library's folder the prefs were read from (where the reader's own
+  /// fonts are kept, say); null for prefs in memory only.
+  static String? get libraryDir => _file?.parent.path;
+
   /// In-memory prefs for tests and for when storage is unavailable.
   static ListeningPrefs get memory => _cached ??= ListeningPrefs();
 
@@ -448,6 +481,9 @@ class ListeningPrefs {
         if (pdfCrop) 'pdfCrop': true,
         'bookFont': bookFont.name,
         'lineHeight': lineHeight,
+        'letterSpacing': letterSpacing,
+        'textWeight': textWeight,
+        if (ownFont != null) 'ownFont': ownFont,
         'margin': margin,
         'justify': justify,
         'indent': indent,
@@ -473,6 +509,9 @@ class ListeningPrefs {
         'updateEvery': updateEvery,
         if (novelUpdates) 'novelUpdates': true,
         'gridView': gridView,
+        'journalNotebook': journalNotebook,
+        if (journalQuestions != null) 'journalQuestions': journalQuestions,
+        'journalAsk': journalAsk,
         'sort': sort.name,
         'bookColours': bookColours,
         if (naturalVoices != null) 'naturalVoices': naturalVoices,
@@ -546,6 +585,9 @@ class ListeningPrefs {
         pdfCrop: json['pdfCrop'] == true,
         bookFont: BookFont.byName(json['bookFont'] as String?),
         lineHeight: ((json['lineHeight'] as num?)?.toDouble() ?? 1.6).clamp(1.3, 2.0).toDouble(),
+        letterSpacing: ((json['letterSpacing'] as num?)?.toDouble() ?? 0).clamp(-0.5, 2.0).toDouble(),
+        textWeight: ((json['textWeight'] as num?)?.toInt() ?? 400).clamp(300, 600).toInt(),
+        ownFont: json['ownFont'] as String?,
         margin: ((json['margin'] as num?)?.toDouble() ?? 22).clamp(8, 48).toDouble(),
         justify: json['justify'] == true,
         indent: json['indent'] == true,
@@ -566,6 +608,9 @@ class ListeningPrefs {
         themeMode: ThemeMode.values.where((m) => m.name == json['themeMode']).firstOrNull ??
             ThemeMode.system,
         gridView: json['gridView'] as bool? ?? true,
+        journalNotebook: json['journalNotebook'] as bool? ?? true,
+        journalQuestions: json['journalQuestions'] is List ? List<Object?>.from(json['journalQuestions'] as List) : null,
+        journalAsk: json['journalAsk'] as bool? ?? false,
         paletteId: json['palette'] as String? ?? 'forest',
         ownPage: colourFromHex(json['ownPage']),
         ownAccent: colourFromHex(json['ownAccent']),

@@ -60,7 +60,7 @@ See [ADR-003](10-decisions-adr.md#adr-003) for why this is not optional.
                 |
 +---------------v------------------------------------------------------+
 |  INGESTION    EPUB - PDF (text from PdfText.kt) - DOCX/ODT -         |
-|               MOBI/AZW3 - FB2 - RTF - HTML/MD/TXT - web chapters     |
+|               MOBI/AZW3 - FB2 - RTF - DjVu - HTML/MD/TXT - web       |
 +---------------+------------------------------------------------------+
                 |
 +---------------v------------------------------------------------------+
@@ -102,7 +102,7 @@ class Book {
   final List<Section> sections;     // EPUB spine items, a PDF's chapters, a web novel's chapters
   final List<TocEntry> toc;
   final SourceKind source;          // epub | text | markdown | html | pdf | docx | rtf | odt
-                                    // | fb2 | mobi | web
+                                    // | fb2 | mobi | djvu | web
   final Narration? narration;       // an EPUB 3's media overlays, when it has them
 }
 
@@ -282,7 +282,8 @@ packages/tomevoice_document/   Contract A and every format. Pure Dart: model.dar
                                ingest.dart, detect.dart, segment.dart, language.dart,
                                navigate.dart, reading_layout.dart, speech.dart,
                                narration.dart, formats/ (epub, html_blocks, pdf, office,
-                               mobi, fb2, rtf, text, web, media_overlays);
+                               mobi, fb2, rtf, djvu and bzz, text, web,
+                               media_overlays);
                                test/corpus/ (real books with goldens); tool/ (dump_book)
 app/lib/                       The Flutter app, a mostly flat folder (about 130 files): the
                                library (library_store.dart, library_screen.dart), the

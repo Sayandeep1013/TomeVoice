@@ -107,6 +107,12 @@ object SourcesBridge {
                     onDone?.invoke(args)
                 }
                 "backgroundBusy" -> result.success(NovelCheckWorker.running.get())
+                // How runs since the last ask ended, where ErrorLog.kt's
+                // handler could not hear it (PastExits). Off the main thread.
+                "pastExits" -> decoder.execute {
+                    val exits = PastExits.since(appContext)
+                    mainThread.post { result.success(exits) }
+                }
                 // Asked by the background check before each write: the app
                 // opened meanwhile, so it stops and leaves the rest to it.
                 "appIsOpen" -> result.success(appIsOpen())

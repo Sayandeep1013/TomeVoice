@@ -57,15 +57,16 @@ a{color:var(--accent)}
 <li><a href="#zlib">Z-Library and file formats</a></li>
 <li><a href="#diary">The diary look</a></li>
 <li><a href="#order">Order of work</a></li>
+<li><a href="#journal">The reading journal, the helper and memory</a></li>
 <li><a href="#questions">What I need from you</a></li>
 </ol></nav>
 
 <div class="card q" id="next-session">
 <h3>Next session starts here</h3>
 <ol>
-<li><b>Your findings in 1.5.0 first.</b> You are installing it on your daily TomeVoice to check every fix yourself (the test app was removed at the end of 18 Nov). Anything you find is fixed first. Two items were never seen on the phone: the player saying "READING CHAPTER &hellip;" with Pause while another chapter is looked at, and the reading card opening where the voice reads.</li>
-<li><b>Batch 4</b>, the diary/notebook look first (section 13): a Notebook paper, Saved as a notebook, Contents as tabs. Then the Contents and Scroll/Pages buttons, voice search, the Anx-inspired comforts, Gutenberg's OPDS 2 feed, and DJVU.</li>
-<li><b>Batch 5:</b> the reading helper (section 10, the qualities chosen in section 15), cloud voices (section 11), and Paradee.</li>
+<li><b>Release batch 4.</b> It is finished on branch <code>feat-notebook</code> (with the fixes from <code>fix-crash-reports</code>), CI passes, and every item was seen on the phone in the test app except your own font. Next: a PR to <code>main</code>, the emulator jobs, and CI's release run as 1.6.0, once you have tried it.</li>
+<li><b>The AI and memory, a step at a time</b> (section 15): each step released as it is ready (1.7, 1.8&hellip;), and <b>2.0</b> when the helper is whole. The journal is already in 1.6.0, for the helper to read.</li>
+<li>Then cloud voices (section 11) and Paradee.</li>
 </ol>
 <p><small>The same list, with how the work is done here, is in <code>docs/16-session-handoff.md</code> under "Resume here". The phone and local-check scripts are in <code>tools/phone/</code>.</small></p>
 </div>
@@ -88,6 +89,17 @@ a{color:var(--accent)}
 <tr><td>Release 1.5.0</td><td class="ok">Released 18 Nov</td><td>Batches 2 and 3, and chapters picked only looked at. PR #27 (CI and the emulator tests on Android 14 and 16 passed), then CI's release run.</td></tr>
 <tr><td>Chapters picked only looked at (your note of 18 Nov)</td><td class="ok">Done, in 1.5.0</td><td>A chapter, bookmark or passage picked is shown while the voice reads on, or stays paused, at its own place. Continue goes on from the voice; only Read from here moves it. Meanwhile the player is the voice's (its chapter, Pause, its buttons), and the reading card opens where it reads. 5 new tests; on the phone, picking chapter 2 while the voice read chapter 3247 kept it playing. <b>Still to see on the phone:</b> the player's "READING CHAPTER" line and the card tap.</td></tr>
 <tr><td>Batch 2: battery and smoothness</td><td class="ok">Done, in 1.5.0</td><td>Upright, the bars now slide over the text (your choice), so the text is never laid out again while they move. Measured while the voice reads: frames held 25 ms or more during the fold went from 42 to 2. Android 17 runs app animations at 60 Hz unless touched (its frame rate category); that is left as is, for battery. Glow sleeps unseen; screen-off poll 300 ms; deep-buffer audio (Android 12+); place saved every 30 s while reading; bars fold without rebuilding the list; gentler auto-follow; Now Playing blur made once. Measured before: bar fold 16.7 ms median frames, over half late. Measuring after on the phone.</td></tr>
+<tr><td>Issue #28 (1.5.0)</td><td class="ok">Explained, fixed</td><td>The same 1.4.1 error as #24/#25 (31 Oct, fixed in 1.4.2): Report a problem sent every error in the log, whatever version met it. It now sends only this version's and counts the older ones. Test added; the report seen on the phone.</td></tr>
+<tr><td>A crash no report showed (11 Nov)</td><td class="ok">Found, fixed</td><td>Found in the phone's own crash log: Flutter's engine ended the app ("Check failed: did_send") when the web view answered a web-novel source that had already stopped. Sources now ask the platform through the app's main isolate, which drops a late answer. Native crashes and "not responding" now reach the error log too (Android's exit records). Tests added; the Kotlin compiled on CI.</td></tr>
+<tr><td>Batch 4: the notebook look</td><td class="ok">Done, seen on the phone</td><td>Saved as a notebook (taped cover, highlighter washes, handwriting in Caveat, numbered tabs; its night version in dark themes); Notebook paper in the reader; a spiral binding down the middle of a two-page spread (your request); Contents with a coloured tab for each part. Found on the phone and fixed: Flatland's "Part I &middot; chapter" titles gave every chapter a tab.</td></tr>
+<tr><td>Batch 4: reader comforts</td><td class="ok">Done, seen on the phone</td><td>Weight and letter spacing; your own font (.ttf/.otf, kept with the library); a Contents button in the top bar (Scroll/Pages too when there is room, as on its side); Layout first in Aa, Read; search on Natural voices ("british female" found 4). Text alignment was already there (Justify).</td></tr>
+<tr><td>Batch 4: TXT chapter rules</td><td class="ok">Done, seen on the phone</td><td>A TXT book's page has Chapters: found by TomeVoice, lines starting with what you type (or a regular expression), or every N words, with a preview first. On the phone a book TomeVoice saw as 1 chapter became 8. Place, bookmarks and quotes stay with their words (tests).</td></tr>
+<tr><td>Batch 4: replace a book's file</td><td class="ok">Done, seen on the phone</td><td>The new edition takes the book's place: place, quotes, bookmarks, voices, rules and shelf found again by their sentences. On the phone it worked, but Back then had nowhere to go (the library page had been replaced). Fixed, and seen on the phone: Back goes to the library, one copy on the shelf.</td></tr>
+<tr><td>Batch 4: Gutenberg OPDS 2</td><td class="warn">Done, unverified live</td><td>OPDS 2 (JSON) catalogues are read, and Gutenberg's preset opens its new feed, falling back to the old one. Gutenberg's site was down for maintenance all day, so the feed's shape comes from Gutenberg's own server code, not a live answer. 12 tests.</td></tr>
+<tr><td>Batch 4: DjVu</td><td class="ok">Done, seen on the phone</td><td>DjVu books open by their hidden text layer (archive.org's scans and most others): paragraphs kept, running heads dropped, bookmarks as chapters. A DjVu of pictures only says so. Page pictures are not drawn. 17 tests on real archive.org pages.</td></tr>
+<tr><td>The 1.5.0 checks never seen on the phone</td><td class="ok">Seen</td><td>The reading card opens where the voice reads: yes. Contents picked in the reader while the voice reads: it moved the voice (a gap 1.5.0 left: only picks from the book's page looked), and the player showed a percentage, not the voice's chapter, in a downloaded book. Both fixed (the reader's Contents, bookmarks and search only look; the player says "READING &hellip;" in every book), tests pin them, and both were seen on the phone: chapter VIII shown, the voice reading on in chapter IV, its chapter named on the player.</td></tr>
+<tr><td>Reading journal</td><td class="ok">Done, seen on the phone, 1.6.0</td><td>Your idea of 18 Nov, designed with you (section 15) and built: the pen on the player, the notebook writing page, questions or a blank page, the stamp, its own <b>Journal</b> section in the menu (the notebook first, a list with its button; your note of 18 Nov), export, the questions in Settings, the chapter's-end offer. Saved keeps to quotes and bookmarks. On the phone: written from the pen while the voice read, saved &ldquo;up to chapter 5&rdquo;, seen in the Journal as a notebook and as a list.</td></tr>
+<tr><td>AI helper and memory</td><td class="warn">Planned</td><td>Section 15; released a step at a time, then 2.0.</td></tr>
 <tr><td>Batch 3: how it sounds</td><td class="ok">Done, in 1.5.0</td><td>You confirmed the ellipsis fix by ear. "I... I don't" stays one sentence, ". . ." one mark; natural voices' comma pauses topped up, not doubled; long sentences cut into pieces only over 200 characters; quote and narration joined with trimmed padding; "well-known" has no pause; spaced dashes pause; words lit over clauses up to 6 s; unclear phone timings worked out from the audio.</td></tr>
 </table></div>
 </div>
@@ -204,7 +216,7 @@ a{color:var(--accent)}
 <ol><li>ask the sherpa-onnx project to support it, which costs us nothing;</li>
 <li>run it ourselves with ONNX Runtime and a phonemiser in Kokoro's format.</li></ol>
 <p>Option 2 is a few days' work but feasible. <b>Recommendation:</b> open the request now, then build option 2 if there's no answer in a couple of weeks. A tiny, Kokoro-like English voice is worth having for phones too slow for Kokoro.</p></div>
-<div class="card"><h3>Search on the Natural voices page</h3>
+<div class="card"><h3>Search on the Natural voices page <span class="done">Done &middot; batch 4</span></h3>
 <p>About 180 voices in 42 languages, with no search. Add a search field at the top that matches name, language, accent and gender (&ldquo;british female&rdquo;, &ldquo;hindi&rdquo;). Small.</p></div>
 
 <h2 id="anx">9. Ideas from Anx Reader</h2>
@@ -273,12 +285,12 @@ a{color:var(--accent)}
 <h2 id="diary">13. The diary look</h2>
 <p>The picture is a spiral-bound field notebook: grid paper, coloured numbered tabs down the edge, a taped photo with a handwritten caption, small numbered page badges, and a handwritten line at the end. It's from a game, so we take the idea only, never its art.</p>
 <ul>
-<li><b>Saved as a notebook</b> (best fit): quotes, highlights and notes on grid or ruled paper, one page per book, the book's cover taped at the top like the photo, your note in a handwritten font, and coloured tabs on the edge to jump between books.</li>
-<li><b>Contents as tabs</b>: a book's parts or arcs as coloured tabs down the side of the chapter list.</li>
-<li><b>The reading helper's recap</b> on a notebook page: &ldquo;Previously, in chapter 412&hellip;&rdquo;.</li>
-<li>A <b>Notebook</b> paper (grid) among the reader's papers: a theme option, cheap.</li>
+<li><span class="done">Done</span> <b>Saved as a notebook</b> (best fit): quotes, highlights and notes on grid or ruled paper, one page per book, the book's cover taped at the top like the photo, your note in a handwritten font, and coloured tabs on the edge to jump between books.</li>
+<li><span class="done">Done</span> <b>Contents as tabs</b>: a book's parts or arcs as coloured tabs down the side of the chapter list.</li>
+<li><span class="pill">Batch 5</span> <b>The reading helper's recap</b> on a notebook page: &ldquo;Previously, in chapter 412&hellip;&rdquo;.</li>
+<li><span class="done">Done</span> A <b>Notebook</b> paper (grid) among the reader's papers, with a spiral down the middle of a two-page spread.</li>
 </ul>
-<p><small>The handwritten font needs an open licence (Caveat, or Kalam, both SIL OFL).</small></p>
+<p><small>The handwriting is Caveat (SIL OFL), listed in About with the other fonts.</small></p>
 
 <h2 id="order">14. Order of work</h2>
 <p>Each batch is fixed, tested in CI, checked on your phone (with screenshots), then released properly through <code>main</code>. You'll get a check list for each one before release.</p>
@@ -286,12 +298,52 @@ a{color:var(--accent)}
 <tr><th>Batch</th><th>What</th><th>Release</th></tr>
 <tr><td><b>1. Make 1.4.1 right, fix the worst</b> <span class="done">Done &middot; 1.4.2</span></td><td>Release hygiene (notes, tag, <code>main</code>); the crash #24/#25; A1 chapter opens the right place; A2 opens at once; A3 download counts; A5 reading on across chapters; Settings width.</td><td>1.4.2</td></tr>
 <tr><td><b>2. Smooth and light</b> <span class="done">Done &middot; 1.5.0</span></td><td>C1&ndash;C3 and D1&ndash;D5, each measured before and after on the phone; A4 (as you decide); A6.</td><td>1.4.3</td></tr>
-<tr><td><b>3. How it sounds</b> <span class="done">Done &middot; 1.5.0</span></td><td>B1 ellipsis rule, B2 no gaps, B3 joins, B4 word highlight; Contents and Pages buttons in view; natural voice search.</td><td>1.5.0</td></tr>
-<tr><td><b>4. Comforts</b> <span class="pill">Next</span></td><td>Anx-inspired: spacing, weight, alignment, your own fonts, TXT chapter rules, replace a book's file; Notebook paper and the Saved notebook; Gutenberg OPDS 2; DJVU.</td><td>1.5.x</td></tr>
-<tr><td><b>5. Helper and voices</b></td><td>The reading helper (after you've said what you want); the cloud voice (Azure, then ElevenLabs); Paradee.</td><td>1.6</td></tr>
+<tr><td><b>3. How it sounds</b> <span class="done">Done &middot; 1.5.0</span></td><td>B1 ellipsis rule, B2 no gaps, B3 joins, B4 word highlight. (The Contents and Pages buttons and the voice search moved to batch 4.)</td><td>1.5.0</td></tr>
+<tr><td><b>4. Comforts and the journal</b> <span class="done">Done &middot; to release</span></td><td>Anx-inspired: spacing, weight, alignment (already there), your own fonts, TXT chapter rules, replace a book's file; Notebook paper, the Saved notebook, the spiral spread, Contents as tabs; Contents and Scroll/Pages buttons; voice search; Gutenberg OPDS 2; DjVu; <b>the reading journal</b> (your choice, 18 Nov: in this release). With the fixes for #28 and the 11 Nov crash.</td><td>1.6.0</td></tr>
+<tr><td><b>5. Your own AI</b> <span class="pill">Next</span></td><td>Your key (Gemini, OpenRouter, any OpenAI-compatible); Explain this; chat about the chapter on its notebook page; the hand-off to ChatGPT, Gemini or NotebookLM.</td><td>1.7</td></tr>
+<tr><td><b>6. Chapter notes and recaps</b></td><td>A note a chapter as it is passed; &ldquo;Previously&hellip;&rdquo; read aloud; the catch-up pass for chapters read before.</td><td>1.8</td></tr>
+<tr><td><b>7. Who's who</b></td><td>The ledger of people, places and things: aliases, titles and ranks over time, ties; press and hold a name.</td><td>1.9</td></tr>
+<tr><td><b>8. Ask the book</b></td><td>Search on the phone up to your place; answers with chapter citations; your journal's guesses remembered.</td><td>1.10</td></tr>
+<tr><td><b>9. Theorise with me</b></td><td>Theory mode across arcs, predictions that came true, your own prompts; the helper made whole.</td><td><b>2.0</b></td></tr>
+<tr><td><b>Voices</b></td><td>The cloud voice (Azure, then ElevenLabs, then any OpenAI-compatible endpoint); Paradee. Fitted between the AI releases where they are ready.</td><td>1.x or 2.x</td></tr>
 </table></div>
 
-<h2 id="questions">15. What I need from you</h2>
+<h2 id="journal">15. The reading journal, the helper and memory (brainstorm)</h2>
+<div class="card"><h3>The journal <span class="done">Agreed &middot; built</span></h3>
+<ul>
+<li><b>Many entries a book</b>, each pinned to where the story had reached when you put the pen down (Done): the chapter the voice is reading, or your reading place when nothing plays. Written while the voice moved on, it keeps the range too (&ldquo;written while listening to chapters 4&ndash;6&rdquo;). Shown as &ldquo;Thoughts up to chapter 6&rdquo; on the book's notebook page, among its quotes.</li>
+<li><b>Two ways to write:</b> a template of questions, or a raw page with none.</li>
+<li><b>The default questions:</b> How am I feeling? (Loving it, Good, Mixed, Meh, Frustrated, or a word of your own); Why?; What stood out?; What do I think happens next? Each can be skipped. Settings has a template editor: rename, add, reorder or remove questions, and choose for each free text or quick picks.</li>
+<li>In backups and the Markdown export, and readable by the helper, which can say &ldquo;at chapter 6 you guessed X&rdquo; without mixing old guesses with what was revealed since.</li>
+<li><b>Opened</b> from a pen on the player (your pick), a book's &#8942; menu (Write in the journal) and the Journal row on its page.</li>
+<li><b>The writing page</b> (your pick): the notebook's squared paper with its spiral, the questions printed small, the answers in handwriting, the feelings as stickers to tap.</li>
+<li><b>At a chapter's end</b> (your pick): off by default; Settings can turn on a quiet &ldquo;Write about chapter 6?&rdquo; that goes by itself, the voice reading on.</li>
+</ul>
+<p><span class="done">Built &middot; in 1.6.0</span> with its tests (the stamp and the range, the store, the page, changing an entry, Saved, the export, the questions in Settings); to see on the phone.</p></div>
+<div class="card q"><h3>The AI, release by release <span class="pill">Plan, 18 Nov</span></h3>
+<p>Each release is usable alone, and each builds the memory the next one needs. Nothing past your place is ever sent; your key is kept in Android's keystore; it is all off until you turn it on.</p>
+<div class="scroll"><table>
+<tr><th>Release</th><th>What you get</th><th>What it builds underneath</th></tr>
+<tr><td><b>1.7</b> Your own AI</td><td>Settings, Reading helper: your key (Gemini from Google AI Studio, free tier; OpenRouter; any OpenAI-compatible endpoint), a model, Test the key, what is sent and to whom. <b>Explain this</b>: press and hold a word or sentence for what it means in this story. <b>Chat about this chapter</b> on the book's notebook page, its answers read in your reading voice. <b>Hand-off</b>: send the chapter so far and your journal to ChatGPT, Gemini or NotebookLM.</td><td>The provider layer (one interface, three kinds of endpoint), the key in the keystore, a usage count, the spoiler guard (text up to your place only).</td></tr>
+<tr><td><b>1.8</b> Chapter notes and recaps</td><td>A short note a chapter, made as you pass it: what happened, who appeared, what was revealed, titles and ranks gained. <b>&ldquo;Previously&hellip;&rdquo;</b> when you come back after days away, read aloud before the book goes on (skip with a tap). Notes on each book's notebook page. A <b>catch-up</b> for what you read before: resumable, on Wi-Fi while charging, its cost said first.</td><td>The memory's first layer, and the arc recaps rolled up from it (the whole story so far in a few pages, for the chat).</td></tr>
+<tr><td><b>1.9</b> Who's who</td><td>Press and hold a name: <b>who is this</b>, as far as you know them (aliases, titles, ties, the chapters they matter in). A Cast and world page per book, where a wrong merge can be put right.</td><td>The ledger of people, places, things and powers, each fact with its chapter: the &ldquo;graph&rdquo;, kept on the phone.</td></tr>
+<tr><td><b>1.10</b> Ask the book</td><td>Ask anything up to your place: &ldquo;what did the author reveal about the Spell around chapter 1200?&rdquo;. Answers cite chapters (&ldquo;ch. 1204, 1811&rdquo;); a tap looks there without moving the voice. It knows your journal: &ldquo;at chapter 6 you guessed&hellip;&rdquo;.</td><td>Search on the phone (full-text) over the chapters, notes, journal and quotes; only the passages that matter are sent.</td></tr>
+<tr><td><b>2.0</b> Theorise with me</td><td><b>Theory mode</b>: talk through a theory across arcs; it brings what is for and against it from the notes and the ledger, and which of your journal's predictions came true. Your own prompts and prompt buttons. The helper whole, written up.</td><td>The pieces above, joined; costs and limits tuned on long novels (Shadow Slave, 3,200 chapters).</td></tr>
+</table></div>
+<p><b>Before the AI:</b> nothing planned is left. Still open, needing you or time: your AZW3 file; Gutenberg's new feed tried live (its site was down on 18 Nov); the &ldquo;maybe&rdquo; ideas from Anx (tap zones, e-ink mode, notes as CSV, a reading heatmap), built only if you want them.</p></div>
+<div class="card"><h3>Talking to an AI without leaving the app</h3>
+<p>ChatGPT Plus, Gemini Advanced and NotebookLM subscriptions cannot be used by another app; NotebookLM has no API for personal accounts. So: <b>A. your own API key, the chat inside TomeVoice</b> (recommended, and your earlier choice: a Gemini key from Google AI Studio has a free tier; OpenRouter or any OpenAI-compatible endpoint also work), with <b>B. a hand-off</b> beside it that sends a prepared pack (journal, notes, recap) to ChatGPT, Gemini or NotebookLM, for no setup at all.</p></div>
+<div class="card"><h3>Memory for a 3,200-chapter novel</h3>
+<p>Shadow Slave is around 11 million tokens: no AI can be sent all of it each time. Proposed, kept on the phone with each book:</p>
+<ol>
+<li><b>Chapter notes</b>, made once as each chapter is passed: a short summary; who and what appeared (with aliases); facts revealed; titles, ranks and accolades gained (&ldquo;Sunny: Sleeper &rarr; Awakened, ch. 210&rdquo;).</li>
+<li><b>A ledger of people and things</b> (the graph): each name, its aliases, and a timeline of its titles, accolades and ties, each with its chapter. This answers &ldquo;what was revealed about X around chapter 1200&rdquo;.</li>
+<li><b>Arc recaps</b> every 25&ndash;50 chapters, rolled up, so the whole story so far fits in a few pages.</li>
+<li><b>Search on the phone</b> over the chapters, the notes, your journal and quotes; only what matters is sent, and answers cite chapters.</li>
+</ol>
+<p><b>Spoilers:</b> nothing past your place is ever made into notes or sent. <b>Catching up</b> on chapters already read: one pass, about 20 chapters a request (around 160 requests for 3,200 chapters), resumable, on Wi-Fi while charging; roughly a dollar or two on a cheap model or a few days of a free tier (prices to check before building). Not recommended: raw-text search alone (weak on who-is-who and titles), or sending huge chunks to a long context (1M tokens is about 700 chapters).</p></div>
+
+<h2 id="questions">16. What I need from you</h2>
 <div class="card q"><ol>
 <li class="ok">A4, answered: only &ldquo;Read from here&rdquo; moves the place; scrolling looks around. Paused counts as listening.</li>
 <li class="ok">A6, answered: the view must follow the voice into the next chapter and keep the highlight.</li>

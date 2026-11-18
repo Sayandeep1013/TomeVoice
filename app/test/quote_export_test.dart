@@ -43,7 +43,7 @@ void main() {
     final first = _quote(l, 0, colour: MarkColour.yellow, id: 'a').withNote('A pangram.\nThe classic one.');
     final later = _quote(l, l.units.length - 1, colour: MarkColour.blue, id: 'b');
     final md = quotesMarkdown([
-      (title: 'Specimen', author: 'Ann Author', quotes: [later, first]),
+      (title: 'Specimen', author: 'Ann Author', quotes: [later, first], journal: const []),
     ]);
     expect(
       md,
@@ -86,7 +86,7 @@ void main() {
       chapter: 'Chapter 1',
       created: DateTime(2026),
     );
-    final md = quotesMarkdown([(title: 'T', author: '', quotes: [a, b])]);
+    final md = quotesMarkdown([(title: 'T', author: '', quotes: [a, b], journal: const [])]);
     expect(md.indexOf('## Chapter 1'), lessThan(md.indexOf('## Chapter 2')));
     expect(md, contains('> \\# not a heading'));
     expect(md, isNot(contains('*\n')), reason: 'no author line without an author');
@@ -94,9 +94,9 @@ void main() {
 
   test('several books, each under its own title', () {
     final md = quotesMarkdown([
-      (title: 'One', author: 'A', quotes: [_quote(l, 0)]),
-      (title: 'Empty', author: 'B', quotes: const []),
-      (title: 'Two', author: 'C', quotes: [_quote(l, 1, id: 'z')]),
+      (title: 'One', author: 'A', quotes: [_quote(l, 0)], journal: const []),
+      (title: 'Empty', author: 'B', quotes: const [], journal: const []),
+      (title: 'Two', author: 'C', quotes: [_quote(l, 1, id: 'z')], journal: const []),
     ]);
     expect(RegExp('^# ', multiLine: true).allMatches(md).length, 2);
     expect(md, isNot(contains('# Empty')));

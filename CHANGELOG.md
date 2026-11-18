@@ -3,6 +3,43 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## 1.6.0 (2026-11-18)
+
+Your reading journal, a notebook to keep it in, and reading made more your own.
+
+#### Your reading journal
+- Write what you think as you read or listen: the pen on the player (also Write in the journal in a book's menu, and its page's Journal) opens a notebook page. It asks how you feel (Loving it, Good, Mixed, Meh, Frustrated, or a word of your own), why, what stood out and what you think happens next; skip any, or turn to a blank page and write freely.
+- Done stamps the entry with where the story had reached: the chapter the voice is reading, or your place. If the voice read on while you wrote, it says so ("chapters 4 to 6").
+- **Journal**, in the menu (and See all from a book's page): a notebook with a page for each book, its cover taped at the top, your entries in handwriting on squared paper, and numbered tabs in colour down the edge to turn to a book; or, with the button beside its title, a list. It stays as you left it. Tap an entry to change it (the questions you skipped are there to answer), hold it to remove it. Export makes a Markdown file of it. Your journal goes in backups, and moves with a book whose file you replace.
+- Settings, Journal: change the questions, add your own (answered in words, or by a tap on answers you set), and, if you like, a quiet offer to write at each chapter's end. It is off unless you turn it on; the voice never stops for it.
+
+#### The notebook look
+- A Notebook paper among the reader's pages (Aa, Read): cream, squared in blue-grey, a fountain pen's ink and a red pen for the voice; as two pages (a tablet, a phone on its side), a spiral binding down the middle.
+- A book's Contents with parts has a coloured tab for each down its side: a tap opens the part, and the part in view stands out. Each part's divider carries its tab's colour.
+- The handwriting is Caveat (SIL Open Font License), listed in About with the other fonts.
+
+#### Reading comforts
+- The reader's top bar has a Contents button. With room (a tablet, a phone on its side) it has Scroll or Pages too, and a PDF its Contents beside its real pages. Layout is now first in Aa, Read.
+- Weight (light to bold) and letter spacing for the page's type, in Aa, Read.
+- Your own font: add a .ttf or .otf file under the fonts in Aa, Read. It is kept with your library, so a backup carries it.
+- Replace the file (a book's menu): pick a corrected edition and it takes the book's place. Your place, quotes, bookmarks, voices, rules and shelf go with it, found again by their sentences.
+- Natural voices has a search field: a name, a language, an accent ("british") or "female".
+- **Your own chapters for a TXT book:** a web novel saved as one file often heads its chapters in a way TomeVoice does not know ("#12 The Gate"), and was read as one long chapter or as parts that start mid-chapter. A TXT book's page has **Chapters**: found by TomeVoice, at lines that start with what you type (or match a regular expression, such as `^#\d+`), or every 1,000 to 5,000 words. It shows how many chapters that makes and their first titles before anything changes. The book is split again; your place, bookmarks and quotes stay with their words, and the choice is kept with the book (in backups too).
+
+#### Catalogues
+- Project Gutenberg opens its new catalogue (OPDS 2), as its older one is retired in 2027: Recently Added, Most Popular, its bookshelves and subjects, search, and each book's EPUB with its cover. If the new one cannot be had, the older one opens as before. Any catalogue you add that speaks OPDS 2 now opens too, instead of saying TomeVoice cannot read it yet.
+
+#### Formats
+- DjVu books (.djvu, .djv) open, read by the hidden text under their pages: the OCR that archive.org's scans, and most others, carry. Its paragraphs are kept, running heads and page numbers left out, words broken at line ends mended, and its bookmarks become its chapters. A DjVu whose pages are only pictures says so instead of opening empty, and one kept as a file a page asks to be bundled into one file first.
+
+#### Fixes
+- A chapter picked in the reader's own Contents, a bookmark from its list, or a passage found by its search is only looked at while the book is listened to, as the same picked from the book's page already was in 1.5.0: the voice reads on (or stays paused) at its place, and Back to reading returns to it. Before, the voice went there. Meanwhile the player names the chapter the voice is reading ("READING CHAPTER III") in every book, not only in a web novel.
+- Replacing a book's file no longer leaves its page with nothing under it: Back goes to the library again.
+- On the scroll, Back to reading (and the other pills) goes with the bars, as on pages. Before, it stayed half faded at the foot of the page with the bars gone.
+- The app no longer closes when a web-novel site loaded through the hidden web view answers after the source that asked for it has stopped (a check that timed out, a source closed meanwhile). Seen once on 11 November; Flutter's engine ended the whole app.
+- Report a problem sends only the errors of the version you run. An older version's errors are counted, not sent again: issue #28 (1.5.0) carried the same 1.4.1 error as #24 and #25, fixed in 1.4.2.
+- Crashes in the app's native code, and Android closing the app for not responding, now reach the error log (Android 11 and later): they never did, so a report could not show them.
+
 ## 1.5.0 (2026-11-18)
 
 Smoother, lighter on the battery, and a voice that reads "..." and commas as people do.

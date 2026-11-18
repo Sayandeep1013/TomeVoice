@@ -214,9 +214,11 @@ class MainActivity : FlutterActivity() {
                         result.error("PICK_IN_PROGRESS", "A picker is already open", null)
                     } else {
                         imageResult = result
+                        // A picture by default; any [type] asked for (a
+                        // font: "*/*", as file managers label fonts as anything).
                         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                             addCategory(Intent.CATEGORY_OPENABLE)
-                            type = "image/*"
+                            type = call.argument<String>("type") ?: "image/*"
                         }
                         @Suppress("DEPRECATION")
                         startActivityForResult(intent, REQ_IMAGE)

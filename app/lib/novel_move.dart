@@ -5,6 +5,7 @@ import 'dart:isolate';
 import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor, SourceKind;
 
 import 'download_queue.dart';
+import 'journal.dart';
 import 'library_store.dart';
 import 'marks.dart';
 import 'prefs.dart';
@@ -375,6 +376,8 @@ Future<LibraryEntry> moveNovel(LibraryStore store, LibraryEntry entry, MovePlan 
     // voices (its characters' too), speed and order, its pronunciations
     // and what its voice passes over.
     await MarkStore.instance.moveBook(from, to, plan.match.follow);
+    await JournalStore.instance
+        .rebook(from, to, (at) => at.copyWith(sectionIndex: plan.match.follow(at.sectionIndex)));
     final prefs = ListeningPrefs.loaded;
     if (prefs != null && movePrefs(prefs, from, to)) prefs.save();
     await ReadingRules.instance.moveBook(from, to);

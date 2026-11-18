@@ -35,6 +35,7 @@ trusted.
 |---|---|
 | `%PDF-` | PDF |
 | `{\rtf` | RTF |
+| `AT&TFORM` | DjVu |
 | `BOOKMOBI` / `TEXtREAd` in the PalmDB header | MOBI / AZW / AZW3 / PRC |
 | zip with `mimetype` = `application/epub+zip`, or `META-INF/container.xml` | EPUB |
 | zip with `word/document.xml` | DOCX |
@@ -191,6 +192,19 @@ As built:
   message instead of garbage; a cut-short file says so.
 - **FB2** (`formats/fb2.dart`): plain XML, often declared as windows-1251 or KOI8-R; its
   `sequence` gives the series.
+- **DjVu** (`formats/djvu.dart`, `formats/bzz.dart`): a scan, read by its hidden text
+  layer (the OCR under each page that archive.org's and most other scans carry); the
+  pictures are never decoded. The IFF container is walked in Dart: one page (FORM:DJVU)
+  or a bundled book (FORM:DJVM and its DIRM directory, pages in its order, text in a file
+  a page includes found too). TXTz, the outline (NAVM), annotations (ANTz, for the
+  metadata's title and author) and the directory are BZZ-packed: a ZP-coder, a
+  move-to-front list and a Burrows-Wheeler sort, ported from DjVuLibre. A page's zones
+  say where its paragraphs and lines are; lines OCR left without paragraphs are told apart
+  by the space between them, and lines cut into pieces are joined. The pages then go
+  through the PDF path (`bookFromPdfText`, with the zones' boxes as its line layout):
+  running heads and page numbers left out, words broken at line ends mended, bookmarks
+  made chapters, each block keeping its page. A DjVu whose pages are only pictures is
+  refused with its own message, and so is one kept as a file a page ("indirect").
 - **RTF** (`formats/rtf.dart`): a small tokeniser that keeps the text, paragraph breaks
   and escaped characters, drops font tables, pictures and headers, and shows notes after
   their paragraph without reading them.
@@ -288,10 +302,13 @@ document the documents package reads like any book, on the Articles shelf. A Wik
 page is kept whole without its lists of sources. A link to a book file imports the book;
 any other shared words become a book named from their first line.
 
-**Catalogues** (`opds.dart`, `catalogues_screen.dart`). OPDS 1.2 feeds, searched through
-OpenSearch. Project Gutenberg and Standard Ebooks are built in; a Calibre content server
-on the same network, or any other OPDS catalogue, can be added. A book downloaded from
-one is imported like any file.
+**Catalogues** (`opds.dart`, `opds2.dart`, `catalogues_screen.dart`). OPDS 1.2 feeds,
+searched through OpenSearch, and OPDS 2 (JSON) feeds, searched through their URI
+template; the client reads a feed as OPDS 2 when the server calls it JSON or it reads as
+JSON, and both become the same feeds and entries. Project Gutenberg (its OPDS 2 catalogue
+at `https://www.gutenberg.org/opds/`, its older Atom one read when that cannot be) and
+Standard Ebooks are built in; a Calibre content server on the same network, or any other
+OPDS catalogue, can be added. A book downloaded from one is imported like any file.
 
 **NovelDokusha import.** Settings → Library → Import from NovelDokusha takes the zip
 that NovelDokusha's own Settings → Backup writes.
