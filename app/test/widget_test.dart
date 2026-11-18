@@ -996,6 +996,22 @@ void main() {
       await finish(tester);
     });
 
+    testWidgets("the pen on the player opens the book's journal at the voice's chapter", (tester) async {
+      withSound();
+      final store = LibraryStore(_tmp);
+      final nav = await pumpShelf(tester);
+      unawaited(nav.push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(layout: ReadingLayout.build(chaptered), store: store))));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Write in your journal'));
+      await tester.pumpAndSettle();
+      expect(find.text('HOW AM I FEELING?'), findsOneWidget);
+      expect(find.textContaining('WRITING AT CHAPTER'), findsOneWidget);
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pumpAndSettle();
+      expect(find.text('HOW AM I FEELING?'), findsNothing);
+      await finish(tester);
+    });
+
     testWidgets("while another chapter is looked at, the player names the voice's", (tester) async {
       withSound();
       final store = LibraryStore(_tmp);

@@ -17,6 +17,7 @@ import 'folders.dart';
 import 'guide.dart';
 import 'library_store.dart';
 import 'listen_sheet.dart';
+import 'journal_questions_screen.dart';
 import 'neural_screen.dart';
 import 'novel_updates.dart';
 import 'noveldokusha_import.dart';
@@ -365,6 +366,26 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                       title: 'Reading',
                       children: [
                         ReadingControls(prefs: _prefs, showTheme: false, onChanged: _rebuild),
+                      ],
+                    ),
+                    _Group(
+                      title: 'Journal',
+                      children: [
+                        _Link(
+                          icon: Icons.edit_note_rounded,
+                          title: 'Journal questions',
+                          subtitle: 'What the journal asks when you write: change them, add your own',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(builder: (_) => const JournalQuestionsScreen()),
+                          ),
+                        ),
+                        SwitchRow(
+                          title: "Ask at a chapter's end",
+                          subtitle: 'A quiet offer to write about the chapter just read. The voice reads on',
+                          value: _prefs.journalAsk,
+                          padding: EdgeInsets.zero,
+                          onChanged: (v) => _change(() => _prefs.journalAsk = v),
+                        ),
                       ],
                     ),
                     _Group(

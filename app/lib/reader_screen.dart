@@ -18,11 +18,14 @@ import 'chapter_finder.dart';
 import 'export_audio_sheet.dart';
 import 'fast_scroller.dart';
 import 'highlights.dart';
+import 'journal.dart' show JournalStamp;
+import 'journal_page.dart';
 import 'library_store.dart';
 import 'listening_session.dart' show BackgroundReading;
 import 'book_search.dart';
 import 'listen_sheet.dart';
 import 'marks.dart';
+import 'novel_move.dart' show chapterNumberOf;
 import 'neural_voices.dart';
 import 'now_playing.dart';
 import 'own_fonts.dart';
@@ -479,6 +482,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _watched?.layouts.addListener(_voiceMoved);
     BackgroundReading.current.addListener(_voiceMoved);
     _player.word.addListener(_onWord);
+    _cursor.addListener(_chapterEnd);
     MarkStore.instance.changes.addListener(_onMarks);
     _onMarks();
     _positions.itemPositions.addListener(_onPositions);
@@ -884,6 +888,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (_screenOn) unawaited(_svc.keepScreenOn(false));
     _catalog.removeListener(_onCatalog);
     _player.word.removeListener(_onWord);
+    _cursor.removeListener(_chapterEnd);
     widget.layouts?.removeListener(_onLayouts);
     // The place saved and the time counted; the voice ended, or reading on
     // without the page.
@@ -1335,6 +1340,49 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   void _snack(String text) {
     if (mounted) showSnack(context, text, margin: _snackMargin);
+  }
+
+  // -------------------------------------------------------------- journal
+
+  /// The pen on the player: this book's journal, stamped with where the
+  /// voice reads (or the place, when it does not).
+  void _write({JournalStamp Function()? stamp}) {
+    _auto.stop();
+    unawaited(openJournal(context, bookId: _book.id, bookTitle: _book.metadata.title, stampNow: stamp ?? _stampNow));
+  }
+
+  /// Where the story is now: the voice's sentence (in the chapters it reads
+  /// in the background, when the page shows others), else the place.
+  JournalStamp _stampNow() {
+    final v = _voiceElsewhere;
+    if (v != null) {
+      return stampAt(v.layout, v.unit,
+          numberOf: (c) => chapterNumberOf(v.layout.chapterTitle(c))?.floor() ?? c + 1);
+    }
+    return stampAt(_l, _cursor.value, numberOf: _chapterNumber);
+  }
+
+  /// The chapter the voice was last in, for [_chapterEnd].
+  int? _voiceChapter;
+
+  /// The voice read into the next chapter: with "Ask at a chapter's end"
+  /// on, a quiet offer to write about the one just finished. The voice
+  /// reads on; the offer goes by itself.
+  void _chapterEnd() {
+    if (_l.isEmpty) return;
+    final c = _l.chapterOfUnit(_cursor.value);
+    final was = _voiceChapter;
+    _voiceChapter = c;
+    if (was == null || c != was + 1 || !_player.isPlaying || !_prefs.journalAsk || !mounted) return;
+    final last = _l.chapterFirstUnit[c] - 1;
+    final done = stampAt(_l, last, numberOf: _chapterNumber);
+    showSnack(
+      context,
+      'Write about chapter ${done.number}?',
+      margin: _snackMargin,
+      actionLabel: 'Write',
+      onAction: () => _write(stamp: () => done),
+    );
   }
 
   /// Where a message floats: above the player, or at the foot while the
@@ -1901,6 +1949,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       cover: _cover,
       onSleep: () => showListenSheet(context, _listen),
       onSave: () => unawaited(_save(MarkKind.quote)),
+      onWrite: _write,
       voice: _reader.voicePlaying,
     );
     // Out to the screen's own edges, past the safe area (the camera's side,

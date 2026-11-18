@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'book_card.dart';
 import 'book_tint.dart';
 import 'highlights.dart';
+import 'journal.dart';
+import 'journal_page.dart';
 import 'library_store.dart';
 import 'marks.dart';
 import 'notebook.dart';
@@ -32,6 +34,9 @@ class SavedScreen extends StatefulWidget {
 class _SavedScreenState extends State<SavedScreen> {
   final _marks = MarkStore.instance;
   MarkKind _kind = MarkKind.quote;
+
+  /// The list shows the journal, not quotes or bookmarks.
+  bool _journal = false;
   Map<String, LibraryEntry> _books = const {};
 
   /// What may show (LibraryStore.marksShown): nothing of a book on a shut
@@ -122,12 +127,14 @@ class _SavedScreenState extends State<SavedScreen> {
   void initState() {
     super.initState();
     _marks.changes.addListener(_changed);
+    JournalStore.instance.changes.addListener(_changed);
     unawaited(_loadBooks());
   }
 
   @override
   void dispose() {
     _marks.changes.removeListener(_changed);
+    JournalStore.instance.changes.removeListener(_changed);
     super.dispose();
   }
 
@@ -232,6 +239,18 @@ class _SavedScreenState extends State<SavedScreen> {
     }
     final quotes = mine.where((m) => m.kind == MarkKind.quote).length;
     final bookmarks = mine.length - quotes;
+    // The journal, as what was saved shows: not a book's on a shut secret
+    // shelf (in the library, but not on the shelves shown).
+    final thoughts = !_loaded
+        ? const <JournalEntry>[]
+        : [
+            for (final e in JournalStore.instance.all)
+              if ((widget.bookId == null || e.bookId == widget.bookId) &&
+                  (_books.containsKey(e.bookId) || !_present.contains(e.bookId)) &&
+                  (q.isEmpty || e.words.toLowerCase().contains(q) || e.bookTitle.toLowerCase().contains(q)))
+                e,
+          ];
+    final anything = mine.isNotEmpty || thoughts.isNotEmpty;
     // Of books no longer in the library: offered to clear together.
     final gone = widget.bookId != null || !_loaded
         ? const <Mark>[]
@@ -247,29 +266,33 @@ class _SavedScreenState extends State<SavedScreen> {
               Row(
                 children: [
                   Expanded(child: ScreenTopBar(title: 'Saved', onBack: () => Navigator.of(context).maybePop())),
-                  if (mine.isNotEmpty)
+                  if (anything)
                     IconButton(
                       tooltip: _notebook ? 'Show as a list' : 'Show as a notebook',
                       icon: Icon(_notebook ? Icons.view_agenda_outlined : Icons.auto_stories_outlined),
                       onPressed: () => _setNotebook(!_notebook),
                     ),
-                  if (quotes > 0)
+                  if (quotes > 0 || thoughts.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(right: Gap.s),
                       child: ExportQuotesButton(store: widget.store, bookId: widget.bookId),
                     ),
                 ],
               ),
-              if (!(_notebook && mine.isNotEmpty))
+              if (!(_notebook && anything))
                 Padding(
                   padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.m),
-                  child: ChoiceRow<MarkKind>(
+                  child: ChoiceRow<int>(
                     options: [
-                      (MarkKind.quote, 'Quotes  $quotes'),
-                      (MarkKind.bookmark, 'Bookmarks  $bookmarks'),
+                      (0, 'Quotes  $quotes'),
+                      (1, 'Bookmarks  $bookmarks'),
+                      (2, 'Journal  ${thoughts.length}'),
                     ],
-                    value: _kind,
-                    onChanged: (k) => setState(() => _kind = k),
+                    value: _journal ? 2 : (_kind == MarkKind.quote ? 0 : 1),
+                    onChanged: (k) => setState(() {
+                      _journal = k == 2;
+                      if (k < 2) _kind = k == 0 ? MarkKind.quote : MarkKind.bookmark;
+                    }),
                   ),
                 ),
               if (mine.length > 6 && !_notebook)
@@ -281,19 +304,22 @@ class _SavedScreenState extends State<SavedScreen> {
                 // Quotes and bookmarks (and the list and the notebook) fade
                 // into each other's place.
                 child: FadeIn(
-                  trigger: (_kind, _notebook),
+                  trigger: (_kind, _notebook, _journal),
                   child: !_loaded
                       ? const SizedBox.shrink()
-                      : _notebook && mine.isNotEmpty
+                      : _notebook && anything
                       ? SavedNotebook(
-                          pages: _pagesOf(mine),
+                          pages: _pagesOf(mine, thoughts),
                           books: _books,
                           present: _present.contains,
                           onOpen: (m) => unawaited(_open(m)),
                           onAction: (m) => unawaited(_actions(m)),
+                          journal: _journalOf(thoughts),
+                          onJournal: (e) => unawaited(_editThought(e)),
+                          onJournalHold: (e) => unawaited(removeJournalEntry(context, e)),
                         )
-                      : !_loaded
-                      ? const SizedBox.shrink()
+                      : _journal
+                      ? _journalList(context, thoughts, q)
                       : marks.isEmpty
                       ? EmptyState(
                           icon: _kind == MarkKind.quote ? Icons.format_quote_rounded : Icons.bookmark_border_rounded,
@@ -322,15 +348,87 @@ class _SavedScreenState extends State<SavedScreen> {
     );
   }
 
-  /// The notebook's pages: a book each, in the order of what was saved
-  /// last; marks of a book going (Remove) gone at once.
-  List<(String, List<Mark>)> _pagesOf(List<Mark> mine) {
+  /// The notebook's pages: a book each, in the order of what was saved or
+  /// written last; marks of a book going (Remove) gone at once.
+  List<(String, List<Mark>)> _pagesOf(List<Mark> mine, List<JournalEntry> thoughts) {
     final byBook = <String, List<Mark>>{};
+    final latest = <String, DateTime>{};
+    void seen(String id, DateTime at) {
+      final was = latest[id];
+      if (was == null || at.isAfter(was)) latest[id] = at;
+    }
+
     for (final m in mine) {
       if (_leaving.contains(m.id) || _swiped.contains(m.id)) continue;
       byBook.putIfAbsent(m.bookId, () => []).add(m);
+      seen(m.bookId, m.created);
     }
-    return [for (final e in byBook.entries) (e.key, e.value)];
+    for (final e in thoughts) {
+      byBook.putIfAbsent(e.bookId, () => []);
+      seen(e.bookId, e.created);
+    }
+    final ids = byBook.keys.toList()..sort((a, b) => latest[b]!.compareTo(latest[a]!));
+    return [for (final id in ids) (id, byBook[id]!)];
+  }
+
+  static Map<String, List<JournalEntry>> _journalOf(List<JournalEntry> thoughts) {
+    final by = <String, List<JournalEntry>>{};
+    for (final e in thoughts) {
+      by.putIfAbsent(e.bookId, () => []).add(e);
+    }
+    return by;
+  }
+
+  /// An entry opened to change it, its stamp kept.
+  Future<void> _editThought(JournalEntry e) =>
+      openJournal(context, bookId: e.bookId, bookTitle: e.bookTitle, stampNow: () => e.stamp, entry: e);
+
+  /// The journal as a list: each book's entries on a strip of the
+  /// notebook's paper, newest book first.
+  Widget _journalList(BuildContext context, List<JournalEntry> thoughts, String q) {
+    if (thoughts.isEmpty) {
+      return EmptyState(
+        icon: Icons.edit_outlined,
+        title: q.isNotEmpty ? 'Nothing matches' : 'No journal yet',
+        body: q.isNotEmpty
+            ? 'Try other words.'
+            : 'Tap the pen on the player while you read or listen, and write how it makes you feel. '
+                'Each entry keeps the chapter you were at.',
+      );
+    }
+    final ink = NotebookInk.of(context);
+    final by = _journalOf(thoughts);
+    return ListView(
+      padding: EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.xxl + MediaQuery.viewPaddingOf(context).bottom),
+      children: [
+        for (final MapEntry(key: id, value: entries) in by.entries) ...[
+          Padding(
+            padding: const EdgeInsets.only(top: Gap.l, bottom: Gap.s),
+            child: Text(entries.first.bookTitle,
+                maxLines: 1, overflow: TextOverflow.ellipsis, style: Skin.title(context, size: 17)),
+          ),
+          DecoratedBox(
+            key: ValueKey('journal $id'),
+            decoration: ink.tone.paperOf(context).copyWith(borderRadius: BorderRadius.circular(Radii.card / 1.5)),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(Gap.l, Gap.s, Gap.l, Gap.s),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final e in entries)
+                    JournalEntryCard(
+                      entry: e,
+                      ink: ink,
+                      onTap: () => unawaited(_editThought(e)),
+                      onHold: () => unawaited(removeJournalEntry(context, e)),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
   }
 
   List<Widget> _group(BuildContext context, String bookId, List<Mark> marks) {

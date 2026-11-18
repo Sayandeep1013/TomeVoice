@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor;
 import 'package:tomevoice_spike/library_store.dart';
+import 'package:tomevoice_spike/journal.dart';
 import 'package:tomevoice_spike/marks.dart';
 import 'package:tomevoice_spike/notebook.dart';
 import 'package:tomevoice_spike/prefs.dart';
@@ -24,6 +25,7 @@ void main() {
   });
 
   tearDown(() {
+    JournalStore.instance.reset();
     ListeningPrefs.memory.savedNotebook = false;
     MarkStore.instance.reset();
     tmp.deleteSync(recursive: true);
@@ -178,6 +180,37 @@ void main() {
     await tester.tap(find.byTooltip('Show as a list'));
     await tester.pumpAndSettle();
     expect(find.byType(SavedNotebook), findsNothing);
+    await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets("a book's journal shows in Saved: its own tab, and on its notebook page", (tester) async {
+    // A book with thoughts and no quote has its page too.
+    await JournalStore.instance.put(JournalEntry(
+      id: 'j1',
+      bookId: 'c',
+      bookTitle: 'Middlemarch',
+      created: DateTime.now().toUtc(),
+      stamp: const JournalStamp(at: ReadingCursor(sectionIndex: 2), chapter: 2, number: 3),
+      answers: const [JournalAnswer(question: 'Why?', text: 'Dorothea deserves better.')],
+    ));
+    await quote('a', 'Persuasion', 'There could have been no two hearts so open.');
+    await pumpSaved(tester);
+
+    // The test's wide letters push the third choice along its row.
+    await tester.ensureVisible(find.text('Journal  1'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Journal  1'));
+    await tester.pumpAndSettle();
+    expect(find.text('Dorothea deserves better.'), findsOneWidget);
+    expect(find.textContaining('Thoughts up to chapter 3'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Show as a notebook'));
+    await tester.pumpAndSettle();
+    // The newest first: Persuasion's quote was saved after the entry.
+    await tester.tap(find.bySemanticsLabel('Page 2: Middlemarch'));
+    await tester.pumpAndSettle();
+    expect(find.text('Dorothea deserves better.'), findsOneWidget);
+    expect(find.text('1 thought'), findsOneWidget);
     await tester.pump(const Duration(seconds: 5));
   });
 }

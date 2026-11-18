@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 
 import 'book_card.dart';
 import 'highlights.dart';
+import 'journal.dart';
+import 'journal_page.dart' show JournalEntryCard;
 import 'library_store.dart';
 import 'marks.dart';
 import 'page_tone.dart';
@@ -22,11 +24,25 @@ class SavedNotebook extends StatefulWidget {
     required this.present,
     required this.onOpen,
     required this.onAction,
+    this.journal = const {},
+    this.onJournal,
+    this.onJournalHold,
   });
 
   /// A page a book, in order: its id and what was saved from it, newest
-  /// first.
+  /// first (none, for a book with only its journal).
   final List<(String, List<Mark>)> pages;
+
+  /// Each book's journal, newest first (journal.dart).
+  final Map<String, List<JournalEntry>> journal;
+
+  /// An entry tapped (to change it) or held (to remove it).
+  final void Function(JournalEntry)? onJournal;
+  final void Function(JournalEntry)? onJournalHold;
+
+  /// Book [id]'s title, as what was saved from it has it.
+  String titleOf(String id, List<Mark> marks) =>
+      marks.firstOrNull?.bookTitle ?? journal[id]?.firstOrNull?.bookTitle ?? books[id]?.title ?? '';
 
   /// The books in the library by id; a book not there is gone (or hidden).
   final Map<String, LibraryEntry> books;
@@ -95,7 +111,8 @@ class NotebookInk {
   Color tab(int i) => tabs[i % tabs.length];
 }
 
-TextStyle _hand(double size, Color color, {FontWeight weight = FontWeight.w500}) =>
+/// The notebook's handwriting (Caveat) at [size], in [color].
+TextStyle handwriting(double size, Color color, {FontWeight weight = FontWeight.w500}) =>
     TextStyle(fontFamily: 'Caveat', fontSize: size, height: 1.15, color: color, fontWeight: weight);
 
 class _SavedNotebookState extends State<SavedNotebook> {
@@ -186,6 +203,10 @@ class _SavedNotebookState extends State<SavedNotebook> {
                           number: i + 1,
                           bookId: widget.pages[i].$1,
                           marks: widget.pages[i].$2,
+                          title: widget.titleOf(widget.pages[i].$1, widget.pages[i].$2),
+                          entries: widget.journal[widget.pages[i].$1] ?? const [],
+                          onJournal: widget.onJournal,
+                          onJournalHold: widget.onJournalHold,
                           book: widget.books[widget.pages[i].$1],
                           gone: !widget.present(widget.pages[i].$1),
                           ink: ink,
@@ -200,7 +221,7 @@ class _SavedNotebookState extends State<SavedNotebook> {
                       top: 0,
                       bottom: 0,
                       width: 20,
-                      child: IgnorePointer(child: CustomPaint(painter: _Spiral(ink.rings, ink.tone.paper!.last))),
+                      child: IgnorePointer(child: CustomPaint(painter: NotebookSpiral(ink.rings, ink.tone.paper!.last))),
                     ),
                   ],
                 ),
@@ -215,7 +236,7 @@ class _SavedNotebookState extends State<SavedNotebook> {
               itemCount: widget.pages.length,
               itemBuilder: (context, i) => _Tab(
                 number: i + 1,
-                title: widget.pages[i].$2.first.bookTitle,
+                title: widget.titleOf(widget.pages[i].$1, widget.pages[i].$2),
                 colour: ink.tab(i),
                 ink: ink.tabInk,
                 open: i == _at,
@@ -299,6 +320,10 @@ class _NotebookPage extends StatelessWidget {
     required this.number,
     required this.bookId,
     required this.marks,
+    required this.title,
+    this.entries = const [],
+    this.onJournal,
+    this.onJournalHold,
     required this.book,
     required this.gone,
     required this.ink,
@@ -309,6 +334,12 @@ class _NotebookPage extends StatelessWidget {
   final int number;
   final String bookId;
   final List<Mark> marks;
+  final String title;
+
+  /// The book's journal, newest first.
+  final List<JournalEntry> entries;
+  final void Function(JournalEntry)? onJournal;
+  final void Function(JournalEntry)? onJournalHold;
   final LibraryEntry? book;
   final bool gone;
   final NotebookInk ink;
@@ -329,9 +360,9 @@ class _NotebookPage extends StatelessWidget {
         if (m.kind == MarkKind.bookmark) m
     ];
     final notes = quotes.where((m) => m.note != null).length;
-    final title = marks.first.bookTitle;
     final author = book?.authorLine ?? '';
-    final newest = marks.map((m) => m.created).reduce((a, b) => a.isAfter(b) ? a : b);
+    final newest = [for (final m in marks) m.created, for (final e in entries) e.created]
+        .reduce((a, b) => a.isAfter(b) ? a : b);
     String count(int n, String one) => n == 1 ? '1 $one' : '$n ${one}s';
     return ListView(
       padding: const EdgeInsets.fromLTRB(34, Gap.xl, Gap.l, Gap.xl),
@@ -347,21 +378,22 @@ class _NotebookPage extends StatelessWidget {
                 children: [
                   const SizedBox(height: Gap.xs),
                   Text(title,
-                      maxLines: 3, overflow: TextOverflow.ellipsis, style: _hand(28, text, weight: FontWeight.w700)),
+                      maxLines: 3, overflow: TextOverflow.ellipsis, style: handwriting(28, text, weight: FontWeight.w700)),
                   if (author.isNotEmpty) ...[
                     const SizedBox(height: 2),
-                    Text(author, maxLines: 2, overflow: TextOverflow.ellipsis, style: _hand(19, soft)),
+                    Text(author, maxLines: 2, overflow: TextOverflow.ellipsis, style: handwriting(19, soft)),
                   ],
                   const SizedBox(height: Gap.s),
                   Text(
                     [
+                      if (entries.isNotEmpty) count(entries.length, 'thought'),
                       if (quotes.isNotEmpty) count(quotes.length, 'quote'),
                       if (notes > 0) count(notes, 'note'),
                       if (bookmarks.isNotEmpty) count(bookmarks.length, 'bookmark'),
                     ].join(' · '),
-                    style: _hand(17, soft),
+                    style: handwriting(17, soft),
                   ),
-                  if (gone) Text('no longer in your library', style: _hand(17, tone.accent!)),
+                  if (gone) Text('no longer in your library', style: handwriting(17, tone.accent!)),
                 ],
               ),
             ),
@@ -369,13 +401,25 @@ class _NotebookPage extends StatelessWidget {
           ],
         ),
         const SizedBox(height: Gap.xl),
+        // The journal first: what the reader thought, then what they kept.
+        for (final e in entries)
+          Padding(
+            padding: const EdgeInsets.only(bottom: Gap.m),
+            child: JournalEntryCard(
+              entry: e,
+              ink: ink,
+              onTap: onJournal == null ? null : () => onJournal!(e),
+              onHold: onJournalHold == null ? null : () => onJournalHold!(e),
+            ),
+          ),
+        if (entries.isNotEmpty && quotes.isNotEmpty) const SizedBox(height: Gap.m),
         for (final m in quotes) _Quote(mark: m, ink: ink, onOpen: onOpen, onAction: onAction),
         if (bookmarks.isNotEmpty) ...[
           Padding(
             padding: const EdgeInsets.only(top: Gap.s, bottom: Gap.s),
             child: Text(
               'Bookmarks',
-              style: _hand(24, text, weight: FontWeight.w700).copyWith(
+              style: handwriting(24, text, weight: FontWeight.w700).copyWith(
                 decoration: TextDecoration.underline,
                 decorationColor: tone.accent,
                 decorationThickness: 1.5,
@@ -388,7 +432,7 @@ class _NotebookPage extends StatelessWidget {
         Center(
           child: Transform.rotate(
             angle: -0.02,
-            child: Text('last saved ${savedWhen(newest)}', style: _hand(18, soft)),
+            child: Text('last saved ${savedWhen(newest)}', style: handwriting(18, soft)),
           ),
         ),
       ],
@@ -436,7 +480,7 @@ class _Taped extends StatelessWidget {
                       child: Center(
                         child: Text(
                           title.isEmpty ? '?' : title.characters.first.toUpperCase(),
-                          style: _hand(44, ink.tone.inkSoft!, weight: FontWeight.w700),
+                          style: handwriting(44, ink.tone.inkSoft!, weight: FontWeight.w700),
                         ),
                       ),
                     ),
@@ -523,13 +567,13 @@ class _Quote extends StatelessWidget {
                         padding: const EdgeInsets.only(top: 3, right: 6),
                         child: Icon(Icons.east_rounded, size: 18, color: ink.pen),
                       ),
-                      Expanded(child: Text(mark.note!, style: _hand(21, ink.pen))),
+                      Expanded(child: Text(mark.note!, style: handwriting(21, ink.pen))),
                     ],
                   ),
                 ),
               Padding(
                 padding: const EdgeInsets.only(top: 4, left: Gap.s),
-                child: Text(where, maxLines: 1, overflow: TextOverflow.ellipsis, style: _hand(16, tone.inkSoft!)),
+                child: Text(where, maxLines: 1, overflow: TextOverflow.ellipsis, style: handwriting(16, tone.inkSoft!)),
               ),
               const SizedBox(height: Gap.s),
             ],
@@ -569,7 +613,7 @@ class _Bookmark extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (mark.chapter != null)
-                    Text(mark.chapter!, maxLines: 1, overflow: TextOverflow.ellipsis, style: _hand(19, tone.ink!)),
+                    Text(mark.chapter!, maxLines: 1, overflow: TextOverflow.ellipsis, style: handwriting(19, tone.ink!)),
                   Text(
                     mark.text,
                     maxLines: 2,
@@ -588,8 +632,8 @@ class _Bookmark extends StatelessWidget {
 
 /// The spiral binding down the page's left edge: punched holes, and the
 /// wire through each.
-class _Spiral extends CustomPainter {
-  const _Spiral(this.wire, this.paper);
+class NotebookSpiral extends CustomPainter {
+  const NotebookSpiral(this.wire, this.paper);
 
   final Color wire;
   final Color paper;
@@ -614,7 +658,7 @@ class _Spiral extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_Spiral old) => old.wire != wire || old.paper != paper;
+  bool shouldRepaint(NotebookSpiral old) => old.wire != wire || old.paper != paper;
 }
 
 /// When something was saved, said on this phone's own calendar.

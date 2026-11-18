@@ -64,6 +64,8 @@ class ListeningPrefs {
     this.novelUpdates = false,
     this.gridView = true,
     this.savedNotebook = false,
+    this.journalQuestions,
+    this.journalAsk = false,
     this.sort = LibrarySort.recent,
     this.bookColours = true,
     this.naturalVoices,
@@ -336,6 +338,14 @@ class ListeningPrefs {
   /// Saved as a notebook, a page a book, instead of a list.
   bool savedNotebook;
 
+  /// The journal's questions as the reader set them (journal.dart's
+  /// JournalQuestion, as JSON); null for TomeVoice's own.
+  List<Object?>? journalQuestions;
+
+  /// At a chapter's end, a quiet offer to write about it (off unless
+  /// turned on).
+  bool journalAsk;
+
   /// Order of books in the library.
   LibrarySort sort;
 
@@ -499,6 +509,8 @@ class ListeningPrefs {
         if (novelUpdates) 'novelUpdates': true,
         'gridView': gridView,
         'savedNotebook': savedNotebook,
+        if (journalQuestions != null) 'journalQuestions': journalQuestions,
+        'journalAsk': journalAsk,
         'sort': sort.name,
         'bookColours': bookColours,
         if (naturalVoices != null) 'naturalVoices': naturalVoices,
@@ -596,6 +608,8 @@ class ListeningPrefs {
             ThemeMode.system,
         gridView: json['gridView'] as bool? ?? true,
         savedNotebook: json['savedNotebook'] as bool? ?? false,
+        journalQuestions: json['journalQuestions'] is List ? List<Object?>.from(json['journalQuestions'] as List) : null,
+        journalAsk: json['journalAsk'] as bool? ?? false,
         paletteId: json['palette'] as String? ?? 'forest',
         ownPage: colourFromHex(json['ownPage']),
         ownAccent: colourFromHex(json['ownAccent']),

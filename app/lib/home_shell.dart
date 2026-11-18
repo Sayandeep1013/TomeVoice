@@ -19,6 +19,7 @@ import 'error_log.dart';
 import 'export_audio_sheet.dart';
 import 'guide.dart';
 import 'history_screen.dart';
+import 'journal.dart';
 import 'library_screen.dart';
 import 'library_store.dart';
 import 'listening_session.dart' show BackgroundReading;
@@ -113,6 +114,7 @@ Future<OpenLibrary> _open(String dir) async {
   await TintCache.instance.attach(Directory(dir));
   await ReadingRules.instance.attach(Directory(dir));
   await MarkStore.instance.attach(Directory(dir));
+  await JournalStore.instance.attach(Directory(dir));
   await StatsStore.instance.attach(Directory(dir));
   NeuralVoices.instance.attach(Directory(dir));
   // One check for the whole engine (the shelves', the Updates page's, and

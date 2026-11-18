@@ -4,14 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData, PlatformException;
 
 import 'folders.dart';
+import 'journal.dart';
 import 'library_store.dart';
 import 'marks.dart';
 import 'prefs.dart';
 import 'theme.dart';
 import 'ui.dart';
 
-/// One book's quotes, as they go into a Markdown export.
-typedef BookQuotes = ({String title, String author, List<Mark> quotes});
+/// One book's quotes and journal, as they go into a Markdown export.
+typedef BookQuotes = ({String title, String author, List<Mark> quotes, List<JournalEntry> journal});
 
 /// The quotes to export: every book's ([bookId] null) or one book's, by
 /// book, leaving out what Saved does not show (a shut secret shelf's, see
@@ -26,12 +27,23 @@ Future<List<BookQuotes>> quotesToExport(LibraryStore store, {String? bookId}) as
     if (bookId != null && m.bookId != bookId) continue;
     byBook.putIfAbsent(m.bookId, () => []).add(m);
   }
+  // The journal too, as Saved shows it: not a book's on a shut secret
+  // shelf (in the library, but not on the shelves shown).
+  final shelved = {for (final e in await store.list()) e.id};
+  final journal = <String, List<JournalEntry>>{};
+  for (final j in JournalStore.instance.all) {
+    if (bookId != null && j.bookId != bookId) continue;
+    if (entries.containsKey(j.bookId) && !shelved.contains(j.bookId)) continue;
+    journal.putIfAbsent(j.bookId, () => []).add(j);
+    byBook.putIfAbsent(j.bookId, () => []);
+  }
   return [
     for (final MapEntry(key: id, value: marks) in byBook.entries)
       (
-        title: entries[id]?.title ?? marks.first.bookTitle,
+        title: entries[id]?.title ?? marks.firstOrNull?.bookTitle ?? journal[id]?.first.bookTitle ?? '',
         author: entries[id]?.authorLine ?? '',
         quotes: marks,
+        journal: journal[id] ?? const [],
       ),
   ];
 }
@@ -42,7 +54,7 @@ Future<List<BookQuotes>> quotesToExport(LibraryStore store, {String? bookId}) as
 String quotesMarkdown(List<BookQuotes> books) {
   final out = StringBuffer();
   for (final b in books) {
-    if (b.quotes.isEmpty) continue;
+    if (b.quotes.isEmpty && b.journal.isEmpty) continue;
     if (out.isNotEmpty) out.write('\n');
     out.writeln('# ${_inline(b.title.isEmpty ? 'Untitled' : b.title)}');
     if (b.author.trim().isNotEmpty) out.writeln('\n*${_inline(b.author.trim())}*');
@@ -65,6 +77,29 @@ String quotesMarkdown(List<BookQuotes> books) {
         out.writeln('- Note: ${note.split('\n').map((l) => l.trim()).join('\n  ')}');
       }
       out.writeln('- Colour: ${m.colour.label}');
+    }
+    // The journal, in the order it was written.
+    if (b.journal.isNotEmpty) {
+      out.writeln('\n## Journal');
+      for (final j in [...b.journal]..sort((x, y) => x.created.compareTo(y.created))) {
+        final d = j.created.toLocal();
+        String two(int n) => n.toString().padLeft(2, '0');
+        final label = j.stamp.label;
+        out.writeln('\n### ${_inline('${label[0].toUpperCase()}${label.substring(1)}')}, '
+            '${d.year}-${two(d.month)}-${two(d.day)}');
+        out.writeln();
+        if (j.isPage) {
+          for (final line in j.page.trim().split('\n')) {
+            out.writeln(_lineStart(line.trim()));
+          }
+        } else {
+          for (final a in j.answers) {
+            if (a.isEmpty) continue;
+            final said = [if (a.pick != null) a.pick!.trim(), if (a.text.trim().isNotEmpty) a.text.trim()].join(': ');
+            out.writeln('- **${_inline(a.question)}** ${said.split('\n').map((l) => l.trim()).join('\n  ')}');
+          }
+        }
+      }
     }
   }
   return out.toString();

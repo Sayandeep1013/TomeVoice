@@ -13,7 +13,11 @@ import 'cast_sheet.dart';
 import 'chapter_finder.dart';
 import 'export_audio_sheet.dart';
 import 'fast_scroller.dart';
+import 'journal.dart' show JournalStamp;
+import 'journal_page.dart';
 import 'library_store.dart';
+import 'novel_move.dart' show chapterNumberOf;
+import 'listening_session.dart' show BackgroundReading;
 import 'novel_screen.dart';
 import 'organise.dart' show seriesLine;
 import 'organise_sheets.dart';
@@ -119,6 +123,19 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
   /// A place saved, most often by the reader opened from here, which covers
   /// this page: it catches up when it shows again.
   void _placeSaved() => whenShown(_refreshEntry);
+
+  /// Where the story is, for the journal: the voice's sentence when it
+  /// reads this book in the background, else the place.
+  JournalStamp _stampNow() {
+    final bg = BackgroundReading.current.value;
+    if (bg != null && bg.bookId == _entry.id) {
+      return stampAt(bg.layout, bg.unit,
+          numberOf: (c) => chapterNumberOf(bg.layout.chapterTitle(c))?.floor() ?? c + 1);
+    }
+    final l = _layout;
+    if (l == null || l.isEmpty) return const JournalStamp(at: ReadingCursor.zero, chapter: 0);
+    return stampAt(l, l.unitForCursor(_cursor, saved: true));
+  }
 
   Future<void> _refreshEntry() async {
     final idx = await _store.index();
@@ -305,6 +322,12 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
         sliver: SliverToBoxAdapter(child: BookSavedSection(store: _store, entry: _entry)),
       ),
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
+        sliver: SliverToBoxAdapter(
+          child: BookJournalSection(bookId: _entry.id, bookTitle: _entry.title, stampNow: _stampNow),
+        ),
+      ),
     ];
     final chapterList = <Widget>[
       SliverPadding(
@@ -439,6 +462,8 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                         bookTitle: _entry.title,
                       ),
                     ));
+                  case 'journal':
+                    await openJournal(context, bookId: _entry.id, bookTitle: _entry.title, stampNow: _stampNow);
                   case 'cover':
                     await changeCover(context, _store, _entry);
                   case 'replace':
@@ -492,6 +517,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                   const PopupMenuItem(value: 'replace', child: Text('Replace the file…')),
                 const PopupMenuItem(value: 'move', child: Text('Move to…')),
                 const PopupMenuItem(value: 'organise', child: Text('Tags and series…')),
+                const PopupMenuItem(value: 'journal', child: Text('Write in the journal')),
                 if (_entry.progress > 0)
                   const PopupMenuItem(value: 'restart', child: Text('Start from the beginning')),
                 const PopupMenuItem(value: 'remove', child: Text('Remove from library')),

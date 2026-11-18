@@ -11,6 +11,7 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'book_search.dart' show foldForSearch;
 import 'index_file.dart';
+import 'journal.dart';
 import 'marks.dart';
 import 'narration.dart' show BookNarrationReader, epubHasNarration;
 import 'ocr.dart';
@@ -1694,6 +1695,7 @@ class LibraryStore {
     await index(all: true);
     if (isSecret(id)) {
       await MarkStore.instance.removeBook(id);
+      await JournalStore.instance.removeBook(id);
     } else {
       // Known to have left from an open shelf: what was saved from it shows
       // on with a secret shelf shut (see marksShown).

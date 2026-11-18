@@ -37,6 +37,7 @@ class ReaderPlayerBar extends StatelessWidget {
     this.cover,
     this.onSleep,
     this.onSave,
+    this.onWrite,
     this.voice,
     this.elsewhere = false,
     this.looking,
@@ -90,6 +91,9 @@ class ReaderPlayerBar extends StatelessWidget {
   final String? cover;
   final VoidCallback? onSleep;
   final VoidCallback? onSave;
+
+  /// The pen: write in this book's journal (journal_page.dart).
+  final VoidCallback? onWrite;
 
   @override
   Widget build(BuildContext context) => GestureDetector(
@@ -294,6 +298,8 @@ class ReaderPlayerBar extends StatelessWidget {
                                       'Sleep timer', onSleep!, lit: sleepNote != null),
                                 if (onSave != null && box.maxWidth >= 266)
                                   _small(context, Icons.bookmark_add_outlined, 'Save this line', onSave!),
+                                if (onWrite != null && box.maxWidth >= 314)
+                                  _small(context, Icons.edit_outlined, 'Write in your journal', onWrite!),
                                 Flexible(
                                   child: _chip(context, voiceLabel, Icons.record_voice_over_rounded, onVoice, tooltip: 'Voice'),
                                 ),
@@ -397,7 +403,9 @@ class ReaderPlayerBar extends StatelessWidget {
                 above: 6,
                 below: 7,
               ),
-              Row(
+              // The pen only where a sixth button fits (not in a narrow
+              // window of a split screen): the book's menu has it too.
+              LayoutBuilder(builder: (context, box) => Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   _icon(context, Icons.skip_previous_rounded, 'Previous chapter',
@@ -409,8 +417,10 @@ class ReaderPlayerBar extends StatelessWidget {
                       u < layout.units.length - 1 ? onNextSentence : null),
                   _icon(context, Icons.skip_next_rounded, 'Next chapter',
                       chapter < layout.chapters.length - 1 || moreAfter ? onNextChapter : null),
+                  if (onWrite != null && box.maxWidth >= 6 * kMinInteractiveDimension + 12)
+                    _icon(context, Icons.edit_outlined, 'Write in your journal', onWrite!),
                 ],
-              ),
+              )),
             ],
           );
         },

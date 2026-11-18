@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor, ReadingLayout;
 
+import 'journal.dart';
 import 'library_store.dart';
 import 'marks.dart';
 import 'novel_move.dart' show movePrefs;
@@ -81,6 +82,7 @@ Future<LibraryEntry?> replaceBookFile(LibraryStore store, LibraryEntry old, Pick
   final after = await store.loadLayout(fresh.id);
   ReadingCursor follow(ReadingCursor c) => followPlace(before, after, c);
   await MarkStore.instance.rebook(old.id, fresh.id, follow);
+  await JournalStore.instance.rebook(old.id, fresh.id, follow);
   final prefs = ListeningPrefs.loaded;
   if (prefs != null && movePrefs(prefs, old.id, fresh.id)) prefs.save();
   await ReadingRules.instance.moveBook(old.id, fresh.id);
