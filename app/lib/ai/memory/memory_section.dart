@@ -7,6 +7,7 @@ import '../../ui.dart';
 import '../ai_keys.dart';
 import '../ai_screen.dart' show tokenCount, wakeTime;
 import 'graph_screen.dart';
+import 'hand_off.dart';
 import 'memory_builder.dart';
 import 'memory_service.dart';
 import 'theories_screen.dart';
@@ -149,6 +150,20 @@ class _BookMemorySectionState extends State<BookMemorySection> {
     ));
   }
 
+  Future<void> _handOff() async {
+    final line = await _service.lineOf(widget.bookId);
+    final here = await _service.hereOf(widget.bookId);
+    if (!mounted) return;
+    await showHandOff(
+      context,
+      memoryPath: _service.pathOf(widget.bookId),
+      bookId: widget.bookId,
+      title: widget.bookTitle,
+      line: line,
+      here: here,
+    );
+  }
+
   Future<void> _forget() async {
     final sure = await confirm(context,
         title: 'Forget what it remembers?',
@@ -253,6 +268,12 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                     label: const Text('Graph'),
                   ),
                 ],
+                if (s.exists && s.noted > 0)
+                  OutlinedButton.icon(
+                    onPressed: () => unawaited(_handOff()),
+                    icon: const Icon(Icons.forum_outlined, size: 18),
+                    label: const Text('Talk elsewhere'),
+                  ),
               ],
             ),
             SwitchListTile(

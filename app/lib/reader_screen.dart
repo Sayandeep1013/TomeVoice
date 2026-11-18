@@ -513,7 +513,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     // have now reached: said once, a moment after the book opens.
     // When the book was last read, before this opening moves it.
     final lastRead = widget.store?.list(all: true).then((all) => all.where((e) => e.id == _book.id).firstOrNull?.openedAt);
-    Future<void>.delayed(const Duration(seconds: 2), () async {
+    _aiLater = Timer(const Duration(seconds: 2), () async {
       if (!mounted) return;
       unawaited(_offerPreviously(await lastRead));
       unawaited(_tellTheories());
@@ -873,6 +873,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _watched?.layouts.removeListener(_voiceMoved);
     BackgroundReading.current.removeListener(_voiceMoved);
     _pdfTap?.cancel();
+    _aiLater?.cancel();
     final open = _nowPlaying;
     final nav = _nowPlayingNav;
     if (open != null && nav != null && open.isActive) {
@@ -2611,6 +2612,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       }
     }());
   }
+
+  /// The AI's offers a moment after the book opens; cancelled with the
+  /// page, so a closed page is not held until it fires.
+  Timer? _aiLater;
 
   /// Back after some days ([ListeningPrefs.aiRecapDays]) to a book whose
   /// memory has notes: an offer to hear what happened just before.

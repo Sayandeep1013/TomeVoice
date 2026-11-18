@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_spike/ai/memory/chapter_notes.dart';
 import 'package:tomevoice_spike/ai/memory/graph.dart';
 import 'package:tomevoice_spike/ai/memory/graph_screen.dart';
+import 'package:tomevoice_spike/ai/memory/hand_off.dart';
 import 'package:tomevoice_spike/ai/memory/ledger.dart';
 import 'package:tomevoice_spike/ai/memory/memory_db.dart';
 import 'package:tomevoice_spike/ai/memory/whos_who_screen.dart';
@@ -88,6 +89,19 @@ void main() {
     final nephis = ledger(path, query: 'nephis').single.id;
     expect(graphAt(path, focus: nephis).nodes.single.name, 'Nephis');
     expect(graphAt(path, focus: sunny).nodes.length, 3);
+  });
+
+  test('the hand-off pack: the story, who matters as they stand, kept to the line', () {
+    final path = _memory(tmp);
+    final all = handOffMarkdown(path, title: 'Shadow Slave', author: 'Guiltythree', journal: const ['up to chapter 2: I like Cassie.']);
+    expect(all, startsWith('# Shadow Slave — Guiltythree'));
+    expect(all, contains('**Sunless** (person, from ch 1), also Sunny. A slum boy'));
+    expect(all, contains('**Nephis**'));
+    expect(all, contains("## The reader's journal"));
+    final kept = handOffMarkdown(path, title: 'Shadow Slave', line: 1, here: 1);
+    expect(kept, contains('please do not reveal anything after it'));
+    expect(kept, isNot(contains('Nephis')));
+    expect(kept, contains('Sunless ally of Cassie'));
   });
 
   test('laid out the same each time, inside its square, linked nodes nearer', () {
