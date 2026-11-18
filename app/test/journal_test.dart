@@ -192,7 +192,9 @@ void main() {
       await tester.tap(find.text('Write'));
       await tester.pumpAndSettle();
       expect(find.text('First words.'), findsOneWidget);
-      await tester.enterText(find.byType(TextField).first, 'Second words.');
+      // The questions not answered then are there to answer now.
+      expect(find.text('WHAT STOOD OUT?'), findsOneWidget);
+      await tester.enterText(find.widgetWithText(TextField, 'First words.'), 'Second words.');
       await tester.tap(find.text('Done'));
       await tester.pumpAndSettle();
       final e = store.forBook('book').single;

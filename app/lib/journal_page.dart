@@ -87,24 +87,27 @@ class _JournalPageState extends State<JournalPage> {
     super.initState();
     final e = widget.entry;
     _began = e?.stamp ?? widget.stampNow();
-    // An entry written before keeps the questions it was asked.
+    final template = widget.questions ?? journalQuestionsOf(ListeningPrefs.loaded ?? ListeningPrefs.memory);
+    // An entry written before keeps the questions it was asked, and the
+    // template's others follow, to answer now.
     _questions = e != null && !e.isPage
         ? [
+            // Asked then, no longer in the template: first, as they were.
             for (final a in e.answers)
-              (widget.questions ?? journalQuestionsOf(ListeningPrefs.loaded ?? ListeningPrefs.memory))
-                      .where((q) => q.text == a.question)
-                      .firstOrNull ??
-                  JournalQuestion(a.question, picks: a.pick == null ? const [] : [a.pick!]),
+              if (!template.any((q) => q.text == a.question))
+                JournalQuestion(a.question, picks: a.pick == null ? const [] : [a.pick!]),
+            ...template,
           ]
-        : (widget.questions ?? journalQuestionsOf(ListeningPrefs.loaded ?? ListeningPrefs.memory));
+        : template;
     _words = [for (var i = 0; i < _questions.length; i++) TextEditingController()];
     _own = [for (var i = 0; i < _questions.length; i++) TextEditingController()];
     _picks = List.filled(_questions.length, null);
     _blank = e != null && e.isPage;
     if (e != null) {
       _page.text = e.page;
-      for (final (i, a) in e.answers.indexed) {
-        if (i >= _questions.length) break;
+      for (final a in e.answers) {
+        final i = _questions.indexWhere((q) => q.text == a.question);
+        if (i < 0) continue;
         _words[i].text = a.text;
         final q = _questions[i];
         if (a.pick != null) {
