@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import 'ai/ai_keys.dart';
+import 'ai/ai_screen.dart';
 import 'app_update.dart';
 import 'auto_backup.dart';
 import 'auto_download.dart';
@@ -116,6 +118,8 @@ Future<OpenLibrary> _open(String dir) async {
   await ReadingRules.instance.attach(Directory(dir));
   await MarkStore.instance.attach(Directory(dir));
   await JournalStore.instance.attach(Directory(dir));
+  // The reader's AI keys (kept with the catalogue passwords) and their use.
+  await AiRing.instance.attach(Directory(dir));
   await StatsStore.instance.attach(Directory(dir));
   NeuralVoices.instance.attach(Directory(dir));
   // One check for the whole engine (the shelves', the Updates page's, and
@@ -583,6 +587,9 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
               // The reading journal: what was thought, a page a book.
               _item(context, Icons.edit_note_outlined, Icons.edit_note_rounded, 'Journal',
                   onTap: () => _push((s) => JournalScreen(store: s))),
+              // The reading companion: keys, the books' memories, Talk.
+              _item(context, Icons.auto_awesome_outlined, Icons.auto_awesome_rounded, 'AI',
+                  onTap: () => _push((_) => const AiScreen())),
               _item(context, Icons.insights_outlined, Icons.insights_rounded, 'Stats',
                   onTap: () => _push((s) => StatsScreen(store: s))),
               const Padding(
