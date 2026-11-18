@@ -191,6 +191,15 @@ Future<int> _bytesOff(String dir, List<int> chapters) => Isolate.run(() {
       return bytes;
     });
 
+Future<bool> _pausedOff(String path) => Isolate.run(() {
+      final m = MemoryDb.open(path);
+      try {
+        return m.meta('paused') == '1';
+      } finally {
+        m.close();
+      }
+    });
+
 /// The first chapter (from 0) not in the word index: where a memory built
 /// in order has to wait.
 Future<int> _firstGapOff(String path) => Isolate.run(() {
@@ -344,6 +353,11 @@ class MemoryService {
     await refresh(id);
     if (!maySend(id)) return;
     if (_n(id).value.noted == 0 && !_n(id).value.begun) return;
+    // Paused by the reader: it waits for them.
+    if (_paused.contains(id) || await _pausedOff(_path(id))) {
+      _paused.add(id);
+      return;
+    }
     _keptAt[id] = DateTime.now();
     await build(id);
   }
@@ -507,6 +521,10 @@ class MemoryService {
     for (final e in _builders.entries) {
       if (e.key != id && e.value.running) e.value.pause();
     }
+    // Asked to build: a pause the reader made is over.
+    if (_paused.remove(id) || File(_path(id)).existsSync()) {
+      if (File(_path(id)).existsSync()) await _setMetaOff(_path(id), 'paused', null);
+    }
     if (_n(id).value.indexing == null) await index(id);
     // The library closed meanwhile (a restore, a test's end): nothing more.
     if (_store == null) return;
@@ -533,10 +551,17 @@ class MemoryService {
     }
   }
 
+  /// Stops [id]'s building, and keeps it stopped (kept up as it is read,
+  /// or built with the app closed, neither) until the reader goes on.
   void pause(String id) {
     _wakes.remove(id)?.cancel();
     _builders[id]?.pause();
+    _paused.add(id);
+    final store = _store;
+    if (store != null && File(_path(id)).existsSync()) unawaited(_setMetaOff(_path(id), 'paused', '1'));
   }
+
+  final _paused = <String>{};
 
   bool isBuilding(String id) => _builders[id]?.running ?? false;
 

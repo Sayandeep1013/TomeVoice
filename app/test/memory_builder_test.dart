@@ -486,12 +486,22 @@ void main() {
       await service.keepUp(id);
       expect(sent.length, now);
 
+      // Paused by the reader: kept up no more, even as chapters come, until
+      // they go on.
+      service.pause(id);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await service.keepUp(id, force: true);
+      expect(sent.length, now);
+      await service.build(id);
+      expect(sent.length, greaterThan(now));
+      final afterGoOn = sent.length;
+
       // Kept away from the AI: nothing more is sent, even forced.
       await service.setPrivate(id, true);
       expect(service.maySend(id), isFalse);
       await service.keepUp(id, force: true);
       await service.build(id);
-      expect(sent.length, now);
+      expect(sent.length, afterGoOn);
       await service.setPrivate(id, false);
       expect(service.maySend(id), isTrue);
     });
