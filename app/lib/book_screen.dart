@@ -45,6 +45,10 @@ class BookScreen extends StatefulWidget {
 
 class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
   late LibraryEntry _entry = widget.entry;
+
+  /// Its file is being replaced (Replace the file): the book going from
+  /// the library is not this page closing.
+  bool _replacing = false;
   LibraryIndex? _index;
   ReadingLayout? _layout;
   ReadingCursor _cursor = ReadingCursor.zero;
@@ -122,6 +126,10 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
     final cursor = await _store.cursorFor(_entry.id);
     if (!mounted) return;
     if (fresh == null) {
+      // Its file being replaced: the new book's page takes this one's place
+      // (see 'replace'). Popped here, the page under it was replaced
+      // instead, and the library was gone from under the reader.
+      if (_replacing) return;
       // Removed from the library.
       Navigator.of(context).maybePop();
       return;
@@ -435,11 +443,20 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                     await changeCover(context, _store, _entry);
                   case 'replace':
                     final nav = Navigator.of(context);
-                    final fresh = await askReplaceBookFile(context, _store, _entry);
+                    _replacing = true;
+                    LibraryEntry? fresh;
+                    try {
+                      fresh = await askReplaceBookFile(context, _store, _entry);
+                    } finally {
+                      // Replaced, this page is going: it stays out of the way
+                      // until it has (a check of the library still under way
+                      // must not pop the new book's page).
+                      if (fresh == null) _replacing = false;
+                    }
                     // The book is another now: its page, in this one's place.
                     if (fresh != null && mounted) {
                       unawaited(nav.pushReplacement(MaterialPageRoute<void>(
-                        builder: (_) => BookScreen(store: _store, entry: fresh),
+                        builder: (_) => BookScreen(store: _store, entry: fresh!),
                       )));
                     }
                   case 'move':

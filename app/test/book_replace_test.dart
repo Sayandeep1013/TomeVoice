@@ -4,9 +4,12 @@
 
 import 'dart:io';
 
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor;
 import 'package:tomevoice_spike/book_replace.dart';
+import 'package:tomevoice_spike/book_screen.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/marks.dart';
 import 'package:tomevoice_spike/prefs.dart';
@@ -101,5 +104,97 @@ void main() {
       expect(await replaceBookFile(store, old, file('sea.md', book('strange'))), isNull);
       expect((await store.list(all: true)).map((e) => e.id), [old.id]);
     });
+  });
+
+  testWidgets("replaced from its page, the new book's page takes its place, and Back reaches the library",
+      (tester) async {
+    tester.view.physicalSize = const Size(1080, 2340);
+    tester.view.devicePixelRatio = 2.75;
+    addTearDown(tester.view.reset);
+    final dir = Directory.systemTemp.createTempSync('tv_replace_page');
+    addTearDown(() {
+      try {
+        dir.deleteSync(recursive: true);
+      } on FileSystemException {
+        // Windows may still hold a file open; the temp folder is swept.
+      }
+    });
+    MarkStore.instance.reset();
+    ListeningPrefs.reset();
+    final store = LibraryStore(dir);
+    File write(String name, String text) => File('${dir.path}/incoming/${DateTime.now().microsecondsSinceEpoch}/$name')
+      ..createSync(recursive: true)
+      ..writeAsStringSync(text);
+    late LibraryEntry old;
+    late File second;
+    await tester.runAsync(() async {
+      old = await store.importFile(PickedFile(path: write('tide.md', '# One\n\nThe tide came in.').path, name: 'tide.md'));
+      second = write('tide.md', '# One\n\nThe tide came in slowly.');
+    });
+    const channel = MethodChannel('tomevoice/tts');
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async => switch (call.method) {
+          'pickDocuments' => [
+              {'path': second.path, 'name': 'tide.md'},
+            ],
+          _ => null,
+        });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(
+        builder: (context) => Scaffold(
+          body: Center(
+            child: TextButton(
+              onPressed: () => Navigator.of(context)
+                  .push(MaterialPageRoute<void>(builder: (_) => BookScreen(store: store, entry: old))),
+              child: const Text('The library'),
+            ),
+          ),
+        ),
+      ),
+    ));
+    // The page, once its book is read (a spinner turns till then).
+    Future<void> loaded() async {
+      for (var i = 0; i < 60; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+        await tester.pump(const Duration(milliseconds: 100));
+        if (find.byType(CircularProgressIndicator).evaluate().isEmpty) break;
+      }
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+
+    await tester.tap(find.text('The library'));
+    await loaded();
+
+    Future<void> frames() async {
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    await tester.tap(find.byTooltip('Book options'));
+    await frames();
+    await tester.tap(find.text('Replace the file…'));
+    await frames();
+    await tester.tap(find.text('Pick a file'));
+    // Read in, and the old book gone.
+    for (var i = 0; i < 100; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pump(const Duration(milliseconds: 50));
+      final books = await tester.runAsync(() => store.list(all: true));
+      if (books != null && books.length == 1 && books.single.id != old.id) break;
+    }
+    await loaded();
+    final now = (await tester.runAsync(() => store.list(all: true)))!;
+    expect(now.single.id, isNot(old.id));
+    expect(find.byType(BookScreen), findsOneWidget);
+
+    // Back: the library, as before the file was replaced.
+    await tester.pageBack();
+    await frames();
+    expect(find.text('The library'), findsOneWidget);
+    expect(find.byType(BookScreen), findsNothing);
+    await tester.pump(const Duration(seconds: 5));
   });
 }
