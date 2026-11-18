@@ -7,6 +7,7 @@ import '../prefs.dart';
 import '../theme.dart';
 import '../ui.dart';
 import 'ai_client.dart';
+import 'memory/memory_background.dart';
 import 'ai_keys.dart';
 
 /// Main menu > AI: the reader's keys, what each job uses, and how they have
@@ -250,6 +251,7 @@ class _TalkSettingsState extends State<_TalkSettings> {
               ],
             ),
           ),
+          const SizedBox(height: Gap.s),
           SwitchRow(
             title: 'What the AI already knows of the book',
             subtitle: _p.aiOwnKnowledge
@@ -258,8 +260,36 @@ class _TalkSettingsState extends State<_TalkSettings> {
             value: _p.aiOwnKnowledge,
             onChanged: (v) => _set((p) => p.aiOwnKnowledge = v),
           ),
+          const SizedBox(height: Gap.l),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: Gap.page),
+            child: SectionTitle('Building memories', size: 18),
+          ),
+          SwitchRow(
+            title: 'Also with TomeVoice closed',
+            subtitle: 'Every hour or so, the memories you began go on, never with the battery low',
+            value: _p.aiBackground,
+            onChanged: (v) => _background((p) => p.aiBackground = v),
+          ),
+          if (_p.aiBackground) ...[
+            SwitchRow(
+              title: 'Only on Wi-Fi',
+              value: _p.aiBackgroundWifi,
+              onChanged: (v) => _background((p) => p.aiBackgroundWifi = v),
+            ),
+            SwitchRow(
+              title: 'Only while charging',
+              value: _p.aiBackgroundCharging,
+              onChanged: (v) => _background((p) => p.aiBackgroundCharging = v),
+            ),
+          ],
         ],
       );
+
+  void _background(void Function(ListeningPrefs p) change) {
+    _set(change);
+    unawaited(MemoryBackground.apply(_p));
+  }
 }
 
 /// A job's keys in the order it tries them; hold one to move it.

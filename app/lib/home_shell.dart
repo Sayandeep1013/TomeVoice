@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'ai/ai_keys.dart';
 import 'ai/ai_screen.dart';
+import 'ai/memory/memory_background.dart';
 import 'ai/memory/memory_service.dart';
 import 'app_update.dart';
 import 'auto_backup.dart';
@@ -122,6 +123,9 @@ Future<OpenLibrary> _open(String dir) async {
   // The reader's AI keys (kept with the catalogue passwords) and their use.
   await AiRing.instance.attach(Directory(dir));
   MemoryService.instance.attach(store);
+  // Memories built with the app closed, while the AI has a key.
+  unawaited(MemoryBackground.apply(prefs));
+  AiRing.instance.addListener(() => unawaited(MemoryBackground.apply(ListeningPrefs.loaded ?? prefs)));
   await StatsStore.instance.attach(Directory(dir));
   NeuralVoices.instance.attach(Directory(dir));
   // One check for the whole engine (the shelves', the Updates page's, and

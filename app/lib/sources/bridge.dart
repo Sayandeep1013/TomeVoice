@@ -77,6 +77,17 @@ class SourcesBridge {
   static Future<void> scheduleChecks({required int handle, required int minutes, bool unmetered = true}) =>
       _ask<void>('scheduleChecks', {'handle': handle, 'minutes': minutes, 'unmetered': unmetered});
 
+  /// MemoryBuildWorker runs the Dart function behind [handle] every
+  /// [minutes] (0 stops it), on Wi-Fi only when [unmetered], only while
+  /// charging when [charging].
+  static Future<void> scheduleMemory({
+    required int handle,
+    required int minutes,
+    bool unmetered = true,
+    bool charging = false,
+  }) =>
+      _ask<void>('scheduleMemory', {'handle': handle, 'minutes': minutes, 'unmetered': unmetered, 'charging': charging});
+
   /// The background check is done: [outcome] says what to tell the reader
   /// ({found, title, text, lines}). Ends its engine.
   static Future<void> backgroundDone(Map<String, Object?> outcome) => _ask<void>('backgroundDone', outcome);

@@ -70,6 +70,9 @@ class ListeningPrefs {
     this.aiRecapDays = 3,
     this.aiLength = 'normal',
     this.aiOwnKnowledge = false,
+    this.aiBackground = true,
+    this.aiBackgroundWifi = true,
+    this.aiBackgroundCharging = false,
     this.sort = LibrarySort.recent,
     this.bookColours = true,
     this.naturalVoices,
@@ -365,6 +368,12 @@ class ListeningPrefs {
   /// keeps to what TomeVoice gives it).
   bool aiOwnKnowledge;
 
+  /// Memories built with TomeVoice closed (on unless turned off), only on
+  /// Wi-Fi (on), only while charging (off).
+  bool aiBackground;
+  bool aiBackgroundWifi;
+  bool aiBackgroundCharging;
+
   /// Order of books in the library.
   LibrarySort sort;
 
@@ -534,6 +543,9 @@ class ListeningPrefs {
         'aiRecapDays': aiRecapDays,
         'aiLength': aiLength,
         'aiOwnKnowledge': aiOwnKnowledge,
+        'aiBackground': aiBackground,
+        'aiBackgroundWifi': aiBackgroundWifi,
+        'aiBackgroundCharging': aiBackgroundCharging,
         'sort': sort.name,
         'bookColours': bookColours,
         if (naturalVoices != null) 'naturalVoices': naturalVoices,
@@ -637,6 +649,9 @@ class ListeningPrefs {
         aiRecapDays: (json['aiRecapDays'] as num?)?.toInt() ?? 3,
         aiLength: json['aiLength'] as String? ?? 'normal',
         aiOwnKnowledge: json['aiOwnKnowledge'] as bool? ?? false,
+        aiBackground: json['aiBackground'] as bool? ?? true,
+        aiBackgroundWifi: json['aiBackgroundWifi'] as bool? ?? true,
+        aiBackgroundCharging: json['aiBackgroundCharging'] as bool? ?? false,
         paletteId: json['palette'] as String? ?? 'forest',
         ownPage: colourFromHex(json['ownPage']),
         ownAccent: colourFromHex(json['ownAccent']),

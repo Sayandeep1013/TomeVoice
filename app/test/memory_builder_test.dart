@@ -13,11 +13,13 @@ import 'package:tomevoice_spike/ai/ai_router.dart';
 import 'package:tomevoice_spike/ai/memory/chapter_notes.dart';
 import 'package:tomevoice_spike/ai/memory/graph.dart';
 import 'package:tomevoice_spike/ai/memory/memory_builder.dart';
+import 'package:tomevoice_spike/ai/memory/memory_background.dart';
 import 'package:tomevoice_spike/ai/memory/memory_db.dart';
 import 'package:tomevoice_spike/ai/memory/memory_service.dart';
 import 'package:tomevoice_spike/ai/memory/theories.dart';
 import 'package:tomevoice_spike/ai/memory/word_index.dart';
 import 'package:tomevoice_spike/library_store.dart';
+import 'package:tomevoice_spike/secrets.dart';
 import 'package:tomevoice_spike/sources/models.dart';
 import 'package:tomevoice_spike/speech_service.dart';
 
@@ -390,6 +392,29 @@ void main() {
       await store.saveChapterAt(id, 'c5', '<p>Mira rested.</p>');
       await service.keepUp(id);
       expect(sent.length, now);
+    });
+
+    test('with the app closed: the memories begun are built, others left alone', () async {
+      final begun = await book(4);
+      final f = File('${tmp.path}/incoming/other.md')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('# Chapter 1: One\n\nNobody asked for this one.');
+      final other = (await store.importFile(PickedFile(path: f.path, name: 'other.md'))).id;
+      await WordIndexer(store).index(other);
+      final m = MemoryDb.open(begun)..setMeta('begun', '1');
+      m.close();
+      answer = (req, body) => reply(req, 200, chat(notesFor(body)));
+      addTearDown(() => Secrets.home = null);
+      final out = await runBackgroundBuild(
+        libraryRoot: tmp.path,
+        internalRoot: tmp.path,
+        router: AiRouter(pause: Duration.zero),
+      );
+      expect(out['noted'], 4);
+      final left = MemoryDb.open(MemoryDb.pathIn(store.bookDir(other)));
+      addTearDown(left.close);
+      expect(left.db.select('SELECT count(*) n FROM notes').first['n'], 0);
+      expect(sent.every((b) => !b.toString().contains('Nobody asked')), isTrue);
     });
 
     test('a broken reply is asked again with what was wrong; a chapter that will not come is passed over', () async {

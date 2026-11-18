@@ -101,12 +101,25 @@ object SourcesBridge {
                         result.error("SCHEDULE", e.message, null)
                     }
                 }
+                // The AI companion's memories, built with the app closed.
+                "scheduleMemory" -> {
+                    val handle = (call.argument<Any>("handle") as? Number)?.toLong() ?: 0L
+                    val minutes = (call.argument<Any>("minutes") as? Number)?.toLong() ?: 0L
+                    val unmetered = call.argument<Boolean>("unmetered") != false
+                    val charging = call.argument<Boolean>("charging") == true
+                    try {
+                        MemoryBuildWorker.schedule(appContext, handle, minutes, unmetered, charging)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("SCHEDULE", e.message, null)
+                    }
+                }
                 "backgroundDone" -> {
                     val args = call.arguments as? Map<*, *> ?: emptyMap<String, Any>()
                     result.success(null)
                     onDone?.invoke(args)
                 }
-                "backgroundBusy" -> result.success(NovelCheckWorker.running.get())
+                "backgroundBusy" -> result.success(NovelCheckWorker.running.get() || MemoryBuildWorker.running.get())
                 // How runs since the last ask ended, where ErrorLog.kt's
                 // handler could not hear it (PastExits). Off the main thread.
                 "pastExits" -> decoder.execute {
