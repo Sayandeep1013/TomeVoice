@@ -2111,7 +2111,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                   right: 0,
                   // Above the dock when it floats over the text.
                   bottom: rail && shown ? 112 : (rail ? 24 : 10),
-                  child: pill!,
+                  // Back to reading and the other pills come and go with the
+                  // bars, as on pages: left behind, it sat half faded at the
+                  // page's foot with the bars gone.
+                  child: _withBars(shown, pill!),
                 ),
                 child: Center(
                   child: AnimatedSwitcher(
@@ -2198,7 +2201,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
               left: 0,
               right: 0,
               bottom: shown ? foot + 10 : 10,
-              child: pill!,
+              child: _withBars(shown, pill!),
             ),
             child: pill,
           ),
@@ -2363,6 +2366,20 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             margin: _snackMargin, actionLabel: 'Undo', onAction: () => unawaited(MarkStore.instance.restore(m)));
       },
     ));
+  }
+
+  /// [pill] over the scroll, shown while the bars are ([shown]; a PDF's real
+  /// pages keep theirs). Reading alone, nothing covers the text.
+  Widget _withBars(bool shown, Widget pill) {
+    final on = shown || _showPages;
+    return IgnorePointer(
+      ignoring: !on,
+      child: AnimatedOpacity(
+        opacity: on ? 1 : 0,
+        duration: Motion.of(context, Motion.quick),
+        child: pill,
+      ),
+    );
   }
 
   /// Back to reading, the search matches, or the way back after a jump:

@@ -28,6 +28,7 @@ Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoi
 #### Fixes
 - A chapter picked in the reader's own Contents, a bookmark from its list, or a passage found by its search is only looked at while the book is listened to, as the same picked from the book's page already was in 1.5.0: the voice reads on (or stays paused) at its place, and Back to reading returns to it. Before, the voice went there. Meanwhile the player names the chapter the voice is reading ("READING CHAPTER III") in every book, not only in a web novel.
 - Replacing a book's file no longer leaves its page with nothing under it: Back goes to the library again.
+- On the scroll, Back to reading (and the other pills) goes with the bars, as on pages. Before, it stayed half faded at the foot of the page with the bars gone.
 - The app no longer closes when a web-novel site loaded through the hidden web view answers after the source that asked for it has stopped (a check that timed out, a source closed meanwhile). Seen once on 11 November; Flutter's engine ended the whole app.
 - Report a problem sends only the errors of the version you run. An older version's errors are counted, not sent again: issue #28 (1.5.0) carried the same 1.4.1 error as #24 and #25, fixed in 1.4.2.
 - Crashes in the app's native code, and Android closing the app for not responding, now reach the error log (Android 11 and later): they never did, so a report could not show them.
