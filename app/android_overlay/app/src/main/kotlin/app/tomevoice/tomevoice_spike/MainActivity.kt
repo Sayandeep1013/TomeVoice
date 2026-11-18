@@ -1366,6 +1366,11 @@ class MainActivity : FlutterActivity() {
             return
         }
         io.execute {
+            // Reading every page is long work on one core: at background
+            // priority it gives way to drawing the app, whose frames fell
+            // while a big PDF was read at the same priority as the screen.
+            val priority = android.os.Process.getThreadPriority(android.os.Process.myTid())
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             try {
                 var lastReport = 0L
                 val out = PdfText.extract(this, path) { done, total ->
@@ -1378,6 +1383,8 @@ class MainActivity : FlutterActivity() {
                 main.post { result.success(out) }
             } catch (e: Throwable) {
                 main.post { result.error("PDF", e.message ?: "Could not read this PDF", null) }
+            } finally {
+                android.os.Process.setThreadPriority(priority)
             }
         }
     }

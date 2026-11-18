@@ -996,7 +996,7 @@ void main() {
       await finish(tester);
     });
 
-    testWidgets("the pen on the player opens the book's journal at the voice's chapter", (tester) async {
+    testWidgets("the pen over the player (its own button, the player's controls in their places) opens the book's journal at the voice's chapter", (tester) async {
       withSound();
       final store = LibraryStore(_tmp);
       final nav = await pumpShelf(tester);

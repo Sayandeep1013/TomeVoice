@@ -25,6 +25,7 @@ import 'package:tomevoice_spike/page_tone.dart';
 import 'package:tomevoice_spike/paged_view.dart';
 import 'package:tomevoice_spike/pages_view.dart';
 import 'package:tomevoice_spike/prefs.dart';
+import 'package:tomevoice_spike/reader_chrome.dart' show ReaderTopBar;
 import 'package:tomevoice_spike/reader_player_bar.dart';
 import 'package:tomevoice_spike/reader_screen.dart';
 import 'package:tomevoice_spike/settings_screen.dart';
@@ -373,7 +374,9 @@ void main() {
       await open(tester, ReadingLayout.build(book), pdf: '${_tmp.path}/b.pdf');
       final pages = tester.getRect(find.byType(PdfPagesView));
       expect(veils(tester).any((r) => r.contains(pages.center) && r.height >= pages.height - 1), isTrue);
-      final at = Offset(pages.center.dx, pages.top + 40);
+      // The pages run under the bars now, as the text does: a point on the
+      // first page, below the top bar.
+      final at = Offset(pages.center.dx, tester.getRect(find.byType(ReaderTopBar)).bottom + 40);
       final before = await shot(tester);
       ListeningPrefs.memory
         ..pageBrightness = 0

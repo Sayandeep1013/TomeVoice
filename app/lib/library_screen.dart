@@ -57,8 +57,10 @@ class _Importing {
 
   /// What is happening, when it is not a file being opened.
   final String? note;
-  int done = 0;
-  int total = 0;
+
+  /// Pages read of how many: only the card listens, so a big PDF's pages
+  /// counting up do not build the whole library again four times a second.
+  final progress = ValueNotifier<(int, int)>((0, 0));
 }
 
 class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScreen> {
@@ -397,11 +399,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
           await _store.importFile(
             f,
             onProgress: (done, total) {
-              if (!mounted) return;
-              setState(() {
-                job.done = done;
-                job.total = total;
-              });
+              if (mounted) job.progress.value = (done, total);
             },
             onNote: (note) => notes.add(files.length > 1 ? '${f.name}: $note' : note),
             onScan: scans.add,
@@ -1351,8 +1349,13 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     ],
   );
 
-  Widget _importCard(BuildContext context, _Importing job) {
-    final frac = job.total > 0 ? job.done / job.total : null;
+  Widget _importCard(BuildContext context, _Importing job) => ValueListenableBuilder<(int, int)>(
+        valueListenable: job.progress,
+        builder: (context, progress, _) => _importCardAt(context, job, progress.$1, progress.$2),
+      );
+
+  Widget _importCardAt(BuildContext context, _Importing job, int done, int total) {
+    final frac = total > 0 ? done / total : null;
     return Container(
       padding: const EdgeInsets.fromLTRB(Gap.l, 14, Gap.l, 14),
       decoration: BoxDecoration(
@@ -1366,7 +1369,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
           Text(job.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: Skin.title(context, size: 17)),
           const SizedBox(height: Gap.xs),
           Eyebrow(
-            job.note ?? (frac == null ? 'Opening and finding chapters…' : 'Reading page ${job.done} of ${job.total}…'),
+            job.note ?? (frac == null ? 'Opening and finding chapters…' : 'Reading page $done of $total…'),
           ),
           const SizedBox(height: 10),
           ClipRRect(
