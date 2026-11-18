@@ -14,12 +14,22 @@ import 'theories_screen.dart';
 import 'whos_who_screen.dart';
 
 /// A book's page > Memory: what the AI companion remembers of the book,
-/// how far it is built, Build or Pause, and the spoiler guard.
+/// how far it is built, Build or Pause, and the spoiler guard. On the
+/// book's page it is one row ([compact]) that opens its own page, so the
+/// chapters are not pushed down (the owner's choice).
 class BookMemorySection extends StatefulWidget {
-  const BookMemorySection({super.key, required this.bookId, required this.bookTitle, required this.secret, this.service});
+  const BookMemorySection({
+    super.key,
+    required this.bookId,
+    required this.bookTitle,
+    required this.secret,
+    this.service,
+    this.compact = true,
+  });
 
   final String bookId;
   final String bookTitle;
+  final bool compact;
 
   /// On a secret shelf: never sent, so never built.
   final bool secret;
@@ -262,6 +272,51 @@ class _BookMemorySectionState extends State<BookMemorySection> {
       builder: (context, s, _) {
         final busy = s.building || s.build.phase == BuildPhase.resting;
         final left = s.indexed == 0 || s.noted + s.skipped < s.indexed;
+        if (widget.compact) {
+          return Material(
+            color: Skin.capsuleOn(context),
+            borderRadius: BorderRadius.circular(Radii.row + 4),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(Radii.row + 4),
+              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => BookMemoryScreen(bookId: widget.bookId, bookTitle: widget.bookTitle),
+              )),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(Gap.l, Gap.m, Gap.s, Gap.m),
+                child: Row(
+                  children: [
+                    Icon(Icons.auto_awesome_rounded, color: Skin.accentInkOf(context)),
+                    const SizedBox(width: Gap.m),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Memory',
+                              style: Skin.ui(size: 16, weight: FontWeight.w600, color: Skin.inkOn(context))),
+                          const SizedBox(height: 2),
+                          Text(
+                            s.private ? 'Kept away from the AI' : _line(s),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: Skin.meta(context),
+                          ),
+                          if (s.build.phase == BuildPhase.running && s.indexed > 0) ...[
+                            const SizedBox(height: 6),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(3),
+                              child: LinearProgressIndicator(value: s.noted / s.indexed, minHeight: 3),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.chevron_right_rounded, color: Skin.inkSoftOn(context)),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -368,6 +423,117 @@ class _BookMemorySectionState extends State<BookMemorySection> {
           ],
         );
       },
+    );
+  }
+}
+
+/// A book's memory, on a page of its own: how far it is built, Build or
+/// Pause, the spoiler guard, Who's who, the graph, theories, Talk elsewhere.
+class BookMemoryScreen extends StatelessWidget {
+  const BookMemoryScreen({super.key, required this.bookId, required this.bookTitle});
+
+  final String bookId;
+  final String bookTitle;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        body: DecoratedBox(
+          decoration: BoxDecoration(gradient: Skin.ground(context)),
+          child: SafeArea(
+            bottom: false,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ScreenTopBar(title: 'Memory', onBack: () => Navigator.of(context).maybePop()),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.m),
+                  child: Text(bookTitle, style: Skin.meta(context)),
+                ),
+                Expanded(
+                  child: ListView(
+                    padding: EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.xxl + MediaQuery.viewPaddingOf(context).bottom),
+                    children: [
+                      BookMemorySection(bookId: bookId, bookTitle: bookTitle, secret: false, compact: false),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+}
+
+/// Main menu > Memory: every book with a memory, how far it is built; a
+/// tap opens that book's memory.
+class MemoriesScreen extends StatefulWidget {
+  const MemoriesScreen({super.key});
+
+  @override
+  State<MemoriesScreen> createState() => _MemoriesScreenState();
+}
+
+class _MemoriesScreenState extends State<MemoriesScreen> {
+  List<({String id, String title})>? _books;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(MemoryService.instance.booksWithMemory().then((b) {
+      if (mounted) setState(() => _books = [for (final e in b) (id: e.id, title: e.title)]);
+    }));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final books = _books;
+    return Scaffold(
+      body: DecoratedBox(
+        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        child: SafeArea(
+          bottom: false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ScreenTopBar(title: 'Memory', onBack: () => Navigator.of(context).maybePop()),
+              Expanded(
+                child: books == null
+                    ? const SizedBox.shrink()
+                    : books.isEmpty
+                        ? EmptyState(
+                            icon: Icons.auto_awesome_outlined,
+                            title: 'No memories yet',
+                            body: AiRing.instance.hasKeys
+                                ? "Open a book and tap Memory on its page: the AI reads it once, chapter by chapter, "
+                                    'and remembers who is who and what happened.'
+                                : 'Add a key in AI first. Then, from a book\'s page, the AI reads it once and remembers '
+                                    'who is who and what happened.',
+                          )
+                        : ListView(
+                            padding: EdgeInsets.fromLTRB(
+                                Gap.page, 0, Gap.page, Gap.xxl + MediaQuery.viewPaddingOf(context).bottom),
+                            children: [
+                              for (final b in books)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: Gap.s),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Padding(
+                                        padding: const EdgeInsets.only(left: 4, bottom: 4),
+                                        child: Text(b.title, style: Skin.title(context, size: 16)),
+                                      ),
+                                      BookMemorySection(bookId: b.id, bookTitle: b.title, secret: false),
+                                    ],
+                                  ),
+                                ),
+                            ],
+                          ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

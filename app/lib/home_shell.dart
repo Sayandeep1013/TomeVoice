@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'ai/ai_keys.dart';
 import 'ai/ai_screen.dart';
 import 'ai/memory/memory_background.dart';
+import 'ai/memory/memory_section.dart';
 import 'ai/memory/memory_service.dart';
 import 'app_update.dart';
 import 'auto_backup.dart';
@@ -596,6 +597,9 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
               // The reading companion: keys, the books' memories, Talk.
               _item(context, Icons.auto_awesome_outlined, Icons.auto_awesome_rounded, 'AI',
                   onTap: () => _push((_) => const AiScreen())),
+              // Every book's memory, how far it is built.
+              _item(context, Icons.psychology_outlined, Icons.psychology_rounded, 'Memory',
+                  onTap: () => _push((_) => const MemoriesScreen())),
               _item(context, Icons.insights_outlined, Icons.insights_rounded, 'Stats',
                   onTap: () => _push((s) => StatsScreen(store: s))),
               const Padding(

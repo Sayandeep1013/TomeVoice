@@ -221,8 +221,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(BrandMark), findsWidgets);
       expect(find.text('TomeVoice'), findsOneWidget);
+      // The menu scrolls: the last of it may be below the fold.
       for (final place in ['History', 'Categories', 'Settings', 'About']) {
-        expect(find.text(place), findsOneWidget, reason: place);
+        expect(find.text(place, skipOffstage: false), findsOneWidget, reason: place);
       }
       await finish(tester);
     });
@@ -1894,6 +1895,8 @@ void main() {
       expect(find.text('Chapter 1'), findsOneWidget);
 
       // A chapter opens the reader right there (the place read first).
+      await tester.ensureVisible(find.text('Chapter 2'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Chapter 2'));
       await settleIo(tester, until: () => find.byType(ReaderScreen).evaluate().isNotEmpty);
       await tester.pumpAndSettle();

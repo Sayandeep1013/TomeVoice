@@ -111,7 +111,36 @@ class NotebookInk {
     Color(0xFF8D8A84),
   );
 
-  static NotebookInk of(BuildContext context) => Theme.of(context).brightness == Brightness.dark ? night : day;
+  /// The notebook in the app's own colours: its paper a shade off the
+  /// theme's ground, its print the theme's ink, the pen leaning to the
+  /// theme's accent, so the journal sits in any colour theme, not only in
+  /// plain dark or white (the owner's ask).
+  static NotebookInk of(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final base = dark ? night : day;
+    final ground = Skin.ground(context).colors;
+    final ink = Skin.inkOn(context);
+    final accent = Skin.accentInkOf(context);
+    Color paper(Color c) => Color.lerp(c, ink, dark ? 0.05 : 0.03)!;
+    return NotebookInk._(
+      PageTone(
+        dark ? 'notebook-themed-night' : 'notebook-themed',
+        'Notebook',
+        paper: [paper(ground.first), paper(ground.last)],
+        ink: ink,
+        inkSoft: Skin.inkSoftOn(context),
+        accent: accent,
+        dark: dark,
+        grid: ink.withValues(alpha: dark ? 0.07 : 0.08),
+      ),
+      Color.lerp(base.pen, accent, 0.45)!,
+      base.tabs,
+      base.tabInk,
+      base.tape,
+      base.photo,
+      base.rings,
+    );
+  }
 
   Color tab(int i) => tabs[i % tabs.length];
 }

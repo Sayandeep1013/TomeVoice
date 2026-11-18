@@ -508,45 +508,53 @@ class BookJournalSection extends StatelessWidget {
         valueListenable: JournalStore.instance.changes,
         builder: (context, _, __) {
           final entries = JournalStore.instance.forBook(bookId);
-          final ink = NotebookInk.of(context);
           void write() => unawaited(openJournal(context, bookId: bookId, bookTitle: bookTitle, stampNow: stampNow));
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  Expanded(child: SectionTitle('Journal', note: entries.isEmpty ? null : '${entries.length}')),
-                  TextButton.icon(
-                    onPressed: write,
-                    icon: const Icon(Icons.edit_outlined, size: 18),
-                    label: const Text('Write'),
-                  ),
-                  if (entries.length > 3 && onSeeAll != null)
-                    TextButton(onPressed: onSeeAll, child: const Text('See all')),
-                ],
-              ),
-              // None yet: the row alone (the pen on the player says the rest).
-              if (entries.isNotEmpty)
-                DecoratedBox(
-                  decoration: ink.tone.paperOf(context).copyWith(borderRadius: BorderRadius.circular(Radii.card / 1.5)),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(Gap.l, Gap.s, Gap.l, Gap.s),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        for (final e in entries.take(3))
-                          JournalEntryCard(
-                            entry: e,
-                            ink: ink,
-                            onTap: () => unawaited(openJournal(context,
-                                bookId: bookId, bookTitle: bookTitle, stampNow: () => e.stamp, entry: e)),
-                            onHold: () => unawaited(removeJournalEntry(context, e)),
-                          ),
-                      ],
+          final latest = entries.firstOrNull;
+          // One row, so the chapters are not pushed down (the owner's
+          // choice): how many, the latest; the whole journal a tap away.
+          final line = latest == null
+              ? 'Write how the book makes you feel, as you read'
+              : '${entries.length} ${entries.length == 1 ? 'entry' : 'entries'} · '
+                  '${latest.isTalk ? 'a talk' : 'thoughts'} ${latest.stamp.label}, ${savedWhen(latest.created)}';
+          final words = latest?.words.replaceAll('\n', ' ').trim() ?? '';
+          return Material(
+            color: Skin.capsuleOn(context),
+            borderRadius: BorderRadius.circular(Radii.row + 4),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(Radii.row + 4),
+              onTap: latest == null ? write : onSeeAll,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(Gap.l, Gap.m, Gap.xs, Gap.m),
+                child: Row(
+                  children: [
+                    Icon(Icons.edit_note_rounded, color: Skin.accentInkOf(context)),
+                    const SizedBox(width: Gap.m),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Journal', style: Skin.ui(size: 16, weight: FontWeight.w600, color: Skin.inkOn(context))),
+                          const SizedBox(height: 2),
+                          Text(line, maxLines: 1, overflow: TextOverflow.ellipsis, style: Skin.meta(context)),
+                          if (words.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 2),
+                              child: Text(
+                                words,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkSoftOn(context)),
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
-                  ),
+                    IconButton(tooltip: 'Write', icon: const Icon(Icons.edit_outlined), onPressed: write),
+                    if (latest != null) Icon(Icons.chevron_right_rounded, color: Skin.inkSoftOn(context)),
+                  ],
                 ),
-            ],
+              ),
+            ),
           );
         },
       );
