@@ -2517,7 +2517,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// not on a secret shelf (never sent).
   bool get _talkable {
     final store = widget.store;
-    return store != null && AiRing.instance.hasKeys && !store.isSecret(_book.id) && !_l.isEmpty;
+    return store != null &&
+        AiRing.instance.hasKeys &&
+        !_l.isEmpty &&
+        MemoryService.instance.maySend(_book.id);
   }
 
   /// A web novel's chapters are kept in its memory by their number in the
@@ -2702,7 +2705,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         SizedBox(
           width: room,
           child: ListenableBuilder(
-            listenable: AiRing.instance,
+            listenable: Listenable.merge([AiRing.instance, MemoryService.instance.stateOf(_book.id)]),
             builder: (context, _) => !_talkable
                 ? const SizedBox.shrink()
                 : Center(

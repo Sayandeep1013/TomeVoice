@@ -392,6 +392,15 @@ void main() {
       await store.saveChapterAt(id, 'c5', '<p>Mira rested.</p>');
       await service.keepUp(id);
       expect(sent.length, now);
+
+      // Kept away from the AI: nothing more is sent, even forced.
+      await service.setPrivate(id, true);
+      expect(service.maySend(id), isFalse);
+      await service.keepUp(id, force: true);
+      await service.build(id);
+      expect(sent.length, now);
+      await service.setPrivate(id, false);
+      expect(service.maySend(id), isTrue);
     });
 
     test('with the app closed: the memories begun are built, others left alone', () async {

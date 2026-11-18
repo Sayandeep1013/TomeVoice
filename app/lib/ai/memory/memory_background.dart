@@ -98,6 +98,7 @@ Future<Map<String, Object?>> runBackgroundBuild({
 bool _begun(String path) {
   final m = MemoryDb.open(path);
   try {
+    if (m.meta('private') == '1') return false;
     if (m.meta('begun') == '1') return true;
     return (m.db.select('SELECT count(*) n FROM notes').first['n'] as int) > 0;
   } finally {

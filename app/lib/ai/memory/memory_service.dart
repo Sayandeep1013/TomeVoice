@@ -31,10 +31,14 @@ class BookMemoryState {
     this.readUpTo,
     this.bytes = 0,
     this.begun = false,
+    this.private = false,
   });
 
   /// The reader asked for it to be built: kept up from then on.
   final bool begun;
+
+  /// The reader keeps this book away from the AI: nothing of it is sent.
+  final bool private;
 
   final bool exists;
 
@@ -75,6 +79,7 @@ class BookMemoryState {
     bool clearReadUpTo = false,
     int? bytes,
     bool? begun,
+    bool? private,
   }) =>
       BookMemoryState(
         exists: exists ?? this.exists,
@@ -89,6 +94,7 @@ class BookMemoryState {
         readUpTo: clearReadUpTo ? null : (readUpTo ?? this.readUpTo),
         bytes: bytes ?? this.bytes,
         begun: begun ?? this.begun,
+        private: private ?? this.private,
       );
 }
 
@@ -102,6 +108,7 @@ typedef _Read = ({
   int? readUpTo,
   int bytes,
   bool begun,
+  bool private,
 });
 
 _Read _read(String path) {
@@ -122,6 +129,7 @@ _Read _read(String path) {
       readUpTo: int.tryParse(m.meta('readUpTo') ?? ''),
       bytes: m.bytes,
       begun: m.meta('begun') == '1',
+      private: m.meta('private') == '1',
     );
   } finally {
     m.close();
@@ -215,12 +223,13 @@ class MemoryService {
   /// and a half, unless [force].
   Future<void> keepUp(String id, {bool force = false}) async {
     final store = _store;
-    if (store == null || !maySend(id) || !AiRing.instance.hasKeys) return;
+    if (store == null || !AiRing.instance.hasKeys) return;
     if (!File(_path(id)).existsSync()) return;
     final last = _keptAt[id];
     if (!force && last != null && DateTime.now().difference(last) < const Duration(seconds: 90)) return;
     if (_builders.values.any((b) => b.running) || _wakes.isNotEmpty) return;
     await refresh(id);
+    if (!maySend(id)) return;
     if (_n(id).value.noted == 0 && !_n(id).value.begun) return;
     _keptAt[id] = DateTime.now();
     await build(id);
@@ -325,6 +334,7 @@ class MemoryService {
       clearReadUpTo: r.readUpTo == null,
       bytes: r.bytes,
       begun: r.begun,
+      private: r.private,
     );
   }
 
@@ -364,7 +374,16 @@ class MemoryService {
 
   /// Whether [id] may be sent to a provider at all: never from a secret
   /// shelf.
-  bool maySend(String id) => !(_store?.isSecret(id) ?? true);
+  bool maySend(String id) => !(_store?.isSecret(id) ?? true) && !_n(id).value.private;
+
+  /// Keep [id] away from the AI (nothing of it sent, built or talked
+  /// about), or let it read the book again.
+  Future<void> setPrivate(String id, bool private) async {
+    if (private) pause(id);
+    final path = _path(id);
+    await _setMetaOff(path, 'private', private ? '1' : null);
+    _n(id).value = _n(id).value.copyWith(exists: true, private: private);
+  }
 
   /// Builds [id]'s memory: the word index, then the notes, until done,
   /// paused, or every key rests (and then again when one wakes).

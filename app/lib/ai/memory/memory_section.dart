@@ -257,9 +257,15 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                     onSelected: (v) {
                       if (v == 'forget') unawaited(_forget());
                       if (v == 'follows') unawaited(_followOn());
+                      if (v == 'private') unawaited(_service.setPrivate(widget.bookId, !s.private));
                     },
                     itemBuilder: (_) => [
-                      const PopupMenuItem(value: 'follows', child: Text('Follows on from another book…')),
+                      if (!s.private)
+                        const PopupMenuItem(value: 'follows', child: Text('Follows on from another book…')),
+                      PopupMenuItem(
+                        value: 'private',
+                        child: Text(s.private ? 'Let the AI read this book' : 'Keep this book away from the AI'),
+                      ),
                       if (s.exists) const PopupMenuItem(value: 'forget', child: Text('Forget this memory')),
                     ],
                   ),
@@ -267,7 +273,7 @@ class _BookMemorySectionState extends State<BookMemorySection> {
             ),
             const SizedBox(height: Gap.xs),
             Text(
-              _line(s),
+              s.private ? 'Kept away from the AI: nothing of this book is sent, built or talked about.' : _line(s),
               style: Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkSoftOn(context)).copyWith(height: 1.4),
             ),
             if (s.build.phase == BuildPhase.running && s.indexed > 0) ...[
@@ -277,6 +283,7 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                 child: LinearProgressIndicator(value: s.noted / s.indexed, minHeight: 4),
               ),
             ],
+            if (!s.private) ...[
             const SizedBox(height: Gap.s),
             Wrap(
               spacing: Gap.s,
@@ -333,6 +340,7 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                   style: Skin.meta(context),
                 ),
               ),
+            ],
           ],
         );
       },
