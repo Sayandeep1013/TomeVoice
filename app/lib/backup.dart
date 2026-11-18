@@ -256,9 +256,10 @@ Future<void> rewritePaths(File index, {required String from, required String to}
 /// swapped. The natural voices (moved aside with the rest, a restore deleted
 /// them), the OCR language data and any scan being read (ocr.dart), the
 /// update check's state, which holds whether to check at all, and the error
-/// log, this phone's own (error_log.dart: it shares the library's folder
-/// only on a phone with no storage outside the app).
-const keptOnPhone = {'voices', 'ocr', 'app_update.json', ErrorLog.fileName};
+/// log and when it last asked Android how runs ended, this phone's own
+/// (error_log.dart: they share the library's folder only on a phone with no
+/// storage outside the app).
+const keptOnPhone = {'voices', 'ocr', 'app_update.json', ErrorLog.fileName, ErrorLog.exitsName};
 
 /// Swap the library for [staged]. The current one is moved aside first and
 /// put back if anything fails.

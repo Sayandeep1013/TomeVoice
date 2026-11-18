@@ -3,6 +3,13 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## Unreleased
+
+#### Fixes
+- The app no longer closes when a web-novel site loaded through the hidden web view answers after the source that asked for it has stopped (a check that timed out, a source closed meanwhile). Seen once on 11 November; Flutter's engine ended the whole app.
+- Report a problem sends only the errors of the version you run. An older version's errors are counted, not sent again: issue #28 (1.5.0) carried the same 1.4.1 error as #24 and #25, fixed in 1.4.2.
+- Crashes in the app's native code, and Android closing the app for not responding, now reach the error log (Android 11 and later): they never did, so a report could not show them.
+
 ## 1.5.0 (2026-11-18)
 
 Smoother, lighter on the battery, and a voice that reads "..." and commas as people do.

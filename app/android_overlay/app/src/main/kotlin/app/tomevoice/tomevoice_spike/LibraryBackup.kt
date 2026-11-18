@@ -40,7 +40,7 @@ object LibraryBackup {
         // The error log is this phone's own (ErrorLog.kt). It is kept in the
         // app's private storage, which is the library's folder too only on a
         // phone with no storage outside the app.
-        if (rel == ErrorLog.FILE) return true
+        if (rel == ErrorLog.FILE || rel == PastExits.SEEN) return true
         // A cached copy of a source list; fetched again when needed.
         if (rel.startsWith("sources/index-")) return true
         // Natural voices are a download away (64 to 110 MB each). Carried,

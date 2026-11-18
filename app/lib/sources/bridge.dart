@@ -12,13 +12,28 @@ class SourcesBridge {
 
   static const _channel = MethodChannel('tomevoice/sources');
 
+  /// Set in a source worker (source_engine.dart): its calls go to the main
+  /// isolate, which asks the platform and posts the answer back. A worker
+  /// never calls the platform itself: one that ended while a call was out
+  /// (a web view still loading a page) made Flutter's engine end the whole
+  /// app when the answer came, as its port was gone.
+  static Future<Object?> Function(String method, Map<String, Object?>? args)? relay;
+
   static Future<T?> _ask<T>(String method, [Map<String, Object?>? args]) async {
     try {
+      final via = relay;
+      if (via != null) {
+        final got = await via(method, args);
+        return got is T ? got : null;
+      }
       return await _channel.invokeMethod<T>(method, args);
     } on Object {
       return null;
     }
   }
+
+  /// A worker's call, made here on the main isolate (see [relay]).
+  static Future<Object?> answer(String method, Map<String, Object?>? args) => _ask<Object?>(method, args);
 
   /// Internal app storage, where sources live (no other app can read it).
   static Future<String?> sourcesRoot() => _ask<String>('sourcesRoot');
@@ -65,6 +80,10 @@ class SourcesBridge {
   /// The background check is done: [outcome] says what to tell the reader
   /// ({found, title, text, lines}). Ends its engine.
   static Future<void> backgroundDone(Map<String, Object?> outcome) => _ask<void>('backgroundDone', outcome);
+
+  /// How the app's runs ended since it last asked, where nothing in it
+  /// could hear (PastExits.kt): error log entries, oldest first.
+  static Future<List<Object?>> pastExits() async => await _ask<List<Object?>>('pastExits') ?? const [];
 
   /// Whether a background check is running now (the app then leaves its
   /// own check on opening to it).
