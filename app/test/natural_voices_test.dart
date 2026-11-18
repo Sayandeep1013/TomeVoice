@@ -319,6 +319,9 @@ void main() {
       expect(find.byTooltip('Hear Pratham'), findsOneWidget);
       expect(find.byTooltip('Download Pratham'), findsOneWidget);
 
+      // Below the search field: brought into view first.
+      await tester.ensureVisible(find.text('IIT Madras licence · Free to use, on conditions'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('IIT Madras licence · Free to use, on conditions'));
       await tester.pumpAndSettle();
       expect(find.textContaining("keep IIT Madras's copyright notice"), findsOneWidget);

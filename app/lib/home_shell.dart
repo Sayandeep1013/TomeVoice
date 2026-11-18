@@ -19,11 +19,14 @@ import 'error_log.dart';
 import 'export_audio_sheet.dart';
 import 'guide.dart';
 import 'history_screen.dart';
+import 'journal.dart';
+import 'journal_screen.dart';
 import 'library_screen.dart';
 import 'library_store.dart';
 import 'listening_session.dart' show BackgroundReading;
 import 'marks.dart';
 import 'neural_voices.dart';
+import 'own_fonts.dart';
 import 'prefs.dart';
 import 'reader_screen.dart';
 import 'reading_rules.dart';
@@ -78,7 +81,9 @@ Future<OpenLibrary> _open(String dir) async {
   // A restore the app stopped in the middle of is finished or undone first,
   // before any store reads the library half swapped.
   await clearStaleRestore(Directory(dir));
-  await ListeningPrefs.load(dir);
+  final prefs = await ListeningPrefs.load(dir);
+  // The reader's own font, if it is the page's, before a book opens.
+  if (prefs.bookFont == BookFont.own) await OwnFonts.use(dir, prefs.ownFont);
   // Sources ask as the phone's own browser does (see Net.userAgent).
   final agent = await const SpeechService().webUserAgent();
   if (agent != null && agent.isNotEmpty) Net.userAgent = agent;
@@ -110,6 +115,7 @@ Future<OpenLibrary> _open(String dir) async {
   await TintCache.instance.attach(Directory(dir));
   await ReadingRules.instance.attach(Directory(dir));
   await MarkStore.instance.attach(Directory(dir));
+  await JournalStore.instance.attach(Directory(dir));
   await StatsStore.instance.attach(Directory(dir));
   NeuralVoices.instance.attach(Directory(dir));
   // One check for the whole engine (the shelves', the Updates page's, and
@@ -574,6 +580,9 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
                   selected: _place == _Place.history, onTap: () => _go(_Place.history)),
               _item(context, Icons.bookmarks_outlined, Icons.bookmarks_rounded, 'Saved',
                   onTap: () => _push((s) => SavedScreen(store: s))),
+              // The reading journal: what was thought, a page a book.
+              _item(context, Icons.edit_note_outlined, Icons.edit_note_rounded, 'Journal',
+                  onTap: () => _push((s) => JournalScreen(store: s))),
               _item(context, Icons.insights_outlined, Icons.insights_rounded, 'Stats',
                   onTap: () => _push((s) => StatsScreen(store: s))),
               const Padding(

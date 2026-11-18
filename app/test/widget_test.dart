@@ -973,7 +973,9 @@ void main() {
       await finish(tester);
     });
 
-    testWidgets('a jump while paused leaves a way back', (tester) async {
+    testWidgets('a chapter picked in Contents while paused is only looked at, with the way back', (tester) async {
+      // Paused counts as listening (the owner's choice, 18 November): the
+      // voice keeps its place, and Back to reading returns to it.
       withSound();
       final store = LibraryStore(_tmp);
       final nav = await pumpShelf(tester);
@@ -987,7 +989,61 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Chapter 2: Beta').last);
       await tester.pumpAndSettle();
-      expect(find.text('Back to where you were'), findsOneWidget);
+      // Looking, not moved: the way back is to the voice, not to a place
+      // left behind.
+      expect(find.text('Back to reading'), findsOneWidget);
+      expect(find.text('Back to where you were'), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets("the pen on the player opens the book's journal at the voice's chapter", (tester) async {
+      withSound();
+      final store = LibraryStore(_tmp);
+      final nav = await pumpShelf(tester);
+      unawaited(nav.push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(layout: ReadingLayout.build(chaptered), store: store))));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Write in your journal'));
+      await tester.pumpAndSettle();
+      expect(find.text('HOW AM I FEELING?'), findsOneWidget);
+      expect(find.textContaining('WRITING AT CHAPTER'), findsOneWidget);
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pumpAndSettle();
+      expect(find.text('HOW AM I FEELING?'), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets("while another chapter is looked at, the player names the voice's", (tester) async {
+      withSound();
+      final store = LibraryStore(_tmp);
+      final long = ingestString(
+        [
+          for (final (n, name) in [(1, 'Alpha'), (2, 'Beta'), (3, 'Gamma')]) ...[
+            '# Chapter $n: $name',
+            for (var p = 0; p < 30; p++) 'Paragraph $p of chapter $n goes on long enough to fill a line or two of the page.',
+          ],
+        ].join('\n\n'),
+        filename: 'long.md',
+      );
+      final nav = await pumpShelf(tester);
+      unawaited(nav.push(MaterialPageRoute<void>(builder: (_) => ReaderScreen(layout: ReadingLayout.build(long), store: store))));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump(const Duration(milliseconds: 300));
+      // Playing, the voice's glow never settles: frames enough for a sheet.
+      Future<void> frames() async {
+        for (var i = 0; i < 16; i++) {
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+      }
+
+      await tester.tap(find.byKey(const ValueKey('contents')));
+      await frames();
+      await tester.tap(find.text('Chapter 3: Gamma').last);
+      await frames();
+      expect(find.text('Back to reading'), findsOneWidget);
+      expect(find.textContaining('READING CHAPTER 1'), findsOneWidget, reason: "the voice's chapter, named");
+      await tester.tap(find.byTooltip('Pause'));
+      await tester.pump(const Duration(milliseconds: 300));
       await finish(tester);
     });
 

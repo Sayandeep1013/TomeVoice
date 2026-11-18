@@ -19,6 +19,9 @@ enum SourceKind {
   fb2,
   mobi,
 
+  /// A scanned book, read by its hidden text layer.
+  djvu,
+
   /// A web novel, its chapters fetched from a site.
   web,
   unknown,

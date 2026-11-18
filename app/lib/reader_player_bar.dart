@@ -37,9 +37,18 @@ class ReaderPlayerBar extends StatelessWidget {
     this.cover,
     this.onSleep,
     this.onSave,
+    this.onWrite,
     this.voice,
     this.elsewhere = false,
+    this.looking,
+    this.viewChapter,
   });
+
+  /// Looking around ([looking]) at chapter [viewChapter] of this book while
+  /// the voice is in another: the bar names the voice's chapter, as with
+  /// [elsewhere].
+  final ValueListenable<bool>? looking;
+  final ValueListenable<int>? viewChapter;
 
   /// The voice reads another chapter than the page shows: the bar names
   /// it, and is the voice's (see ReaderController.placeAway).
@@ -82,6 +91,9 @@ class ReaderPlayerBar extends StatelessWidget {
   final String? cover;
   final VoidCallback? onSleep;
   final VoidCallback? onSave;
+
+  /// The pen: write in this book's journal (journal_page.dart).
+  final VoidCallback? onWrite;
 
   @override
   Widget build(BuildContext context) => GestureDetector(
@@ -286,6 +298,8 @@ class ReaderPlayerBar extends StatelessWidget {
                                       'Sleep timer', onSleep!, lit: sleepNote != null),
                                 if (onSave != null && box.maxWidth >= 266)
                                   _small(context, Icons.bookmark_add_outlined, 'Save this line', onSave!),
+                                if (onWrite != null && box.maxWidth >= 314)
+                                  _small(context, Icons.edit_outlined, 'Write in your journal', onWrite!),
                                 Flexible(
                                   child: _chip(context, voiceLabel, Icons.record_voice_over_rounded, onVoice, tooltip: 'Voice'),
                                 ),
@@ -327,11 +341,14 @@ class ReaderPlayerBar extends StatelessWidget {
         borderRadius: BorderRadius.circular(Radii.card + 4),
         boxShadow: Skin.lift(context),
       ),
-      child: ValueListenableBuilder<int>(
-        valueListenable: cursor,
-        builder: (context, u, _) {
+      child: ListenableBuilder(
+        listenable: Listenable.merge([cursor, looking, viewChapter]),
+        builder: (context, _) {
+          final u = cursor.value;
           final empty = layout.isEmpty;
           final (:chapter, :first, :count, :minutes, :pct) = _at(u);
+          final away = elsewhere ||
+              (looking?.value == true && viewChapter != null && viewChapter!.value != chapter && !empty);
           final inChapter = (u - first).clamp(0, count - 1);
           final partial = progressOf != null;
           return Column(
@@ -357,7 +374,7 @@ class ReaderPlayerBar extends StatelessWidget {
                               child: Text(
                                 // With a sleep timer there is no room for all three.
                                 [
-                                  if (elsewhere) 'READING ${layout.chapterTitle(chapter).toUpperCase()}'
+                                  if (away) 'READING ${layout.chapterTitle(chapter).toUpperCase()}'
                                   else if (sleepNote == null) '$pct%',
                                   partial ? '${durationLabel(minutes)} LEFT IN CHAPTER' : '${durationLabel(minutes)} LEFT',
                                   if (sleepNote != null) sleepNote!,
@@ -386,7 +403,9 @@ class ReaderPlayerBar extends StatelessWidget {
                 above: 6,
                 below: 7,
               ),
-              Row(
+              // The pen only where a sixth button fits (not in a narrow
+              // window of a split screen): the book's menu has it too.
+              LayoutBuilder(builder: (context, box) => Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   _icon(context, Icons.skip_previous_rounded, 'Previous chapter',
@@ -398,8 +417,10 @@ class ReaderPlayerBar extends StatelessWidget {
                       u < layout.units.length - 1 ? onNextSentence : null),
                   _icon(context, Icons.skip_next_rounded, 'Next chapter',
                       chapter < layout.chapters.length - 1 || moreAfter ? onNextChapter : null),
+                  if (onWrite != null && box.maxWidth >= 6 * kMinInteractiveDimension + 12)
+                    _icon(context, Icons.edit_outlined, 'Write in your journal', onWrite!),
                 ],
-              ),
+              )),
             ],
           );
         },

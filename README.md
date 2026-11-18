@@ -50,11 +50,12 @@ No account. No cloud. Your books never leave the phone.
 
 ## What it does
 
-- **Opens almost anything.** EPUB, PDF, DOCX, ODT, MOBI / AZW3, FB2, RTF, HTML, Markdown
-  and TXT, in whatever encoding they were saved. Pictures and maps in ebooks are shown in
-  the text; PDFs can be read as text or shown as their real pages (pinch to zoom, dark at
-  night); chapters are found even when a file does not list them. Footnotes stay on the
-  page in small type and are not read, unless you turn on **Read notes aloud**.
+- **Opens almost anything.** EPUB, PDF, DjVu (by its hidden text), DOCX, ODT, MOBI / AZW3,
+  FB2, RTF, HTML, Markdown and TXT, in whatever encoding they were saved. Pictures and maps
+  in ebooks are shown in the text; PDFs can be read as text or shown as their real pages
+  (pinch to zoom, dark at night); chapters are found even when a file does not list them.
+  Footnotes stay on the page in small type and are not read, unless you turn on
+  **Read notes aloud**.
 - **Scanned PDFs, read by OCR.** A PDF of page images is read on the phone (Tesseract),
   in the languages you choose (Bengali, Hindi and English are one tap away). The
   language data is downloaded only when you use it, and pages are read once and kept.

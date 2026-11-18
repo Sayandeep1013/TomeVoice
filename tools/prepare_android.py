@@ -289,6 +289,9 @@ PROVIDER = """        <provider
 
 DOC_MIME_TYPES = [
     "application/pdf",
+    # DjVu, by its registered type and the one most file managers give it.
+    "image/vnd.djvu",
+    "image/x-djvu",
     "application/epub+zip",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/vnd.oasis.opendocument.text",

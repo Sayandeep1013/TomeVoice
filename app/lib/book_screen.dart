@@ -5,6 +5,7 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'book_actions.dart';
 import 'book_card.dart';
+import 'book_replace.dart';
 import 'book_search.dart';
 import 'book_tint.dart';
 import 'cast.dart';
@@ -12,7 +13,12 @@ import 'cast_sheet.dart';
 import 'chapter_finder.dart';
 import 'export_audio_sheet.dart';
 import 'fast_scroller.dart';
+import 'journal.dart' show JournalStamp;
+import 'journal_page.dart';
+import 'journal_screen.dart';
 import 'library_store.dart';
+import 'novel_move.dart' show chapterNumberOf;
+import 'listening_session.dart' show BackgroundReading;
 import 'novel_screen.dart';
 import 'organise.dart' show seriesLine;
 import 'organise_sheets.dart';
@@ -20,9 +26,11 @@ import 'saved_screen.dart';
 import 'listen_sheet.dart';
 import 'prefs.dart';
 import 'reader_screen.dart';
+import 'relayout.dart';
 import 'rules_screen.dart';
 import 'speakers.dart' show Character;
 import 'speech_service.dart';
+import 'text_chapters_sheet.dart';
 import 'theme.dart';
 import 'ui.dart';
 import 'voices.dart';
@@ -42,6 +50,10 @@ class BookScreen extends StatefulWidget {
 
 class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
   late LibraryEntry _entry = widget.entry;
+
+  /// Its file is being replaced (Replace the file): the book going from
+  /// the library is not this page closing.
+  bool _replacing = false;
   LibraryIndex? _index;
   ReadingLayout? _layout;
   ReadingCursor _cursor = ReadingCursor.zero;
@@ -113,12 +125,29 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
   /// this page: it catches up when it shows again.
   void _placeSaved() => whenShown(_refreshEntry);
 
+  /// Where the story is, for the journal: the voice's sentence when it
+  /// reads this book in the background, else the place.
+  JournalStamp _stampNow() {
+    final bg = BackgroundReading.current.value;
+    if (bg != null && bg.bookId == _entry.id) {
+      return stampAt(bg.layout, bg.unit,
+          numberOf: (c) => chapterNumberOf(bg.layout.chapterTitle(c))?.floor() ?? c + 1);
+    }
+    final l = _layout;
+    if (l == null || l.isEmpty) return const JournalStamp(at: ReadingCursor.zero, chapter: 0);
+    return stampAt(l, l.unitForCursor(_cursor, saved: true));
+  }
+
   Future<void> _refreshEntry() async {
     final idx = await _store.index();
     final fresh = idx.entries.where((e) => e.id == _entry.id).firstOrNull;
     final cursor = await _store.cursorFor(_entry.id);
     if (!mounted) return;
     if (fresh == null) {
+      // Its file being replaced: the new book's page takes this one's place
+      // (see 'replace'). Popped here, the page under it was replaced
+      // instead, and the library was gone from under the reader.
+      if (_replacing) return;
       // Removed from the library.
       Navigator.of(context).maybePop();
       return;
@@ -282,6 +311,10 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                     ? null
                     : Padding(padding: const EdgeInsets.only(top: Gap.s), child: _characters(context)),
               ),
+              // A TXT file's chapters are only what TomeVoice could find in
+              // it: its reader can say where they start.
+              if (e.source == SourceKind.text)
+                Padding(padding: const EdgeInsets.only(top: Gap.s), child: _textChapters(context)),
             ],
           ),
         ),
@@ -289,6 +322,19 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
       SliverPadding(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
         sliver: SliverToBoxAdapter(child: BookSavedSection(store: _store, entry: _entry)),
+      ),
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
+        sliver: SliverToBoxAdapter(
+          child: BookJournalSection(
+            bookId: _entry.id,
+            bookTitle: _entry.title,
+            stampNow: _stampNow,
+            onSeeAll: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => JournalScreen(store: _store, bookId: _entry.id)),
+            ),
+          ),
+        ),
       ),
     ];
     final chapterList = <Widget>[
@@ -424,8 +470,28 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                         bookTitle: _entry.title,
                       ),
                     ));
+                  case 'journal':
+                    await openJournal(context, bookId: _entry.id, bookTitle: _entry.title, stampNow: _stampNow);
                   case 'cover':
                     await changeCover(context, _store, _entry);
+                  case 'replace':
+                    final nav = Navigator.of(context);
+                    _replacing = true;
+                    LibraryEntry? fresh;
+                    try {
+                      fresh = await askReplaceBookFile(context, _store, _entry);
+                    } finally {
+                      // Replaced, this page is going: it stays out of the way
+                      // until it has (a check of the library still under way
+                      // must not pop the new book's page).
+                      if (fresh == null) _replacing = false;
+                    }
+                    // The book is another now: its page, in this one's place.
+                    if (fresh != null && mounted) {
+                      unawaited(nav.pushReplacement(MaterialPageRoute<void>(
+                        builder: (_) => BookScreen(store: _store, entry: fresh!),
+                      )));
+                    }
                   case 'move':
                     await moveBook(context, _store, _entry);
                   case 'organise':
@@ -454,8 +520,12 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                 if (_layout?.isEmpty == false) const PopupMenuItem(value: 'audio', child: Text('Save as audio…')),
                 const PopupMenuItem(value: 'rules', child: Text('Reading rules')),
                 const PopupMenuItem(value: 'cover', child: Text('Change cover')),
+                // A file's book only: a web novel's chapters are the site's.
+                if (!_entry.isWeb && _entry.sourcePath.isNotEmpty)
+                  const PopupMenuItem(value: 'replace', child: Text('Replace the file…')),
                 const PopupMenuItem(value: 'move', child: Text('Move to…')),
                 const PopupMenuItem(value: 'organise', child: Text('Tags and series…')),
+                const PopupMenuItem(value: 'journal', child: Text('Write in the journal')),
                 if (_entry.progress > 0)
                   const PopupMenuItem(value: 'restart', child: Text('Start from the beginning')),
                 const PopupMenuItem(value: 'remove', child: Text('Remove from library')),
@@ -696,6 +766,85 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
         ),
       ),
     );
+  }
+
+  /// How a TXT book is cut into chapters, under its voice: found by
+  /// TomeVoice, or as its reader said (see showTextChapters).
+  Widget _textChapters(BuildContext context) => Material(
+        color: Skin.capsuleOn(context),
+        borderRadius: BorderRadius.circular(Radii.row + 4),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(Radii.row + 4),
+          onTap: _layout == null ? null : _changeChapters,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: Gap.l, vertical: 14),
+            child: Row(
+              children: [
+                Icon(Icons.format_list_numbered_rounded, color: Skin.accentInkOf(context)),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Eyebrow('Chapters'),
+                      const SizedBox(height: 2),
+                      Text(
+                        _splitting ? 'Splitting the book…' : textChaptersLabel(_entry.textChapters),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Skin.ui(size: 15.5, weight: FontWeight.w600, color: Skin.inkOn(context)),
+                      ),
+                    ],
+                  ),
+                ),
+                Text('Change', style: Skin.ui(size: 14, weight: FontWeight.w700, color: Skin.accentInkOf(context))),
+              ],
+            ),
+          ),
+        ),
+      );
+
+  /// Set while the book is being split again.
+  bool _splitting = false;
+
+  /// The book cut into chapters another way: split again, its place, its
+  /// bookmarks and quotes carried with their words (see splitTextBook).
+  Future<void> _changeChapters() async {
+    final was = _layout;
+    if (was == null || _splitting) return;
+    final rule = await showTextChapters(
+      context,
+      title: _entry.title,
+      current: _entry.textChapters,
+      load: () => _store.textOf(_entry.id),
+    );
+    if (rule == null || !mounted) return;
+    // The chapters go while it is split, and nothing opens meanwhile.
+    setState(() {
+      _splitting = true;
+      _layout = null;
+    });
+    try {
+      final layout = await splitTextBook(_store, _entry.id, rule);
+      final cursor = await _store.cursorFor(_entry.id);
+      if (!mounted) return;
+      setState(() {
+        _layout = layout;
+        _cursor = cursor;
+      });
+      await _refreshEntry();
+      if (!mounted) return;
+      final n = layout.chapters.length;
+      showSnack(context,
+          'Split into $n ${n == 1 ? 'chapter' : 'chapters'}. Your place, bookmarks and quotes are where they were.');
+    } on Object catch (e) {
+      debugPrint('Splitting the book failed: $e');
+      if (!mounted) return;
+      setState(() => _layout = was);
+      showSnack(context, 'The book could not be split again. It is as it was.');
+    } finally {
+      if (mounted) setState(() => _splitting = false);
+    }
   }
 
   /// The book's characters, and the voices their lines are read in: under

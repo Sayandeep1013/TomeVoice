@@ -16,9 +16,11 @@ import 'ui.dart';
 // steady.
 
 /// The reader's top bar: back to the library, the book's title over the
-/// chapter being read (a tap opens the Contents), and its buttons: a PDF's
-/// real pages, search, the page's bookmark (held, every bookmark) and how
-/// the page looks.
+/// chapter being read (a tap opens the Contents), and its buttons: the
+/// Contents (a PDF's real pages instead, on a phone), search, the page's
+/// bookmark (held, every bookmark) and how the page looks. With room (a
+/// tablet, a phone on its side) a PDF has its Contents too, and a book
+/// Scroll or Pages.
 class ReaderTopBar extends StatelessWidget {
   const ReaderTopBar({
     super.key,
@@ -38,7 +40,17 @@ class ReaderTopBar extends StatelessWidget {
     this.positionOf,
     this.realPages,
     this.onRealPages,
+    this.pages,
+    this.onPages,
   });
+
+  /// A book's text in pages (true) or a scroll (false), with room for its
+  /// button; null for a PDF, whose button is [realPages].
+  final bool? pages;
+  final VoidCallback? onPages;
+
+  /// The bar is this wide or more: a fifth button fits beside the title.
+  static const roomy = 480.0;
 
   final ReadingLayout layout;
   final PageStyle style;
@@ -76,8 +88,11 @@ class ReaderTopBar extends StatelessWidget {
   // The round buttons take 48 dp for a finger and draw 44: the gaps and the
   // edges are 2 dp less on each side, so every circle stays where it was.
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => LayoutBuilder(builder: (context, box) => _bar(context, box.maxWidth >= roomy));
+
+  Widget _bar(BuildContext context, bool roomy) {
     final book = layout.book;
+    final contents = RoundButton(icon: Icons.toc_rounded, tooltip: 'Contents', onTap: onContents);
     return Padding(
       padding: const EdgeInsets.fromLTRB(10, 6, 10, 4),
       child: Row(
@@ -169,12 +184,24 @@ class ReaderTopBar extends StatelessWidget {
             ),
           ),
           if (realPages != null) ...[
+            if (roomy) ...[const SizedBox(width: 4), contents],
             const SizedBox(width: 4),
             RoundButton(
               icon: realPages! ? Icons.notes_rounded : Icons.auto_stories_rounded,
               tooltip: realPages! ? 'Show as text' : 'Show the real pages',
               onTap: onRealPages,
             ),
+          ] else ...[
+            const SizedBox(width: 4),
+            contents,
+            if (roomy && pages != null) ...[
+              const SizedBox(width: 4),
+              RoundButton(
+                icon: pages! ? Icons.view_day_outlined : Icons.auto_stories_outlined,
+                tooltip: pages! ? 'Show as a scroll' : 'Show as pages',
+                onTap: onPages,
+              ),
+            ],
           ],
           const SizedBox(width: 4),
           RoundButton(
@@ -183,8 +210,7 @@ class ReaderTopBar extends StatelessWidget {
             onTap: onSearch,
           ),
           const SizedBox(width: 4),
-          // Contents is the title's (its chapter line says so); the bar
-          // keeps a page's bookmark at hand.
+          // The bar keeps a page's bookmark at hand.
           ValueListenableBuilder<bool>(
             valueListenable: bookmarked,
             builder: (context, marked, _) => RoundButton(

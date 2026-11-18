@@ -152,6 +152,32 @@ void main() {
       expect(log.entries.single.stack, isNot(contains('book')));
     });
 
+    test("crashes nothing in the app could hear are added at their own time, scrubbed", () async {
+      await log.attach(tmp);
+      log.privateWords = ['The Dark Tower'];
+      log.record(StateError('later'), null);
+      log.addPast([
+        {
+          'time': '2020-01-02T03:04:05.000Z',
+          'version': '1.5.0',
+          'from': 'android',
+          'message': 'Native crash: [FATAL:flutter/lib/ui/window/platform_message_response_dart_port.cc(53)] '
+              'Check failed: did_send.',
+          'stack': 'at abort (libc.so)\nat app.tomevoice.SourcesBridge.attach (base.odex)',
+        },
+        {'time': '2020-01-02T03:05:00.000Z', 'version': '1.5.0', 'from': 'android', 'message': 'ANR in The Dark Tower'},
+        'not an entry',
+      ]);
+      expect(log.entries.length, 3);
+      expect(log.entries.first.message, startsWith('Native crash: [FATAL:flutter'));
+      expect(log.entries.first.from, 'android');
+      expect(log.entries.first.stack, contains('SourcesBridge.attach'));
+      expect(log.entries[1].message, 'ANR in …');
+      expect(log.entries.last.message, 'Bad state: later');
+      await log.flush();
+      expect(written().length, 3);
+    });
+
     test('cleared, nothing is kept', () async {
       await log.attach(tmp);
       log.record(StateError('gone'), null);
@@ -199,6 +225,29 @@ void main() {
       expect(r.body, contains('older errors are kept on the phone'));
       final full = problemReport(version: '1.3.0', device: device, errors: errors);
       expect(RegExp('Bad state: error').allMatches(full.body).length, reportErrors);
+    });
+
+    test("an older version's errors are counted, not sent again", () {
+      ErrorEntry old(int i, String v) => ErrorEntry(
+            time: DateTime.utc(2026, 10, 1, 9, i),
+            version: v,
+            message: 'Null check operator used on a null value $i',
+          );
+      // Issue #28: 1.5.0 sent 1.4.1's error again, as if it were new.
+      final none = problemReport(version: '1.5.0', device: device, errors: [old(1, '1.4.1')]);
+      expect(none.body, contains('None from this version.'));
+      expect(none.body, isNot(contains('Null check')));
+      expect(none.body,
+          contains('One error from TomeVoice 1.4.1 is kept on the phone, left out here: fixed since, or not met again in 1.5.0.'));
+
+      final mixed = problemReport(
+        version: '1.3.0',
+        device: device,
+        errors: [old(1, '1.2.0'), old(2, '1.1.0'), old(3, '1.2.0'), error(4)],
+      );
+      expect(mixed.body, contains('Bad state: error 4'));
+      expect(mixed.body, isNot(contains('Null check')));
+      expect(mixed.body, contains('3 errors from older versions (1.2.0, 1.1.0) are kept on the phone'));
     });
 
     test('opens as a new issue on GitHub, filled in', () {

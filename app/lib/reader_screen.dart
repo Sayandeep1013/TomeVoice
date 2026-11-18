@@ -18,13 +18,17 @@ import 'chapter_finder.dart';
 import 'export_audio_sheet.dart';
 import 'fast_scroller.dart';
 import 'highlights.dart';
+import 'journal.dart' show JournalStamp;
+import 'journal_page.dart';
 import 'library_store.dart';
 import 'listening_session.dart' show BackgroundReading;
 import 'book_search.dart';
 import 'listen_sheet.dart';
 import 'marks.dart';
+import 'novel_move.dart' show chapterNumberOf;
 import 'neural_voices.dart';
 import 'now_playing.dart';
+import 'own_fonts.dart';
 import 'page_light.dart';
 import 'page_style.dart';
 import 'page_tone.dart';
@@ -478,6 +482,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _watched?.layouts.addListener(_voiceMoved);
     BackgroundReading.current.addListener(_voiceMoved);
     _player.word.addListener(_onWord);
+    _cursor.addListener(_chapterEnd);
     MarkStore.instance.changes.addListener(_onMarks);
     _onMarks();
     _positions.itemPositions.addListener(_onPositions);
@@ -608,6 +613,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final dir = widget.store?.root.path;
     if (dir == null) return;
     final p = await ListeningPrefs.load(dir);
+    if (p.bookFont == BookFont.own && OwnFonts.family == null) await OwnFonts.use(dir, p.ownFont);
     if (!mounted) return;
     setState(() => _reader.prefs = p);
     _light.value = PageLight.of(p);
@@ -777,7 +783,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   /// What moves the scrolling page's lines when it changes.
   static Object _layoutOf(ListeningPrefs p) =>
-      Object.hash(p.textSize, p.bookFont, p.lineHeight, p.margin, p.justify, p.indent);
+      Object.hash(p.textSize, p.bookFont, p.lineHeight, p.margin, p.justify, p.indent, p.letterSpacing, p.textWeight,
+          p.ownFont);
 
   /// Text reflowing for a new size, font or spacing: the paragraph at the
   /// top of the screen stays where it is. (The list keeps an item of its
@@ -881,6 +888,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (_screenOn) unawaited(_svc.keepScreenOn(false));
     _catalog.removeListener(_onCatalog);
     _player.word.removeListener(_onWord);
+    _cursor.removeListener(_chapterEnd);
     widget.layouts?.removeListener(_onLayouts);
     // The place saved and the time counted; the voice ended, or reading on
     // without the page.
@@ -1334,6 +1342,49 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (mounted) showSnack(context, text, margin: _snackMargin);
   }
 
+  // -------------------------------------------------------------- journal
+
+  /// The pen on the player: this book's journal, stamped with where the
+  /// voice reads (or the place, when it does not).
+  void _write({JournalStamp Function()? stamp}) {
+    _auto.stop();
+    unawaited(openJournal(context, bookId: _book.id, bookTitle: _book.metadata.title, stampNow: stamp ?? _stampNow));
+  }
+
+  /// Where the story is now: the voice's sentence (in the chapters it reads
+  /// in the background, when the page shows others), else the place.
+  JournalStamp _stampNow() {
+    final v = _voiceElsewhere;
+    if (v != null) {
+      return stampAt(v.layout, v.unit,
+          numberOf: (c) => chapterNumberOf(v.layout.chapterTitle(c))?.floor() ?? c + 1);
+    }
+    return stampAt(_l, _cursor.value, numberOf: _chapterNumber);
+  }
+
+  /// The chapter the voice was last in, for [_chapterEnd].
+  int? _voiceChapter;
+
+  /// The voice read into the next chapter: with "Ask at a chapter's end"
+  /// on, a quiet offer to write about the one just finished. The voice
+  /// reads on; the offer goes by itself.
+  void _chapterEnd() {
+    if (_l.isEmpty) return;
+    final c = _l.chapterOfUnit(_cursor.value);
+    final was = _voiceChapter;
+    _voiceChapter = c;
+    if (was == null || c != was + 1 || !_player.isPlaying || !_prefs.journalAsk || !mounted) return;
+    final last = _l.chapterFirstUnit[c] - 1;
+    final done = stampAt(_l, last, numberOf: _chapterNumber);
+    showSnack(
+      context,
+      'Write about chapter ${done.number}?',
+      margin: _snackMargin,
+      actionLabel: 'Write',
+      onAction: () => _write(stamp: () => done),
+    );
+  }
+
   /// Where a message floats: above the player, or at the foot while the
   /// bars are away. With Now Playing open over the page, above its scrubber
   /// instead, over the fade at the foot of its text and across its panel
@@ -1496,9 +1547,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           _hit = i;
           _hitQuery = query;
         });
-        _detached.value = false;
         if (_inPages) _chrome.value = true;
-        _reader.jump(hits[i].unit);
+        _goOrLook(hits[i].unit);
       },
     ));
   }
@@ -1507,7 +1557,41 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     if (_hits.isEmpty) return;
     _auto.stop();
     setState(() => _hit = (_hit + delta) % _hits.length);
-    unawaited(_reader.goTo(_hits[_hit].unit));
+    if (_looking) {
+      _lookAt(_hits[_hit].unit);
+    } else {
+      unawaited(_reader.goTo(_hits[_hit].unit));
+    }
+  }
+
+  /// Somewhere picked in the book (a chapter in Contents, a bookmark, a
+  /// passage found): in a book being listened to, only looked at, as the
+  /// same picked from the book's page is; the voice reads on (or waits
+  /// paused) at its place, and Back to reading returns to it. Only Read
+  /// from here moves it. A book read only by eye goes there.
+  void _goOrLook(int unit) {
+    if (_looking) {
+      _lookAt(unit);
+    } else {
+      _detached.value = false;
+      _reader.jump(unit);
+    }
+  }
+
+  /// Show [unit] without moving the place: a look around.
+  void _lookAt(int unit) {
+    if (_l.isEmpty) return;
+    final u = unit.clamp(0, _l.units.length - 1);
+    _detached.value = true;
+    _viewChapter.value = _l.chapterOfUnit(u);
+    if (_inPages) {
+      _paged.showUnit(u, animate: false);
+      return;
+    }
+    if (!_scroll.isAttached) return;
+    _programmaticScroll = true;
+    _scroll.jumpTo(index: _l.unitItem[u], alignment: 0.12);
+    _programmaticScroll = false;
   }
 
   // ---------------------------------------------------------- auto-scroll
@@ -1853,6 +1937,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       progressOf: voice != null ? (u) => progressFraction(voice.layout.units, u) : widget.progressOf,
       onSeekInChapter: voice != null ? voice.moveTo : (u) => _reader.goTo(u),
       elsewhere: voice != null,
+      // Looking at another chapter of this one: the bar still names the
+      // voice's.
+      looking: voice == null ? _detached : null,
+      viewChapter: voice == null ? _viewChapter : null,
       onSpeed: () => showListenSheet(context, _listen, focus: ListenFocus.speed),
       onVoice: () => showListenSheet(context, _listen),
       onExpand: voice != null ? () => _reader.follow() : _openNowPlaying,
@@ -1861,6 +1949,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       cover: _cover,
       onSleep: () => showListenSheet(context, _listen),
       onSave: () => unawaited(_save(MarkKind.quote)),
+      onWrite: _write,
       voice: _reader.voicePlaying,
     );
     // Out to the screen's own edges, past the safe area (the camera's side,
@@ -2071,7 +2160,10 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                   right: 0,
                   // Above the dock when it floats over the text.
                   bottom: rail && shown ? 112 : (rail ? 24 : 10),
-                  child: pill!,
+                  // Back to reading and the other pills come and go with the
+                  // bars, as on pages: left behind, it sat half faded at the
+                  // page's foot with the bars gone.
+                  child: _withBars(shown, pill!),
                 ),
                 child: Center(
                   child: AnimatedSwitcher(
@@ -2158,7 +2250,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
               left: 0,
               right: 0,
               bottom: shown ? foot + 10 : 10,
-              child: pill!,
+              child: _withBars(shown, pill!),
             ),
             child: pill,
           ),
@@ -2314,7 +2406,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       onOpen: (u) {
         _auto.stop();
         if (_inPages) _chrome.value = true;
-        _reader.jump(u);
+        _goOrLook(u);
       },
       onRemove: (m) async {
         await MarkStore.instance.remove(m.id);
@@ -2323,6 +2415,20 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             margin: _snackMargin, actionLabel: 'Undo', onAction: () => unawaited(MarkStore.instance.restore(m)));
       },
     ));
+  }
+
+  /// [pill] over the scroll, shown while the bars are ([shown]; a PDF's real
+  /// pages keep theirs). Reading alone, nothing covers the text.
+  Widget _withBars(bool shown, Widget pill) {
+    final on = shown || _showPages;
+    return IgnorePointer(
+      ignoring: !on,
+      child: AnimatedOpacity(
+        opacity: on ? 1 : 0,
+        duration: Motion.of(context, Motion.quick),
+        child: pill,
+      ),
+    );
   }
 
   /// Back to reading, the search matches, or the way back after a jump:
@@ -2414,6 +2520,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             spread: spread,
             paper: style.paper,
             crease: style.crease,
+            spiral: style.spiral,
             tapToTurn: _prefs.tapToTurn,
             endButton: widget.onReachedEnd == null ? null : _more(context),
             marks: _markedUnits,
@@ -2604,6 +2711,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           setState(() => _prefs.pdfPages = !_prefs.pdfPages);
           _prefs.save();
           _detached.value = false;
+        },
+        pages: _isPdf ? null : _prefs.pages,
+        onPages: () {
+          // Saved, the page follows (see _onPrefs).
+          _prefs.pages = !_prefs.pages;
+          _prefs.save();
         },
         onContents: _openContents,
         onSearch: _openSearch,
@@ -2990,7 +3103,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     ).then((chapter) {
       if (chapter == null || !mounted) return;
       _auto.stop();
-      _reader.jump(_l.chapterFirstUnit[chapter]);
+      _goOrLook(_l.chapterFirstUnit[chapter]);
     }));
   }
 }

@@ -52,7 +52,12 @@ class PageStyle {
       tone: tone,
       dark: dark,
       look: PageLook(
-        text: Skin.page(context, size: prefs.textSize, font: prefs.bookFont, height: prefs.lineHeight)
+        text: Skin.page(context,
+                size: prefs.textSize,
+                font: prefs.bookFont,
+                height: prefs.lineHeight,
+                spacing: prefs.letterSpacing,
+                weight: prefs.textWeight)
             .copyWith(color: ink),
         heading: Skin.title(context, size: 22 * scale, weight: FontWeight.w500).copyWith(height: 1.2, color: ink),
         chapterHeading:
@@ -118,6 +123,10 @@ class PageStyle {
   /// The binding between two open pages: the page's own ink, black on a
   /// dark page.
   Color get crease => dark ? Colors.black : ink;
+
+  /// A spiral notebook's wire across the binding: the Notebook paper's,
+  /// where two pages lie open; null for every other paper.
+  Color? get spiral => tone.grid == null ? null : (dark ? const Color(0xFF8D8A84) : const Color(0xFF3A3A40));
 
   /// The phone's bars drawn light on a dark page, dark on a light one.
   Brightness get barIcons => dark ? Brightness.light : Brightness.dark;

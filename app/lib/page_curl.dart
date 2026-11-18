@@ -39,6 +39,7 @@ class PageCurl extends StatefulWidget {
     required this.onSettled,
     this.spread = false,
     this.crease,
+    this.spiral,
     this.onTapMiddle,
     this.tapToTurn = true,
     this.held = false,
@@ -62,6 +63,9 @@ class PageCurl extends StatefulWidget {
   /// The shade of the gutter between two open pages (the paper's own ink,
   /// or black on a dark page); none in a single page.
   final Color? crease;
+
+  /// The wire of a spiral binding across the gutter (see Crease).
+  final Color? spiral;
   final VoidCallback? onTapMiddle;
   final bool tapToTurn;
 
@@ -317,7 +321,7 @@ class _PageCurlState extends State<PageCurl> with SingleTickerProviderStateMixin
       width: _creaseHalf * 2,
       top: 0,
       bottom: 0,
-      child: IgnorePointer(child: CustomPaint(painter: Crease(c))),
+      child: IgnorePointer(child: CustomPaint(painter: Crease(c, spiral: widget.spiral))),
     );
   }
 
@@ -434,8 +438,12 @@ class _PageCurlState extends State<PageCurl> with SingleTickerProviderStateMixin
 /// The binding between two open pages, in [shade]: darkest at the spine,
 /// with the paper catching the light as it rises either side.
 class Crease extends CustomPainter {
-  Crease(this.shade);
+  Crease(this.shade, {this.spiral});
   final Color shade;
+
+  /// A spiral notebook's wire: holes punched either side of the fold and a
+  /// loop of wire over it, down the binding. Null for a bound book.
+  final Color? spiral;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -466,10 +474,37 @@ class Crease extends CustomPainter {
         ..color = shade.withValues(alpha: 0.28)
         ..strokeWidth = 1,
     );
+    final wire = spiral;
+    if (wire == null) return;
+    const step = 26.0;
+    final mid = size.width / 2;
+    final hole = Paint()..color = shade.withValues(alpha: 0.55);
+    final loop = Paint()
+      ..color = wire
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.6
+      ..strokeCap = StrokeCap.round;
+    final shine = Paint()
+      ..color = Colors.white.withValues(alpha: 0.22)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.9;
+    final count = math.max(1, (size.height / step).floor() - 1);
+    final top = (size.height - (count - 1) * step) / 2;
+    for (var i = 0; i < count; i++) {
+      final y = top + i * step;
+      canvas
+        ..drawCircle(Offset(mid - 11, y), 3.2, hole)
+        ..drawCircle(Offset(mid + 11, y), 3.2, hole);
+      // The wire comes up out of one hole, over the fold, and into the other.
+      final arc = Rect.fromCenter(center: Offset(mid, y + 1), width: 24, height: 13);
+      canvas
+        ..drawArc(arc, math.pi * 1.04, math.pi * 0.92, false, loop)
+        ..drawArc(arc.deflate(1.6), math.pi * 1.25, math.pi * 0.35, false, shine);
+    }
   }
 
   @override
-  bool shouldRepaint(Crease old) => old.shade != shade;
+  bool shouldRepaint(Crease old) => old.shade != shade || old.spiral != spiral;
 }
 
 /// The paper's colour: its own, or the first of its gradient's.

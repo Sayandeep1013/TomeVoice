@@ -44,7 +44,7 @@ the application id, set by `prepare_android.py`, is `app.tomevoice`.
 | `.../NarrationAudio.kt` | Decoding an EPUB's recorded narration |
 | `.../NovelCheckWorker.kt`, `DownloadService.kt`, `SourcesBridge.kt`, `BrowserCheck.kt` | Web novels: the check for new chapters with the app closed, downloads, platform calls, the hidden web view |
 | `.../NovelDokushaImport.kt` | Reading a NovelDokusha backup's database |
-| `.../LibraryBackup.kt`, `ShareProvider.kt`, `ErrorLog.kt` | Backups, files handed to other apps, Android-side crashes |
+| `.../LibraryBackup.kt`, `ShareProvider.kt`, `ErrorLog.kt`, `PastExits.kt` | Backups, files handed to other apps, Android-side crashes, and native crashes and freezes read back from Android's exit records |
 | `.../Widgets.kt`, `WidgetConfigActivity.kt` | The home-screen widgets |
 | `app/src/main/res/` | Launcher icon, notification and speed icons, widget layouts and previews, `xml/` (widget info, `automotive_app_desc.xml`) |
 

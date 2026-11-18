@@ -145,6 +145,8 @@ void main() {
       expect(formatOf('application/x-mobipocket-ebook', u('1342.kindle.images'))!.label, 'MOBI');
       expect(formatOf('application/x-mobipocket-ebook', u('a.azw3'))!.extension, '.azw3');
       expect(formatOf('application/pdf; charset=binary', u('a'))!.label, 'PDF');
+      expect(formatOf('image/vnd.djvu', u('a'))!.extension, '.djvu');
+      expect(formatOf('image/x-djvu', u('a'))!.label, 'DjVu');
       expect(formatOf('application/xhtml+xml', u('page')), isNull, reason: 'a web page, not a file');
       expect(formatOf('application/x-cbz', u('a')), isNull);
     });
@@ -304,7 +306,7 @@ void main() {
       final store = CatalogueStore(tmp);
       final first = await store.all();
       expect([for (final c in first) c.id], ['gutenberg', 'standard-ebooks-new', 'standard-ebooks']);
-      expect(first.first.url, 'https://www.gutenberg.org/ebooks.opds/');
+      expect(first.first.url, 'https://www.gutenberg.org/opds/');
       expect(first.last.url, 'https://standardebooks.org/feeds/opds');
 
       const calibre = Catalogue(id: 'c1', title: 'Calibre', url: 'http://192.168.1.20:8080/opds', user: 'me');

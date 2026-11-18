@@ -5,6 +5,7 @@ import 'dart:isolate';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart';
 
+import 'bridge.dart';
 import 'browser_hosts.dart';
 import 'models.dart';
 import 'net.dart';
@@ -277,6 +278,13 @@ class _Worker {
   _Worker(this._send, this._receive) {
     _receive.listen((m) {
       if (m is! Map) return;
+      // The worker asks the platform through here (SourcesBridge.relay).
+      if (m['bridge'] case final int n) {
+        final back = m['back'] as SendPort;
+        unawaited(SourcesBridge.answer(m['method'] as String, (m['args'] as Map?)?.cast<String, Object?>())
+            .then((got) => back.send({'bridge': n, 'got': got})));
+        return;
+      }
       // A call ran out of time in there: no more calls (see SourceEngine).
       if (m['stuck'] == true) retired = true;
       final c = _pending.remove(m['id']);
@@ -329,7 +337,8 @@ class _Worker {
           shim,
           sourcesDir,
           Net.userAgent,
-          RootIsolateToken.instance,
+          // Whether there is a platform to ask (none in tests).
+          RootIsolateToken.instance != null,
           Net.allowPrivateAddresses,
           cookies,
           extra,
@@ -382,11 +391,24 @@ class _Worker {
     // The main isolate keeps the cookie file; this one reads it, and sends
     // what sites set there.
     Net.instance.forwardCookiesTo(boot[8] as SendPort);
-    // The platform channel, for pages only the phone's web view gets (none
-    // in the background check's engine, which has no activity: null there).
+    // The platform, for pages only the phone's web view gets (none in the
+    // background check's engine, which has no activity: null there), asked
+    // through the main isolate (SourcesBridge.relay): an answer that comes
+    // after this isolate has ended is dropped there, not posted here.
     BrowserFetch? viaBrowser;
-    if (boot[6] case final RootIsolateToken token) {
-      BackgroundIsolateBinaryMessenger.ensureInitialized(token);
+    if (boot[6] == true) {
+      final answers = ReceivePort();
+      final waiting = <int, Completer<Object?>>{};
+      var next = 0;
+      answers.listen((m) {
+        if (m is Map && m['bridge'] is int) waiting.remove(m['bridge'])?.complete(m['got']);
+      });
+      SourcesBridge.relay = (method, args) {
+        final n = next++;
+        final c = waiting[n] = Completer<Object?>();
+        reply.send({'bridge': n, 'method': method, 'args': args, 'back': answers.sendPort});
+        return c.future;
+      };
       viaBrowser = Net.instance.viaWebView;
     }
     final host = PluginHost(

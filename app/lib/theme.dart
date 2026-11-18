@@ -6,6 +6,7 @@ import 'package:flutter/services.dart' show PredictiveBackEvent;
 import 'package:material_color_utilities/material_color_utilities.dart' show Hct;
 
 import 'contrast.dart';
+import 'own_fonts.dart' show OwnFonts;
 
 /// The visual language, in one place.
 ///
@@ -226,22 +227,30 @@ class Skin {
       );
 
   /// The page. [family] is the reader's choice (see [BookFont]).
+  ///
+  /// [spacing] is added between letters; [weight] (300 to 600) makes the
+  /// type lighter or heavier than as designed (400).
   static TextStyle page(BuildContext c,
-      {double size = 19, BookFont font = BookFont.newsreader, double height = 1.6}) {
+      {double size = 19,
+      BookFont font = BookFont.newsreader,
+      double height = 1.6,
+      double spacing = 0,
+      int weight = 400}) {
     final variable = font == BookFont.newsreader || font == BookFont.literata;
+    final w = weight.clamp(100, 900);
     return TextStyle(
-      fontFamily: font.family,
+      fontFamily: font == BookFont.own ? (OwnFonts.family ?? 'serif') : font.family,
       fontSize: size,
       height: height,
-      letterSpacing: font == BookFont.sans ? 0.05 : 0.1,
-      fontWeight: FontWeight.w400,
+      letterSpacing: (font == BookFont.sans ? 0.05 : 0.1) + spacing,
+      fontWeight: FontWeight.values[((w / 100).round() - 1).clamp(0, 8)],
       fontVariations: variable
           ? [
-              const FontVariation('wght', 400),
+              FontVariation('wght', w.toDouble()),
               FontVariation('opsz', size.clamp(7, 72).toDouble()),
             ]
           : font == BookFont.sans
-              ? const [FontVariation('wght', 420)]
+              ? [FontVariation('wght', w + 20.0)]
               : null,
       color: inkOn(c),
     );
@@ -962,7 +971,11 @@ enum BookFont {
   newsreader('Newsreader', 'Newsreader'),
   literata('Literata', 'Literata'),
   sans('Sans', 'Figtree'),
-  system('Phone', 'serif');
+  system('Phone', 'serif'),
+
+  /// The reader's own, from a font file (own_fonts.dart): offered once
+  /// one is added.
+  own('Yours', 'serif');
 
   const BookFont(this.label, this.family);
 

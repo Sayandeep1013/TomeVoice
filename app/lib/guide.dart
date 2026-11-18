@@ -45,7 +45,7 @@ const _cards = [
   _Card(
     Icons.library_add_outlined,
     'Bring your books',
-    'EPUB, PDF, Word, MOBI, FB2 and plain text, read aloud on your phone.',
+    'EPUB, PDF, DjVu, Word, MOBI, FB2 and plain text, read aloud on your phone.',
     [
       (Icons.add_rounded, 'Add books, at the top of the library: books on this phone, or a link.'),
       (Icons.local_library_outlined, 'Catalogues, in the menu: free classics to download.'),

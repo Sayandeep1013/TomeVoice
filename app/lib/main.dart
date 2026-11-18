@@ -105,6 +105,7 @@ void _registerFontLicences() {
       ('Newsreader', 'Newsreader'),
       ('Literata', 'Literata'),
       ('Doto', 'Doto'),
+      ('Caveat', 'Caveat'),
     ]) {
       yield LicenseEntryWithLineBreaks(
         [family],
