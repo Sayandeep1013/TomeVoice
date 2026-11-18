@@ -112,8 +112,13 @@ class TalkSheet extends StatefulWidget {
 }
 
 class _TalkSheetState extends State<TalkSheet> {
-  late final TalkEngine _engine =
-      widget.engine ?? TalkEngine(memoryPath: widget.memoryPath, bookTitle: widget.bookTitle);
+  late final TalkEngine _engine = widget.engine ??
+      TalkEngine(
+        memoryPath: widget.memoryPath,
+        bookTitle: widget.bookTitle,
+        ownKnowledge: _prefs.aiOwnKnowledge,
+        length: AnswerLength.values.firstWhere((l) => l.name == _prefs.aiLength, orElse: () => AnswerLength.normal),
+      );
   final _turns = <_Turn>[];
   final _input = TextEditingController();
   final _scroll = ScrollController();

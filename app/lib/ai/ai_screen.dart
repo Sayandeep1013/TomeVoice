@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../prefs.dart';
 import '../theme.dart';
 import '../ui.dart';
 import 'ai_client.dart';
@@ -96,6 +97,10 @@ class _AiScreenState extends State<AiScreen> {
                         const SizedBox(height: Gap.xl),
                         _JobOrder(ring: _ring, job: job),
                       ],
+                    if (keys.isNotEmpty) ...[
+                      const SizedBox(height: Gap.xl),
+                      const _TalkSettings(),
+                    ],
                     const SizedBox(height: Gap.xl),
                     const Padding(
                       padding: EdgeInsets.symmetric(horizontal: Gap.page),
@@ -189,6 +194,72 @@ class _KeyRow extends StatelessWidget {
       onTap: onTap,
     );
   }
+}
+
+/// How Talk answers: aloud or not, how long, from what, and when it offers
+/// a recap.
+class _TalkSettings extends StatefulWidget {
+  const _TalkSettings();
+
+  @override
+  State<_TalkSettings> createState() => _TalkSettingsState();
+}
+
+class _TalkSettingsState extends State<_TalkSettings> {
+  ListeningPrefs get _p => ListeningPrefs.loaded ?? ListeningPrefs.memory;
+
+  void _set(void Function(ListeningPrefs p) change) {
+    setState(() => change(_p));
+    _p.save();
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: Gap.page),
+            child: SectionTitle('Talk', size: 18),
+          ),
+          SwitchRow(
+            title: 'Answers aloud',
+            subtitle: 'Said in the voice reading the book, which pauses for them',
+            value: _p.aiSpeak,
+            onChanged: (v) => _set((p) => p.aiSpeak = v),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(Gap.page, Gap.s, Gap.page, Gap.s),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Eyebrow('How long its answers are'),
+                const SizedBox(height: Gap.s),
+                ChoiceRow<String>(
+                  options: const [('short', 'Short'), ('normal', 'Normal'), ('long', 'Long')],
+                  value: _p.aiLength,
+                  onChanged: (v) => _set((p) => p.aiLength = v),
+                ),
+                const SizedBox(height: Gap.l),
+                const Eyebrow('"Previously…" when back to a book after'),
+                const SizedBox(height: Gap.s),
+                ChoiceRow<int>(
+                  options: const [(0, 'Never'), (1, 'A day'), (3, '3 days'), (7, 'A week')],
+                  value: _p.aiRecapDays,
+                  onChanged: (v) => _set((p) => p.aiRecapDays = v),
+                ),
+              ],
+            ),
+          ),
+          SwitchRow(
+            title: 'What the AI already knows of the book',
+            subtitle: _p.aiOwnKnowledge
+                ? 'On: it may add what it knows from elsewhere, and says so. It can spoil a well-known book.'
+                : 'Off: it keeps to what TomeVoice gives it, so a well-known book is not spoiled from memory.',
+            value: _p.aiOwnKnowledge,
+            onChanged: (v) => _set((p) => p.aiOwnKnowledge = v),
+          ),
+        ],
+      );
 }
 
 /// A job's keys in the order it tries them; hold one to move it.

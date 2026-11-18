@@ -511,8 +511,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     unawaited(_reader.loadCover());
     // A theory of the reader's the story has settled, at a chapter they
     // have now reached: said once, a moment after the book opens.
-    Future<void>.delayed(const Duration(seconds: 2), () {
+    // When the book was last read, before this opening moves it.
+    final lastRead = widget.store?.list(all: true).then((all) => all.where((e) => e.id == _book.id).firstOrNull?.openedAt);
+    Future<void>.delayed(const Duration(seconds: 2), () async {
       if (!mounted) return;
+      unawaited(_offerPreviously(await lastRead));
       unawaited(_tellTheories());
       // A book whose memory is begun: what was added since, noted.
       if (_talkable) unawaited(MemoryService.instance.keepUp(_book.id));
@@ -2607,6 +2610,29 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         await _player.play(_cursor.value);
       }
     }());
+  }
+
+  /// Back after some days ([ListeningPrefs.aiRecapDays]) to a book whose
+  /// memory has notes: an offer to hear what happened just before.
+  Future<void> _offerPreviously(DateTime? lastRead) async {
+    final days = _prefs.aiRecapDays;
+    if (days <= 0 || lastRead == null || !_talkable || !mounted) return;
+    final away = DateTime.now().difference(lastRead).inDays;
+    if (away < days) return;
+    final memory = MemoryService.instance.stateOf(_book.id);
+    await MemoryService.instance.refresh(_book.id);
+    if (memory.value.noted == 0 || !mounted) return;
+    showSnack(
+      context,
+      'Back after $away days. Hear what happened just before?',
+      margin: _snackMargin,
+      long: true,
+      actionLabel: 'Previously…',
+      onAction: () => unawaited(_talk(
+        first: 'Previously: catch me up on what happened in the chapters just before where I am, and who was '
+            'involved. Keep it short, like the recap before a new episode.',
+      )),
+    );
   }
 
   Future<void> _tellTheories() async {
