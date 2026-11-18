@@ -5,6 +5,12 @@ Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoi
 
 ## Unreleased
 
+#### The notebook look
+- Saved can be a notebook (the button beside Saved's title): a page for each book, its cover taped at the top, your quotes in their highlighter's colour on squared paper, your notes in handwriting, and numbered tabs in colour down the edge to turn to a book. Press and hold a quote to add a note, share or remove it. It stays as you left it.
+- A Notebook paper among the reader's pages (Aa, Read): cream, squared in blue-grey, a fountain pen's ink and a red pen for the voice.
+- A book's Contents with parts has a coloured tab for each down its side: a tap opens the part, and the part in view stands out. Each part's divider carries its tab's colour.
+- The handwriting is Caveat (SIL Open Font License), listed in About with the other fonts.
+
 #### Fixes
 - The app no longer closes when a web-novel site loaded through the hidden web view answers after the source that asked for it has stopped (a check that timed out, a source closed meanwhile). Seen once on 11 November; Flutter's engine ended the whole app.
 - Report a problem sends only the errors of the version you run. An older version's errors are counted, not sent again: issue #28 (1.5.0) carried the same 1.4.1 error as #24 and #25, fixed in 1.4.2.

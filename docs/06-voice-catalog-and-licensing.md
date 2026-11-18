@@ -179,7 +179,7 @@ its component is upgraded.
 | LNReader plugin host conventions | MIT | **Used** | The plugins themselves are downloaded from source lists, never shipped in the APK (a new install fetches two) |
 | AndroidX WorkManager | Apache-2.0 | **Used** | |
 | Flutter, Dart, `archive`, `xml`, `crypto`, `scrollable_positioned_list`, `material_color_utilities` | BSD-3-Clause, MIT, Apache-2.0 | **Used** | |
-| Bodoni Moda, Figtree, Newsreader, Literata, Doto | SIL OFL 1.1 | **Used** | Bundled, licence texts in `app/assets/fonts/` ([ADR-018](10-decisions-adr.md#adr-018)) |
+| Bodoni Moda, Figtree, Newsreader, Literata, Doto, Caveat | SIL OFL 1.1 | **Used** | Bundled, licence texts in `app/assets/fonts/` ([ADR-018](10-decisions-adr.md#adr-018)) |
 | PDFium through `pdfrx`, miniaudio, Drift, `flutter_inappwebview`, Rubber Band, a CMUdict lexicon | various | **Not used** | Planned in the first design, not needed by what was built |
 
 **Open items from the first design, closed or moot:**

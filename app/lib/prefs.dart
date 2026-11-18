@@ -60,6 +60,7 @@ class ListeningPrefs {
     this.updateEvery = 'daily',
     this.novelUpdates = false,
     this.gridView = true,
+    this.savedNotebook = false,
     this.sort = LibrarySort.recent,
     this.bookColours = true,
     this.naturalVoices,
@@ -318,6 +319,9 @@ class ListeningPrefs {
   /// The library as a grid of covers instead of a list.
   bool gridView;
 
+  /// Saved as a notebook, a page a book, instead of a list.
+  bool savedNotebook;
+
   /// Order of books in the library.
   LibrarySort sort;
 
@@ -473,6 +477,7 @@ class ListeningPrefs {
         'updateEvery': updateEvery,
         if (novelUpdates) 'novelUpdates': true,
         'gridView': gridView,
+        'savedNotebook': savedNotebook,
         'sort': sort.name,
         'bookColours': bookColours,
         if (naturalVoices != null) 'naturalVoices': naturalVoices,
@@ -566,6 +571,7 @@ class ListeningPrefs {
         themeMode: ThemeMode.values.where((m) => m.name == json['themeMode']).firstOrNull ??
             ThemeMode.system,
         gridView: json['gridView'] as bool? ?? true,
+        savedNotebook: json['savedNotebook'] as bool? ?? false,
         paletteId: json['palette'] as String? ?? 'forest',
         ownPage: colourFromHex(json['ownPage']),
         ownAccent: colourFromHex(json['ownAccent']),

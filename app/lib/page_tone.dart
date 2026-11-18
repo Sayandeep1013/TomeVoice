@@ -1,3 +1,6 @@
+import 'dart:ui' as ui;
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'contrast.dart' show groundOf;
@@ -17,6 +20,7 @@ class PageTone {
     this.accent,
     this.dark = false,
     this.vignette,
+    this.grid,
   });
 
   final String id;
@@ -35,6 +39,9 @@ class PageTone {
 
   /// The page's edges darkened a little, as paper in lamplight.
   final Color? vignette;
+
+  /// Squared paper: the colour of its lines (a field notebook's).
+  final Color? grid;
 
   bool get isApp => paper == null;
 
@@ -80,7 +87,19 @@ class PageTone {
     vignette: Color(0x73000000),
   );
 
-  static const all = [app, eink, papyrus, dusk];
+  /// A field notebook's squared page: cream, blue-grey squares, ink like a
+  /// fountain pen's and a red pen for the voice.
+  static const notebook = PageTone(
+    'notebook',
+    'Notebook',
+    paper: [Color(0xFFFAF7EE), Color(0xFFF2EEE1)],
+    ink: Color(0xFF1E2533),
+    inkSoft: Color(0xFF4B5263),
+    accent: Color(0xFFA8322A),
+    grid: Color(0x2E4A78A8),
+  );
+
+  static const all = [app, eink, papyrus, notebook, dusk];
 
   static PageTone byId(String? id) => all.where((t) => t.id == id).firstOrNull ?? app;
 
@@ -95,6 +114,11 @@ class PageTone {
       ? BoxDecoration(gradient: Skin.ground(context))
       : BoxDecoration(
           gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: paper!),
+          // Squares over the paper's own shade, wherever the paper is laid
+          // (the scroll, each page and a turning leaf, the swatch).
+          image: grid == null
+              ? null
+              : DecorationImage(image: GridPaper(grid!), repeat: ImageRepeat.repeat, scale: GridPaper.scale),
         );
 
   Color inkOf(BuildContext context) => ink ?? Skin.inkOn(context);
@@ -168,4 +192,46 @@ class PageGround extends StatelessWidget {
       ),
     );
   }
+}
+
+/// One square of squared paper, drawn once and repeated: a line along its
+/// top and its left in [line], [size] dp a side.
+@immutable
+class GridPaper extends ImageProvider<GridPaper> {
+  const GridPaper(this.line, {this.size = 22});
+
+  final Color line;
+  final double size;
+
+  /// Drawn at three pixels a dp: sharp on any phone's screen.
+  static const scale = 3.0;
+
+  @override
+  Future<GridPaper> obtainKey(ImageConfiguration configuration) => SynchronousFuture(this);
+
+  @override
+  ImageStreamCompleter loadImage(GridPaper key, ImageDecoderCallback decode) =>
+      OneFrameImageStreamCompleter(key._draw());
+
+  Future<ImageInfo> _draw() async {
+    final px = (size * scale).round();
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    final paint = Paint()
+      ..color = line
+      ..strokeWidth = 2;
+    canvas
+      ..drawLine(const Offset(0, 1), Offset(px.toDouble(), 1), paint)
+      ..drawLine(const Offset(1, 0), Offset(1, px.toDouble()), paint);
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(px, px);
+    picture.dispose();
+    return ImageInfo(image: image, scale: scale);
+  }
+
+  @override
+  bool operator ==(Object other) => other is GridPaper && other.line == line && other.size == size;
+
+  @override
+  int get hashCode => Object.hash(line, size);
 }

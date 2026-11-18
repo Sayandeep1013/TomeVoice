@@ -7,6 +7,8 @@ import 'book_tint.dart';
 import 'highlights.dart';
 import 'library_store.dart';
 import 'marks.dart';
+import 'notebook.dart';
+import 'prefs.dart';
 import 'quote_export.dart';
 import 'quote_sheet.dart';
 import 'reader_screen.dart';
@@ -53,6 +55,68 @@ class _SavedScreenState extends State<SavedScreen> {
 
   /// Rows swiped away, which shrink by themselves (Dismissible).
   final _swiped = <String>{};
+
+  ListeningPrefs get _prefs => ListeningPrefs.loaded ?? ListeningPrefs.memory;
+
+  /// Shown as a notebook, a page a book (remembered).
+  bool get _notebook => _prefs.savedNotebook;
+
+  void _setNotebook(bool on) {
+    setState(() => _prefs.savedNotebook = on);
+    _prefs.save();
+  }
+
+  /// Press and hold in the notebook: what can be done with [m].
+  Future<void> _actions(Mark m) async {
+    final book = _books[m.bookId];
+    final quote = m.kind == MarkKind.quote;
+    final pick = await showModalBottomSheet<String>(
+      context: context,
+      sheetAnimationStyle: sheetMotion(context),
+      useSafeArea: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SheetHeader(m.bookTitle, subtitle: m.chapter),
+            ListTile(
+              leading: const Icon(Icons.menu_book_rounded),
+              title: const Text('Open the book here'),
+              onTap: () => Navigator.of(context).pop('open'),
+            ),
+            if (quote)
+              ListTile(
+                leading: const Icon(Icons.edit_note_rounded),
+                title: Text(m.note == null ? 'Add a note' : 'Change the note'),
+                onTap: () => Navigator.of(context).pop('note'),
+              ),
+            if (quote)
+              ListTile(
+                leading: const Icon(Icons.ios_share_rounded),
+                title: const Text('Share'),
+                onTap: () => Navigator.of(context).pop('share'),
+              ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline_rounded),
+              title: const Text('Remove'),
+              onTap: () => Navigator.of(context).pop('remove'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    switch (pick) {
+      case 'open':
+        await _open(m);
+      case 'note':
+        await _editNote(m);
+      case 'share':
+        await showQuoteShare(context, m, cover: book?.shownCover, author: book?.authorLine);
+      case 'remove':
+        await _delete(m, swiped: true);
+    }
+  }
 
   @override
   void initState() {
@@ -183,6 +247,12 @@ class _SavedScreenState extends State<SavedScreen> {
               Row(
                 children: [
                   Expanded(child: ScreenTopBar(title: 'Saved', onBack: () => Navigator.of(context).maybePop())),
+                  if (mine.isNotEmpty)
+                    IconButton(
+                      tooltip: _notebook ? 'Show as a list' : 'Show as a notebook',
+                      icon: Icon(_notebook ? Icons.view_agenda_outlined : Icons.auto_stories_outlined),
+                      onPressed: () => _setNotebook(!_notebook),
+                    ),
                   if (quotes > 0)
                     Padding(
                       padding: const EdgeInsets.only(right: Gap.s),
@@ -190,27 +260,39 @@ class _SavedScreenState extends State<SavedScreen> {
                     ),
                 ],
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.m),
-                child: ChoiceRow<MarkKind>(
-                  options: [
-                    (MarkKind.quote, 'Quotes  $quotes'),
-                    (MarkKind.bookmark, 'Bookmarks  $bookmarks'),
-                  ],
-                  value: _kind,
-                  onChanged: (k) => setState(() => _kind = k),
+              if (!(_notebook && mine.isNotEmpty))
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.m),
+                  child: ChoiceRow<MarkKind>(
+                    options: [
+                      (MarkKind.quote, 'Quotes  $quotes'),
+                      (MarkKind.bookmark, 'Bookmarks  $bookmarks'),
+                    ],
+                    value: _kind,
+                    onChanged: (k) => setState(() => _kind = k),
+                  ),
                 ),
-              ),
-              if (mine.length > 6)
+              if (mine.length > 6 && !_notebook)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.m),
                   child: SearchField(hint: 'Search what you saved', onChanged: (v) => setState(() => _query = v)),
                 ),
               Expanded(
-                // Quotes and bookmarks fade into each other's place.
+                // Quotes and bookmarks (and the list and the notebook) fade
+                // into each other's place.
                 child: FadeIn(
-                  trigger: _kind,
+                  trigger: (_kind, _notebook),
                   child: !_loaded
+                      ? const SizedBox.shrink()
+                      : _notebook && mine.isNotEmpty
+                      ? SavedNotebook(
+                          pages: _pagesOf(mine),
+                          books: _books,
+                          present: _present.contains,
+                          onOpen: (m) => unawaited(_open(m)),
+                          onAction: (m) => unawaited(_actions(m)),
+                        )
+                      : !_loaded
                       ? const SizedBox.shrink()
                       : marks.isEmpty
                       ? EmptyState(
@@ -238,6 +320,17 @@ class _SavedScreenState extends State<SavedScreen> {
         ),
       ),
     );
+  }
+
+  /// The notebook's pages: a book each, in the order of what was saved
+  /// last; marks of a book going (Remove) gone at once.
+  List<(String, List<Mark>)> _pagesOf(List<Mark> mine) {
+    final byBook = <String, List<Mark>>{};
+    for (final m in mine) {
+      if (_leaving.contains(m.id) || _swiped.contains(m.id)) continue;
+      byBook.putIfAbsent(m.bookId, () => []).add(m);
+    }
+    return [for (final e in byBook.entries) (e.key, e.value)];
   }
 
   List<Widget> _group(BuildContext context, String bookId, List<Mark> marks) {
@@ -397,7 +490,7 @@ class _SavedScreenState extends State<SavedScreen> {
                             children: [
                               Expanded(
                                 child: Text(
-                                  [if (m.chapter != null) m.chapter!, _when(m.created)].join(' · ').toUpperCase(),
+                                  [if (m.chapter != null) m.chapter!, savedWhen(m.created)].join(' · ').toUpperCase(),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: Skin.meta(context, size: 10),
@@ -471,17 +564,6 @@ class _SavedScreenState extends State<SavedScreen> {
           ),
       ],
     );
-  }
-
-  static String _when(DateTime saved) {
-    // Kept in UTC; said on this phone's own calendar.
-    final t = saved.toLocal();
-    final days = DateTime.now().difference(t).inDays;
-    if (days == 0) return 'today';
-    if (days == 1) return 'yesterday';
-    if (days < 7) return '$days days ago';
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return '${t.day} ${months[t.month - 1]}';
   }
 }
 
