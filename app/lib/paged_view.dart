@@ -192,6 +192,7 @@ class PagedBook extends StatefulWidget {
     this.spread = false,
     this.paper = const BoxDecoration(),
     this.crease,
+    this.spiral,
     this.tapToTurn = true,
     this.endButton,
     this.topInset = 0,
@@ -240,6 +241,9 @@ class PagedBook extends StatefulWidget {
 
   /// The shade of the binding between two open pages.
   final Color? crease;
+
+  /// The wire of a spiral binding across [crease] (the Notebook paper).
+  final Color? spiral;
   final bool tapToTurn;
 
   /// The page after the last chapter here (a web novel's next chapter).
@@ -805,6 +809,7 @@ class _PagedBookState extends State<PagedBook> {
               paper: widget.paper,
               spread: widget.spread,
               crease: widget.crease,
+              spiral: widget.spiral,
               tapToTurn: widget.tapToTurn,
               onTapMiddle: widget.onTapMiddle,
               onSettled: (i, {required byHand}) {
@@ -864,7 +869,10 @@ class _PagedBookState extends State<PagedBook> {
                           if (widget.crease != null)
                             Positioned.fill(
                               child: IgnorePointer(
-                                child: Center(child: SizedBox(width: 68, child: CustomPaint(painter: Crease(widget.crease!)))),
+                                child: Center(
+                                    child: SizedBox(
+                                        width: 68,
+                                        child: CustomPaint(painter: Crease(widget.crease!, spiral: widget.spiral)))),
                               ),
                             ),
                         ],

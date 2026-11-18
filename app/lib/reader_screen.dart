@@ -2417,6 +2417,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             spread: spread,
             paper: style.paper,
             crease: style.crease,
+            spiral: style.spiral,
             tapToTurn: _prefs.tapToTurn,
             endButton: widget.onReachedEnd == null ? null : _more(context),
             marks: _markedUnits,
