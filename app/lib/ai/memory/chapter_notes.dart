@@ -372,13 +372,22 @@ String chapterForBuilder(int ch, String title, List<String> passages) {
 }
 
 /// A name as a reader writes it: some models give names as identifiers
-/// (Mountain_King, LordOfTheDead); spaces put back, and the small words of
-/// a split name lowercased. A name with one inner capital (McDonald,
-/// DeShawn) is left as it is.
+/// (Mountain_King, LordOfTheDead, StoneSaint); spaces put back, and the
+/// small words of a split name lowercased. A name whose inner capital
+/// follows a short prefix (McDonald, MacArthur, DeShawn) is left as it is.
 String tidyName(String name) {
   var t = name.trim();
   if (t.contains('_')) t = t.replaceAll(RegExp(r'_+'), ' ').trim();
-  if (!t.contains(' ') && RegExp(r'[a-z][A-Z]').allMatches(t).length >= 2) {
+  bool joined(String word) {
+    var start = 0;
+    for (final b in RegExp(r'[a-z][A-Z]').allMatches(word)) {
+      if (b.start + 1 - start >= 4) return true;
+      start = b.start + 1;
+    }
+    return false;
+  }
+
+  if (!t.contains(' ') && joined(t)) {
     const small = {'of', 'the', 'and', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'from', 'with', 'by'};
     final words = t.replaceAllMapped(RegExp(r'([a-z])([A-Z])'), (m) => '${m[1]} ${m[2]}').split(' ');
     t = [for (var i = 0; i < words.length; i++) i > 0 && small.contains(words[i].toLowerCase()) ? words[i].toLowerCase() : words[i]]

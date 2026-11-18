@@ -6,7 +6,7 @@ import 'memory_db.dart';
 /// A name as the graph compares names: lower case, accents and marks gone,
 /// "the" in front dropped, spaces single.
 String normName(String s) {
-  var t = s.toLowerCase();
+  var t = tidyName(s).toLowerCase();
   const from = 'àáâãäåāăąçćčďđèéêëēėęěìíîïīįıñńňòóôõöøōőŕřśšşťùúûüūůűųýÿźżž';
   const to = 'aaaaaaaaacccddeeeeeeeeiiiiiiinnnooooooooorrssstuuuuuuuuyyzzz';
   final b = StringBuffer();
@@ -145,7 +145,8 @@ class BookGraph {
     return found;
   }
 
-  int _newEntity(String kind, String name, String? about, int ch) {
+  int _newEntity(String kind, String given, String? about, int ch) {
+    final name = tidyName(given);
     m.db.execute(
       'INSERT INTO entities(kind, name, about, first_ch, last_ch, mentions) VALUES (?, ?, ?, ?, ?, 0)',
       [kind, name, about, ch, ch],
@@ -159,7 +160,7 @@ class BookGraph {
   void alias(int id, String name, int ch) {
     final norm = normName(name);
     if (norm.isEmpty) return;
-    m.db.execute('INSERT OR IGNORE INTO aliases(entity, alias, norm, ch) VALUES (?, ?, ?, ?)', [id, name.trim(), norm, ch]);
+    m.db.execute('INSERT OR IGNORE INTO aliases(entity, alias, norm, ch) VALUES (?, ?, ?, ?)', [id, tidyName(name), norm, ch]);
     _addAlias(norm, id);
   }
 

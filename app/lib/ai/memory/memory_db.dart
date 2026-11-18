@@ -2,6 +2,9 @@ import 'dart:io';
 
 import 'package:sqlite3/sqlite3.dart';
 
+import 'chapter_notes.dart' show tidyName;
+import 'graph.dart' show normName;
+
 /// A place in a book, exact to the sentence: the reader's own cursor
 /// (section, block, sentence) and the reading chapter it is in. Every row
 /// of a memory made from the text carries one, so the spoiler guard can
@@ -83,7 +86,7 @@ class MemoryDb {
   final Database db;
   final String path;
 
-  static const version = 2;
+  static const version = 3;
 
   static String pathIn(String bookDir) => '$bookDir/memory.db';
 
@@ -109,6 +112,21 @@ class MemoryDb {
 
   void close() => db.close();
 
+  void _tidyNames() {
+    for (final r in db.select('SELECT id, name FROM entities')) {
+      final name = r['name'] as String, tidy = tidyName(name);
+      if (tidy != name) db.execute('UPDATE entities SET name = ? WHERE id = ?', [tidy, r['id']]);
+    }
+    final rows = db.select('SELECT entity, alias, norm, ch FROM aliases');
+    db.execute('DELETE FROM aliases');
+    for (final r in rows) {
+      final norm = normName(r['alias'] as String);
+      if (norm.isEmpty) continue;
+      db.execute('INSERT OR IGNORE INTO aliases(entity, alias, norm, ch) VALUES (?, ?, ?, ?)',
+          [r['entity'], tidyName(r['alias'] as String), norm, r['ch']]);
+    }
+  }
+
   void _setUp() {
     // Talk reads while a theory is kept, or while the Builder writes: each
     // waits its turn for a moment rather than failing at once ("database
@@ -125,6 +143,9 @@ class MemoryDb {
       if (have < 1) _schema1();
       // 2: whether the reader has been told a theory's verdict.
       if (have < 2) db.execute('ALTER TABLE theories ADD COLUMN told INTEGER DEFAULT 0');
+      // 3: names a model gave as identifiers (Mountain_King, StoneSaint)
+      // written as a reader would, and every name's lookup form again.
+      if (have >= 1 && have < 3) _tidyNames();
       db.execute('PRAGMA user_version = $version');
       db.execute('COMMIT');
     } on Object {

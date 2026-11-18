@@ -227,9 +227,36 @@ void main() {
       expect(tidyName("Puppeteer's_Shroud"), "Puppeteer's Shroud");
       expect(tidyName('LordOfTheDead'), 'Lord of the Dead');
       expect(tidyName('McDonald'), 'McDonald');
-      expect(tidyName('CentralChamber'), 'CentralChamber');
+      expect(tidyName('CentralChamber'), 'Central Chamber');
+      expect(tidyName('SilverHairedGirl'), 'Silver Haired Girl');
+      expect(tidyName('MacArthur'), 'MacArthur');
+      expect(tidyName('DeShawn'), 'DeShawn');
+      expect(normName('StoneSaint'), normName('Stone Saint'));
       expect(tidyName('Sunless'), 'Sunless');
       expect(normName('Mountain_King'), normName('Mountain King'));
+    });
+
+    test('a memory made before: its identifier names are tidied once, and found by their tidy form', () {
+      final dir = Directory.systemTemp.createTempSync('tv_tidy');
+      final path = '${dir.path}/memory.db';
+      var old = MemoryDb.open(path);
+      old.db.execute("INSERT INTO entities(kind, name, first_ch, last_ch, mentions) VALUES ('person', 'StoneSaint', 0, 0, 1)");
+      final id = old.db.lastInsertRowId;
+      old.db.execute("INSERT INTO aliases(entity, alias, norm, ch) VALUES (?, 'StoneSaint', 'stonesaint', 0)", [id]);
+      old.db.execute('PRAGMA user_version = 2');
+      old.close();
+      old = MemoryDb.open(path);
+      final graph = BookGraph(old);
+      expect(old.db.select('SELECT name FROM entities WHERE id = ?', [id]).single['name'], 'Stone Saint');
+      expect(graph.byName('Stone Saint'), id);
+      expect(graph.byName('StoneSaint'), id);
+      expect(graph.namedIn('Then the Stone Saint moved.'), {id});
+      old.close();
+      try {
+        dir.deleteSync(recursive: true);
+      } on FileSystemException {
+        // Windows may still hold the file.
+      }
     });
 
     test('a chapter noted late slots into its place in time, not over what came after', () {
