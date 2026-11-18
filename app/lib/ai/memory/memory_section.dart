@@ -6,15 +6,18 @@ import '../../theme.dart';
 import '../../ui.dart';
 import '../ai_keys.dart';
 import '../ai_screen.dart' show tokenCount, wakeTime;
+import 'graph_screen.dart';
 import 'memory_builder.dart';
 import 'memory_service.dart';
+import 'whos_who_screen.dart';
 
 /// A book's page > Memory: what the AI companion remembers of the book,
 /// how far it is built, Build or Pause, and the spoiler guard.
 class BookMemorySection extends StatefulWidget {
-  const BookMemorySection({super.key, required this.bookId, required this.secret, this.service});
+  const BookMemorySection({super.key, required this.bookId, required this.bookTitle, required this.secret, this.service});
 
   final String bookId;
+  final String bookTitle;
 
   /// On a secret shelf: never sent, so never built.
   final bool secret;
@@ -79,6 +82,24 @@ class _BookMemorySectionState extends State<BookMemorySection> {
       ),
     );
     if (go == true) unawaited(_service.build(widget.bookId));
+  }
+
+  Future<void> _openWho() async {
+    final line = await _service.lineOf(widget.bookId);
+    if (!mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) =>
+          WhosWhoScreen(bookTitle: widget.bookTitle, memoryPath: _service.pathOf(widget.bookId), line: line),
+    ));
+  }
+
+  Future<void> _openGraph() async {
+    final line = await _service.lineOf(widget.bookId);
+    if (!mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) =>
+          MemoryGraphScreen(bookTitle: widget.bookTitle, memoryPath: _service.pathOf(widget.bookId), line: line),
+    ));
   }
 
   Future<void> _forget() async {
@@ -167,6 +188,18 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                     icon: const Icon(Icons.auto_awesome_rounded, size: 18),
                     label: Text(s.noted == 0 ? 'Build memory' : 'Go on building'),
                   ),
+                if (s.entities > 0) ...[
+                  OutlinedButton.icon(
+                    onPressed: () => unawaited(_openWho()),
+                    icon: const Icon(Icons.groups_outlined, size: 18),
+                    label: const Text("Who's who"),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => unawaited(_openGraph()),
+                    icon: const Icon(Icons.hub_outlined, size: 18),
+                    label: const Text('Graph'),
+                  ),
+                ],
               ],
             ),
             SwitchListTile(

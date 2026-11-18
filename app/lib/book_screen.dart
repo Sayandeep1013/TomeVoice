@@ -340,7 +340,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
       SliverPadding(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
         sliver: SliverToBoxAdapter(
-          child: BookMemorySection(bookId: _entry.id, secret: _store.isSecret(_entry.id)),
+          child: BookMemorySection(bookId: _entry.id, bookTitle: _entry.title, secret: _store.isSecret(_entry.id)),
         ),
       ),
     ];

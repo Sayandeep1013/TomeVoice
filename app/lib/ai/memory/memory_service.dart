@@ -164,6 +164,30 @@ class MemoryService {
 
   String _path(String id) => MemoryDb.pathIn(_store!.bookDir(id));
 
+  /// Book [id]'s memory file.
+  String pathOf(String id) => _path(id);
+
+  /// The spoiler line of [id] away from the reader: with the guard on, the
+  /// furthest of where the reader is and "I've read up to"; null when off.
+  Future<int?> lineOf(String id) async {
+    final store = _store;
+    final s = _n(id).value;
+    if (store == null || !s.guard) return null;
+    final entry = (await store.list(all: true)).where((e) => e.id == id).firstOrNull;
+    final cursor = await store.cursorFor(id);
+    var here = 0;
+    if (entry != null) {
+      if (entry.isWeb) {
+        here = cursor.sectionIndex;
+      } else {
+        final l = await store.loadLayout(id);
+        if (!l.isEmpty) here = l.unitChapter[l.unitForCursor(cursor, saved: true).clamp(0, l.units.length - 1)];
+      }
+    }
+    final read = s.readUpTo;
+    return read == null || read < here ? here : read;
+  }
+
   /// Book [id]'s memory, kept up to date while it is watched.
   ValueListenable<BookMemoryState> stateOf(String id) {
     final had = _states[id];

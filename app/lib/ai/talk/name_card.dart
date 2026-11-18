@@ -45,6 +45,22 @@ FoundCard? findCard(String path, String word, String sentence, int? at) {
   }
 }
 
+/// Entity [id]'s card as it stands at chapter [at] (null: all of it).
+FoundCard? cardOf(String path, int id, int? at) {
+  final m = MemoryDb.open(path);
+  try {
+    final items = cardItems(m, id, at ?? 1 << 30);
+    if (items.isEmpty) return null;
+    final name = m.db.select('SELECT name FROM entities WHERE id = ?', [id]).first['name'] as String;
+    return (name: name, items: items);
+  } finally {
+    m.close();
+  }
+}
+
+/// [cardOf] off the UI thread's isolate.
+Future<FoundCard?> cardOff(String path, int id, int? at) => Isolate.run(() => cardOf(path, id, at));
+
 /// Who or what a held word is: its card from the book's memory, at once and
 /// with no AI; each line's chapter a tap looks at; Tell me more asks Talk.
 Future<void> showNameCard(
@@ -73,12 +89,14 @@ Future<void> showNameCard(
 }
 
 class NameCardSheet extends StatelessWidget {
-  const NameCardSheet({super.key, required this.card, required this.line, required this.onLook, required this.onAsk});
+  const NameCardSheet({super.key, required this.card, required this.line, this.onLook, this.onAsk});
 
   final FoundCard card;
   final int? line;
-  final void Function(MemoryPlace place) onLook;
-  final void Function(String question) onAsk;
+
+  /// Looking at a line's chapter, and asking Talk: only in the reader.
+  final void Function(MemoryPlace place)? onLook;
+  final void Function(String question)? onAsk;
 
   @override
   Widget build(BuildContext context) {
@@ -101,11 +119,11 @@ class NameCardSheet extends StatelessWidget {
                 const SizedBox(height: Gap.s),
                 for (final i in rest)
                   InkWell(
-                    onTap: i.place == null
+                    onTap: i.place == null || onLook == null
                         ? null
                         : () {
                             Navigator.of(context).pop();
-                            onLook(i.place!);
+                            onLook!(i.place!);
                           },
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -119,12 +137,14 @@ class NameCardSheet extends StatelessWidget {
           ),
           SafeArea(
             top: false,
-            child: Padding(
+            child: onAsk == null
+                ? const SizedBox(height: Gap.m)
+                : Padding(
               padding: const EdgeInsets.fromLTRB(Gap.l, Gap.s, Gap.l, Gap.m),
               child: FilledButton.tonalIcon(
                 onPressed: () {
                   Navigator.of(context).pop();
-                  onAsk('Tell me about ${card.name}: who or what they are, and what they have done so far.');
+                  onAsk!('Tell me about ${card.name}: who or what they are, and what they have done so far.');
                 },
                 icon: const Icon(Icons.auto_awesome_rounded, size: 18),
                 label: const Text('Tell me more'),
