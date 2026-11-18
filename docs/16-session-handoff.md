@@ -10,26 +10,11 @@ in the [changelog](../CHANGELOG.md).
 
 The working plan is **`docs/plan-2026-11-17.html`**. Its **Progress** table says what is done, and its **Order of work** says what is next. A session told just "continue" picks up from these steps, in order:
 
-1. **Ask the owner what they found in 1.5.0.** They are installing it on their daily TomeVoice to check every fix themselves, and the test app was uninstalled at the end of 18 November. Fix whatever they report first, and confirm the two checks not yet made on the phone:
-   - with the voice reading and another chapter picked from the list, the player reads "READING CHAPTER …" and shows Pause;
-   - a tap on the reading card in the notification shade opens the book where the voice reads.
+1. **Release batch 4 as 1.6.0.** It is finished on branch `feat-notebook`, which also holds `fix-crash-reports` (issue #28, the 11 November crash, native crashes in the error log). CI passes; every item was seen on the phone in the test app except your own font. Ask the owner whether they tried it, then: merge into `next`, a PR `next` → `main` (emulator jobs must pass), a draft release, and `gh workflow run build.yml --ref main -f release_tag=v1.6.0`. Close issue #28 with the release.
+2. **The AI and memory pass** (plan section 15): the reading journal (agreed: many entries a book, stamped with the chapter reached when Done is tapped; the default questions), the in-app helper with the owner's own key, and the memory for very long novels (chapter notes, a ledger of people and things, arc recaps, search on the phone). Continue the brainstorm where it stopped: the journal's look and how it opens; the chapter's-end prompt.
+3. Then cloud voices (Azure first, then ElevenLabs, then any OpenAI-compatible endpoint) and the Paradee voice.
 
-   For phone tests, build the test app again (`gh workflow run build.yml --ref <branch> -f variant=test`, artifact `tomevoice-test-apk`), install it beside the real app, and uninstall it afterwards. The scratch Flutter SDK and check project (`D:/tvchk`) were also removed: set them up again from tools/phone/README.md when needed.
-2. **Batch 4, comforts**, the diary/notebook look first (plan section 13):
-   - a Notebook (grid) paper among the reader's papers;
-   - Saved as a notebook: one page per book, the cover "taped" at the top, notes in an open-licence handwritten font (Caveat or Kalam), coloured numbered tabs down the edge;
-   - Contents as coloured tabs.
-
-   Then:
-   - Contents and Scroll/Pages buttons in the reader's top bar;
-   - a search field on Natural voices;
-   - Anx-inspired comforts (letter spacing, font weight, alignment, your own fonts, TXT chapter rules, replace a book's file);
-   - Project Gutenberg's OPDS 2 feed (the XML feed retires in 2027);
-   - DJVU.
-3. **Batch 5:**
-   - the AI reading helper, built as the owner chose: all four jobs, spoilers never past their place, their own key with no server, spoken in the reading voice, shown on the notebook page;
-   - cloud voices (Azure first, then ElevenLabs, then any OpenAI-compatible endpoint);
-   - the Paradee voice (not drop-in for sherpa-onnx: ask upstream, or run it with ONNX Runtime ourselves).
+The test app (`app.tomevoice.test`) is still installed on the owner's phone with Flatland, a DjVu and a TXT book in it; uninstall it when batch 4 is released. Gutenberg's new OPDS 2 feed was never reached live (maintenance all day on 18 November): try `https://www.gutenberg.org/opds/` and swap the test's reconstructed fixtures for real ones.
 
 Still open, carried in the plan:
 - **The owner's AZW3 file.** Waiting for the file, or the message it showed. It could be DRM, or HUFF/CDIC compression, which we can't read yet.
