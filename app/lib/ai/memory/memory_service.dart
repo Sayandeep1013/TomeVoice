@@ -251,6 +251,18 @@ class MemoryService {
   /// Book [id]'s memory file.
   String pathOf(String id) => _path(id);
 
+  /// The books with a memory (not on a shut secret shelf), each with its
+  /// state kept up to date: for the AI page's list.
+  Future<List<LibraryEntry>> booksWithMemory() async {
+    final store = _store;
+    if (store == null) return const [];
+    final shown = await store.list();
+    return [
+      for (final e in shown)
+        if (File(_path(e.id)).existsSync()) e,
+    ];
+  }
+
   /// The spoiler line of [id] away from the reader: with the guard on, the
   /// furthest of where the reader is and "I've read up to"; null when off.
   Future<int?> lineOf(String id) async {

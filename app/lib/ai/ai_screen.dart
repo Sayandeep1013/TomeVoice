@@ -7,7 +7,10 @@ import '../prefs.dart';
 import '../theme.dart';
 import '../ui.dart';
 import 'ai_client.dart';
+import '../library_store.dart' show LibraryEntry;
 import 'memory/memory_background.dart';
+import 'memory/memory_builder.dart' show BuildPhase;
+import 'memory/memory_service.dart';
 import 'ai_keys.dart';
 
 /// Main menu > AI: the reader's keys, what each job uses, and how they have
@@ -99,6 +102,8 @@ class _AiScreenState extends State<AiScreen> {
                         _JobOrder(ring: _ring, job: job),
                       ],
                     if (keys.isNotEmpty) ...[
+                      const SizedBox(height: Gap.xl),
+                      const _Memories(),
                       const SizedBox(height: Gap.xl),
                       const _TalkSettings(),
                     ],
@@ -193,6 +198,89 @@ class _KeyRow extends StatelessWidget {
         ),
       ),
       onTap: onTap,
+    );
+  }
+}
+
+/// Every book with a memory: how far it is built, Build or Pause.
+class _Memories extends StatefulWidget {
+  const _Memories();
+
+  @override
+  State<_Memories> createState() => _MemoriesState();
+}
+
+class _MemoriesState extends State<_Memories> {
+  List<LibraryEntry>? _books;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(MemoryService.instance.booksWithMemory().then((b) {
+      if (mounted) setState(() => _books = b);
+    }));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final books = _books;
+    if (books == null || books.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: Gap.page),
+          child: SectionTitle('Memories', size: 18),
+        ),
+        for (final b in books)
+          ValueListenableBuilder<BookMemoryState>(
+            valueListenable: MemoryService.instance.stateOf(b.id),
+            builder: (context, s, _) {
+              final busy = s.building || s.build.phase == BuildPhase.resting;
+              final left = s.indexed == 0 || s.noted + s.skipped < s.indexed;
+              final line = switch (s.build.phase) {
+                BuildPhase.running => 'Building · ${s.noted} of ${s.indexed} chapters',
+                BuildPhase.resting => 'Waiting for a key · goes on at ${wakeTime(s.build.until!)}',
+                BuildPhase.paused => 'Paused · ${s.noted} of ${s.indexed} chapters',
+                BuildPhase.failed => 'Stopped: ${s.build.error ?? ''}',
+                _ => s.noted == 0
+                    ? 'Not built yet'
+                    : '${s.noted} of ${s.indexed} chapters · ${s.entities} people, places and things',
+              };
+              return ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: Gap.page),
+                title: Text(b.title, maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: Skin.ui(size: 15, weight: FontWeight.w600, color: Skin.inkOn(context))),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(line, style: Skin.meta(context)),
+                    if (s.indexed > 0) ...[
+                      const SizedBox(height: 4),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(3),
+                        child: LinearProgressIndicator(value: s.noted / s.indexed, minHeight: 3),
+                      ),
+                    ],
+                  ],
+                ),
+                trailing: busy
+                    ? IconButton(
+                        tooltip: 'Pause',
+                        icon: const Icon(Icons.pause_rounded),
+                        onPressed: () => MemoryService.instance.pause(b.id),
+                      )
+                    : left && s.noted > 0
+                        ? IconButton(
+                            tooltip: 'Go on building',
+                            icon: const Icon(Icons.play_arrow_rounded),
+                            onPressed: () => unawaited(MemoryService.instance.build(b.id)),
+                          )
+                        : null,
+              );
+            },
+          ),
+      ],
     );
   }
 }
