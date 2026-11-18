@@ -418,9 +418,14 @@ class JournalEntryCard extends StatelessWidget {
           children: [
             Row(
               children: [
+                if (entry.isTalk)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Icon(Icons.auto_awesome_rounded, size: 16, color: soft),
+                  ),
                 Expanded(
                   child: Text(
-                    'Thoughts ${entry.stamp.label} · ${savedWhen(entry.created)}',
+                    '${entry.isTalk ? 'A talk' : 'Thoughts'} ${entry.stamp.label} · ${savedWhen(entry.created)}',
                     style: handwriting(18, soft, weight: FontWeight.w600),
                   ),
                 ),
@@ -433,7 +438,18 @@ class JournalEntryCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 4),
-            if (entry.isPage)
+            if (entry.isTalk)
+              for (final l in entry.talk.take(4))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: l.mine
+                      ? Text(l.text, maxLines: 3, overflow: TextOverflow.ellipsis, style: handwriting(21, ink.pen).copyWith(height: 1.2))
+                      : Text(l.text,
+                          maxLines: 4,
+                          overflow: TextOverflow.ellipsis,
+                          style: Skin.ui(size: 14, weight: FontWeight.w400, color: tone.ink).copyWith(height: 1.35)),
+                )
+            else if (entry.isPage)
               Text(entry.page, maxLines: 12, overflow: TextOverflow.ellipsis, style: handwriting(21, ink.pen).copyWith(height: 1.25))
             else
               for (final a in shown) ...[

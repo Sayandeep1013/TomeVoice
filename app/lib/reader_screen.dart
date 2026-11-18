@@ -11,6 +11,10 @@ import 'package:flutter/services.dart'
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
+import 'ai/ai_keys.dart';
+import 'ai/memory/memory_db.dart';
+import 'ai/memory/memory_service.dart';
+import 'ai/talk/talk_sheet.dart';
 import 'auto_scroll.dart';
 import 'book_tint.dart';
 import 'cast.dart';
@@ -2477,19 +2481,95 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     );
   }
 
+  /// Talk is offered: the AI has a key, the book is in the library, and
+  /// not on a secret shelf (never sent).
+  bool get _talkable {
+    final store = widget.store;
+    return store != null && AiRing.instance.hasKeys && !store.isSecret(_book.id) && !_l.isEmpty;
+  }
+
+  /// A web novel's chapters are kept in its memory by their number in the
+  /// novel (its sections); a file's by its reading chapter.
+  int _memoryChapter(int unit) {
+    if (_l.isEmpty) return 0;
+    final u = unit.clamp(0, _l.units.length - 1);
+    return _book.source == SourceKind.web ? _l.units[u].sectionIndex : _l.unitChapter[u];
+  }
+
+  /// The chapter being read, from its start to the sentence the reader is
+  /// at: what "this" and "just now" mean in a question.
+  String _passageSoFar() {
+    if (_l.isEmpty) return '';
+    final u = _cursor.value.clamp(0, _l.units.length - 1);
+    final first = _l.chapterFirstUnit[_l.unitChapter[u]];
+    return [for (var i = first; i <= u; i++) _l.units[i].text].join(' ');
+  }
+
+  /// Talk about the book, over the page. With the spoiler guard on, the AI
+  /// keeps to the furthest of the chapter here and "I've read up to".
+  Future<void> _talk({String? first}) async {
+    final store = widget.store;
+    if (store == null) return;
+    final memory = MemoryService.instance.stateOf(_book.id);
+    await showTalk(
+      context,
+      bookId: _book.id,
+      bookTitle: _book.metadata.title,
+      memoryPath: MemoryDb.pathIn(store.bookDir(_book.id)),
+      stampNow: _stampNow,
+      here: () => _memoryChapter(_cursor.value),
+      line: () {
+        final s = memory.value;
+        if (!s.guard) return null;
+        final here = _memoryChapter(_cursor.value);
+        return s.readUpTo == null || s.readUpTo! < here ? here : s.readUpTo;
+      },
+      passage: _passageSoFar,
+      firstQuestion: first,
+      onLook: (place) {
+        final at = ReadingCursor(sectionIndex: place.section, blockIndex: place.block, sentenceIndex: place.sentence);
+        final has = _l.chapters.contains(place.section) || _book.source != SourceKind.web;
+        if (!has) {
+          showSnack(context, 'Chapter ${place.chapter + 1} is not open here. Open it from Contents to read it.');
+          return;
+        }
+        _goOrLook(_l.unitForCursor(at, saved: true));
+      },
+    );
+  }
+
   /// The pills, in the middle over the player, and the journal's pen at
   /// their right: a button of its own, so the player's controls keep their
   /// places, and it comes and goes with the bars as the pills do.
   Widget _pillAndPen(BuildContext context, Widget pill) {
     // The pen's own width beside the pills, kept on both sides so they stay
-    // in the middle.
+    // in the middle; Talk on the other side, once the AI has a key.
     const room = 56.0;
     return Row(
       // On one foot line: the pills stay where they were before the pen
       // stood beside them.
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        const SizedBox(width: room),
+        SizedBox(
+          width: room,
+          child: ListenableBuilder(
+            listenable: AiRing.instance,
+            builder: (context, _) => !_talkable
+                ? const SizedBox.shrink()
+                : Center(
+                    child: Material(
+                      color: Skin.darkOn(context),
+                      shape: const CircleBorder(),
+                      elevation: 4,
+                      child: IconButton(
+                        tooltip: 'Talk about the book',
+                        icon: Icon(Icons.auto_awesome_outlined, size: 20, color: Skin.onDark(context)),
+                        onPressed: () => unawaited(_talk()),
+                      ),
+                    ),
+                  ),
+          ),
+        ),
         Expanded(child: Center(child: pill)),
         SizedBox(
           width: room,

@@ -20,6 +20,7 @@ import 'novel_updates.dart';
 import 'prefs.dart';
 import 'read_marks.dart';
 import 'saved_screen.dart';
+import 'ai/memory/memory_section.dart';
 import 'secret_shelf.dart';
 import 'sources/models.dart';
 import 'sources/net.dart';
@@ -664,6 +665,11 @@ class _NovelScreenState extends State<NovelScreen> {
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
           sliver: SliverToBoxAdapter(child: BookSavedSection(store: _store, entry: _entry!)),
+        ),
+      if (_entry != null)
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
+          sliver: SliverToBoxAdapter(child: BookMemorySection(bookId: _id, secret: _store.isSecret(_id))),
         ),
     ];
     final chapterList = <Widget>[

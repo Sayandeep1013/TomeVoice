@@ -82,7 +82,7 @@ void main() {
     setUp(() {
       m = MemoryDb.inMemory();
       for (var ch = 0; ch < 3; ch++) {
-        m.indexChapter(ch: ch, section: ch, title: 'C$ch', hash: 'h$ch', chunks: [TextChunk(start: _p, text: 'x')]);
+        m.indexChapter(ch: ch, section: ch, title: 'C$ch', hash: 'h$ch', chunks: const [TextChunk(start: _p, text: 'x')]);
       }
       g = BookGraph(m);
     });
@@ -93,20 +93,20 @@ void main() {
     test('one cast across chapters and names; facts and relations over time; events and what led to what', () {
       final made = <String, int>{};
       g.apply(
-        ChapterNotes(
+        const ChapterNotes(
           chapter: 0,
           summary: 'Sunless is chosen by the Spell.',
-          entities: const [
+          entities: [
             NoteEntity(ref: 'new:Sunless', kind: 'person', name: 'Sunless', aliases: ['Sunny'], about: 'A boy of the outskirts'),
             NoteEntity(ref: 'new:The Spell', kind: 'term', name: 'The Spell'),
           ],
-          events: const [
+          events: [
             NoteEvent(what: 'The Spell chooses Sunny', who: ['new:The Spell'], to: ['new:Sunless'], at: 2, importance: 5),
             NoteEvent(what: 'He is taken to the police', to: ['new:Sunless'], after: ['#1'], at: 4),
           ],
-          facts: const [NoteFact(of: 'new:Sunless', attr: 'rank', value: 'Sleeper', at: 2)],
-          threads: const [NoteThread(title: 'What is the Spell?', step: ThreadStep.raised, at: 1)],
-          quotes: const [NoteQuote(text: 'Well, that is just great.', by: 'Sunny', at: 3)],
+          facts: [NoteFact(of: 'new:Sunless', attr: 'rank', value: 'Sleeper', at: 2)],
+          threads: [NoteThread(title: 'What is the Spell?', step: ThreadStep.raised, at: 1)],
+          quotes: [NoteQuote(text: 'Well, that is just great.', by: 'Sunny', at: 3)],
         ),
         _places(0, 5),
         made,

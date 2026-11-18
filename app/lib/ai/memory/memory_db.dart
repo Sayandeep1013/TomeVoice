@@ -89,6 +89,8 @@ class MemoryDb {
 
   static bool existsIn(String bookDir) => File(pathIn(bookDir)).existsSync();
 
+  static bool existsAt(String path) => File(path).existsSync();
+
   /// The memory at [path], made if it is not there yet.
   static MemoryDb open(String path) {
     File(path).parent.createSync(recursive: true);
@@ -404,7 +406,7 @@ CREATE TABLE IF NOT EXISTS vectors(
   /// What the reader typed, as an FTS5 query: every word must be there,
   /// each as the start of a word ("weav" finds "weaver"), in any order;
   /// words in quotes as a phrase.
-  static String? ftsQuery(String typed) {
+  static String? ftsQuery(String typed, {bool any = false}) {
     final parts = <String>[];
     final phrase = RegExp(r'"([^"]+)"');
     var rest = typed;
@@ -416,7 +418,7 @@ CREATE TABLE IF NOT EXISTS vectors(
     for (final w in _words(rest)) {
       parts.add('"$w"*');
     }
-    return parts.isEmpty ? null : parts.join(' AND ');
+    return parts.isEmpty ? null : parts.join(any ? ' OR ' : ' AND ');
   }
 
   static List<String> _words(String s) => [
@@ -426,8 +428,10 @@ CREATE TABLE IF NOT EXISTS vectors(
 
   /// Where [query] is found, best matches first, kept to chapters up to
   /// [upTo] when the spoiler guard is on (null: anywhere), or to [only].
-  List<TextHit> search(String query, {int? upTo, Set<int>? only, int limit = 50, bool inOrder = false}) {
-    final q = ftsQuery(query);
+  /// With [any], a place with any of the words is found, those with most
+  /// first (for a question's words, which are never all in one place).
+  List<TextHit> search(String query, {int? upTo, Set<int>? only, int limit = 50, bool inOrder = false, bool any = false}) {
+    final q = ftsQuery(query, any: any);
     if (q == null) return const [];
     final where = [
       'text MATCH ?',

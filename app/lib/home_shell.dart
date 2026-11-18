@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'ai/ai_keys.dart';
 import 'ai/ai_screen.dart';
+import 'ai/memory/memory_service.dart';
 import 'app_update.dart';
 import 'auto_backup.dart';
 import 'auto_download.dart';
@@ -120,6 +121,7 @@ Future<OpenLibrary> _open(String dir) async {
   await JournalStore.instance.attach(Directory(dir));
   // The reader's AI keys (kept with the catalogue passwords) and their use.
   await AiRing.instance.attach(Directory(dir));
+  MemoryService.instance.attach(store);
   await StatsStore.instance.attach(Directory(dir));
   NeuralVoices.instance.attach(Directory(dir));
   // One check for the whole engine (the shelves', the Updates page's, and

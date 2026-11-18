@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
+import 'ai/memory/memory_section.dart';
 import 'book_actions.dart';
 import 'book_card.dart';
 import 'book_replace.dart';
@@ -334,6 +335,12 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
               MaterialPageRoute<void>(builder: (_) => JournalScreen(store: _store, bookId: _entry.id)),
             ),
           ),
+        ),
+      ),
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
+        sliver: SliverToBoxAdapter(
+          child: BookMemorySection(bookId: _entry.id, secret: _store.isSecret(_entry.id)),
         ),
       ),
     ];
