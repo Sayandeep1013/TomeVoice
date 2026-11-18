@@ -10,11 +10,11 @@ in the [changelog](../CHANGELOG.md).
 
 The working plan is **`docs/plan-2026-11-17.html`**. Its **Progress** table says what is done, and its **Order of work** says what is next. A session told just "continue" picks up from these steps, in order:
 
-1. **Release batch 4 and the reading journal as 1.6.0.** Both are finished on branch `feat-notebook`, which also holds `fix-crash-reports` (issue #28, the 11 November crash, native crashes in the error log). CI passes; every item was seen on the phone in the test app except your own font. The journal was written in, saved and seen in Saved on the phone. Ask the owner whether they tried it, then: merge into `next`, a PR `next` → `main` (emulator jobs must pass), a draft release, and `gh workflow run build.yml --ref main -f release_tag=v1.6.0`. Close issue #28 with the release.
-2. **The AI helper and memory, a step at a time** (plan section 15; the owner's choice, 18 November): each step released as it is ready (1.7, 1.8...), and **2.0** when the helper is whole. Steps: your own key and the in-app chat; chapter notes and recaps; the ledger of people and things; asking the book with chapter citations; theorising. The journal (journal.json) is the helper's to read. Brainstorm each step with the owner before building it.
-3. Then cloud voices (Azure first, then ElevenLabs, then any OpenAI-compatible endpoint) and the Paradee voice.
+1. **1.6.0 was released on 18 November** (batch 4, the reading journal, the fixes for #28 and the 11 November crash). The owner is using it for two or three days: ask what they found, and fix that first.
+2. **The AI, release by release** (plan section 15, "The AI, release by release"): 1.7 your own key, Explain this, chat about the chapter and the hand-off; 1.8 chapter notes and recaps; 1.9 who's who; 1.10 ask the book; 2.0 theorise with me. Brainstorm each release with the owner before building it (their answers so far: the AI choices in Claude's memory, decisions of 17 November, and the journal). The journal (`journal.json`) is the helper's to read.
+3. Voices (the cloud voice, Paradee) fit between the AI releases where they are ready.
 
-The test app (`app.tomevoice.test`) is still installed on the owner's phone with Flatland, a DjVu and a TXT book in it; uninstall it when batch 4 is released. Gutenberg's new OPDS 2 feed was never reached live (maintenance all day on 18 November): try `https://www.gutenberg.org/opds/` and swap the test's reconstructed fixtures for real ones.
+No test app is installed now. For phone tests, build it again (`gh workflow run build.yml --ref <branch> -f variant=test`, artifact `tomevoice-test-apk`) and remove it afterwards. Gutenberg's new OPDS 2 feed was never reached live (maintenance all day on 18 November): try `https://www.gutenberg.org/opds/` and swap the test's reconstructed fixtures for real ones.
 
 Still open, carried in the plan:
 - **The owner's AZW3 file.** Waiting for the file, or the message it showed. It could be DRM, or HUFF/CDIC compression, which we can't read yet.
@@ -30,7 +30,7 @@ How the work is done here (the owner's standing choices, also in Claude's memory
 
 ## Where things stand
 
-- **1.5.0** is the latest release (18 November 2026): smoother, lighter on the battery,
+- **1.6.0** is the latest release (18 November 2026): the reading journal, the notebook look, reader comforts, OPDS 2, DjVu and TXT chapter rules. Before it, **1.5.0**: smoother, lighter on the battery,
   a voice that reads "..." and commas better, and chapters picked only looked at. 1.4.2
   came the same day. 1.4.1 was published by hand,
   its APKs built from `next` at `62a6628` (its tag was moved there afterwards). `main` is the last release; work
