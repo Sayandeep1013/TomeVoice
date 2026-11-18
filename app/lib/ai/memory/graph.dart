@@ -268,29 +268,56 @@ class BookGraph {
       }
     }
 
-    // How things stand from here: the value before ends where this begins.
+    // How things stand from here: the value before ends where this begins,
+    // and this one where the next known begins (a chapter noted late, as
+    // one downloaded after those round it, slots into its place in time
+    // rather than overwriting what came after).
     for (final f in notes.facts) {
       final id = who(f.of, 'person');
       if (id == null) continue;
-      final open = m.db.select(
-          'SELECT id, value FROM facts WHERE entity = ? AND attr = ? AND until_ch IS NULL ORDER BY from_ch DESC LIMIT 1',
-          [id, f.attr]);
-      if (open.isNotEmpty && normName(open.first['value'] as String) == normName(f.value)) continue;
-      if (open.isNotEmpty) m.db.execute('UPDATE facts SET until_ch = ? WHERE id = ?', [ch, open.first['id']]);
+      final prior = m.db.select(
+        'SELECT id, value, until_ch FROM facts WHERE entity = ? AND attr = ? AND from_ch <= ? '
+        'AND (until_ch IS NULL OR until_ch > ?) ORDER BY from_ch DESC LIMIT 1',
+        [id, f.attr, ch, ch],
+      );
+      if (prior.isNotEmpty && normName(prior.first['value'] as String) == normName(f.value)) continue;
+      int? until;
+      if (prior.isNotEmpty) {
+        until = prior.first['until_ch'] as int?;
+        m.db.execute('UPDATE facts SET until_ch = ? WHERE id = ?', [ch, prior.first['id']]);
+      } else {
+        until = m.db.select('SELECT min(from_ch) n FROM facts WHERE entity = ? AND attr = ? AND from_ch > ?',
+            [id, f.attr, ch]).first['n'] as int?;
+      }
       m.db.execute(
-        'INSERT INTO facts(entity, attr, value, from_ch, sec, blk, sen) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [id, f.attr, f.value, ch, ...where(f.at)],
+        'INSERT INTO facts(entity, attr, value, from_ch, until_ch, sec, blk, sen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [id, f.attr, f.value, ch, until, ...where(f.at)],
       );
     }
 
     for (final r in notes.relations) {
       final a = who(r.a, 'person'), b = who(r.b, 'person');
       if (a == null || b == null || a == b) continue;
-      final open = m.db.select(
-          'SELECT id FROM relations WHERE a = ? AND b = ? AND rel = ? AND until_ch IS NULL LIMIT 1', [a, b, r.rel]);
+      // The relation as it stood at this chapter, or the next one known.
+      final holding = m.db.select(
+        'SELECT id FROM relations WHERE a = ? AND b = ? AND rel = ? AND from_ch <= ? '
+        'AND (until_ch IS NULL OR until_ch > ?) LIMIT 1',
+        [a, b, r.rel, ch, ch],
+      );
       if (r.ends) {
-        if (open.isNotEmpty) m.db.execute('UPDATE relations SET until_ch = ? WHERE id = ?', [ch, open.first['id']]);
-      } else if (open.isEmpty) {
+        if (holding.isNotEmpty) m.db.execute('UPDATE relations SET until_ch = ? WHERE id = ?', [ch, holding.first['id']]);
+        continue;
+      }
+      if (holding.isNotEmpty) continue;
+      final later = m.db.select(
+        'SELECT id FROM relations WHERE a = ? AND b = ? AND rel = ? AND from_ch > ? ORDER BY from_ch LIMIT 1',
+        [a, b, r.rel, ch],
+      );
+      if (later.isNotEmpty) {
+        // Known from a later chapter: it began here, earlier.
+        m.db.execute('UPDATE relations SET from_ch = ?, sec = ?, blk = ?, sen = ? WHERE id = ?',
+            [ch, ...where(r.at), later.first['id']]);
+      } else {
         m.db.execute(
           'INSERT INTO relations(a, rel, b, from_ch, sec, blk, sen, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
           [a, r.rel, b, ch, ...where(r.at), r.note],

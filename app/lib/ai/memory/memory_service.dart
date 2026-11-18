@@ -191,6 +191,22 @@ Future<int> _bytesOff(String dir, List<int> chapters) => Isolate.run(() {
       return bytes;
     });
 
+/// The first chapter (from 0) not in the word index: where a memory built
+/// in order has to wait.
+Future<int> _firstGapOff(String path) => Isolate.run(() {
+      final m = MemoryDb.open(path);
+      try {
+        var gap = 0;
+        for (final r in m.db.select('SELECT ch FROM chapters WHERE indexed = 1 ORDER BY ch')) {
+          if (r['ch'] as int != gap) break;
+          gap++;
+        }
+        return gap;
+      } finally {
+        m.close();
+      }
+    });
+
 Future<void> _retrySkippedOff(String path) => Isolate.run(() {
       final m = MemoryDb.open(path);
       try {
@@ -499,7 +515,14 @@ class MemoryService {
       await _setMetaOff(path, 'begun', '1');
       _n(id).value = _n(id).value.copyWith(begun: true);
     }
-    final s = await _builder(id).run();
+    // While its chapters are still downloading (one by one, from the
+    // first), only up to the first not yet on the phone: the memory is made
+    // in the story's order, a rank before it changes, a meeting before the
+    // falling-out. Once nothing waits, the rest, wherever it is.
+    final waiting = (DownloadQueue.instance.of(id)?.waiting ?? 0) > 0;
+    final builder = _builder(id);
+    builder.upTo = waiting ? await _firstGapOff(_path(id)) - 1 : null;
+    final s = await builder.run();
     await refresh(id);
     if (s.phase == BuildPhase.resting && s.until != null) {
       final wait = s.until!.difference(DateTime.now());

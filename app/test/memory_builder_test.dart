@@ -222,6 +222,37 @@ void main() {
       expect(m.db.select("SELECT count(*) n FROM facts WHERE attr = 'description'").first['n'], 1);
     });
 
+    test('a chapter noted late slots into its place in time, not over what came after', () {
+      final made = <String, int>{};
+      g.apply(
+        const ChapterNotes(chapter: 2, summary: 's', entities: [
+          NoteEntity(ref: 'new:Sunny', kind: 'person', name: 'Sunny'),
+          NoteEntity(ref: 'new:Nephis', kind: 'person', name: 'Nephis'),
+        ], facts: [
+          NoteFact(of: 'new:Sunny', attr: 'rank', value: 'Awakened'),
+        ], relations: [
+          NoteRelation(a: 'new:Sunny', rel: 'ally of', b: 'new:Nephis'),
+        ]),
+        _places(2, 1),
+        made,
+      );
+      final sunny = g.byName('Sunny')!;
+      final nephis = g.byName('Nephis')!;
+      // Chapter 0 arrives later: a Sleeper then, allies already.
+      g.apply(
+        ChapterNotes(chapter: 0, summary: 's', facts: [
+          NoteFact(of: 'e$sunny', attr: 'rank', value: 'Sleeper'),
+        ], relations: [
+          NoteRelation(a: 'e$sunny', rel: 'ally of', b: 'e$nephis'),
+        ]),
+        _places(0, 1),
+        {},
+      );
+      final ranks = m.db.select('SELECT value, from_ch, until_ch FROM facts WHERE entity = ? ORDER BY from_ch', [sunny]);
+      expect([for (final r in ranks) (r['value'], r['from_ch'], r['until_ch'])], [('Sleeper', 0, 2), ('Awakened', 2, null)]);
+      expect(m.db.select('SELECT from_ch, until_ch FROM relations').single.values, [0, null]);
+    });
+
     test('a reason reads after its event without a doubled because', () {
       expect(because('To cause shipwrecks'), 'because to cause shipwrecks');
       expect(because('Because he wanted gold.'), 'because he wanted gold');

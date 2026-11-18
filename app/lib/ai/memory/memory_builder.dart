@@ -287,8 +287,11 @@ class MemoryBuilder {
   final String path;
   final AiRouter router;
 
-  /// Build no further than this chapter (null: all on the phone).
-  final int? upTo;
+  /// Build no further than this chapter (null: all on the phone). Set
+  /// while a web novel's chapters are still downloading, to the chapter
+  /// before the first not yet on the phone, so the memory is built in the
+  /// story's order.
+  int? upTo;
 
   /// The batch size, when not taken from the Builder's key.
   final ({int tokens, int chapters})? limits;
