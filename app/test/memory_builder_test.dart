@@ -518,6 +518,50 @@ void main() {
       expect(m.db.select("SELECT count(*) n FROM vectors WHERE owner = 'event'").first['n'], 3);
     });
 
+    test("a web novel's space freed once its memory has read the chapters; the passed-over tried again", () async {
+      const plugin = PluginInfo(id: 'fake', name: 'Fake', site: 'https://fake.site/', lang: 'English', version: '1', url: 'u');
+      final id = (await store.addWebNovel(
+        plugin,
+        SourceNovel(path: 'n', name: 'Road', chapters: [
+          for (var i = 0; i < 5; i++) ChapterItem(name: 'Chapter ${i + 1}', path: 'c$i'),
+        ]),
+      ))
+          .id;
+      for (var i = 0; i < 3; i++) {
+        await store.saveChapterAt(id, 'c$i', '<p>Mira walked on past the willow $i.</p>');
+      }
+      answer = (req, body) => reply(req, 200, chat(notesFor(body)));
+      final service = MemoryService.instance
+        ..reset()
+        ..attach(store, router: AiRouter(pause: Duration.zero));
+      addTearDown(service.reset);
+      expect((await service.chaptersOf(id))!.onPhone, 3);
+      await service.build(id);
+      final before = (await service.chaptersOf(id))!;
+      expect((before.total, before.onPhone, before.noted), (5, 3, 3));
+      expect(before.bytes, greaterThan(0));
+
+      // A chapter that came after the build is not read yet: it stays.
+      await store.saveChapterAt(id, 'c3', '<p>Mira slept.</p>');
+      final freed = await service.freeSpace(id);
+      expect(freed.chapters, 3);
+      expect(freed.bytes, greaterThan(0));
+      expect(store.downloadedChapters(id), {3});
+      // The memory still has their words.
+      final m = MemoryDb.open(MemoryDb.pathIn(store.bookDir(id)));
+      expect(m.search('willow').length, 3);
+      m.db.execute("UPDATE chapters SET noted = 0, note_error = 'x' WHERE ch = 1");
+      m.close();
+      await service.refresh(id);
+      expect(service.stateOf(id).value.skipped, 1);
+      await service.retrySkipped(id);
+      for (var i = 0; i < 50 && (service.stateOf(id).value.skipped > 0 || service.isBuilding(id)); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      await service.refresh(id);
+      expect(service.stateOf(id).value.skipped, 0);
+    });
+
     test('a broken reply is asked again with what was wrong; a chapter that will not come is passed over', () async {
       final path = await book(2);
       var calls = 0;

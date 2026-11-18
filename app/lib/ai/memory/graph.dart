@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:math' as math;
 
 import 'chapter_notes.dart';
@@ -340,7 +339,9 @@ class BookGraph {
       'INSERT INTO notes(ch, summary, raw, model, made) VALUES (?, ?, ?, ?, ?) '
       'ON CONFLICT(ch) DO UPDATE SET summary = excluded.summary, raw = excluded.raw, model = excluded.model, '
       'made = excluded.made',
-      [ch, notes.summary, notes.raw == null ? null : jsonEncode(notes.raw), model, DateTime.now().toUtc().toIso8601String()],
+      // The model's reply itself is not kept: all of it is in the rows above,
+      // and a long novel's replies came to some fifteen megabytes.
+      [ch, notes.summary, null, model, DateTime.now().toUtc().toIso8601String()],
     );
     m.db.execute('UPDATE chapters SET noted = 1, note_error = NULL WHERE ch = ?', [ch]);
   }

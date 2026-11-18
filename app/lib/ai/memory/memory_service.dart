@@ -149,6 +149,56 @@ void _setMeta(String path, String k, String? v) {
 // in the service's methods would carry the service (and the library, and
 // the zone it runs in), which cannot be sent to another isolate.
 Future<_Read> _readOff(String path) => Isolate.run(() => _read(path));
+
+Future<({int bytes, int noted})> _sizesOff(String dir, String path) => Isolate.run(() {
+      var bytes = 0;
+      final d = Directory(dir);
+      if (d.existsSync()) {
+        for (final f in d.listSync().whereType<File>()) {
+          bytes += f.lengthSync();
+        }
+      }
+      var noted = 0;
+      if (File(path).existsSync()) {
+        final m = MemoryDb.open(path);
+        try {
+          noted = m.db.select('SELECT count(*) n FROM chapters WHERE noted = 1').first['n'] as int;
+        } finally {
+          m.close();
+        }
+      }
+      return (bytes: bytes, noted: noted);
+    });
+
+Future<Set<int>> _readChaptersOff(String path) => Isolate.run(() {
+      if (!File(path).existsSync()) return <int>{};
+      final m = MemoryDb.open(path);
+      try {
+        return {
+          for (final r in m.db.select('SELECT ch FROM chapters WHERE indexed = 1 AND noted = 1')) r['ch'] as int,
+        };
+      } finally {
+        m.close();
+      }
+    });
+
+Future<int> _bytesOff(String dir, List<int> chapters) => Isolate.run(() {
+      var bytes = 0;
+      for (final c in chapters) {
+        final f = File('$dir/$c.json');
+        if (f.existsSync()) bytes += f.lengthSync();
+      }
+      return bytes;
+    });
+
+Future<void> _retrySkippedOff(String path) => Isolate.run(() {
+      final m = MemoryDb.open(path);
+      try {
+        m.db.execute('UPDATE chapters SET note_error = NULL WHERE note_error IS NOT NULL');
+      } finally {
+        m.close();
+      }
+    });
 Future<void> _setMetaOff(String path, String k, String? v) => Isolate.run(() => _setMeta(path, k, v));
 
 /// Every book's memory, for the pages that show it and the work that makes
@@ -210,6 +260,53 @@ class MemoryService {
       for (var i = 0; i <= upTo && i < info.chapters.length; i++)
         if (!on.contains(i) && !waiting.contains(info.chapters[i].path)) info.chapters[i],
     ];
+  }
+
+  /// A web novel's chapters: how many it has, how many are on the phone and
+  /// the space they take, and how many the memory has read (null for a book
+  /// that is not a web novel).
+  Future<({int total, int onPhone, int bytes, int noted})?> chaptersOf(String id) async {
+    final store = _store;
+    if (store == null) return null;
+    final info = await store.webNovel(id);
+    if (info == null) return null;
+    final dir = '${store.bookDir(id)}/ch';
+    final path = _path(id);
+    final r = await _sizesOff(dir, path);
+    return (total: info.chapters.length, onPhone: store.downloadedChapters(id).length, bytes: r.bytes, noted: r.noted);
+  }
+
+  /// Every chapter of web novel [id] not on the phone, to the download
+  /// queue (one at a time, gently on the site); they join the memory as they
+  /// come. How many were queued.
+  Future<int> downloadAll(String id) async {
+    final info = await _store?.webNovel(id);
+    if (info == null) return 0;
+    return DownloadQueue.instance.add(id, info.chapters);
+  }
+
+  /// The downloaded chapters of web novel [id] the memory has already read
+  /// (in its word index, with notes) taken off the phone: the memory keeps
+  /// its own copy of their words, and a chapter opened to read is fetched
+  /// again. How many, and the space freed.
+  Future<({int chapters, int bytes})> freeSpace(String id) async {
+    final store = _store;
+    if (store == null) return (chapters: 0, bytes: 0);
+    final path = _path(id);
+    final read = await _readChaptersOff(path);
+    final gone = [for (final c in store.downloadedChapters(id)) if (read.contains(c)) c];
+    if (gone.isEmpty) return (chapters: 0, bytes: 0);
+    final dir = '${store.bookDir(id)}/ch';
+    final bytes = await _bytesOff(dir, gone);
+    await store.deleteChapters(id, gone);
+    return (chapters: gone.length, bytes: bytes);
+  }
+
+  /// The chapters the Builder passed over, tried again.
+  Future<void> retrySkipped(String id) async {
+    await _retrySkippedOff(_path(id));
+    await refresh(id);
+    await build(id);
   }
 
   /// [chapters] of [id] sent to the download queue (one at a time, gentle
@@ -395,6 +492,8 @@ class MemoryService {
       if (e.key != id && e.value.running) e.value.pause();
     }
     if (_n(id).value.indexing == null) await index(id);
+    // The library closed meanwhile (a restore, a test's end): nothing more.
+    if (_store == null) return;
     if (!_n(id).value.begun) {
       final path = _path(id);
       await _setMetaOff(path, 'begun', '1');

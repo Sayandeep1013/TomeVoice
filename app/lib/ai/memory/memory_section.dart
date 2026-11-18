@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -6,6 +7,8 @@ import '../../theme.dart';
 import '../../ui.dart';
 import '../ai_keys.dart';
 import '../ai_screen.dart' show tokenCount, wakeTime;
+import '../../backup_flow.dart' show sizeLabel;
+import '../../download_queue.dart';
 import 'graph_screen.dart';
 import 'hand_off.dart';
 import 'memory_builder.dart';
@@ -406,6 +409,16 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                   ),
               ],
             ),
+            if (s.skipped > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: Gap.s),
+                child: TextButton.icon(
+                  onPressed: () => unawaited(_service.retrySkipped(widget.bookId)),
+                  icon: const Icon(Icons.replay_rounded, size: 18),
+                  label: Text('Try the ${s.skipped} passed-over ${s.skipped == 1 ? 'chapter' : 'chapters'} again'),
+                ),
+              ),
+            _ChaptersBlock(bookId: widget.bookId, service: _service, memory: s),
             SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 value: s.guard,
@@ -533,6 +546,146 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// A web novel's chapters, for its memory: how many are on the phone and
+/// the space they take; Download all, its progress and failures (Try
+/// again); and, once the memory has read them, Free the space (the memory
+/// keeps its own copy of their words, and a chapter is fetched again when
+/// it is opened to read). Nothing for a book that is not a web novel.
+class _ChaptersBlock extends StatefulWidget {
+  const _ChaptersBlock({required this.bookId, required this.service, required this.memory});
+
+  final String bookId;
+  final MemoryService service;
+
+  /// The memory's state: when it changes, the counts are read again.
+  final BookMemoryState memory;
+
+  @override
+  State<_ChaptersBlock> createState() => _ChaptersBlockState();
+}
+
+class _ChaptersBlockState extends State<_ChaptersBlock> {
+  ({int total, int onPhone, int bytes, int noted})? _c;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    DownloadQueue.instance.changes.addListener(_changed);
+    unawaited(_load());
+  }
+
+  @override
+  void didUpdateWidget(_ChaptersBlock old) {
+    super.didUpdateWidget(old);
+    if (old.memory.noted != widget.memory.noted || old.memory.indexed != widget.memory.indexed) unawaited(_load());
+  }
+
+  @override
+  void dispose() {
+    DownloadQueue.instance.changes.removeListener(_changed);
+    super.dispose();
+  }
+
+  Timer? _soon;
+  void _changed() {
+    _soon ??= Timer(const Duration(seconds: 2), () {
+      _soon = null;
+      if (mounted) unawaited(_load());
+    });
+  }
+
+  Future<void> _load() async {
+    final c = await widget.service.chaptersOf(widget.bookId);
+    if (mounted) setState(() => _c = c);
+  }
+
+  Future<void> _downloadAll() async {
+    setState(() => _busy = true);
+    final n = await widget.service.downloadAll(widget.bookId);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    showSnack(context, n == 0 ? 'Every chapter is on the phone or on its way.' : '$n chapters are on their way, one at a time.');
+    // They join the memory as they come; it is built as they do.
+    unawaited(widget.service.build(widget.bookId));
+    await _load();
+  }
+
+  Future<void> _free() async {
+    final c = _c;
+    if (c == null) return;
+    final sure = await confirm(
+      context,
+      title: 'Free the space?',
+      body: 'The chapters the memory has already read are taken off the phone. The memory keeps its own copy of '
+          "their words, so Talk, search and Who's who go on working, and any chapter you open to read is "
+          'fetched again from the site. Chapters it has not read yet stay.',
+      action: 'Free the space',
+    );
+    if (!sure) return;
+    setState(() => _busy = true);
+    final r = await widget.service.freeSpace(widget.bookId);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    showSnack(context, r.chapters == 0 ? 'Nothing to free yet.' : 'Freed ${sizeLabel(r.bytes)}: ${r.chapters} chapters.');
+    await _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = _c;
+    if (c == null) return const SizedBox.shrink();
+    final q = DownloadQueue.instance.of(widget.bookId);
+    final missing = c.total - c.onPhone;
+    final readOnPhone = math.min(c.onPhone, c.noted);
+    final line = [
+      '${c.onPhone} of ${c.total} chapters on the phone · ${sizeLabel(c.bytes)}',
+      if (q != null && q.waiting > 0) 'Downloading: ${q.waiting} to go${q.resting ? ' (the site asked for a rest)' : ''}',
+      if (q != null && q.failed > 0) '${q.failed} could not be downloaded${q.problem == null ? '' : ': ${q.problem}'}',
+    ];
+    return Padding(
+      padding: const EdgeInsets.only(top: Gap.l),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Eyebrow('Chapters for the memory'),
+          const SizedBox(height: Gap.xs),
+          for (final l in line)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(l, style: Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkSoftOn(context))),
+            ),
+          const SizedBox(height: Gap.s),
+          Wrap(
+            spacing: Gap.s,
+            runSpacing: Gap.s,
+            children: [
+              if (missing > 0 && (q == null || q.waiting == 0))
+                OutlinedButton.icon(
+                  onPressed: _busy ? null : () => unawaited(_downloadAll()),
+                  icon: const Icon(Icons.download_rounded, size: 18),
+                  label: Text('Download all ($missing)'),
+                ),
+              if (q != null && q.failed > 0)
+                OutlinedButton.icon(
+                  onPressed: () => unawaited(DownloadQueue.instance.retry(widget.bookId)),
+                  icon: const Icon(Icons.replay_rounded, size: 18),
+                  label: const Text('Try again'),
+                ),
+              if (readOnPhone > 0 && c.bytes > 0)
+                OutlinedButton.icon(
+                  onPressed: _busy ? null : () => unawaited(_free()),
+                  icon: const Icon(Icons.cleaning_services_outlined, size: 18),
+                  label: const Text('Free the space'),
+                ),
+            ],
+          ),
+        ],
       ),
     );
   }
