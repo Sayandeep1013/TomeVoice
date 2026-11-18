@@ -13,6 +13,7 @@ import 'package:tomevoice_spike/ai/ai_router.dart';
 import 'package:tomevoice_spike/ai/memory/chapter_notes.dart';
 import 'package:tomevoice_spike/ai/memory/graph.dart';
 import 'package:tomevoice_spike/ai/memory/memory_builder.dart';
+import 'package:tomevoice_spike/ai/memory/meaning.dart';
 import 'package:tomevoice_spike/ai/memory/memory_background.dart';
 import 'package:tomevoice_spike/ai/memory/memory_db.dart';
 import 'package:tomevoice_spike/ai/memory/memory_service.dart';
@@ -201,6 +202,38 @@ void main() {
     test('names compare without case, accents, marks or "the"', () {
       expect(normName('The Lord-of-Shadows!'), 'lord of shadows');
       expect(normName('Éclair'), 'eclair');
+    });
+  });
+
+  group('meaning search', () {
+    test('vectors kept small, read back close; the nearest moments found, kept to the line', () {
+      final v = [0.5, -0.25, 0.125, 0.0];
+      final back = unpackVector(packVector(v));
+      for (var i = 0; i < v.length; i++) {
+        expect(back[i], closeTo(v[i], 0.01));
+      }
+      final m = MemoryDb.inMemory();
+      m.close();
+      final tmp = Directory.systemTemp.createTempSync('tv_meaning');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final path = '${tmp.path}/memory.db';
+      final db = MemoryDb.open(path);
+      for (var ch = 0; ch < 3; ch++) {
+        db.indexChapter(ch: ch, section: ch, title: 'C', hash: 'h$ch', chunks: [TextChunk(start: MemoryPlace(chapter: ch, section: ch), text: 't')]);
+        db.db.execute('INSERT INTO notes(ch, summary) VALUES (?, ?)', [ch, ['Snow and cold', 'A feast', 'Freezing again'][ch]]);
+      }
+      db.close();
+      expect(pendingMeaning(path, 'emb').map((i) => i.text), ['Snow and cold', 'A feast', 'Freezing again']);
+      keepVectors(path, 'emb', pendingMeaning(path, 'emb'), [
+        [1, 0, 0],
+        [0, 1, 0],
+        [0.9, 0.1, 0],
+      ]);
+      expect(pendingMeaning(path, 'emb'), isEmpty);
+      expect(pendingMeaning(path, 'other').length, 3);
+      final cold = meaningSearch(path, 'emb', [1, 0, 0], limit: 2);
+      expect(cold.map((h) => h.ch), [0, 2]);
+      expect(meaningSearch(path, 'emb', [1, 0, 0], upTo: 1, limit: 2).map((h) => h.ch), [0, 1]);
     });
   });
 
@@ -424,6 +457,36 @@ void main() {
       addTearDown(left.close);
       expect(left.db.select('SELECT count(*) n FROM notes').first['n'], 0);
       expect(sent.every((b) => !b.toString().contains('Nobody asked')), isTrue);
+    });
+
+    test('with a key that can embed, each chapter noted also gets its vector', () async {
+      final path = await book(3);
+      await AiRing.instance.put(AiKey(
+        id: 'e',
+        provider: AiProvider.gemini,
+        label: 'Gemini',
+        baseUrl: 'http://127.0.0.1:${server.port}/v1',
+        secret: 'g',
+        models: const {AiJob.embedder: 'text-embedding'},
+      ));
+      answer = (req, body) {
+        if (req.uri.path.endsWith('/embeddings')) {
+          final input = body['input'] as List;
+          return reply(req, 200, {
+            'data': [
+              for (var i = 0; i < input.length; i++)
+                {'embedding': [1.0, i.toDouble(), 0.5]},
+            ],
+          });
+        }
+        return reply(req, 200, chat(notesFor(body)));
+      };
+      final b = MemoryBuilder(path: path, router: AiRouter(pause: Duration.zero), limits: (tokens: 40000, chapters: 8));
+      expect((await b.run()).phase, BuildPhase.done);
+      final m = MemoryDb.open(path);
+      addTearDown(m.close);
+      expect(m.db.select("SELECT count(*) n FROM vectors WHERE owner = 'note' AND model = 'text-embedding'").first['n'], 3);
+      expect(m.db.select("SELECT count(*) n FROM vectors WHERE owner = 'event'").first['n'], 3);
     });
 
     test('a broken reply is asked again with what was wrong; a chapter that will not come is passed over', () async {

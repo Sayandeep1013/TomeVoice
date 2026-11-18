@@ -65,6 +65,12 @@ List<String> spokenPieces(String text) {
   return out;
 }
 
+// The memory read on another isolate, each closure made here from plain
+// values (one made in the engine's methods could carry the engine).
+Future<List<PackItem>> _packOff(PackInput input) => Isolate.run(() => buildPack(input));
+Future<List<PackItem>> _toolOff(String path, String name, Map<String, Object?> args, int? line) =>
+    Isolate.run(() => runTool(path, name, args, line));
+
 /// How long the reader likes answers.
 enum AnswerLength {
   short('Short', 'Answer in two or three sentences.'),
@@ -223,6 +229,7 @@ class TalkEngine {
     void Function(String piece)? onText,
     bool theory = false,
   }) async {
+    final meaning = await _meaningOf(question);
     final input = PackInput(
       path: memoryPath,
       question: question,
@@ -230,8 +237,10 @@ class TalkEngine {
       here: here,
       passage: passage,
       journal: journal,
+      meaning: meaning?.vector,
+      meaningModel: meaning?.model,
     );
-    final items = MemoryDb.existsAt(memoryPath) ? await Isolate.run(() => buildPack(input)) : <PackItem>[
+    final items = MemoryDb.existsAt(memoryPath) ? await _packOff(input) : <PackItem>[
       if (passage.trim().isNotEmpty) PackItem('What the reader is reading now', passage),
       for (final j in journal) PackItem("The reader's journal", j),
     ];
@@ -250,6 +259,20 @@ class TalkEngine {
       ..add(aiMessage('user', question))
       ..add(aiMessage('assistant', reply));
     return TalkAnswer(reply, Map.of(sources));
+  }
+
+  /// The question's vector, when a key can embed and the memory has some to
+  /// match; null otherwise (or when that fails: the rest still answers).
+  Future<({String model, List<double> vector})?> _meaningOf(String question) async {
+    if (router.ring.forJob(AiJob.embedder).isEmpty || !MemoryDb.existsAt(memoryPath)) return null;
+    try {
+      return await router.run(AiJob.embedder, (key, to) async {
+        final v = await router.client.embed(to, [question]);
+        return (model: key.models[AiJob.embedder]!, vector: v.first);
+      });
+    } on Object {
+      return null;
+    }
   }
 
   Future<String> _converse(List<Map<String, Object?>> messages, int? line, void Function(String)? onText) async {
@@ -273,7 +296,7 @@ class TalkEngine {
       for (final call in reply.toolCalls) {
         final args = call.args;
         final path = memoryPath;
-        final found = await Isolate.run(() => runTool(path, call.name, args, line));
+        final found = await _toolOff(path, call.name, args, line);
         messages.add(aiToolAnswer(call.id, _render(found)));
       }
     }

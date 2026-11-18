@@ -100,6 +100,28 @@ int writeIndex(String path, List<IndexedChapter> chapters) {
   }
 }
 
+// On another isolate, each closure made here from plain values (one made in
+// the indexer's methods could carry the indexer and its library).
+Future<int> _writeOff(String path, List<IndexedChapter> chapters) => Isolate.run(() => writeIndex(path, chapters));
+
+Future<Set<int>> _indexedOff(String path) => Isolate.run(() {
+      final db = MemoryDb.open(path);
+      try {
+        return db.indexedHashes().keys.toSet();
+      } finally {
+        db.close();
+      }
+    });
+
+Future<int> _webBatchOff(String dir, String id, String path, Set<int> batch) => Isolate.run(() {
+      final layout = loadWebChaptersSync(dir, id, batch);
+      final chapters = [
+        for (final (c, section) in layout.chapters.indexed)
+          if (batch.contains(section)) chapterForIndex(layout, c, number: section),
+      ].whereType<IndexedChapter>().toList();
+      return writeIndex(path, chapters);
+    });
+
 /// How far a book's word index is.
 class IndexProgress {
   const IndexProgress(this.done, this.total);
@@ -133,21 +155,14 @@ class WordIndexer {
       for (var c = 0; c < layout.chapters.length; c++) chapterForIndex(layout, c),
     ].whereType<IndexedChapter>().toList();
     onProgress?.call(IndexProgress(0, chapters.length));
-    final n = await Isolate.run(() => writeIndex(path, chapters));
+    final n = await _writeOff(path, chapters);
     onProgress?.call(IndexProgress(chapters.length, chapters.length));
     return n;
   }
 
   Future<int> _indexWeb(String id, String path, void Function(IndexProgress p)? onProgress) async {
     final dir = store.bookDir(id);
-    final have = await Isolate.run(() {
-      final db = MemoryDb.open(path);
-      try {
-        return db.indexedHashes().keys.toSet();
-      } finally {
-        db.close();
-      }
-    });
+    final have = await _indexedOff(path);
     final on = store.downloadedChapters(id).toList()..sort();
     final todo = [for (final c in on) if (!have.contains(c)) c];
     var done = on.length - todo.length;
@@ -155,14 +170,7 @@ class WordIndexer {
     var n = 0;
     for (var i = 0; i < todo.length; i += 100) {
       final batch = todo.sublist(i, i + 100 > todo.length ? todo.length : i + 100).toSet();
-      n += await Isolate.run(() {
-        final layout = loadWebChaptersSync(dir, id, batch);
-        final chapters = [
-          for (final (c, section) in layout.chapters.indexed)
-            if (batch.contains(section)) chapterForIndex(layout, c, number: section),
-        ].whereType<IndexedChapter>().toList();
-        return writeIndex(path, chapters);
-      });
+      n += await _webBatchOff(dir, id, path, batch);
       done += batch.length;
       onProgress?.call(IndexProgress(done, on.length));
     }

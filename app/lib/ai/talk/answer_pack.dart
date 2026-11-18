@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import '../memory/graph.dart';
+import '../memory/meaning.dart';
 import '../memory/memory_db.dart';
 
 /// One piece of what an answer may draw on: its words, the heading it goes
@@ -25,6 +26,8 @@ class PackInput {
     this.passage = '',
     this.journal = const [],
     this.maxCards = 8,
+    this.meaning,
+    this.meaningModel,
   });
 
   final String path;
@@ -41,6 +44,10 @@ class PackInput {
   /// "ch N, date: words".
   final List<String> journal;
   final int maxCards;
+
+  /// The question's vector, from [meaningModel], for meaning search.
+  final List<double>? meaning;
+  final String? meaningModel;
 }
 
 const _stop = {
@@ -99,6 +106,14 @@ List<PackItem> buildPack(PackInput i) {
     if (words.isNotEmpty) {
       for (final h in m.search(words, upTo: i.line, limit: 8, any: true)) {
         items.add(PackItem('Passages', '${chapterLabel(h.place.chapter)}: ${h.snippet}', place: h.place));
+      }
+    }
+
+    // Moments that mean what was asked, in whatever words.
+    final v = i.meaning, model = i.meaningModel;
+    if (v != null && model != null) {
+      for (final h in meaningSearch(i.path, model, v, upTo: i.line)) {
+        items.add(PackItem('Moments that match', '${chapterLabel(h.ch)}: ${h.text}', place: h.place));
       }
     }
 
