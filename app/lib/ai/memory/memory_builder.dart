@@ -121,6 +121,65 @@ _Batch? _nextBatch(String path, int? upTo, int tokens, int maxChapters) {
   }
 }
 
+/// The chapters a summary of the story so far covers: 25 chapters at the
+/// first level, ten of those (250) at the second.
+const arcSpan = {1: 25, 2: 250};
+
+/// The next part of the story due its summary: a span of chapters whose
+/// chapters (those on the phone) all have notes, and that the reading has
+/// gone past; with what it is made from (the chapters' summaries, or the
+/// first level's). Null when none is due.
+({int level, int from, int to, String text})? _nextArc(String path) {
+  final m = MemoryDb.open(path);
+  try {
+    final last = m.db.select('SELECT max(ch) last FROM chapters WHERE indexed = 1').first['last'] as int?;
+    if (last == null) return null;
+    for (final level in [1, 2]) {
+      final span = arcSpan[level]!;
+      for (var from = 0; from + span - 1 < last; from += span) {
+        final to = from + span - 1;
+        if (m.db.select('SELECT 1 FROM arcs WHERE level = ? AND from_ch = ?', [level, from]).isNotEmpty) continue;
+        final waiting = m.db.select(
+          'SELECT count(*) n FROM chapters WHERE indexed = 1 AND noted = 0 AND note_error IS NULL AND ch BETWEEN ? AND ?',
+          [from, to],
+        ).first['n'] as int;
+        if (waiting > 0) continue;
+        final parts = level == 1
+            ? [
+                for (final r in m.db.select('SELECT ch, summary FROM notes WHERE ch BETWEEN ? AND ? ORDER BY ch', [from, to]))
+                  'Chapter ${(r['ch'] as int) + 1}: ${r['summary']}',
+              ]
+            : [
+                for (final r in m.db.select(
+                    'SELECT from_ch, to_ch, summary FROM arcs WHERE level = 1 AND from_ch BETWEEN ? AND ? ORDER BY from_ch',
+                    [from, to]))
+                  'Chapters ${(r['from_ch'] as int) + 1} to ${(r['to_ch'] as int) + 1}: ${r['summary']}',
+              ];
+        // The second level waits for all ten of the first.
+        if (level == 2 && parts.length < span ~/ arcSpan[1]!) continue;
+        if (parts.isEmpty) continue;
+        return (level: level, from: from, to: to, text: parts.join('\n'));
+      }
+    }
+    return null;
+  } finally {
+    m.close();
+  }
+}
+
+void _keepArc(String path, int level, int from, int to, String summary) {
+  final m = MemoryDb.open(path);
+  try {
+    m.db.execute(
+      'INSERT INTO arcs(level, from_ch, to_ch, summary) VALUES (?, ?, ?, ?) '
+      'ON CONFLICT(level, from_ch) DO UPDATE SET to_ch = excluded.to_ch, summary = excluded.summary',
+      [level, from, to, summary],
+    );
+  } finally {
+    m.close();
+  }
+}
+
 void _merge(String path, List<ChapterNotes> notes, Map<int, List<MemoryPlace>> passages, String? model) {
   final m = MemoryDb.open(path);
   try {
@@ -250,6 +309,13 @@ class MemoryBuilder {
       final p = path, u = upTo;
       var tokens = l.tokens, most = l.chapters;
       while (!_stop) {
+        // The story so far kept up as it goes: a span's summary once its
+        // chapters all have notes.
+        final arc = await Isolate.run(() => _nextArc(p));
+        if (arc != null) {
+          if (!await _summarise(arc)) return state.value;
+          continue;
+        }
         final batch = await Isolate.run(() => _nextBatch(p, u, tokens, most));
         if (batch == null) {
           await refreshCounts();
@@ -276,6 +342,36 @@ class MemoryBuilder {
       return state.value;
     } finally {
       _running = false;
+    }
+  }
+
+  /// A span's summary written and kept; false when the work stops (every
+  /// key resting). A reply with nothing in it is kept as a dash, so the
+  /// span is not asked again and again.
+  Future<bool> _summarise(({int level, int from, int to, String text}) arc) async {
+    final words = arc.level == 1 ? '150 to 250' : '250 to 400';
+    try {
+      final reply = await router.chat(AiJob.builder, [
+        aiMessage(
+          'system',
+          'You keep the story so far of a novel for its reader. From the summaries given, write one account of '
+              'chapters ${arc.from + 1} to ${arc.to + 1} in $words words: what happened, in order; who rose, fell, '
+              'changed or died; what was revealed; what is still unanswered. Plain prose, no headings. Use only '
+              'what is given.',
+        ),
+        aiMessage('user', arc.text),
+      ], temperature: 0.3);
+      final text = reply.text.trim();
+      final p = path;
+      await Isolate.run(() => _keepArc(p, arc.level, arc.from, arc.to, text.isEmpty ? '—' : text));
+      return true;
+    } on AiResting catch (e) {
+      state.value = state.value.copyWith(
+        phase: e.until == null ? BuildPhase.failed : BuildPhase.resting,
+        until: e.until,
+        error: e.until == null ? (e.last?.message ?? 'No key can build memories') : null,
+      );
+      return false;
     }
   }
 

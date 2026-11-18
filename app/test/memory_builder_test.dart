@@ -304,6 +304,27 @@ void main() {
       expect(AiRing.instance.today('k').calls, 3);
     });
 
+    test('the story so far: a summary of every 25 chapters, once their notes are made and the reading is past', () async {
+      final path = await book(27);
+      answer = (req, body) {
+        final system = ((body['messages'] as List).first as Map)['content'] as String;
+        if (system.contains('story so far')) return reply(req, 200, chat('In these chapters Mira walks on.'));
+        return reply(req, 200, chat(notesFor(body)));
+      };
+      final b = MemoryBuilder(path: path, router: AiRouter(pause: Duration.zero), limits: (tokens: 400000, chapters: 10));
+      expect((await b.run()).phase, BuildPhase.done);
+      final m = MemoryDb.open(path);
+      addTearDown(m.close);
+      final arcs = m.db.select('SELECT level, from_ch, to_ch, summary FROM arcs');
+      expect([for (final r in arcs) (r['level'], r['from_ch'], r['to_ch'], r['summary'])],
+          [(1, 0, 24, 'In these chapters Mira walks on.')]);
+      final asked = sent.where((b) => (((b['messages'] as List).first as Map)['content'] as String).contains('story so far'));
+      expect(asked.length, 1);
+      final made = ((asked.single['messages'] as List).last as Map)['content'] as String;
+      expect(made, contains('Chapter 25: Chapter 24 happens.'));
+      expect(made, isNot(contains('Chapter 26:')));
+    });
+
     test('a broken reply is asked again with what was wrong; a chapter that will not come is passed over', () async {
       final path = await book(2);
       var calls = 0;
