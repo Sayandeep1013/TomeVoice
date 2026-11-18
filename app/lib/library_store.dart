@@ -1660,6 +1660,53 @@ class LibraryStore {
     await _change((entries) => [for (final e in entries) if (e.id != id) e]);
   }
 
+  /// Book [old]'s file replaced by another ([fresh], imported already):
+  /// [fresh] takes [old]'s place on the shelf at [cursor], with what the
+  /// reader gave it (its shelf, tags and series, cover, when it was added
+  /// and opened), and [old] goes. Its marks, settings and rules are moved
+  /// by the caller first (book_replace.dart).
+  Future<LibraryEntry> replaceBook(LibraryEntry old, LibraryEntry fresh, ReadingCursor cursor) async {
+    // A cover the reader chose lives in the old book's folder.
+    var custom = old.customCover;
+    if (custom != null && custom.startsWith('${bookDir(old.id)}/')) {
+      final to = '${bookDir(fresh.id)}/${custom.substring(bookDir(old.id).length + 1)}';
+      try {
+        await File(custom).copy(to);
+        custom = to;
+      } on FileSystemException {
+        custom = null;
+      }
+    }
+    late LibraryEntry merged;
+    await _change((entries) {
+      merged = fresh
+          .copyWith(
+            cursor: cursor,
+            progress: old.progress,
+            openedAt: old.openedAt,
+            where: old.where,
+            category: old.category,
+          )
+          .withCover(custom == null ? CoverMode.auto : old.coverMode, custom)
+          .organisedAs(old);
+      return [
+        for (final e in entries)
+          if (e.id == old.id)
+            merged
+          else if (e.id != fresh.id)
+            e,
+      ];
+    });
+    await saveCursor(fresh.id, cursor, old.progress, where: old.where);
+    final dir = Directory(bookDir(old.id));
+    try {
+      if (await dir.exists()) await dir.delete(recursive: true);
+    } on FileSystemException {
+      // Left behind; nothing reads it.
+    }
+    return _inIndex(merged);
+  }
+
   static Future<String> _head(File f) async {
     try {
       final raf = await f.open();

@@ -52,7 +52,12 @@ class PageStyle {
       tone: tone,
       dark: dark,
       look: PageLook(
-        text: Skin.page(context, size: prefs.textSize, font: prefs.bookFont, height: prefs.lineHeight)
+        text: Skin.page(context,
+                size: prefs.textSize,
+                font: prefs.bookFont,
+                height: prefs.lineHeight,
+                spacing: prefs.letterSpacing,
+                weight: prefs.textWeight)
             .copyWith(color: ink),
         heading: Skin.title(context, size: 22 * scale, weight: FontWeight.w500).copyWith(height: 1.2, color: ink),
         chapterHeading:

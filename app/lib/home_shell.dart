@@ -24,6 +24,7 @@ import 'library_store.dart';
 import 'listening_session.dart' show BackgroundReading;
 import 'marks.dart';
 import 'neural_voices.dart';
+import 'own_fonts.dart';
 import 'prefs.dart';
 import 'reader_screen.dart';
 import 'reading_rules.dart';
@@ -78,7 +79,9 @@ Future<OpenLibrary> _open(String dir) async {
   // A restore the app stopped in the middle of is finished or undone first,
   // before any store reads the library half swapped.
   await clearStaleRestore(Directory(dir));
-  await ListeningPrefs.load(dir);
+  final prefs = await ListeningPrefs.load(dir);
+  // The reader's own font, if it is the page's, before a book opens.
+  if (prefs.bookFont == BookFont.own) await OwnFonts.use(dir, prefs.ownFont);
   // Sources ask as the phone's own browser does (see Net.userAgent).
   final agent = await const SpeechService().webUserAgent();
   if (agent != null && agent.isNotEmpty) Net.userAgent = agent;

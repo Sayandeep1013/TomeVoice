@@ -570,6 +570,13 @@ class SpeechService {
     return raw == null ? null : PickedFile.fromMap(raw);
   }
 
+  /// One file of any kind (a font, say): [type] is the kind the picker
+  /// shows. Null if cancelled.
+  Future<PickedFile?> pickFile({String type = '*/*'}) async {
+    final raw = await _channel.invokeMapMethod<String, Object?>('pickImage', {'type': type});
+    return raw == null ? null : PickedFile.fromMap(raw);
+  }
+
   /// A file handed to us by "Open with" / "Share" before Dart was listening.
   Future<PickedFile?> pendingOpen() async {
     try {

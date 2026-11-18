@@ -38,6 +38,10 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
   /// Other languages opened to show their voices.
   final _open = <String>{};
 
+  /// What the search field holds: voices matching every word of it are
+  /// listed instead of the languages.
+  String _query = '';
+
   String get _language =>
       (widget.language ?? PlatformDispatcher.instance.locale.languageCode).toLowerCase();
 
@@ -267,7 +271,14 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
                         ),
                       ],
                       const SizedBox(height: Gap.m),
-                      if (_prefs.naturalVoices ?? false) ..._offer(context),
+                      if (_prefs.naturalVoices ?? false) ...[
+                        SearchField(
+                          hint: 'Search: a name, a language, "british female"',
+                          onChanged: (v) => setState(() => _query = v),
+                        ),
+                        const SizedBox(height: Gap.l),
+                        ...(_query.trim().isEmpty ? _offer(context) : _found(context)),
+                      ],
                       const SizedBox(height: Gap.l),
                       Text(
                         'Piper voices, and Kokoro and Kitten, which hold many voices in one download; '
@@ -340,6 +351,27 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
         ),
         if (_open.contains(l)) ..._languageVoices(context, catalog.forLanguage(l)),
       ],
+    ];
+  }
+
+  /// Every voice that matches the search ([voiceMatches]), whatever its
+  /// language.
+  List<Widget> _found(BuildContext context) {
+    final catalog = _voices.catalog;
+    if (catalog == null) return _offer(context);
+    final found = [
+      for (final l in catalog.languages)
+        for (final v in catalog.forLanguage(l))
+          if (voiceMatches(v, _query)) v,
+    ];
+    return [
+      SectionTitle('Found', note: '${found.length}'),
+      const SizedBox(height: Gap.s),
+      if (found.isEmpty)
+        Text('No voice matches. Try a language, an accent ("british"), or "female".',
+            style: Skin.ui(size: 14, weight: FontWeight.w500, color: Skin.inkSoftOn(context)).copyWith(height: 1.4))
+      else
+        ..._languageVoices(context, found, regions: false),
     ];
   }
 
@@ -833,3 +865,49 @@ Future<bool> _costs(BuildContext context, {required String title, int? size, Neu
       ),
     ) ==
     true;
+
+/// Whether [v] is what [query] asks for: every word of it found in the
+/// voice's name, its language, its accent (said as "british" or as "United
+/// Kingdom"), whether it is a woman's or a man's voice, its quality or what
+/// is said of it.
+bool voiceMatches(NeuralVoice v, String query) {
+  final words = query.toLowerCase().split(RegExp(r'[\s,]+')).where((w) => w.isNotEmpty);
+  final region = v.region.toUpperCase();
+  final about = [
+    v.name,
+    v.id,
+    v.language,
+    languageName(v.language),
+    if (region.isNotEmpty) ...[region, regionLabel(region), ...?_accents[region]],
+    v.gender,
+    if (v.gender == 'female') 'woman',
+    if (v.gender == 'male') 'man',
+    v.quality,
+    v.blurb,
+    v.pack?.name ?? '',
+  ].join(' ').toLowerCase();
+  // "male" is in "female": a gender is matched as a whole word.
+  final whole = RegExp(r'[a-z]+').allMatches(about).map((m) => m[0]!).toSet();
+  return words.every((w) => w == 'male' || w == 'man' ? whole.contains(w) : about.contains(w));
+}
+
+/// How people name an accent, where its country's name does not say it.
+const _accents = {
+  'GB': ['british', 'english', 'united kingdom', 'england', 'scottish', 'welsh'],
+  'US': ['american', 'usa', 'united states'],
+  'IN': ['indian'],
+  'AU': ['australian'],
+  'IE': ['irish'],
+  'CA': ['canadian'],
+  'NZ': ['kiwi'],
+  'ZA': ['south african'],
+  'MX': ['mexican'],
+  'ES': ['spain', 'castilian'],
+  'BR': ['brazilian'],
+  'PT': ['portugal', 'european'],
+  'FR': ['france'],
+  'BE': ['belgian'],
+  'CH': ['swiss'],
+  'DE': ['germany'],
+  'AT': ['austrian'],
+};

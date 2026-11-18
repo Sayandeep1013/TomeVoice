@@ -11,6 +11,13 @@ Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoi
 - A book's Contents with parts has a coloured tab for each down its side: a tap opens the part, and the part in view stands out. Each part's divider carries its tab's colour.
 - The handwriting is Caveat (SIL Open Font License), listed in About with the other fonts.
 
+#### Reading comforts
+- The reader's top bar has a Contents button. With room (a tablet, a phone on its side) it has Scroll or Pages too, and a PDF its Contents beside its real pages. Layout is now first in Aa, Read.
+- Weight (light to bold) and letter spacing for the page's type, in Aa, Read.
+- Your own font: add a .ttf or .otf file under the fonts in Aa, Read. It is kept with your library, so a backup carries it.
+- Replace the file (a book's menu): pick a corrected edition and it takes the book's place. Your place, quotes, bookmarks, voices, rules and shelf go with it, found again by their sentences.
+- Natural voices has a search field: a name, a language, an accent ("british") or "female".
+
 #### Fixes
 - The app no longer closes when a web-novel site loaded through the hidden web view answers after the source that asked for it has stopped (a check that timed out, a source closed meanwhile). Seen once on 11 November; Flutter's engine ended the whole app.
 - Report a problem sends only the errors of the version you run. An older version's errors are counted, not sent again: issue #28 (1.5.0) carried the same 1.4.1 error as #24 and #25, fixed in 1.4.2.

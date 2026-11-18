@@ -5,6 +5,7 @@ import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'book_actions.dart';
 import 'book_card.dart';
+import 'book_replace.dart';
 import 'book_search.dart';
 import 'book_tint.dart';
 import 'cast.dart';
@@ -426,6 +427,15 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                     ));
                   case 'cover':
                     await changeCover(context, _store, _entry);
+                  case 'replace':
+                    final nav = Navigator.of(context);
+                    final fresh = await askReplaceBookFile(context, _store, _entry);
+                    // The book is another now: its page, in this one's place.
+                    if (fresh != null && mounted) {
+                      unawaited(nav.pushReplacement(MaterialPageRoute<void>(
+                        builder: (_) => BookScreen(store: _store, entry: fresh),
+                      )));
+                    }
                   case 'move':
                     await moveBook(context, _store, _entry);
                   case 'organise':
@@ -454,6 +464,9 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
                 if (_layout?.isEmpty == false) const PopupMenuItem(value: 'audio', child: Text('Save as audio…')),
                 const PopupMenuItem(value: 'rules', child: Text('Reading rules')),
                 const PopupMenuItem(value: 'cover', child: Text('Change cover')),
+                // A file's book only: a web novel's chapters are the site's.
+                if (!_entry.isWeb && _entry.sourcePath.isNotEmpty)
+                  const PopupMenuItem(value: 'replace', child: Text('Replace the file…')),
                 const PopupMenuItem(value: 'move', child: Text('Move to…')),
                 const PopupMenuItem(value: 'organise', child: Text('Tags and series…')),
                 if (_entry.progress > 0)

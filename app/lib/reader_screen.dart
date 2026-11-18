@@ -25,6 +25,7 @@ import 'listen_sheet.dart';
 import 'marks.dart';
 import 'neural_voices.dart';
 import 'now_playing.dart';
+import 'own_fonts.dart';
 import 'page_light.dart';
 import 'page_style.dart';
 import 'page_tone.dart';
@@ -608,6 +609,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final dir = widget.store?.root.path;
     if (dir == null) return;
     final p = await ListeningPrefs.load(dir);
+    if (p.bookFont == BookFont.own && OwnFonts.family == null) await OwnFonts.use(dir, p.ownFont);
     if (!mounted) return;
     setState(() => _reader.prefs = p);
     _light.value = PageLight.of(p);
@@ -777,7 +779,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
 
   /// What moves the scrolling page's lines when it changes.
   static Object _layoutOf(ListeningPrefs p) =>
-      Object.hash(p.textSize, p.bookFont, p.lineHeight, p.margin, p.justify, p.indent);
+      Object.hash(p.textSize, p.bookFont, p.lineHeight, p.margin, p.justify, p.indent, p.letterSpacing, p.textWeight,
+          p.ownFont);
 
   /// Text reflowing for a new size, font or spacing: the paragraph at the
   /// top of the screen stays where it is. (The list keeps an item of its
@@ -2604,6 +2607,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
           setState(() => _prefs.pdfPages = !_prefs.pdfPages);
           _prefs.save();
           _detached.value = false;
+        },
+        pages: _isPdf ? null : _prefs.pages,
+        onPages: () {
+          // Saved, the page follows (see _onPrefs).
+          _prefs.pages = !_prefs.pages;
+          _prefs.save();
         },
         onContents: _openContents,
         onSearch: _openSearch,

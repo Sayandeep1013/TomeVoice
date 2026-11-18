@@ -35,6 +35,9 @@ class ListeningPrefs {
     this.pdfCrop = false,
     this.bookFont = BookFont.newsreader,
     this.lineHeight = 1.6,
+    this.letterSpacing = 0,
+    this.textWeight = 400,
+    this.ownFont,
     this.margin = 22,
     this.justify = false,
     this.indent = false,
@@ -235,6 +238,17 @@ class ListeningPrefs {
   /// Line height of the page, as a multiple of the text size.
   double lineHeight;
 
+  /// Space added between letters, in logical pixels (none by default; a
+  /// little less, or more for eyes that run letters together).
+  double letterSpacing;
+
+  /// How heavy the page's type is: 300 light to 600 bold, 400 as designed.
+  int textWeight;
+
+  /// The reader's own font (BookFont.own): its file's name in the
+  /// library's fonts folder (own_fonts.dart).
+  String? ownFont;
+
   /// Side margin of the page, in logical pixels.
   double margin;
 
@@ -402,6 +416,10 @@ class ListeningPrefs {
     return prefs;
   }
 
+  /// The library's folder the prefs were read from (where the reader's own
+  /// fonts are kept, say); null for prefs in memory only.
+  static String? get libraryDir => _file?.parent.path;
+
   /// In-memory prefs for tests and for when storage is unavailable.
   static ListeningPrefs get memory => _cached ??= ListeningPrefs();
 
@@ -452,6 +470,9 @@ class ListeningPrefs {
         if (pdfCrop) 'pdfCrop': true,
         'bookFont': bookFont.name,
         'lineHeight': lineHeight,
+        'letterSpacing': letterSpacing,
+        'textWeight': textWeight,
+        if (ownFont != null) 'ownFont': ownFont,
         'margin': margin,
         'justify': justify,
         'indent': indent,
@@ -551,6 +572,9 @@ class ListeningPrefs {
         pdfCrop: json['pdfCrop'] == true,
         bookFont: BookFont.byName(json['bookFont'] as String?),
         lineHeight: ((json['lineHeight'] as num?)?.toDouble() ?? 1.6).clamp(1.3, 2.0).toDouble(),
+        letterSpacing: ((json['letterSpacing'] as num?)?.toDouble() ?? 0).clamp(-0.5, 2.0).toDouble(),
+        textWeight: ((json['textWeight'] as num?)?.toInt() ?? 400).clamp(300, 600).toInt(),
+        ownFont: json['ownFont'] as String?,
         margin: ((json['margin'] as num?)?.toDouble() ?? 22).clamp(8, 48).toDouble(),
         justify: json['justify'] == true,
         indent: json['indent'] == true,

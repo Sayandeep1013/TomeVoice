@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
@@ -7,6 +8,7 @@ import 'auto_scroll.dart';
 import 'book_tint.dart';
 import 'neural_screen.dart';
 import 'neural_voices.dart';
+import 'own_fonts.dart';
 import 'page_light.dart';
 import 'page_tone.dart';
 import 'paged_view.dart' show PageTurn;
@@ -1051,64 +1053,8 @@ class ReadingControls extends StatelessWidget {
   Widget build(BuildContext context) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const SectionTitle('Page'),
-          const SizedBox(height: Gap.m),
-          _PageTones(
-            selected: PageTone.byId(prefs.pageTone),
-            font: prefs.bookFont,
-            onPick: (t) => _apply(() => prefs.pageTone = t.id),
-          ),
-          const SizedBox(height: Gap.xl),
-          const SectionTitle('Text size'),
-          const SizedBox(height: Gap.m),
-          StepperControl(
-            value: 'Aa',
-            minusTooltip: 'Smaller text',
-            plusTooltip: 'Larger text',
-            valueStyle: Skin.page(context, size: prefs.textSize, font: prefs.bookFont, height: 1.2),
-            onMinus: prefs.textSize > 14 ? () => _apply(() => prefs.textSize -= 1) : null,
-            onPlus: prefs.textSize < 30 ? () => _apply(() => prefs.textSize += 1) : null,
-          ),
-          const SizedBox(height: Gap.xl),
-          const SectionTitle('Font'),
-          const SizedBox(height: Gap.m),
-          ChoiceRow<BookFont>(
-            options: [for (final f in BookFont.values) (f, f.label)],
-            value: prefs.bookFont,
-            minSegment: 72,
-            onChanged: (f) => _apply(() => prefs.bookFont = f),
-          ),
-          const SizedBox(height: Gap.s),
-          Text(
-            'The quick brown fox jumps over the lazy dog.',
-            style: Skin.page(context, size: 17, font: prefs.bookFont, height: 1.4)
-                .copyWith(color: Skin.inkSoftOn(context)),
-          ),
-          const SizedBox(height: Gap.xl),
-          const SectionTitle('Line spacing'),
-          const SizedBox(height: Gap.m),
-          ChoiceRow<double>(
-            options: const [(1.45, 'Compact'), (1.6, 'Normal'), (1.8, 'Relaxed')],
-            value: prefs.lineHeight,
-            onChanged: (v) => _apply(() => prefs.lineHeight = v),
-          ),
-          const SizedBox(height: Gap.xl),
-          const SectionTitle('Margins'),
-          const SizedBox(height: Gap.m),
-          ChoiceRow<double>(
-            options: const [(14, 'Narrow'), (22, 'Normal'), (34, 'Wide')],
-            value: prefs.margin,
-            onChanged: (v) => _apply(() => prefs.margin = v),
-          ),
-          const SizedBox(height: Gap.xl),
-          const SectionTitle('Paragraphs'),
-          const SizedBox(height: Gap.m),
-          ChoiceRow<bool>(
-            options: const [(false, 'Spaced'), (true, 'Indented')],
-            value: prefs.indent,
-            onChanged: (v) => _apply(() => prefs.indent = v),
-          ),
-          const SizedBox(height: Gap.xl),
+          // Layout first: Scroll or Pages was seven sections down, and
+          // looked missing.
           const SectionTitle('Layout'),
           const SizedBox(height: Gap.m),
           ChoiceRow<bool>(
@@ -1150,6 +1096,86 @@ class ReadingControls extends StatelessWidget {
                   ),
           ),
           if (afterLayout case final after?) after,
+          const SizedBox(height: Gap.xl),
+          const SectionTitle('Page'),
+          const SizedBox(height: Gap.m),
+          _PageTones(
+            selected: PageTone.byId(prefs.pageTone),
+            font: prefs.bookFont,
+            onPick: (t) => _apply(() => prefs.pageTone = t.id),
+          ),
+          const SizedBox(height: Gap.xl),
+          const SectionTitle('Text size'),
+          const SizedBox(height: Gap.m),
+          StepperControl(
+            value: 'Aa',
+            minusTooltip: 'Smaller text',
+            plusTooltip: 'Larger text',
+            valueStyle: Skin.page(context, size: prefs.textSize, font: prefs.bookFont, height: 1.2),
+            onMinus: prefs.textSize > 14 ? () => _apply(() => prefs.textSize -= 1) : null,
+            onPlus: prefs.textSize < 30 ? () => _apply(() => prefs.textSize += 1) : null,
+          ),
+          const SizedBox(height: Gap.xl),
+          const SectionTitle('Font'),
+          const SizedBox(height: Gap.m),
+          ChoiceRow<BookFont>(
+            options: [
+              for (final f in BookFont.values)
+                if (f != BookFont.own || prefs.ownFont != null) (f, f.label),
+            ],
+            value: prefs.bookFont,
+            minSegment: 72,
+            onChanged: (f) => _apply(() => prefs.bookFont = f),
+          ),
+          const SizedBox(height: Gap.s),
+          Text(
+            'The quick brown fox jumps over the lazy dog.',
+            style: Skin.page(context,
+                    size: 17, font: prefs.bookFont, height: 1.4, spacing: prefs.letterSpacing, weight: prefs.textWeight)
+                .copyWith(color: Skin.inkSoftOn(context)),
+          ),
+          const SizedBox(height: Gap.xs),
+          OwnFontRow(prefs: prefs, onChanged: onChanged),
+          const SizedBox(height: Gap.xl),
+          const SectionTitle('Weight'),
+          const SizedBox(height: Gap.m),
+          ChoiceRow<int>(
+            options: const [(300, 'Light'), (400, 'Regular'), (500, 'Medium'), (600, 'Bold')],
+            value: prefs.textWeight,
+            onChanged: (w) => _apply(() => prefs.textWeight = w),
+          ),
+          const SizedBox(height: Gap.xl),
+          const SectionTitle('Letter spacing'),
+          const SizedBox(height: Gap.m),
+          ChoiceRow<double>(
+            options: const [(-0.3, 'Tight'), (0, 'Normal'), (0.6, 'Wide'), (1.2, 'Wider')],
+            value: prefs.letterSpacing,
+            onChanged: (v) => _apply(() => prefs.letterSpacing = v),
+          ),
+          const SizedBox(height: Gap.xl),
+          const SectionTitle('Line spacing'),
+          const SizedBox(height: Gap.m),
+          ChoiceRow<double>(
+            options: const [(1.45, 'Compact'), (1.6, 'Normal'), (1.8, 'Relaxed')],
+            value: prefs.lineHeight,
+            onChanged: (v) => _apply(() => prefs.lineHeight = v),
+          ),
+          const SizedBox(height: Gap.xl),
+          const SectionTitle('Margins'),
+          const SizedBox(height: Gap.m),
+          ChoiceRow<double>(
+            options: const [(14, 'Narrow'), (22, 'Normal'), (34, 'Wide')],
+            value: prefs.margin,
+            onChanged: (v) => _apply(() => prefs.margin = v),
+          ),
+          const SizedBox(height: Gap.xl),
+          const SectionTitle('Paragraphs'),
+          const SizedBox(height: Gap.m),
+          ChoiceRow<bool>(
+            options: const [(false, 'Spaced'), (true, 'Indented')],
+            value: prefs.indent,
+            onChanged: (v) => _apply(() => prefs.indent = v),
+          ),
           if (showTheme) ...[
             const SizedBox(height: Gap.xl),
             const SectionTitle('Theme'),
@@ -1261,6 +1287,105 @@ class _PageTones extends StatelessWidget {
           ],
         ],
       );
+}
+
+/// Under the fonts: the reader's own font (BookFont.own), to add from a
+/// font file on the phone, change, or remove.
+class OwnFontRow extends StatefulWidget {
+  const OwnFontRow({super.key, required this.prefs, required this.onChanged});
+
+  final ListeningPrefs prefs;
+  final VoidCallback onChanged;
+
+  @override
+  State<OwnFontRow> createState() => _OwnFontRowState();
+}
+
+class _OwnFontRowState extends State<OwnFontRow> {
+  bool _busy = false;
+
+  ListeningPrefs get _prefs => widget.prefs;
+
+  Future<void> _add() async {
+    final root = ListeningPrefs.libraryDir;
+    if (root == null || _busy) return;
+    setState(() => _busy = true);
+    try {
+      final picked = await const SpeechService().pickFile();
+      if (picked == null || !mounted) return;
+      final file = await OwnFonts.add(root, picked.path, picked.name);
+      // The picker's copy is not needed once kept (or refused).
+      unawaited(File(picked.path).parent.delete(recursive: true).then((_) {}, onError: (_) {}));
+      if (!mounted) return;
+      if (file == null) {
+        showSnack(context, 'That is not a font TomeVoice can use. Pick a .ttf or .otf file.');
+        return;
+      }
+      final before = _prefs.ownFont;
+      // Changed: the font it replaces is not kept.
+      if (await _use(file) && before != null && before != file) await OwnFonts.remove(root, before);
+    } on Object {
+      if (mounted) showSnack(context, 'The font could not be added.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Put [file] on the page; whether it could be.
+  Future<bool> _use(String file) async {
+    final root = ListeningPrefs.libraryDir;
+    if (root == null) return false;
+    final ok = await OwnFonts.use(root, file);
+    if (!mounted) return ok;
+    if (!ok) {
+      showSnack(context, 'That font could not be read.');
+      return false;
+    }
+    _prefs
+      ..ownFont = file
+      ..bookFont = BookFont.own;
+    _prefs.save();
+    widget.onChanged();
+    setState(() {});
+    return true;
+  }
+
+  Future<void> _remove() async {
+    final root = ListeningPrefs.libraryDir;
+    final file = _prefs.ownFont;
+    if (root == null || file == null) return;
+    await OwnFonts.remove(root, file);
+    _prefs.ownFont = null;
+    if (_prefs.bookFont == BookFont.own) _prefs.bookFont = BookFont.newsreader;
+    _prefs.save();
+    widget.onChanged();
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final file = _prefs.ownFont;
+    final soft = Skin.ui(size: 13.5, weight: FontWeight.w500, color: Skin.inkSoftOn(context));
+    if (file == null) {
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          onPressed: _busy ? null : () => unawaited(_add()),
+          icon: const Icon(Icons.font_download_outlined, size: 18),
+          label: const Text('Add your own font (.ttf, .otf)'),
+        ),
+      );
+    }
+    return Row(
+      children: [
+        Icon(Icons.font_download_outlined, size: 18, color: Skin.inkSoftOn(context)),
+        const SizedBox(width: Gap.s),
+        Expanded(child: Text('Yours: ${OwnFonts.label(file)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: soft)),
+        TextButton(onPressed: _busy ? null : () => unawaited(_add()), child: const Text('Change')),
+        TextButton(onPressed: _busy ? null : () => unawaited(_remove()), child: const Text('Remove')),
+      ],
+    );
+  }
 }
 
 /// A labelled slider whose track lines up with its label.

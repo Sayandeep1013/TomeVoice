@@ -367,7 +367,13 @@ class MarkStore {
 
   /// Book [from]'s marks are book [to]'s now (a web novel moved to another
   /// source), each at its chapter there, [chapter]. One write.
-  Future<void> moveBook(String from, String to, int Function(int chapter) chapter) async {
+  Future<void> moveBook(String from, String to, int Function(int chapter) chapter) =>
+      rebook(from, to, (at) => at.copyWith(sectionIndex: chapter(at.sectionIndex)));
+
+  /// Book [from]'s marks are book [to]'s now, each at [place] of where it
+  /// was (a web novel moved to another source; a book's file replaced by
+  /// another edition). One write.
+  Future<void> rebook(String from, String to, ReadingCursor Function(ReadingCursor at) place) async {
     if (!_all.any((m) => m.bookId == from)) return;
     _all = [
       for (final m in _all)
@@ -379,7 +385,7 @@ class MarkStore {
             bookId: to,
             bookTitle: m.bookTitle,
             kind: m.kind,
-            at: m.at.copyWith(sectionIndex: chapter(m.at.sectionIndex)),
+            at: place(m.at),
             text: m.text,
             created: m.created,
             span: m.span,
