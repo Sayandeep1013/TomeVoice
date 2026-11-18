@@ -288,10 +288,13 @@ document the documents package reads like any book, on the Articles shelf. A Wik
 page is kept whole without its lists of sources. A link to a book file imports the book;
 any other shared words become a book named from their first line.
 
-**Catalogues** (`opds.dart`, `catalogues_screen.dart`). OPDS 1.2 feeds, searched through
-OpenSearch. Project Gutenberg and Standard Ebooks are built in; a Calibre content server
-on the same network, or any other OPDS catalogue, can be added. A book downloaded from
-one is imported like any file.
+**Catalogues** (`opds.dart`, `opds2.dart`, `catalogues_screen.dart`). OPDS 1.2 feeds,
+searched through OpenSearch, and OPDS 2 (JSON) feeds, searched through their URI
+template; the client reads a feed as OPDS 2 when the server calls it JSON or it reads as
+JSON, and both become the same feeds and entries. Project Gutenberg (its OPDS 2 catalogue
+at `https://www.gutenberg.org/opds/`, its older Atom one read when that cannot be) and
+Standard Ebooks are built in; a Calibre content server on the same network, or any other
+OPDS catalogue, can be added. A book downloaded from one is imported like any file.
 
 **NovelDokusha import.** Settings → Library → Import from NovelDokusha takes the zip
 that NovelDokusha's own Settings → Backup writes.

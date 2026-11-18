@@ -5,10 +5,13 @@ import 'dart:typed_data';
 
 import 'package:xml/xml.dart';
 
+part 'opds2.dart';
+
 // OPDS 1.2 catalogues: Atom feeds of books (acquisition feeds) and of other
-// feeds (navigation feeds), searched through OpenSearch. Project Gutenberg,
-// Standard Ebooks and a Calibre content server all speak it. See
-// https://specs.opds.io/opds-1.2.
+// feeds (navigation feeds), searched through OpenSearch. Standard Ebooks and
+// a Calibre content server speak it. See https://specs.opds.io/opds-1.2.
+// OPDS 2 catalogues (JSON, as Project Gutenberg's now is) are read into the
+// same feeds and entries, in opds2.dart.
 
 /// A link in a feed or an entry, its address already made whole.
 class OpdsLink {
@@ -22,8 +25,10 @@ class OpdsLink {
   /// Bytes, when the feed says (an enclosure's length).
   final int? length;
 
-  /// Another feed of the catalogue (OPDS's own type, or plain Atom).
-  bool get isFeed => type.contains('application/atom+xml') || type.contains('opds-catalog');
+  /// Another feed of the catalogue (OPDS's own type, plain Atom, or OPDS 2's
+  /// JSON; a single OPDS 2 publication is not one).
+  bool get isFeed =>
+      type.contains('application/atom+xml') || type.contains('opds-catalog') || type.contains('application/opds+json');
 
   /// A book file to take: an acquisition that needs no payment or loan, or
   /// an Atom enclosure (Standard Ebooks' free feed), in a format TomeVoice
@@ -355,7 +360,7 @@ typedef Fetched = ({Uint8List bytes, String type, Uri url});
 /// as Calibre's own server prefers). The password is given to the
 /// catalogue's own host only, never to one it redirects to.
 class OpdsClient {
-  OpdsClient(this.root, {this.user, this.password}) {
+  OpdsClient(this.root, {this.user, this.password, this.fallback}) {
     _http
       ..connectionTimeout = const Duration(seconds: 20)
       ..userAgent = 'TomeVoice (OPDS reader; Android)'
@@ -365,10 +370,15 @@ class OpdsClient {
   final Uri root;
   final String? user;
   final String? password;
+
+  /// Another address for [root], read when [root] answers with an error or
+  /// with something that is no catalogue: Project Gutenberg's older feed,
+  /// while its OPDS 2 one is new.
+  final Uri? fallback;
   final _http = HttpClient();
 
-  static const _feedAccept =
-      'application/atom+xml;profile=opds-catalog, application/atom+xml;q=0.9, application/xml;q=0.8, */*;q=0.5';
+  static const _feedAccept = 'application/atom+xml;profile=opds-catalog, application/atom+xml;q=0.9, '
+      'application/opds+json;q=0.85, application/xml;q=0.8, application/json;q=0.7, */*;q=0.5';
   static const _timeout = Duration(seconds: 40);
 
   /// Sign-ins already answered: asked again, what was given was refused.
@@ -430,13 +440,28 @@ class OpdsClient {
     return (bytes: out.takeBytes(), type: res.headers.contentType?.mimeType ?? '', url: _final(url, res));
   }
 
-  /// The feed at [url].
+  /// The feed at [url]; for [root], the one at [fallback] when [root]'s
+  /// cannot be had or read (the first trouble is the one told).
   Future<OpdsFeed> feed(Uri url) async {
-    final f = await fetch(url, accept: _feedAccept);
-    if (f.type.contains('json')) {
-      throw const OpdsFormatException('This catalogue speaks OPDS 2, which TomeVoice does not read yet.');
+    try {
+      return await _feed(url);
+    } on Exception catch (e, trace) {
+      final back = fallback;
+      if (back == null || url != root || e is OpdsAuthException) rethrow;
+      try {
+        return await _feed(back);
+      } on Exception {
+        Error.throwWithStackTrace(e, trace);
+      }
     }
-    return parseOpdsFeed(utf8.decode(f.bytes, allowMalformed: true), f.url);
+  }
+
+  /// The feed at [url], read as OPDS 2 when the server says it is JSON or
+  /// it reads as JSON, else as OPDS 1.
+  Future<OpdsFeed> _feed(Uri url) async {
+    final f = await fetch(url, accept: _feedAccept);
+    final text = utf8.decode(f.bytes, allowMalformed: true);
+    return f.type.contains('json') || looksLikeJson(text) ? parseOpds2Feed(text, f.url) : parseOpdsFeed(text, f.url);
   }
 
   /// The results for [query] in [feed]'s catalogue.

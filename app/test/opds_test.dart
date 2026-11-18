@@ -304,7 +304,7 @@ void main() {
       final store = CatalogueStore(tmp);
       final first = await store.all();
       expect([for (final c in first) c.id], ['gutenberg', 'standard-ebooks-new', 'standard-ebooks']);
-      expect(first.first.url, 'https://www.gutenberg.org/ebooks.opds/');
+      expect(first.first.url, 'https://www.gutenberg.org/opds/');
       expect(first.last.url, 'https://standardebooks.org/feeds/opds');
 
       const calibre = Catalogue(id: 'c1', title: 'Calibre', url: 'http://192.168.1.20:8080/opds', user: 'me');

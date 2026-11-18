@@ -18,6 +18,9 @@ Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoi
 - Replace the file (a book's menu): pick a corrected edition and it takes the book's place. Your place, quotes, bookmarks, voices, rules and shelf go with it, found again by their sentences.
 - Natural voices has a search field: a name, a language, an accent ("british") or "female".
 
+#### Catalogues
+- Project Gutenberg opens its new catalogue (OPDS 2), as its older one is retired in 2027: Recently Added, Most Popular, its bookshelves and subjects, search, and each book's EPUB with its cover. If the new one cannot be had, the older one opens as before. Any catalogue you add that speaks OPDS 2 now opens too, instead of saying TomeVoice cannot read it yet.
+
 #### Fixes
 - The app no longer closes when a web-novel site loaded through the hidden web view answers after the source that asked for it has stopped (a check that timed out, a source closed meanwhile). Seen once on 11 November; Flutter's engine ended the whole app.
 - Report a problem sends only the errors of the version you run. An older version's errors are counted, not sent again: issue #28 (1.5.0) carried the same 1.4.1 error as #24 and #25, fixed in 1.4.2.
