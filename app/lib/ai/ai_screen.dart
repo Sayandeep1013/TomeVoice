@@ -334,6 +334,18 @@ class _TalkSettingsState extends State<_TalkSettings> {
             child: SectionTitle('Talk', size: 18),
           ),
           SwitchRow(
+            title: 'Keep talks in the journal',
+            subtitle: "Each talk is kept in the book's journal when Talk closes",
+            value: _p.aiKeepTalks,
+            onChanged: (v) => _set((p) => p.aiKeepTalks = v),
+          ),
+          SwitchRow(
+            title: 'Spoiler guard on for new books',
+            subtitle: 'Each book whose memory you begin keeps to what you have read (each book can change it)',
+            value: _p.aiGuardNew,
+            onChanged: (v) => _set((p) => p.aiGuardNew = v),
+          ),
+          SwitchRow(
             title: 'Answers aloud',
             subtitle: 'Said in the voice reading the book, which pauses for them',
             value: _p.aiSpeak,

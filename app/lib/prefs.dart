@@ -71,6 +71,8 @@ class ListeningPrefs {
     this.aiRecapDays = 3,
     this.aiLength = 'normal',
     this.aiOwnKnowledge = false,
+    this.aiGuardNew = false,
+    this.aiKeepTalks = true,
     this.aiBackground = true,
     this.aiBackgroundWifi = true,
     this.aiBackgroundCharging = false,
@@ -373,6 +375,12 @@ class ListeningPrefs {
   /// keeps to what TomeVoice gives it).
   bool aiOwnKnowledge;
 
+  /// The spoiler guard turned on for each book whose memory is begun.
+  bool aiGuardNew;
+
+  /// Talks kept in the book's journal when Talk closes.
+  bool aiKeepTalks;
+
   /// Memories built with TomeVoice closed (on unless turned off), only on
   /// Wi-Fi (on), only while charging (off).
   bool aiBackground;
@@ -549,6 +557,8 @@ class ListeningPrefs {
         'aiRecapDays': aiRecapDays,
         'aiLength': aiLength,
         'aiOwnKnowledge': aiOwnKnowledge,
+        if (aiGuardNew) 'aiGuardNew': true,
+        if (!aiKeepTalks) 'aiKeepTalks': false,
         'aiBackground': aiBackground,
         'aiBackgroundWifi': aiBackgroundWifi,
         'aiBackgroundCharging': aiBackgroundCharging,
@@ -656,6 +666,8 @@ class ListeningPrefs {
         aiRecapDays: (json['aiRecapDays'] as num?)?.toInt() ?? 3,
         aiLength: json['aiLength'] as String? ?? 'normal',
         aiOwnKnowledge: json['aiOwnKnowledge'] as bool? ?? false,
+        aiGuardNew: json['aiGuardNew'] == true,
+        aiKeepTalks: json['aiKeepTalks'] != false,
         aiBackground: json['aiBackground'] as bool? ?? true,
         aiBackgroundWifi: json['aiBackgroundWifi'] as bool? ?? true,
         aiBackgroundCharging: json['aiBackgroundCharging'] as bool? ?? false,

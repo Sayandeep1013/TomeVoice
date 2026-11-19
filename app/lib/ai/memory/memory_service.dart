@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import '../../download_queue.dart';
 import '../../journal.dart' show JournalStamp;
 import '../../library_store.dart';
+import '../../prefs.dart' show ListeningPrefs;
 import '../../sources/models.dart' show ChapterItem;
 import '../ai_keys.dart';
 import '../ai_router.dart';
@@ -585,6 +586,8 @@ class MemoryService {
       final path = _path(id);
       await _setMetaOff(path, 'begun', '1');
       _n(id).value = _n(id).value.copyWith(begun: true);
+      // "Spoiler guard on for new books": this one is new.
+      if (ListeningPrefs.loaded?.aiGuardNew ?? false) await setGuard(id, true);
     }
     // While its chapters are still downloading (one by one, from the
     // first), only up to the first not yet on the phone: the memory is made

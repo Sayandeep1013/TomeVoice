@@ -157,12 +157,15 @@ class _TalkSheetState extends State<TalkSheet> {
   /// The talk kept in the book's journal, stamped where the story was when
   /// it began.
   Future<void> _keep() async {
+    if (!(ListeningPrefs.loaded?.aiKeepTalks ?? true)) return;
     // Its [S3] marks kept as the chapters they named: the sources go.
     String kept(_Turn t) => t.text
         .replaceAllMapped(citeMarks, (m) {
           final labels = {
             for (final n in citeNumbers(m.group(0)!))
-              if (t.sources[n]?.place != null) t.sources[n]!.label,
+              // A place in this book, or one in an earlier book ("Book One · ch 4").
+              if (t.sources[n]?.place != null || (t.sources[n]?.label.contains(' · ch ') ?? false))
+                t.sources[n]!.label,
           };
           return labels.isEmpty ? '' : ' (${labels.join(', ')})';
         })
