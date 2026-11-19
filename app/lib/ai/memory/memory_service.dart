@@ -6,6 +6,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 
 import '../../download_queue.dart';
+import '../../journal.dart' show JournalStamp;
 import '../../library_store.dart';
 import '../../sources/models.dart' show ChapterItem;
 import '../ai_keys.dart';
@@ -408,6 +409,14 @@ class MemoryService {
     final here = await hereOf(id);
     final read = s.readUpTo;
     return read == null || read < here ? here : read;
+  }
+
+  /// Talk about [id] from outside the reader (the memory graph's "Ask about
+  /// this"): stamped, for the journal, with where the reader is.
+  Future<JournalStamp?> stampOf(String id) async {
+    final store = _store;
+    if (store == null) return null;
+    return JournalStamp(at: await store.cursorFor(id), chapter: await hereOf(id));
   }
 
   /// The chapter the reader is at in [id], in the memory's numbering.

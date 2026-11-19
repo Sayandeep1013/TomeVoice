@@ -9,6 +9,7 @@ import '../ai_keys.dart';
 import '../ai_screen.dart' show tokenCount, wakeTime;
 import '../../backup_flow.dart' show sizeLabel;
 import '../../download_queue.dart';
+import '../talk/talk_sheet.dart' show showTalk;
 import 'graph_screen.dart';
 import 'hand_off.dart';
 import 'memory_builder.dart';
@@ -147,10 +148,32 @@ class _BookMemorySectionState extends State<BookMemorySection> {
 
   Future<void> _openGraph() async {
     final line = await _service.lineOf(widget.bookId);
+    final here = await _service.hereOf(widget.bookId);
+    final stamp = await _service.stampOf(widget.bookId);
     if (!mounted) return;
+    final path = _service.pathOf(widget.bookId);
     await Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) =>
-          MemoryGraphScreen(bookTitle: widget.bookTitle, memoryPath: _service.pathOf(widget.bookId), line: line),
+      builder: (graph) => MemoryGraphScreen(
+        bookTitle: widget.bookTitle,
+        memoryPath: path,
+        line: line,
+        here: here,
+        // "Ask about this": the book's Talk, over the graph.
+        onAsk: stamp == null || !_service.maySend(widget.bookId)
+            ? null
+            : (question) => showTalk(
+                  graph,
+                  bookId: widget.bookId,
+                  bookTitle: widget.bookTitle,
+                  memoryPath: path,
+                  stampNow: () => stamp,
+                  line: () => line,
+                  here: () => here,
+                  passage: () => '',
+                  onLook: (_) {},
+                  firstQuestion: question,
+                ),
+      ),
     ));
   }
 

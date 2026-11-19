@@ -13,16 +13,16 @@ import 'whos_who_screen.dart' show KindDot, kindColour, kindLabel;
 
 // Off the UI thread's isolate, each from a function of its own with plain
 // values (a closure made in the State's methods would carry the State).
-Future<({GraphData data, Map<int, ({double x, double y})> at, double size})> _drawn(
-  String path,
-  int? at,
-  int? focus,
-  int depth,
-  Set<String> kinds,
-  int minChapters,
-) =>
+Future<GraphView> _drawn(
+        String path, int? at, int? here, int? focus, int depth, Set<String> kinds, int most, double aspect) =>
     Isolate.run(() => graphAndLayout(path,
-        at: at, focus: focus, depth: depth, kinds: kinds.isEmpty ? null : kinds, minChapters: minChapters));
+        at: at,
+        here: here,
+        focus: focus,
+        depth: depth,
+        kinds: kinds.isEmpty ? null : kinds,
+        most: most,
+        aspect: aspect));
 Future<Map<int, ({double x, double y, double z})>> _ballOff(GraphData g) => Isolate.run(() => layoutGraph3d(g));
 Future<int?> _mainOff(String path, int? at) => Isolate.run(() => mainOf(path, at: at));
 Future<NodeDetail?> _detailOff(String path, int id, int at) => Isolate.run(() => nodeDetail(path, id, at));
@@ -49,8 +49,72 @@ String linkLabel(LinkKind k) => switch (k) {
       LinkKind.shared => 'Shared events',
     };
 
-/// How far out from the person in the middle the web goes.
-enum GraphDepth { one, two, all }
+/// How far out from the person in the middle the web goes; or the whole
+/// web as a map of its groups.
+enum GraphDepth { one, two, all, map }
+
+/// Which names the graph shows: the important ones, all that fit, or only
+/// those picked and their links.
+enum GraphNames { key, all, none }
+
+/// The steps of the "how many" slider.
+const graphSteps = [10, 20, 30, 40, 60, 80, 120, 160, 240, 320, 480, 640, 1000, 1500, 2000, 3000, 5000];
+
+/// How far the view is zoomed: its scale along x (a Matrix4's own largest
+/// axis scale counts z, which stays 1, and so never reads below 1).
+double viewScale(Matrix4 m) => math.sqrt(m.entry(0, 0) * m.entry(0, 0) + m.entry(1, 0) * m.entry(1, 0));
+
+/// A group of the whole web, as drawn on the Story map: its middle, how far
+/// it reaches, its members, and its best-known member.
+typedef GraphGroup = ({int id, Offset centre, double reach, List<int> members, int top});
+
+/// The groups among the nodes shown at [chapter], three or more each.
+List<GraphGroup> graphGroups(GraphData data, Map<int, ({double x, double y})> at, Map<int, int> cluster, int chapter) {
+  final by = <int, List<GraphNode>>{};
+  for (final n in data.nodes) {
+    final c = cluster[n.id];
+    if (c == null || (n.firstCh ?? 0) > chapter || at[n.id] == null) continue;
+    (by[c] ??= []).add(n);
+  }
+  final groups = <GraphGroup>[];
+  for (final MapEntry(key: id, value: members) in by.entries) {
+    if (members.length < 3) continue;
+    final pts = [for (final n in members) Offset(at[n.id]!.x, at[n.id]!.y)];
+    final centre = pts.reduce((a, b) => a + b) / pts.length.toDouble();
+    final ds = [for (final p in pts) (p - centre).distance]..sort();
+    final reach = ds[(ds.length * 0.8).floor().clamp(0, ds.length - 1)] + 40;
+    members.sort((a, b) => b.weight.compareTo(a.weight));
+    groups.add((id: id, centre: centre, reach: reach, members: [for (final n in members) n.id], top: members.first.id));
+  }
+  return groups;
+}
+
+/// The shortest chain of links from [a] to [b] at [chapter], or null.
+List<int>? graphPath(GraphData data, int a, int b, int chapter) {
+  final next = <int, List<int>>{};
+  for (final e in data.edges) {
+    if (!e.at(chapter)) continue;
+    (next[e.a] ??= []).add(e.b);
+    (next[e.b] ??= []).add(e.a);
+  }
+  final from = <int, int>{a: a};
+  final queue = [a];
+  for (var i = 0; i < queue.length; i++) {
+    final v = queue[i];
+    if (v == b) break;
+    for (final w in next[v] ?? const <int>[]) {
+      if (from.containsKey(w)) continue;
+      from[w] = v;
+      queue.add(w);
+    }
+  }
+  if (!from.containsKey(b)) return null;
+  final path = [b];
+  while (path.last != a) {
+    path.add(from[path.last]!);
+  }
+  return path.reversed.toList();
+}
 
 /// The memory graph, built on what the apps that do this well do: a local
 /// graph round one person with a depth, as Obsidian's; focus and search, as
@@ -63,7 +127,8 @@ enum GraphDepth { one, two, all }
 /// opens a person (their neighbours lit, the rest dimmed), two show what
 /// links them.
 class MemoryGraphScreen extends StatefulWidget {
-  const MemoryGraphScreen({super.key, required this.bookTitle, required this.memoryPath, this.line});
+  const MemoryGraphScreen(
+      {super.key, required this.bookTitle, required this.memoryPath, this.line, this.here, this.onAsk});
 
   final String bookTitle;
   final String memoryPath;
@@ -71,13 +136,57 @@ class MemoryGraphScreen extends StatefulWidget {
   /// The spoiler line (null: the guard is off).
   final int? line;
 
+  /// The chapter the reader is at: what matters "now" is near it.
+  final int? here;
+
+  /// Asks the book's Talk about something (null: not offered).
+  final Future<void> Function(String question)? onAsk;
+
   @override
   State<MemoryGraphScreen> createState() => _MemoryGraphScreenState();
 }
 
-class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTickerProviderStateMixin {
+class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProviderStateMixin {
+  /// The view gliding to where it is going (a pick, a group, a zoom).
+  late final AnimationController _glide = AnimationController(vsync: this, duration: const Duration(milliseconds: 380))
+    ..addListener(() {
+      final t = _glideTween;
+      if (t != null) _view.value = t.evaluate(CurvedAnimation(parent: _glide, curve: Curves.easeOutCubic));
+    });
+  Matrix4Tween? _glideTween;
+  Size _box = Size.zero;
+  Offset _doubleAt = Offset.zero;
+
+  void _glideTo(Matrix4 to) {
+    if (MediaQuery.of(context).disableAnimations) {
+      _view.value = to;
+      return;
+    }
+    _glideTween = Matrix4Tween(begin: _view.value.clone(), end: to);
+    unawaited(_glide.forward(from: 0));
+  }
+
+  /// The view with [p] (in the graph's own units) at [where] on the screen,
+  /// at [scale].
+  Matrix4 _viewAt(Offset p, double scale, Offset where) => Matrix4.identity()
+    ..translateByDouble(where.dx - p.dx * scale, where.dy - p.dy * scale, 0, 1)
+    ..scaleByDouble(scale, scale, 1, 1);
+
+  /// The view it starts with: all of it, unless that would crowd the nodes
+  /// onto each other (then as near as the spacing allows, a little closer
+  /// than the layout's own, which still keeps them apart), the person in
+  /// the middle, or the middle of it, in view.
+  Matrix4 _fitView(Size box) {
+    final all = math.min(box.width / _size, box.height / _height);
+    final s = _depth == GraphDepth.map ? all : math.max(all, 0.7 / canvasPerDp);
+    return _viewAt(_middle(), s, box.center(Offset.zero));
+  }
+
   /// The side of the square the web is laid out in.
-  double _size = 1000;
+  double _size = 1000, _height = 1000;
+
+  /// The graph area's height over its width, for the layout's shape.
+  double _aspect = 1.6;
   bool _legend = false;
 
   /// Seen as a ball to turn, and where each node sits in it.
@@ -93,7 +202,21 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
   int? _focus;
   GraphDepth _depth = GraphDepth.one;
   final Set<String> _kinds = {};
-  bool _minor = false;
+  final Set<LinkKind> _hiddenLinks = {};
+  GraphNames _names = GraphNames.key;
+
+  /// How many are shown (null: a fit for the book), and of how many.
+  int? _most;
+  int _choices = 0;
+  List<GraphSector> _sectors = const [];
+  Map<int, int> _cluster = const {};
+
+  /// The chapter the timeline was at before its last move: what is new, or
+  /// ended, since then is marked.
+  int? _since;
+
+  /// The chain of links between the two picked.
+  List<int>? _path;
   int? _picked;
   int? _second;
   bool _linking = false;
@@ -117,6 +240,7 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
   @override
   void dispose() {
     _playing?.cancel();
+    _glide.dispose();
     _move.dispose();
     _view.dispose();
     super.dispose();
@@ -138,10 +262,12 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
     final r = await _drawn(
       widget.memoryPath,
       widget.line,
-      _depth == GraphDepth.all ? null : _focus,
+      widget.here,
+      _depth == GraphDepth.all || _depth == GraphDepth.map ? null : _focus,
       _depth == GraphDepth.two ? 2 : 1,
       {..._kinds},
-      _minor ? 1 : 2,
+      _shownMost,
+      _aspect,
     );
     if (!mounted || n != _asked) return;
     final was = _shown;
@@ -149,12 +275,16 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
       // From where each node was to where it is now (new ones from the
       // middle), so a change of focus moves the web rather than cuts it.
       _from = {
-        for (final id in r.at.keys) id: was[id] ?? (x: _size / 2, y: _size / 2),
+        for (final id in r.at.keys) id: was[id] ?? (x: _size / 2, y: _height / 2),
       };
       _data = r.data;
       _at = r.at;
-      if (r.size != _size) {
+      _sectors = r.sectors;
+      _cluster = r.cluster;
+      _choices = r.data.choices;
+      if (r.size != _size || r.height != _height) {
         _size = r.size;
+        _height = r.height;
         _fitted = false;
       }
       _loading = false;
@@ -164,6 +294,10 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
     unawaited(_move.forward(from: 0));
     if (_ball) await _laidAsBall();
   }
+
+  /// How many to show: the reader's choice, or a fit (forty; the Story
+  /// map, everyone).
+  int get _shownMost => _most ?? (_depth == GraphDepth.map ? graphSteps.last : 40);
 
   Future<void> _laidAsBall() async {
     final data = _data;
@@ -198,6 +332,7 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
   void _clearPick() {
     _picked = null;
     _second = null;
+    _path = null;
     _detail = null;
     _links = null;
     _linking = false;
@@ -216,8 +351,21 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
         _linking = false;
       });
       final links = await _linksOff(widget.memoryPath, a, id, _shownCh);
-      if (mounted && _second == id) setState(() => _links = links);
+      final data = _data;
+      if (mounted && _second == id) {
+        setState(() {
+          _links = links;
+          _path = data == null ? null : graphPath(data, a, id, _shownCh);
+        });
+      }
       return;
+    }
+    // The view glides so the one picked is in view, above where its panel
+    // opens.
+    final at = _shown[id];
+    if (at != null && _box != Size.zero) {
+      final scale = math.max(viewScale(_view.value), 0.9 / canvasPerDp);
+      _glideTo(_viewAt(Offset(at.x, at.y), scale, Offset(_box.width / 2, _box.height * 0.32)));
     }
     setState(() {
       _picked = id;
@@ -232,6 +380,7 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
   void _centre(int id) {
     setState(() {
       _focus = id;
+      _fitted = false;
       if (_depth == GraphDepth.all) _depth = GraphDepth.one;
     });
     unawaited(_load());
@@ -243,7 +392,7 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
     if (data == null) return null;
     final shown = _shown;
     // Nodes are drawn the same size on the screen whatever the zoom.
-    final dp = 1 / _view.value.getMaxScaleOnAxis();
+    final dp = 1 / viewScale(_view.value);
     int? best;
     var bestD = double.infinity;
     for (final n in data.nodes) {
@@ -257,6 +406,93 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
       }
     }
     return best;
+  }
+
+  /// On the Story map, a tap on a group drawn shut opens it: the view goes
+  /// to it.
+  bool _openGroup(Offset p, Size box) {
+    final data = _data;
+    if (data == null || _depth != GraphDepth.map) return false;
+    final scale = viewScale(_view.value);
+    for (final g in graphGroups(data, _shown, _cluster, _shownCh)) {
+      if (g.reach * scale >= GraphPainter.openAt) continue;
+      if ((g.centre - p).distance > g.reach) continue;
+      final s = math.min(6.0, math.min(box.width, box.height) / (g.reach * 2.3));
+      _glideTo(_viewAt(g.centre, s, box.center(Offset.zero)));
+      return true;
+    }
+    return false;
+  }
+
+  /// Where the view starts: the person in the middle, or the middle of
+  /// those shown.
+  Offset _middle() {
+    final at = _at;
+    final f = _focus != null && _depth != GraphDepth.all && _depth != GraphDepth.map ? at[_focus] : null;
+    if (f != null) return Offset(f.x, f.y);
+    if (at.isEmpty || _depth == GraphDepth.map) return Offset(_size / 2, _height / 2);
+    final xs = at.values.map((p) => p.x), ys = at.values.map((p) => p.y);
+    return Offset((xs.reduce(math.min) + xs.reduce(math.max)) / 2, (ys.reduce(math.min) + ys.reduce(math.max)) / 2);
+  }
+
+  /// The timeline moved to [ch] (null: the end): what came or went since
+  /// where it was is marked.
+  void _toChapter(int? ch) {
+    _since = _shownCh;
+    _chapter = ch;
+    if (_chapter == null) _since = null;
+  }
+
+  /// For one the reader may have forgotten: when they were last seen.
+  String? _lastSeenNote(int id) {
+    final n = _data?.nodes.where((n) => n.id == id).firstOrNull;
+    if (n == null || !n.forgotten || n.lastSeen == null) return null;
+    return 'You may have forgotten them: last seen in chapter ${n.lastSeen! + 1}.';
+  }
+
+  /// The "how many" slider: from the few that matter most now to everyone.
+  Widget _howMany(BuildContext context, GraphData? data) {
+    final steps = [
+      for (final s in graphSteps)
+        if (s < _choices) s,
+      _choices
+    ];
+    final shown = math.min(_shownMost, _choices);
+    var at = steps.indexWhere((s) => s >= shown);
+    if (at < 0) at = steps.length - 1;
+    final forgotten = data?.forgotten ?? 0;
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.l, Gap.s),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 112,
+              child: Text(
+                '${steps[at] >= _choices ? 'All' : steps[at]} of $_choices'
+                '${forgotten > 0 ? '\n$forgotten forgotten' : ''}',
+                style: Skin.meta(context),
+              ),
+            ),
+            Expanded(
+              child: Slider(
+                value: at.toDouble(),
+                max: (steps.length - 1).toDouble(),
+                divisions: steps.length - 1,
+                label: steps[at] >= _choices ? 'Everyone' : 'The ${steps[at]} that matter most',
+                onChanged: (v) {
+                  final next = steps[v.round()];
+                  if (next == _shownMost) return;
+                  setState(() => _most = next);
+                },
+                onChangeEnd: (_) => unawaited(_load()),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   /// The web played growing, from the first chapter to the line, in about
@@ -276,11 +512,11 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
       final next = (_chapter ?? 0) + step;
       setState(() {
         if (next >= end) {
-          _chapter = null;
+          _toChapter(null);
           _playing = null;
           t.cancel();
         } else {
-          _chapter = next;
+          _toChapter(next);
         }
       });
     });
@@ -347,18 +583,26 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
                       if (_ball) unawaited(_laidAsBall());
                     },
                   ),
-                  IconButton(
-                    tooltip: _legend ? 'Hide the key' : 'What the colours mean',
-                    isSelected: _legend,
-                    icon: const Icon(Icons.legend_toggle_rounded),
-                    onPressed: () => setState(() => _legend = !_legend),
+                  PopupMenuButton<Object>(
+                    tooltip: 'More',
+                    icon: const Icon(Icons.more_vert_rounded),
+                    onSelected: (v) => setState(() {
+                      if (v is GraphNames) _names = v;
+                      if (v == #key) _legend = !_legend;
+                      if (v == #fit) _fitted = false;
+                    }),
+                    itemBuilder: (_) => [
+                      for (final (v, label) in const [
+                        (GraphNames.key, 'The important names'),
+                        (GraphNames.all, 'All the names that fit'),
+                        (GraphNames.none, 'Only the names of those picked'),
+                      ])
+                        CheckedPopupMenuItem(value: v, checked: _names == v, child: Text(label)),
+                      const PopupMenuDivider(),
+                      CheckedPopupMenuItem(value: #key, checked: _legend, child: const Text('What the colours mean')),
+                      if (!_ball) const PopupMenuItem(value: #fit, child: Text('Fit to the screen')),
+                    ],
                   ),
-                  if (!_ball)
-                    IconButton(
-                      tooltip: 'Fit to the screen',
-                      icon: const Icon(Icons.fit_screen_rounded),
-                      onPressed: () => setState(() => _fitted = false),
-                    ),
                   const SizedBox(width: Gap.s),
                 ],
               ),
@@ -376,25 +620,18 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
                             GraphDepth.one => focusName == null ? 'Close links' : 'Round $focusName',
                             GraphDepth.two => 'Two links out',
                             GraphDepth.all => 'The whole web',
+                            GraphDepth.map => 'Story map',
                           }),
                           selected: _depth == d,
                           onSelected: (_) {
-                            setState(() => _depth = d);
+                            setState(() {
+                              _depth = d;
+                              _fitted = false;
+                            });
                             unawaited(_load());
                           },
                         ),
                       ),
-                    Padding(
-                      padding: const EdgeInsets.only(right: Gap.s),
-                      child: FilterChip(
-                        label: const Text('Minor ones'),
-                        selected: _minor,
-                        onSelected: (v) {
-                          setState(() => _minor = v);
-                          unawaited(_load());
-                        },
-                      ),
-                    ),
                     // The kinds, on the same line: a tap shows only those.
                     if (kinds.length > 1 || _kinds.isNotEmpty)
                       for (final k in {...kinds, ..._kinds})
@@ -444,13 +681,11 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
                               else
                                 Positioned.fill(
                                   child: LayoutBuilder(builder: (context, box) {
+                                    if (box.maxWidth > 0) _aspect = (box.maxHeight / box.maxWidth).clamp(1.0, 2.2);
+                                    _box = Size(box.maxWidth, box.maxHeight);
                                     if (!_fitted) {
                                       _fitted = true;
-                                      final s = math.min(box.maxWidth, box.maxHeight) / _size;
-                                      _view.value = Matrix4.identity()
-                                        ..translateByDouble(
-                                            (box.maxWidth - _size * s) / 2, (box.maxHeight - _size * s) / 2, 0, 1)
-                                        ..scaleByDouble(s, s, 1, 1);
+                                      _view.value = _fitView(_box);
                                     }
                                     return ClipRect(
                                       child: InteractiveViewer(
@@ -461,10 +696,28 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
                                         maxScale: 6,
                                         child: GestureDetector(
                                           behavior: HitTestBehavior.opaque,
-                                          onTapUp: (d) => unawaited(_pick(_hit(d.localPosition))),
+                                          // Twice: closer, round where it was
+                                          // tapped; twice again, all of it.
+                                          onDoubleTapDown: (d) => _doubleAt = d.localPosition,
+                                          onDoubleTap: () {
+                                            final scale = viewScale(_view.value);
+                                            final fit = viewScale(_fitView(_box));
+                                            final on = MatrixUtils.transformPoint(_view.value, _doubleAt);
+                                            _glideTo(scale > fit * 1.6
+                                                ? _fitView(_box)
+                                                : _viewAt(_doubleAt, math.min(6.0, scale * 2.4), on));
+                                          },
+                                          onTapUp: (d) {
+                                            final hit = _hit(d.localPosition);
+                                            if (hit == null &&
+                                                _openGroup(d.localPosition, Size(box.maxWidth, box.maxHeight))) {
+                                              return;
+                                            }
+                                            unawaited(_pick(hit));
+                                          },
                                           child: SizedBox(
                                             width: _size,
-                                            height: _size,
+                                            height: _height,
                                             child: CustomPaint(
                                               painter: GraphPainter(
                                                 data: data,
@@ -475,6 +728,14 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
                                                 view: _view,
                                                 dark: dark,
                                                 ink: Skin.inkOn(context),
+                                                names: _names,
+                                                sectors: _picked == null ? _sectors : const [],
+                                                groups: _depth == GraphDepth.map
+                                                    ? graphGroups(data, _shown, _cluster, _shownCh)
+                                                    : const [],
+                                                hiddenLinks: _hiddenLinks,
+                                                since: _since,
+                                                path: _path,
                                               ),
                                             ),
                                           ),
@@ -490,8 +751,24 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
                                   child:
                                       SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
                                 ),
-                              if (_legend && used.isNotEmpty)
-                                Positioned(left: Gap.page, top: Gap.s, child: _Legend(kinds: used, nodes: kinds)),
+                              if (_legend)
+                                Positioned(
+                                  left: Gap.page,
+                                  top: Gap.s,
+                                  child: _Legend(
+                                    kinds: used,
+                                    nodes: kinds,
+                                    shownKinds: _kinds,
+                                    hiddenLinks: _hiddenLinks,
+                                    forgotten: data.forgotten > 0,
+                                    onKind: (k) {
+                                      setState(() => _kinds.contains(k) ? _kinds.remove(k) : _kinds.add(k));
+                                      unawaited(_load());
+                                    },
+                                    onLink: (k) => setState(
+                                        () => _hiddenLinks.contains(k) ? _hiddenLinks.remove(k) : _hiddenLinks.add(k)),
+                                  ),
+                                ),
                               if (_linking)
                                 Positioned(
                                   left: 0,
@@ -527,7 +804,7 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
                               _playing?.cancel();
                               setState(() {
                                 _playing = null;
-                                _chapter = v.round() >= _end ? null : v.round();
+                                _toChapter(v.round() >= _end ? null : v.round());
                               });
                             },
                           ),
@@ -536,6 +813,7 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
                     ),
                   ),
                 ),
+              if (_choices > graphSteps.first) _howMany(context, data),
             ],
           ),
         ),
@@ -578,6 +856,12 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
                       close(),
                     ],
                   ),
+                  if (_path != null && _path!.length > 2)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: Gap.xs),
+                      child: Text('Linked through: ${_path!.map(_nameOf).join(' → ')}',
+                          style: Skin.ui(size: 14, weight: FontWeight.w600, color: const Color(0xFFE07A3A))),
+                    ),
                   if (links == null)
                     const Padding(padding: EdgeInsets.all(Gap.s), child: LinearProgressIndicator())
                   else if (links.relations.isEmpty && links.events.isEmpty)
@@ -626,6 +910,12 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
                           close(),
                         ],
                       ),
+                      if (_lastSeenNote(d.id) case final note?)
+                        Padding(
+                          padding: const EdgeInsets.only(top: Gap.xs),
+                          child: Text(note,
+                              style: Skin.ui(size: 13.5, weight: FontWeight.w600, color: const Color(0xFFE07A3A))),
+                        ),
                       if (d.chapters.isNotEmpty && _end > 0) ...[
                         const SizedBox(height: Gap.xs),
                         _Presence(chapters: d.chapters, end: _shownCh, colour: kindColour(d.kind)),
@@ -649,7 +939,7 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
                               ActionChip(
                                 visualDensity: VisualDensity.compact,
                                 avatar: CircleAvatar(backgroundColor: linkColour(r.kind), radius: 5),
-                                label: Text('${r.rel} ${r.name}'),
+                                label: Text(r.rel),
                                 onPressed: () => _centre(r.other),
                               ),
                           ],
@@ -664,6 +954,13 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
                             onPressed: () => setState(() => _linking = true),
                             child: const Text('Linked with…'),
                           ),
+                          if (widget.onAsk != null)
+                            TextButton(
+                              onPressed: () => unawaited(widget.onAsk!(
+                                  'Tell me about ${d.name}: who or what they are, what they have done so far, '
+                                  'and why they matter.')),
+                              child: const Text('Ask about this'),
+                            ),
                         ],
                       ),
                     ],
@@ -714,49 +1011,76 @@ class _PresencePainter extends CustomPainter {
 }
 
 class _Legend extends StatelessWidget {
-  const _Legend({required this.kinds, required this.nodes});
+  const _Legend({
+    required this.kinds,
+    required this.nodes,
+    required this.shownKinds,
+    required this.hiddenLinks,
+    required this.forgotten,
+    required this.onKind,
+    required this.onLink,
+  });
 
   final List<LinkKind> kinds;
   final List<String> nodes;
+  final Set<String> shownKinds;
+  final Set<LinkKind> hiddenLinks;
+  final bool forgotten;
+  final void Function(String kind) onKind;
+  final void Function(LinkKind kind) onLink;
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: Skin.capsuleOn(context).withValues(alpha: 0.85),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (final k in nodes)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 1.5),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(width: 16, child: Center(child: KindDot(k, size: 9))),
-                    const SizedBox(width: 6),
-                    Text(kindLabel(k), style: Skin.meta(context, size: 10.5)),
-                  ],
-                ),
+  Widget build(BuildContext context) {
+    Widget row(Widget mark, String label, {required bool on, VoidCallback? onTap}) => InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(6),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 2),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(width: 16, child: Center(child: mark)),
+                const SizedBox(width: 6),
+                Text(label,
+                    style: Skin.meta(context, size: 11.5).copyWith(decoration: on ? null : TextDecoration.lineThrough)),
+              ],
+            ),
+          ),
+        );
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Skin.capsuleOn(context).withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // A tap on a kind shows only it (and others tapped); on a link,
+          // hides or shows those links.
+          for (final k in {...nodes, ...shownKinds})
+            row(KindDot(k, size: 9), kindLabel(k),
+                on: shownKinds.isEmpty || shownKinds.contains(k), onTap: () => onKind(k)),
+          if (forgotten)
+            row(
+              Container(
+                width: 11,
+                height: 11,
+                decoration: BoxDecoration(
+                    shape: BoxShape.circle, border: Border.all(color: const Color(0xFFE07A3A), width: 1.6)),
               ),
-            if (nodes.isNotEmpty) const SizedBox(height: 4),
-            for (final k in kinds)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 1.5),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(width: 16, height: 3, color: linkColour(k)),
-                    const SizedBox(width: 6),
-                    Text(linkLabel(k), style: Skin.meta(context, size: 10.5)),
-                  ],
-                ),
-              ),
-          ],
-        ),
-      );
+              'You may have forgotten',
+              on: true,
+            ),
+          if (nodes.isNotEmpty) const SizedBox(height: 4),
+          for (final k in kinds)
+            row(Container(width: 16, height: 3, color: linkColour(k)), linkLabel(k),
+                on: !hiddenLinks.contains(k), onTap: () => onLink(k)),
+        ],
+      ),
+    );
+  }
 }
 
 /// Find anyone in the memory by any of their names, to centre the web on.
@@ -814,10 +1138,13 @@ class _FindSheetState extends State<_FindSheet> {
 
 /// Draws the graph as it stood at [chapter]: nodes not met yet, and links
 /// not made or already ended, left out, every node in its place for the
-/// whole book, so the timeline does not move them. Groups wear a halo round
-/// their members; links are curved and coloured by what they are, dashed
-/// for belonging; the picked node's links lit and the rest dimmed; names on
-/// small pills, the most important first, none over another.
+/// whole book, so the timeline does not move them. Nodes, lines and names
+/// keep their size on the screen whatever the zoom. Links are coloured by
+/// what they are, faint unless they touch the one picked; what came since
+/// [since] is marked, and links that ended since then are shown dashed.
+/// Ones the reader may have forgotten wear a broken amber ring. On the Story
+/// map, each group is a bubble with its name, opening into its members as
+/// it is zoomed into.
 class GraphPainter extends CustomPainter {
   GraphPainter({
     required this.data,
@@ -828,6 +1155,12 @@ class GraphPainter extends CustomPainter {
     required this.view,
     required this.dark,
     required this.ink,
+    this.names = GraphNames.key,
+    this.sectors = const [],
+    this.groups = const [],
+    this.hiddenLinks = const {},
+    this.since,
+    this.path,
   }) : super(repaint: view);
 
   final GraphData data;
@@ -838,79 +1171,112 @@ class GraphPainter extends CustomPainter {
   final TransformationController view;
   final bool dark;
   final Color ink;
+  final GraphNames names;
+  final List<GraphSector> sectors;
+  final List<GraphGroup> groups;
+  final Set<LinkKind> hiddenLinks;
+  final int? since;
+  final List<int>? path;
+
+  /// A group opens into its members once it is this wide on the screen.
+  static const openAt = 230.0;
+
+  static const _amber = Color(0xFFE07A3A);
+
+  static Color groupColour(int i) => HSLColor.fromAHSL(1, (i * 137.508 + 200) % 360, 0.45, 0.55).toColor();
 
   @override
   void paint(Canvas canvas, Size size) {
-    final scale = view.value.getMaxScaleOnAxis();
-    // A screen pixel, in the canvas's own units: nodes, lines and names are
-    // drawn the same size on the screen whatever the zoom, so zooming in
-    // spreads a crowd out rather than making it bigger.
+    final scale = viewScale(view.value);
+    // A screen pixel, in the canvas's own units.
     final dp = 1 / scale;
     final px = 1.4 / scale;
     final visible = {
       for (final n in data.nodes)
         if ((n.firstCh ?? 0) <= chapter && at[n.id] != null) n.id: n,
     };
+    final from = since;
+    bool isNew(int ch) => from != null && ch > from && ch <= chapter;
     final edges = [
       for (final e in data.edges)
-        if (e.at(chapter) && visible.containsKey(e.a) && visible.containsKey(e.b)) e,
+        if (!hiddenLinks.contains(e.kind) &&
+            visible.containsKey(e.a) &&
+            visible.containsKey(e.b) &&
+            (e.at(chapter) || (e.untilCh != null && isNew(e.untilCh!))))
+          e,
     ];
+    final onPath = <(int, int)>{};
+    final chain = path;
+    if (chain != null) {
+      for (var i = 0; i + 1 < chain.length; i++) {
+        onPath
+          ..add((chain[i], chain[i + 1]))
+          ..add((chain[i + 1], chain[i]));
+      }
+    }
     final near = <int>{
       if (picked != null) picked!,
       if (second != null) second!,
+      ...?chain,
       for (final e in edges)
-        if (e.a == picked || e.b == picked) ...[e.a, e.b],
+        if (e.at(chapter) && (e.a == picked || e.b == picked)) ...[e.a, e.b],
     };
     Offset o(int id) => Offset(at[id]!.x, at[id]!.y);
 
-    // Groups: a soft halo round each and the members it has now.
-    for (final g in visible.values.where((n) => n.kind == 'faction')) {
-      final members = [
-        for (final e in edges)
-          if (e.kind == LinkKind.belongs && (e.a == g.id || e.b == g.id)) e.a == g.id ? e.b : e.a,
-      ];
-      if (members.isEmpty) continue;
-      final pts = [o(g.id), for (final m in members) o(m)];
-      final c = pts.reduce((a, b) => a + b) / pts.length.toDouble();
-      final r = pts.map((p) => (p - c).distance).reduce(math.max) + 26 * dp;
-      canvas.drawCircle(
-        c,
-        r,
-        Paint()..color = kindColour('faction').withValues(alpha: picked == null || near.contains(g.id) ? 0.10 : 0.04),
-      );
+    // The Story map: each group a bubble, shut (its name only) until zoomed
+    // into, then a faint wash round its members.
+    final shut = <int>{};
+    for (final g in groups) {
+      final open = g.reach * scale >= openAt;
+      canvas.drawCircle(g.centre, g.reach, Paint()..color = groupColour(g.id).withValues(alpha: open ? 0.06 : 0.22));
+      if (!open) shut.addAll(g.members);
     }
 
+    final many = edges.length > 1500;
     for (final e in edges) {
-      final lit = picked != null && (e.a == picked || e.b == picked);
+      if (shut.contains(e.a) && shut.contains(e.b)) continue;
+      final pathEdge = onPath.contains((e.a, e.b));
+      final lit = (picked != null && (e.a == picked || e.b == picked)) || pathEdge;
+      final ended = !e.at(chapter);
+      final fresh = isNew(e.fromCh);
       final faded = picked != null && !lit;
-      final colour = linkColour(e.kind);
+      final colour = ended ? ink : linkColour(e.kind);
       final p1 = o(e.a), p2 = o(e.b);
-      // A gentle curve, bent the same way each time for the same pair.
       final mid = (p1 + p2) / 2;
       final d = p2 - p1;
       final bend = ((e.a + e.b) % 2 == 0 ? 1 : -1) * 0.12;
       final ctrl = mid + Offset(-d.dy, d.dx) * bend;
-      final path = Path()
-        ..moveTo(p1.dx, p1.dy)
-        ..quadraticBezierTo(ctrl.dx, ctrl.dy, p2.dx, p2.dy);
+      final line = Path()..moveTo(p1.dx, p1.dy);
+      if (many) {
+        line.lineTo(p2.dx, p2.dy);
+      } else {
+        line.quadraticBezierTo(ctrl.dx, ctrl.dy, p2.dx, p2.dy);
+      }
       final paint = Paint()
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round
-        ..color = colour.withValues(
+        ..color = (pathEdge ? _amber : colour).withValues(
           alpha: faded
-              ? 0.06
-              : e.kind == LinkKind.shared
-                  ? (lit ? 0.55 : 0.18)
-                  : (lit ? 0.95 : 0.55),
+              ? 0.05
+              : ended
+                  ? 0.35
+                  : lit || fresh
+                      ? 0.95
+                      : e.kind == LinkKind.shared
+                          ? 0.07
+                          : 0.38,
         )
-        ..strokeWidth = (e.kind == LinkKind.shared ? 1.0 + math.min(2.0, e.weight / 4) : 2.0) * (lit ? 1.6 : 1) * px;
-      if (e.kind == LinkKind.belongs) {
-        _dashed(canvas, path, paint, 8 * px, 6 * px);
+        ..strokeWidth = (e.kind == LinkKind.shared ? 1.0 + math.min(2.0, e.weight / 4) : 2.0) *
+            (lit || fresh ? 1.6 : 1) *
+            (pathEdge ? 1.8 : 1) *
+            px;
+      if (e.kind == LinkKind.belongs || ended) {
+        _dashed(canvas, line, paint, 8 * px, 6 * px);
       } else {
-        canvas.drawPath(path, paint);
+        canvas.drawPath(line, paint);
       }
-      if (lit && e.kind != LinkKind.shared) {
-        _pill(canvas, e.label, (ctrl + mid) / 2, 10.5 * dp, colour, strong: false);
+      if (lit && e.kind != LinkKind.shared && !many) {
+        _pill(canvas, ended ? '${e.label} (ended)' : e.label, (ctrl + mid) / 2, 10.5 * dp, colour, strong: false);
       }
     }
 
@@ -918,18 +1284,19 @@ class GraphPainter extends CustomPainter {
     final order = visible.values.toList()..sort((a, b) => a.weight.compareTo(b.weight));
     for (final n in order) {
       final c = o(n.id);
-      final r = nodeDp(n.weight) * dp;
+      final inShut = shut.contains(n.id);
+      final r = nodeDp(n.weight) * dp * (inShut ? 0.6 : 1);
       final dim = picked != null && !near.contains(n.id);
       final colour = kindColour(n.kind);
-      final isNew = n.firstCh == chapter && chapter > 0;
-      if (n.id == picked || n.id == second || n.id == data.focus || isNew) {
+      final newHere = n.firstCh != null && isNew(n.firstCh!);
+      if (n.id == picked || n.id == second || n.id == data.focus || newHere) {
         canvas.drawCircle(
           c,
           r + 6 * dp,
-          Paint()..color = (isNew ? colour : ink).withValues(alpha: n.id == picked || n.id == second ? 0.35 : 0.15),
+          Paint()..color = (newHere ? _amber : ink).withValues(alpha: n.id == picked || n.id == second ? 0.35 : 0.2),
         );
       }
-      canvas.drawCircle(c, r, Paint()..color = colour.withValues(alpha: dim ? 0.2 : 1));
+      canvas.drawCircle(c, r, Paint()..color = colour.withValues(alpha: dim ? 0.2 : (inShut ? 0.6 : 1)));
       canvas.drawCircle(
         c,
         r,
@@ -938,44 +1305,120 @@ class GraphPainter extends CustomPainter {
           ..strokeWidth = 1.5 * px
           ..color = (dark ? Colors.black : Colors.white).withValues(alpha: dim ? 0.2 : 0.7),
       );
+      // One the reader may have forgotten: a broken amber ring.
+      if (n.forgotten && !inShut) {
+        _dashed(
+          canvas,
+          Path()..addOval(Rect.fromCircle(center: c, radius: r + 4 * dp)),
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.2 * dp
+            ..color = _amber.withValues(alpha: dim ? 0.2 : 0.75),
+          3 * dp,
+          3.5 * dp,
+        );
+      }
     }
 
-    // Names: the important first, each kept only where it overlaps none
-    // placed before (the picked, always).
-    final placed = <Rect>[];
-    int rank(GraphNode n) => n.id == picked || n.id == second ? 2 : (near.contains(n.id) ? 1 : 0);
-    final byWeight = visible.values.toList()
+    // Names are kept off the circles as well as off each other.
+    final placed = <Rect>[
+      if (visible.length <= 1500)
+        for (final n in visible.values)
+          if (!shut.contains(n.id)) Rect.fromCircle(center: o(n.id), radius: nodeDp(n.weight) * dp),
+    ];
+    // The groups' names, each on its island's top edge, always shown.
+    for (final g in groups) {
+      if (g.reach * scale >= openAt) continue;
+      final name = visible[g.top]?.name ?? '';
+      final rect = _pill(canvas, '$name and ${g.members.length - 1} more', g.centre - Offset(0, g.reach * 0.86),
+          12 * dp, groupColour(g.id),
+          strong: false, force: true);
+      if (rect != null) placed.add(rect);
+    }
+
+    // The person in the middle is always named, before anything else.
+    final f = data.focus;
+    if (f != null && visible.containsKey(f) && f != picked && f != second) {
+      final rect = _pill(
+          canvas, visible[f]!.name, o(f) + Offset(0, (nodeDp(visible[f]!.weight) + 11) * dp), 12.5 * dp, ink,
+          strong: false, force: true);
+      if (rect != null) placed.add(rect);
+    }
+
+    // The sections of the ring round the focus.
+    if (picked == null) {
+      for (final c in sectors) {
+        final rect = _pill(canvas, linkLabel(c.kind), Offset(c.x, c.y), 10.5 * dp, linkColour(c.kind),
+            strong: false, avoid: placed, faint: true);
+        if (rect != null) placed.add(rect);
+      }
+    }
+
+    // Names: the picked and those linked, then the most important; each
+    // kept only where it overlaps none placed before.
+    int rank(GraphNode n) => n.id == picked || n.id == second ? 3 : (near.contains(n.id) ? 2 : (n.forgotten ? 1 : 0));
+    final byWeight = visible.values.where((n) => !shut.contains(n.id)).toList()
       ..sort((a, b) {
         final r = rank(b).compareTo(rank(a));
         return r != 0 ? r : b.weight.compareTo(a.weight);
       });
+    var plain = 0;
     for (final n in byWeight) {
+      if (n.id == f && f != picked && f != second) continue;
+      final important = rank(n) >= 2 || n.id == data.focus;
       if (picked != null && !near.contains(n.id)) continue;
+      if (!important) {
+        if (names == GraphNames.none) continue;
+        if (names == GraphNames.key && plain >= 16 && !n.forgotten) continue;
+      }
       final strong = n.id == picked || n.id == second;
-      final rect = _pill(
-        canvas,
-        n.name,
-        o(n.id) + Offset(0, (nodeDp(n.weight) + 11) * dp),
-        11.5 * dp,
-        ink,
-        strong: strong,
-        avoid: placed,
-        force: strong,
-      );
-      if (rect != null) placed.add(rect);
+      // Below the circle, or above, right or left of it: the first free.
+      final r = nodeDp(n.weight) * dp;
+      final w = _width(n.name, 11.5 * dp, strong);
+      Rect? rect;
+      for (final at in [
+        o(n.id) + Offset(0, r + 11 * dp),
+        o(n.id) - Offset(0, r + 11 * dp),
+        o(n.id) + Offset(r + 4 * dp + w / 2, 0),
+        o(n.id) - Offset(r + 4 * dp + w / 2, 0),
+      ]) {
+        rect = _pill(canvas, n.name, at, 11.5 * dp, ink, strong: strong, avoid: placed);
+        if (rect != null) break;
+      }
+      rect ??= strong
+          ? _pill(canvas, n.name, o(n.id) + Offset(0, r + 11 * dp), 11.5 * dp, ink, strong: true, force: true)
+          : null;
+      if (rect != null) {
+        placed.add(rect);
+        if (!important) plain++;
+      }
     }
+  }
+
+  /// How wide [text]'s pill is.
+  double _width(String text, double size, bool strong) {
+    final tp = TextPainter(
+      text: TextSpan(
+          text: text,
+          style:
+              TextStyle(fontFamily: 'Figtree', fontSize: size, fontWeight: strong ? FontWeight.w700 : FontWeight.w600)),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout(maxWidth: size * 16);
+    return tp.width + size;
   }
 
   /// [text] on a small pill centred at [at]; null (and nothing drawn) when
   /// it would overlap one of [avoid], unless [force].
   Rect? _pill(Canvas canvas, String text, Offset at, double size, Color colour,
-      {required bool strong, List<Rect> avoid = const [], bool force = false}) {
+      {required bool strong, List<Rect> avoid = const [], bool force = false, bool faint = false}) {
     final tp = TextPainter(
       text: TextSpan(
         text: text,
         style: TextStyle(
+          fontFamily: 'Figtree',
           fontSize: size,
-          color: strong ? Colors.white : colour,
+          color: strong ? Colors.white : colour.withValues(alpha: faint ? 0.75 : 1),
           fontWeight: strong ? FontWeight.w700 : FontWeight.w600,
         ),
       ),
@@ -990,7 +1433,7 @@ class GraphPainter extends CustomPainter {
       RRect.fromRectAndRadius(rect, Radius.circular(rect.height / 2)),
       Paint()
         ..color =
-            strong ? const Color(0xFFE07A3A) : (dark ? const Color(0xFF101614) : Colors.white).withValues(alpha: 0.82),
+            strong ? _amber : (dark ? const Color(0xFF101614) : Colors.white).withValues(alpha: faint ? 0.55 : 0.82),
     );
     tp.paint(canvas, rect.topLeft + pad);
     return rect;
@@ -1014,5 +1457,11 @@ class GraphPainter extends CustomPainter {
       old.picked != picked ||
       old.second != second ||
       old.dark != dark ||
-      old.ink != ink;
+      old.ink != ink ||
+      old.names != names ||
+      old.sectors != sectors ||
+      old.groups.length != groups.length ||
+      old.hiddenLinks.length != hiddenLinks.length ||
+      old.since != since ||
+      old.path != path;
 }

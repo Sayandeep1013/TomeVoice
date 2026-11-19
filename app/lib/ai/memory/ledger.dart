@@ -86,7 +86,16 @@ List<({String kind, int count, bool core})> ledgerKinds(String path, {int? at}) 
 
 /// A node of the memory graph.
 class GraphNode {
-  const GraphNode({required this.id, required this.name, required this.kind, required this.weight, this.firstCh});
+  const GraphNode({
+    required this.id,
+    required this.name,
+    required this.kind,
+    required this.weight,
+    this.firstCh,
+    this.lastSeen,
+    this.recent = 0,
+    this.forgotten = false,
+  });
 
   final int id;
   final String name;
@@ -97,6 +106,16 @@ class GraphNode {
 
   /// The chapter it is first met in: before it, the timeline hides it.
   final int? firstCh;
+
+  /// The last chapter it appears in, up to the line.
+  final int? lastSeen;
+
+  /// Chapters it appears in near where the reader is.
+  final int recent;
+
+  /// Shown as one the reader may have forgotten: it mattered, and has not
+  /// been seen for a long while.
+  final bool forgotten;
 }
 
 /// What a link is, for its colour: a bond (ally, friend, love), a conflict
@@ -203,7 +222,24 @@ class GraphEdge {
 }
 
 class GraphData {
-  const GraphData({required this.nodes, required this.edges, required this.lastCh, this.focus});
+  const GraphData({
+    required this.nodes,
+    required this.edges,
+    required this.lastCh,
+    this.focus,
+    this.more = 0,
+    this.forgotten = 0,
+    this.choices = 0,
+  });
+
+  /// How many more there were to show than were shown.
+  final int more;
+
+  /// How many of those shown are ones the reader may have forgotten.
+  final int forgotten;
+
+  /// How many there were to choose from, all told.
+  final int choices;
 
   final List<GraphNode> nodes;
   final List<GraphEdge> edges;
@@ -231,17 +267,24 @@ int? mainOf(String path, {int? at}) {
   }
 }
 
-/// The memory graph up to chapter [at] (the spoiler line; null: all of it),
-/// every link with the chapters it held, so a timeline can show any chapter
-/// before it without the nodes moving. The [most] entities that matter most
-/// (of [kinds], when given; in at least [minChapters] chapters), or, with
-/// [focus], that entity and those within [depth] links of it.
+/// The graph as it stood at [at] (the line; null: all the memory has):
+/// round [focus] out to [depth] links, or the whole web, of [kinds] if
+/// given.
+///
+/// [most] are shown of all there are to choose from. Most of them are those
+/// that matter now: in many chapters near [here] (where the reader is), or
+/// in many chapters all told. About a quarter go to ones the reader may have
+/// forgotten: they were in many chapters, but none of the last [window]
+/// before [here]. Nothing is shown past the line.
 GraphData graphAt(
   String path, {
   int? at,
+  int? here,
   int? focus,
   int depth = 1,
   int most = 120,
+  int window = 50,
+  double forgottenShare = 0.25,
   Set<String>? kinds,
   int minChapters = 1,
 }) {
@@ -249,66 +292,122 @@ GraphData graphAt(
   try {
     final line = at ?? 1 << 30;
     final last = (m.db.select('SELECT max(ch) last FROM notes').first['last'] as int?) ?? 0;
+    final now = math.min(here ?? last, math.min(line, last));
     final kindIn = kinds == null || kinds.isEmpty
         ? ''
         : " AND e.kind IN (${kinds.map((k) => "'${k.replaceAll("'", "''")}'").join(',')})";
-    Map<int, GraphNode> nodesOf(String where, int limit) => {
-          for (final r in m.db.select(
-            'SELECT * FROM (SELECT e.id, e.name, e.kind, e.first_ch, '
-            '(SELECT count(*) FROM appearances a WHERE a.entity = e.id AND a.ch <= $line) w '
-            'FROM entities e WHERE e.merged_into IS NULL AND coalesce(e.first_ch, 0) <= $line$kindIn AND $where) '
-            'WHERE w >= $minChapters OR id = ${focus ?? -1} ORDER BY w DESC LIMIT $limit',
-          ))
-            r['id'] as int: GraphNode(
-              id: r['id'] as int,
-              name: r['name'] as String,
-              kind: r['kind'] as String,
-              weight: r['w'] as int,
-              firstCh: r['first_ch'] as int?,
-            ),
-        };
 
-    Map<int, GraphNode> nodes;
+    // Who could be shown: round the focus, or everyone.
+    Set<int>? within;
     if (focus != null) {
       final near = <int>{focus};
       var ring = <int>{focus};
-      for (var hop = 0; hop < depth && near.length < most; hop++) {
+      for (var hop = 0; hop < depth && ring.isNotEmpty; hop++) {
         final next = <int>{};
-        final list = ring.join(',');
-        for (final r in m.db.select(
-          'SELECT a, b FROM relations WHERE (a IN ($list) OR b IN ($list)) AND from_ch <= ?',
-          [line],
-        )) {
-          next
-            ..add(r['a'] as int)
-            ..add(r['b'] as int);
-        }
-        for (final r in m.db.select(
-          'SELECT r2.entity e, count(DISTINCT r1.event) n FROM event_roles r1 JOIN event_roles r2 ON r2.event = r1.event '
-          'JOIN events v ON v.id = r1.event WHERE r1.entity IN ($list) AND r2.entity NOT IN ($list) AND v.ch <= ? '
-          'GROUP BY r2.entity ORDER BY n DESC LIMIT 60',
-          [line],
-        )) {
-          next.add(r['e'] as int);
+        for (final chunk in _chunks(ring.toList(), 400)) {
+          final list = chunk.join(',');
+          for (final r in m.db.select(
+            'SELECT a, b FROM relations WHERE (a IN ($list) OR b IN ($list)) AND from_ch <= ?',
+            [line],
+          )) {
+            next
+              ..add(r['a'] as int)
+              ..add(r['b'] as int);
+          }
+          for (final r in m.db.select(
+            'SELECT DISTINCT r2.entity e FROM event_roles r1 JOIN event_roles r2 ON r2.event = r1.event '
+            'JOIN events v ON v.id = r1.event WHERE r1.entity IN ($list) AND v.ch <= ?',
+            [line],
+          )) {
+            next.add(r['e'] as int);
+          }
         }
         next.removeAll(near);
-        near.addAll(next.take(most - near.length));
+        near.addAll(next);
         ring = next;
       }
-      nodes = nodesOf('e.id IN (${near.join(',')})', most);
-    } else {
-      nodes = nodesOf('1 = 1', most);
+      within = near;
     }
+
+    final all = <GraphNode>[];
+    for (final r in m.db.select(
+      'SELECT e.id, e.name, e.kind, e.first_ch, '
+      'sum(a.ch <= $line) w, sum(a.ch > ${now - window} AND a.ch <= $now) recent, '
+      'max(CASE WHEN a.ch <= $now THEN a.ch END) seen '
+      'FROM entities e LEFT JOIN appearances a ON a.entity = e.id '
+      'WHERE e.merged_into IS NULL AND coalesce(e.first_ch, 0) <= $line$kindIn GROUP BY e.id',
+    )) {
+      final id = r['id'] as int;
+      if (within != null && !within.contains(id)) continue;
+      final w = (r['w'] as int?) ?? 0;
+      if (w < minChapters && id != focus) continue;
+      all.add(GraphNode(
+        id: id,
+        name: r['name'] as String,
+        kind: r['kind'] as String,
+        weight: w,
+        firstCh: r['first_ch'] as int?,
+        lastSeen: r['seen'] as int?,
+        recent: (r['recent'] as int?) ?? 0,
+      ));
+    }
+
+    // Those that matter now first; then a share for the forgotten.
+    double now_(GraphNode n) => n.id == focus ? double.infinity : n.recent * 4 + math.sqrt(n.weight) * 3;
+    bool longGone(GraphNode n) => n.weight >= 3 && n.lastSeen != null && now - n.lastSeen! > window;
+    double gone(GraphNode n) => math.sqrt(n.weight) * math.log(1 + now - n.lastSeen!);
+    final byNow = [...all]..sort((a, b) => now_(b).compareTo(now_(a)));
+    final byGone = all.where(longGone).toList()..sort((a, b) => gone(b).compareTo(gone(a)));
+    final picked = <int, GraphNode>{};
+    final forgottenSlots = all.length <= most ? 0 : math.min(byGone.length, (most * forgottenShare).round());
+    for (final n in byGone.take(forgottenSlots)) {
+      picked[n.id] = GraphNode(
+        id: n.id,
+        name: n.name,
+        kind: n.kind,
+        weight: n.weight,
+        firstCh: n.firstCh,
+        lastSeen: n.lastSeen,
+        recent: n.recent,
+        forgotten: true,
+      );
+    }
+    for (final n in byNow) {
+      if (picked.length >= most && n.id != focus) break;
+      picked.putIfAbsent(n.id, () => n);
+    }
+    // Among everything shown (not only those picked as such), the most
+    // missed of the long gone are marked, so the reader sees who has been
+    // away; a handful, not everyone.
+    final marks = math.max(forgottenSlots, math.min(24, (picked.length * forgottenShare).round()));
+    final missed = picked.values.where((n) => n.id != focus && longGone(n)).toList()
+      ..sort((a, b) => gone(b).compareTo(gone(a)));
+    final marked = {for (final n in missed.take(marks)) n.id};
+    for (final n in picked.values.toList()) {
+      if (!n.forgotten && marked.contains(n.id)) {
+        picked[n.id] = GraphNode(
+          id: n.id,
+          name: n.name,
+          kind: n.kind,
+          weight: n.weight,
+          firstCh: n.firstCh,
+          lastSeen: n.lastSeen,
+          recent: n.recent,
+          forgotten: true,
+        );
+      }
+    }
+    final nodes = picked;
     if (nodes.isEmpty) return GraphData(nodes: const [], edges: const [], lastCh: last, focus: focus);
-    final ids = nodes.keys.join(',');
     final edges = <GraphEdge>[];
     final related = <(int, int)>{};
+    final ids = nodes.keys.toSet();
     for (final r in m.db.select(
-      'SELECT a, b, rel, from_ch, until_ch FROM relations WHERE a IN ($ids) AND b IN ($ids) AND a != b AND from_ch <= ? '
-      'ORDER BY from_ch',
+      'SELECT a, b, rel, from_ch, until_ch FROM relations WHERE a != b AND from_ch <= ? ORDER BY from_ch',
       [line],
     )) {
       final a = r['a'] as int, b = r['b'] as int;
+      if (!ids.contains(a) || !ids.contains(b)) continue;
       final rel = r['rel'] as String;
       final until = r['until_ch'] as int?;
       related.add(a < b ? (a, b) : (b, a));
@@ -321,26 +420,43 @@ GraphData graphAt(
         untilCh: until != null && until <= line ? until : null,
       ));
     }
-    for (final r in m.db.select(
-      'SELECT r1.entity a, r2.entity b, count(DISTINCT r1.event) n, min(v.ch) first FROM event_roles r1 '
-      'JOIN event_roles r2 ON r2.event = r1.event AND r2.entity > r1.entity JOIN events v ON v.id = r1.event '
-      'WHERE r1.entity IN ($ids) AND r2.entity IN ($ids) AND v.ch <= ? GROUP BY r1.entity, r2.entity HAVING n >= 2',
-      [line],
-    )) {
-      final a = r['a'] as int, b = r['b'] as int;
-      if (related.contains((a, b))) continue;
-      edges.add(GraphEdge(
-        a: a,
-        b: b,
-        label: '${r['n']} events together',
-        kind: LinkKind.shared,
-        fromCh: r['first'] as int,
-        weight: r['n'] as int,
-      ));
+    for (final chunk in _chunks(ids.toList(), 400)) {
+      final list = chunk.join(',');
+      for (final r in m.db.select(
+        'SELECT r1.entity a, r2.entity b, count(DISTINCT r1.event) n, min(v.ch) first FROM event_roles r1 '
+        'JOIN event_roles r2 ON r2.event = r1.event AND r2.entity > r1.entity JOIN events v ON v.id = r1.event '
+        'WHERE r1.entity IN ($list) AND v.ch <= ? GROUP BY r1.entity, r2.entity HAVING n >= 2',
+        [line],
+      )) {
+        final a = r['a'] as int, b = r['b'] as int;
+        if (!ids.contains(b) || related.contains((a, b))) continue;
+        edges.add(GraphEdge(
+          a: a,
+          b: b,
+          label: '${r['n']} events together',
+          kind: LinkKind.shared,
+          fromCh: r['first'] as int,
+          weight: r['n'] as int,
+        ));
+      }
     }
-    return GraphData(nodes: nodes.values.toList(), edges: edges, lastCh: last, focus: focus);
+    return GraphData(
+      nodes: nodes.values.toList(),
+      edges: edges,
+      lastCh: last,
+      focus: focus,
+      more: all.length - nodes.length,
+      forgotten: nodes.values.where((n) => n.forgotten).length,
+      choices: all.length,
+    );
   } finally {
     m.close();
+  }
+}
+
+Iterable<List<int>> _chunks(List<int> ids, int size) sync* {
+  for (var i = 0; i < ids.length; i += size) {
+    yield ids.sublist(i, math.min(i + size, ids.length));
   }
 }
 
@@ -392,7 +508,13 @@ NodeDetail? nodeDetail(String path, int id, int at) {
           (
             other: r['other'] as int,
             name: r['oname'] as String,
-            rel: (r['mine'] as int) == 1 ? r['rel'] as String : '${r['rel']} (of them)',
+            // Read from this one's side: "owned by Sunny"; or, the other
+            // way, "Sunny owns them", "Sunny, master of them".
+            rel: (r['mine'] as int) == 1
+                ? '${r['rel']} ${r['oname']}'
+                : RegExp(r' (of|to|with|by|for|from|in)$').hasMatch(r['rel'] as String)
+                    ? '${r['oname']}, ${r['rel']} them'
+                    : '${r['oname']} ${r['rel']} them',
             kind: linkKindOf(r['rel'] as String),
           ),
       ],
@@ -450,9 +572,14 @@ const canvasPerDp = 2.6;
 /// rest in rings further out, each near those it links to. The whole web: a
 /// force layout (linked nodes pull together, all push apart). Either way no
 /// two nodes overlap.
-({Map<int, ({double x, double y})> at, double size}) layoutGraph(GraphData g, {double size = 1000, int rounds = 300}) {
+/// A section of the ring round the focus: those linked to them as [kind],
+/// its name drawn at [x], [y].
+typedef GraphSector = ({LinkKind kind, double x, double y});
+
+({Map<int, ({double x, double y})> at, double size, double height, List<GraphSector> sectors}) layoutGraph(GraphData g,
+    {double size = 1000, int rounds = 300, Map<int, ({double x, double y})>? start, double aspect = 1}) {
   final n = g.nodes.length;
-  if (n == 0) return (at: const {}, size: size);
+  if (n == 0) return (at: const {}, size: size, height: size, sectors: const []);
   final index = {for (final (i, v) in g.nodes.indexed) v.id: i};
   final radius = [for (final v in g.nodes) nodeDp(v.weight) * canvasPerDp];
   final links = [
@@ -461,10 +588,22 @@ const canvasPerDp = 2.6;
   ];
   final x = List<double>.filled(n, 0), y = List<double>.filled(n, 0);
   final focus = g.focus != null ? index[g.focus] : null;
+  var sectors = <({LinkKind kind, double angle, double r})>[];
   if (focus != null) {
-    _rings(g, focus, links, radius, x, y);
+    sectors = _rings(g, focus, links, radius, x, y);
+  } else if (start != null && g.nodes.every((v) => start.containsKey(v.id))) {
+    // From where they sit on the whole map, drawn together: the same rough
+    // arrangement, without the long empty stretches between them.
+    final xs = [for (final v in g.nodes) start[v.id]!.x], ys = [for (final v in g.nodes) start[v.id]!.y];
+    final minX = xs.reduce(math.min), minY = ys.reduce(math.min);
+    final span = math.max(1.0, math.max(xs.reduce(math.max) - minX, ys.reduce(math.max) - minY));
+    for (var i = 0; i < n; i++) {
+      x[i] = (xs[i] - minX) / span * size;
+      y[i] = (ys[i] - minY) / span * size;
+    }
+    _forces(g, links, size, 140, x, y, seeded: true, heatFrom: size / 20, aspect: aspect);
   } else {
-    _forces(g, links, size, rounds, x, y);
+    _forces(g, links, size, rounds, x, y, aspect: aspect);
   }
   _apart(radius, x, y, fixed: focus);
 
@@ -479,26 +618,50 @@ const canvasPerDp = 2.6;
     minX = minY = -reach;
     maxX = maxY = reach;
   }
-  final span = math.max(math.max(maxX - minX, maxY - minY), 1.0);
-  final grow = n == 1 ? 1.0 : math.max(1.0, (size - 2 * margin) / span);
-  final side = math.max(size, span * grow + 2 * margin);
-  final offX = (side - (maxX - minX) * grow) / 2, offY = (side - (maxY - minY) * grow) / 2;
+  // Round someone, a square; the whole web, the shape of the screen.
+  final tall = focus == null ? aspect : 1.0;
+  var spanX = math.max(maxX - minX, 1.0), spanY = math.max(maxY - minY, 1.0);
+  if (focus == null && n > 2 && spanY / spanX < tall * 0.9) {
+    // Drawn out to the screen's shape: only ever further apart.
+    final stretch = math.min(tall * 0.9 / (spanY / spanX), 1.8);
+    for (var i = 0; i < n; i++) {
+      y[i] = minY + (y[i] - minY) * stretch;
+    }
+    maxY = minY + (maxY - minY) * stretch;
+    spanY = maxY - minY;
+  }
+  final grow = n == 1 ? 1.0 : math.max(1.0, math.min((size - 2 * margin) / spanX, (size * tall - 2 * margin) / spanY));
+  final side = math.max(size, spanX * grow + 2 * margin);
+  final high = math.max(size * tall, spanY * grow + 2 * margin);
+  final offX = (side - spanX * grow) / 2, offY = (high - spanY * grow) / 2;
   return (
     at: {
       for (final v in g.nodes)
         v.id: (
           x: n == 1 ? side / 2 : offX + (x[index[v.id]!] - minX) * grow,
-          y: n == 1 ? side / 2 : offY + (y[index[v.id]!] - minY) * grow,
+          y: n == 1 ? high / 2 : offY + (y[index[v.id]!] - minY) * grow,
         ),
     },
     size: side,
+    height: high,
+    // Each section's name between the focus and its part of the ring.
+    sectors: [
+      for (final c in sectors)
+        (
+          kind: c.kind,
+          x: offX + (math.cos(c.angle) * c.r * 0.58 - minX) * grow,
+          y: offY + (math.sin(c.angle) * c.r * 0.58 - minY) * grow,
+        ),
+    ],
   );
 }
 
-/// The rings round [focus]: how many links out each node is, the first
-/// ring in order of how it is linked to the focus, each further ring in the
-/// order of the nodes it links to in the ring inside it.
-void _rings(
+/// The rings round [focus], seated like a stadium. Those linked to the
+/// focus are in front: each way of being linked (family, allies, enemies,
+/// groups…) has its own wedge, the closest in its front row and the rest in
+/// the rows behind. Those further out (two links and more) sit in rows
+/// round the outside, each near those it links to.
+List<({LinkKind kind, double angle, double r})> _rings(
     GraphData g, int focus, List<(int, int, GraphEdge)> links, List<double> radius, List<double> x, List<double> y) {
   final n = g.nodes.length;
   final next = List.generate(n, (_) => <int>{});
@@ -516,103 +679,159 @@ void _rings(
       }
     }
   }
-  final deepest = hops.reduce(math.max);
   for (var i = 0; i < n; i++) {
-    if (hops[i] < 0) hops[i] = deepest + 1; // not linked: the outermost ring
+    if (hops[i] < 0) hops[i] = 2; // not linked: with the far ones
+    if (hops[i] > 2) hops[i] = 2;
   }
-  // How each of the first ring is linked to the focus.
+  // How each in front is linked to the focus, and how closely.
   final kindTo = <int, int>{};
+  final close = List<double>.generate(n, (i) => math.sqrt(g.nodes[i].weight) + g.nodes[i].recent);
   for (final (a, b, e) in links) {
     final other = a == focus ? b : (b == focus ? a : null);
     if (other == null) continue;
     kindTo[other] = math.min(kindTo[other] ?? 99, e.kind.index);
+    close[other] += e.related ? 40 : math.min(20, e.weight * 2.0);
   }
+  const front = 300.0, row = 170.0, slot = 120.0;
   final angle = List<double>.filled(n, 0);
-  var ringR = 0.0;
-  for (var ring = 1; ring <= hops.reduce(math.max); ring++) {
-    final members = [
-      for (var i = 0; i < n; i++)
-        if (hops[i] == ring) i
-    ];
-    if (members.isEmpty) continue;
-    // Where each would like to be: by its link to the focus in the first
-    // ring; further out, beside those it links to, inside.
+  final sectors = <({LinkKind kind, double angle, double r})>[];
+
+  // In front: a wedge for each way of being linked, its share of the circle
+  // by how many are in it, with a gap between wedges.
+  final inFront = [
+    for (var i = 0; i < n; i++)
+      if (hops[i] == 1) i
+  ];
+  var outer = front;
+  if (inFront.isNotEmpty) {
+    final byKind = <int, List<int>>{};
+    for (final i in inFront) {
+      (byKind[kindTo[i] ?? LinkKind.shared.index] ??= []).add(i);
+    }
+    final kinds = byKind.keys.toList()..sort();
+    const gap = 0.10;
+    final open = 2 * math.pi - (kinds.length > 1 ? gap * kinds.length : 0);
+    var start = -math.pi / 2;
+    for (final k in kinds) {
+      final members = byKind[k]!..sort((a, b) => close[b].compareTo(close[a]));
+      final share = open * members.length / inFront.length;
+      // Rows from the front, each holding as many as its arc has room for.
+      var r = front, placed = 0;
+      while (placed < members.length) {
+        final room = math.max(1, (share * r / slot).floor());
+        final take = math.min(room, members.length - placed);
+        for (var j = 0; j < take; j++) {
+          final i = members[placed + j];
+          angle[i] = start + share * (j + 0.5) / take;
+          x[i] = math.cos(angle[i]) * r;
+          y[i] = math.sin(angle[i]) * r;
+        }
+        placed += take;
+        outer = math.max(outer, r);
+        r += row;
+      }
+      if (kinds.length > 1) {
+        sectors
+            .add((kind: LinkKind.values[math.min(k, LinkKind.values.length - 1)], angle: start + share / 2, r: front));
+      }
+      start += share + (kinds.length > 1 ? gap : 0);
+    }
+  }
+
+  // Further out: rows round the outside, each near those it links to.
+  final far = [
+    for (var i = 0; i < n; i++)
+      if (hops[i] == 2) i
+  ];
+  if (far.isNotEmpty) {
     double wanted(int i) {
-      if (ring == 1) return (kindTo[i] ?? 9) * 100.0 - g.nodes[i].weight / 1000;
       final inner = [
         for (final m in next[i])
-          if (hops[m] == ring - 1) angle[m]
+          if (hops[m] == 1) angle[m]
       ];
-      if (inner.isEmpty) return 1000 + i.toDouble();
-      // The mean of angles, taken as points on a circle.
+      if (inner.isEmpty) return i * 2.399; // spread round evenly
       final sx = inner.fold(0.0, (t, a) => t + math.cos(a)), sy = inner.fold(0.0, (t, a) => t + math.sin(a));
       return math.atan2(sy, sx);
     }
 
-    final want = {for (final i in members) i: wanted(i)};
-    members.sort((a, b) => want[a]!.compareTo(want[b]!));
-    // Each its share of the ring, by its size and room for its name.
-    final arcs = [for (final i in members) radius[i] * 2 + 70];
-    final round = arcs.fold(0.0, (t, a) => t + a);
-    ringR = math.max(ringR + 230, round / (2 * math.pi));
-    var at = 0.0;
-    final placed = <double>[];
-    for (final a in arcs) {
-      placed.add((at + a / 2) / round * 2 * math.pi);
-      at += a;
-    }
-    // Turned so that, further out, each sits as near its wanted angle as
-    // the ring lets it.
-    var turn = 0.0;
-    if (ring > 1) {
+    final want = {for (final i in far) i: wanted(i) % (2 * math.pi)};
+    far.sort((a, b) => close[b].compareTo(close[a]));
+    var r = outer + row * 1.4, placed = 0;
+    while (placed < far.length) {
+      final room = math.max(1, (2 * math.pi * r / slot).floor());
+      final rowMembers = far.sublist(placed, math.min(far.length, placed + room))
+        ..sort((a, b) => want[a]!.compareTo(want[b]!));
+      // Evenly round the row, turned so each is near where it would be.
       var sx = 0.0, sy = 0.0;
-      for (final (k, i) in members.indexed) {
-        final w = want[i]!;
-        if (w >= 1000) continue;
-        sx += math.cos(w - placed[k]);
-        sy += math.sin(w - placed[k]);
+      for (final (k, i) in rowMembers.indexed) {
+        final even = 2 * math.pi * (k + 0.5) / rowMembers.length;
+        sx += math.cos(want[i]! - even);
+        sy += math.sin(want[i]! - even);
       }
-      if (sx != 0 || sy != 0) turn = math.atan2(sy, sx);
-    } else {
-      turn = -math.pi / 2;
-    }
-    for (final (k, i) in members.indexed) {
-      angle[i] = placed[k] + turn;
-      x[i] = math.cos(angle[i]) * ringR;
-      y[i] = math.sin(angle[i]) * ringR;
+      final turn = sx == 0 && sy == 0 ? 0.0 : math.atan2(sy, sx);
+      for (final (k, i) in rowMembers.indexed) {
+        angle[i] = 2 * math.pi * (k + 0.5) / rowMembers.length + turn;
+        x[i] = math.cos(angle[i]) * r;
+        y[i] = math.sin(angle[i]) * r;
+      }
+      placed += rowMembers.length;
+      r += row;
     }
   }
   x[focus] = 0;
   y[focus] = 0;
+  return sectors;
 }
 
 /// The whole web: linked nodes pull together, all push apart.
-void _forces(GraphData g, List<(int, int, GraphEdge)> links, double size, int rounds, List<double> x, List<double> y) {
+void _forces(GraphData g, List<(int, int, GraphEdge)> links, double size, int rounds, List<double> x, List<double> y,
+    {bool seeded = false, double? heatFrom, double aspect = 1}) {
   final n = g.nodes.length;
   final rnd = math.Random(n * 7919 + g.edges.length);
-  for (var i = 0; i < n; i++) {
-    x[i] = size * (0.2 + 0.6 * rnd.nextDouble());
-    y[i] = size * (0.2 + 0.6 * rnd.nextDouble());
+  if (!seeded) {
+    for (var i = 0; i < n; i++) {
+      x[i] = size * (0.2 + 0.6 * rnd.nextDouble());
+      y[i] = size * (0.2 + 0.6 * rnd.nextDouble());
+    }
   }
   // Room enough for every node, however many.
   final k = math.max(size / math.sqrt(n) * 0.9, 120.0);
-  var heat = size / 8;
+  var heat = heatFrom ?? size / 8;
+  // Pushing apart only reaches so far: nodes are put in a grid of cells
+  // that wide, and each pushes those in its own cell and the ones round it.
+  // Thousands of nodes lay out in a moment; the pull to the middle keeps
+  // the far ones together.
+  final reach = k * 3;
   for (var round = 0; round < rounds; round++) {
     final dx = List<double>.filled(n, 0), dy = List<double>.filled(n, 0);
+    final grid = <(int, int), List<int>>{};
     for (var i = 0; i < n; i++) {
-      for (var j = i + 1; j < n; j++) {
-        var ex = x[i] - x[j], ey = y[i] - y[j];
-        var d = math.sqrt(ex * ex + ey * ey);
-        if (d < 0.01) {
-          ex = rnd.nextDouble() - 0.5;
-          ey = rnd.nextDouble() - 0.5;
-          d = 0.5;
+      (grid[((x[i] / reach).floor(), (y[i] / reach).floor())] ??= []).add(i);
+    }
+    for (final MapEntry(key: (cx, cy), value: cell) in grid.entries) {
+      for (var ox = -1; ox <= 1; ox++) {
+        for (var oy = -1; oy <= 1; oy++) {
+          final other = grid[(cx + ox, cy + oy)];
+          if (other == null) continue;
+          for (final i in cell) {
+            for (final j in other) {
+              if (j <= i) continue;
+              var ex = x[i] - x[j], ey = y[i] - y[j];
+              var d = math.sqrt(ex * ex + ey * ey);
+              if (d > reach) continue;
+              if (d < 0.01) {
+                ex = rnd.nextDouble() - 0.5;
+                ey = rnd.nextDouble() - 0.5;
+                d = 0.5;
+              }
+              final f = k * k / d;
+              dx[i] += ex / d * f;
+              dy[i] += ey / d * f;
+              dx[j] -= ex / d * f;
+              dy[j] -= ey / d * f;
+            }
+          }
         }
-        final f = k * k / d;
-        dx[i] += ex / d * f;
-        dy[i] += ey / d * f;
-        dx[j] -= ex / d * f;
-        dy[j] -= ey / d * f;
       }
     }
     for (final (a, b, e) in links) {
@@ -627,8 +846,9 @@ void _forces(GraphData g, List<(int, int, GraphEdge)> links, double size, int ro
     }
     for (var i = 0; i < n; i++) {
       // A pull to the middle keeps lone nodes from drifting off.
+      // (Weaker up and down for a tall screen, so the web grows tall.)
       dx[i] += (size / 2 - x[i]) * 0.06 * k / 10;
-      dy[i] += (size / 2 - y[i]) * 0.06 * k / 10;
+      dy[i] += (size / 2 - y[i]) * 0.06 * k / 10 / (aspect * aspect);
       final d = math.max(0.01, math.sqrt(dx[i] * dx[i] + dy[i] * dy[i]));
       x[i] += dx[i] / d * math.min(d, heat);
       y[i] += dy[i] / d * math.min(d, heat);
@@ -641,10 +861,30 @@ void _forces(GraphData g, List<(int, int, GraphEdge)> links, double size, int ro
 /// staying where it is.
 void _apart(List<double> radius, List<double> x, List<double> y, {int? fixed}) {
   final n = x.length;
+  if (n < 2) return;
+  final cellSize = radius.reduce(math.max) * 2 + 48;
   for (var round = 0; round < 120; round++) {
     var moved = false;
+    final grid = <(int, int), List<int>>{};
     for (var i = 0; i < n; i++) {
-      for (var j = i + 1; j < n; j++) {
+      (grid[((x[i] / cellSize).floor(), (y[i] / cellSize).floor())] ??= []).add(i);
+    }
+    final pairs = <(int, int)>[];
+    for (final MapEntry(key: (cx, cy), value: cell) in grid.entries) {
+      for (var ox = -1; ox <= 1; ox++) {
+        for (var oy = -1; oy <= 1; oy++) {
+          final other = grid[(cx + ox, cy + oy)];
+          if (other == null) continue;
+          for (final i in cell) {
+            for (final j in other) {
+              if (j > i) pairs.add((i, j));
+            }
+          }
+        }
+      }
+    }
+    for (final (i, j) in pairs) {
+      {
         final want = radius[i] + radius[j] + 48;
         var ex = x[j] - x[i], ey = y[j] - y[i];
         var d = math.sqrt(ex * ex + ey * ey);
@@ -671,20 +911,66 @@ void _apart(List<double> radius, List<double> x, List<double> y, {int? fixed}) {
   }
 }
 
-/// The graph at a chapter and where its nodes sit, made together off the
-/// UI thread.
-({GraphData data, Map<int, ({double x, double y})> at, double size}) graphAndLayout(
+/// What the graph screen draws, made off the UI thread: the graph, where
+/// its nodes sit, the side of their square, the sections of the ring round
+/// the focus, and, for the whole web, each node's group.
+typedef GraphView = ({
+  GraphData data,
+  Map<int, ({double x, double y})> at,
+  double size,
+  double height,
+  List<GraphSector> sectors,
+  Map<int, int> cluster,
+});
+
+/// The graph and where its nodes sit. Round someone, laid out afresh as
+/// rings; the whole web, on its saved map (see [wholeWeb]), so its nodes
+/// stay where they are however many are shown.
+GraphView graphAndLayout(
   String path, {
   int? at,
+  int? here,
   int? focus,
   int depth = 1,
   int most = 120,
   Set<String>? kinds,
   int minChapters = 1,
+  double aspect = 1,
 }) {
-  final g = graphAt(path, at: at, focus: focus, depth: depth, most: most, kinds: kinds, minChapters: minChapters);
-  final l = layoutGraph(g);
-  return (data: g, at: l.at, size: l.size);
+  final g =
+      graphAt(path, at: at, here: here, focus: focus, depth: depth, most: most, kinds: kinds, minChapters: minChapters);
+  if (focus == null && g.nodes.isNotEmpty) {
+    final m = MemoryDb.open(path);
+    try {
+      final map = wholeWeb(m);
+      // A few of many: drawn together from where they sit on the map.
+      if (g.nodes.length < map.at.length * 0.6 && g.nodes.every((n) => map.at.containsKey(n.id))) {
+        final l = layoutGraph(g, start: map.at, aspect: aspect);
+        return (
+          data: g,
+          at: l.at,
+          size: l.size,
+          height: l.height,
+          sectors: const [],
+          cluster: {for (final n in g.nodes) n.id: map.cluster[n.id] ?? 0},
+        );
+      }
+      if (g.nodes.every((n) => map.at.containsKey(n.id))) {
+        return (
+          data: g,
+          at: {for (final n in g.nodes) n.id: map.at[n.id]!},
+          size: map.size,
+          height: map.height,
+          sectors: const [],
+          cluster: {for (final n in g.nodes) n.id: map.cluster[n.id] ?? 0},
+        );
+      }
+    } finally {
+      m.close();
+    }
+  }
+  final l = layoutGraph(g, aspect: aspect);
+  return (data: g, at: l.at, size: l.size, height: l.height, sectors: l.sectors, cluster: const {});
 }
 
 /// Where each node sits in three dimensions, for the graph seen as a ball
@@ -732,7 +1018,8 @@ Map<int, ({double x, double y, double z})> layoutGraph3d(GraphData g, {int round
       for (var i = 0; i < n; i++)
         if (hops[i] == h) math.pow(radius[i] * 2 + 60, 2)
     ].fold(0.0, (t, a) => t + a);
-    shell[h] = math.max((shell[h - 1] ?? 0) + 220, math.sqrt(area / (4 * math.pi)) * 1.2);
+    // Roomy, so that seen from any side the near ones hide few behind them.
+    shell[h] = math.max((shell[h - 1] ?? 0) + 340, math.sqrt(area / (4 * math.pi)) * 2.0);
   }
   // Start on spheres (a Fibonacci spiral each), then let the forces work.
   final x = List<double>.filled(n, 0), y = List<double>.filled(n, 0), z = List<double>.filled(n, 0);
@@ -808,4 +1095,298 @@ Map<int, ({double x, double y, double z})> layoutGraph3d(GraphData g, {int round
     }
   }
   return {for (final v in g.nodes) v.id: (x: x[index[v.id]!], y: y[index[v.id]!], z: z[index[v.id]!])};
+}
+
+/// Communities in a weighted graph, by Louvain: each node joins the
+/// neighbouring group that most raises how tightly knit the groups are,
+/// then the groups are merged into nodes and it goes again. Returns a group
+/// number for each node, the biggest group first, the same each time.
+List<int> louvain(int n, List<(int, int, double)> links, {double resolution = 1}) {
+  if (n == 0) return const [];
+  // The graph at this level: adjacency with weights, self-loops kept.
+  var size = n;
+  var adj = List.generate(size, (_) => <int, double>{});
+  for (final (a, b, w) in links) {
+    if (a == b) continue;
+    adj[a][b] = (adj[a][b] ?? 0) + w;
+    adj[b][a] = (adj[b][a] ?? 0) + w;
+  }
+  var member = List<int>.generate(n, (i) => i); // original node → node at this level
+  for (var level = 0; level < 12; level++) {
+    final degree = [for (final row in adj) row.values.fold(0.0, (t, w) => t + w)];
+    final total = degree.fold(0.0, (t, w) => t + w);
+    if (total == 0) break;
+    final group = List<int>.generate(size, (i) => i);
+    final groupDegree = [...degree];
+    var improved = false;
+    for (var pass = 0; pass < 20; pass++) {
+      var moved = false;
+      for (var i = 0; i < size; i++) {
+        final own = group[i];
+        // The weight from i into each neighbouring group.
+        final into = <int, double>{};
+        for (final MapEntry(key: j, value: w) in adj[i].entries) {
+          if (j == i) continue;
+          into[group[j]] = (into[group[j]] ?? 0) + w;
+        }
+        groupDegree[own] -= degree[i];
+        var best = own;
+        var bestGain = (into[own] ?? 0) - resolution * groupDegree[own] * degree[i] / total;
+        for (final MapEntry(key: c, value: w) in into.entries) {
+          final gain = w - resolution * groupDegree[c] * degree[i] / total;
+          if (gain > bestGain + 1e-12 || (gain > bestGain - 1e-12 && c < best && gain >= bestGain)) {
+            best = c;
+            bestGain = gain;
+          }
+        }
+        groupDegree[best] += degree[i];
+        if (best != own) {
+          group[i] = best;
+          moved = true;
+          improved = true;
+        }
+      }
+      if (!moved) break;
+    }
+    if (!improved) break;
+    // Groups renumbered and made into the next level's nodes.
+    final renumber = <int, int>{};
+    for (final c in group) {
+      renumber.putIfAbsent(c, () => renumber.length);
+    }
+    final next = List.generate(renumber.length, (_) => <int, double>{});
+    for (var i = 0; i < size; i++) {
+      for (final MapEntry(key: j, value: w) in adj[i].entries) {
+        final a = renumber[group[i]]!, b = renumber[group[j]]!;
+        next[a][b] = (next[a][b] ?? 0) + w;
+      }
+    }
+    member = [for (final m in member) renumber[group[m]]!];
+    if (renumber.length == size) break;
+    size = renumber.length;
+    adj = next;
+  }
+  // The biggest group first.
+  final counts = <int, int>{};
+  for (final m in member) {
+    counts[m] = (counts[m] ?? 0) + 1;
+  }
+  final order = counts.keys.toList()
+    ..sort((a, b) => counts[b]!.compareTo(counts[a]!) == 0 ? a.compareTo(b) : counts[b]!.compareTo(counts[a]!));
+  final rank = {for (final (i, c) in order.indexed) c: i};
+  return [for (final m in member) rank[m]!];
+}
+
+/// Everyone in the memory placed once, and kept: the whole web's map, as
+/// islands. The cast is split into groups (by [louvain]); each group is laid
+/// out on its own, as an island, and the islands are set beside each other,
+/// those that share the most links nearest, in a tall shape for the phone.
+/// Its nodes stay where they are however many are shown. Made again only
+/// when the memory has grown.
+({Map<int, ({double x, double y})> at, Map<int, int> cluster, double size, double height}) wholeWeb(MemoryDb m) {
+  m.db.execute('CREATE TABLE IF NOT EXISTS graph_places(entity INTEGER PRIMARY KEY, x REAL, y REAL, cluster INTEGER)');
+  final sig = [
+    'islands2',
+    m.db.select('SELECT count(*) n FROM entities WHERE merged_into IS NULL').first['n'],
+    m.db.select('SELECT count(*) n FROM relations').first['n'],
+    m.db.select('SELECT coalesce(max(ch), -1) n FROM notes').first['n'],
+  ].join(':');
+  ({Map<int, ({double x, double y})> at, Map<int, int> cluster, double size, double height}) stored() {
+    final at = <int, ({double x, double y})>{}, cluster = <int, int>{};
+    for (final r in m.db.select('SELECT entity, x, y, cluster FROM graph_places')) {
+      at[r['entity'] as int] = (x: r['x'] as double, y: r['y'] as double);
+      cluster[r['entity'] as int] = r['cluster'] as int;
+    }
+    final w = at.values.fold(1000.0, (s, p) => math.max(s, p.x + 130));
+    final h = at.values.fold(1000.0, (s, p) => math.max(s, p.y + 130));
+    return (at: at, cluster: cluster, size: w, height: h);
+  }
+
+  if (m.meta('graph_places') == sig) return stored();
+
+  final ids = [
+    for (final r
+        in m.db.select('SELECT e.id, (SELECT count(*) FROM appearances a WHERE a.entity = e.id) w FROM entities e '
+            'WHERE e.merged_into IS NULL ORDER BY w DESC, e.id'))
+      (id: r['id'] as int, w: r['w'] as int),
+  ];
+  final n = ids.length;
+  if (n == 0) return (at: const {}, cluster: const {}, size: 1000, height: 1000);
+  final index = {for (final (i, v) in ids.indexed) v.id: i};
+  final weights = <(int, int), double>{};
+  for (final r in m.db.select('SELECT a, b FROM relations WHERE a != b')) {
+    final a = index[r['a']], b = index[r['b']];
+    if (a == null || b == null) continue;
+    final k = a < b ? (a, b) : (b, a);
+    weights[k] = (weights[k] ?? 0) + 2;
+  }
+  for (final r in m.db.select('SELECT r1.entity a, r2.entity b, count(DISTINCT r1.event) n FROM event_roles r1 '
+      'JOIN event_roles r2 ON r2.event = r1.event AND r2.entity > r1.entity GROUP BY r1.entity, r2.entity')) {
+    final a = index[r['a']], b = index[r['b']];
+    if (a == null || b == null) continue;
+    final k = a < b ? (a, b) : (b, a);
+    weights[k] = (weights[k] ?? 0) + math.min(3.0, (r['n'] as int) / 2);
+  }
+  final links = [for (final e in weights.entries) (e.key.$1, e.key.$2, e.value)];
+  final found = louvain(n, links);
+  // Groups of one or two (those linked to almost nobody) share one island.
+  final sizes = <int, int>{};
+  for (final g in found) {
+    sizes[g] = (sizes[g] ?? 0) + 1;
+  }
+  final big = (sizes.keys.where((g) => sizes[g]! >= 3).toList()..sort());
+  final renumber = {for (final (i, g) in big.indexed) g: i};
+  final groups = [for (final g in found) renumber[g] ?? big.length];
+  final radius = [for (final v in ids) nodeDp(v.w) * canvasPerDp];
+
+  // Each island laid out on its own, round its middle.
+  final count = groups.fold(0, math.max) + 1;
+  final members = List.generate(count, (_) => <int>[]);
+  for (var i = 0; i < n; i++) {
+    members[groups[i]].add(i);
+  }
+  final x = List<double>.filled(n, 0), y = List<double>.filled(n, 0);
+  final reach = List<double>.filled(count, 0);
+  for (var c = 0; c < count; c++) {
+    final ms = members[c];
+    if (ms.isEmpty) continue;
+    final local = {for (final (k, i) in ms.indexed) i: k};
+    final g = GraphData(
+      nodes: [for (final i in ms) GraphNode(id: ids[i].id, name: '', kind: '', weight: ids[i].w)],
+      edges: const [],
+      lastCh: 0,
+    );
+    // From a spiral, the best-known in the middle: a disc, not a ring.
+    final lx = [for (var k = 0; k < ms.length; k++) math.cos(k * 2.399) * math.sqrt(k + 0.5) * 70];
+    final ly = [for (var k = 0; k < ms.length; k++) math.sin(k * 2.399) * math.sqrt(k + 0.5) * 70];
+    if (ms.length > 1) {
+      final inner = [
+        for (final (a, b, w) in links)
+          if (local.containsKey(a) && local.containsKey(b))
+            (
+              local[a]!,
+              local[b]!,
+              GraphEdge(a: ids[a].id, b: ids[b].id, label: '', kind: LinkKind.other, fromCh: 0, weight: w.round()),
+            ),
+      ];
+      final side = 300 + math.sqrt(ms.length) * 120;
+      if (inner.isNotEmpty) {
+        for (var k = 0; k < ms.length; k++) {
+          lx[k] += side / 2;
+          ly[k] += side / 2;
+        }
+        _forces(g, inner, side, 200, lx, ly, seeded: true);
+      }
+      _apart([for (final i in ms) radius[i]], lx, ly);
+    }
+    final cx = lx.reduce((a, b) => a + b) / ms.length, cy = ly.reduce((a, b) => a + b) / ms.length;
+    for (final (k, i) in ms.indexed) {
+      x[i] = lx[k] - cx;
+      y[i] = ly[k] - cy;
+      reach[c] = math.max(reach[c], math.sqrt(x[i] * x[i] + y[i] * y[i]) + radius[i]);
+    }
+    reach[c] += 50;
+  }
+
+  // The islands set beside each other: pulled together by the links between
+  // them, kept from touching, in a tall shape.
+  final between = <(int, int), double>{};
+  for (final (a, b, w) in links) {
+    final ga = groups[a], gb = groups[b];
+    if (ga == gb) continue;
+    final k = ga < gb ? (ga, gb) : (gb, ga);
+    between[k] = (between[k] ?? 0) + w;
+  }
+  final cxs = List<double>.filled(count, 0), cys = List<double>.filled(count, 0);
+  var spiral = 0.0;
+  for (var c = 0; c < count; c++) {
+    // Biggest first, round a spiral.
+    final a = c * 2.399;
+    spiral = c == 0 ? 0 : spiral + reach[c] * 0.6;
+    cxs[c] = math.cos(a) * spiral;
+    cys[c] = math.sin(a) * spiral * 1.6;
+  }
+  for (var round = 0; round < 400; round++) {
+    final fx = List<double>.filled(count, 0), fy = List<double>.filled(count, 0);
+    for (var a = 0; a < count; a++) {
+      for (var b = a + 1; b < count; b++) {
+        var ex = cxs[b] - cxs[a], ey = cys[b] - cys[a];
+        var d = math.sqrt(ex * ex + ey * ey);
+        if (d < 0.01) {
+          ex = math.cos(a + b * 1.7);
+          ey = math.sin(a + b * 1.7);
+          d = 1;
+        }
+        final want = reach[a] + reach[b] + 40;
+        if (d < want) {
+          final push = (want - d) / 2;
+          fx[a] -= ex / d * push;
+          fy[a] -= ey / d * push;
+          fx[b] += ex / d * push;
+          fy[b] += ey / d * push;
+        } else {
+          final w = between[(a, b)] ?? 0;
+          if (w > 0) {
+            final pull = math.min(d - want, 30.0) * math.min(1.0, w / 20);
+            fx[a] += ex / d * pull;
+            fy[a] += ey / d * pull;
+            fx[b] -= ex / d * pull;
+            fy[b] -= ey / d * pull;
+          }
+        }
+      }
+    }
+    for (var c = 0; c < count; c++) {
+      // Towards the middle, more strongly from the sides: a tall shape.
+      fx[c] -= cxs[c] * 0.02;
+      fy[c] -= cys[c] * 0.008;
+      cxs[c] += fx[c].clamp(-60, 60);
+      cys[c] += fy[c].clamp(-60, 60);
+    }
+  }
+  // No two islands touching, however the forces left them.
+  for (var round = 0; round < 300; round++) {
+    var moved = false;
+    for (var a = 0; a < count; a++) {
+      for (var b = a + 1; b < count; b++) {
+        var ex = cxs[b] - cxs[a], ey = cys[b] - cys[a];
+        var d = math.sqrt(ex * ex + ey * ey);
+        final want = reach[a] + reach[b] + 30;
+        if (d >= want) continue;
+        if (d < 0.01) {
+          ex = 1;
+          ey = 0;
+          d = 1;
+        }
+        final push = (want - d) / 2 + 1;
+        cxs[a] -= ex / d * push;
+        cys[a] -= ey / d * push;
+        cxs[b] += ex / d * push;
+        cys[b] += ey / d * push;
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+  for (var i = 0; i < n; i++) {
+    x[i] += cxs[groups[i]];
+    y[i] += cys[groups[i]];
+  }
+
+  final minX = x.reduce(math.min), minY = y.reduce(math.min);
+  m.db.execute('BEGIN');
+  try {
+    m.db.execute('DELETE FROM graph_places');
+    final put = m.db.prepare('INSERT INTO graph_places(entity, x, y, cluster) VALUES (?, ?, ?, ?)');
+    for (var i = 0; i < n; i++) {
+      put.execute([ids[i].id, x[i] - minX + 130, y[i] - minY + 130, groups[i]]);
+    }
+    put.close();
+    m.setMeta('graph_places', sig);
+    m.db.execute('COMMIT');
+  } on Object {
+    m.db.execute('ROLLBACK');
+    rethrow;
+  }
+  return stored();
 }
