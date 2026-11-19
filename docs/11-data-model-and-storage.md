@@ -2,8 +2,8 @@
 
 How TomeVoice keeps your library on the phone, as built (not as first planned: the
 original plan's SQLite/Drift database, full-text index and migrations were never built;
-see git history for that version of this page). Everything is plain JSON files, written
-atomically, with no server and no account.
+see git history for that version of this page), as of 1.6.0. Everything is plain JSON
+files, written atomically, with no server and no account.
 
 ## 11.1 Where things live
 
@@ -13,7 +13,8 @@ app). Readable over USB, and what a backup zips.
 
 ```
 library.json            the shelf: categories, the default one, and every book's entry (with
-                        its tags, its series and number, and a print of its text; see 11.7)
+                        its tags, its series and number, and a print of its text; see 11.7;
+                        a TXT book's chapter rule as "chapters", see 11.8)
 books/<id>/             one folder per book (id: 16 hex digits, or web- and 16 more)
   source.<ext>          the book's own file, as imported (EPUB, PDF, ...)
   parsed.json           the book read into TomeVoice's model, {"v": <parse version>, "book": ...}
@@ -27,6 +28,8 @@ books/<id>/             one folder per book (id: 16 hex digits, or web- and 16 m
   ocr.json              a scanned PDF's text, read once by OCR, never read again
 marks.json              quotes (with colour and note) and bookmarks, for every book; "left"
                         on those of a book removed from an open shelf (see 11.6)
+journal.json            the reading journal: every book's entries, newest first (see 11.8)
+fonts/                  the reader's own fonts, .ttf and .otf files as added (see 11.8)
 stats.json              listening time per day, and the streak goal
 prefs.json              listening and reading settings (voice per language and per book,
                         speeds, pauses, page, theme, sync and catalogue settings, which
@@ -109,8 +112,11 @@ turns it into a unit with `unitForCursor`.
 
 - `cursor.json` holds a book's place and is what a book opens at (`cursorFor`);
   `library.json` keeps a copy for the shelf, History, sync, the widgets and Android Auto
-  (where you are, progress, when). The place is saved about once a sentence while
-  listening, and each save wrote the whole index again on the UI thread.
+  (where you are, progress, when). Before 1.4.0 the place was saved about once a
+  sentence while listening, and each save wrote the whole index again on the UI thread.
+  Since 1.5.0 the voice saves its place every half minute while it reads on, and within
+  a second and a half when it pauses, stops or moves into another chapter
+  (`readingSaveEvery`, `listening_session.dart`).
 - **Now `saveCursor`** writes `cursor.json` at once, every time, and the copy of the index
   in memory, which every page reads. `library.json` takes the first place in a while at
   once; places saved within five seconds of it wait and are written together at the end
@@ -199,3 +205,33 @@ offered for one while the shelf is shut.
   are alike, or their titles and authors are the same and their prints do not say they
   differ (two volumes of a series never are). Offered after an import and from Find
   duplicates; a copy is only ever removed by the reader.
+
+## 11.8 The journal, own fonts and a book's chapters (1.6.0)
+
+- **The journal** (`journal.json`, `journal.dart`): one list of entries for every book,
+  newest first, written whole and atomically on each change; an unreadable file is kept
+  aside as `journal.json.broken`. An entry has an `id`, its book (`book`) and the title
+  it had then, when it was written (`created`) and last changed (`edited`), its
+  `answers` (each the question as it was asked then, `q`, a `pick` tapped and the
+  `text` written) or a free `page`, and a `stamp`: the place in the book (a
+  `ReadingCursor`), the chapter's index, and the number and title it went by, with the
+  chapter writing began in (`from`) when the voice read on meanwhile. The questions the
+  reader set are kept in `prefs.json` (`journalQuestions`; TomeVoice's own when there are
+  none), with whether the journal opens as a notebook (`journalNotebook`) and whether it
+  offers to write at a chapter's end (`journalAsk`, off by default).
+- The journal sits at the library's root, so a backup carries it. While a secret shelf
+  is shut its books' entries are not shown; removing a book from a secret shelf removes
+  its entries, and a book removed from an open shelf keeps them. When a book's file is
+  replaced or a web novel moves to another source, its entries move with it, each to
+  where its sentence is in the new text (`rebook`).
+- **Own fonts** (`own_fonts.dart`): a `.ttf` or `.otf` file the reader adds is copied
+  into the library's `fonts/` folder, so a backup carries it, and loaded from its bytes
+  by Flutter's `FontLoader`, each file under a family name of its own. The one in use is
+  named in `prefs.json` (`ownFont`).
+- **A TXT book's chapter rule** is kept on its entry in `library.json` as `chapters`:
+  `{"kind": "lines", "pattern": ..., "regex": true}` or `{"kind": "words", "words": n}`;
+  no key means TomeVoice's own chapters ([03 §3.5](03-document-pipeline.md#35-other-formats)).
+- **Replacing a book's file** imports the new file as a book, moves the old one's
+  quotes, bookmarks, journal entries, voices and reading rules to it (each place found
+  again by its sentence), gives it the old one's place and shelf, and removes the old
+  file ([03 §3.9](03-document-pipeline.md#39-indexing-and-caching)).

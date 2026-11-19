@@ -1,7 +1,7 @@
 # 12 — Roadmap & Milestones
 
-Where TomeVoice stands and what comes next, as of 31 October 2026. The original plan
-(a 28-week, two-platform roadmap, Android and Windows, phases 0 to 6) is in this file's
+Where TomeVoice stands and what comes next, as of 1.6.0 (18 November 2026). The original
+plan (a 28-week, two-platform roadmap, Android and Windows, phases 0 to 6) is in this file's
 git history; the plan for web novels and the new look (`docs/roadmap.html`) and the road
 to 1.0 (`docs/road-to-1.0.html`), both of 23 October, are at the tag `v1.4.0`. What
 actually shipped is in the [changelog](../CHANGELOG.md).
@@ -9,7 +9,7 @@ actually shipped is in the [changelog](../CHANGELOG.md).
 ## Shipped
 
 0.2 to 1.4.0, between 22 and 31 October 2026, Android only: the reader, the owned audio
-pipeline, system and natural voices, ten formats, web novels, widgets, stats, secret
+pipeline, system and natural voices, eleven formats, web novels, widgets, stats, secret
 shelves and backups; with 1.3.0 the fixes from a full review of the app on 30 October
 (its report is kept outside the repository); and with 1.4.0 everything that review asked
 for and every idea it listed that was chosen, from saving as audio, a voice for each
@@ -20,13 +20,29 @@ Before 1.4.0 went out, a second review of all its new code found 47 problems; al
 fixed, and an emulator crash in the reader (a fade drawn through a following layer) was
 found on CI and fixed.
 
-1.4.1 (31 October, published by hand), 1.4.2 and 1.5.0 (18 November) fixed what a first weeks of
-daily use found: web novels opening the chapter asked for, at once, and reading on past a
-chapter the site would not give; see the changelog. What comes after is planned in
-`docs/plan-2026-11-17.html` (smoothness and battery, how the voice sounds, reader comforts,
-then a reading helper and cloud voices).
+1.4.1 (31 October) and 1.4.2 (18 November) fixed what the first weeks of daily use
+found: web novels opening the chapter asked for, at once, and reading on past a chapter
+the site would not give. 1.5.0 (18 November) made a chapter picked while a book is
+listened to only looked at, read "..." and commas as people do, and was smoother and
+lighter on the battery.
 
-## Next
+**1.6.0 was released on 18 November 2026**: the reading journal and its notebook; the
+Notebook paper and coloured part tabs in Contents; type weight, letter spacing and your
+own font; replacing a book's file; your own chapters for a TXT book; Project Gutenberg's
+new OPDS 2 catalogue and any OPDS 2 feed; and DjVu books, read by their hidden text. The
+[changelog](../CHANGELOG.md) has the details.
+
+## Next: 2.0, an AI reading companion
+
+The next release is 2.0, an AI reading companion. It brings no AI of its own: it works
+with API keys the reader brings, and adds:
+
+- a memory of the story, kept for each book as it is read;
+- talking about the book;
+- who's who in the story;
+- a memory graph.
+
+## Also open
 
 1. **A second full review** of the whole app, as the first one was done.
 2. **Dusk's saved quotes:** a quote's colour under the Dusk page tone reads at about
@@ -57,8 +73,8 @@ scheduled.
 | | |
 |---|---|
 | The interface in other languages | The app's language stays English; books in any language are read in their own voice. |
-| On-device AI | Kept out to keep the app light. An optional feature with the reader's own API key may be considered later. |
-| A Play Store build | Not planned for now ([18](18-play-store-audit.md) holds the audit, should that change). |
+| On-device AI | Kept out to keep the app light. The 2.0 companion uses an AI service through the reader's own API keys instead. |
+| A Play Store build | Not planned for now ([07 §7.8](07-platform-android.md#78-play-store-compliance-checklist) keeps a checklist, should that change). |
 | Windows | Not started. Android only for now; maybe later ([08](08-platform-windows.md)). |
 
 ## Known limits, and what could lift them
