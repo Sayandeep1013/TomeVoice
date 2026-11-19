@@ -22,6 +22,10 @@ const castTidyInstructions =
     '"<name>"}], "wrong": [{"id": <id>, "names": ["<name>", ...]}]}. '
     'same: entries that are one and the same (by their names and what they are); keep is the best known. Only '
     'when sure: never two different characters who share a title or a word. '
+    'taken: an entry for one character that, from some chapter on, holds another entry's story instead (its '
+    'other names from then on are the other's, while its own name and what it is are someone minor): '
+    '{"id": <id>, "by": <the other's id>, "from_ch": <the chapter it starts>}, as a list under "taken". Not '
+    'same: the minor character stays. '
     'names: an entry named by a description or a passing title ("Silver Haired Girl", "the masked man") whose '
     'own name is among its other names (or a merged entry\'s): that name, as the book writes it most. '
     'wrong: other names on an entry that are plainly another entry\'s name. '
@@ -41,11 +45,13 @@ const castTidyInstructions =
       final id = r['id'] as int;
       final own = normName(r['name'] as String);
       final names = [
-        for (final a in m.db.select('SELECT alias, norm FROM aliases WHERE entity = ? ORDER BY ch', [id]))
-          if (a['norm'] != own && keepsAsName(a['alias'] as String)) a['alias'] as String,
+        for (final a in m.db.select('SELECT alias, norm, ch FROM aliases WHERE entity = ? ORDER BY ch', [id]))
+          if (a['norm'] != own && keepsAsName(a['alias'] as String))
+            '${a['alias']} (ch ${((a['ch'] as int?) ?? 0) + 1})',
       ];
       // Its names first, then what it was called.
-      final shown = [...names.where(isProperName), ...names.where((n) => !isProperName(n))].take(16);
+      bool proper(String n) => isProperName(n.substring(0, n.lastIndexOf(' (ch ')));
+      final shown = [...names.where(proper), ...names.where((n) => !proper(n))].take(16);
       var about = (r['about'] as String?) ?? '';
       if (about.length > 110) about = '${about.substring(0, 110)}…';
       ids.add(id);
@@ -85,6 +91,13 @@ int applyCastTidy(String path, Map<String, Object?> reply, Set<int> ids) {
           g.merge(id, keep);
           changes++;
         }
+      }
+      for (final t in list('taken')) {
+        final id = idOf(t['id']), by = idOf(t['by']);
+        final from = (t['from_ch'] as num?)?.toInt();
+        if (id == null || by == null || id == by || from == null || from < 1) continue;
+        g.handOver(id, by, from - 1);
+        changes++;
       }
       for (final w in list('wrong')) {
         final id = idOf(w['id']);

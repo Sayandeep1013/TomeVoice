@@ -527,15 +527,47 @@ class BookGraph {
     m.db.execute('UPDATE relations SET a = ? WHERE a = ?', [into, from]);
     m.db.execute('UPDATE relations SET b = ? WHERE b = ?', [into, from]);
     m.db.execute('UPDATE quotes SET speaker = ? WHERE speaker = ?', [into, from]);
-    m.db.execute(
-      'UPDATE entities SET mentions = (SELECT count(*) FROM appearances WHERE entity = ?), '
-      'first_ch = (SELECT min(ch) FROM appearances WHERE entity = ?), '
-      'last_ch = (SELECT max(ch) FROM appearances WHERE entity = ?) WHERE id = ?',
-      [into, into, into, into],
-    );
+    _recount(into);
     for (final ids in _alias.values) {
       if (ids.remove(from)) ids.add(into);
     }
+  }
+
+  void _recount(int id) => m.db.execute(
+        'UPDATE entities SET mentions = (SELECT count(*) FROM appearances WHERE entity = ?), '
+        'first_ch = (SELECT min(ch) FROM appearances WHERE entity = ?), '
+        'last_ch = (SELECT max(ch) FROM appearances WHERE entity = ?) WHERE id = ?',
+        [id, id, id, id],
+      );
+
+  /// What [from] holds from chapter [ch] on handed to [to]: the Builder
+  /// took a minor character's card for another's story from there (Lanard's
+  /// for Nephis's). [from] keeps its own name and its chapters before.
+  void handOver(int from, int to, int ch) {
+    if (from == to) return;
+    final own = normName(m.db.select('SELECT name FROM entities WHERE id = ?', [from]).firstOrNull?['name'] as String? ?? '');
+    for (final r in m.db.select('SELECT alias, norm, ch FROM aliases WHERE entity = ? AND ch >= ?', [from, ch])) {
+      final norm = r['norm'] as String;
+      if (norm == own) continue;
+      alias(to, r['alias'] as String, r['ch'] as int, own: true);
+      m.db.execute('DELETE FROM aliases WHERE entity = ? AND norm = ?', [from, norm]);
+      _alias[norm]?.remove(from);
+    }
+    m.db.execute(
+        'INSERT OR IGNORE INTO appearances(entity, ch) SELECT ?, ch FROM appearances WHERE entity = ? AND ch >= ?',
+        [to, from, ch]);
+    m.db.execute('DELETE FROM appearances WHERE entity = ? AND ch >= ?', [from, ch]);
+    m.db.execute(
+        'UPDATE event_roles SET entity = ? WHERE entity = ? AND event IN (SELECT id FROM events WHERE ch >= ?)',
+        [to, from, ch]);
+    m.db.execute('UPDATE events SET place = ? WHERE place = ? AND ch >= ?', [to, from, ch]);
+    m.db.execute('UPDATE facts SET entity = ? WHERE entity = ? AND from_ch >= ?', [to, from, ch]);
+    m.db.execute('UPDATE facts SET until_ch = NULL WHERE entity = ? AND until_ch >= ?', [from, ch]);
+    m.db.execute('UPDATE relations SET a = ? WHERE a = ? AND from_ch >= ?', [to, from, ch]);
+    m.db.execute('UPDATE relations SET b = ? WHERE b = ? AND from_ch >= ?', [to, from, ch]);
+    m.db.execute('UPDATE quotes SET speaker = ? WHERE speaker = ? AND ch >= ?', [to, from, ch]);
+    _recount(from);
+    _recount(to);
   }
 
   /// What the Builder is told before chapters [chapters] (their [text]):

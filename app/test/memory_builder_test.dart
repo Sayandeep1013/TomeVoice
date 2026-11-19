@@ -264,6 +264,32 @@ void main() {
       expect(isProperName('Lady'), isFalse);
     });
 
+    test("a minor character's card that took another's story hands it over from that chapter", () {
+      g.apply(
+        const ChapterNotes(chapter: 0, summary: 's', entities: [
+          NoteEntity(ref: 'new:Lanard', kind: 'person', name: 'Lanard'),
+          NoteEntity(ref: 'new:Nephis', kind: 'person', name: 'Nephis'),
+        ]),
+        _places(0, 1),
+        {},
+      );
+      final lanard = g.byName('Lanard')!, nephis = g.byName('Nephis')!;
+      g.apply(
+        ChapterNotes(chapter: 2, summary: 's', entities: [
+          NoteEntity(ref: 'e$lanard', kind: 'person', name: 'Lanard', aliases: const ['Changing Star']),
+        ], facts: [
+          NoteFact(of: 'e$lanard', attr: 'rank', value: 'Saint'),
+        ]),
+        _places(2, 1),
+        {},
+      );
+      g.handOver(lanard, nephis, 1);
+      expect(g.byName('Changing Star'), nephis);
+      expect(g.byName('Lanard'), lanard);
+      expect(m.db.select('SELECT ch FROM appearances WHERE entity = ? ORDER BY ch', [lanard]).map((r) => r['ch']), [0]);
+      expect(m.db.select('SELECT entity FROM facts').single['entity'], nephis);
+    });
+
     test('the cast tidied by the AI: two cards made one, a description named, a wrong name taken off', () {
       final dir = Directory.systemTemp.createTempSync('tv_cast');
       final path = '${dir.path}/memory.db';
