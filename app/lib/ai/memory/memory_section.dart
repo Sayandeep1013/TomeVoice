@@ -12,6 +12,7 @@ import '../../backup_flow.dart' show sizeLabel;
 import '../../download_queue.dart';
 import '../../library_store.dart' show LibraryEntry;
 import '../talk/talk_sheet.dart' show showTalk;
+import 'chapter_notes_screen.dart';
 import 'find_where_screen.dart';
 import 'graph_screen.dart';
 import 'hand_off.dart';
@@ -256,6 +257,28 @@ class _BookMemorySectionState extends State<BookMemorySection> {
         memoryPath: _service.pathOf(widget.bookId),
         line: line,
         onRead: widget.onRead,
+      ),
+    ));
+  }
+
+  Future<void> _openChapters() async {
+    final line = await _service.lineOf(widget.bookId);
+    if (!mounted) return;
+    final path = _service.pathOf(widget.bookId);
+    final id = widget.bookId;
+    final service = _service;
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => ChapterNotesScreen(
+        bookTitle: widget.bookTitle,
+        memoryPath: path,
+        line: line,
+        onReadAgain: service.maySend(id)
+            ? (ch) async {
+                await forgetChapterNotesOff(path, ch);
+                await service.refresh(id);
+                unawaited(service.build(id));
+              }
+            : null,
       ),
     ));
   }
@@ -509,6 +532,12 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                       label: const Text('Graph'),
                     ),
                   ],
+                  if (s.exists && s.noted > 0)
+                    OutlinedButton.icon(
+                      onPressed: () => unawaited(_openChapters()),
+                      icon: const Icon(Icons.format_list_bulleted_rounded, size: 18),
+                      label: const Text('Chapter by chapter'),
+                    ),
                   if (s.exists && s.indexed > 0)
                     OutlinedButton.icon(
                       onPressed: () => unawaited(_openFind()),

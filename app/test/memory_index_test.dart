@@ -7,6 +7,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tomevoice_spike/ai/memory/chapter_notes_screen.dart';
 import 'package:tomevoice_spike/ai/memory/find_where_screen.dart';
 import 'package:tomevoice_spike/ai/memory/memory_db.dart';
 import 'package:tomevoice_spike/ai/memory/word_index.dart';
@@ -72,6 +73,20 @@ void main() {
     expect(all.chapters, 3);
     expect(findWhere(indexer.pathOf(id), 'weaver', 1).chapters, 2);
     expect(findWhere('${tmp.path}/none.db', 'weaver', null).hits, isEmpty);
+
+    // Chapter by chapter: each with its notes, kept to the line; one read again.
+    final w = MemoryDb.open(indexer.pathOf(id));
+    w.db.execute("INSERT INTO notes(ch, summary) VALUES (0, 'The tide goes out.')");
+    w.db.execute('UPDATE chapters SET noted = 1 WHERE ch = 0');
+    w.close();
+    final notes = chapterNotes(indexer.pathOf(id), null);
+    expect(notes.map((n) => n.ch), [0, 1, 2]);
+    expect(notes.first.title, contains('Low'));
+    expect(notes.first.summary, 'The tide goes out.');
+    expect(notes[1].summary, isNull);
+    expect(chapterNotes(indexer.pathOf(id), 0).length, 1);
+    forgetChapterNotes(indexer.pathOf(id), 0);
+    expect(chapterNotes(indexer.pathOf(id), null).first.summary, isNull);
   });
 
   test('indexing again does nothing; a changed chapter is indexed again and loses its notes', () async {
