@@ -162,7 +162,9 @@ reading companion a key of your own: see below).
   with where the story had reached, the chapter the voice is reading or your place.
   **Journal**, in the menu, lists your entries by book, or shows them as a notebook: a
   page for each book, its cover taped at the top, your words in handwriting on squared
-  paper, and numbered tabs down the edge. Change the questions or add your own in
+  paper, and numbered tabs down the edge. **Speak instead of writing**: the microphone
+  on the page uses the phone's own speech recogniser (nothing recorded), the book
+  waits while you speak, and with an AI key, Tidy adds the punctuation. Change the questions or add your own in
   Settings → Journal, with an offer to write at each chapter's end if you want one (off
   unless you turn it on; the voice never stops for it). Export it as Markdown; it goes
   in your backups.
@@ -264,6 +266,7 @@ never does.
   memory keeps its own copy of their words.
 - **A spoiler guard for each book**, off by default. On, the AI keeps to what you have
   read; for a book you read partly elsewhere, tell it **I've read up to chapter…**.
+  A guide to all of it opens the first time you visit the AI page.
 - **Talk about the book.** A button over the player opens Talk over the page, the book
   still reading. Ask who someone is, what happened, why; answers cite the chapters they
   come from, and a tap on one looks there without moving the voice. Answers are said
@@ -281,14 +284,20 @@ never does.
   now, and who you may have forgotten (ringed in orange). Centre it on anyone, two
   links out, or the whole web; a Story map of the book's groups as named islands; a
   timeline shows the web at any chapter and plays it growing; a tap lights someone's
-  links and what they share with another; and it turns as a cloud in 3D.
+  links and what they share with another.
+- **Threads, chapter by chapter, find where.** The story's mysteries step by step,
+  open or settled; what the AI noted of each chapter (one read again if it is poor);
+  and every word of the whole book searched, even chapters not on the phone.
 - **Theories.** Say what you think is going on: the AI weighs it, for and against, from
   what you have read. As the memory reads on it checks your theories, and tells you
   when you reach the chapter that settled one, never before.
 - **Previously…** Back to a book after a few days away, a short recap of the chapters
   just before your place.
-- **A series follows on.** Link a book to the one before it, and its cast, how they
-  stood, open mysteries and story carry over.
+- **A series carries on.** Building a book whose series has an earlier book with a
+  memory offers to carry on from it: its cast, how they stood, open mysteries and
+  story come over (only as far as you read it, with the guard on), and come over again
+  when that memory changes. Talk looks into the earlier books too, citing them by book
+  and chapter.
 - **Talk elsewhere.** The memory as one Markdown page (the story so far, who matters,
   what is unanswered, your theories and journal) to copy or share into ChatGPT, Gemini
   or NotebookLM, kept to your chapter when the guard is on.

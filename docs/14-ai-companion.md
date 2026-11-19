@@ -434,7 +434,8 @@ the card's own chapters).
   **Centre here** and **Linked with…** (tap a second node for the relations and shared
   events between the two), and **Ask about this** opens Talk. Search centres the web
   on anyone by any name.
-- **As a ball** (`graph3d_view.dart`): the same graph, chapter and pick in three
+- **As a ball** (`graph3d_view.dart`, put away in 2.1: `_offerBall` in `graph_screen.dart`
+  hides its button, and turning it back on brings it back): the same graph, chapter and pick in three
   dimensions, drawn the same way (points, fine links, plain names), each node at its own
   distance from the person in the middle, so it is a cloud rather than shells. One finger
   turns it, two pinch it; it turns slowly by itself until touched, and not at all when
@@ -475,17 +476,47 @@ The companion is tested with a fake provider, an in-memory `memory.db` and fixed
 - `memory_views_test.dart`: the graph as of a chapter, its flat and ball layouts (the
   same each time, no two nodes touching), and the hand-off pack kept to the line.
 
-## 14.12 Known limits in 2.0
+## 14.12 Added in 2.1
 
-- The estimate before a build gives chapters, calls, tokens and keys, not time or cost;
-  there is no spending cap per key.
+- **A series carries on** (`series.dart`, `memory_service.dart`): `followOnFromAll`
+  brings over one or more earlier books (earliest first), first taking out what came
+  over before (`dropNotesOf(beforeThisBook)`), so it is also how a changed earlier book
+  comes over again. The link is kept in `meta`: `follows` (ids), `follows_titles`,
+  `follows_upto` (how far each was read, with the guard on) and `follows_seen` (a
+  signature of each earlier memory: notes, cast, names' length, aliases, facts,
+  relations, so a pause or a setting is not a change). Building a book whose series
+  (library series and number) has an earlier book with a memory offers it once.
+- **Talk and earlier books** (`answer_pack.dart`): `earlierPack` adds the earlier books'
+  cards for names asked about and passages for the question's words; the tool
+  `search_earlier_books` searches their text. Their sources read "Title · ch N"; the
+  journal of earlier books is read too.
+- **A replaced book's memory** moves with it (`MemoryService.moveBook`); the word index
+  then reads again only the chapters whose hash changed.
+- **A changed chapter** (`MemoryDb.dropNotesOf`): its summary, events, reveals, quotes,
+  thread steps, the facts and relations it began (those it ended opened again), its
+  appearances, and those first met there and nowhere else, taken out before it is read
+  again. A web-novel chapter saved again is checked against its hash.
+- **Screens**: Threads (`threads_screen.dart`), Chapter by chapter with Read this
+  chapter again (`chapter_notes_screen.dart`), Find where… (`find_where_screen.dart`,
+  the word index in the book's order), and the kinds the AI suggests in Who's who.
+- **Talk**: the `asked` table is written (a question, its chapter) and an earlier
+  question sharing a key word comes back in the pack; catch-up in two or ten minutes;
+  the reader's own questions as buttons.
+- **Keys**: a daily token limit (`AiKey.dailyCap`): reached, the key rests until
+  midnight. Check the key tries the talking model's tools and JSON (`probeModel`).
+- **Journal speech** (`Dictation.kt`, `dictation.dart`): Android's SpeechRecognizer on
+  the channel `tomevoice/dictate` (RECORD_AUDIO, and a `<queries>` entry for
+  `android.speech.RecognitionService`), started again after each pause until stopped;
+  the book's voice paused meanwhile. Tidy (`journal_tidy.dart`) asks the talking model to
+  punctuate without rewording, and shows both before using it.
+- **The guide** (`guide.dart`, `aiGuideCards`): six cards, by itself on the AI page's
+  first opening (`aiGuideShown`), and from How the AI works.
+
+## 14.13 Known limits in 2.1
+
+- The estimate before a build gives chapters, calls, tokens and keys, not time or cost.
 - The cast tidy sees only the 120 best-known entries; duplicates among minor ones stay
-  until the reader merges them in Who's who. There is no screen to accept a kind the
-  Builder proposed.
-- A series' next book is linked by hand (**Follows on from another book…** in its
-  Memory menu), and takes the earlier book's memory as it was then.
-- A chapter whose text changed is noted again, but the rows its old notes made are not
-  taken out first.
-- The word index serves Talk and its tools; it has no search screen of its own yet.
-- A replaced book's file starts a new memory: `memory.db` does not move with the book's
-  other belongings.
+  until the reader merges them in Who's who. A merge cannot be undone.
+- Settled theories are told, not written into the journal.
+- Speech needs a recogniser on the phone (Google's speech services on most); a language
+  not downloaded for offline use needs the internet.
