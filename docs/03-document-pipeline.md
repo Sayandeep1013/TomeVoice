@@ -1,7 +1,7 @@
 # 03 — Document Pipeline
 
 How a file on the phone, a web page or a web novel's chapter becomes something TomeVoice
-can both render and speak, as of 1.4.0. Everything here is pure Dart in
+can both render and speak, as of 1.6.0. Everything here is pure Dart in
 `packages/tomevoice_document` unless it names a Kotlin file; the entry point is
 `ingestBytes` (`ingest.dart`), and for PDFs `ingestPdfText`, since only the platform can
 pull a PDF's text.
@@ -212,6 +212,22 @@ As built:
   paragraphs, chapters found from their headings, a Project Gutenberg text named by its
   header and read without its header and licence. Markdown's marks are not read, its
   tables are read a row at a time, and fenced code is left out.
+- **A TXT book's own chapters** (`TextChapters` in `formats/text.dart`, 1.6.0). TomeVoice
+  finds the chapter lines it knows ("Chapter 12", "第12章", "XII") and cuts a long text
+  with none into parts of about 4,000 words. A web novel saved as one TXT file often heads
+  its chapters some other way ("#12 The Gate"), and was read as one long chapter or as
+  parts that start mid-chapter. A plain-text book's page (not Markdown or HTML) has
+  **Chapters**: TomeVoice's own finding; lines that start with what the reader types
+  (capitals or not), or that a regular expression matches (`^#\d+`); or a chapter every
+  so many words, cut where a paragraph ends. A line longer than 100 characters never
+  starts a chapter by the reader's rule. Before anything changes, `previewTextChapters` says how many chapters
+  the rule makes and their first titles, quickly enough to follow each letter typed; a
+  rule that cannot be used (an empty one, a pattern that does not compile) or that
+  matches no line leaves the book with TomeVoice's own chapters. The book is then split
+  again (`setTextChapters`, `library_store.dart`): the place, bookmarks and quotes are
+  carried across by their words (a voice reading it stops first and reads on at the same
+  sentence), and the rule is kept on the book's entry (`chapters`
+  in `library.json`), so a backup carries it.
 - **Encodings.** BOM, then UTF-8, then the rest: a text in an East Asian legacy encoding
   (GBK, Big5, Shift_JIS, EUC-JP/KR) is decoded by Android's own charsets through the app
   (`encoding.dart`), and Windows code pages read as written.
@@ -226,7 +242,9 @@ As built, it is TomeVoice's own (`segment.dart`), not ICU: lists of abbreviation
 titles that stand before a name ("Capt. Smith", "Mt. Everest"), decimals kept whole,
 the sentence ends of other scripts (the danda, CJK and Arabic stops), and quotes and
 brackets closing after a stop. Russian and Ukrainian dialogue is not cut after "!" or
-"?" inside it.
+"?" inside it. An ellipsis ends a sentence only when a capital follows and at least four
+words came before it (1.5.0): "I... I don't know" is one sentence, not "I..." said alone
+and rushed, and a spaced ". . ." is one mark. Books were split again when next opened.
 
 A sentence longer than **280 characters** is split at a clause boundary
 (`maxSentenceChars`), because one synthesis call for a 900-character sentence means a
@@ -279,6 +297,16 @@ Re-opening a book is then a read, not a re-parse. When reading improves enough
 (`_parsedVersion` in `library_store.dart`, `pdfParserVersion` for PDFs), stored books are
 parsed again from their own file the next time they open, and the place is carried
 across by the sentence's words.
+
+**Replacing a book's file** (`book_replace.dart`, 1.6.0). From a book's menu the reader
+picks another file of the same book, a corrected edition or a better scan. It is
+imported like any file, then takes the old book's place: every saved place in it (the
+reading place, quotes, bookmarks, journal entries) is found again in the new text by
+its sentence (`followSentence`: the same words, the copy nearest to as far through the
+book; a changed sentence by its nearest unchanged neighbour; failing both, as far
+through the new book as it was through the old), and the book's voices, reading rules
+and shelf move with it. The old file is removed. Picking the very same file changes
+nothing.
 
 Not built from the first design: a full-text search index (search runs over the reading
 layout on a background isolate instead) and a separate alignment map on disk.

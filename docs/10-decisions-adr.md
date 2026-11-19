@@ -308,7 +308,7 @@ trade.
 
 **Status note, 2026-10-29.** The developer decided the GitHub build keeps every voice,
 non-commercial ones included, each with its licence shown; only a Play build would leave
-them out ([18](18-play-store-audit.md)). What stands: the catalogue is TomeVoice's own,
+them out. What stands: the catalogue is TomeVoice's own,
 shipped in the app (`tools/voice_catalog.py`, not signed or hosted), never an upstream
 list read at run time, and each voice carries the licence its model card states. In 1.4.0
 that is 180 Piper voices, of which 38 are non-commercial, 2 have no licence and 24 an
@@ -506,7 +506,7 @@ widgets once.
 Flutter SDK (the version CI pins) is unzipped into a scratch folder for the session, used
 for `dart analyze` and `flutter test`, and deleted afterwards; QuickJS cannot be built
 there, so those checks stub it and CI tests the real engine. Every APK is still built in
-CI ([16](16-session-handoff.md)). No Windows build exists.
+CI ([13 §13.12](13-testing-and-qa.md#1312-reproducible-builds)). No Windows build exists.
 
 ---
 
@@ -585,7 +585,7 @@ to their owners.
 
 **Consequences.** About 3 MB more APK (QuickJS, the bundle). QuickJS's native build cannot
 run on the developer's Windows PC without MSVC, so local checks stub the engine and CI tests
-it ([16](16-session-handoff.md)).
+it.
 
 **Status note, 1.4.0.** Held. Since 1.4.0 each plugin runs in a QuickJS context of its own,
 its cookies kept for it alone, its requests kept off the phone's own network, and its code

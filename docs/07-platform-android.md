@@ -7,7 +7,7 @@
 | Minimum SDK | 26 (Android 8.0) |
 | Target SDK | **36 (Android 16)** |
 | ABIs | arm64-v8a (the main APK), armeabi-v7a (`TomeVoice-<version>-32bit.apk`); x86_64 only for CI's emulator |
-| Distribution | APKs on GitHub Releases, signed with one key so each update installs over the last; the app offers new versions itself. No Play build for now ([18](18-play-store-audit.md)) |
+| Distribution | APKs on GitHub Releases, signed with one key so each update installs over the last; the app offers new versions itself. No Play build for now ([7.8](#78-play-store-compliance-checklist)) |
 | Application id | `app.tomevoice` since 0.6 (never to change again); the Kotlin package is still `app.tomevoice.tomevoice_spike` |
 
 **The target-SDK deadline has already passed.** As of 31 August 2026, new apps and
@@ -120,7 +120,7 @@ scrubber works.
 | Swiped from Recents, paused | `onTaskRemoved` sends `stop`: the place is saved, the service leaves the foreground 2 s later and stops, the engine goes 3 s after; the card becomes the resume card |
 | Swiped, nothing read | The activity takes the engine with it (and Android kills a process with no foreground service on a swipe): a fresh start next time |
 | Android closes the activity | The engine stays; the next activity shows the app as it was |
-| Process killed | Everything goes; the place was saved every 1.5 s; Android 11+ keeps a resume card |
+| Process killed | Everything goes; the place was saved within the last half minute (every 30 s while reading, since 1.5.0); Android 11+ keeps a resume card |
 | Resume card's Play | System UI binds with `EXTRA_RECENT` and calls `prepare`/`play`; nothing reading: the service goes foreground at once with the book (buffering), `ReadingCore.play` starts the engine at `backgroundMain` if none, Dart takes the request (`MediaRequests`) and reads it from its place (`BackgroundReading.playFromOutside`) |
 | Headset Play, app closed | The session's media button receiver (a `getForegroundService` PendingIntent to the service, kept by Android across reboots) starts the service with the key: Play, as above |
 | Android Auto | Binds to the browser: "Continue" (the book read last) and "Recent", playable, with covers and progress; a book picked carries on if it is the one on the card, else Dart switches (a page reading another book stops) |
@@ -194,7 +194,7 @@ being killed nearly harmless.
 off** says whether Android's battery optimisation leaves TomeVoice alone
 (`PowerManager.isIgnoringBatteryOptimizations`) and opens Android's own question
 (`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, which needs the
-`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` permission: a Play concern, [18](18-play-store-audit.md)), else the
+`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` permission: a Play concern, [7.8](#78-play-store-compliance-checklist)), else the
 list of apps, else the app's settings page. On Xiaomi (Redmi, POCO), Samsung, OPPO,
 realme, OnePlus, vivo (iQOO), Huawei and Honor a line under it links to the maker's
 page on dontkillmyapp.com (Honor's is the Huawei page; there is none for Nothing,
@@ -273,8 +273,8 @@ during TalkBack's own announcements.
 
 ## 7.8 Play Store compliance checklist
 
-No Play build is planned for now. [18 — Play Store Audit](18-play-store-audit.md) lists
-what a Play build would have to leave out; this checklist is kept for that day.
+No Play build is planned for now. A Play build would have to leave out what Play's
+policies do not allow; this checklist is kept for that day.
 
 - Target API 36; native libraries 16 KB aligned.
 - Foreground service type declared, with a Play Console justification for

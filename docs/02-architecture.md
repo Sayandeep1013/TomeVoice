@@ -1,6 +1,6 @@
 # 02 — Architecture
 
-How TomeVoice is put together as of 1.4.0, Android only. Where the build differs from
+How TomeVoice is put together as of 1.6.0, Android only. Where the build differs from
 the first design (2026-09-01), the table in 2.3 says so; the reasoning behind each choice
 is in the [decision log](10-decisions-adr.md).
 
@@ -31,7 +31,8 @@ See [ADR-003](10-decisions-adr.md#adr-003) for why this is not optional.
 +----------------------------------------------------------------------+
 |  APP  (Flutter, app/lib)                                             |
 |  Library - book page - reader (scroll, pages, a PDF's pages) -       |
-|  player - Now Playing - voices - web novels - Saved, Stats, Settings |
+|  player - Now Playing - voices - web novels - catalogues -           |
+|  journal - Saved, Stats, Settings                                    |
 +---------------+--------------------------------+---------------------+
                 |                                |
 +---------------v--------------+  +--------------v---------------------+
@@ -74,7 +75,7 @@ See [ADR-003](10-decisions-adr.md#adr-003) for why this is not optional.
 
 ## 2.3 Technology choices
 
-| Concern | First design (2026-09-01) | Built (1.4.0) |
+| Concern | First design (2026-09-01) | Built (1.6.0) |
 |---|---|---|
 | App framework | Flutter, Android and Windows | Flutter (3.47.8, Dart 3.13.7 in CI), **Android only**; Windows not started ([08](08-platform-windows.md)) |
 | Language | Dart, C/C++ through FFI for DSP and inference | Dart, Kotlin on the Android side. No C/C++ of our own: native code comes in through packages (sherpa-onnx, QuickJS, Tesseract) |
@@ -84,12 +85,15 @@ See [ADR-003](10-decisions-adr.md#adr-003) for why this is not optional.
 | EPUB rendering | A WebView with an epub.js-style renderer | **Flutter text** drawn from the Document Model: the scrolling page (`reader_text.dart`) and pages cut from the same `TextPainter`s (`paged_view.dart`). No WebView ([ADR-005](10-decisions-adr.md#adr-005)) |
 | EPUB, DOCX parsing | Dart, in-process | As planned, plus ODT, MOBI/AZW3, FB2 and RTF, all Dart |
 | Persistence | SQLite through Drift | **JSON files**, written atomically ([11](11-data-model-and-storage.md), [ADR-012](10-decisions-adr.md#adr-012)) |
-| Audio output | `miniaudio` through FFI | One streaming `AudioTrack` (`PcmPlayer.kt`) fed PCM16, gapless, its playback head the clock for the highlight |
+| Audio output | `miniaudio` through FFI | One streaming `AudioTrack` (`PcmPlayer.kt`) fed PCM16, gapless, its playback head the clock for the highlight; opened in the power-saving performance mode since 1.5.0 |
 | Pitch and time | A C++ core around a GPL stretcher | Speed is the voice's own rate. A WSOLA stretcher in Dart (`stages/stretch.dart`) serves only a book's recorded narration. No pitch shifter: natural voices have no pitch control |
 | Web novels | not planned | LNReader's source plugins in QuickJS (`flutter_qjs`), in a pool of background isolates ([ADR-019](10-decisions-adr.md#adr-019)) |
 | OCR | v1.x | Tesseract4Android 4.9.0 on the phone (`Ocr.kt`) |
 | Saving as audio | v1.x | AAC in MP4 by Android's encoder and muxer, MP3 by jump3r 1.0.5 (LAME in Java) (`AudioExport.kt`); chapter marks written by Dart |
 | Background work | not specified | WorkManager 2.10.0 for the check for new chapters (`NovelCheckWorker.kt`); data-sync foreground services for downloads, OCR and saving as audio |
+| Catalogues | not planned | OPDS 1.2 (Atom, searched through OpenSearch) and OPDS 2 (JSON, searched through its URI template), read into the same feeds and entries (`opds.dart`, `opds2.dart`) |
+| The reader's own fonts | not planned | A `.ttf` or `.otf` file copied into the library's `fonts/` folder and loaded from its bytes at run time by Flutter's `FontLoader` (`own_fonts.dart`) |
+| Error log | not specified | Dart and Kotlin errors in a local log, scrubbed of titles and paths; since 1.6.0 native crashes and "not responding" closes are read from Android's record of past exits (Android 11 and later, `PastExits.kt`) |
 
 ## 2.4 Contract A: the Document Model
 
@@ -224,6 +228,10 @@ SynthesisResult (pcm + wordTimings)
         +--> PCM16 -> PcmPlayer (one streaming AudioTrack)
 ```
 
+Natural voices already pause well at punctuation, so for them (since 1.5.0) a
+punctuation pause is how long the silence there is in all, the voice's own included
+(`PunctuationPauses.topUp`); before, the two were added and every comma paused twice.
+
 The pipeline runs on a background isolate (`renderInBackground`, `speech_service.dart`):
 on the UI isolate it cost a dropped frame per sentence. A book's recorded narration runs
 its clips through `TimeStretchStage` (WSOLA, pitch kept) instead of the stub, since a
@@ -251,7 +259,9 @@ cursor --> [ sentence n   ] playing
 As built (`PlaybackScheduler`, `scheduler.dart`):
 
 - **About 10 seconds of audio stay queued** ahead of what is audible. The highlight is the
-  player's hardware position, not a timer.
+  player's hardware position, not a timer: asked every 40 ms while the page can be seen,
+  every 300 ms with the screen off or the app away (since 1.5.0; before, 25 times a
+  second throughout).
 - **One sentence is made at a time.** Android's `TextToSpeech` has a single
   `UtteranceProgressListener`: two overlapping `synthesizeToFile` calls steal it and
   playback dies after one sentence, so `SpeechService` is strictly one at a time.
@@ -259,8 +269,9 @@ As built (`PlaybackScheduler`, `scheduler.dart`):
   two on a phone with at least 5,200 MB of memory) and lets it go after 3 minutes unused.
   A sentence is made at full priority when little is queued for the time it will take
   (less than twice that, plus 1.5 s), at a lower one when well ahead, so the screen keeps
-  moving. A long sentence is made in pieces cut where it pauses anyway, so a jump waits
-  for one piece, not the whole sentence. The voice is loaded, and run once unheard, as a
+  moving. A sentence over 200 characters is made in pieces (of at least 70) cut where it
+  pauses anyway, so a jump waits for one piece, not the whole sentence; below that it is
+  made whole, so there are few silences mid-sentence (1.5.0). The voice is loaded, and run once unheard, as a
   book opens.
 - **A change that invalidates audio** (voice, speed, pitch, gap, a pronunciation rule)
   drops what is queued and goes on from the sentence being read.
@@ -291,7 +302,9 @@ app/lib/                       The Flutter app, a mostly flat folder (about 130 
                                listening (scheduler.dart, listening_session.dart,
                                speech_service.dart, neural_voices.dart), web novels
                                (sources/, browse_, novel_, updates_, web_reader.dart),
-                               and the rest by feature
+                               the journal (journal.dart, journal_page.dart,
+                               journal_screen.dart, notebook.dart), and the rest by
+                               feature
 app/android_overlay/           Kotlin and resources laid over the scaffolding that
                                `flutter create` makes in CI (its README says how)
 app/assets/                    fonts, the starter book, the voice catalogue, the bundled

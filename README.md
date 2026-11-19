@@ -13,7 +13,7 @@
 Any book, read aloud: free, offline, on your phone. Open an EPUB, a PDF (a scanned
 one too), a Word file or a web page, press play, and it reads to you sentence by
 sentence, the spoken word highlighted, in your phone's voices or natural ones in 42
-languages, with the screen off if you like.
+languages, with the screen off if you like. Keep a journal of what you think as you go.
 
 <p align="center">
   <img src="docs/images/library.png" width="240" alt="The library's Reading shelf as cover tiles, each with its format, language and progress, and Red Rising, the book being read, waiting at the bottom with a play button">
@@ -56,6 +56,15 @@ No account. No cloud. Your books never leave the phone.
   (pinch to zoom, dark at night); chapters are found even when a file does not list them.
   Footnotes stay on the page in small type and are not read, unless you turn on
   **Read notes aloud**.
+- **Your own chapters for a TXT book.** A web novel saved as one text file often heads
+  its chapters in a way no reader knows ("#12 The Gate"). A TXT book's page has
+  **Chapters**: lines that start with what you type (or match a regular expression), or
+  a chapter every 1,000 to 5,000 words. It shows how many chapters that makes, and their
+  first titles, before anything changes; your place, bookmarks and quotes stay with
+  their words.
+- **Replace the file.** Pick a corrected edition from a book's menu and it takes the
+  book's place: your place, quotes, bookmarks, journal, voices, rules and shelf go with
+  it, found again by their sentences.
 - **Scanned PDFs, read by OCR.** A PDF of page images is read on the phone (Tesseract),
   in the languages you choose (Bengali, Hindi and English are one tap away). The
   language data is downloaded only when you use it, and pages are read once and kept.
@@ -87,25 +96,35 @@ No account. No cloud. Your books never leave the phone.
 - **Keeps going with the screen off.** Pause and resume from the lock screen,
   notification or headset; it stops for calls and when headphones come out. The media
   player in the notification shade shows the book's cover in its colours, a bar through
-  the chapter you can drag, a speed button, and skips by chapter.
+  the chapter you can drag, a speed button, and skips by chapter. With the screen off
+  nothing is redrawn, and on Android 12 and later the voice plays through the phone's
+  power-saving audio output.
 - **Made for reading, too.** Turn the book into pages, or keep one long scroll. Pages
   curl over like paper under your finger (or slide, or turn at once), by a tap at either
   side, a swipe or the volume keys. On its side the book lies open: two pages with a
   crease between them, the right one turning over the spine. A PDF's real pages turn the
   same way. Above each page is the chapter's name, and below it the minutes left in the
-  chapter and the page count. Four papers: the app's colours, Ink, Papyrus and a dim
-  Dusk for the dark. Where you read is where you are: scrolling or turning on without the
-  voice moves your place, and Play starts there. After a jump from Contents or a search,
-  one tap takes you back. Bookmark a page with the ribbon at the top (it shows in the
-  page's corner; hold it for every bookmark in the book). Paragraphs can be spaced or
-  indented like a printed book, the phone's bars can be hidden, and **Aa** in the reader
-  sets the page. A tap on the text puts the top bar and the player away to read alone,
-  and another brings them back. Listening on pages, the page turns as the voice reads
-  onto the next one, not before. A long book or chapter list has a thumb at the edge:
-  drag it to go straight through, a bubble naming the chapter. **Light** dims the page
-  below the phone's lowest brightness and warms it for the night; **auto-scroll** moves
-  the page on by itself when you read without the voice; a PDF's real pages can crop
-  their margins so the print fills the phone.
+  chapter and the page count. Five papers: the app's colours, Ink, Papyrus, a squared
+  Notebook (two pages with a spiral binding on its side) and a dim Dusk for the dark.
+  The type is Newsreader, Literata, a sans, your phone's font or a .ttf or .otf of your
+  own (kept with your library, so a backup carries it), with its weight and letter
+  spacing. The top bar has a Contents button (and, with room, Scroll or Pages); a book
+  in parts has a coloured tab for each down the side of its Contents. Bookmark a page
+  with the ribbon at the top (it shows in the page's corner; hold it for every bookmark
+  in the book). Paragraphs can be spaced or indented like a printed book, the phone's
+  bars can be hidden, and **Aa** in the reader sets the page. A tap on the text puts the
+  top bar and the player away to read alone, and another brings them back. Listening on
+  pages, the page turns as the voice reads onto the next one, not before. A long book or
+  chapter list has a thumb at the edge: drag it to go straight through, a bubble naming
+  the chapter. **Light** dims the page below the phone's lowest brightness and warms it
+  for the night; **auto-scroll** moves the page on by itself when you read without the
+  voice; a PDF's real pages can crop their margins so the print fills the phone.
+- **Look around without losing the voice.** In a book you read only by eye, your place
+  follows your reading: scrolling or turning on moves it, and Play starts there. Once
+  you have listened to a book, a scroll, a page turned, or a chapter, bookmark or
+  passage picked only looks around: the voice reads on (or stays paused) at its place,
+  the player names the chapter it is reading, and **Back to reading** returns to it.
+  Only **Read from here** moves the voice.
 - **Keeps reading when you leave the book.** Back goes to your library while the voice
   reads on; pause it from the library's player or the notification, and open the book
   again to find it still reading (Settings → Listening, on by default). Swipe TomeVoice
@@ -136,10 +155,22 @@ No account. No cloud. Your books never leave the phone.
   leave out site notices and credits, and, if you like, the authors' and translators'
   notes, rows of symbols and chapter titles said twice: the page still shows them, the
   voice passes over (Settings → Reading rules).
+- **A reading journal.** The pen on the player (or Write in the journal, in a book's
+  menu) opens a notebook page that asks how you feel, why, what stood out and what you
+  think happens next; skip any, or write freely on a blank page. Each entry is stamped
+  with where the story had reached, the chapter the voice is reading or your place.
+  **Journal**, in the menu, lists your entries by book, or shows them as a notebook: a
+  page for each book, its cover taped at the top, your words in handwriting on squared
+  paper, and numbered tabs down the edge. Change the questions or add your own in
+  Settings → Journal, with an offer to write at each chapter's end if you want one (off
+  unless you turn it on; the voice never stops for it). Export it as Markdown; it goes
+  in your backups.
 - **Listening stats and streaks.** Your week, the last twenty weeks as dots, and a streak
   for every day you reach your daily goal (five minutes, or whatever you set).
-- **Books from catalogues.** Browse and download from Project Gutenberg, Standard Ebooks
-  or your own Calibre library (OPDS), straight onto a shelf.
+- **Books from catalogues.** Browse, search and download from Project Gutenberg (its new
+  OPDS 2 catalogue: Recently Added, Most Popular, bookshelves and subjects), Standard
+  Ebooks, your own Calibre library, or any OPDS 1 or OPDS 2 catalogue you add, straight
+  onto a shelf.
 - **For everyone.** TalkBack reads the pages and turns them, and Arabic, Hebrew and
   Persian books run right to left.
 - **Home-screen widgets.** The book you are reading, its cover in a ring that fills as you
@@ -157,7 +188,8 @@ No account. No cloud. Your books never leave the phone.
 - **Something wrong?** About → **Report a problem** shows you exactly what would be sent
   (the app and Android version, your phone's model, recent errors, never your books'
   titles or text) and opens a filled-in GitHub issue for you to send. Nothing is sent
-  on its own.
+  on its own. On Android 11 and later, crashes in native code and Android closing the
+  app for not responding reach the log too.
 - **A shelf you can organise.** Cover tiles with format, length and progress on each;
   your own categories (Reading, Later, or any you make), swiped between; the books you are
   in the middle of waiting at the bottom with a play button. **Tags and series**: sort
@@ -166,7 +198,8 @@ No account. No cloud. Your books never leave the phone.
   find copies of a book you already have. **Secret shelves** open only
   with your fingerprint, face or phone PIN and lock again when you leave; while locked
   their books are nowhere in the app, its widgets or the lock-screen player (Settings →
-  Secret shelf, or press and hold the word Library).
+  Secret shelf, or press and hold the word Library). **History** lists everything you
+  opened, by day, to pick up again with one tap.
 - **A page for every book:** its cover (the book's own, one you pick, or a plain title
   cover), description, chapters, and the voice it is read in, with a sample to hear first.
   Play carries on where you stopped; any chapter opens right there.
@@ -189,8 +222,8 @@ No account. No cloud. Your books never leave the phone.
 - **Colour themes:** Forest, Lavender, Ocean, Black for OLED screens and Paper, your own
   colours (kept readable), or your wallpaper's on Android 12 and later. Text meets the
   WCAG AA contrast standard in every one. A short guide shows the way on a new install.
-- **Gives you the voice controls readers don't:** speed, pitch, the gap between words,
-  and pauses at commas, sentences and paragraphs.
+- **Gives you the voice controls readers don't:** speed (for every book, or this one
+  only), pitch, the gap between words, and pauses at commas, sentences and paragraphs.
 
 ## What it deliberately does not do
 
@@ -239,9 +272,9 @@ There is deliberately no local Flutter or Gradle requirement
 ([ADR-016](docs/10-decisions-adr.md#adr-016)): the Dart packages test with the plain Dart
 SDK, and APKs are built by GitHub Actions.
 
-The full design is in [`docs/`](docs/README.md); picking the project up cold, start at
-[Start Here](docs/16-session-handoff.md). Every decision and the alternatives it
-rejected: [decision log](docs/10-decisions-adr.md).
+The full design is in [`docs/`](docs/README.md); what is tested where, and how the
+APKs are built, is in [Testing & QA](docs/13-testing-and-qa.md). Every decision and the
+alternatives it rejected: [decision log](docs/10-decisions-adr.md).
 
 ## Licence
 
