@@ -1,22 +1,36 @@
 # TomeVoice — Documentation
 
-An Android reader that reads aloud: EPUB, PDF (scanned ones too, by OCR), Word, Kindle and
-other formats, web pages and web novels, in the phone's own voices or natural voices made
-on the phone, with more control over the voice than mainstream readers give. GPL-3.0.
+An Android reader that reads aloud: EPUB, PDF (scanned ones too, by OCR), DjVu, Word,
+Kindle and other formats, web pages, web novels and OPDS catalogues, in the phone's own
+voices or natural voices made on the phone, with more control over the voice than
+mainstream readers give, and a reading journal to write in as you go. GPL-3.0.
 
 ## Where it stands
 
-**1.4.0 was released on 31 October 2026.** Android only: Windows is not started (maybe
-later) and there is no Play Store build for now. What comes next is in
-[12 — Roadmap](12-roadmap-and-milestones.md); what each release changed is in the
-[changelog](../CHANGELOG.md).
+**1.6.0 was released on 18 November 2026.** Android only: Windows is not started (maybe
+later) and there is no Play Store build for now. The next release is 2.0, an AI reading
+companion ([12 — Roadmap](12-roadmap-and-milestones.md)); what each release changed is in
+the [changelog](../CHANGELOG.md).
 
-**Picking this up cold? Start at [16 — Start Here](16-session-handoff.md):** how to check,
-build and release it, how to check it on a phone, and the findings that cost days.
+What the releases since 1.4.0 added, in short:
+
+- **1.4.1 and 1.4.2:** fixes from daily use; web novels open the chapter asked for, at
+  once, and read on past a chapter the site would not give.
+- **1.5.0:** a chapter, bookmark or passage picked while a book is listened to is only
+  looked at (the voice keeps its place); "..." and commas read as people read them;
+  smoother bars and page following; lighter on the battery.
+- **1.6.0:** the reading journal and its notebook; the Notebook paper and coloured part
+  tabs in Contents; type weight, letter spacing and your own font; replacing a book's
+  file; your own chapters for a TXT book; Project Gutenberg's OPDS 2 catalogue and any
+  OPDS 2 feed; DjVu books, read by their hidden text.
 
 These documents began as the design written before the first line of code (2026-09-01).
-They describe 1.4.0: where the build went another way than the design, the document says
-so in an **As built** or status note and keeps the design's reasoning beside it.
+Where the build went another way than the design, a document says so in an **As built**
+or status note and keeps the design's reasoning beside it. Each document says which
+release it describes: [02](02-architecture.md), [03](03-document-pipeline.md),
+[11](11-data-model-and-storage.md) and [12](12-roadmap-and-milestones.md) describe 1.6.0;
+the others describe 1.4.0, and what 1.5 and 1.6 changed in their areas is in the
+changelog (with a short note where it touches what they say).
 
 ## The documents
 
@@ -24,7 +38,7 @@ so in an **As built** or status note and keeps the design's reasoning beside it.
 |---|---|---|
 | 01 | [Vision & Scope](01-vision-and-scope.md) | What we are building, for whom, and explicitly what we are not building |
 | 02 | [Architecture](02-architecture.md) | Layers, the two contracts everything hangs off, the pipeline and scheduler as built, where the code is |
-| 03 | [Document Pipeline](03-document-pipeline.md) | How every format, a web page and a web novel's chapter become one readable and speakable model; OCR; the NovelDokusha import |
+| 03 | [Document Pipeline](03-document-pipeline.md) | How every format, a web page and a web novel's chapter become one readable and speakable model; OCR; a TXT book's own chapters; replacing a book's file; catalogues; the NovelDokusha import |
 | 04 | [TTS Engine Contract](04-tts-engine-contract.md) | The phone's voices, natural voices and a book's own narration; word timings; what was measured on the phone |
 | 05 | [TTS Controls Spec](05-tts-controls-spec.md) | Every knob as specified, and as built: speed, pitch, word gap, pauses, pronunciation, what is skipped |
 | 06 | [Voice Catalog & Licensing](06-voice-catalog-and-licensing.md) | The natural voices on offer, their recordings' licences, and every library's licence |
@@ -32,15 +46,14 @@ so in an **As built** or status note and keeps the design's reasoning beside it.
 | 08 | [Platform: Windows](08-platform-windows.md) | **Not started.** The research, kept for if it comes |
 | 09 | [Challenges & Solutions](09-challenges-and-solutions.md) | **Every known risk**, its severity, the chosen mitigation, and how it turned out |
 | 10 | [Decision Log (ADRs)](10-decisions-adr.md) | Every architectural decision, what superseded it, and what to re-check when upstream changes |
-| 11 | [Data Model & Storage](11-data-model-and-storage.md) | The files on the phone, writing safely, places, backups, secret shelves, tags and series |
+| 11 | [Data Model & Storage](11-data-model-and-storage.md) | The files on the phone, writing safely, places, backups, secret shelves, tags and series, the journal, your own fonts |
 | 12 | [Roadmap & Milestones](12-roadmap-and-milestones.md) | What shipped, what is next, what is not planned, and the known limits |
-| 13 | [Testing & QA](13-testing-and-qa.md) | What is tested where, the emulator job, reproducible builds, and the audio spike's measurements |
-| 16 | [Start Here](16-session-handoff.md) | **Start here if picking this up cold.** Checks, builds, releases, phone checks, gotchas |
-| 18 | [Play Store Audit](18-play-store-audit.md) | What a Play build would have to leave out, should one ever be made |
+| 13 | [Testing & QA](13-testing-and-qa.md) | What is tested where, the emulator job, reproducible builds and the test app, and the audio spike's measurements |
 
-Numbers 14, 15 and 17 are retired: the verification log of September 2026, the audio
+Numbers 14 to 18 are retired: the verification log of September 2026, the audio
 spike's specification and build log, and the step-back review of v0.4.0 were finished
-history, as were the HTML plans for 1.0 and for web novels and the NovelDokusha research.
+history, as were the HTML plans for 1.0 and for web novels and the NovelDokusha research;
+16 and 18 were working notes, not part of these documents.
 What still holds from them is in [03](03-document-pipeline.md),
 [04](04-tts-engine-contract.md), [09](09-challenges-and-solutions.md),
 [10](10-decisions-adr.md), [12](12-roadmap-and-milestones.md) and

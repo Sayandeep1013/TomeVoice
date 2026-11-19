@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TomeVoice</title>
+<meta name="description" content="A free Android app that reads your books aloud: EPUB, PDF, Word, web pages and web novels, in your phone's voices or natural ones, offline, with no account.">
+<meta property="og:title" content="TomeVoice">
+<meta property="og:description" content="Any book you own, read aloud. Free, offline, on your phone.">
+<meta property="og:image" content="icon.png">
+<link rel="icon" href="icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..700;1,6..96,400..600&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ground: #141e19;
+  --raised: #1b2721;
+  --line: #2c3a33;
+  --ink: #f2eada;
+  --soft: #b9b2a3;
+  --amber: #e07b39;
+  --amber-ink: #1a1007;
+  --wrap: 1120px;
+  --gutter: clamp(16px, 4vw, 40px);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font: 400 17px/1.6 Figtree, system-ui, sans-serif;
+}
+a { color: inherit; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; border-radius: 6px; }
+img { max-width: 100%; display: block; }
+.wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 var(--gutter); }
+
+/* Top bar */
+.top { display: flex; align-items: center; justify-content: space-between; padding: 22px 0; gap: 16px; }
+.brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+.brand img { width: 36px; height: 36px; border-radius: 9px; }
+.brand span { font: 500 22px/1 "Bodoni Moda", serif; letter-spacing: .01em; }
+.top nav { display: flex; gap: 22px; font-size: 15px; color: var(--soft); }
+.top nav a { text-decoration: none; }
+.top nav a:hover { color: var(--ink); }
+
+/* Hero */
+.hero { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, .75fr); gap: clamp(28px, 6vw, 80px); align-items: center; padding: clamp(16px, 3vw, 40px) 0 clamp(48px, 7vw, 88px); }
+.hero h1 { font: 500 clamp(40px, 5.6vw, 68px)/1.04 "Bodoni Moda", serif; margin: 0 0 22px; letter-spacing: -.01em; }
+.lede { font-size: 18px; color: var(--soft); max-width: 34em; margin: 0 0 30px; }
+
+.reading {
+  font: italic 400 clamp(19px, 2.1vw, 24px)/1.5 "Bodoni Moda", serif;
+  color: var(--soft);
+  border-left: 2px solid var(--line);
+  padding: 4px 0 4px 20px;
+  margin: 0 0 30px;
+  max-width: 30em;
+}
+.reading .w { border-radius: 4px; padding: 0 2px; margin: 0 -2px; transition: background-color .18s, color .18s; }
+.reading .said { color: var(--ink); }
+.reading .now { background: var(--amber); color: var(--amber-ink); }
+.reading cite { display: block; font: 400 13px/1.4 Figtree, sans-serif; font-style: normal; color: var(--soft); opacity: .75; margin-top: 10px; }
+
+.get { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 20px; }
+.button {
+  display: inline-flex; flex-direction: column; justify-content: center;
+  background: var(--amber); color: var(--amber-ink); text-decoration: none;
+  padding: 14px 26px; border-radius: 999px; font-weight: 600; font-size: 17px; line-height: 1.2;
+}
+.button small { font-weight: 500; font-size: 13px; opacity: .8; }
+.button:hover { filter: brightness(1.08); }
+.also { font-size: 14px; color: var(--soft); }
+.also a { color: var(--ink); }
+
+.phone { justify-self: center; width: min(300px, 100%); border-radius: 34px; padding: 10px; background: #0d1410; border: 1px solid var(--line); box-shadow: 0 30px 60px -30px rgba(0,0,0,.7); }
+.phone img { border-radius: 26px; width: 100%; height: auto; }
+
+/* Sections */
+section { padding: clamp(48px, 7vw, 88px) 0; border-top: 1px solid var(--line); }
+h2 { font: 500 clamp(30px, 3.6vw, 44px)/1.12 "Bodoni Moda", serif; margin: 0 0 14px; }
+.intro { color: var(--soft); max-width: 40em; margin: 0 0 36px; }
+
+.shots { display: flex; gap: 18px; overflow-x: auto; padding: 4px 4px 18px; scroll-snap-type: x mandatory; }
+.shots figure { margin: 0; flex: 0 0 auto; width: 220px; scroll-snap-align: start; }
+.shots figure.wide { width: 470px; }
+.shots img { border-radius: 18px; border: 1px solid var(--line); width: 100%; height: auto; }
+.shots figcaption { font-size: 14px; color: var(--soft); margin-top: 10px; }
+
+.groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px; }
+.groups h3 { font: 500 24px/1.2 "Bodoni Moda", serif; margin: 0 0 14px; color: var(--amber); }
+.groups ul { list-style: none; margin: 0; padding: 0; }
+.groups li { padding: 10px 0; border-top: 1px solid var(--line); font-size: 16px; }
+.groups li b { font-weight: 600; }
+.groups li span { color: var(--soft); }
+
+.steps { counter-reset: s; list-style: none; padding: 0; margin: 0 0 34px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; }
+.steps li { counter-increment: s; }
+.steps li::before { content: counter(s); display: block; font: 500 44px/1 "Bodoni Moda", serif; color: var(--amber); margin-bottom: 10px; }
+.steps b { display: block; font-weight: 600; margin-bottom: 4px; }
+.steps span { color: var(--soft); font-size: 16px; }
+.note { background: var(--raised); border: 1px solid var(--line); border-radius: 14px; padding: 18px 22px; color: var(--soft); max-width: 46em; }
+.note b { color: var(--ink); font-weight: 600; }
+.note code { font-size: 14px; color: var(--ink); word-break: break-all; }
+
+.promise { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 28px; }
+.promise p { margin: 0; color: var(--soft); font-size: 16px; }
+.promise b { display: block; color: var(--ink); font: 500 22px/1.25 "Bodoni Moda", serif; margin-bottom: 6px; }
+
+footer { border-top: 1px solid var(--line); padding: 30px 0 46px; color: var(--soft); font-size: 14px; }
+footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+
+@media (max-width: 860px) {
+  .hero { grid-template-columns: 1fr; }
+  .phone { width: min(260px, 80%); }
+  .groups, .steps { grid-template-columns: 1fr; gap: 26px; }
+  .promise { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) {
+  .top nav a.hide-small { display: none; }
+  .promise { grid-template-columns: 1fr; }
+  .shots figure { width: 72vw; }
+  .shots figure.wide { width: 88vw; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reading .w { transition: none; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="./"><img src="icon.png" alt=""><span>TomeVoice</span></a>
+    <nav aria-label="Site">
+      <a href="#install">Install</a>
+      <a class="hide-small" href="https://github.com/Sayandeep1013/TomeVoice/blob/main/CHANGELOG.md">What's new</a>
+      <a href="https://github.com/Sayandeep1013/TomeVoice">Source</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="hero">
+      <div>
+        <h1>Any book you own, read aloud.</h1>
+        <p class="lede">EPUB, PDF, Word, web pages and web novels, read to you sentence by sentence with the spoken word lit, in your phone's voices or natural ones in 42 languages. Free, offline, and with the screen off if you like.</p>
+
+        <blockquote class="reading" id="reading" aria-label="It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife.">
+          <span aria-hidden="true" id="words">It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife.</span>
+          <cite>Pride and Prejudice, as TomeVoice reads it</cite>
+        </blockquote>
+
+        <div class="get">
+          <a class="button" id="download" href="https://github.com/Sayandeep1013/TomeVoice/releases/latest">
+            Download for Android
+            <small id="download-note">The latest release, from GitHub</small>
+          </a>
+          <p class="also">Android 8 or newer. <a id="download-32" href="https://github.com/Sayandeep1013/TomeVoice/releases/latest">Older 32-bit phone?</a> <a href="https://github.com/Sayandeep1013/TomeVoice/releases">All releases</a></p>
+        </div>
+      </div>
+      <div class="phone"><img src="images/reader.png" width="1080" height="2340" alt="Reading Red Rising aloud: the spoken sentence lit and its word marked, the chapter at the top, and the player with its speed and time left"></div>
+    </div>
+
+    <section aria-labelledby="look">
+      <h2 id="look">A closer look</h2>
+      <p class="intro">Your shelves, the page as it's read, a web novel of three thousand chapters, and colours of your own.</p>
+      <div class="shots">
+        <figure><img loading="lazy" src="images/library.png" width="1080" height="2340" alt="The library's Reading shelf as cover tiles with format, language and progress"><figcaption>Your library, on shelves</figcaption></figure>
+        <figure><img loading="lazy" src="images/book.png" width="1080" height="2340" alt="A book's page: its series, the voice for this book, its characters and chapters"><figcaption>Each book's page</figcaption></figure>
+        <figure><img loading="lazy" src="images/now-playing.png" width="1080" height="2340" alt="Now Playing: the cover above the page, the sentence being read lit"><figcaption>Now Playing</figcaption></figure>
+        <figure><img loading="lazy" src="images/novel.png" width="1080" height="2340" alt="A web novel's page with its site, status and thousands of chapters"><figcaption>Web novels, chapter by chapter</figcaption></figure>
+        <figure><img loading="lazy" src="images/characters.png" width="1080" height="2340" alt="Characters found from speech tags, each with a voice of their own"><figcaption>A voice for each character</figcaption></figure>
+        <figure><img loading="lazy" src="images/papyrus.png" width="1080" height="2340" alt="A book on the Papyrus page with the time left in the chapter"><figcaption>Pages that turn like paper</figcaption></figure>
+        <figure><img loading="lazy" src="images/own-colours.png" width="1080" height="2340" alt="Picking your own page, accent and text colours"><figcaption>Colours of your own</figcaption></figure>
+        <figure class="wide"><img loading="lazy" src="images/now-playing-landscape.png" width="2340" height="1080" alt="Now Playing on its side, the cover beside the page"><figcaption>On its side, too</figcaption></figure>
+      </div>
+    </section>
+
+    <section aria-labelledby="does">
+      <h2 id="does">What it does</h2>
+      <p class="intro">Everything happens on the phone. Nothing you read is sent anywhere.</p>
+      <div class="groups">
+        <div>
+          <h3>Opens almost anything</h3>
+          <ul>
+            <li><b>Books in any format.</b> <span>EPUB, PDF, DjVu, DOCX, ODT, MOBI and AZW3, FB2, RTF, HTML, Markdown and plain text.</span></li>
+            <li><b>Scanned PDFs.</b> <span>Read by OCR on the phone, in the languages you choose.</span></li>
+            <li><b>Web pages.</b> <span>Share a link and it reads the article, without menus or ads.</span></li>
+            <li><b>Web novels.</b> <span>Search, follow and download from novel sites, with new chapters found for you.</span></li>
+            <li><b>Catalogues.</b> <span>Project Gutenberg, Standard Ebooks, or your own Calibre library.</span></li>
+          </ul>
+        </div>
+        <div>
+          <h3>Reads it to you</h3>
+          <ul>
+            <li><b>Your phone's voices.</b> <span>A voice in the book's language, picked for you.</span></li>
+            <li><b>Natural voices.</b> <span>About 180 that sound like people, in 42 languages, made on the phone with no internet.</span></li>
+            <li><b>Dialogue and characters.</b> <span>Speech in a second voice, or each character in a voice of their own.</span></li>
+            <li><b>Screen off.</b> <span>Lock screen, headset and Android Auto controls; it stops for calls.</span></li>
+            <li><b>Save as audio.</b> <span>A chapter, or the whole book as an M4B or MP3 audiobook.</span></li>
+          </ul>
+        </div>
+        <div>
+          <h3>Made for reading too</h3>
+          <ul>
+            <li><b>Pages or a scroll.</b> <span>Pages curl like paper; on its side the book lies open.</span></li>
+            <li><b>Papers and themes.</b> <span>Ink, Papyrus, Dusk, colours from covers, or your own.</span></li>
+            <li><b>A reading journal.</b> <span>Write what you think as you read, each entry stamped with where the story had reached.</span></li>
+            <li><b>Quotes and bookmarks.</b> <span>Keep a sentence, or share it as a picture in the book's colours.</span></li>
+            <li><b>Backups and sync.</b> <span>Automatic backups to a folder, and sync to your own server if you want it.</span></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="install" aria-labelledby="install-h">
+      <h2 id="install-h">Install it in a minute</h2>
+      <p class="intro">TomeVoice isn't on the Play Store. It's installed from its own file, which Android lets you do once you allow it.</p>
+      <ol class="steps">
+        <li><b>Download the app.</b> <span>Tap Download above on your phone. Most phones take the main file; very old ones need the 32-bit one.</span></li>
+        <li><b>Allow the install.</b> <span>Open the file. If Android asks, let your browser install apps, then go back and tap Install.</span></li>
+        <li><b>Open a book.</b> <span>Add a file from your phone, share a link, or start with Pride and Prejudice, already on the shelf.</span></li>
+      </ol>
+      <p class="note"><b>Updates by themselves.</b> Add TomeVoice to <a href="https://obtainium.imranr.dev/">Obtainium</a> with this address, and it tells you when a new release is out: <code>https://github.com/Sayandeep1013/TomeVoice</code></p>
+    </section>
+
+    <section aria-labelledby="free">
+      <h2 id="free">Free, and it stays yours</h2>
+      <div class="promise">
+        <p><b>No account</b>Open it and read. There's nothing to sign up for.</p>
+        <p><b>No ads, no tracking</b>Nothing is collected about you or what you read.</p>
+        <p><b>Offline</b>Books, voices and your place all live on the phone.</p>
+        <p><b>Open source</b>GPL-3.0. Read the code, build it yourself, or help.</p>
+      </div>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap">
+    <span>TomeVoice is free software under the GPL-3.0.</span>
+    <span><a href="https://github.com/Sayandeep1013/TomeVoice/issues">Report a problem</a> &nbsp; <a href="https://github.com/Sayandeep1013/TomeVoice">Source on GitHub</a></span>
+  </div>
+</footer>
+
+<script>
+(() => {
+  // The sentence read aloud: each word lit in turn, as the app does.
+  const box = document.getElementById('words');
+  const words = box.textContent.trim().split(/\s+/);
+  box.textContent = '';
+  const spans = words.map((w, i) => {
+    const s = document.createElement('span');
+    s.className = 'w';
+    s.textContent = w;
+    box.append(s, i < words.length - 1 ? ' ' : '');
+    return s;
+  });
+  const still = window.matchMedia('(prefers-reduced-motion: reduce)');
+  let i = 0, timer = null;
+  function step() {
+    spans.forEach((s, k) => {
+      s.classList.toggle('said', k < i);
+      s.classList.toggle('now', k === i);
+    });
+    const w = words[i] || '';
+    const pause = /[,.]$/.test(w) ? 420 : 0;
+    i++;
+    if (i > words.length) {
+      timer = setTimeout(() => { i = 0; step(); }, 2200);
+      return;
+    }
+    timer = setTimeout(step, 150 + w.length * 34 + pause);
+  }
+  function start() {
+    clearTimeout(timer);
+    if (still.matches) {
+      spans.forEach(s => s.classList.add('said'));
+      return;
+    }
+    i = 0;
+    step();
+  }
+  still.addEventListener?.('change', start);
+  start();
+
+  // The download buttons point straight at the latest release's files.
+  fetch('https://api.github.com/repos/Sayandeep1013/TomeVoice/releases/latest')
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(rel => {
+      const apks = (rel.assets || []).filter(a => a.name.endsWith('.apk'));
+      const main = apks.find(a => !/32bit/i.test(a.name));
+      const old = apks.find(a => /32bit/i.test(a.name));
+      const mb = a => Math.round(a.size / 1048576) + ' MB';
+      const version = (rel.tag_name || '').replace(/^v/, '');
+      if (main) {
+        document.getElementById('download').href = main.browser_download_url;
+        document.getElementById('download-note').textContent = 'Version ' + version + ', ' + mb(main);
+      }
+      if (old) document.getElementById('download-32').href = old.browser_download_url;
+    })
+    .catch(() => {});
+})();
+</script>
+</body>
+</html>

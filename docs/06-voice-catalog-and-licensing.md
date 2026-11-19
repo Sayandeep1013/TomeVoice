@@ -14,7 +14,7 @@ The first design went further: a voice with a licence that forbids commercial us
 not be offered at all. **As built, the GitHub build offers every voice, each with its
 licence in plain words** (the developer's decision, 2026-10-29; TomeVoice is free and
 GPL-3.0). A Play build would leave out the voices that are not open
-([18](18-play-store-audit.md)).
+([07 §7.8](07-platform-android.md#78-play-store-compliance-checklist)).
 
 The reason for the rule stands: discovering a licence problem after shipping costs a
 takedown and a forced update; checking a licence costs ten minutes.
@@ -191,7 +191,7 @@ its component is upgraded.
 4. The GPL-3.0 `LICENSE` file: in the repository, and the source is public. Per-file
    licence headers were not added.
 5. Store listing requirements for GPL-3.0: moot while there is no store build
-   ([18](18-play-store-audit.md)).
+   ([07 §7.8](07-platform-android.md#78-play-store-compliance-checklist)).
 
 ## 6.7 Voice download and storage
 

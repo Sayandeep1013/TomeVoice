@@ -15,7 +15,7 @@ Sections 13.1 to 13.10 are the plan of 2026-09-01, each with an **As built** not
 | `tools/` | the spike's verifier, round-tripped on synthetic runs | CI's `dart-core` job |
 | `app/test/` | 71 widget and unit test files, with local WebDAV, KOReader and OPDS servers for sync and catalogues | CI's `android-apk` job, before the APK is built |
 | `mobile-qa/` | Maestro flows and the Back and Recents tests on Android 14 and 16 emulators | CI, on pull requests and manual runs (13.11) |
-| the developer's phone | listening, and what no emulator has: real sites, a fingerprint, the phone's own voices and natural voices at speed | by hand, before each release ([16](16-session-handoff.md)) |
+| the developer's phone | listening, and what no emulator has: real sites, a fingerprint, the phone's own voices and natural voices at speed | by hand, before each release (13.9) |
 
 ## 13.1 The testable-by-construction rule
 
@@ -250,7 +250,7 @@ cost on the UI thread with 1,000 books (`place_writes_test`,
 developer's phone ([04 §4.5](04-tts-engine-contract.md#45-adapter-piper-via-sherpa-onnx)),
 and frame pacing on the phone (`dumpsys SurfaceFlinger --latency`) while scrolling. There
 is no crash reporting: errors go to a log on the phone that the reader can read and send
-([16](16-session-handoff.md)).
+(About, Report a problem).
 
 ## 13.9 Manual QA passes
 

@@ -598,7 +598,7 @@ release checklist item. See
 and shipped in the app, never read from upstream at run time, and each voice carries the
 licence its model card states, shown beside it. It is not an allowlist: the GitHub build
 offers non-commercial and unlicensed voices too, saying so (the developer's decision,
-2026-10-29); a Play build would leave them out ([18](18-play-store-audit.md)).
+2026-10-29); a Play build would leave them out.
 
 ### C-24
 **XTTS and edge-tts unusable** — S2, resolved as scope
@@ -848,8 +848,8 @@ an attribution page covering CC-BY voices and open-source components. Detail in
 [§7.8](07-platform-android.md#78-play-store-compliance-checklist).
 
 **As built.** Moot while TomeVoice is published only on GitHub. The app shows each natural
-voice's licence and lists its open-source licences in About; [18](18-play-store-audit.md)
-holds the audit for a Play build.
+voice's licence and lists its open-source licences in About; the checklist for a Play
+build is in [07 §7.8](07-platform-android.md#78-play-store-compliance-checklist).
 
 ### C-38
 **Scope creep — this is three apps** — S2

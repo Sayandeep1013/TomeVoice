@@ -178,7 +178,9 @@ default 700). Clause (100), colon (200), dash (180) and ellipsis (300) pauses ex
 pause is the paragraph pause plus 400 ms; a heading is a paragraph of its own. There is no
 chime, no quote pause in use and no "scale pauses with speed" toggle. The pause after each
 sentence is chosen by the scheduler (`pauseAfter`, `listening_session.dart`) and appended
-as silence when the sentence's PCM is encoded.
+as silence when the sentence's PCM is encoded. Since 1.5.0, with a natural voice a
+punctuation pause is how long the silence is in all, the voice's own pause included,
+not that much more (`topUp`): before, a comma paused twice.
 
 ---
 
