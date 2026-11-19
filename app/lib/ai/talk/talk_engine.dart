@@ -289,7 +289,13 @@ class TalkEngine {
     ];
     final reply = await _converse(messages, line, onText);
     // Kept, for "you asked about this before" (a theory is kept as one).
-    if (!theory && MemoryDb.existsAt(memoryPath)) unawaited(_noteAskedOff(memoryPath, question, here));
+    if (!theory && MemoryDb.existsAt(memoryPath)) {
+      try {
+        await _noteAskedOff(memoryPath, question, here);
+      } on Object {
+        // Only a convenience: the answer stands without it.
+      }
+    }
     _history
       ..add(aiMessage('user', question))
       ..add(aiMessage('assistant', reply));
