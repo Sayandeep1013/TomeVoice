@@ -613,4 +613,33 @@ class MemoryService {
     if (await f.exists()) await f.delete();
     _n(id).value = const BookMemoryState();
   }
+
+  /// Book [from]'s memory carried to book [to], its file replaced by another
+  /// edition: the notes, the cast, the theories and its settings go with it.
+  /// The word index then finds the chapters whose text changed (by their
+  /// hashes) and has them read again; the rest stay as built. Nothing is
+  /// done when [to] has a memory already. Returns whether it moved.
+  Future<bool> moveBook(String from, String to) async {
+    if (_store == null || from == to) return false;
+    final src = File(_path(from));
+    final dst = File(_path(to));
+    if (!await src.exists() || await dst.exists()) return false;
+    pause(from);
+    // A batch on its way writes to the file: let it land first.
+    final b = _builders.remove(from);
+    for (var i = 0; b != null && b.running && i < 240; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    _paused.remove(from);
+    await dst.parent.create(recursive: true);
+    try {
+      await src.rename(dst.path);
+    } on FileSystemException {
+      await src.copy(dst.path);
+      await src.delete();
+    }
+    _n(from).value = const BookMemoryState();
+    await refresh(to);
+    return true;
+  }
 }

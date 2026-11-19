@@ -8,6 +8,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor;
+import 'package:tomevoice_spike/ai/memory/memory_db.dart';
+import 'package:tomevoice_spike/ai/memory/memory_service.dart';
 import 'package:tomevoice_spike/book_replace.dart';
 import 'package:tomevoice_spike/book_screen.dart';
 import 'package:tomevoice_spike/library_store.dart';
@@ -97,6 +99,25 @@ void main() {
       expect(sentenceAt(quote.at), startsWith('By noon'));
       expect(MarkStore.instance.forBook(old.id), isEmpty);
       expect(ListeningPrefs.memory.voiceByBook[fresh.id], 'en-gb-x-rjs-local');
+    });
+
+    test("the book's AI memory goes to the new edition too", () async {
+      MemoryService.instance.attach(store);
+      addTearDown(MemoryService.instance.reset);
+      final old = await store.importFile(file('sea.md', book('stange')));
+      final db = MemoryDb.open(MemoryDb.pathIn(store.bookDir(old.id)));
+      db.setMeta('made by', 'hours of building');
+      db.close();
+
+      final fresh = await replaceBookFile(store, old, file('sea.md', '${book('strange')}
+
+The end.'));
+      expect(fresh, isNotNull);
+      expect(MemoryDb.existsIn(store.bookDir(fresh!.id)), isTrue);
+      final moved = MemoryDb.open(MemoryDb.pathIn(store.bookDir(fresh.id)));
+      expect(moved.meta('made by'), 'hours of building');
+      moved.close();
+      expect(Directory(store.bookDir(old.id)).existsSync(), isFalse);
     });
 
     test('the same file picked again changes nothing', () async {
