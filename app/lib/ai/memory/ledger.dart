@@ -554,10 +554,14 @@ NodeDetail? nodeDetail(String path, int id, int at) {
   }
 }
 
-/// A node's radius on the screen, in logical pixels, whatever the zoom: by
-/// how many chapters it is in. Zooming in moves nodes apart, not bigger, so
-/// a crowded middle opens up.
-double nodeDp(int weight) => math.min(17, 5 + math.sqrt(math.max(0, weight).toDouble()) * 1.3);
+/// The room a node keeps round it in the layout, in logical pixels, by how
+/// many chapters it is in: room for its name. Nodes keep their size on the
+/// screen whatever the zoom: zooming in moves them apart, not bigger, so a
+/// crowded middle opens up.
+double spaceDp(int weight) => math.min(17, 5 + math.sqrt(math.max(0, weight).toDouble()) * 1.3);
+
+/// A node as drawn: a point, a little larger the more it matters.
+double nodeDp(int weight) => math.min(7.5, 2.6 + math.sqrt(math.max(0, weight).toDouble()) * 0.4);
 
 /// A logical pixel in the canvas's units, the graph fitted on a phone: the
 /// spacing the layout keeps between nodes.
@@ -581,7 +585,7 @@ typedef GraphSector = ({LinkKind kind, double x, double y});
   final n = g.nodes.length;
   if (n == 0) return (at: const {}, size: size, height: size, sectors: const []);
   final index = {for (final (i, v) in g.nodes.indexed) v.id: i};
-  final radius = [for (final v in g.nodes) nodeDp(v.weight) * canvasPerDp];
+  final radius = [for (final v in g.nodes) spaceDp(v.weight) * canvasPerDp];
   final links = [
     for (final e in g.edges)
       if (index[e.a] != null && index[e.b] != null && e.a != e.b) (index[e.a]!, index[e.b]!, e),
@@ -981,7 +985,7 @@ Map<int, ({double x, double y, double z})> layoutGraph3d(GraphData g, {int round
   final n = g.nodes.length;
   if (n == 0) return const {};
   final index = {for (final (i, v) in g.nodes.indexed) v.id: i};
-  final radius = [for (final v in g.nodes) nodeDp(v.weight) * canvasPerDp];
+  final radius = [for (final v in g.nodes) spaceDp(v.weight) * canvasPerDp];
   final links = [
     for (final e in g.edges)
       if (index[e.a] != null && index[e.b] != null && e.a != e.b) (index[e.a]!, index[e.b]!, e.related ? 1.0 : 0.5),
@@ -1237,7 +1241,7 @@ List<int> louvain(int n, List<(int, int, double)> links, {double resolution = 1}
   final big = (sizes.keys.where((g) => sizes[g]! >= 3).toList()..sort());
   final renumber = {for (final (i, g) in big.indexed) g: i};
   final groups = [for (final g in found) renumber[g] ?? big.length];
-  final radius = [for (final v in ids) nodeDp(v.w) * canvasPerDp];
+  final radius = [for (final v in ids) spaceDp(v.w) * canvasPerDp];
 
   // Each island laid out on its own, round its middle.
   final count = groups.fold(0, math.max) + 1;

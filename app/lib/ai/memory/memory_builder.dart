@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../ai_client.dart';
 import '../ai_keys.dart';
 import '../ai_router.dart';
+import 'cast_tidy.dart';
 import 'chapter_notes.dart';
 import 'graph.dart';
 import 'meaning.dart';
@@ -260,6 +261,8 @@ Future<BuildEstimate> _estimateOff(String p, int? u, int tokens, int chapters) =
     Isolate.run(() => _estimate(p, u, tokens, chapters));
 Future<({int noted, int total, int skipped})> _countsOff(String p, int? u) => Isolate.run(() => _counts(p, u));
 Future<({int level, int from, int to, String text})?> _nextArcOff(String p) => Isolate.run(() => _nextArc(p));
+Future<bool> _tidyDueOff(String p) => Isolate.run(() => castTidyDue(p));
+Future<void> _markTidiedOff(String p) => Isolate.run(() => markCastTidied(p));
 Future<_Batch?> _nextBatchOff(String p, int? u, int tokens, int most) =>
     Isolate.run(() => _nextBatch(p, u, tokens, most));
 Future<void> _markFailedOff(String p, int ch, String why) => Isolate.run(() => _markFailed(p, ch, why));
@@ -344,6 +347,13 @@ class MemoryBuilder {
           if (!await _summarise(arc)) return state.value;
           continue;
         }
+        // The cast tidied now and then, and when the book is done: one
+        // character split over two cards made one, names on the wrong card
+        // taken off.
+        if (await _tidyDueOff(p)) {
+          if (!await _tidy()) return state.value;
+          continue;
+        }
         final batch = await _nextBatchOff(p, u, tokens, most);
         if (batch == null) {
           await refreshCounts();
@@ -403,6 +413,26 @@ class MemoryBuilder {
       );
       return false;
     }
+  }
+
+  /// The cast tidied; false when the work stops (every key resting).
+  Future<bool> _tidy() async {
+    try {
+      await tidyCast(path, router);
+    } on AiResting catch (e) {
+      state.value = state.value.copyWith(
+        phase: e.until == null ? BuildPhase.failed : BuildPhase.resting,
+        until: e.until,
+        error: e.until == null ? (e.last?.message ?? 'No key can build memories') : null,
+      );
+      return false;
+    } on Object {
+      // A reply not understood, or the memory busy: tried again once more
+      // is noted.
+      final p = path;
+      await _markTidiedOff(p);
+    }
+    return true;
   }
 
   /// Vectors for meaning search made for what was noted, when a key can

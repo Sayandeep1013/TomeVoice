@@ -269,26 +269,18 @@ class _BallPainter extends CustomPainter {
       final n = visible[id]!;
       final d = depth(id);
       final c = proj[id]!.at;
-      final r = nodeDp(n.weight) * proj[id]!.near * math.sqrt(zoom).clamp(0.8, 1.8);
+      final r = nodeDp(n.weight) * 1.3 * proj[id]!.near * math.sqrt(zoom).clamp(0.8, 1.8);
       final dim = picked != null && !near.contains(id);
       final colour = kindColour(n.kind);
       if (id == picked || id == second || id == data.focus) {
-        canvas.drawCircle(
-            c, r + 5, Paint()..color = view.ink.withValues(alpha: id == data.focus && id != picked ? 0.15 : 0.35));
+        canvas.drawCircle(c, r * 2.4 + 3,
+            Paint()..color = colour.withValues(alpha: id == data.focus && id != picked ? 0.18 : 0.34));
       }
       // Further away: darker, sinking into the background, but solid, so
       // nodes behind do not show through those in front.
       final ground = view.dark ? const Color(0xFF16201B) : const Color(0xFFF2EADA);
       final fill = Color.lerp(colour, ground, dim ? 0.8 : (1 - d) * 0.6)!;
       canvas.drawCircle(c, r, Paint()..color = fill);
-      canvas.drawCircle(
-        c,
-        r,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.1
-          ..color = (view.dark ? Colors.black : Colors.white).withValues(alpha: dim ? 0.2 : 0.55 + d * 0.3),
-      );
       if (n.forgotten && !dim) {
         canvas.drawCircle(
           c,

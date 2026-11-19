@@ -9,6 +9,59 @@ import 'memory_db.dart';
 /// number: not a name.
 bool notAName(String s) => RegExp(r'^(#|v|t|e)?\d+$').hasMatch(s.trim());
 
+const _pronouns = {
+  'i', 'me', 'my', 'mine', 'myself', 'you', 'your', 'yours', 'yourself', 'he', 'him', 'his', 'himself',
+  'she', 'her', 'hers', 'herself', 'it', 'its', 'itself', 'we', 'us', 'our', 'ours', 'they', 'them', 'their',
+  'theirs', 'themselves',
+};
+const _owners = {'my', 'your', 'his', 'her', 'its', 'our', 'their'};
+
+/// Words that make a name a description of someone ("the silver-haired
+/// girl", "the masked man"), not their name.
+const _describing = {
+  'girl', 'boy', 'man', 'woman', 'men', 'women', 'kid', 'child', 'stranger', 'figure', 'youth', 'guy',
+  'person', 'haired', 'eyed', 'mysterious', 'hooded', 'masked', 'cloaked', 'unknown', 'unnamed', 'young', 'old',
+};
+
+/// Words that are a title, not a name on their own ("Lady", "Saint").
+const _titles = {
+  'lady', 'lord', 'sir', 'saint', 'master', 'princess', 'prince', 'king', 'queen', 'captain', 'awakened',
+  'ascended', 'sleeper', 'mister', 'miss', 'mr', 'mrs', 'dr', 'madam', 'commander', 'teacher',
+};
+
+/// Whether [alias] is worth keeping as one of an entity's names: not a
+/// pronoun ("she"), nor someone's ("her teacher", "my mother": whose
+/// depends on who speaks), nor a lone common word ("creature", "sister");
+/// "Doofus" is kept.
+bool keepsAsName(String alias) {
+  final t = tidyName(alias).trim();
+  final norm = normName(t);
+  if (norm.isEmpty || notAName(norm) || _pronouns.contains(norm)) return false;
+  if (_owners.contains(norm.split(' ').first)) return false;
+  final bare = t.replaceFirst(RegExp(r'^(the|a|an)\s+', caseSensitive: false), '');
+  return bare.contains(' ') || bare != bare.toLowerCase();
+}
+
+/// Whether [name] reads as a description of someone rather than a name.
+bool looksDescribed(String name) => normName(name).split(' ').any(_describing.contains);
+
+/// Whether [name] is a proper name: its words capitalised, not a
+/// description, not a title alone.
+bool isProperName(String name) {
+  final t = tidyName(name).trim();
+  if (t.isEmpty || t.contains("'") || looksDescribed(t)) return false;
+  final words = t.split(RegExp(r'\s+'));
+  if (words.length > 4) return false;
+  const small = {'of', 'the', 'de', 'von', 'van', 'al', 'la', 'le', 'du', 'and'};
+  var named = false;
+  for (final w in words) {
+    if (small.contains(w)) continue;
+    if (w[0] != w[0].toUpperCase() || w[0] == w[0].toLowerCase()) return false;
+    if (!_titles.contains(w.toLowerCase())) named = true;
+  }
+  return named;
+}
+
 String normName(String s) {
   var t = tidyName(s).toLowerCase();
   const from = 'àáâãäåāăąçćčďđèéêëēėęěìíîïīįıñńňòóôõöøōőŕřśšşťùúûüūůűųýÿźżž';
@@ -156,16 +209,64 @@ class BookGraph {
       [kind, name, about, ch, ch],
     );
     final id = m.db.lastInsertRowId;
-    alias(id, name, ch);
+    alias(id, name, ch, own: true);
     return id;
   }
 
-  /// [name] kept as one of entity [id]'s names, first used in [ch].
-  void alias(int id, String name, int ch) {
+  String? _kindOf(int id) => m.db.select('SELECT kind FROM entities WHERE id = ?', [id]).firstOrNull?['kind'] as String?;
+
+  /// Whether entity [id] goes by [name].
+  bool answersTo(int id, String name) => _alias[normName(name)]?.contains(id) ?? false;
+
+  /// Another of [kind] than [id] that goes by [name] (null: none).
+  int? _otherNamed(String name, String kind, int id) {
+    for (final o in _alias[normName(name)] ?? const <int>{}) {
+      if (o != id && _kindOf(o) == kind) return live(o);
+    }
+    return null;
+  }
+
+  /// [name] kept as one of entity [id]'s names, first used in [ch]. Unless
+  /// it is the entity's [own] name: not a pronoun, nor someone's ("her
+  /// teacher"), nor a name another of its kind already goes by (the model
+  /// putting someone's name on the wrong card).
+  void alias(int id, String name, int ch, {bool own = false}) {
     final norm = normName(name);
     if (norm.isEmpty) return;
+    if (!own) {
+      if (!keepsAsName(name)) return;
+      final kind = _kindOf(id);
+      if (kind != null && _otherNamed(name, kind, id) != null) return;
+    }
     m.db.execute('INSERT OR IGNORE INTO aliases(entity, alias, norm, ch) VALUES (?, ?, ?, ?)', [id, tidyName(name), norm, ch]);
     _addAlias(norm, id);
+  }
+
+  /// Entity [id] called [name] from now on (kept among its names).
+  void rename(int id, String name) {
+    final t = tidyName(name).trim();
+    if (normName(t).isEmpty) return;
+    final first = m.db.select('SELECT first_ch FROM entities WHERE id = ?', [id]).firstOrNull?['first_ch'] as int?;
+    m.db.execute('UPDATE entities SET name = ? WHERE id = ?', [t, id]);
+    alias(id, t, first ?? 0, own: true);
+  }
+
+  /// [name] no longer one of entity [id]'s names (never its own name).
+  void dropAlias(int id, String name) {
+    final norm = normName(name);
+    final own = m.db.select('SELECT name FROM entities WHERE id = ?', [id]).firstOrNull?['name'] as String?;
+    if (own == null || normName(own) == norm) return;
+    m.db.execute('DELETE FROM aliases WHERE entity = ? AND norm = ?', [id, norm]);
+    _alias[norm]?.remove(id);
+  }
+
+  /// Known till now by a description ("Silver Haired Girl"), [given] a
+  /// name: called by it.
+  void _named(int id, String given) {
+    if (!isProperName(given)) return;
+    final now = m.db.select('SELECT name FROM entities WHERE id = ?', [id]).firstOrNull?['name'] as String?;
+    if (now == null || !looksDescribed(now) || !answersTo(id, given)) return;
+    m.db.execute('UPDATE entities SET name = ? WHERE id = ?', [tidyName(given).trim(), id]);
   }
 
   void _appears(int id, int ch) {
@@ -190,7 +291,7 @@ class BookGraph {
     final name = r.startsWith('new:') ? r.substring(4).trim() : r;
     // An event's or a thread's ref (v31, #2, t4) where a name was meant is
     // nobody: never made into an entity.
-    if (name.isEmpty || notAName(name)) return null;
+    if (name.isEmpty || notAName(name) || _pronouns.contains(normName(name))) return null;
     final key = normName(name);
     final had = made[key] ?? byName(name, kind: kind);
     if (had != null) {
@@ -222,12 +323,18 @@ class BookGraph {
 
     // The cast: known ones found, new ones made, every name kept.
     for (final e in notes.entities) {
-      final id = resolve(e.ref, ch, made, kind: e.kind) ?? resolve('new:${e.name}', ch, made, kind: e.kind)!;
+      var id = resolve(e.ref, ch, made, kind: e.kind);
+      // A known name with the number of one who never went by it: the
+      // model's number was wrong, and the name decides.
+      if (id != null && !answersTo(id, e.name)) id = _otherNamed(e.name, e.kind, id) ?? id;
+      id ??= resolve('new:${e.name}', ch, made, kind: e.kind);
+      if (id == null) continue;
       made[normName(e.name)] = id;
       alias(id, e.name, ch);
       for (final a in e.aliases) {
         alias(id, a, ch);
       }
+      _named(id, e.name);
       if (e.about != null) describe(id, e.about!, ch);
       _appears(id, ch);
     }
@@ -411,7 +518,7 @@ class BookGraph {
     if (from == into) return;
     m.db.execute('UPDATE entities SET merged_into = ? WHERE id = ?', [into, from]);
     for (final r in m.db.select('SELECT alias, ch FROM aliases WHERE entity = ?', [from])) {
-      alias(into, r['alias'] as String, (r['ch'] as int?) ?? 0);
+      alias(into, r['alias'] as String, (r['ch'] as int?) ?? 0, own: true);
     }
     m.db.execute('INSERT OR IGNORE INTO appearances(entity, ch) SELECT ?, ch FROM appearances WHERE entity = ?', [into, from]);
     m.db.execute('UPDATE event_roles SET entity = ? WHERE entity = ?', [into, from]);

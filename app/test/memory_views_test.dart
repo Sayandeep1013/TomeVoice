@@ -149,7 +149,7 @@ void main() {
         for (var j = i + 1; j < nodes.length; j++) {
           final p = a.at[nodes[i].id]!, q = a.at[nodes[j].id]!;
           final d = math.sqrt(math.pow(p.x - q.x, 2) + math.pow(p.y - q.y, 2));
-          expect(d, greaterThan((nodeDp(nodes[i].weight) + nodeDp(nodes[j].weight)) * canvasPerDp),
+          expect(d, greaterThan((spaceDp(nodes[i].weight) + spaceDp(nodes[j].weight)) * canvasPerDp),
               reason: '${nodes[i].name} and ${nodes[j].name} overlap');
         }
       }
@@ -186,7 +186,7 @@ void main() {
       for (var j = i + 1; j < 100; j++) {
         final p = l.at[i]!, q = l.at[j]!;
         expect(math.sqrt(math.pow(p.x - q.x, 2) + math.pow(p.y - q.y, 2)),
-            greaterThan((nodeDp(nodes[i].weight) + nodeDp(nodes[j].weight)) * canvasPerDp));
+            greaterThan((spaceDp(nodes[i].weight) + spaceDp(nodes[j].weight)) * canvasPerDp));
       }
     }
   });
@@ -215,7 +215,7 @@ void main() {
     await tester.tap(find.byTooltip('The memory graph'));
     await settle();
     expect(find.byType(MemoryGraphScreen), findsOneWidget);
-    // It opens round the main character.
+    // It opens on the whole web, a chip away from round the main character.
     expect(find.text('Round Sunless'), findsOneWidget);
     final painter = tester.widget<CustomPaint>(
         find.descendant(of: find.byType(InteractiveViewer), matching: find.byType(CustomPaint)).first).painter as GraphPainter;

@@ -218,7 +218,7 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
     ..addListener(_moved);
 
   int? _focus;
-  GraphDepth _depth = GraphDepth.one;
+  GraphDepth _depth = GraphDepth.all;
   final Set<String> _kinds = {};
   final Set<LinkKind> _hiddenLinks = {};
   GraphNames _names = GraphNames.key;
@@ -1333,40 +1333,33 @@ class GraphPainter extends CustomPainter {
       final colour = ended ? ink : linkColour(e.kind);
       final p1 = o(e.a), p2 = o(e.b);
       final mid = (p1 + p2) / 2;
-      final d = p2 - p1;
-      final bend = ((e.a + e.b) % 2 == 0 ? 1 : -1) * 0.12;
-      final ctrl = mid + Offset(-d.dy, d.dx) * bend;
-      final line = Path()..moveTo(p1.dx, p1.dy);
-      if (many) {
-        line.lineTo(p2.dx, p2.dy);
-      } else {
-        line.quadraticBezierTo(ctrl.dx, ctrl.dy, p2.dx, p2.dy);
-      }
+      // Straight and fine, in the ink's colour: a link's own colour shows
+      // when it is lit.
+      final line = Path()
+        ..moveTo(p1.dx, p1.dy)
+        ..lineTo(p2.dx, p2.dy);
       final paint = Paint()
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round
-        ..color = (pathEdge ? _amber : colour).withValues(
+        ..color = (pathEdge ? _amber : (lit || fresh ? colour : ink)).withValues(
           alpha: faded
-              ? 0.05
+              ? 0.04
               : ended
-                  ? 0.35
+                  ? 0.25
                   : lit || fresh
-                      ? 0.95
+                      ? 0.9
                       : e.kind == LinkKind.shared
-                          ? 0.07
-                          : 0.38,
+                          ? 0.08
+                          : 0.22,
         )
-        ..strokeWidth = (e.kind == LinkKind.shared ? 1.0 + math.min(2.0, e.weight / 4) : 2.0) *
-            (lit || fresh ? 1.6 : 1) *
-            (pathEdge ? 1.8 : 1) *
-            px;
+        ..strokeWidth = (lit || fresh ? 1.3 : 0.6) * (pathEdge ? 1.8 : 1) * px;
       if (e.kind == LinkKind.belongs || ended) {
         _dashed(canvas, line, paint, 8 * px, 6 * px);
       } else {
         canvas.drawPath(line, paint);
       }
       if (lit && e.kind != LinkKind.shared && !many) {
-        _pill(canvas, ended ? '${e.label} (ended)' : e.label, (ctrl + mid) / 2, 10.5 * dp, colour, strong: false);
+        _pill(canvas, ended ? '${e.label} (ended)' : e.label, mid, 10.5 * dp, colour, strong: false);
       }
     }
 
@@ -1375,37 +1368,31 @@ class GraphPainter extends CustomPainter {
     for (final n in order) {
       final c = o(n.id);
       final inShut = shut.contains(n.id);
-      final r = nodeDp(n.weight) * dp * (inShut ? 0.6 : 1);
+      final r = nodeDp(n.weight) * dp * (inShut ? 0.7 : 1);
       final dim = picked != null && !near.contains(n.id);
       final colour = kindColour(n.kind);
       final newHere = n.firstCh != null && isNew(n.firstCh!);
+      // A point; a soft glow round the one picked, the person in the
+      // middle, and one new here.
       if (n.id == picked || n.id == second || n.id == data.focus || newHere) {
         canvas.drawCircle(
           c,
-          r + 6 * dp,
-          Paint()..color = (newHere ? _amber : ink).withValues(alpha: n.id == picked || n.id == second ? 0.35 : 0.2),
+          r * 2.4 + 3 * dp,
+          Paint()..color = (newHere ? _amber : colour).withValues(alpha: n.id == picked || n.id == second ? 0.34 : 0.2),
         );
       }
-      canvas.drawCircle(c, r, Paint()..color = colour.withValues(alpha: dim ? 0.2 : (inShut ? 0.6 : 1)));
-      canvas.drawCircle(
-        c,
-        r,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.5 * px
-          ..color = (dark ? Colors.black : Colors.white).withValues(alpha: dim ? 0.2 : 0.7),
-      );
+      canvas.drawCircle(c, r, Paint()..color = colour.withValues(alpha: dim ? 0.18 : (inShut ? 0.6 : 1)));
       // One the reader may have forgotten: a broken amber ring.
       if (n.forgotten && !inShut) {
         _dashed(
           canvas,
-          Path()..addOval(Rect.fromCircle(center: c, radius: r + 4 * dp)),
+          Path()..addOval(Rect.fromCircle(center: c, radius: r + 3 * dp)),
           Paint()
             ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.2 * dp
-            ..color = _amber.withValues(alpha: dim ? 0.2 : 0.75),
+            ..strokeWidth = 1 * dp
+            ..color = _amber.withValues(alpha: dim ? 0.2 : 0.8),
+          2.5 * dp,
           3 * dp,
-          3.5 * dp,
         );
       }
     }
@@ -1429,8 +1416,8 @@ class GraphPainter extends CustomPainter {
     final f = data.focus;
     if (f != null && visible.containsKey(f) && f != picked && f != second) {
       final rect = _pill(
-          canvas, visible[f]!.name, o(f) + Offset(0, (nodeDp(visible[f]!.weight) + 11) * dp), 12.5 * dp, ink,
-          strong: false, force: true);
+          canvas, visible[f]!.name, o(f) + Offset(0, (nodeDp(visible[f]!.weight) + 10) * dp), 12.5 * dp, ink,
+          strong: false, force: true, bare: true);
       if (rect != null) placed.add(rect);
     }
 
@@ -1468,8 +1455,8 @@ class GraphPainter extends CustomPainter {
       final w = _width(n.name, 11.5 * dp, strong);
       Rect? rect;
       for (final at in [
-        o(n.id) + Offset(0, r + 11 * dp),
-        o(n.id) - Offset(0, r + 11 * dp),
+        o(n.id) + Offset(0, r + 9 * dp),
+        o(n.id) - Offset(0, r + 9 * dp),
         o(n.id) + Offset(r + 4 * dp + w / 2, 0),
         o(n.id) - Offset(r + 4 * dp + w / 2, 0),
       ]) {
@@ -1477,11 +1464,11 @@ class GraphPainter extends CustomPainter {
             shown != null && !shown.contains(at.translate(w / 2, 0))) {
           continue;
         }
-        rect = _pill(canvas, n.name, at, 11.5 * dp, ink, strong: strong, avoid: placed);
+        rect = _pill(canvas, n.name, at, 11.5 * dp, ink, strong: strong, avoid: placed, bare: !strong);
         if (rect != null) break;
       }
       rect ??= strong
-          ? _pill(canvas, n.name, o(n.id) + Offset(0, r + 11 * dp), 11.5 * dp, ink, strong: true, force: true)
+          ? _pill(canvas, n.name, o(n.id) + Offset(0, r + 9 * dp), 11.5 * dp, ink, strong: true, force: true)
           : null;
       if (rect != null) {
         placed.add(rect);
@@ -1506,30 +1493,43 @@ class GraphPainter extends CustomPainter {
   /// [text] on a small pill centred at [at]; null (and nothing drawn) when
   /// it would overlap one of [avoid], unless [force].
   Rect? _pill(Canvas canvas, String text, Offset at, double size, Color colour,
-      {required bool strong, List<Rect> avoid = const [], bool force = false, bool faint = false}) {
-    final tp = TextPainter(
-      text: TextSpan(
-        text: text,
-        style: TextStyle(
-          fontFamily: 'Figtree',
-          fontSize: size,
-          color: strong ? Colors.white : colour.withValues(alpha: faint ? 0.75 : 1),
-          fontWeight: strong ? FontWeight.w700 : FontWeight.w600,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-      maxLines: 1,
-      ellipsis: '…',
-    )..layout(maxWidth: size * 16);
-    final pad = Offset(size * 0.5, size * 0.25);
+      {required bool strong, List<Rect> avoid = const [], bool force = false, bool faint = false, bool bare = false}) {
+    TextPainter painter(Color? colour, Paint? stroke) => TextPainter(
+          text: TextSpan(
+            text: text,
+            style: TextStyle(
+              fontFamily: 'Figtree',
+              fontSize: size,
+              color: colour,
+              foreground: stroke,
+              fontWeight: strong ? FontWeight.w700 : (bare ? FontWeight.w500 : FontWeight.w600),
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+          maxLines: 1,
+          ellipsis: '…',
+        )..layout(maxWidth: size * 16);
+    final tp = painter(strong ? Colors.white : colour.withValues(alpha: faint ? 0.75 : (bare ? 0.85 : 1)), null);
+    final pad = bare ? Offset(size * 0.2, size * 0.05) : Offset(size * 0.5, size * 0.25);
     final rect = Rect.fromCenter(center: at, width: tp.width + pad.dx * 2, height: tp.height + pad.dy * 2);
     if (!force && avoid.any((r) => r.overlaps(rect))) return null;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(rect, Radius.circular(rect.height / 2)),
-      Paint()
-        ..color =
-            strong ? _amber : (dark ? const Color(0xFF101614) : Colors.white).withValues(alpha: faint ? 0.55 : 0.82),
-    );
+    final ground = dark ? const Color(0xFF101614) : Colors.white;
+    if (bare) {
+      // Plain text, kept legible over the links by a halo of the ground.
+      painter(
+        null,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = size * 0.3
+          ..strokeJoin = StrokeJoin.round
+          ..color = ground.withValues(alpha: 0.85),
+      ).paint(canvas, rect.topLeft + pad);
+    } else {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, Radius.circular(rect.height / 2)),
+        Paint()..color = strong ? _amber : ground.withValues(alpha: faint ? 0.55 : 0.82),
+      );
+    }
     tp.paint(canvas, rect.topLeft + pad);
     return rect;
   }

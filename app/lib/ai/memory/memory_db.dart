@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:sqlite3/sqlite3.dart';
 
 import 'chapter_notes.dart' show tidyName;
-import 'graph.dart' show normName, notAName;
+import 'graph.dart' show keepsAsName, normName, notAName;
 
 /// A place in a book, exact to the sentence: the reader's own cursor
 /// (section, block, sentence) and the reading chapter it is in. Every row
@@ -86,7 +86,7 @@ class MemoryDb {
   final Database db;
   final String path;
 
-  static const version = 5;
+  static const version = 6;
 
   static String pathIn(String bookDir) => '$bookDir/memory.db';
 
@@ -123,6 +123,16 @@ class MemoryDb {
     final r = db.select('SELECT lo, hi FROM chapter_rows WHERE ch = ?', [ch]);
     if (r.isEmpty || r.first['lo'] == null) return null;
     return (lo: r.first['lo'] as int, hi: r.first['hi'] as int);
+  }
+
+  void _forgetNotNameAliases() {
+    final own = {
+      for (final r in db.select('SELECT id, name FROM entities')) r['id'] as int: normName(r['name'] as String),
+    };
+    for (final r in db.select('SELECT rowid, entity, alias, norm FROM aliases')) {
+      if (own[r['entity']] == r['norm'] || keepsAsName(r['alias'] as String)) continue;
+      db.execute('DELETE FROM aliases WHERE rowid = ?', [r['rowid']]);
+    }
   }
 
   void _forgetNotNames() {
@@ -179,6 +189,9 @@ class MemoryDb {
       // (and replaced) by a jump to its rows, not a scan of the whole book's
       // text for it; and its size, for estimates.
       if (have < 5) _chapterRows();
+      // 6: names that are not names ("she", "her teacher", "creature"),
+      // which let one card take another's chapters, forgotten.
+      if (have >= 1 && have < 6) _forgetNotNameAliases();
       db.execute('PRAGMA user_version = $version');
       db.execute('COMMIT');
     } on Object {

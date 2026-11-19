@@ -10,6 +10,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_spike/ai/ai_keys.dart';
 import 'package:tomevoice_spike/ai/ai_router.dart';
+import 'package:tomevoice_spike/ai/memory/cast_tidy.dart';
 import 'package:tomevoice_spike/ai/memory/chapter_notes.dart';
 import 'package:tomevoice_spike/ai/memory/graph.dart';
 import 'package:tomevoice_spike/ai/memory/memory_builder.dart';
@@ -220,6 +221,96 @@ void main() {
       expect(describedAt(m, oren, 2), 'The wrecker who rang the bell');
       // Not a fact of its own on the card.
       expect(m.db.select("SELECT count(*) n FROM facts WHERE attr = 'description'").first['n'], 1);
+    });
+
+    test("a name on someone else's card goes to whoever goes by it; pronouns and someone's are not names", () {
+      g.apply(
+        const ChapterNotes(chapter: 0, summary: 's', entities: [
+          NoteEntity(ref: 'new:Silver Haired Girl', kind: 'person', name: 'Silver Haired Girl'),
+          NoteEntity(ref: 'new:Lanard', kind: 'person', name: 'Lanard'),
+        ]),
+        _places(0, 1),
+        {},
+      );
+      final girl = g.byName('Silver Haired Girl')!, lanard = g.byName('Lanard')!;
+      g.apply(
+        ChapterNotes(chapter: 1, summary: 's', entities: [
+          NoteEntity(
+              ref: 'e$girl', kind: 'person', name: 'Nephis', aliases: const ['Changing Star', 'she', 'her teacher', 'creature']),
+        ]),
+        _places(1, 1),
+        {},
+      );
+      // Known by a description, then named: called by the name.
+      expect(m.db.select('SELECT name FROM entities WHERE id = ?', [girl]).single['name'], 'Nephis');
+      expect(g.byName('Changing Star'), girl);
+      for (final n in ['she', 'her teacher', 'creature']) {
+        expect(g.byName(n), isNull, reason: n);
+      }
+      // The model's number for Lanard, with Nephis's name: hers.
+      g.apply(
+        ChapterNotes(chapter: 2, summary: 's', entities: [
+          NoteEntity(ref: 'e$lanard', kind: 'person', name: 'Nephis', aliases: const ['Neph']),
+        ]),
+        _places(2, 1),
+        {},
+      );
+      expect(g.byName('Neph'), girl);
+      expect(m.db.select('SELECT count(*) n FROM appearances WHERE entity = ?', [lanard]).first['n'], 1);
+      expect(keepsAsName('Doofus'), isTrue);
+      expect(keepsAsName('the blind girl'), isTrue);
+      expect(isProperName('Changing Star'), isTrue);
+      expect(isProperName('Silver Haired Girl'), isFalse);
+      expect(isProperName('Lady'), isFalse);
+    });
+
+    test('the cast tidied by the AI: two cards made one, a description named, a wrong name taken off', () {
+      final dir = Directory.systemTemp.createTempSync('tv_cast');
+      final path = '${dir.path}/memory.db';
+      var mm = MemoryDb.open(path);
+      var gg = BookGraph(mm);
+      mm.indexChapter(ch: 0, section: 0, title: 'C0', hash: 'h0', chunks: const [TextChunk(start: _p, text: 'x')]);
+      gg.apply(
+        const ChapterNotes(chapter: 0, summary: 's', entities: [
+          NoteEntity(ref: 'new:Silver Haired Girl', kind: 'person', name: 'Silver Haired Girl'),
+          NoteEntity(ref: 'new:Neph', kind: 'person', name: 'Neph'),
+          NoteEntity(ref: 'new:Cassia', kind: 'person', name: 'Cassia'),
+        ]),
+        _places(0, 1),
+        {},
+      );
+      final girl = gg.byName('Silver Haired Girl')!, neph = gg.byName('Neph')!, cassia = gg.byName('Cassia')!;
+      gg.alias(girl, 'Nephis', 0, own: true);
+      gg.alias(cassia, 'Changing Star', 0, own: true);
+      mm.close();
+      final changes = applyCastTidy(path, {
+        'same': [
+          {'keep': girl, 'merge': [neph, 999]},
+        ],
+        'names': [
+          {'id': girl, 'name': 'Nephis'},
+          {'id': cassia, 'name': 'Queen of Everything'},
+        ],
+        'wrong': [
+          {'id': 'e$cassia', 'names': ['Changing Star']},
+        ],
+      }, {girl, neph, cassia});
+      expect(changes, 3);
+      mm = MemoryDb.open(path);
+      gg = BookGraph(mm);
+      expect(gg.live(neph), girl);
+      expect(gg.byName('Neph'), girl);
+      expect(mm.db.select('SELECT name FROM entities WHERE id = ?', [girl]).single['name'], 'Nephis');
+      expect(mm.db.select('SELECT name FROM entities WHERE id = ?', [cassia]).single['name'], 'Cassia');
+      expect(gg.answersTo(cassia, 'Changing Star'), isFalse);
+      expect(mm.meta('cast_tidied'), isNotNull);
+      expect(castTidyDue(path), isFalse);
+      mm.close();
+      try {
+        dir.deleteSync(recursive: true);
+      } on FileSystemException {
+        // Windows may still hold the file.
+      }
     });
 
     test('names given as identifiers are written as a reader would', () {

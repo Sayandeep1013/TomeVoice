@@ -162,7 +162,12 @@ class _BookMemorySectionState extends State<BookMemorySection> {
     if (!mounted) return;
     await Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) =>
-          WhosWhoScreen(bookTitle: widget.bookTitle, memoryPath: _service.pathOf(widget.bookId), line: line),
+          WhosWhoScreen(
+        bookTitle: widget.bookTitle,
+        memoryPath: _service.pathOf(widget.bookId),
+        line: line,
+        mayTidy: _service.maySend(widget.bookId),
+      ),
     ));
   }
 
