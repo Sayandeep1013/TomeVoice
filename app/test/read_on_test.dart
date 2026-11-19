@@ -198,6 +198,34 @@ void main() {
       expect(stopped(sessions().sublist(from)), isNull);
     });
 
+    test('Pause while the next chapter is fetched: it waits there, paused, and Play reads it', () async {
+      final (store, id) = await novel();
+      final bg = await listen(store, id);
+      site.offline = true;
+      final enqueued = count('playerEnqueue');
+      await bg.player.play(bg.layout.units.length - 1);
+      await _until(() => count('playerEnqueue') > enqueued);
+      // Back online as the voice stops at the end, but the site is slow.
+      final gate = Completer<void>();
+      final before = site.asks;
+      onStop = () async {
+        site.offline = false;
+        site.gate = gate;
+      };
+      head = 1 << 30;
+      await _until(() => site.asks > before);
+      await bg.pause();
+      expect(sessions().last['playing'], isFalse, reason: 'the card still said playing');
+      site.gate = null;
+      gate.complete();
+      await _until(() => bg.layout.chapters.contains(60));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(bg.player.isPlaying, isFalse, reason: 'Pause was ignored: it read on');
+      expect(sessions().last['playing'], isFalse);
+      await bg.resume();
+      await _until(() => bg.player.isPlaying && reading(bg) == 60);
+    });
+
     test("handed on by a book's page at the end of its chapters", () async {
       final (store, id) = await novel();
       final layout = await store.loadLayout(id, around: 30);
@@ -445,11 +473,15 @@ class _Site extends SourceEngine {
   Completer<void>? gate;
   var offline = false;
 
+  /// How many chapters have been asked for.
+  var asks = 0;
+
   /// Chapters (from 0) the site will not give: it is busy, or they fail.
   final failing = <int>{};
 
   @override
   Future<String> chapter(PluginInfo p, String path) async {
+    asks++;
     final wait = gate;
     if (wait != null) await wait.future;
     if (offline) throw const SocketException('offline');

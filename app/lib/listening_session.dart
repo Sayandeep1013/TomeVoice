@@ -594,12 +594,31 @@ class BackgroundReading {
     return other.unitForCursor(cursorOf(layout.units[unit.clamp(0, layout.units.length - 1)]), saved: true);
   }
 
+  /// Pause pressed while reading on into the next chapters (they are being
+  /// fetched, and there is nothing playing to pause): they wait, parked at
+  /// their start, once they are here.
+  bool _holdRoll = false;
+
   Future<void> pause({bool now = false}) async {
+    if (_rolling != null && _rollingOn && !player.isPlaying) {
+      _holdRoll = true;
+      playingNow.value = false;
+      _updateCard();
+      return;
+    }
     await player.pause(now: now);
     _updateCard();
   }
 
   Future<void> resume({bool rewind = false}) async {
+    // Paused while reading on, and played again before the chapters came:
+    // the reading on simply goes on.
+    if (_holdRoll && _rolling != null) {
+      _holdRoll = false;
+      playingNow.value = true;
+      _updateCard();
+      return;
+    }
     final parked = _parkedAt;
     _parkedAt = null;
     if (parked != null) {
@@ -694,7 +713,10 @@ class BackgroundReading {
   /// chapter's end). The player is idle meanwhile, from the moment it
   /// reaches the end, but the card stays playing, and the phone awake.
   bool get _rollingOn =>
-      web && _parkedAt == null && (_rolling != null || (player.reachedEnd && player.error.value == null));
+      web &&
+      !_holdRoll &&
+      _parkedAt == null &&
+      (_rolling != null || (player.reachedEnd && player.error.value == null));
 
   /// The end of what is here: a web novel's next chapters are fetched (the
   /// site asked for new ones when its list runs out) and read on into, in a
@@ -705,6 +727,7 @@ class BackgroundReading {
     final under = _rolling;
     if (under != null) return under;
     final roll = Completer<bool?>();
+    _holdRoll = false;
     // Under way before anything tells the card: it says playing throughout.
     _rolling = roll.future;
     roll.complete(_readOn().whenComplete(() => _rolling = null));
@@ -770,6 +793,15 @@ class BackgroundReading {
         // Asked to stop at the chapter's end: waits at the next, paused.
         _sleep = SleepChoice.off;
         _sleepChapter = -1;
+        _parkedAt = start;
+        playingNow.value = false;
+        unawaited(_persistNow());
+        _updateCard();
+        return true;
+      }
+      if (_holdRoll) {
+        // Paused while the chapters were fetched: they wait at their start.
+        _holdRoll = false;
         _parkedAt = start;
         playingNow.value = false;
         unawaited(_persistNow());
