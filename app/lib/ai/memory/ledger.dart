@@ -727,8 +727,10 @@ List<({LinkKind kind, double angle, double r})> _rings(
         for (var j = 0; j < take; j++) {
           final i = members[placed + j];
           angle[i] = start + share * (j + 0.5) / take;
-          x[i] = math.cos(angle[i]) * r;
-          y[i] = math.sin(angle[i]) * r;
+          // A little in front of its row or behind it: no circle.
+          final at = r + row * 0.55 * (_jit(g.nodes[i].id) - 0.5);
+          x[i] = math.cos(angle[i]) * at;
+          y[i] = math.sin(angle[i]) * at;
         }
         placed += take;
         outer = math.max(outer, r);
@@ -775,8 +777,9 @@ List<({LinkKind kind, double angle, double r})> _rings(
       final turn = sx == 0 && sy == 0 ? 0.0 : math.atan2(sy, sx);
       for (final (k, i) in rowMembers.indexed) {
         angle[i] = 2 * math.pi * (k + 0.5) / rowMembers.length + turn;
-        x[i] = math.cos(angle[i]) * r;
-        y[i] = math.sin(angle[i]) * r;
+        final at = r + row * 0.7 * (_jit(g.nodes[i].id) - 0.5);
+        x[i] = math.cos(angle[i]) * at;
+        y[i] = math.sin(angle[i]) * at;
       }
       placed += rowMembers.length;
       r += row;
@@ -788,6 +791,25 @@ List<({LinkKind kind, double angle, double r})> _rings(
 }
 
 /// The whole web: linked nodes pull together, all push apart.
+/// A number from 0 to 1 of its own for entity [id], the same each time: how
+/// far from its ring it sits, how hard it is drawn to the middle; so the
+/// nodes do not line up in circles.
+double _jit(int id) => ((id * 2654435761) & 0xffff) / 0xffff;
+
+/// How hard each node is drawn to the middle: the well linked more than
+/// the loners, and each a little differently, so the loners do not all
+/// settle at one distance (a rim round the web).
+List<double> _pulls(GraphData g, Iterable<(int, int)> links) {
+  final degree = List<int>.filled(g.nodes.length, 0);
+  for (final (a, b) in links) {
+    degree[a]++;
+    degree[b]++;
+  }
+  return [
+    for (final (i, v) in g.nodes.indexed) (0.4 + 0.6 * math.min(1.0, degree[i] / 4)) * (0.55 + 0.9 * _jit(v.id)),
+  ];
+}
+
 void _forces(GraphData g, List<(int, int, GraphEdge)> links, double size, int rounds, List<double> x, List<double> y,
     {bool seeded = false, double? heatFrom, double aspect = 1}) {
   final n = g.nodes.length;
@@ -806,6 +828,7 @@ void _forces(GraphData g, List<(int, int, GraphEdge)> links, double size, int ro
   // Thousands of nodes lay out in a moment; the pull to the middle keeps
   // the far ones together.
   final reach = k * 3;
+  final pull = _pulls(g, [for (final (a, b, _) in links) (a, b)]);
   for (var round = 0; round < rounds; round++) {
     final dx = List<double>.filled(n, 0), dy = List<double>.filled(n, 0);
     final grid = <(int, int), List<int>>{};
@@ -851,8 +874,8 @@ void _forces(GraphData g, List<(int, int, GraphEdge)> links, double size, int ro
     for (var i = 0; i < n; i++) {
       // A pull to the middle keeps lone nodes from drifting off.
       // (Weaker up and down for a tall screen, so the web grows tall.)
-      dx[i] += (size / 2 - x[i]) * 0.06 * k / 10;
-      dy[i] += (size / 2 - y[i]) * 0.06 * k / 10 / (aspect * aspect);
+      dx[i] += (size / 2 - x[i]) * 0.06 * k / 10 * pull[i];
+      dy[i] += (size / 2 - y[i]) * 0.06 * k / 10 / (aspect * aspect) * pull[i];
       final d = math.max(0.01, math.sqrt(dx[i] * dx[i] + dy[i] * dy[i]));
       x[i] += dx[i] / d * math.min(d, heat);
       y[i] += dy[i] / d * math.min(d, heat);
@@ -1039,12 +1062,13 @@ Map<int, ({double x, double y, double z})> layoutGraph3d(GraphData g, {int round
     final m = count[h]!;
     final t = (k + 0.5) / m;
     final phi = math.acos(1 - 2 * t), theta = math.pi * (1 + math.sqrt(5)) * k;
-    final r = shell[h] ?? 300;
+    final r = (shell[h] ?? 300) * (0.72 + 0.56 * _jit(g.nodes[i].id));
     x[i] = r * math.sin(phi) * math.cos(theta);
     y[i] = r * math.sin(phi) * math.sin(theta);
     z[i] = r * math.cos(phi);
   }
   final spread = math.max(160.0, 900 / math.pow(n, 1 / 3));
+  final pulls = _pulls(g, [for (final (a, b, _) in links) (a, b)]);
   var heat = 60.0;
   for (var round = 0; round < rounds; round++) {
     final dx = List<double>.filled(n, 0), dy = List<double>.filled(n, 0), dz = List<double>.filled(n, 0);
@@ -1077,8 +1101,12 @@ Map<int, ({double x, double y, double z})> layoutGraph3d(GraphData g, {int round
     for (var i = 0; i < n; i++) {
       if (i == focus) continue;
       final d = math.max(1.0, math.sqrt(x[i] * x[i] + y[i] * y[i] + z[i] * z[i]));
-      // Held to its shell round the focus; the whole web, to the middle.
-      final pull = focus == null ? -d * 0.02 : ((shell[hops[i]] ?? d) - d) * 0.6;
+      // Held, loosely, near its shell round the focus, each at a distance
+      // of its own; the whole web, drawn to the middle, the loners less: a
+      // cloud, not a ball.
+      final pull = focus == null
+          ? -d * 0.02 * pulls[i]
+          : ((shell[hops[i]] ?? d) * (0.72 + 0.56 * _jit(g.nodes[i].id)) - d) * 0.25;
       dx[i] += x[i] / d * pull;
       dy[i] += y[i] / d * pull;
       dz[i] += z[i] / d * pull;
@@ -1190,7 +1218,7 @@ List<int> louvain(int n, List<(int, int, double)> links, {double resolution = 1}
 ({Map<int, ({double x, double y})> at, Map<int, int> cluster, double size, double height}) wholeWeb(MemoryDb m) {
   m.db.execute('CREATE TABLE IF NOT EXISTS graph_places(entity INTEGER PRIMARY KEY, x REAL, y REAL, cluster INTEGER)');
   final sig = [
-    'islands2',
+    'islands3',
     m.db.select('SELECT count(*) n FROM entities WHERE merged_into IS NULL').first['n'],
     m.db.select('SELECT count(*) n FROM relations').first['n'],
     m.db.select('SELECT coalesce(max(ch), -1) n FROM notes').first['n'],

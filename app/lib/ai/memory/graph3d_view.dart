@@ -249,16 +249,17 @@ class _BallPainter extends CustomPainter {
       final lit = picked != null && (e.a == picked || e.b == picked);
       final d = (depth(e.a) + depth(e.b)) / 2;
       final alpha = picked != null && !lit
-          ? 0.04
+          ? 0.03
           : lit
               ? 0.55 + d * 0.45
-              : (e.kind == LinkKind.shared ? 0.03 + d * 0.08 : 0.12 + d * 0.38);
+              : (e.kind == LinkKind.shared ? 0.02 + d * 0.06 : 0.06 + d * 0.2);
+      // Fine, in the ink's colour; a link's own colour when lit.
       canvas.drawLine(
         proj[e.a]!.at,
         proj[e.b]!.at,
         Paint()
-          ..color = view.linkColour(e.kind).withValues(alpha: alpha.clamp(0, 1))
-          ..strokeWidth = (lit ? 2.4 : 1.2) * (0.6 + d * 0.6),
+          ..color = (lit ? view.linkColour(e.kind) : view.ink).withValues(alpha: alpha.clamp(0, 1))
+          ..strokeWidth = (lit ? 1.6 : 0.7) * (0.6 + d * 0.6),
       );
     }
 
@@ -334,17 +335,38 @@ class _BallPainter extends CustomPainter {
         maxLines: 1,
         ellipsis: '…',
       )..layout(maxWidth: 180);
-      final at = proj[id]!.at + Offset(0, r + 11);
-      final rect = Rect.fromCenter(center: at, width: tp.width + 12, height: tp.height + 5);
+      final at = proj[id]!.at + Offset(0, r + 9);
+      final pad = strong ? const Offset(6, 2.5) : const Offset(2, 1);
+      final rect = Rect.fromCenter(center: at, width: tp.width + pad.dx * 2, height: tp.height + pad.dy * 2);
       if (!strong && placed.any((p) => p.overlaps(rect))) continue;
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(rect, Radius.circular(rect.height / 2)),
-        Paint()
-          ..color = strong
-              ? const Color(0xFFE07A3A)
-              : (view.dark ? const Color(0xFF101614) : Colors.white).withValues(alpha: 0.8),
-      );
-      tp.paint(canvas, rect.topLeft + const Offset(6, 2.5));
+      final ground = view.dark ? const Color(0xFF101614) : Colors.white;
+      if (strong) {
+        canvas.drawRRect(
+            RRect.fromRectAndRadius(rect, Radius.circular(rect.height / 2)), Paint()..color = const Color(0xFFE07A3A));
+      } else {
+        // Plain, as on the flat graph: a halo of the ground behind it.
+        TextPainter(
+          text: TextSpan(
+            text: n.name,
+            style: TextStyle(
+              fontFamily: 'Figtree',
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+              foreground: Paint()
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = 3.4
+                ..strokeJoin = StrokeJoin.round
+                ..color = ground.withValues(alpha: 0.85),
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+          maxLines: 1,
+          ellipsis: '…',
+        )
+          ..layout(maxWidth: 180)
+          ..paint(canvas, rect.topLeft + pad);
+      }
+      tp.paint(canvas, rect.topLeft + pad);
       placed.add(rect);
       if (!key) plain++;
     }
