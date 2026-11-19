@@ -736,6 +736,7 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
                                                 hiddenLinks: _hiddenLinks,
                                                 since: _since,
                                                 path: _path,
+                                                viewport: _box,
                                               ),
                                             ),
                                           ),
@@ -1161,7 +1162,11 @@ class GraphPainter extends CustomPainter {
     this.hiddenLinks = const {},
     this.since,
     this.path,
+    this.viewport = Size.zero,
   }) : super(repaint: view);
+
+  /// The size of the graph's area on the screen: names keep inside it.
+  final Size viewport;
 
   final GraphData data;
   final Map<int, ({double x, double y})> at;
@@ -1362,6 +1367,8 @@ class GraphPainter extends CustomPainter {
         final r = rank(b).compareTo(rank(a));
         return r != 0 ? r : b.weight.compareTo(a.weight);
       });
+    // What of the graph is on the screen now.
+    final shown = viewport == Size.zero ? null : MatrixUtils.inverseTransformRect(view.value, Offset.zero & viewport);
     var plain = 0;
     for (final n in byWeight) {
       if (n.id == f && f != picked && f != second) continue;
@@ -1382,6 +1389,10 @@ class GraphPainter extends CustomPainter {
         o(n.id) + Offset(r + 4 * dp + w / 2, 0),
         o(n.id) - Offset(r + 4 * dp + w / 2, 0),
       ]) {
+        if (shown != null && !shown.contains(at.translate(-w / 2, 0)) ||
+            shown != null && !shown.contains(at.translate(w / 2, 0))) {
+          continue;
+        }
         rect = _pill(canvas, n.name, at, 11.5 * dp, ink, strong: strong, avoid: placed);
         if (rect != null) break;
       }
