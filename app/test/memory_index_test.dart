@@ -7,6 +7,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tomevoice_spike/ai/memory/find_where_screen.dart';
 import 'package:tomevoice_spike/ai/memory/memory_db.dart';
 import 'package:tomevoice_spike/ai/memory/word_index.dart';
 import 'package:tomevoice_spike/library_store.dart';
@@ -64,6 +65,13 @@ void main() {
     // Odd typing does not break it.
     expect(db.search('"'), isEmpty);
     expect(db.search('AND OR *'), isEmpty);
+
+    // Find where…: in the book's order, how many chapters, kept to the line.
+    final all = findWhere(indexer.pathOf(id), 'weaver', null);
+    expect(all.hits.map((h) => h.place.chapter), [0, 1, 2]);
+    expect(all.chapters, 3);
+    expect(findWhere(indexer.pathOf(id), 'weaver', 1).chapters, 2);
+    expect(findWhere('${tmp.path}/none.db', 'weaver', null).hits, isEmpty);
   });
 
   test('indexing again does nothing; a changed chapter is indexed again and loses its notes', () async {

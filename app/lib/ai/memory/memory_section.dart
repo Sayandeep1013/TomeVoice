@@ -12,6 +12,7 @@ import '../../backup_flow.dart' show sizeLabel;
 import '../../download_queue.dart';
 import '../../library_store.dart' show LibraryEntry;
 import '../talk/talk_sheet.dart' show showTalk;
+import 'find_where_screen.dart';
 import 'graph_screen.dart';
 import 'hand_off.dart';
 import 'memory_builder.dart';
@@ -242,6 +243,19 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                       ?.call(ReadingCursor(sectionIndex: p.section, blockIndex: p.block, sentenceIndex: p.sentence)),
                   firstQuestion: question,
                 ),
+      ),
+    ));
+  }
+
+  Future<void> _openFind() async {
+    final line = await _service.lineOf(widget.bookId);
+    if (!mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => FindWhereScreen(
+        bookTitle: widget.bookTitle,
+        memoryPath: _service.pathOf(widget.bookId),
+        line: line,
+        onRead: widget.onRead,
       ),
     ));
   }
@@ -495,6 +509,12 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                       label: const Text('Graph'),
                     ),
                   ],
+                  if (s.exists && s.indexed > 0)
+                    OutlinedButton.icon(
+                      onPressed: () => unawaited(_openFind()),
+                      icon: const Icon(Icons.manage_search_rounded, size: 18),
+                      label: const Text('Find where…'),
+                    ),
                   if (s.exists && s.noted > 0)
                     OutlinedButton.icon(
                       onPressed: () => unawaited(_handOff()),
