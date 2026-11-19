@@ -1,8 +1,8 @@
 name: tomevoice_spike
 description: >-
-  TomeVoice reader. Opens EPUB, PDF, DOCX, MOBI/AZW3, ODT, FB2, RTF, HTML,
-  Markdown and text, and reads them aloud with the owned audio pipeline.
-  See docs/16-session-handoff.md.
+  TomeVoice reader. Opens EPUB, PDF, DjVu, DOCX, MOBI/AZW3, ODT, FB2, RTF,
+  HTML, Markdown and text, and reads them aloud with the owned audio pipeline.
+  See docs/README.md.
 publish_to: none
 version: 1.6.0+32
 
