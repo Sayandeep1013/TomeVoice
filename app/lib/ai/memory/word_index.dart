@@ -143,12 +143,13 @@ class WordIndexer {
   String pathOf(String id) => MemoryDb.pathIn(store.bookDir(id));
 
   /// Book [id]'s word index brought up to date. Returns how many chapters
-  /// were (re)indexed.
-  Future<int> index(String id, {void Function(IndexProgress p)? onProgress}) async {
+  /// were (re)indexed. For a web novel, the chapters in [again] (saved anew
+  /// since) are read again even if indexed: a changed one is indexed afresh.
+  Future<int> index(String id, {Set<int> again = const {}, void Function(IndexProgress p)? onProgress}) async {
     final entry = (await store.list(all: true)).where((e) => e.id == id).firstOrNull;
     if (entry == null) return 0;
     final path = pathOf(id);
-    if (entry.isWeb) return _indexWeb(id, path, onProgress);
+    if (entry.isWeb) return _indexWeb(id, path, onProgress, again: again);
     final layout = await store.loadLayout(id);
     // Taken apart here (a walk over its sentences), written there.
     final chapters = [
@@ -160,11 +161,12 @@ class WordIndexer {
     return n;
   }
 
-  Future<int> _indexWeb(String id, String path, void Function(IndexProgress p)? onProgress) async {
+  Future<int> _indexWeb(String id, String path, void Function(IndexProgress p)? onProgress,
+      {Set<int> again = const {}}) async {
     final dir = store.bookDir(id);
     final have = await _indexedOff(path);
     final on = store.downloadedChapters(id).toList()..sort();
-    final todo = [for (final c in on) if (!have.contains(c)) c];
+    final todo = [for (final c in on) if (!have.contains(c) || again.contains(c)) c];
     var done = on.length - todo.length;
     onProgress?.call(IndexProgress(done, on.length));
     var n = 0;

@@ -256,10 +256,16 @@ class MemoryService {
   final _keptAt = <String, DateTime>{};
   final _afterSaves = <String, Timer>{};
 
+  /// A web novel's chapters saved since it was last indexed.
+  final _savedAgain = <String, Set<int>>{};
+
   void _onSaved() {
     final saved = _store?.chapterSaved.value;
     if (saved == null) return;
     final id = saved.$1;
+    // Saved again (fetched anew, perhaps edited by its author): its index
+    // and notes are checked against the text when it is next indexed.
+    (_savedAgain[id] ??= {}).add(saved.$2);
     // Not put off by every save: while a download goes on, what has come
     // joins the memory every twenty seconds or so.
     if (_afterSaves[id]?.isActive ?? false) return;
@@ -370,6 +376,7 @@ class MemoryService {
       t.cancel();
     }
     _afterSaves.clear();
+    _savedAgain.clear();
     _keptAt.clear();
     for (final t in _wakes.values) {
       t.cancel();
@@ -481,7 +488,8 @@ class MemoryService {
     final n = _n(id);
     n.value = n.value.copyWith(indexing: const IndexProgress(0, 0));
     try {
-      await WordIndexer(store).index(id, onProgress: (p) => n.value = n.value.copyWith(indexing: p));
+      await WordIndexer(store)
+          .index(id, again: _savedAgain.remove(id) ?? const {}, onProgress: (p) => n.value = n.value.copyWith(indexing: p));
     } finally {
       n.value = n.value.copyWith(clearIndexing: true);
       await refresh(id);
