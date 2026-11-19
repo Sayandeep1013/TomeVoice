@@ -71,7 +71,7 @@ void main() {
       await tester.pump();
     }
 
-    final stamp = JournalStamp(at: ReadingCursor(sectionIndex: 3), chapter: 3, number: 4);
+    const stamp = JournalStamp(at: ReadingCursor(sectionIndex: 3), chapter: 3, number: 4);
 
     Future<({int held, int readOn})> open(WidgetTester tester, {required bool playing}) async {
       tester.view.physicalSize = const Size(1080, 2340);
