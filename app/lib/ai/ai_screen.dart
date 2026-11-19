@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -542,6 +543,13 @@ class _KeySheetState extends State<KeySheet> {
           if (c.text.isEmpty) c.text = suggestModel(_provider, job, models) ?? '';
         }
       });
+      // What Talk and the Builder need of the model: tools, and JSON.
+      final model = _models[AiJob.talker]!.text.trim();
+      if (model.isNotEmpty) {
+        final can = await probeModel(
+            _client, AiEndpoint(baseUrl: _base.text.trim(), key: _secret.text.trim(), model: model));
+        if (mounted) setState(() => _checkNote = '${_checkNote ?? ''}\n$can');
+      }
     } on AiError catch (e) {
       if (!mounted) return;
       setState(() {
@@ -819,4 +827,43 @@ int? capOf(String typed) {
   if (m == null) return null;
   final n = double.parse(m.group(1)!) * switch (m.group(2)) { 'k' => 1000, 'm' => 1000000, _ => 1 };
   return n < 1 ? null : n.round();
+}
+
+/// Whether the model at [to] calls tools and keeps to JSON, as a line for
+/// the reader: Talk looks further into a book with tools, and the Builder's
+/// notes are JSON.
+Future<String> probeModel(AiClient client, AiEndpoint to) async {
+  const ping = AiTool(
+    name: 'ping',
+    description: 'Answer a ping.',
+    parameters: {
+      'type': 'object',
+      'properties': {
+        'word': {'type': 'string'},
+      },
+      'required': ['word'],
+    },
+  );
+  bool? tools, json;
+  try {
+    final r = await client.chat(to, [aiMessage('user', 'Call the tool ping with the word "hello". Do nothing else.')],
+        tools: const [ping], maxTokens: 60);
+    tools = r.toolCalls.any((c) => c.name == 'ping');
+  } on Object {
+    tools = false;
+  }
+  try {
+    final r = await client.chat(to, [aiMessage('user', 'Reply with the JSON object {"ok": true} and nothing else.')],
+        json: true, maxTokens: 30);
+    final t = r.text.trim().replaceAll(RegExp(r'^```(json)?|```$'), '').trim();
+    json = jsonDecode(t) is Map;
+  } on Object {
+    json = false;
+  }
+  final m = to.model;
+  if (tools && json) return '$m calls tools and writes JSON: Talk and building both work fully.';
+  return [
+    if (!tools) '$m did not call a tool: Talk answers from what it is given, without looking further.',
+    if (!json) "$m did not keep to JSON: building a book's memory may fail with it. Choose another for Building.",
+  ].join(' ');
 }

@@ -4,7 +4,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tomevoice_spike/ai/ai_client.dart' show AiUsage;
+import 'package:tomevoice_spike/ai/ai_client.dart';
 import 'package:tomevoice_spike/ai/ai_keys.dart';
 import 'package:tomevoice_spike/ai/ai_screen.dart';
 
@@ -118,4 +118,35 @@ void main() {
     expect(ring.stateOf('c').restingAt(noon), isTrue);
     expect(ring.stateOf('c').restUntil, DateTime(2026, 11, 21));
   });
+  test("checking a key says whether its model calls tools and keeps to JSON", () async {
+    const to = AiEndpoint(baseUrl: 'u', key: 'k', model: 'mercury-3');
+    expect(await probeModel(_Probe(tools: true, json: true), to), contains('both work fully'));
+    final neither = await probeModel(_Probe(tools: false, json: false), to);
+    expect(neither, contains('did not call a tool'));
+    expect(neither, contains('did not keep to JSON'));
+  });
+}
+
+/// A provider that calls tools, or keeps to JSON, or not.
+class _Probe extends AiClient {
+  _Probe({required this.tools, required this.json});
+
+  final bool tools;
+  final bool json;
+
+  @override
+  Future<AiReply> chat(
+    AiEndpoint to,
+    List<Map<String, Object?>> messages, {
+    List<AiTool> tools = const [],
+    bool json = false,
+    int? maxTokens,
+    double? temperature,
+    void Function(String piece)? onText,
+  }) async {
+    if (tools.isNotEmpty) {
+      return AiReply(text: '', toolCalls: [if (this.tools) const AiToolCall(id: '1', name: 'ping', arguments: '{}')]);
+    }
+    return AiReply(text: this.json ? '{"ok": true}' : 'Sure! Here you go.');
+  }
 }
