@@ -207,6 +207,10 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
   double _aspect = 1.6;
   bool _legend = false;
 
+  /// Whether the toolbar offers the ball (3D) view. Hidden for now at the
+  /// owner's ask; the view and its layout stay, so turning this on brings it back.
+  static bool get _offerBall => false;
+
   /// Seen as a ball to turn, and where each node sits in it.
   bool _ball = false;
   Map<int, ({double x, double y, double z})>? _at3;
@@ -656,15 +660,16 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
                     icon: const Icon(Icons.search_rounded),
                     onPressed: () => unawaited(_search()),
                   ),
-                  IconButton(
-                    tooltip: _ball ? 'See it flat' : 'See it as a ball to turn (3D)',
-                    isSelected: _ball,
-                    icon: const Icon(Icons.threed_rotation_rounded),
-                    onPressed: () {
-                      setState(() => _ball = !_ball);
-                      if (_ball) unawaited(_laidAsBall());
-                    },
-                  ),
+                  if (_offerBall)
+                    IconButton(
+                      tooltip: _ball ? 'See it flat' : 'See it as a ball to turn (3D)',
+                      isSelected: _ball,
+                      icon: const Icon(Icons.threed_rotation_rounded),
+                      onPressed: () {
+                        setState(() => _ball = !_ball);
+                        if (_ball) unawaited(_laidAsBall());
+                      },
+                    ),
                   PopupMenuButton<Object>(
                     tooltip: 'More',
                     icon: const Icon(Icons.more_vert_rounded),

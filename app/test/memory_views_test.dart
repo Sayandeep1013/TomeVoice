@@ -237,15 +237,8 @@ void main() {
     expect(find.text('Centre here'), findsOneWidget);
     expect(find.text('Linked with…'), findsOneWidget);
 
-    // As a ball to turn, and back: the pick kept.
-    await tester.tap(find.byTooltip('See it as a ball to turn (3D)'));
-    await settle();
-    expect(find.byType(Graph3dView), findsOneWidget);
-    expect(find.text('Centre here'), findsOneWidget);
-    await tester.drag(find.byType(Graph3dView), const Offset(120, 0));
-    await settle();
-    await tester.tap(find.byTooltip('See it flat'));
-    await settle();
+    // The ball (3D) view is hidden for now: no toggle, and it is never drawn.
+    expect(find.byTooltip('See it as a ball to turn (3D)'), findsNothing);
     expect(find.byType(Graph3dView), findsNothing);
     await tester.pump(const Duration(seconds: 1));
   });
