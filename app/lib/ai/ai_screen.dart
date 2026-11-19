@@ -187,7 +187,8 @@ String wakeTime(DateTime t, {DateTime? now}) {
   final today = ring.today(key.id);
   if (today.calls == 0) return ('Ready', null);
   return (
-    '${today.calls} ${today.calls == 1 ? 'call' : 'calls'} · ${tokenCount(today.input + today.output)} tokens today',
+    '${today.calls} ${today.calls == 1 ? 'call' : 'calls'} · ${tokenCount(today.input + today.output)}'
+        '${key.dailyCap == null ? '' : ' of ${tokenCount(key.dailyCap!)}'} tokens today',
     null
   );
 }
@@ -482,6 +483,7 @@ class _KeySheetState extends State<KeySheet> {
   late final _label = TextEditingController(text: widget.editing?.label ?? '');
   late final _base = TextEditingController(text: widget.editing?.baseUrl ?? _provider.baseUrl);
   late final _secret = TextEditingController(text: widget.editing?.secret ?? '');
+  late final _cap = TextEditingController(text: widget.editing?.dailyCap == null ? '' : '${widget.editing!.dailyCap}');
   late final _models = {
     for (final j in AiJob.values) j: TextEditingController(text: widget.editing?.models[j] ?? ''),
   };
@@ -498,6 +500,7 @@ class _KeySheetState extends State<KeySheet> {
     _label.dispose();
     _base.dispose();
     _secret.dispose();
+    _cap.dispose();
     for (final c in _models.values) {
       c.dispose();
     }
@@ -589,6 +592,7 @@ class _KeySheetState extends State<KeySheet> {
       baseUrl: _base.text.trim(),
       secret: _secret.text.trim(),
       models: models,
+      dailyCap: capOf(_cap.text),
     ));
     if (mounted) Navigator.of(context).pop();
   }
@@ -705,6 +709,16 @@ class _KeySheetState extends State<KeySheet> {
                         ),
                       ),
                     ),
+                const SizedBox(height: Gap.m),
+                TextField(
+                  controller: _cap,
+                  keyboardType: TextInputType.text,
+                  decoration: const InputDecoration(
+                    labelText: 'Daily limit, in tokens (optional)',
+                    hintText: '2M, 500k, or empty for none',
+                    helperText: 'Reached, the key rests until midnight and the next one takes over.',
+                  ),
+                ),
                 const SizedBox(height: Gap.l),
                 Row(
                   children: [
@@ -796,4 +810,13 @@ class _ModelPickerState extends State<_ModelPicker> {
       ),
     );
   }
+}
+
+/// A typed daily limit: "2000000", "2M", "500k", "1.5m" (null: none).
+int? capOf(String typed) {
+  final t = typed.trim().toLowerCase().replaceAll(',', '').replaceAll(' ', '');
+  final m = RegExp(r'^(\d+(?:\.\d+)?)([km]?)$').firstMatch(t);
+  if (m == null) return null;
+  final n = double.parse(m.group(1)!) * switch (m.group(2)) { 'k' => 1000, 'm' => 1000000, _ => 1 };
+  return n < 1 ? null : n.round();
 }

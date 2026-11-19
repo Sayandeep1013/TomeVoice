@@ -64,6 +64,7 @@ class AiKey {
     required this.baseUrl,
     required this.secret,
     this.models = const {},
+    this.dailyCap,
   });
 
   final String id;
@@ -76,6 +77,10 @@ class AiKey {
 
   /// The model for each job it does; a job it has none for, it does not do.
   final Map<AiJob, String> models;
+
+  /// The most tokens it may use in a day (null: no limit of the reader's).
+  /// Reached, it rests until midnight, and the next key takes over.
+  final int? dailyCap;
 
   AiEndpoint endpoint(AiJob job) => AiEndpoint(baseUrl: baseUrl, key: secret, model: models[job] ?? '');
 
@@ -90,6 +95,7 @@ class AiKey {
         baseUrl: baseUrl ?? this.baseUrl,
         secret: secret ?? this.secret,
         models: models ?? this.models,
+        dailyCap: dailyCap,
       );
 
   Map<String, Object?> toJson() => {
@@ -99,6 +105,7 @@ class AiKey {
         'baseUrl': baseUrl,
         'secret': secret,
         'models': {for (final e in models.entries) e.key.name: e.value},
+        if (dailyCap != null) 'dailyCap': dailyCap,
       };
 
   static AiKey? fromJson(Object? v) {
@@ -120,6 +127,7 @@ class AiKey {
       baseUrl: base,
       secret: secret,
       models: models,
+      dailyCap: (v['dailyCap'] as num?)?.toInt(),
     );
   }
 }
@@ -356,6 +364,12 @@ class AiRing extends ChangeNotifier {
       ..calls += 1
       ..input += usage.input
       ..output += usage.output;
+    // Its daily limit reached: it rests until midnight.
+    final cap = _keys.where((k) => k.id == id).firstOrNull?.dailyCap;
+    final at = now ?? DateTime.now();
+    if (cap != null && day.input + day.output >= cap && !stateOf(id).restingAt(at)) {
+      unawaited(rest(id, DateTime(at.year, at.month, at.day + 1), 'its daily limit of $cap tokens is used'));
+    }
     if (days.length > 30) {
       final sorted = days.keys.toList()..sort();
       for (final old in sorted.take(days.length - 30)) {

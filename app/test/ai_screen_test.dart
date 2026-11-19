@@ -4,6 +4,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tomevoice_spike/ai/ai_client.dart' show AiUsage;
 import 'package:tomevoice_spike/ai/ai_keys.dart';
 import 'package:tomevoice_spike/ai/ai_screen.dart';
 
@@ -93,5 +94,28 @@ void main() {
     expect(tokenCount(48200), '48k');
     expect(tokenCount(1250000), '1.3M');
     expect(tokenCount(14000000), '14M');
+  });
+  test('a daily limit: typed short, kept, and once reached the key rests until midnight', () async {
+    expect(capOf('2M'), 2000000);
+    expect(capOf('500k'), 500000);
+    expect(capOf('1.5m'), 1500000);
+    expect(capOf('120,000'), 120000);
+    expect(capOf(''), isNull);
+    expect(capOf('lots'), isNull);
+
+    const key = AiKey(id: 'c', provider: AiProvider.gemini, label: 'Gemini', baseUrl: 'u', secret: 's',
+        models: {AiJob.builder: 'm'}, dailyCap: 1000);
+    expect(AiKey.fromJson(key.toJson())!.dailyCap, 1000);
+    expect(AiKey.fromJson(key.copyWith(label: 'x').toJson())!.dailyCap, 1000);
+
+    final ring = AiRing.instance;
+    await ring.put(key);
+    final noon = DateTime(2026, 11, 20, 12);
+    ring.count('c', const AiUsage(input: 600, output: 100), now: noon);
+    expect(ring.stateOf('c').restingAt(noon), isFalse);
+    ring.count('c', const AiUsage(input: 300, output: 50), now: noon);
+    await Future<void>.delayed(Duration.zero);
+    expect(ring.stateOf('c').restingAt(noon), isTrue);
+    expect(ring.stateOf('c').restUntil, DateTime(2026, 11, 21));
   });
 }
