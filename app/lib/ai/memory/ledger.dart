@@ -806,7 +806,7 @@ List<double> _pulls(GraphData g, Iterable<(int, int)> links) {
     degree[b]++;
   }
   return [
-    for (final (i, v) in g.nodes.indexed) (0.4 + 0.6 * math.min(1.0, degree[i] / 4)) * (0.55 + 0.9 * _jit(v.id)),
+    for (final (i, v) in g.nodes.indexed) (0.6 + 0.4 * math.min(1.0, degree[i] / 4)) * (0.7 + 0.6 * _jit(v.id)),
   ];
 }
 
