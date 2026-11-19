@@ -748,7 +748,10 @@ class MemoryService {
     final src = File(_path(from));
     final dst = File(_path(to));
     if (!await src.exists() || await dst.exists()) return false;
-    pause(from);
+    // Its building stops (not by pause(), which would write "paused" into
+    // the file as it moves); the memory goes as it stood, paused or not.
+    _wakes.remove(from)?.cancel();
+    _builders[from]?.pause();
     // A batch on its way writes to the file: let it land first.
     final b = _builders.remove(from);
     for (var i = 0; b != null && b.running && i < 240; i++) {
