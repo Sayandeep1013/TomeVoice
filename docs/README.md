@@ -3,14 +3,19 @@
 An Android reader that reads aloud: EPUB, PDF (scanned ones too, by OCR), DjVu, Word,
 Kindle and other formats, web pages, web novels and OPDS catalogues, in the phone's own
 voices or natural voices made on the phone, with more control over the voice than
-mainstream readers give, and a reading journal to write in as you go. GPL-3.0.
+mainstream readers give, and a reading journal to write in as you go. From 2.0, an
+optional AI reading companion that works with the reader's own API keys. GPL-3.0.
 
 ## Where it stands
 
 **1.6.0 was released on 18 November 2026.** Android only: Windows is not started (maybe
-later) and there is no Play Store build for now. The next release is 2.0, an AI reading
-companion ([12 — Roadmap](12-roadmap-and-milestones.md)); what each release changed is in
-the [changelog](../CHANGELOG.md).
+later) and there is no Play Store build for now. The next release is **2.0, an AI reading
+companion**, being built on the `ai-companion` branch and not yet released: a memory of
+each book (chapter notes, the cast and how it changes, the story so far), Talk about the
+book, Explain this, name cards, Who's who, a memory graph and theories, all with API
+keys the reader brings and no server of ours
+([14 — AI Companion](14-ai-companion.md)). What each release changed is in the
+[changelog](../CHANGELOG.md).
 
 What the releases since 1.4.0 added, in short:
 
@@ -27,8 +32,10 @@ What the releases since 1.4.0 added, in short:
 These documents began as the design written before the first line of code (2026-09-01).
 Where the build went another way than the design, a document says so in an **As built**
 or status note and keeps the design's reasoning beside it. Each document says which
-release it describes: [02](02-architecture.md), [03](03-document-pipeline.md),
-[11](11-data-model-and-storage.md) and [12](12-roadmap-and-milestones.md) describe 1.6.0;
+release it describes: [14](14-ai-companion.md) describes 2.0 as built on its branch;
+[02](02-architecture.md), [03](03-document-pipeline.md),
+[11](11-data-model-and-storage.md) and [12](12-roadmap-and-milestones.md) describe 1.6.0
+(02 and 11 with short sections on the 2.0 AI layer);
 the others describe 1.4.0, and what 1.5 and 1.6 changed in their areas is in the
 changelog (with a short note where it touches what they say).
 
@@ -49,8 +56,10 @@ changelog (with a short note where it touches what they say).
 | 11 | [Data Model & Storage](11-data-model-and-storage.md) | The files on the phone, writing safely, places, backups, secret shelves, tags and series, the journal, your own fonts |
 | 12 | [Roadmap & Milestones](12-roadmap-and-milestones.md) | What shipped, what is next, what is not planned, and the known limits |
 | 13 | [Testing & QA](13-testing-and-qa.md) | What is tested where, the emulator job, reproducible builds and the test app, and the audio spike's measurements |
+| 14 | [AI Companion](14-ai-companion.md) | **2.0, unreleased.** Providers and the key ring, what is sent, each book's `memory.db`, building and keeping it up, web-novel chapters for it, answering, Who's who and the graph |
 
-Numbers 14 to 18 are retired: the verification log of September 2026, the audio
+Number 14 is now the AI companion. The documents once numbered 14 to 18 are retired:
+the verification log of September 2026, the audio
 spike's specification and build log, and the step-back review of v0.4.0 were finished
 history, as were the HTML plans for 1.0 and for web novels and the NovelDokusha research;
 16 and 18 were working notes, not part of these documents.
@@ -111,4 +120,5 @@ can change upstream, and what rests on it, is in the
 | Look | A fashion-magazine type set over the "specimen" ground ([ADR-018](10-decisions-adr.md#adr-018), [ADR-017](10-decisions-adr.md#adr-017)) |
 | Natural voices | sherpa-onnx, pinned at 1.13.8: Piper, Kokoro, Kitten ([ADR-006](10-decisions-adr.md#adr-006)) |
 | Web novels | LNReader's source plugins in QuickJS; TomeVoice ships no scrapers ([ADR-019](10-decisions-adr.md#adr-019)) |
-| Storage | Plain JSON files, no database ([11](11-data-model-and-storage.md)) |
+| Storage | Plain JSON files ([11](11-data-model-and-storage.md)); from 2.0, each book's AI memory is a SQLite file of its own ([14](14-ai-companion.md)) |
+| AI | The reader's own keys, any OpenAI-compatible provider, straight from the phone; no model on the phone, no server of ours ([14](14-ai-companion.md)) |

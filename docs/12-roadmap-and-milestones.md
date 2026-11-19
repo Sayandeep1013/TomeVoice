@@ -42,6 +42,8 @@ with API keys the reader brings, and adds:
 - who's who in the story;
 - a memory graph.
 
+How it works, as built on the `ai-companion` branch: [14 — AI Companion](14-ai-companion.md).
+
 ## Also open
 
 1. **A second full review** of the whole app, as the first one was done.

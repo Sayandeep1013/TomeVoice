@@ -3,7 +3,8 @@
 How TomeVoice keeps your library on the phone, as built (not as first planned: the
 original plan's SQLite/Drift database, full-text index and migrations were never built;
 see git history for that version of this page), as of 1.6.0. Everything is plain JSON
-files, written atomically, with no server and no account.
+files, written atomically, with no server and no account. The one exception comes with
+2.0: each book's AI memory is a SQLite file of its own (11.9).
 
 ## 11.1 Where things live
 
@@ -26,6 +27,7 @@ books/<id>/             one folder per book (id: 16 hex digits, or web- and 16 m
                         no longer lists; they come back if it lists them again)
   read.json             a web novel's chapters marked read or unread by hand, by address
   ocr.json              a scanned PDF's text, read once by OCR, never read again
+  memory.db             2.0: the AI companion's memory of the book (SQLite; see 11.9)
 marks.json              quotes (with colour and note) and bookmarks, for every book; "left"
                         on those of a book removed from an open shelf (see 11.6)
 journal.json            the reading journal: every book's entries, newest first (see 11.8)
@@ -43,7 +45,6 @@ downloads.json          the chapter download queue, so it carries on after a res
 sync_state.json         what sync last sent and saw (WebDAV, KOReader)
 starter.json            what the first-launch shelf has added, so it is never added twice
 app_update.json         the update check's state; names the APK to install, never backed up
-.secrets.json           sync passwords and this phone's sync id; never backed up
 .restore-journal.json   a library being replaced, until the swap is settled
 .restore-report.txt     what the last restore did, shown once
 incoming/<uuid>/<name>  a file picked or opened from another app, while it is imported;
@@ -61,6 +62,10 @@ sources/                web-novel sources: repos.json (the lists), installed.jso
                         storage-<id>.json (each plugin's own settings), cookies per plugin,
                         index-*.json (cached lists), moved.json, restored.json
 errors.jsonl            the local error log (about 50 entries), scrubbed of titles and paths
+.secrets.json           catalogue and sync passwords, this phone's sync id and, from 2.0,
+                        the AI keys; never backed up (builds before 1.4 kept it in the
+                        library folder, and moved it here the first time it was read)
+.ai_usage.json          2.0: each AI key's calls and tokens per day, thirty days kept
 ```
 
 The `cache/tts` folder holds the voice's sentence audio while it is read; it is emptied
@@ -235,3 +240,33 @@ offered for one while the shelf is shut.
   quotes, bookmarks, journal entries, voices and reading rules to it (each place found
   again by its sentence), gives it the old one's place and shelf, and removes the old
   file ([03 §3.9](03-document-pipeline.md#39-indexing-and-caching)).
+
+## 11.9 The AI companion's files (2.0)
+
+The AI reading companion coming in 2.0 adds these to what is kept;
+[14](14-ai-companion.md) describes them in full.
+
+- **`books/<id>/memory.db`**: one SQLite file per book, made the first time the reader
+  builds its memory or sets one of the book's AI settings, through the `sqlite3`
+  package with FTS5. It holds the word index, each chapter's notes, the graph (entities
+  and their names, events, facts and relations over time, threads, reveals, quotes), the
+  story so far, the reader's theories, meaning-search vectors, and the book's AI
+  settings (spoiler guard, "I've read up to", paused, kept away from the AI, the series
+  it follows on from). Every row made from the text carries its chapter, and most their
+  sentence. Its schema version is SQLite's `user_version` (4 in 2.0), upgraded in one
+  transaction when it is opened. It uses the `DELETE` journal mode, so it is one file
+  with nothing beside it: it is in the book's folder, so a backup carries it and
+  removing the book removes it; **Forget this memory** deletes it. It is not JSON, so it
+  is not written by `writeSafely`; each batch the Builder merges is one transaction
+  instead.
+- **The keys** are in `.secrets.json` (internal storage), as one JSON value under
+  `ai.ring`: each key's provider, name, address, secret and model per job, each job's
+  order of keys, and which keys are resting (until when) or refused. Never in a backup;
+  a library restored on another phone asks for its keys again.
+- **`.ai_usage.json`** (internal storage, beside the secrets): per key, per day, the
+  calls, input tokens and output tokens; thirty days kept, written at most every two
+  seconds. Only a guide: lost, it starts again.
+- **Talks** are journal entries (`journal.json`) with a `talk` list of lines, each
+  `{"by": "me" or "ai", "text": ...}`, instead of answers or a page. The AI settings are
+  in `prefs.json`: `aiSpeak`, `aiLength`, `aiRecapDays`, `aiOwnKnowledge`,
+  `aiBackground`, `aiBackgroundWifi`, `aiBackgroundCharging`.
