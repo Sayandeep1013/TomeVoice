@@ -62,6 +62,7 @@ class ListeningPrefs {
     this.ownAccent,
     this.ownInk,
     this.updateEvery = 'daily',
+    this.checkStartedOnly = false,
     this.novelUpdates = false,
     this.gridView = true,
     this.journalNotebook = false,
@@ -344,6 +345,9 @@ class ListeningPrefs {
   /// How often web novels are checked for new chapters (see UpdateEvery).
   String updateEvery;
 
+  /// Only the web novels already begun are checked for new chapters.
+  bool checkStartedOnly;
+
   /// A link on each web novel's page to find it on NovelUpdates, in the
   /// browser (see NovelUpdates). Off until turned on.
   bool novelUpdates;
@@ -553,6 +557,7 @@ class ListeningPrefs {
         if (ownAccent != null) 'ownAccent': colourToHex(ownAccent!),
         if (ownInk != null) 'ownInk': colourToHex(ownInk!),
         'updateEvery': updateEvery,
+        if (checkStartedOnly) 'checkStartedOnly': true,
         if (novelUpdates) 'novelUpdates': true,
         'gridView': gridView,
         'journalNotebook': journalNotebook,
@@ -682,6 +687,7 @@ class ListeningPrefs {
         ownAccent: colourFromHex(json['ownAccent']),
         ownInk: colourFromHex(json['ownInk']),
         updateEvery: json['updateEvery'] as String? ?? 'daily',
+        checkStartedOnly: json['checkStartedOnly'] == true,
         novelUpdates: json['novelUpdates'] == true,
         sort: LibrarySort.values.where((m) => m.name == json['sort']).firstOrNull ??
             LibrarySort.recent,

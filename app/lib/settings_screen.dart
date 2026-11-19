@@ -574,6 +574,13 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                         ),
                         const SizedBox(height: Gap.s),
                         SwitchRow(
+                          title: "Only novels I've begun",
+                          subtitle: 'One added but never opened is not checked',
+                          value: _prefs.checkStartedOnly,
+                          padding: EdgeInsets.zero,
+                          onChanged: (v) => _change(() => _prefs.checkStartedOnly = v),
+                        ),
+                        SwitchRow(
                           title: 'Find on NovelUpdates',
                           subtitle: NovelUpdates.about,
                           value: _prefs.novelUpdates,

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show ValueNotifier;
 
 import 'auto_download.dart';
 import 'library_store.dart';
+import 'prefs.dart' show ListeningPrefs;
 import 'safe_file.dart';
 import 'sources/browser_hosts.dart';
 import 'sources/cookies.dart';
@@ -361,8 +362,11 @@ class Updates {
     try {
       final all = await store.list(all: true);
       final web = <LibraryEntry>[];
+      final startedOnly = ListeningPrefs.loaded?.checkStartedOnly ?? false;
       for (final e in all) {
         if (!e.isWeb) continue;
+        // "Only novels I've begun": one never opened waits.
+        if (startedOnly && e.progress <= 0 && e.openedAt == null) continue;
         if (skipCompleted && e.finished && (await store.webNovel(e.id))?.novel.status == 'Completed') continue;
         web.add(e);
       }
