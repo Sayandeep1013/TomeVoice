@@ -132,6 +132,11 @@ void main() {
         await tester.pump(const Duration(milliseconds: 60));
         if (i >= 19 && (until == null || until.evaluate().isNotEmpty)) break;
       }
+      // There now, perhaps only just: the page's slide in finished too.
+      if (until != null) {
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.pump(const Duration(milliseconds: 400));
+      }
     }
 
     await tester.tap(find.text('Write'));
