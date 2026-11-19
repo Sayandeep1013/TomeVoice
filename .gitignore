@@ -41,3 +41,6 @@ __pycache__/
 .cursor/
 *.swp
 .DS_Store
+
+# Working notes kept on this PC only: plans, hand-offs, test lists.
+/private/
