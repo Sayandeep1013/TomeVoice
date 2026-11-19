@@ -11,6 +11,7 @@ import '../talk/name_card.dart';
 import 'cast_tidy.dart';
 import 'graph_screen.dart';
 import 'ledger.dart';
+import 'memory_db.dart';
 
 /// Who's who: everyone and everything with a name in the book's memory, by
 /// kind, found by any of their names, as of the spoiler line when the guard
@@ -44,10 +45,30 @@ class _WhosWhoScreenState extends State<WhosWhoScreen> {
   int _asked = 0;
   bool _tidying = false;
 
+  /// Kinds the AI has suggested for this book, not yet accepted.
+  List<({String name, String about})> _proposed = const [];
+
   @override
   void initState() {
     super.initState();
     unawaited(_load());
+    unawaited(_loadProposed());
+  }
+
+  Future<void> _loadProposed() async {
+    final p = await _proposedOff(widget.memoryPath);
+    if (mounted) setState(() => _proposed = p);
+  }
+
+  Future<void> _reviewKinds() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      sheetAnimationStyle: sheetMotion(context),
+      useSafeArea: true,
+      isScrollControlled: true,
+      builder: (_) => _KindsSheet(path: widget.memoryPath, kinds: _proposed),
+    );
+    await _loadProposed();
   }
 
   Future<void> _load() async {
@@ -253,6 +274,19 @@ class _WhosWhoScreenState extends State<WhosWhoScreen> {
                   ],
                 ),
               ),
+              if (_proposed.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(Gap.page - Gap.s, Gap.xs, Gap.page, 0),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
+                      onPressed: () => unawaited(_reviewKinds()),
+                      child: Text(_proposed.length == 1
+                          ? 'The AI suggests a new kind: ${_proposed.first.name}'
+                          : 'The AI suggests ${_proposed.length} new kinds for this book'),
+                    ),
+                  ),
+                ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(Gap.page, Gap.s, Gap.page, Gap.s),
                 child: SearchField(
@@ -435,3 +469,91 @@ Color kindColour(String kind) => switch (kind) {
       'term' => const Color(0xFF8C8C96),
       _ => HSLColor.fromAHSL(1, (kind.hashCode % 360).toDouble().abs(), 0.5, 0.55).toColor(),
     };
+
+/// The kinds the AI has suggested for the book at [path], not yet decided.
+List<({String name, String about})> proposedKinds(String path) {
+  if (!MemoryDb.existsAt(path)) return const [];
+  final m = MemoryDb.open(path);
+  try {
+    return [
+      for (final r in m.db.select('SELECT name, about FROM kinds WHERE accepted = 0 ORDER BY name'))
+        (name: r['name'] as String, about: (r['about'] as String?) ?? ''),
+    ];
+  } finally {
+    m.close();
+  }
+}
+
+/// Kind [name] accepted (the Builder sorts things into it from now on), or
+/// turned down (forgotten).
+void decideKind(String path, String name, {required bool accept}) {
+  final m = MemoryDb.open(path);
+  try {
+    if (accept) {
+      m.db.execute('UPDATE kinds SET accepted = 1 WHERE name = ?', [name]);
+    } else {
+      m.db.execute('DELETE FROM kinds WHERE name = ? AND accepted = 0', [name]);
+    }
+  } finally {
+    m.close();
+  }
+}
+
+Future<List<({String name, String about})>> _proposedOff(String path) => Isolate.run(() => proposedKinds(path));
+Future<void> _decideOff(String path, String name, bool accept) =>
+    Isolate.run(() => decideKind(path, name, accept: accept));
+
+/// The kinds the AI suggests, each to accept or turn down.
+class _KindsSheet extends StatefulWidget {
+  const _KindsSheet({required this.path, required this.kinds});
+
+  final String path;
+  final List<({String name, String about})> kinds;
+
+  @override
+  State<_KindsSheet> createState() => _KindsSheetState();
+}
+
+class _KindsSheetState extends State<_KindsSheet> {
+  late final _left = [...widget.kinds];
+
+  Future<void> _decide(String name, bool accept) async {
+    await _decideOff(widget.path, name, accept);
+    if (!mounted) return;
+    setState(() => _left.removeWhere((k) => k.name == name));
+    if (_left.isEmpty) Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SheetHeader('New kinds', subtitle: 'Accepted, the memory sorts what it meets into them from now on'),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final k in _left)
+                    ListTile(
+                      leading: KindDot(k.name, size: 12),
+                      title: Text(kindLabel(k.name)),
+                      subtitle: k.about.isEmpty ? null : Text(k.about, style: Skin.meta(context)),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          TextButton(onPressed: () => unawaited(_decide(k.name, false)), child: const Text('No')),
+                          FilledButton.tonal(
+                              onPressed: () => unawaited(_decide(k.name, true)), child: const Text('Accept')),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: Gap.m),
+          ],
+        ),
+      );
+}

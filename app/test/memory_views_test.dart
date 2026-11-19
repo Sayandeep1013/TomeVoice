@@ -134,6 +134,21 @@ void main() {
     expect(ledger(second).length, 4);
   });
 
+  test('kinds the AI suggests: listed, accepted for the Builder, or turned down', () {
+    final path = _memory(tmp);
+    final m = MemoryDb.open(path);
+    m.db.execute("INSERT INTO kinds(name, about, core, accepted) VALUES ('aspect', 'A power', 0, 0), ('rune', 'A mark', 0, 0)");
+    m.close();
+    expect(proposedKinds(path).map((k) => k.name), ['aspect', 'rune']);
+    decideKind(path, 'aspect', accept: true);
+    decideKind(path, 'rune', accept: false);
+    expect(proposedKinds(path), isEmpty);
+    final after = MemoryDb.open(path);
+    expect(after.db.select("SELECT accepted FROM kinds WHERE name = 'aspect'").single['accepted'], 1);
+    expect(after.db.select("SELECT * FROM kinds WHERE name = 'rune'"), isEmpty);
+    after.close();
+  });
+
   test('a question asked before comes back: "at ch 4, they asked"', () {
     final path = _memory(tmp);
     noteAsked(path, 'Why did Cassie leave Sunny?', 3);
