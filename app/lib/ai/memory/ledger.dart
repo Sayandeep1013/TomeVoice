@@ -28,7 +28,8 @@ enum LedgerOrder { importance, firstMet, name }
 
 /// Who's who: the book's entities as of chapter [at] (null: all of them),
 /// of [kind] and matching [query] by any of their names.
-List<LedgerEntry> ledger(String path, {int? at, String? kind, String query = '', LedgerOrder order = LedgerOrder.importance}) {
+List<LedgerEntry> ledger(String path,
+    {int? at, String? kind, String query = '', LedgerOrder order = LedgerOrder.importance}) {
   final m = MemoryDb.open(path);
   try {
     final line = at ?? 1 << 30;
@@ -107,19 +108,67 @@ enum LinkKind { bond, conflict, family, belongs, other, shared }
 LinkKind linkKindOf(String rel) {
   final r = rel.toLowerCase();
   bool has(List<String> words) => words.any(r.contains);
-  if (has(['enem', 'rival', 'betray', 'hunt', 'oppos', 'against', 'distrust', 'hate', 'kill', 'fight', 'feud', 'war'])) {
+  if (has(
+      ['enem', 'rival', 'betray', 'hunt', 'oppos', 'against', 'distrust', 'hate', 'kill', 'fight', 'feud', 'war'])) {
     return LinkKind.conflict;
   }
-  if (has(['parent', 'child', 'sibling', 'brother', 'sister', 'father', 'mother', 'son', 'daughter', 'family',
-    'married', 'spouse', 'wife', 'husband', 'cousin', 'uncle', 'aunt', 'grand'])) {
+  if (has([
+    'parent',
+    'child',
+    'sibling',
+    'brother',
+    'sister',
+    'father',
+    'mother',
+    'son',
+    'daughter',
+    'family',
+    'married',
+    'spouse',
+    'wife',
+    'husband',
+    'cousin',
+    'uncle',
+    'aunt',
+    'grand'
+  ])) {
     return LinkKind.family;
   }
-  if (has(['member', 'leader', 'serv', 'owns', 'owner', 'bound', 'belong', 'part of', 'rules', 'works for', 'keeper',
-    'commands', 'head of', 'citizen', 'resident'])) {
+  if (has([
+    'member',
+    'leader',
+    'serv',
+    'owns',
+    'owner',
+    'bound',
+    'belong',
+    'part of',
+    'rules',
+    'works for',
+    'keeper',
+    'commands',
+    'head of',
+    'citizen',
+    'resident'
+  ])) {
     return LinkKind.belongs;
   }
-  if (has(['ally', 'allie', 'friend', 'love', 'trust', 'mentor', 'companion', 'protect', 'partner', 'lover', 'admire',
-    'loyal', 'help', 'saved'])) {
+  if (has([
+    'ally',
+    'allie',
+    'friend',
+    'love',
+    'trust',
+    'mentor',
+    'companion',
+    'protect',
+    'partner',
+    'lover',
+    'admire',
+    'loyal',
+    'help',
+    'saved'
+  ])) {
     return LinkKind.bond;
   }
   return LinkKind.other;
@@ -449,8 +498,8 @@ const canvasPerDp = 2.6;
 /// The rings round [focus]: how many links out each node is, the first
 /// ring in order of how it is linked to the focus, each further ring in the
 /// order of the nodes it links to in the ring inside it.
-void _rings(GraphData g, int focus, List<(int, int, GraphEdge)> links, List<double> radius, List<double> x,
-    List<double> y) {
+void _rings(
+    GraphData g, int focus, List<(int, int, GraphEdge)> links, List<double> radius, List<double> x, List<double> y) {
   final n = g.nodes.length;
   final next = List.generate(n, (_) => <int>{});
   for (final (a, b, _) in links) {
@@ -481,13 +530,19 @@ void _rings(GraphData g, int focus, List<(int, int, GraphEdge)> links, List<doub
   final angle = List<double>.filled(n, 0);
   var ringR = 0.0;
   for (var ring = 1; ring <= hops.reduce(math.max); ring++) {
-    final members = [for (var i = 0; i < n; i++) if (hops[i] == ring) i];
+    final members = [
+      for (var i = 0; i < n; i++)
+        if (hops[i] == ring) i
+    ];
     if (members.isEmpty) continue;
     // Where each would like to be: by its link to the focus in the first
     // ring; further out, beside those it links to, inside.
     double wanted(int i) {
       if (ring == 1) return (kindTo[i] ?? 9) * 100.0 - g.nodes[i].weight / 1000;
-      final inner = [for (final m in next[i]) if (hops[m] == ring - 1) angle[m]];
+      final inner = [
+        for (final m in next[i])
+          if (hops[m] == ring - 1) angle[m]
+      ];
       if (inner.isEmpty) return 1000 + i.toDouble();
       // The mean of angles, taken as points on a circle.
       final sx = inner.fold(0.0, (t, a) => t + math.cos(a)), sy = inner.fold(0.0, (t, a) => t + math.sin(a));
@@ -630,4 +685,127 @@ void _apart(List<double> radius, List<double> x, List<double> y, {int? fixed}) {
   final g = graphAt(path, at: at, focus: focus, depth: depth, most: most, kinds: kinds, minChapters: minChapters);
   final l = layoutGraph(g);
   return (data: g, at: l.at, size: l.size);
+}
+
+/// Where each node sits in three dimensions, for the graph seen as a ball
+/// to turn: round someone, they are at the middle and each ring of the flat
+/// graph is a shell round them; the whole web, a ball. Linked nodes pull
+/// together, all push apart, none overlapping, the same each time.
+Map<int, ({double x, double y, double z})> layoutGraph3d(GraphData g, {int rounds = 220}) {
+  final n = g.nodes.length;
+  if (n == 0) return const {};
+  final index = {for (final (i, v) in g.nodes.indexed) v.id: i};
+  final radius = [for (final v in g.nodes) nodeDp(v.weight) * canvasPerDp];
+  final links = [
+    for (final e in g.edges)
+      if (index[e.a] != null && index[e.b] != null && e.a != e.b) (index[e.a]!, index[e.b]!, e.related ? 1.0 : 0.5),
+  ];
+  final focus = g.focus != null ? index[g.focus] : null;
+  // How many links out from the focus each is (none: everyone in one ball).
+  final hops = List<int>.filled(n, 1);
+  if (focus != null) {
+    final next = List.generate(n, (_) => <int>{});
+    for (final (a, b, _) in links) {
+      next[a].add(b);
+      next[b].add(a);
+    }
+    hops.fillRange(0, n, -1);
+    hops[focus] = 0;
+    final queue = [focus];
+    for (var i = 0; i < queue.length; i++) {
+      for (final m in next[queue[i]]) {
+        if (hops[m] < 0) {
+          hops[m] = hops[queue[i]] + 1;
+          queue.add(m);
+        }
+      }
+    }
+    final deepest = hops.reduce(math.max);
+    for (var i = 0; i < n; i++) {
+      if (hops[i] < 0) hops[i] = deepest + 1;
+    }
+  }
+  // Each shell big enough for its nodes to sit apart on it.
+  final shell = <int, double>{};
+  for (var h = 1; h <= hops.reduce(math.max); h++) {
+    final area = [
+      for (var i = 0; i < n; i++)
+        if (hops[i] == h) math.pow(radius[i] * 2 + 60, 2)
+    ].fold(0.0, (t, a) => t + a);
+    shell[h] = math.max((shell[h - 1] ?? 0) + 220, math.sqrt(area / (4 * math.pi)) * 1.2);
+  }
+  // Start on spheres (a Fibonacci spiral each), then let the forces work.
+  final x = List<double>.filled(n, 0), y = List<double>.filled(n, 0), z = List<double>.filled(n, 0);
+  final onShell = <int, int>{};
+  final count = <int, int>{};
+  for (final h in hops) {
+    count[h] = (count[h] ?? 0) + 1;
+  }
+  for (var i = 0; i < n; i++) {
+    if (i == focus) continue;
+    final h = hops[i];
+    final k = onShell[h] = (onShell[h] ?? -1) + 1;
+    final m = count[h]!;
+    final t = (k + 0.5) / m;
+    final phi = math.acos(1 - 2 * t), theta = math.pi * (1 + math.sqrt(5)) * k;
+    final r = shell[h] ?? 300;
+    x[i] = r * math.sin(phi) * math.cos(theta);
+    y[i] = r * math.sin(phi) * math.sin(theta);
+    z[i] = r * math.cos(phi);
+  }
+  final spread = math.max(160.0, 900 / math.pow(n, 1 / 3));
+  var heat = 60.0;
+  for (var round = 0; round < rounds; round++) {
+    final dx = List<double>.filled(n, 0), dy = List<double>.filled(n, 0), dz = List<double>.filled(n, 0);
+    for (var i = 0; i < n; i++) {
+      for (var j = i + 1; j < n; j++) {
+        final ex = x[i] - x[j], ey = y[i] - y[j], ez = z[i] - z[j];
+        final d = math.max(1.0, math.sqrt(ex * ex + ey * ey + ez * ez));
+        var f = spread * spread / d / 8;
+        final room = radius[i] + radius[j] + 48;
+        if (d < room) f += (room - d) * 4;
+        dx[i] += ex / d * f;
+        dy[i] += ey / d * f;
+        dz[i] += ez / d * f;
+        dx[j] -= ex / d * f;
+        dy[j] -= ey / d * f;
+        dz[j] -= ez / d * f;
+      }
+    }
+    for (final (a, b, w) in links) {
+      final ex = x[a] - x[b], ey = y[a] - y[b], ez = z[a] - z[b];
+      final d = math.max(1.0, math.sqrt(ex * ex + ey * ey + ez * ez));
+      final f = d * d / spread * w / 4;
+      dx[a] -= ex / d * f;
+      dy[a] -= ey / d * f;
+      dz[a] -= ez / d * f;
+      dx[b] += ex / d * f;
+      dy[b] += ey / d * f;
+      dz[b] += ez / d * f;
+    }
+    for (var i = 0; i < n; i++) {
+      if (i == focus) continue;
+      final d = math.max(1.0, math.sqrt(x[i] * x[i] + y[i] * y[i] + z[i] * z[i]));
+      // Held to its shell round the focus; the whole web, to the middle.
+      final pull = focus == null ? -d * 0.02 : ((shell[hops[i]] ?? d) - d) * 0.6;
+      dx[i] += x[i] / d * pull;
+      dy[i] += y[i] / d * pull;
+      dz[i] += z[i] / d * pull;
+      final m = math.max(0.01, math.sqrt(dx[i] * dx[i] + dy[i] * dy[i] + dz[i] * dz[i]));
+      x[i] += dx[i] / m * math.min(m, heat);
+      y[i] += dy[i] / m * math.min(m, heat);
+      z[i] += dz[i] / m * math.min(m, heat);
+    }
+    heat = math.max(2, heat * 0.985);
+  }
+  if (focus == null) {
+    // The ball's middle at the middle.
+    final cx = x.reduce((a, b) => a + b) / n, cy = y.reduce((a, b) => a + b) / n, cz = z.reduce((a, b) => a + b) / n;
+    for (var i = 0; i < n; i++) {
+      x[i] -= cx;
+      y[i] -= cy;
+      z[i] -= cz;
+    }
+  }
+  return {for (final v in g.nodes) v.id: (x: x[index[v.id]!], y: y[index[v.id]!], z: z[index[v.id]!])};
 }

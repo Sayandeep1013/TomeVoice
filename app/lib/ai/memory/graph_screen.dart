@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../../theme.dart';
 import '../../ui.dart';
 import '../talk/name_card.dart';
+import 'graph3d_view.dart';
 import 'ledger.dart';
 import 'whos_who_screen.dart' show KindDot, kindColour, kindLabel;
 
@@ -22,6 +23,7 @@ Future<({GraphData data, Map<int, ({double x, double y})> at, double size})> _dr
 ) =>
     Isolate.run(() => graphAndLayout(path,
         at: at, focus: focus, depth: depth, kinds: kinds.isEmpty ? null : kinds, minChapters: minChapters));
+Future<Map<int, ({double x, double y, double z})>> _ballOff(GraphData g) => Isolate.run(() => layoutGraph3d(g));
 Future<int?> _mainOff(String path, int? at) => Isolate.run(() => mainOf(path, at: at));
 Future<NodeDetail?> _detailOff(String path, int id, int at) => Isolate.run(() => nodeDetail(path, id, at));
 Future<({List<String> relations, List<({int ch, String what})> events})> _linksOff(String path, int a, int b, int at) =>
@@ -78,11 +80,15 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
   double _size = 1000;
   bool _legend = false;
 
+  /// Seen as a ball to turn, and where each node sits in it.
+  bool _ball = false;
+  Map<int, ({double x, double y, double z})>? _at3;
+
   GraphData? _data;
   Map<int, ({double x, double y})> _at = const {};
   Map<int, ({double x, double y})> _from = const {};
-  late final AnimationController _move =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 450))..addListener(_moved);
+  late final AnimationController _move = AnimationController(vsync: this, duration: const Duration(milliseconds: 450))
+    ..addListener(_moved);
 
   int? _focus;
   GraphDepth _depth = GraphDepth.one;
@@ -152,9 +158,19 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
         _fitted = false;
       }
       _loading = false;
+      _at3 = null;
       if (_picked != null && !_at.containsKey(_picked)) _clearPick();
     });
     unawaited(_move.forward(from: 0));
+    if (_ball) await _laidAsBall();
+  }
+
+  Future<void> _laidAsBall() async {
+    final data = _data;
+    if (data == null || _at3 != null) return;
+    final n = _asked;
+    final at = await _ballOff(data);
+    if (mounted && n == _asked && _data == data) setState(() => _at3 = at);
   }
 
   /// Where the nodes are drawn now: on their way, while the web moves.
@@ -300,7 +316,10 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
     final data = _data;
     final dark = Theme.of(context).brightness == Brightness.dark;
     final kinds = {for (final n in data?.nodes ?? const <GraphNode>[]) n.kind}.toList()..sort();
-    final used = {for (final e in data?.edges ?? const <GraphEdge>[]) if (e.at(_shownCh)) e.kind}.toList()
+    final used = {
+      for (final e in data?.edges ?? const <GraphEdge>[])
+        if (e.at(_shownCh)) e.kind
+    }.toList()
       ..sort((a, b) => a.index.compareTo(b.index));
     final focusName = _nameOf(_focus);
     return Scaffold(
@@ -320,16 +339,26 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
                     onPressed: () => unawaited(_search()),
                   ),
                   IconButton(
+                    tooltip: _ball ? 'See it flat' : 'See it as a ball to turn (3D)',
+                    isSelected: _ball,
+                    icon: const Icon(Icons.threed_rotation_rounded),
+                    onPressed: () {
+                      setState(() => _ball = !_ball);
+                      if (_ball) unawaited(_laidAsBall());
+                    },
+                  ),
+                  IconButton(
                     tooltip: _legend ? 'Hide the key' : 'What the colours mean',
                     isSelected: _legend,
                     icon: const Icon(Icons.legend_toggle_rounded),
                     onPressed: () => setState(() => _legend = !_legend),
                   ),
-                  IconButton(
-                    tooltip: 'Fit to the screen',
-                    icon: const Icon(Icons.fit_screen_rounded),
-                    onPressed: () => setState(() => _fitted = false),
-                  ),
+                  if (!_ball)
+                    IconButton(
+                      tooltip: 'Fit to the screen',
+                      icon: const Icon(Icons.fit_screen_rounded),
+                      onPressed: () => setState(() => _fitted = false),
+                    ),
                   const SizedBox(width: Gap.s),
                 ],
               ),
@@ -396,52 +425,70 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
                           )
                         : Stack(
                             children: [
-                              Positioned.fill(
-                                child: LayoutBuilder(builder: (context, box) {
-                                  if (!_fitted) {
-                                    _fitted = true;
-                                    final s = math.min(box.maxWidth, box.maxHeight) / _size;
-                                    _view.value = Matrix4.identity()
-                                      ..translateByDouble(
-                                          (box.maxWidth - _size * s) / 2, (box.maxHeight - _size * s) / 2, 0, 1)
-                                      ..scaleByDouble(s, s, 1, 1);
-                                  }
-                                  return ClipRect(
-                                    child: InteractiveViewer(
-                                      transformationController: _view,
-                                      constrained: false,
-                                      boundaryMargin: const EdgeInsets.all(400),
-                                      minScale: 0.04,
-                                      maxScale: 6,
-                                      child: GestureDetector(
-                                        behavior: HitTestBehavior.opaque,
-                                        onTapUp: (d) => unawaited(_pick(_hit(d.localPosition))),
-                                        child: SizedBox(
-                                          width: _size,
-                                          height: _size,
-                                          child: CustomPaint(
-                                            painter: GraphPainter(
-                                              data: data,
-                                              at: _shown,
-                                              chapter: _shownCh,
-                                              picked: _picked,
-                                              second: _second,
-                                              view: _view,
-                                              dark: dark,
-                                              ink: Skin.inkOn(context),
+                              if (_ball)
+                                Positioned.fill(
+                                  child: _at3 == null
+                                      ? const Center(child: CircularProgressIndicator())
+                                      : Graph3dView(
+                                          data: data,
+                                          at: _at3!,
+                                          chapter: _shownCh,
+                                          picked: _picked,
+                                          second: _second,
+                                          onPick: (id) => unawaited(_pick(id)),
+                                          ink: Skin.inkOn(context),
+                                          dark: dark,
+                                          linkColour: linkColour,
+                                        ),
+                                )
+                              else
+                                Positioned.fill(
+                                  child: LayoutBuilder(builder: (context, box) {
+                                    if (!_fitted) {
+                                      _fitted = true;
+                                      final s = math.min(box.maxWidth, box.maxHeight) / _size;
+                                      _view.value = Matrix4.identity()
+                                        ..translateByDouble(
+                                            (box.maxWidth - _size * s) / 2, (box.maxHeight - _size * s) / 2, 0, 1)
+                                        ..scaleByDouble(s, s, 1, 1);
+                                    }
+                                    return ClipRect(
+                                      child: InteractiveViewer(
+                                        transformationController: _view,
+                                        constrained: false,
+                                        boundaryMargin: const EdgeInsets.all(400),
+                                        minScale: 0.04,
+                                        maxScale: 6,
+                                        child: GestureDetector(
+                                          behavior: HitTestBehavior.opaque,
+                                          onTapUp: (d) => unawaited(_pick(_hit(d.localPosition))),
+                                          child: SizedBox(
+                                            width: _size,
+                                            height: _size,
+                                            child: CustomPaint(
+                                              painter: GraphPainter(
+                                                data: data,
+                                                at: _shown,
+                                                chapter: _shownCh,
+                                                picked: _picked,
+                                                second: _second,
+                                                view: _view,
+                                                dark: dark,
+                                                ink: Skin.inkOn(context),
+                                              ),
                                             ),
                                           ),
                                         ),
                                       ),
-                                    ),
-                                  );
-                                }),
-                              ),
+                                    );
+                                  }),
+                                ),
                               if (_loading)
                                 const Positioned(
                                   top: 8,
                                   right: 16,
-                                  child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                                  child:
+                                      SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
                                 ),
                               if (_legend && used.isNotEmpty)
                                 Positioned(left: Gap.page, top: Gap.s, child: _Legend(kinds: used, nodes: kinds)),
@@ -942,9 +989,8 @@ class GraphPainter extends CustomPainter {
     canvas.drawRRect(
       RRect.fromRectAndRadius(rect, Radius.circular(rect.height / 2)),
       Paint()
-        ..color = strong
-            ? const Color(0xFFE07A3A)
-            : (dark ? const Color(0xFF101614) : Colors.white).withValues(alpha: 0.82),
+        ..color =
+            strong ? const Color(0xFFE07A3A) : (dark ? const Color(0xFF101614) : Colors.white).withValues(alpha: 0.82),
     );
     tp.paint(canvas, rect.topLeft + pad);
     return rect;

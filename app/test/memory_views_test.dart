@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_spike/ai/memory/chapter_notes.dart';
 import 'package:tomevoice_spike/ai/memory/graph.dart';
+import 'package:tomevoice_spike/ai/memory/graph3d_view.dart';
 import 'package:tomevoice_spike/ai/memory/graph_screen.dart';
 import 'package:tomevoice_spike/ai/memory/hand_off.dart';
 import 'package:tomevoice_spike/ai/memory/ledger.dart';
@@ -157,6 +158,21 @@ void main() {
     }
   });
 
+  test('as a ball: the same each time, the person at the middle, those linked nearer than the rest', () {
+    final path = _memory(tmp);
+    final sunny = ledger(path, query: 'sunny').single.id;
+    final g = graphAt(path, focus: sunny, depth: 2);
+    final a = layoutGraph3d(g), b = layoutGraph3d(g);
+    expect(a, b);
+    expect(a[sunny], (x: 0.0, y: 0.0, z: 0.0));
+    double dist(int id) => math.sqrt(math.pow(a[id]!.x, 2) + math.pow(a[id]!.y, 2) + math.pow(a[id]!.z, 2));
+    final cassie = ledger(path, query: 'cassie').single.id;
+    for (final n in g.nodes.where((n) => n.id != sunny)) {
+      expect(dist(n.id), greaterThan(100), reason: '${n.name} sits on Sunny');
+    }
+    expect(dist(cassie), greaterThan(0));
+  });
+
   test('a crowd of a hundred, round one person: none touching, the square grown to hold them', () {
     final nodes = [for (var i = 0; i < 100; i++) GraphNode(id: i, name: 'N$i', kind: 'person', weight: 50 - i % 50, firstCh: 0)];
     final edges = [
@@ -220,6 +236,17 @@ void main() {
     expect(find.text('Sunless'), findsOneWidget);
     expect(find.text('Centre here'), findsOneWidget);
     expect(find.text('Linked with…'), findsOneWidget);
+
+    // As a ball to turn, and back: the pick kept.
+    await tester.tap(find.byTooltip('See it as a ball to turn (3D)'));
+    await settle();
+    expect(find.byType(Graph3dView), findsOneWidget);
+    expect(find.text('Centre here'), findsOneWidget);
+    await tester.drag(find.byType(Graph3dView), const Offset(120, 0));
+    await settle();
+    await tester.tap(find.byTooltip('See it flat'));
+    await settle();
+    expect(find.byType(Graph3dView), findsNothing);
     await tester.pump(const Duration(seconds: 1));
   });
 }
