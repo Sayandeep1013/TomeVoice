@@ -8,11 +8,11 @@ import '../../theme.dart';
 import '../../ui.dart';
 import '../talk/name_card.dart';
 import 'ledger.dart';
-import 'whos_who_screen.dart' show kindColour, kindIcon, kindLabel;
+import 'whos_who_screen.dart' show KindDot, kindColour, kindLabel;
 
 // Off the UI thread's isolate, each from a function of its own with plain
 // values (a closure made in the State's methods would carry the State).
-Future<({GraphData data, Map<int, ({double x, double y})> at})> _drawn(
+Future<({GraphData data, Map<int, ({double x, double y})> at, double size})> _drawn(
   String path,
   int? at,
   int? focus,
@@ -74,7 +74,9 @@ class MemoryGraphScreen extends StatefulWidget {
 }
 
 class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTickerProviderStateMixin {
-  static const _size = 1000.0;
+  /// The side of the square the web is laid out in.
+  double _size = 1000;
+  bool _legend = false;
 
   GraphData? _data;
   Map<int, ({double x, double y})> _at = const {};
@@ -145,6 +147,10 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
       };
       _data = r.data;
       _at = r.at;
+      if (r.size != _size) {
+        _size = r.size;
+        _fitted = false;
+      }
       _loading = false;
       if (_picked != null && !_at.containsKey(_picked)) _clearPick();
     });
@@ -220,6 +226,8 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
     final data = _data;
     if (data == null) return null;
     final shown = _shown;
+    // Nodes are drawn the same size on the screen whatever the zoom.
+    final dp = 1 / _view.value.getMaxScaleOnAxis();
     int? best;
     var bestD = double.infinity;
     for (final n in data.nodes) {
@@ -227,7 +235,7 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
       final at = shown[n.id];
       if (at == null) continue;
       final d = (Offset(at.x, at.y) - p).distance;
-      if (d <= nodeRadius(n.weight) + 14 && d < bestD) {
+      if (d <= (nodeDp(n.weight) + 12) * dp && d < bestD) {
         best = n.id;
         bestD = d;
       }
@@ -312,6 +320,12 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
                     onPressed: () => unawaited(_search()),
                   ),
                   IconButton(
+                    tooltip: _legend ? 'Hide the key' : 'What the colours mean',
+                    isSelected: _legend,
+                    icon: const Icon(Icons.legend_toggle_rounded),
+                    onPressed: () => setState(() => _legend = !_legend),
+                  ),
+                  IconButton(
                     tooltip: 'Fit to the screen',
                     icon: const Icon(Icons.fit_screen_rounded),
                     onPressed: () => setState(() => _fitted = false),
@@ -341,29 +355,25 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
                           },
                         ),
                       ),
-                    FilterChip(
-                      label: const Text('Minor ones'),
-                      selected: _minor,
-                      onSelected: (v) {
-                        setState(() => _minor = v);
-                        unawaited(_load());
-                      },
+                    Padding(
+                      padding: const EdgeInsets.only(right: Gap.s),
+                      child: FilterChip(
+                        label: const Text('Minor ones'),
+                        selected: _minor,
+                        onSelected: (v) {
+                          setState(() => _minor = v);
+                          unawaited(_load());
+                        },
+                      ),
                     ),
-                  ],
-                ),
-              ),
-              if (kinds.length > 1 || _kinds.isNotEmpty)
-                SizedBox(
-                  height: 48,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xs, Gap.page, 0),
-                    children: [
+                    // The kinds, on the same line: a tap shows only those.
+                    if (kinds.length > 1 || _kinds.isNotEmpty)
                       for (final k in {...kinds, ..._kinds})
                         Padding(
                           padding: const EdgeInsets.only(right: Gap.s),
                           child: FilterChip(
-                            avatar: Icon(kindIcon(k), size: 16, color: kindColour(k)),
+                            avatar: KindDot(k, size: 10),
+                            showCheckmark: false,
                             label: Text(kindLabel(k)),
                             selected: _kinds.contains(k),
                             onSelected: (on) {
@@ -372,9 +382,9 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
                             },
                           ),
                         ),
-                    ],
-                  ),
+                  ],
                 ),
+              ),
               Expanded(
                 child: data == null
                     ? const Center(child: CircularProgressIndicator())
@@ -401,7 +411,7 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
                                       transformationController: _view,
                                       constrained: false,
                                       boundaryMargin: const EdgeInsets.all(400),
-                                      minScale: 0.25,
+                                      minScale: 0.04,
                                       maxScale: 6,
                                       child: GestureDetector(
                                         behavior: HitTestBehavior.opaque,
@@ -433,8 +443,8 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
                                   right: 16,
                                   child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
                                 ),
-                              if (used.isNotEmpty)
-                                Positioned(left: Gap.page, top: Gap.s, child: _Legend(kinds: used)),
+                              if (_legend && used.isNotEmpty)
+                                Positioned(left: Gap.page, top: Gap.s, child: _Legend(kinds: used, nodes: kinds)),
                               if (_linking)
                                 Positioned(
                                   left: 0,
@@ -549,11 +559,7 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with SingleTicker
                     children: [
                       Row(
                         children: [
-                          CircleAvatar(
-                            radius: 16,
-                            backgroundColor: kindColour(d.kind).withValues(alpha: 0.22),
-                            child: Icon(kindIcon(d.kind), size: 17, color: kindColour(d.kind)),
-                          ),
+                          KindDot(d.kind, size: 14),
                           const SizedBox(width: Gap.s),
                           Expanded(
                             child: Column(
@@ -661,9 +667,10 @@ class _PresencePainter extends CustomPainter {
 }
 
 class _Legend extends StatelessWidget {
-  const _Legend({required this.kinds});
+  const _Legend({required this.kinds, required this.nodes});
 
   final List<LinkKind> kinds;
+  final List<String> nodes;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -675,6 +682,19 @@ class _Legend extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            for (final k in nodes)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 1.5),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(width: 16, child: Center(child: KindDot(k, size: 9))),
+                    const SizedBox(width: 6),
+                    Text(kindLabel(k), style: Skin.meta(context, size: 10.5)),
+                  ],
+                ),
+              ),
+            if (nodes.isNotEmpty) const SizedBox(height: 4),
             for (final k in kinds)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 1.5),
@@ -732,7 +752,7 @@ class _FindSheetState extends State<_FindSheet> {
                 children: [
                   for (final e in _found ?? const <LedgerEntry>[])
                     ListTile(
-                      leading: Icon(kindIcon(e.kind), color: kindColour(e.kind)),
+                      leading: KindDot(e.kind),
                       title: Text(e.name),
                       subtitle: Text('${kindLabel(e.kind)} · in ${e.mentions} chapters', style: Skin.meta(context)),
                       onTap: () => Navigator.of(context).pop(e.id),
@@ -744,9 +764,6 @@ class _FindSheetState extends State<_FindSheet> {
         ),
       );
 }
-
-/// A node's size: by how many chapters it is in.
-double nodeRadius(int weight) => math.min(30, 7 + math.sqrt(weight.toDouble()) * 2.2);
 
 /// Draws the graph as it stood at [chapter]: nodes not met yet, and links
 /// not made or already ended, left out, every node in its place for the
@@ -778,7 +795,10 @@ class GraphPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final scale = view.value.getMaxScaleOnAxis();
-    // A screen pixel, in the canvas's own units.
+    // A screen pixel, in the canvas's own units: nodes, lines and names are
+    // drawn the same size on the screen whatever the zoom, so zooming in
+    // spreads a crowd out rather than making it bigger.
+    final dp = 1 / scale;
     final px = 1.4 / scale;
     final visible = {
       for (final n in data.nodes)
@@ -805,7 +825,7 @@ class GraphPainter extends CustomPainter {
       if (members.isEmpty) continue;
       final pts = [o(g.id), for (final m in members) o(m)];
       final c = pts.reduce((a, b) => a + b) / pts.length.toDouble();
-      final r = pts.map((p) => (p - c).distance).reduce(math.max) + 46;
+      final r = pts.map((p) => (p - c).distance).reduce(math.max) + 26 * dp;
       canvas.drawCircle(
         c,
         r,
@@ -843,7 +863,7 @@ class GraphPainter extends CustomPainter {
         canvas.drawPath(path, paint);
       }
       if (lit && e.kind != LinkKind.shared) {
-        _pill(canvas, e.label, (ctrl + mid) / 2, 10.5 * px, colour, strong: false);
+        _pill(canvas, e.label, (ctrl + mid) / 2, 10.5 * dp, colour, strong: false);
       }
     }
 
@@ -851,14 +871,14 @@ class GraphPainter extends CustomPainter {
     final order = visible.values.toList()..sort((a, b) => a.weight.compareTo(b.weight));
     for (final n in order) {
       final c = o(n.id);
-      final r = nodeRadius(n.weight);
+      final r = nodeDp(n.weight) * dp;
       final dim = picked != null && !near.contains(n.id);
       final colour = kindColour(n.kind);
       final isNew = n.firstCh == chapter && chapter > 0;
       if (n.id == picked || n.id == second || n.id == data.focus || isNew) {
         canvas.drawCircle(
           c,
-          r + 7,
+          r + 6 * dp,
           Paint()..color = (isNew ? colour : ink).withValues(alpha: n.id == picked || n.id == second ? 0.35 : 0.15),
         );
       }
@@ -871,22 +891,6 @@ class GraphPainter extends CustomPainter {
           ..strokeWidth = 1.5 * px
           ..color = (dark ? Colors.black : Colors.white).withValues(alpha: dim ? 0.2 : 0.7),
       );
-      if (r * scale >= 9) {
-        final icon = kindIcon(n.kind);
-        final tp = TextPainter(
-          text: TextSpan(
-            text: String.fromCharCode(icon.codePoint),
-            style: TextStyle(
-              fontFamily: icon.fontFamily,
-              package: icon.fontPackage,
-              fontSize: r * 1.15,
-              color: Colors.black.withValues(alpha: dim ? 0.25 : 0.7),
-            ),
-          ),
-          textDirection: TextDirection.ltr,
-        )..layout();
-        tp.paint(canvas, c - Offset(tp.width / 2, tp.height / 2));
-      }
     }
 
     // Names: the important first, each kept only where it overlaps none
@@ -904,8 +908,8 @@ class GraphPainter extends CustomPainter {
       final rect = _pill(
         canvas,
         n.name,
-        o(n.id) + Offset(0, nodeRadius(n.weight) + 12 * px),
-        12 * px,
+        o(n.id) + Offset(0, (nodeDp(n.weight) + 11) * dp),
+        11.5 * dp,
         ink,
         strong: strong,
         avoid: placed,

@@ -381,7 +381,9 @@ String tidyName(String name) {
   bool joined(String word) {
     var start = 0;
     for (final b in RegExp(r'[a-z][A-Z]').allMatches(word)) {
-      if (b.start + 1 - start >= 4) return true;
+      final part = word.substring(start, b.start + 1);
+      // A word of four letters or more, or "The" or "Of", run into the next.
+      if (part.length >= 4 || const {'The', 'Of', 'And'}.contains(part)) return true;
       start = b.start + 1;
     }
     return false;

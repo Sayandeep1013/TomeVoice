@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:sqlite3/sqlite3.dart';
 
 import 'chapter_notes.dart' show tidyName;
-import 'graph.dart' show normName;
+import 'graph.dart' show normName, notAName;
 
 /// A place in a book, exact to the sentence: the reader's own cursor
 /// (section, block, sentence) and the reading chapter it is in. Every row
@@ -86,7 +86,7 @@ class MemoryDb {
   final Database db;
   final String path;
 
-  static const version = 3;
+  static const version = 4;
 
   static String pathIn(String bookDir) => '$bookDir/memory.db';
 
@@ -111,6 +111,19 @@ class MemoryDb {
   }
 
   void close() => db.close();
+
+  void _forgetNotNames() {
+    for (final r in db.select('SELECT id, name FROM entities')) {
+      if (!notAName(r['name'] as String)) continue;
+      final id = r['id'];
+      for (final t in ['aliases', 'appearances', 'event_roles', 'facts']) {
+        db.execute('DELETE FROM $t WHERE entity = ?', [id]);
+      }
+      db.execute('DELETE FROM relations WHERE a = ? OR b = ?', [id, id]);
+      db.execute('UPDATE quotes SET speaker = NULL WHERE speaker = ?', [id]);
+      db.execute('DELETE FROM entities WHERE id = ?', [id]);
+    }
+  }
 
   void _tidyNames() {
     for (final r in db.select('SELECT id, name FROM entities')) {
@@ -145,7 +158,10 @@ class MemoryDb {
       if (have < 2) db.execute('ALTER TABLE theories ADD COLUMN told INTEGER DEFAULT 0');
       // 3: names a model gave as identifiers (Mountain_King, StoneSaint)
       // written as a reader would, and every name's lookup form again.
-      if (have >= 1 && have < 3) _tidyNames();
+      // 4: again, for "TheMountain"; and refs taken for names (#2, v31)
+      // forgotten.
+      if (have >= 1 && have < 4) _tidyNames();
+      if (have >= 1 && have < 4) _forgetNotNames();
       db.execute('PRAGMA user_version = $version');
       db.execute('COMMIT');
     } on Object {

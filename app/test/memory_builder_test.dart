@@ -231,6 +231,10 @@ void main() {
       expect(tidyName('SilverHairedGirl'), 'Silver Haired Girl');
       expect(tidyName('MacArthur'), 'MacArthur');
       expect(tidyName('DeShawn'), 'DeShawn');
+      expect(tidyName('TheMountain'), 'The Mountain');
+      expect(notAName('#2'), isTrue);
+      expect(notAName('v31'), isTrue);
+      expect(notAName('Vale'), isFalse);
       expect(normName('StoneSaint'), normName('Stone Saint'));
       expect(tidyName('Sunless'), 'Sunless');
       expect(normName('Mountain_King'), normName('Mountain King'));

@@ -5,6 +5,10 @@ import 'memory_db.dart';
 
 /// A name as the graph compares names: lower case, accents and marks gone,
 /// "the" in front dropped, spaces single.
+/// A ref the Builder uses for events and threads (v31, #2, t4), or a bare
+/// number: not a name.
+bool notAName(String s) => RegExp(r'^(#|v|t|e)?\d+$').hasMatch(s.trim());
+
 String normName(String s) {
   var t = tidyName(s).toLowerCase();
   const from = 'àáâãäåāăąçćčďđèéêëēėęěìíîïīįıñńňòóôõöøōőŕřśšşťùúûüūůűųýÿźżž';
@@ -184,7 +188,9 @@ class BookGraph {
     final known = RegExp(r'^e(\d+)$').firstMatch(r);
     if (known != null) return live(int.parse(known.group(1)!));
     final name = r.startsWith('new:') ? r.substring(4).trim() : r;
-    if (name.isEmpty) return null;
+    // An event's or a thread's ref (v31, #2, t4) where a name was meant is
+    // nobody: never made into an entity.
+    if (name.isEmpty || notAName(name)) return null;
     final key = normName(name);
     final had = made[key] ?? byName(name, kind: kind);
     if (had != null) {

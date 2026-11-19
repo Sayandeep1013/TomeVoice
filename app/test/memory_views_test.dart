@@ -4,6 +4,7 @@
 // square; the screens drawing them, a tap picking a node.
 
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -132,14 +133,45 @@ void main() {
     expect(ledger(second).length, 4);
   });
 
-  test('laid out the same each time, inside its square, linked nodes nearer', () {
+  test('laid out the same each time, inside its square, no two nodes touching', () {
     final path = _memory(tmp);
-    final g = graphAt(path);
-    final a = layoutGraph(g), b = layoutGraph(g);
-    expect(a, b);
-    for (final p in a.values) {
-      expect(p.x, inInclusiveRange(0, 1000));
-      expect(p.y, inInclusiveRange(0, 1000));
+    for (final g in [graphAt(path), graphAt(path, focus: ledger(path, query: 'sunny').single.id, depth: 2)]) {
+      final a = layoutGraph(g), b = layoutGraph(g);
+      expect(a.at, b.at);
+      expect(a.size, greaterThanOrEqualTo(1000));
+      for (final p in a.at.values) {
+        expect(p.x, inInclusiveRange(0, a.size));
+        expect(p.y, inInclusiveRange(0, a.size));
+      }
+      final nodes = g.nodes;
+      for (var i = 0; i < nodes.length; i++) {
+        for (var j = i + 1; j < nodes.length; j++) {
+          final p = a.at[nodes[i].id]!, q = a.at[nodes[j].id]!;
+          final d = math.sqrt(math.pow(p.x - q.x, 2) + math.pow(p.y - q.y, 2));
+          expect(d, greaterThan((nodeDp(nodes[i].weight) + nodeDp(nodes[j].weight)) * canvasPerDp),
+              reason: '${nodes[i].name} and ${nodes[j].name} overlap');
+        }
+      }
+      // Round someone: they are in the middle.
+      if (g.focus != null) expect(a.at[g.focus]!, (x: a.size / 2, y: a.size / 2));
+    }
+  });
+
+  test('a crowd of a hundred, round one person: none touching, the square grown to hold them', () {
+    final nodes = [for (var i = 0; i < 100; i++) GraphNode(id: i, name: 'N$i', kind: 'person', weight: 50 - i % 50, firstCh: 0)];
+    final edges = [
+      for (var i = 1; i < 100; i++)
+        GraphEdge(a: i < 40 ? 0 : (i % 39) + 1, b: i, label: 'ally of', kind: LinkKind.bond, fromCh: 0),
+    ];
+    final g = GraphData(nodes: nodes, edges: edges, lastCh: 1, focus: 0);
+    final l = layoutGraph(g);
+    expect(l.size, greaterThan(1000));
+    for (var i = 0; i < 100; i++) {
+      for (var j = i + 1; j < 100; j++) {
+        final p = l.at[i]!, q = l.at[j]!;
+        expect(math.sqrt(math.pow(p.x - q.x, 2) + math.pow(p.y - q.y, 2)),
+            greaterThan((nodeDp(nodes[i].weight) + nodeDp(nodes[j].weight)) * canvasPerDp));
+      }
     }
   });
 
@@ -173,9 +205,11 @@ void main() {
         find.descendant(of: find.byType(InteractiveViewer), matching: find.byType(CustomPaint)).first).painter as GraphPainter;
     final sunny = painter.data.nodes.firstWhere((n) => n.name == 'Sunless');
     final at = painter.at[sunny.id]!;
-    // Fitted to the screen: the canvas drawn smaller than its thousand.
-    final box = tester.getRect(find.descendant(of: find.byType(InteractiveViewer), matching: find.byType(CustomPaint)).first);
-    final scale = box.width / 1000;
+    // Fitted to the screen: the canvas (a square of the layout's side) drawn
+    // smaller than it is.
+    final canvas = find.descendant(of: find.byType(InteractiveViewer), matching: find.byType(CustomPaint)).first;
+    final box = tester.getRect(canvas);
+    final scale = box.width / tester.getSize(canvas).width;
     expect(scale, lessThan(1));
     await tester.tapAt(box.topLeft + Offset(at.x, at.y) * scale);
     await tester.pump();

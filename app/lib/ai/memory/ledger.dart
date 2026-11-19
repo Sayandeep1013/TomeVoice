@@ -383,25 +383,165 @@ NodeDetail? nodeDetail(String path, int id, int at) {
   }
 }
 
-/// Where each node sits: a force layout (linked nodes pull together, all
-/// push apart), in a square of [size], the same each time for the same
-/// graph. The heaviest node, or [GraphData.focus], at the middle.
-Map<int, ({double x, double y})> layoutGraph(GraphData g, {double size = 1000, int rounds = 300}) {
+/// A node's radius on the screen, in logical pixels, whatever the zoom: by
+/// how many chapters it is in. Zooming in moves nodes apart, not bigger, so
+/// a crowded middle opens up.
+double nodeDp(int weight) => math.min(17, 5 + math.sqrt(math.max(0, weight).toDouble()) * 1.3);
+
+/// A logical pixel in the canvas's units, the graph fitted on a phone: the
+/// spacing the layout keeps between nodes.
+const canvasPerDp = 2.6;
+
+/// Where each node sits, and the side of the square they sit in (at least
+/// [size]; more, for a web too big to fit without nodes touching). The same
+/// each time for the same graph.
+///
+/// Round someone ([GraphData.focus]): they are in the middle, those linked
+/// to them in a ring round them (grouped by how they are linked), and the
+/// rest in rings further out, each near those it links to. The whole web: a
+/// force layout (linked nodes pull together, all push apart). Either way no
+/// two nodes overlap.
+({Map<int, ({double x, double y})> at, double size}) layoutGraph(GraphData g, {double size = 1000, int rounds = 300}) {
   final n = g.nodes.length;
-  if (n == 0) return const {};
-  final rnd = math.Random(n * 7919 + g.edges.length);
+  if (n == 0) return (at: const {}, size: size);
   final index = {for (final (i, v) in g.nodes.indexed) v.id: i};
-  final x = List<double>.generate(n, (_) => size * (0.2 + 0.6 * rnd.nextDouble()));
-  final y = List<double>.generate(n, (_) => size * (0.2 + 0.6 * rnd.nextDouble()));
-  final centre = g.focus != null && index.containsKey(g.focus) ? index[g.focus]! : 0;
-  x[centre] = size / 2;
-  y[centre] = size / 2;
-  final k = size / math.sqrt(n) * 0.9;
-  var heat = size / 8;
+  final radius = [for (final v in g.nodes) nodeDp(v.weight) * canvasPerDp];
   final links = [
     for (final e in g.edges)
-      if (index[e.a] != null && index[e.b] != null) (index[e.a]!, index[e.b]!, e.related ? 1.0 : 0.5),
+      if (index[e.a] != null && index[e.b] != null && e.a != e.b) (index[e.a]!, index[e.b]!, e),
   ];
+  final x = List<double>.filled(n, 0), y = List<double>.filled(n, 0);
+  final focus = g.focus != null ? index[g.focus] : null;
+  if (focus != null) {
+    _rings(g, focus, links, radius, x, y);
+  } else {
+    _forces(g, links, size, rounds, x, y);
+  }
+  _apart(radius, x, y, fixed: focus);
+
+  // Into a square with room at its edges for the names under the nodes:
+  // spread to fill it when small, the square made bigger when not.
+  const margin = 130.0;
+  var minX = x.reduce(math.min), maxX = x.reduce(math.max);
+  var minY = y.reduce(math.min), maxY = y.reduce(math.max);
+  if (focus != null) {
+    // Round someone: they stay in the middle of the square.
+    final reach = [minX, maxX, minY, maxY].map((v) => v.abs()).reduce(math.max);
+    minX = minY = -reach;
+    maxX = maxY = reach;
+  }
+  final span = math.max(math.max(maxX - minX, maxY - minY), 1.0);
+  final grow = n == 1 ? 1.0 : math.max(1.0, (size - 2 * margin) / span);
+  final side = math.max(size, span * grow + 2 * margin);
+  final offX = (side - (maxX - minX) * grow) / 2, offY = (side - (maxY - minY) * grow) / 2;
+  return (
+    at: {
+      for (final v in g.nodes)
+        v.id: (
+          x: n == 1 ? side / 2 : offX + (x[index[v.id]!] - minX) * grow,
+          y: n == 1 ? side / 2 : offY + (y[index[v.id]!] - minY) * grow,
+        ),
+    },
+    size: side,
+  );
+}
+
+/// The rings round [focus]: how many links out each node is, the first
+/// ring in order of how it is linked to the focus, each further ring in the
+/// order of the nodes it links to in the ring inside it.
+void _rings(GraphData g, int focus, List<(int, int, GraphEdge)> links, List<double> radius, List<double> x,
+    List<double> y) {
+  final n = g.nodes.length;
+  final next = List.generate(n, (_) => <int>{});
+  for (final (a, b, _) in links) {
+    next[a].add(b);
+    next[b].add(a);
+  }
+  final hops = List<int>.filled(n, -1)..[focus] = 0;
+  final queue = [focus];
+  for (var i = 0; i < queue.length; i++) {
+    for (final m in next[queue[i]]) {
+      if (hops[m] < 0) {
+        hops[m] = hops[queue[i]] + 1;
+        queue.add(m);
+      }
+    }
+  }
+  final deepest = hops.reduce(math.max);
+  for (var i = 0; i < n; i++) {
+    if (hops[i] < 0) hops[i] = deepest + 1; // not linked: the outermost ring
+  }
+  // How each of the first ring is linked to the focus.
+  final kindTo = <int, int>{};
+  for (final (a, b, e) in links) {
+    final other = a == focus ? b : (b == focus ? a : null);
+    if (other == null) continue;
+    kindTo[other] = math.min(kindTo[other] ?? 99, e.kind.index);
+  }
+  final angle = List<double>.filled(n, 0);
+  var ringR = 0.0;
+  for (var ring = 1; ring <= hops.reduce(math.max); ring++) {
+    final members = [for (var i = 0; i < n; i++) if (hops[i] == ring) i];
+    if (members.isEmpty) continue;
+    // Where each would like to be: by its link to the focus in the first
+    // ring; further out, beside those it links to, inside.
+    double wanted(int i) {
+      if (ring == 1) return (kindTo[i] ?? 9) * 100.0 - g.nodes[i].weight / 1000;
+      final inner = [for (final m in next[i]) if (hops[m] == ring - 1) angle[m]];
+      if (inner.isEmpty) return 1000 + i.toDouble();
+      // The mean of angles, taken as points on a circle.
+      final sx = inner.fold(0.0, (t, a) => t + math.cos(a)), sy = inner.fold(0.0, (t, a) => t + math.sin(a));
+      return math.atan2(sy, sx);
+    }
+
+    final want = {for (final i in members) i: wanted(i)};
+    members.sort((a, b) => want[a]!.compareTo(want[b]!));
+    // Each its share of the ring, by its size and room for its name.
+    final arcs = [for (final i in members) radius[i] * 2 + 70];
+    final round = arcs.fold(0.0, (t, a) => t + a);
+    ringR = math.max(ringR + 230, round / (2 * math.pi));
+    var at = 0.0;
+    final placed = <double>[];
+    for (final a in arcs) {
+      placed.add((at + a / 2) / round * 2 * math.pi);
+      at += a;
+    }
+    // Turned so that, further out, each sits as near its wanted angle as
+    // the ring lets it.
+    var turn = 0.0;
+    if (ring > 1) {
+      var sx = 0.0, sy = 0.0;
+      for (final (k, i) in members.indexed) {
+        final w = want[i]!;
+        if (w >= 1000) continue;
+        sx += math.cos(w - placed[k]);
+        sy += math.sin(w - placed[k]);
+      }
+      if (sx != 0 || sy != 0) turn = math.atan2(sy, sx);
+    } else {
+      turn = -math.pi / 2;
+    }
+    for (final (k, i) in members.indexed) {
+      angle[i] = placed[k] + turn;
+      x[i] = math.cos(angle[i]) * ringR;
+      y[i] = math.sin(angle[i]) * ringR;
+    }
+  }
+  x[focus] = 0;
+  y[focus] = 0;
+}
+
+/// The whole web: linked nodes pull together, all push apart.
+void _forces(GraphData g, List<(int, int, GraphEdge)> links, double size, int rounds, List<double> x, List<double> y) {
+  final n = g.nodes.length;
+  final rnd = math.Random(n * 7919 + g.edges.length);
+  for (var i = 0; i < n; i++) {
+    x[i] = size * (0.2 + 0.6 * rnd.nextDouble());
+    y[i] = size * (0.2 + 0.6 * rnd.nextDouble());
+  }
+  // Room enough for every node, however many.
+  final k = math.max(size / math.sqrt(n) * 0.9, 120.0);
+  var heat = size / 8;
   for (var round = 0; round < rounds; round++) {
     final dx = List<double>.filled(n, 0), dy = List<double>.filled(n, 0);
     for (var i = 0; i < n; i++) {
@@ -420,7 +560,8 @@ Map<int, ({double x, double y})> layoutGraph(GraphData g, {double size = 1000, i
         dy[j] -= ey / d * f;
       }
     }
-    for (final (a, b, w) in links) {
+    for (final (a, b, e) in links) {
+      final w = e.related ? 1.0 : 0.5;
       final ex = x[a] - x[b], ey = y[a] - y[b];
       final d = math.max(0.01, math.sqrt(ex * ex + ey * ey));
       final f = d * d / k * w;
@@ -436,36 +577,48 @@ Map<int, ({double x, double y})> layoutGraph(GraphData g, {double size = 1000, i
       final d = math.max(0.01, math.sqrt(dx[i] * dx[i] + dy[i] * dy[i]));
       x[i] += dx[i] / d * math.min(d, heat);
       y[i] += dy[i] / d * math.min(d, heat);
-      x[i] = x[i].clamp(size * 0.03, size * 0.97);
-      y[i] = y[i].clamp(size * 0.03, size * 0.97);
-    }
-    if (g.focus != null && index.containsKey(g.focus)) {
-      x[centre] = size / 2;
-      y[centre] = size / 2;
     }
     heat = math.max(1, heat * 0.985);
   }
-  // The web spread to fill the square, one scale both ways, with room at
-  // its edges for the names drawn under the nodes (cut off at the screen's
-  // edge on the phone).
-  const margin = 0.12;
-  var minX = x.reduce(math.min), maxX = x.reduce(math.max);
-  var minY = y.reduce(math.min), maxY = y.reduce(math.max);
-  final span = math.max(math.max(maxX - minX, maxY - minY), 1.0);
-  final scale = size * (1 - 2 * margin) / span;
-  final offX = (size - (maxX - minX) * scale) / 2, offY = (size - (maxY - minY) * scale) / 2;
-  return {
-    for (final v in g.nodes)
-      v.id: (
-        x: n == 1 ? size / 2 : offX + (x[index[v.id]!] - minX) * scale,
-        y: n == 1 ? size / 2 : offY + (y[index[v.id]!] - minY) * scale,
-      ),
-  };
+}
+
+/// Nodes that overlap (or crowd each other's names) pushed apart, [fixed]
+/// staying where it is.
+void _apart(List<double> radius, List<double> x, List<double> y, {int? fixed}) {
+  final n = x.length;
+  for (var round = 0; round < 120; round++) {
+    var moved = false;
+    for (var i = 0; i < n; i++) {
+      for (var j = i + 1; j < n; j++) {
+        final want = radius[i] + radius[j] + 48;
+        var ex = x[j] - x[i], ey = y[j] - y[i];
+        var d = math.sqrt(ex * ex + ey * ey);
+        if (d >= want) continue;
+        if (d < 0.01) {
+          ex = math.cos(i * 2.4 + j);
+          ey = math.sin(i * 2.4 + j);
+          d = 1;
+        }
+        final push = (want - d) / 2 + 0.5;
+        final ux = ex / d * push, uy = ey / d * push;
+        if (i != fixed) {
+          x[i] -= j == fixed ? ux * 2 : ux;
+          y[i] -= j == fixed ? uy * 2 : uy;
+        }
+        if (j != fixed) {
+          x[j] += i == fixed ? ux * 2 : ux;
+          y[j] += i == fixed ? uy * 2 : uy;
+        }
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
 }
 
 /// The graph at a chapter and where its nodes sit, made together off the
 /// UI thread.
-({GraphData data, Map<int, ({double x, double y})> at}) graphAndLayout(
+({GraphData data, Map<int, ({double x, double y})> at, double size}) graphAndLayout(
   String path, {
   int? at,
   int? focus,
@@ -475,5 +628,6 @@ Map<int, ({double x, double y})> layoutGraph(GraphData g, {double size = 1000, i
   int minChapters = 1,
 }) {
   final g = graphAt(path, at: at, focus: focus, depth: depth, most: most, kinds: kinds, minChapters: minChapters);
-  return (data: g, at: layoutGraph(g));
+  final l = layoutGraph(g);
+  return (data: g, at: l.at, size: l.size);
 }

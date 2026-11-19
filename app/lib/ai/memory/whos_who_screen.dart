@@ -162,11 +162,7 @@ class _WhosWhoScreenState extends State<WhosWhoScreen> {
                               final e = entries[i];
                               return ListTile(
                                 contentPadding: const EdgeInsets.symmetric(horizontal: Gap.page),
-                                leading: CircleAvatar(
-                                  radius: 16,
-                                  backgroundColor: kindColour(e.kind).withValues(alpha: 0.22),
-                                  child: Icon(kindIcon(e.kind), size: 17, color: kindColour(e.kind)),
-                                ),
+                                leading: KindDot(e.kind),
                                 title: Text(e.name,
                                     style: Skin.ui(size: 15.5, weight: FontWeight.w600, color: Skin.inkOn(context))),
                                 subtitle: Text(
@@ -217,20 +213,32 @@ String kindLabel(String kind) => switch (kind) {
       'title' => 'Titles',
       'creature' => 'Creatures',
       'term' => 'Terms',
-      _ => kind.isEmpty ? 'Other' : '${kind[0].toUpperCase()}${kind.substring(1)}${kind.endsWith('s') ? '' : 's'}',
+      _ => kind.isEmpty ? 'Other' : _plural('${kind[0].toUpperCase()}${kind.substring(1)}'),
     };
 
-IconData kindIcon(String kind) => switch (kind) {
-      'person' => Icons.person_rounded,
-      'place' => Icons.place_rounded,
-      'faction' => Icons.groups_rounded,
-      'item' => Icons.diamond_outlined,
-      'power' => Icons.bolt_rounded,
-      'title' => Icons.military_tech_rounded,
-      'creature' => Icons.pets_rounded,
-      'term' => Icons.menu_book_rounded,
-      _ => Icons.category_rounded,
-    };
+/// A kind the book brought, as many: Deity, Deities; Aspect, Aspects.
+String _plural(String w) {
+  if (w.endsWith('s') || w.endsWith('x') || w.endsWith('ch') || w.endsWith('sh')) {
+    return w.endsWith('s') ? w : '${w}es';
+  }
+  if (w.length > 1 && w.endsWith('y') && !'aeiou'.contains(w[w.length - 2])) return '${w.substring(0, w.length - 1)}ies';
+  return '${w}s';
+}
+
+/// A kind shown as a plain dot of its colour.
+class KindDot extends StatelessWidget {
+  const KindDot(this.kind, {super.key, this.size = 12});
+
+  final String kind;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(color: kindColour(kind), shape: BoxShape.circle),
+      );
+}
 
 /// Each kind its colour, the same on the list and the graph; a kind the
 /// book brought gets one from its name.
