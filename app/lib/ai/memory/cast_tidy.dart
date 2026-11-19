@@ -97,7 +97,10 @@ int applyCastTidy(String path, Map<String, Object?> reply, Set<int> ids) {
         final id = idOf(t['id']), by = idOf(t['by']);
         final from = (t['from_ch'] as num?)?.toInt();
         if (id == null || by == null || id == by || from == null || from < 1) continue;
-        g.handOver(id, by, from - 1);
+        // The AI's chapter, or where the card's chapters say it began, if
+        // that is earlier.
+        final seen = g.takeoverStart(id);
+        g.handOver(id, by, seen != null && seen < from - 1 ? seen : from - 1);
         changes++;
       }
       for (final w in list('wrong')) {
@@ -179,6 +182,26 @@ Future<void> renameEntity(String path, int id, String name) => Isolate.run(() {
       final m = MemoryDb.open(path);
       try {
         m.inTransaction(() => BookGraph(m).rename(id, name));
+      } finally {
+        m.close();
+      }
+    });
+
+/// Where another's story seems to begin on card [id] (null: it does not).
+Future<int?> takeoverStartOf(String path, int id) => Isolate.run(() {
+      final m = MemoryDb.open(path);
+      try {
+        return BookGraph(m).takeoverStart(id);
+      } finally {
+        m.close();
+      }
+    });
+
+/// What card [from] holds from chapter [ch] on given to [to] by the reader.
+Future<void> handOverEntity(String path, int from, int to, int ch) => Isolate.run(() {
+      final m = MemoryDb.open(path);
+      try {
+        m.inTransaction(() => BookGraph(m).handOver(from, to, ch));
       } finally {
         m.close();
       }

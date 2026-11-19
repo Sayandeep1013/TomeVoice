@@ -118,6 +118,12 @@ class _WhosWhoScreenState extends State<WhosWhoScreen> {
               subtitle: const Text('Two cards for one character made one'),
               onTap: () => Navigator.of(ctx).pop('same'),
             ),
+            ListTile(
+              leading: const Icon(Icons.call_split_rounded),
+              title: const Text('Someone else from a chapter…'),
+              subtitle: const Text('From there on, the chapters go to another card'),
+              onTap: () => Navigator.of(ctx).pop('split'),
+            ),
           ],
         ),
       ),
@@ -127,6 +133,28 @@ class _WhosWhoScreenState extends State<WhosWhoScreen> {
       final name = await askText(context, title: 'Rename', initial: e.name, hint: 'Name');
       if (name == null || name.trim().isEmpty || name.trim() == e.name) return;
       await renameEntity(widget.memoryPath, e.id, name.trim());
+    } else if (what == 'split') {
+      final other = await showDialog<LedgerEntry>(
+        context: context,
+        animationStyle: sheetMotion(context),
+        builder: (_) => _SamePicker(
+            memoryPath: widget.memoryPath, line: widget.line, not: e, title: 'From a chapter on, ${e.name} is…'),
+      );
+      if (other == null || !mounted) return;
+      final guess = await takeoverStartOf(widget.memoryPath, e.id);
+      if (!mounted) return;
+      final typed = await askText(
+        context,
+        title: 'From which chapter?',
+        message: 'From this chapter on, what is on the card of ${e.name} goes to ${other.name}. '
+            'What came before stays with ${e.name}.',
+        initial: guess == null ? '' : '${guess + 1}',
+        hint: 'Chapter',
+        action: 'Move',
+      );
+      final ch = int.tryParse(typed?.trim() ?? '');
+      if (ch == null || ch < 1) return;
+      await handOverEntity(widget.memoryPath, e.id, other.id, ch - 1);
     } else {
       final other = await showDialog<LedgerEntry>(
         context: context,
@@ -298,11 +326,12 @@ Future<({List<LedgerEntry> entries, List<({String kind, int count, bool core})> 
 
 /// Another card to make one with: found by any of its names.
 class _SamePicker extends StatefulWidget {
-  const _SamePicker({required this.memoryPath, required this.line, required this.not});
+  const _SamePicker({required this.memoryPath, required this.line, required this.not, this.title});
 
   final String memoryPath;
   final int? line;
   final LedgerEntry not;
+  final String? title;
 
   @override
   State<_SamePicker> createState() => _SamePickerState();
@@ -327,7 +356,7 @@ class _SamePickerState extends State<_SamePicker> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: Text('${widget.not.name} is the same as…'),
+        title: Text(widget.title ?? '${widget.not.name} is the same as…'),
         content: SizedBox(
           width: double.maxFinite,
           height: 420,

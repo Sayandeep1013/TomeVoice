@@ -540,6 +540,22 @@ class BookGraph {
         [id, id, id, id],
       );
 
+  /// Where another's story seems to begin on card [id]: after a long gap in
+  /// the chapters it is in, following only a few (a minor character met
+  /// once, then the card taken for someone else). Null when it does not.
+  int? takeoverStart(int id) {
+    final chs = [for (final r in m.db.select('SELECT ch FROM appearances WHERE entity = ? ORDER BY ch', [id])) r['ch'] as int];
+    var best = 0, at = -1;
+    for (var i = 1; i < chs.length; i++) {
+      if (chs[i] - chs[i - 1] > best) {
+        best = chs[i] - chs[i - 1];
+        at = i;
+      }
+    }
+    if (at < 0 || best < 50 || at > 10 || chs.length - at < 10) return null;
+    return chs[at];
+  }
+
   /// What [from] holds from chapter [ch] on handed to [to]: the Builder
   /// took a minor character's card for another's story from there (Lanard's
   /// for Nephis's). [from] keeps its own name and its chapters before.
