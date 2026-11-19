@@ -143,6 +143,11 @@ QUERIES_BLOCK = """    <!-- Required since Android 11 for TextToSpeech.getEngine
         <intent>
             <action android:name="android.intent.action.TRANSLATE" />
         </intent>
+        <!-- The phone's speech recogniser, for speaking into the journal
+             (Dictation.kt): SpeechRecognizer cannot find it without this. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
     </queries>
 """
 
@@ -154,6 +159,7 @@ PERMISSIONS = """    <uses-permission android:name="android.permission.INTERNET"
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 """
 
 # Exported for the media browser: System UI binds to it for the resume card,

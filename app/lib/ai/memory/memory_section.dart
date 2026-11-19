@@ -117,7 +117,9 @@ class _BookMemorySectionState extends State<BookMemorySection> {
     // The book before it in its series has a memory: offered, once, to
     // carry on from it.
     final earlier = await _service.earlierInSeries(widget.bookId);
-    if (earlier != null && mounted && (await _service.followedBy(widget.bookId)).isEmpty && mounted) {
+    final linked = earlier == null ? const <FollowedBook>[] : await _service.followedBy(widget.bookId);
+    if (!mounted) return;
+    if (earlier != null && linked.isEmpty) {
       final carry = await showModalBottomSheet<bool>(
         context: context,
         sheetAnimationStyle: sheetMotion(context),
