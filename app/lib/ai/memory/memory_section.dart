@@ -528,8 +528,9 @@ class BookMemoryScreen extends StatelessWidget {
       );
 }
 
-/// Main menu > Memory: every book with a memory, how far it is built; a
-/// tap opens that book's memory.
+/// Main menu > Memory: every book with a memory, each under its own name
+/// (a tap opens that book's memory on a page of its own), how far it is
+/// built.
 class MemoriesScreen extends StatefulWidget {
   const MemoriesScreen({super.key});
 
@@ -538,13 +539,13 @@ class MemoriesScreen extends StatefulWidget {
 }
 
 class _MemoriesScreenState extends State<MemoriesScreen> {
-  List<({String id, String title})>? _books;
+  List<({String id, String title, String author})>? _books;
 
   @override
   void initState() {
     super.initState();
     unawaited(MemoryService.instance.booksWithMemory().then((b) {
-      if (mounted) setState(() => _books = [for (final e in b) (id: e.id, title: e.title)]);
+      if (mounted) setState(() => _books = [for (final e in b) (id: e.id, title: e.title, author: e.authors.join(', '))]);
     }));
   }
 
@@ -577,20 +578,51 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
                             padding: EdgeInsets.fromLTRB(
                                 Gap.page, 0, Gap.page, Gap.xxl + MediaQuery.viewPaddingOf(context).bottom),
                             children: [
-                              for (final b in books)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: Gap.s),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Padding(
-                                        padding: const EdgeInsets.only(left: 4, bottom: 4),
-                                        child: Text(b.title, style: Skin.title(context, size: 16)),
-                                      ),
-                                      BookMemorySection(bookId: b.id, bookTitle: b.title, secret: false),
-                                    ],
+                              for (final (i, b) in books.indexed) ...[
+                                if (i > 0)
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: Gap.l),
+                                    child: Divider(height: 1, color: Skin.inkOn(context).withValues(alpha: 0.14)),
+                                  ),
+                                // The book first, plainly its own: its name, then its memory.
+                                InkWell(
+                                  borderRadius: BorderRadius.circular(12),
+                                  onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                                    builder: (_) => BookMemoryScreen(bookId: b.id, bookTitle: b.title),
+                                  )),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: Gap.s),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          width: 4,
+                                          height: 40,
+                                          decoration: BoxDecoration(
+                                            color: Skin.accentOf(context),
+                                            borderRadius: BorderRadius.circular(2),
+                                          ),
+                                        ),
+                                        const SizedBox(width: Gap.m),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(b.title,
+                                                  maxLines: 2,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: Skin.title(context, size: 20)),
+                                              if (b.author.isNotEmpty) Text(b.author, style: Skin.meta(context)),
+                                            ],
+                                          ),
+                                        ),
+                                        Icon(Icons.chevron_right_rounded, color: Skin.inkOn(context).withValues(alpha: 0.5)),
+                                      ],
+                                    ),
                                   ),
                                 ),
+                                const SizedBox(height: Gap.s),
+                                BookMemorySection(bookId: b.id, bookTitle: b.title, secret: false),
+                              ],
                             ],
                           ),
               ),
