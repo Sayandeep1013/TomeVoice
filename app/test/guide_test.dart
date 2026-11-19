@@ -1,13 +1,15 @@
 // The guide: shown by itself once, on a new install's first launch, and
 // never to an update with a shelf or settings of its own; four cards,
 // stepped through or skipped, each read out by TalkBack as it arrives; and
-// shown again from Settings.
+// shown again from Settings. The AI's own guide: six cards, by itself on
+// the AI page's first opening only, and from its 'How the AI works'.
 
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tomevoice_spike/ai/ai_screen.dart';
 import 'package:tomevoice_spike/guide.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/main.dart';
@@ -186,6 +188,42 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(GuideScreen), findsNothing);
     expect(find.byType(SettingsScreen), findsOneWidget);
+    await finish(tester);
+  });
+  testWidgets("the AI page's first opening shows the AI guide once: six cards, then the page", (tester) async {
+    phone(tester);
+    await tester.runAsync(() => ListeningPrefs.load(_tmp.path));
+    await tester.pumpWidget(const MaterialApp(home: AiScreen()));
+    await tester.pumpAndSettle();
+    expect(find.byType(GuideScreen), findsOneWidget);
+    expect(find.text('AI and memory'), findsOneWidget);
+    for (final (title, button) in [
+      ('Your own AI', 'Next'),
+      ('A memory for each book', 'Next'),
+      ('Talk about the book', 'Next'),
+      ('Hold to ask', 'Next'),
+      ("Who's who and the graph", 'Next'),
+      ('You stay in charge', 'Got it'),
+    ]) {
+      expect(find.text(title), findsOneWidget, reason: title);
+      await tester.tap(find.text(button));
+      await tester.pumpAndSettle();
+    }
+    expect(find.byType(GuideScreen), findsNothing);
+    expect(find.byType(AiScreen), findsOneWidget);
+    expect(ListeningPrefs.loaded!.aiGuideShown, isTrue);
+
+    // Opened again: not by itself, but its button brings it back.
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(const MaterialApp(home: AiScreen()));
+    await tester.pumpAndSettle();
+    expect(find.byType(GuideScreen), findsNothing);
+    await tester.tap(find.text('How the AI works'));
+    await tester.pumpAndSettle();
+    expect(find.text('Your own AI'), findsOneWidget);
+    await tester.tap(find.text('Skip'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AiScreen), findsOneWidget);
     await finish(tester);
   });
 }

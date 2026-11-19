@@ -55,12 +55,14 @@ class ListeningPrefs {
     this.autoScrollLines = 24,
     this.autoPageSeconds = 30,
     this.guideShown = false,
+    this.aiGuideShown = false,
     this.themeMode = ThemeMode.system,
     this.paletteId = 'forest',
     this.ownPage,
     this.ownAccent,
     this.ownInk,
     this.updateEvery = 'daily',
+    this.checkStartedOnly = false,
     this.novelUpdates = false,
     this.gridView = true,
     this.journalNotebook = false,
@@ -70,6 +72,8 @@ class ListeningPrefs {
     this.aiRecapDays = 3,
     this.aiLength = 'normal',
     this.aiOwnKnowledge = false,
+    this.aiGuardNew = false,
+    this.aiKeepTalks = true,
     this.aiBackground = true,
     this.aiBackgroundWifi = true,
     this.aiBackgroundCharging = false,
@@ -89,9 +93,11 @@ class ListeningPrefs {
     this.kosyncUrl,
     this.kosyncUser,
     List<String>? plainHttpOk,
+    List<String>? aiPrompts,
     List<Map<String, Object?>>? catalogues,
     Map<String, String>? catalogueUsers,
   })  : plainHttpOk = plainHttpOk ?? [],
+        aiPrompts = aiPrompts ?? [],
         catalogues = catalogues ?? [],
         catalogueUsers = catalogueUsers ?? {},
         voiceByLanguage = voiceByLanguage ?? {},
@@ -317,6 +323,10 @@ class ListeningPrefs {
   /// shows it), and again whenever Settings asks.
   bool guideShown;
 
+  /// Whether the guide to the AI and the memory has been shown, on the AI
+  /// page's first opening.
+  bool aiGuideShown;
+
   /// Light, dark, or the phone's choice.
   ThemeMode themeMode;
 
@@ -334,6 +344,9 @@ class ListeningPrefs {
 
   /// How often web novels are checked for new chapters (see UpdateEvery).
   String updateEvery;
+
+  /// Only the web novels already begun are checked for new chapters.
+  bool checkStartedOnly;
 
   /// A link on each web novel's page to find it on NovelUpdates, in the
   /// browser (see NovelUpdates). Off until turned on.
@@ -367,6 +380,12 @@ class ListeningPrefs {
   /// Talk may use what the model knows of the book from elsewhere (off: it
   /// keeps to what TomeVoice gives it).
   bool aiOwnKnowledge;
+
+  /// The spoiler guard turned on for each book whose memory is begun.
+  bool aiGuardNew;
+
+  /// Talks kept in the book's journal when Talk closes.
+  bool aiKeepTalks;
 
   /// Memories built with TomeVoice closed (on unless turned off), only on
   /// Wi-Fi (on), only while charging (off).
@@ -420,6 +439,9 @@ class ListeningPrefs {
   /// and over http otherwise only to this phone or their own network (see
   /// passwordMayGo).
   final List<String> plainHttpOk;
+
+  /// The reader's own questions, offered as buttons in Talk.
+  final List<String> aiPrompts;
 
   /// OPDS catalogues the reader added (see Catalogue), and the user names
   /// they sign in to the built-in ones with: kept with the settings, so a
@@ -528,12 +550,14 @@ class ListeningPrefs {
         if (autoScrollLines != 24) 'autoScrollLines': autoScrollLines,
         if (autoPageSeconds != 30) 'autoPageSeconds': autoPageSeconds,
         if (guideShown) 'guideShown': true,
+        if (aiGuideShown) 'aiGuideShown': true,
         'themeMode': themeMode.name,
         'palette': paletteId,
         if (ownPage != null) 'ownPage': colourToHex(ownPage!),
         if (ownAccent != null) 'ownAccent': colourToHex(ownAccent!),
         if (ownInk != null) 'ownInk': colourToHex(ownInk!),
         'updateEvery': updateEvery,
+        if (checkStartedOnly) 'checkStartedOnly': true,
         if (novelUpdates) 'novelUpdates': true,
         'gridView': gridView,
         'journalNotebook': journalNotebook,
@@ -543,6 +567,8 @@ class ListeningPrefs {
         'aiRecapDays': aiRecapDays,
         'aiLength': aiLength,
         'aiOwnKnowledge': aiOwnKnowledge,
+        if (aiGuardNew) 'aiGuardNew': true,
+        if (!aiKeepTalks) 'aiKeepTalks': false,
         'aiBackground': aiBackground,
         'aiBackgroundWifi': aiBackgroundWifi,
         'aiBackgroundCharging': aiBackgroundCharging,
@@ -562,6 +588,7 @@ class ListeningPrefs {
         if (kosyncUrl != null) 'kosyncUrl': kosyncUrl,
         if (kosyncUser != null) 'kosyncUser': kosyncUser,
         if (plainHttpOk.isNotEmpty) 'plainHttpOk': plainHttpOk,
+        if (aiPrompts.isNotEmpty) 'aiPrompts': aiPrompts,
         if (catalogues.isNotEmpty) 'catalogues': catalogues,
         if (catalogueUsers.isNotEmpty) 'catalogueUsers': catalogueUsers,
       };
@@ -639,6 +666,7 @@ class ListeningPrefs {
         autoScrollLines: ((json['autoScrollLines'] as num?)?.toInt() ?? 24).clamp(4, 120),
         autoPageSeconds: ((json['autoPageSeconds'] as num?)?.toInt() ?? 30).clamp(3, 600),
         guideShown: json['guideShown'] == true,
+        aiGuideShown: json['aiGuideShown'] == true,
         themeMode: ThemeMode.values.where((m) => m.name == json['themeMode']).firstOrNull ??
             ThemeMode.system,
         gridView: json['gridView'] as bool? ?? true,
@@ -649,6 +677,8 @@ class ListeningPrefs {
         aiRecapDays: (json['aiRecapDays'] as num?)?.toInt() ?? 3,
         aiLength: json['aiLength'] as String? ?? 'normal',
         aiOwnKnowledge: json['aiOwnKnowledge'] as bool? ?? false,
+        aiGuardNew: json['aiGuardNew'] == true,
+        aiKeepTalks: json['aiKeepTalks'] != false,
         aiBackground: json['aiBackground'] as bool? ?? true,
         aiBackgroundWifi: json['aiBackgroundWifi'] as bool? ?? true,
         aiBackgroundCharging: json['aiBackgroundCharging'] as bool? ?? false,
@@ -657,6 +687,7 @@ class ListeningPrefs {
         ownAccent: colourFromHex(json['ownAccent']),
         ownInk: colourFromHex(json['ownInk']),
         updateEvery: json['updateEvery'] as String? ?? 'daily',
+        checkStartedOnly: json['checkStartedOnly'] == true,
         novelUpdates: json['novelUpdates'] == true,
         sort: LibrarySort.values.where((m) => m.name == json['sort']).firstOrNull ??
             LibrarySort.recent,
@@ -677,6 +708,10 @@ class ListeningPrefs {
         plainHttpOk: [
           for (final u in json['plainHttpOk'] is List ? json['plainHttpOk'] as List : const [])
             if (u is String) u,
+        ],
+        aiPrompts: [
+          for (final u in json['aiPrompts'] is List ? json['aiPrompts'] as List : const [])
+            if (u is String && u.trim().isNotEmpty) u,
         ],
         catalogues: [
           for (final c in json['catalogues'] is List ? json['catalogues'] as List : const [])

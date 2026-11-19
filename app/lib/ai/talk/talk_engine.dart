@@ -70,6 +70,28 @@ List<String> spokenPieces(String text) {
 Future<List<PackItem>> _packOff(PackInput input) => Isolate.run(() => buildPack(input));
 Future<List<PackItem>> _toolOff(String path, String name, Map<String, Object?> args, int? line) =>
     Isolate.run(() => runTool(path, name, args, line));
+/// The earlier books of the series the memory at [path] carries on from.
+Future<void> _noteAskedOff(String path, String question, int? ch) => Isolate.run(() => noteAsked(path, question, ch));
+
+Future<List<EarlierBook>> earlierBooksOff(String path) => Isolate.run(() => earlierBooks(path));
+Future<List<PackItem>> _earlierPackOff(String question, List<EarlierBook> books) =>
+    Isolate.run(() => earlierPack(question, books));
+Future<List<PackItem>> _searchEarlierOff(String query, List<EarlierBook> books) =>
+    Isolate.run(() => searchEarlier(query, books));
+
+/// The tool for a book that carries on from earlier ones of its series.
+const earlierTool = AiTool(
+  name: 'search_earlier_books',
+  description: 'Search the text of the earlier books of the series (this book carries on from them) for words or '
+      'a quoted phrase. Returns the places found, by book and chapter.',
+  parameters: {
+    'type': 'object',
+    'properties': {
+      'query': {'type': 'string', 'description': 'Words to find; quote a phrase to keep it together.'},
+    },
+    'required': ['query'],
+  },
+);
 
 /// How long the reader likes answers.
 enum AnswerLength {
@@ -176,6 +198,9 @@ class TalkEngine {
 
   final _history = <Map<String, Object?>>[];
 
+  /// The earlier books of the series this one carries on from.
+  List<EarlierBook> _earlier = const [];
+
   /// How a theory is answered.
   static const _weigh = 'Weigh it honestly, as a friend who has read as far as they have: what in the story so far '
       'supports it, what speaks against it (cite both), what is still unknown, and how likely it seems. Do not '
@@ -200,7 +225,12 @@ class TalkEngine {
               'after it.',
         'After each sentence that rests on the material, cite it as [S3] (several: [S3, S7]). Cite only '
             'numbers given to you.',
+        if (_earlier.isNotEmpty)
+          'This book carries on from ${_earlier.map((b) => '"${b.title}"').join(' and ')}: material from '
+              'there is marked with its book. Say which book something happened in.',
         length.ask,
+        'If the reader asks for a length ("in two minutes": about 300 words; "in ten minutes": about 1,500, '
+            'for listening), keep to theirs instead.',
       ].join('\n\n');
 
   String _render(List<PackItem> items) {
@@ -212,7 +242,7 @@ class TalkEngine {
         b.writeln('\n## $section');
       }
       final n = _next++;
-      sources[n] = TalkSource(n, i.place == null ? i.section : chapterLabel(i.place!.chapter), i.place);
+      sources[n] = TalkSource(n, i.label ?? (i.place == null ? i.section : chapterLabel(i.place!.chapter)), i.place);
       b.writeln('[S$n] ${i.text}');
     }
     return b.toString().trim();
@@ -244,6 +274,9 @@ class TalkEngine {
       if (passage.trim().isNotEmpty) PackItem('What the reader is reading now', passage),
       for (final j in journal) PackItem("The reader's journal", j),
     ];
+    // A book that carries on from earlier ones: what they say, too.
+    _earlier = MemoryDb.existsAt(memoryPath) ? await earlierBooksOff(memoryPath) : const [];
+    if (_earlier.isNotEmpty) items.addAll(await _earlierPackOff(question, _earlier));
     final material = _render(items);
     final messages = [
       aiMessage('system', _system(line)),
@@ -255,6 +288,14 @@ class TalkEngine {
       ),
     ];
     final reply = await _converse(messages, line, onText);
+    // Kept, for "you asked about this before" (a theory is kept as one).
+    if (!theory && MemoryDb.existsAt(memoryPath)) {
+      try {
+        await _noteAskedOff(memoryPath, question, here);
+      } on Object {
+        // Only a convenience: the answer stands without it.
+      }
+    }
     _history
       ..add(aiMessage('user', question))
       ..add(aiMessage('assistant', reply));
@@ -281,7 +322,8 @@ class TalkEngine {
     for (var round = 0; round < 5; round++) {
       final AiReply reply;
       try {
-        reply = await router.chat(AiJob.talker, messages, tools: tools ? talkTools : const [], onText: onText);
+        reply = await router.chat(AiJob.talker, messages,
+            tools: tools ? [...talkTools, if (_earlier.isNotEmpty) earlierTool] : const [], onText: onText);
       } on AiResting catch (e) {
         // A provider that turns tools down: once more without them.
         if (tools && e.last?.kind == AiFailure.request) {
@@ -296,7 +338,9 @@ class TalkEngine {
       for (final call in reply.toolCalls) {
         final args = call.args;
         final path = memoryPath;
-        final found = await _toolOff(path, call.name, args, line);
+        final found = call.name == earlierTool.name
+            ? await _searchEarlierOff('${args['query'] ?? ''}', _earlier)
+            : await _toolOff(path, call.name, args, line);
         messages.add(aiToolAnswer(call.id, _render(found)));
       }
     }

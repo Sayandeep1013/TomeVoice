@@ -258,6 +258,11 @@ jobs:
           grep -q "USE_BIOMETRIC" "$M"
           # Look up and Translate: those apps are invisible without it.
           grep -q "android.intent.action.PROCESS_TEXT" "$M"
+          # Speaking into the journal: the microphone, and the phone's
+          # speech recogniser made visible to SpeechRecognizer.
+          grep -q "android.permission.RECORD_AUDIO" "$M"
+          grep -q "android.speech.RecognitionService" "$M"
+          test -f "$K/Dictation.kt"
           grep -q "pdfbox-android" android/app/build.gradle.kts
           # OCR for scanned PDFs: Tesseract4Android and its service.
           grep -q "tesseract4android" android/app/build.gradle.kts

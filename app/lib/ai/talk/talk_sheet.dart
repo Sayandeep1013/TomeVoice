@@ -154,15 +154,43 @@ class _TalkSheetState extends State<TalkSheet> {
     super.dispose();
   }
 
+  /// A question of the reader's own, kept as a button for every book.
+  Future<void> _addPrompt() async {
+    final prefs = ListeningPrefs.loaded;
+    if (prefs == null) return;
+    final typed = await askText(
+      context,
+      title: 'A question of your own',
+      message: 'Kept as a button here, for every book. Hold it to take it away.',
+      hint: 'What would the main character do next?',
+    );
+    final q = typed?.trim() ?? '';
+    if (q.isEmpty || prefs.aiPrompts.contains(q) || !mounted) return;
+    setState(() => prefs.aiPrompts.add(q));
+    prefs.save();
+  }
+
+  Future<void> _forgetPrompt(String q) async {
+    final prefs = ListeningPrefs.loaded;
+    if (prefs == null) return;
+    final sure = await confirm(context, title: 'Take this question away?', body: q, action: 'Take it away');
+    if (!sure || !mounted) return;
+    setState(() => prefs.aiPrompts.remove(q));
+    prefs.save();
+  }
+
   /// The talk kept in the book's journal, stamped where the story was when
   /// it began.
   Future<void> _keep() async {
+    if (!(ListeningPrefs.loaded?.aiKeepTalks ?? true)) return;
     // Its [S3] marks kept as the chapters they named: the sources go.
     String kept(_Turn t) => t.text
         .replaceAllMapped(citeMarks, (m) {
           final labels = {
             for (final n in citeNumbers(m.group(0)!))
-              if (t.sources[n]?.place != null) t.sources[n]!.label,
+              // A place in this book, or one in an earlier book ("Book One · ch 4").
+              if (t.sources[n]?.place != null || (t.sources[n]?.label.contains(' · ch ') ?? false))
+                t.sources[n]!.label,
           };
           return labels.isEmpty ? '' : ' (${labels.join(', ')})';
         })
@@ -185,11 +213,20 @@ class _TalkSheetState extends State<TalkSheet> {
     ));
   }
 
-  /// The reader's journal for the book, within the line, for the AI to read.
+  /// The earlier books of the series this one carries on from, by id: their
+  /// titles, and how far the reader went in each (null: all of it).
+  Map<String, ({String title, int? upTo})> _earlier = const {};
+
+  /// The reader's journal for the book, within the line, for the AI to read;
+  /// then what they wrote of the earlier books of its series.
   List<String> _journalLines(int? line) => [
         for (final e in _journal.all)
           if (e.bookId == widget.bookId && !e.isTalk && (line == null || e.stamp.chapter <= line))
             '${e.stamp.label}, ${e.created.toLocal().toString().substring(0, 10)}: ${e.words}',
+        for (final e in _journal.all)
+          if (_earlier[e.bookId] case final b?
+              when !e.isTalk && (b.upTo == null || e.stamp.chapter <= b.upTo!))
+            'In ${b.title}, ${e.stamp.label}, ${e.created.toLocal().toString().substring(0, 10)}: ${e.words}',
       ];
 
   void _toEnd() {
@@ -204,6 +241,11 @@ class _TalkSheetState extends State<TalkSheet> {
   Future<void> _ask(String question) async {
     final q = question.trim();
     if (q.isEmpty || _busy) return;
+    if (MemoryDb.existsAt(widget.memoryPath)) {
+      _earlier = {
+        for (final b in await earlierBooksOff(widget.memoryPath)) b.id: (title: b.title, upTo: b.upTo),
+      };
+    }
     _stamp ??= widget.stampNow();
     final theory = _theory;
     final answer = _Turn.ai();
@@ -312,11 +354,27 @@ class _TalkSheetState extends State<TalkSheet> {
                           children: [
                             for (final s in const [
                               'What just happened?',
-                              'Catch me up on the story so far',
+                              'Catch me up in two minutes',
+                              'Catch me up in ten minutes, in detail',
                               'Who is in this chapter?',
                               'What mysteries are still open?',
                             ])
                               ActionChip(label: Text(s), onPressed: () => unawaited(_ask(s))),
+                            // The reader's own, kept: held, one goes.
+                            for (final s in ListeningPrefs.loaded?.aiPrompts ?? const <String>[])
+                              GestureDetector(
+                                onLongPress: () => unawaited(_forgetPrompt(s)),
+                                child: ActionChip(
+                                  avatar: const Icon(Icons.bookmark_outline_rounded, size: 18),
+                                  label: Text(s),
+                                  onPressed: () => unawaited(_ask(s)),
+                                ),
+                              ),
+                            ActionChip(
+                              avatar: const Icon(Icons.add_rounded, size: 18),
+                              label: const Text('Your own'),
+                              onPressed: () => unawaited(_addPrompt()),
+                            ),
                             ActionChip(
                               avatar: const Icon(Icons.lightbulb_outline_rounded, size: 18),
                               label: const Text('I have a theory…'),

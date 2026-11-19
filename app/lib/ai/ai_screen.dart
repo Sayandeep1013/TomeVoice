@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../guide.dart';
 import '../prefs.dart';
 import '../theme.dart';
 import '../ui.dart';
@@ -32,6 +34,15 @@ class _AiScreenState extends State<AiScreen> {
   void initState() {
     super.initState();
     _ring.addListener(_changed);
+    // The guide to the AI, by itself the first time this page opens.
+    final prefs = ListeningPrefs.loaded;
+    if (GuideScreen.onFirstLaunch && prefs != null && !prefs.aiGuideShown) {
+      prefs.aiGuideShown = true;
+      prefs.save();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(showAiGuide(context));
+      });
+    }
   }
 
   @override
@@ -78,7 +89,18 @@ class _AiScreenState extends State<AiScreen> {
                           : 'Your keys, straight from this phone to each provider. When one has used up its '
                               'quota it rests, and the next takes over.',
                     ),
-                    const SizedBox(height: Gap.l),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: Gap.page - Gap.s),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: () => unawaited(showAiGuide(context)),
+                          icon: const Icon(Icons.school_outlined, size: 18),
+                          label: const Text('How the AI works'),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: Gap.s),
                     const Padding(
                       padding: EdgeInsets.symmetric(horizontal: Gap.page),
                       child: SectionTitle('Keys'),
@@ -166,7 +188,8 @@ String wakeTime(DateTime t, {DateTime? now}) {
   final today = ring.today(key.id);
   if (today.calls == 0) return ('Ready', null);
   return (
-    '${today.calls} ${today.calls == 1 ? 'call' : 'calls'} · ${tokenCount(today.input + today.output)} tokens today',
+    '${today.calls} ${today.calls == 1 ? 'call' : 'calls'} · ${tokenCount(today.input + today.output)}'
+        '${key.dailyCap == null ? '' : ' of ${tokenCount(key.dailyCap!)}'} tokens today',
     null
   );
 }
@@ -309,6 +332,18 @@ class _TalkSettingsState extends State<_TalkSettings> {
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: Gap.page),
             child: SectionTitle('Talk', size: 18),
+          ),
+          SwitchRow(
+            title: 'Keep talks in the journal',
+            subtitle: "Each talk is kept in the book's journal when Talk closes",
+            value: _p.aiKeepTalks,
+            onChanged: (v) => _set((p) => p.aiKeepTalks = v),
+          ),
+          SwitchRow(
+            title: 'Spoiler guard on for new books',
+            subtitle: 'Each book whose memory you begin keeps to what you have read (each book can change it)',
+            value: _p.aiGuardNew,
+            onChanged: (v) => _set((p) => p.aiGuardNew = v),
           ),
           SwitchRow(
             title: 'Answers aloud',
@@ -461,6 +496,7 @@ class _KeySheetState extends State<KeySheet> {
   late final _label = TextEditingController(text: widget.editing?.label ?? '');
   late final _base = TextEditingController(text: widget.editing?.baseUrl ?? _provider.baseUrl);
   late final _secret = TextEditingController(text: widget.editing?.secret ?? '');
+  late final _cap = TextEditingController(text: widget.editing?.dailyCap == null ? '' : '${widget.editing!.dailyCap}');
   late final _models = {
     for (final j in AiJob.values) j: TextEditingController(text: widget.editing?.models[j] ?? ''),
   };
@@ -477,6 +513,7 @@ class _KeySheetState extends State<KeySheet> {
     _label.dispose();
     _base.dispose();
     _secret.dispose();
+    _cap.dispose();
     for (final c in _models.values) {
       c.dispose();
     }
@@ -518,6 +555,13 @@ class _KeySheetState extends State<KeySheet> {
           if (c.text.isEmpty) c.text = suggestModel(_provider, job, models) ?? '';
         }
       });
+      // What Talk and the Builder need of the model: tools, and JSON.
+      final model = _models[AiJob.talker]!.text.trim();
+      if (model.isNotEmpty) {
+        final can = await probeModel(
+            _client, AiEndpoint(baseUrl: _base.text.trim(), key: _secret.text.trim(), model: model));
+        if (mounted) setState(() => _checkNote = '${_checkNote ?? ''}\n$can');
+      }
     } on AiError catch (e) {
       if (!mounted) return;
       setState(() {
@@ -568,6 +612,7 @@ class _KeySheetState extends State<KeySheet> {
       baseUrl: _base.text.trim(),
       secret: _secret.text.trim(),
       models: models,
+      dailyCap: capOf(_cap.text),
     ));
     if (mounted) Navigator.of(context).pop();
   }
@@ -684,6 +729,16 @@ class _KeySheetState extends State<KeySheet> {
                         ),
                       ),
                     ),
+                const SizedBox(height: Gap.m),
+                TextField(
+                  controller: _cap,
+                  keyboardType: TextInputType.text,
+                  decoration: const InputDecoration(
+                    labelText: 'Daily limit, in tokens (optional)',
+                    hintText: '2M, 500k, or empty for none',
+                    helperText: 'Reached, the key rests until midnight and the next one takes over.',
+                  ),
+                ),
                 const SizedBox(height: Gap.l),
                 Row(
                   children: [
@@ -775,4 +830,52 @@ class _ModelPickerState extends State<_ModelPicker> {
       ),
     );
   }
+}
+
+/// A typed daily limit: "2000000", "2M", "500k", "1.5m" (null: none).
+int? capOf(String typed) {
+  final t = typed.trim().toLowerCase().replaceAll(',', '').replaceAll(' ', '');
+  final m = RegExp(r'^(\d+(?:\.\d+)?)([km]?)$').firstMatch(t);
+  if (m == null) return null;
+  final n = double.parse(m.group(1)!) * switch (m.group(2)) { 'k' => 1000, 'm' => 1000000, _ => 1 };
+  return n < 1 ? null : n.round();
+}
+
+/// Whether the model at [to] calls tools and keeps to JSON, as a line for
+/// the reader: Talk looks further into a book with tools, and the Builder's
+/// notes are JSON.
+Future<String> probeModel(AiClient client, AiEndpoint to) async {
+  const ping = AiTool(
+    name: 'ping',
+    description: 'Answer a ping.',
+    parameters: {
+      'type': 'object',
+      'properties': {
+        'word': {'type': 'string'},
+      },
+      'required': ['word'],
+    },
+  );
+  bool? tools, json;
+  try {
+    final r = await client.chat(to, [aiMessage('user', 'Call the tool ping with the word "hello". Do nothing else.')],
+        tools: const [ping], maxTokens: 60);
+    tools = r.toolCalls.any((c) => c.name == 'ping');
+  } on Object {
+    tools = false;
+  }
+  try {
+    final r = await client.chat(to, [aiMessage('user', 'Reply with the JSON object {"ok": true} and nothing else.')],
+        json: true, maxTokens: 30);
+    final t = r.text.trim().replaceAll(RegExp(r'^```(json)?|```$'), '').trim();
+    json = jsonDecode(t) is Map;
+  } on Object {
+    json = false;
+  }
+  final m = to.model;
+  if (tools && json) return '$m calls tools and writes JSON: Talk and building both work fully.';
+  return [
+    if (!tools) '$m did not call a tool: Talk answers from what it is given, without looking further.',
+    if (!json) "$m did not keep to JSON: building a book's memory may fail with it. Choose another for Building.",
+  ].join(' ');
 }

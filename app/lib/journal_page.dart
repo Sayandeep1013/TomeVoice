@@ -3,7 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor, ReadingLayout;
 
+import 'ai/ai_keys.dart';
+import 'ai/journal_tidy.dart';
 import 'book_card.dart';
+import 'dictation.dart';
 import 'journal.dart';
 import 'library_store.dart';
 import 'listening_session.dart' show BackgroundReading;
@@ -32,16 +35,21 @@ JournalStamp stampAt(ReadingLayout layout, int unit, {int Function(int chapter)?
 /// Open the journal to write in it for [bookId], or to change [entry].
 /// [stampNow] says where the story is the moment it is asked: once as the
 /// pen is taken up, and again at Done (the voice may have read on
-/// meanwhile). The entry kept, or null when nothing was.
+/// meanwhile). Spoken words are heard in [language] (the book's); [hold]
+/// pauses the book's voice while the reader speaks, and gives back how to
+/// read on. The entry kept, or null when nothing was.
 Future<JournalEntry?> openJournal(
   BuildContext context, {
   required String bookId,
   required String bookTitle,
   required JournalStamp Function() stampNow,
   JournalEntry? entry,
+  String? language,
+  Future<VoidCallback?> Function()? hold,
 }) async {
   final kept = await Navigator.of(context).push<JournalEntry>(MaterialPageRoute(
-    builder: (_) => JournalPage(bookId: bookId, bookTitle: bookTitle, stampNow: stampNow, entry: entry),
+    builder: (_) => JournalPage(
+        bookId: bookId, bookTitle: bookTitle, stampNow: stampNow, entry: entry, language: language, hold: hold),
   ));
   if (kept != null && context.mounted) {
     showSnack(context, entry == null ? 'In your journal, ${kept.stamp.label}.' : 'Changed.');
@@ -60,6 +68,9 @@ class JournalPage extends StatefulWidget {
     required this.stampNow,
     this.entry,
     this.questions,
+    this.language,
+    this.hold,
+    this.dictation,
   });
 
   final String bookId;
@@ -71,6 +82,16 @@ class JournalPage extends StatefulWidget {
 
   /// The questions asked (the reader's template by default).
   final List<JournalQuestion>? questions;
+
+  /// The book's language, for hearing what is said (null: the phone's).
+  final String? language;
+
+  /// Pauses the book's voice while the reader speaks; gives back how to
+  /// read on (null: nothing was reading).
+  final Future<VoidCallback?> Function()? hold;
+
+  /// The speech recogniser (a stand-in in tests).
+  final Dictation Function()? dictation;
 
   @override
   State<JournalPage> createState() => _JournalPageState();
@@ -85,6 +106,18 @@ class _JournalPageState extends State<JournalPage> {
   late bool _blank;
   late final JournalStamp _began;
   bool _kept = false;
+
+  /// Speaking instead of writing: made when first asked.
+  Dictation? _dictation;
+
+  /// The field the words go into: the one last written in.
+  TextEditingController? _target;
+
+  /// The fields spoken into, which "Tidy" offers to tidy.
+  final _spoken = <TextEditingController>{};
+
+  /// How to read on once the reader has finished speaking.
+  VoidCallback? _readOn;
 
   @override
   void initState() {
@@ -127,10 +160,74 @@ class _JournalPageState extends State<JournalPage> {
 
   @override
   void dispose() {
+    _dictation?.dispose();
+    _readOn?.call();
     for (final c in [..._words, ..._own, _page]) {
       c.dispose();
     }
     super.dispose();
+  }
+
+  /// Where spoken words go: the field last written in, else the page or
+  /// the first question asked in words.
+  TextEditingController? get _into {
+    if (_blank) return _page;
+    final t = _target;
+    if (t != null && t != _page) return t;
+    for (var i = 0; i < _questions.length; i++) {
+      if (!_questions[i].isPick) return _words[i];
+    }
+    return null;
+  }
+
+  bool get _listening => _dictation?.listening.value ?? false;
+
+  Future<void> _speak() async {
+    final d = _dictation ??= widget.dictation?.call() ?? Dictation()
+      ..onWords = _heard
+      ..onProblem = (p) {
+        if (mounted) showSnack(context, p);
+      };
+    if (_listening) {
+      await d.stop();
+      return;
+    }
+    // The book's voice would be heard too: it waits.
+    _readOn ??= await widget.hold?.call();
+    final ok = await d.start(language: widget.language);
+    if (!ok) _readsOn();
+    if (mounted) setState(() {});
+  }
+
+  /// The book's voice reads on, once the reader has finished speaking.
+  void _readsOn() {
+    final go = _readOn;
+    _readOn = null;
+    go?.call();
+  }
+
+  void _heard(String words) {
+    final c = _into;
+    if (c == null || !mounted) return;
+    final sel = c.selection;
+    final r = insertWords(c.text, words, at: sel.isValid ? sel.end : null);
+    c.value = TextEditingValue(text: r.text, selection: TextSelection.collapsed(offset: r.at));
+    _spoken.add(c);
+    setState(() {});
+  }
+
+  Future<void> _tidy() async {
+    if (_listening) await _dictation?.stop();
+    if (!mounted) return;
+    final fields = [for (final c in _spoken) if (c.text.trim().isNotEmpty) c];
+    if (fields.isEmpty) return;
+    final tidied = await tidyJournalText(context, [for (final c in fields) c.text]);
+    if (tidied == null || !mounted) return;
+    for (final (i, c) in fields.indexed) {
+      if (i < tidied.length) c.text = tidied[i];
+    }
+    _spoken.clear();
+    setState(() {});
   }
 
   List<JournalAnswer> get _answers => [
@@ -256,6 +353,20 @@ class _JournalPageState extends State<JournalPage> {
                               ],
                             ),
                           ),
+                          if (_spoken.isNotEmpty && AiRing.instance.hasKeys)
+                            IconButton(
+                              tooltip: 'Tidy what you said',
+                              icon: Icon(Icons.auto_fix_high_rounded, color: soft),
+                              onPressed: () => unawaited(_tidy()),
+                            ),
+                          _MicButton(
+                            listening: _dictation?.listening,
+                            level: _dictation?.level,
+                            colour: tone.accent ?? Skin.accentOf(context),
+                            idle: soft,
+                            onTap: () => unawaited(_speak()),
+                          ),
+                          const SizedBox(width: Gap.xs),
                           FilledButton(
                             style: FilledButton.styleFrom(backgroundColor: tone.accent, foregroundColor: Colors.white),
                             onPressed: () => unawaited(_done()),
@@ -279,6 +390,7 @@ class _JournalPageState extends State<JournalPage> {
                               padding: const EdgeInsets.fromLTRB(34, Gap.m, Gap.l, Gap.l),
                               child: TextField(
                                 controller: _page,
+                                onTap: () => _target = _page,
                                 autofocus: widget.entry == null,
                                 maxLines: null,
                                 expands: true,
@@ -296,6 +408,31 @@ class _JournalPageState extends State<JournalPage> {
                               ],
                             ),
                     ),
+                    if (_dictation != null)
+                      ValueListenableBuilder<bool>(
+                        valueListenable: _dictation!.listening,
+                        builder: (context, on, _) {
+                          if (!on) {
+                            // Finished speaking: the book reads on.
+                            if (_readOn != null) WidgetsBinding.instance.addPostFrameCallback((_) => _readsOn());
+                            return const SizedBox.shrink();
+                          }
+                          return ValueListenableBuilder<String>(
+                            valueListenable: _dictation!.heard,
+                            builder: (context, heard, _) => Padding(
+                              padding: const EdgeInsets.fromLTRB(34, Gap.s, Gap.l, Gap.m),
+                              child: Text(
+                                heard.isEmpty ? 'Listening… say what you think, then tap the microphone.' : heard,
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                                style: heard.isEmpty
+                                    ? Skin.meta(context, color: soft)
+                                    : handwriting(21, soft.withValues(alpha: 0.8)).copyWith(height: 1.2),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
                   ],
                 ),
               ),
@@ -337,7 +474,11 @@ class _JournalPageState extends State<JournalPage> {
           ] else
             TextField(
               controller: _words[i],
-              onChanged: (_) => setState(() {}),
+              onTap: () => _target = _words[i],
+              onChanged: (_) {
+                _target = _words[i];
+                setState(() {});
+              },
               maxLines: null,
               minLines: 2,
               keyboardType: TextInputType.multiline,
@@ -634,4 +775,67 @@ Future<void> writeAbout(BuildContext context, LibraryStore store, LibraryEntry e
   final stamp = await stampForBook(store, e);
   if (!context.mounted) return;
   await openJournal(context, bookId: e.id, bookTitle: e.title, stampNow: () => stamp);
+}
+
+/// The journal's microphone: tap to speak, tap again to stop. While it
+/// listens it is filled, with a ring that swells as the voice does.
+class _MicButton extends StatelessWidget {
+  const _MicButton({
+    required this.listening,
+    required this.level,
+    required this.colour,
+    required this.idle,
+    required this.onTap,
+  });
+
+  final ValueNotifier<bool>? listening;
+  final ValueNotifier<double>? level;
+  final Color colour;
+  final Color idle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget button(bool on, double loud) => Semantics(
+          button: true,
+          toggled: on,
+          label: on ? 'Stop speaking' : 'Speak instead of writing',
+          child: InkResponse(
+            onTap: onTap,
+            radius: 24,
+            child: SizedBox(
+              width: 44,
+              height: 44,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  if (on)
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 100),
+                      width: 30 + 14 * loud,
+                      height: 30 + 14 * loud,
+                      decoration: BoxDecoration(shape: BoxShape.circle, color: colour.withValues(alpha: 0.22)),
+                    ),
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(shape: BoxShape.circle, color: on ? colour : Colors.transparent),
+                    child: Icon(on ? Icons.stop_rounded : Icons.mic_none_rounded,
+                        size: 22, color: on ? Colors.white : idle),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+    final l = listening, v = level;
+    if (l == null || v == null) return button(false, 0);
+    return ValueListenableBuilder<bool>(
+      valueListenable: l,
+      builder: (context, on, _) => ValueListenableBuilder<double>(
+        valueListenable: v,
+        builder: (context, loud, _) => button(on, on ? loud : 0),
+      ),
+    );
+  }
 }

@@ -10,12 +10,16 @@ import '../ai_keys.dart';
 import '../ai_screen.dart' show tokenCount, wakeTime;
 import '../../backup_flow.dart' show sizeLabel;
 import '../../download_queue.dart';
+import '../../library_store.dart' show LibraryEntry;
 import '../talk/talk_sheet.dart' show showTalk;
+import 'chapter_notes_screen.dart';
+import 'find_where_screen.dart';
 import 'graph_screen.dart';
 import 'hand_off.dart';
 import 'memory_builder.dart';
 import 'memory_service.dart';
 import 'theories_screen.dart';
+import 'threads_screen.dart';
 import 'whos_who_screen.dart';
 
 /// A book's page > Memory: what the AI companion remembers of the book,
@@ -113,6 +117,46 @@ class _BookMemorySectionState extends State<BookMemorySection> {
       unawaited(_service.build(widget.bookId));
       return;
     }
+    // The book before it in its series has a memory: offered, once, to
+    // carry on from it.
+    final earlier = await _service.earlierInSeries(widget.bookId);
+    final linked = earlier == null ? const <FollowedBook>[] : await _service.followedBy(widget.bookId);
+    if (!mounted) return;
+    if (earlier != null && linked.isEmpty) {
+      final carry = await showModalBottomSheet<bool>(
+        context: context,
+        sheetAnimationStyle: sheetMotion(context),
+        useSafeArea: true,
+        builder: (ctx) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(Gap.l, 0, Gap.l, Gap.l),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SheetHeader('Carry on from ${earlier.title}?', subtitle: 'The book before this one in its series'),
+                Text(
+                  'Its memory comes over: the people, places and things as they stood, the threads left open and '
+                  'the story so far. This book builds on from them, and Talk can look back into it.',
+                  style:
+                      Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkSoftOn(context)).copyWith(height: 1.4),
+                ),
+                const SizedBox(height: Gap.l),
+                FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Carry on from it')),
+                const SizedBox(height: Gap.s),
+                OutlinedButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Start fresh')),
+              ],
+            ),
+          ),
+        ),
+      );
+      if (carry == null || !mounted) return;
+      if (carry) {
+        final n = await _service.followOnFromAll(widget.bookId, [earlier.id]);
+        if (mounted) showSnack(context, '$n people, places and things carried over from ${earlier.title}.');
+      }
+      if (!mounted) return;
+    }
     // The sheet at once; what it would take, counted meanwhile.
     final counting = _service.estimate(widget.bookId);
     final keys = AiRing.instance.forJob(AiJob.builder);
@@ -205,6 +249,49 @@ class _BookMemorySectionState extends State<BookMemorySection> {
     ));
   }
 
+  Future<void> _openFind() async {
+    final line = await _service.lineOf(widget.bookId);
+    if (!mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => FindWhereScreen(
+        bookTitle: widget.bookTitle,
+        memoryPath: _service.pathOf(widget.bookId),
+        line: line,
+        onRead: widget.onRead,
+      ),
+    ));
+  }
+
+  Future<void> _openChapters() async {
+    final line = await _service.lineOf(widget.bookId);
+    if (!mounted) return;
+    final path = _service.pathOf(widget.bookId);
+    final id = widget.bookId;
+    final service = _service;
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => ChapterNotesScreen(
+        bookTitle: widget.bookTitle,
+        memoryPath: path,
+        line: line,
+        onReadAgain: service.maySend(id)
+            ? (ch) async {
+                await forgetChapterNotesOff(path, ch);
+                await service.refresh(id);
+                unawaited(service.build(id));
+              }
+            : null,
+      ),
+    ));
+  }
+
+  Future<void> _openThreads() async {
+    final line = await _service.lineOf(widget.bookId);
+    if (!mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => ThreadsScreen(memoryPath: _service.pathOf(widget.bookId), line: line, onRead: widget.onRead),
+    ));
+  }
+
   Future<void> _openTheories() async {
     final here = await _service.hereOf(widget.bookId);
     if (!mounted) return;
@@ -244,44 +331,40 @@ class _BookMemorySectionState extends State<BookMemorySection> {
     await _service.setReadUpTo(widget.bookId, n == null || n < 1 ? null : n - 1);
   }
 
-  /// The book before this one in a series, picked from the books with a
-  /// memory: what it remembers carried over.
+  /// The books before this one in a series, picked from the books with a
+  /// memory (several for an omnibus or a spin-off): what they remember
+  /// carried over. None picked undoes it.
   Future<void> _followOn() async {
     final books = [
       for (final b in await _service.booksWithMemory())
         if (b.id != widget.bookId) b,
-    ];
+    ]..sort((a, b) {
+        final s = (a.series ?? '').compareTo(b.series ?? '');
+        return s != 0 ? s : (a.seriesIndex ?? 0).compareTo(b.seriesIndex ?? 0);
+      });
+    final linked = {for (final f in await _service.followedBy(widget.bookId)) f.id};
     if (!mounted) return;
     if (books.isEmpty) {
       showSnack(context, 'Build the memory of the book before this one first, then link them here.');
       return;
     }
-    final picked = await showModalBottomSheet<String>(
+    final picked = await showModalBottomSheet<Set<String>>(
       context: context,
       sheetAnimationStyle: sheetMotion(context),
       useSafeArea: true,
       isScrollControlled: true,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const SheetHeader('Follows on from', subtitle: 'The book before this one in its series'),
-            Flexible(
-              child: ListView(
-                shrinkWrap: true,
-                children: [
-                  for (final b in books) ListTile(title: Text(b.title), onTap: () => Navigator.of(ctx).pop(b.id)),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+      builder: (ctx) => _FollowsSheet(books: books, linked: linked),
     );
     if (picked == null || !mounted) return;
-    final n = await _service.followOnFrom(widget.bookId, picked);
-    if (mounted) showSnack(context, '$n people, places and things carried over. Building goes on from them.');
+    final order = [for (final b in books) if (picked.contains(b.id)) b.id];
+    final n = await _service.followOnFromAll(widget.bookId, order);
+    if (mounted) {
+      showSnack(
+          context,
+          order.isEmpty
+              ? 'It no longer carries on from another book.'
+              : '$n people, places and things carried over. Building goes on from them.');
+    }
   }
 
   Future<void> _forget() async {
@@ -392,7 +475,7 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                             ? "I've read up to chapter…"
                             : "I've read up to chapter ${s.readUpTo! + 1}…"),
                       ),
-                      const PopupMenuItem(value: 'follows', child: Text('Follows on from another book…')),
+                      const PopupMenuItem(value: 'follows', child: Text('Carries on from another book…')),
                     ],
                     PopupMenuItem(
                       value: 'private',
@@ -415,6 +498,13 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                 child: LinearProgressIndicator(value: s.noted / s.indexed, minHeight: 4),
               ),
             ],
+            if (!s.private && s.exists)
+              _FollowsLine(
+                key: ValueKey('follows ${s.entities} ${s.noted}'),
+                service: _service,
+                bookId: widget.bookId,
+                onChange: () => unawaited(_followOn()),
+              ),
             if (!s.private) ...[
               const SizedBox(height: Gap.s),
               Wrap(
@@ -451,6 +541,24 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                       label: const Text('Graph'),
                     ),
                   ],
+                  if (s.exists && s.noted > 0)
+                    OutlinedButton.icon(
+                      onPressed: () => unawaited(_openThreads()),
+                      icon: const Icon(Icons.timeline_rounded, size: 18),
+                      label: const Text('Threads'),
+                    ),
+                  if (s.exists && s.noted > 0)
+                    OutlinedButton.icon(
+                      onPressed: () => unawaited(_openChapters()),
+                      icon: const Icon(Icons.format_list_bulleted_rounded, size: 18),
+                      label: const Text('Chapter by chapter'),
+                    ),
+                  if (s.exists && s.indexed > 0)
+                    OutlinedButton.icon(
+                      onPressed: () => unawaited(_openFind()),
+                      icon: const Icon(Icons.manage_search_rounded, size: 18),
+                      label: const Text('Find where…'),
+                    ),
                   if (s.exists && s.noted > 0)
                     OutlinedButton.icon(
                       onPressed: () => unawaited(_handOff()),
@@ -775,4 +883,136 @@ class _ChaptersBlockState extends State<_ChaptersBlock> {
       ),
     );
   }
+}
+
+/// "Carries on from Book 1", under a memory that does: and when that
+/// book's memory has changed since, a button to bring it over again.
+class _FollowsLine extends StatefulWidget {
+  const _FollowsLine({super.key, required this.service, required this.bookId, required this.onChange});
+
+  final MemoryService service;
+  final String bookId;
+  final VoidCallback onChange;
+
+  @override
+  State<_FollowsLine> createState() => _FollowsLineState();
+}
+
+class _FollowsLineState extends State<_FollowsLine> {
+  List<FollowedBook> _books = const [];
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    final b = await widget.service.followedBy(widget.bookId);
+    if (mounted) setState(() => _books = b);
+  }
+
+  Future<void> _again() async {
+    setState(() => _busy = true);
+    final n = await widget.service.followOnFromAll(widget.bookId, [for (final b in _books) b.id]);
+    if (!mounted) return;
+    showSnack(context, 'Brought over again: $n people, places and things.');
+    setState(() => _busy = false);
+    await _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_books.isEmpty) return const SizedBox.shrink();
+    final changed = _books.where((b) => b.changed).toList();
+    return Padding(
+      padding: const EdgeInsets.only(top: Gap.s),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: widget.onChange,
+            borderRadius: BorderRadius.circular(6),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  Icon(Icons.link_rounded, size: 18, color: Skin.accentInkOf(context)),
+                  const SizedBox(width: Gap.s),
+                  Expanded(
+                    child: Text(
+                      'Carries on from ${_books.map((b) => b.title).join(', then ')}',
+                      style: Skin.ui(size: 14, weight: FontWeight.w500, color: Skin.inkOn(context)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (changed.isNotEmpty)
+            TextButton.icon(
+              onPressed: _busy ? null : () => unawaited(_again()),
+              icon: const Icon(Icons.sync_rounded, size: 18),
+              label: Text(changed.length == 1 && _books.length == 1
+                  ? "${changed.first.title}'s memory has changed: bring it over again"
+                  : 'An earlier book has changed: bring them over again'),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Which books this one carries on from: ticked, in the series' order.
+class _FollowsSheet extends StatefulWidget {
+  const _FollowsSheet({required this.books, required this.linked});
+
+  final List<LibraryEntry> books;
+  final Set<String> linked;
+
+  @override
+  State<_FollowsSheet> createState() => _FollowsSheetState();
+}
+
+class _FollowsSheetState extends State<_FollowsSheet> {
+  late final Set<String> _on = {...widget.linked};
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SheetHeader('Carries on from',
+                subtitle: 'The books before this one: their memories come over, earliest first'),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final b in widget.books)
+                    CheckboxListTile(
+                      value: _on.contains(b.id),
+                      title: Text(b.title),
+                      subtitle: b.series == null
+                          ? null
+                          : Text('${b.series}${b.seriesIndex == null ? '' : ' ${_number(b.seriesIndex!)}'}',
+                              style: Skin.meta(context)),
+                      onChanged: (v) => setState(() => v == true ? _on.add(b.id) : _on.remove(b.id)),
+                    ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(Gap.l, Gap.s, Gap.l, Gap.l),
+              child: FilledButton(
+                onPressed: () => Navigator.of(context).pop(_on),
+                child: Text(_on.isEmpty && widget.linked.isNotEmpty ? 'Carry on from none' : 'Carry on from these'),
+              ),
+            ),
+          ],
+        ),
+      );
+
+  static String _number(double n) => n == n.roundToDouble() ? '${n.round()}' : '$n';
 }

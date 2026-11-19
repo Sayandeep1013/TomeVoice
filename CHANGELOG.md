@@ -3,6 +3,45 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## 2.1.0 (2026-11-20)
+
+Speak into your journal, a series that carries on by itself, a guide to the AI, and more ways to look into a book's memory.
+
+#### Speak, and the journal writes
+- A **microphone** beside Done on the journal page: tap it and speak. The phone's own speech recogniser hears you (no key, nothing downloaded, nothing recorded: only the words are kept), in the book's language. Your words land in the answer you are writing, through pauses, until you tap it again. The book's voice waits while you speak and reads on after.
+- **Tidy what you said**, with an AI key: punctuation and capitals added, the ums taken out, your own words kept. It shows the tidied text beside what you said before using it.
+
+#### A series carries on by itself
+- Building the memory of a book whose series has an earlier book with a memory offers to **carry on from it**: its people, places and things as they stood, the threads left open and the story so far.
+- The Memory page says what a book **carries on from**; when that book's memory has changed since, one tap brings it over again (nobody twice). A book can carry on from several (an omnibus, a spin-off), picked in its Memory menu.
+- With the spoiler guard on, an earlier book comes over only as far as you read it.
+- **Talk looks into the earlier books** too, citing them by book and chapter ("Book One · ch 4"), and reads what your journal says of them.
+- On the graph, those from an earlier book wear a thin ring; the legend hides them.
+
+#### Looking into a memory
+- **Threads**: the story's mysteries, promises and hints, open or settled, each step by chapter.
+- **Chapter by chapter**: what the AI noted of each chapter, and **Read this chapter again** for a poor one.
+- **Find where…**: every word of the whole book searched, even a web novel's chapters not on the phone.
+- **Who's who** shows the new kinds the AI suggests for a book, to accept or turn down.
+- The 3D view of the graph is put away for now; the flat one stays.
+
+#### Talk
+- **Catch me up in two minutes**, or in ten, in detail.
+- Your own questions, kept as buttons (**Your own**; hold one to take it away).
+- Talk remembers what you asked, and brings back an earlier question on the same thing.
+- AI settings: **Keep talks in the journal**, and **Spoiler guard on for new books**.
+
+#### Keys
+- **A guide to the AI and the memory**: six cards, shown the first time the AI page opens, and from **How the AI works** there and in Settings.
+- A **daily limit** for each key, in tokens (2M, 500k): reached, the key rests until midnight and the next one takes over.
+- **Check the key** also tries the model's tools and JSON, and says what that means for Talk and building.
+
+#### Fixes
+- Replacing a book's file keeps its AI memory; chapters whose text changed are read again.
+- A chapter whose text changed (an edited web-novel chapter) drops what its old notes put in the graph before it is read again; a web-novel chapter downloaded again is checked.
+- Pause pressed while a web novel fetches its next chapter is kept: it waits there, paused, and Play reads on.
+- Check for new chapters: **Only novels I've begun**, if you want.
+
 ## 2.0.0 (2026-11-19)
 
 An AI reading companion that remembers the book with you, working with your own keys.

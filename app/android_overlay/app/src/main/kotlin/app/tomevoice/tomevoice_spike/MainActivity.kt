@@ -46,6 +46,9 @@ class MainActivity : FlutterActivity() {
     private val pages = Executors.newSingleThreadExecutor()
     private var channel: MethodChannel? = null
 
+    /** Speaking into the journal (Dictation.kt): this activity's, as the microphone is asked of it. */
+    private var dictation: Dictation? = null
+
     /** This activity came to an engine already running Dart (see onCreate). */
     private var rejoined = false
 
@@ -190,6 +193,8 @@ class MainActivity : FlutterActivity() {
 
         val ch = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
         channel = ch
+        dictation?.close()
+        dictation = Dictation(this, flutterEngine)
         ch.setMethodCallHandler { call, result ->
             // Asking to show the notification is the activity's part of it.
             if (call.method == "session" && call.argument<Boolean>("active") == true) askToNotify()
@@ -1389,8 +1394,15 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        if (dictation?.onPermission(requestCode, grantResults) == true) return
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    }
+
     override fun onDestroy() {
         stopSample()
+        dictation?.close()
+        dictation = null
         // The reading, the voice, the player and a save as audio are the
         // engine's and carry on (ReadingCore): leaving the app, by a swipe
         // from Recents too, does not stop a book being read or saved. A scan

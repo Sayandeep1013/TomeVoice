@@ -1370,7 +1370,21 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// voice reads (or the place, when it does not).
   void _write({JournalStamp Function()? stamp}) {
     _auto.stop();
-    unawaited(openJournal(context, bookId: _book.id, bookTitle: _book.metadata.title, stampNow: stamp ?? _stampNow));
+    unawaited(openJournal(
+      context,
+      bookId: _book.id,
+      bookTitle: _book.metadata.title,
+      stampNow: stamp ?? _stampNow,
+      language: _reader.language,
+      // Speaking into it: the book waits, and reads on from where it was.
+      hold: () async {
+        if (!_player.isPlaying) return null;
+        await _player.pause(now: true);
+        return () {
+          if (mounted) unawaited(_player.play(_cursor.value));
+        };
+      },
+    ));
   }
 
   /// Where the story is now: the voice's sentence (in the chapters it reads

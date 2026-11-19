@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor, ReadingLayout;
 
+import 'ai/memory/memory_service.dart';
 import 'journal.dart';
 import 'library_store.dart';
 import 'marks.dart';
@@ -67,7 +68,8 @@ ReadingCursor followPlace(ReadingLayout from, ReadingLayout to, ReadingCursor c)
 
 /// Book [old]'s file swapped for another (a corrected EPUB, a better scan):
 /// the new file is read in, and becomes the book, with its place, quotes,
-/// bookmarks, voices and rules found again in it by their sentences. The
+/// bookmarks, voices and rules found again in it by their sentences, and
+/// its AI memory carried over. The
 /// new book, or null when nothing changed (the picker closed, or the same
 /// file picked).
 Future<LibraryEntry?> replaceBookFile(LibraryStore store, LibraryEntry old, PickedFile file,
@@ -86,6 +88,9 @@ Future<LibraryEntry?> replaceBookFile(LibraryStore store, LibraryEntry old, Pick
   final prefs = ListeningPrefs.loaded;
   if (prefs != null && movePrefs(prefs, old.id, fresh.id)) prefs.save();
   await ReadingRules.instance.moveBook(old.id, fresh.id);
+  // The AI's memory too: hours of building, kept. Chapters whose text
+  // changed are read again when it next builds.
+  await MemoryService.instance.moveBook(old.id, fresh.id);
   return store.replaceBook(old, fresh, follow(place));
 }
 
@@ -96,7 +101,7 @@ Future<LibraryEntry?> askReplaceBookFile(BuildContext context, LibraryStore stor
     context,
     title: 'Replace the file?',
     body: 'Pick another file of this book, a corrected edition say. It takes this one\'s place: your place, '
-        'quotes, bookmarks, voices and shelf go with it, found again by their sentences. The file it replaces '
+        'quotes, bookmarks, voices, shelf and memory go with it, found again by their sentences. The file it replaces '
         'is removed from TomeVoice.',
     action: 'Pick a file',
   );

@@ -574,6 +574,13 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                         ),
                         const SizedBox(height: Gap.s),
                         SwitchRow(
+                          title: "Only novels I've begun",
+                          subtitle: 'One added but never opened is not checked',
+                          value: _prefs.checkStartedOnly,
+                          padding: EdgeInsets.zero,
+                          onChanged: (v) => _change(() => _prefs.checkStartedOnly = v),
+                        ),
+                        SwitchRow(
                           title: 'Find on NovelUpdates',
                           subtitle: NovelUpdates.about,
                           value: _prefs.novelUpdates,
@@ -657,6 +664,12 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           title: 'Show the guide again',
                           subtitle: 'Bringing books in, play, the voices and the page',
                           onTap: () => unawaited(showGuide(context)),
+                        ),
+                        _Link(
+                          icon: Icons.school_outlined,
+                          title: 'How the AI works',
+                          subtitle: 'Keys, the memory, Talk, the graph and spoilers',
+                          onTap: () => unawaited(showAiGuide(context)),
                         ),
                         _Link(
                           icon: Icons.info_outline_rounded,

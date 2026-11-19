@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import '../../download_queue.dart';
 import '../../journal.dart' show JournalStamp;
 import '../../library_store.dart';
+import '../../prefs.dart' show ListeningPrefs;
 import '../../sources/models.dart' show ChapterItem;
 import '../ai_keys.dart';
 import '../ai_router.dart';
@@ -227,6 +228,42 @@ Future<void> _retrySkippedOff(String path) => Isolate.run(() {
     });
 Future<void> _setMetaOff(String path, String k, String? v) => Isolate.run(() => _setMeta(path, k, v));
 
+Future<String?> _getMetaOff(String path, String k) => Isolate.run(() {
+      final m = MemoryDb.open(path);
+      try {
+        return m.meta(k);
+      } finally {
+        m.close();
+      }
+    });
+
+/// What a memory holds, in a line: its notes, cast, names, facts and links
+/// counted, and the length of its names (a rename shows). Other writes (a
+/// pause, a setting) leave it as it was.
+Future<String> _signatureOff(String path) => Isolate.run(() {
+      final m = MemoryDb.open(path);
+      try {
+        return m.db.select('SELECT '
+            "(SELECT count(*) FROM notes) || ':' || "
+            "(SELECT count(*) FROM entities WHERE merged_into IS NULL) || ':' || "
+            "(SELECT coalesce(sum(length(name)), 0) FROM entities WHERE merged_into IS NULL) || ':' || "
+            "(SELECT count(*) FROM aliases) || ':' || (SELECT count(*) FROM facts) || ':' || "
+            '(SELECT count(*) FROM relations) AS s').first['s'] as String;
+      } finally {
+        m.close();
+      }
+    });
+
+/// An earlier book a memory follows on from, and whether its memory has
+/// changed since it was brought over.
+class FollowedBook {
+  const FollowedBook({required this.id, required this.title, required this.changed});
+
+  final String id;
+  final String title;
+  final bool changed;
+}
+
 /// Every book's memory, for the pages that show it and the work that makes
 /// it: the word index made on the phone, then the Builder's notes, one book
 /// built at a time (so keys' quotas go to one book until it is done). A
@@ -256,10 +293,16 @@ class MemoryService {
   final _keptAt = <String, DateTime>{};
   final _afterSaves = <String, Timer>{};
 
+  /// A web novel's chapters saved since it was last indexed.
+  final _savedAgain = <String, Set<int>>{};
+
   void _onSaved() {
     final saved = _store?.chapterSaved.value;
     if (saved == null) return;
     final id = saved.$1;
+    // Saved again (fetched anew, perhaps edited by its author): its index
+    // and notes are checked against the text when it is next indexed.
+    (_savedAgain[id] ??= {}).add(saved.$2);
     // Not put off by every save: while a download goes on, what has come
     // joins the memory every twenty seconds or so.
     if (_afterSaves[id]?.isActive ?? false) return;
@@ -370,6 +413,7 @@ class MemoryService {
       t.cancel();
     }
     _afterSaves.clear();
+    _savedAgain.clear();
     _keptAt.clear();
     for (final t in _wakes.values) {
       t.cancel();
@@ -481,7 +525,8 @@ class MemoryService {
     final n = _n(id);
     n.value = n.value.copyWith(indexing: const IndexProgress(0, 0));
     try {
-      await WordIndexer(store).index(id, onProgress: (p) => n.value = n.value.copyWith(indexing: p));
+      await WordIndexer(store)
+          .index(id, again: _savedAgain.remove(id) ?? const {}, onProgress: (p) => n.value = n.value.copyWith(indexing: p));
     } finally {
       n.value = n.value.copyWith(clearIndexing: true);
       await refresh(id);
@@ -541,6 +586,8 @@ class MemoryService {
       final path = _path(id);
       await _setMetaOff(path, 'begun', '1');
       _n(id).value = _n(id).value.copyWith(begun: true);
+      // "Spoiler guard on for new books": this one is new.
+      if (ListeningPrefs.loaded?.aiGuardNew ?? false) await setGuard(id, true);
     }
     // While its chapters are still downloading (one by one, from the
     // first), only up to the first not yet on the phone: the memory is made
@@ -591,12 +638,89 @@ class MemoryService {
   /// [id]'s memory made to follow on from [previous]'s (the book before it
   /// in a series): its cast, how they stood, open threads and story carried
   /// over. How many people and things came over.
-  Future<int> followOnFrom(String id, String previous) async {
+  Future<int> followOnFrom(String id, String previous) => followOnFromAll(id, [previous]);
+
+  /// [id]'s memory made to follow on from the books [previous] (earliest
+  /// first): what they remember is brought over (again, if it was before),
+  /// and the link kept, so a change in them is noticed. With [id]'s spoiler
+  /// guard on, each comes over only as far as the reader went in it.
+  /// Returns how many people, places and things came over.
+  Future<int> followOnFromAll(String id, List<String> previous) async {
+    final store = _store;
+    if (store == null) return 0;
     final path = _path(id);
-    final n = await followOnOff(path, _path(previous));
-    await _setMetaOff(path, 'follows', previous);
+    await File(path).parent.create(recursive: true);
+    await refresh(id);
+    final guard = _n(id).value.guard;
+    final from = <({String path, int? upTo})>[];
+    final kept = <String>[];
+    final cuts = <String>[];
+    for (final p in previous) {
+      final f = File(_path(p));
+      if (p == id || !f.existsSync()) continue;
+      int? upTo;
+      if (guard) {
+        await refresh(p);
+        upTo = math.max(await hereOf(p), _n(p).value.readUpTo ?? 0);
+      }
+      from.add((path: f.path, upTo: upTo));
+      kept.add(p);
+      cuts.add(upTo == null ? '' : '$upTo');
+    }
+    final n = await followOnAllOff(path, from);
+    // What each held as it was brought over, to notice a change.
+    final seen = [for (final p in kept) await _signatureOff(_path(p))];
+    await _setMetaOff(path, 'follows', kept.isEmpty ? null : kept.join(','));
+    await _setMetaOff(path, 'follows_seen', kept.isEmpty ? null : seen.join(','));
+    // How far each was read (with the guard on): Talk keeps to it there too.
+    await _setMetaOff(path, 'follows_upto', kept.isEmpty ? null : cuts.join(','));
+    // Their names, for Talk to say which book a passage is from.
+    final titles = {for (final e in await store.list(all: true)) e.id: e.title.replaceAll('\n', ' ')};
+    await _setMetaOff(path, 'follows_titles', kept.isEmpty ? null : [for (final p in kept) titles[p] ?? 'An earlier book'].join('\n'));
     await refresh(id);
     return n;
+  }
+
+  /// The books [id]'s memory follows on from, earliest first, each with
+  /// whether its memory changed after it was brought over.
+  Future<List<FollowedBook>> followedBy(String id) async {
+    final store = _store;
+    if (store == null || !File(_path(id)).existsSync()) return const [];
+    final ids = (await _getMetaOff(_path(id), 'follows'))?.split(',').where((s) => s.isNotEmpty).toList() ?? const [];
+    if (ids.isEmpty) return const [];
+    final seen = (await _getMetaOff(_path(id), 'follows_seen'))?.split(',') ?? const [];
+    final titles = {for (final e in await store.list(all: true)) e.id: e.title};
+    return [
+      for (final (i, p) in ids.indexed)
+        if (titles[p] != null)
+          FollowedBook(
+            id: p,
+            title: titles[p]!,
+            changed: File(_path(p)).existsSync() && (i >= seen.length || seen[i] != await _signatureOff(_path(p))),
+          ),
+    ];
+  }
+
+  /// The book just before [id] in its series (by the library's series and
+  /// number) that has a memory to carry on from, or null.
+  Future<LibraryEntry?> earlierInSeries(String id) async {
+    final store = _store;
+    if (store == null) return null;
+    final all = await store.list(all: true);
+    final me = all.where((e) => e.id == id).firstOrNull;
+    final series = me?.series?.trim().toLowerCase();
+    final at = me?.seriesIndex;
+    if (me == null || series == null || series.isEmpty || at == null) return null;
+    final before = [
+      for (final e in all)
+        if (e.id != id &&
+            e.series?.trim().toLowerCase() == series &&
+            e.seriesIndex != null &&
+            e.seriesIndex! < at &&
+            MemoryDb.existsIn(store.bookDir(e.id)))
+          e,
+    ]..sort((a, b) => b.seriesIndex!.compareTo(a.seriesIndex!));
+    return before.firstOrNull;
   }
 
   /// [id]'s memory deleted, all of it.
@@ -612,5 +736,37 @@ class MemoryService {
     final f = File(_path(id));
     if (await f.exists()) await f.delete();
     _n(id).value = const BookMemoryState();
+  }
+
+  /// Book [from]'s memory carried to book [to], its file replaced by another
+  /// edition: the notes, the cast, the theories and its settings go with it.
+  /// The word index then finds the chapters whose text changed (by their
+  /// hashes) and has them read again; the rest stay as built. Nothing is
+  /// done when [to] has a memory already. Returns whether it moved.
+  Future<bool> moveBook(String from, String to) async {
+    if (_store == null || from == to) return false;
+    final src = File(_path(from));
+    final dst = File(_path(to));
+    if (!await src.exists() || await dst.exists()) return false;
+    // Its building stops (not by pause(), which would write "paused" into
+    // the file as it moves); the memory goes as it stood, paused or not.
+    _wakes.remove(from)?.cancel();
+    _builders[from]?.pause();
+    // A batch on its way writes to the file: let it land first.
+    final b = _builders.remove(from);
+    for (var i = 0; b != null && b.running && i < 240; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    _paused.remove(from);
+    await dst.parent.create(recursive: true);
+    try {
+      await src.rename(dst.path);
+    } on FileSystemException {
+      await src.copy(dst.path);
+      await src.delete();
+    }
+    _n(from).value = const BookMemoryState();
+    await refresh(to);
+    return true;
   }
 }

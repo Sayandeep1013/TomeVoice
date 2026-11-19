@@ -16,6 +16,7 @@ import 'package:tomevoice_spike/ai/memory/hand_off.dart';
 import 'package:tomevoice_spike/ai/memory/ledger.dart';
 import 'package:tomevoice_spike/ai/memory/memory_db.dart';
 import 'package:tomevoice_spike/ai/memory/series.dart';
+import 'package:tomevoice_spike/ai/memory/threads_screen.dart';
 import 'package:tomevoice_spike/ai/talk/answer_pack.dart';
 import 'package:tomevoice_spike/ai/memory/whos_who_screen.dart';
 
@@ -134,6 +135,88 @@ void main() {
     expect(ledger(second).length, 4);
   });
 
+  test('threads: open ones first, each step in order, kept to the line', () {
+    final path = _memory(tmp);
+    final m = MemoryDb.open(path);
+    m.db.execute("INSERT INTO threads(id, title, norm, raised_ch, resolved_ch, status) VALUES "
+        "(1, 'Who is the Weaver?', 'who is weaver', 0, NULL, 'open'), "
+        "(2, 'Will Cassie stay?', 'will cassie stay', 1, 3, 'resolved')");
+    m.db.execute("INSERT INTO thread_steps(thread, ch, step, what) VALUES "
+        "(1, 0, 'raised', 'A name on a wall'), (1, 2, 'advanced', 'A second sign'), "
+        "(2, 1, 'raised', 'She hesitates'), (2, 3, 'resolved', 'She leaves')");
+    m.close();
+    final all = storyThreads(path, null);
+    expect(all.map((t) => t.title), ['Who is the Weaver?', 'Will Cassie stay?']);
+    expect(all.first.steps.map((s) => s.what), ['A name on a wall', 'A second sign']);
+    expect(all.last.resolved, 3);
+    // At chapter 2: Cassie's is still open, and its end not shown.
+    final then = storyThreads(path, 1);
+    expect(then.every((t) => t.resolved == null), isTrue);
+    expect(then.firstWhere((t) => t.title == 'Will Cassie stay?').steps.length, 1);
+  });
+
+  test('kinds the AI suggests: listed, accepted for the Builder, or turned down', () {
+    final path = _memory(tmp);
+    final m = MemoryDb.open(path);
+    m.db.execute("INSERT INTO kinds(name, about, core, accepted) VALUES ('aspect', 'A power', 0, 0), ('rune', 'A mark', 0, 0)");
+    m.close();
+    expect(proposedKinds(path).map((k) => k.name), ['aspect', 'rune']);
+    decideKind(path, 'aspect', accept: true);
+    decideKind(path, 'rune', accept: false);
+    expect(proposedKinds(path), isEmpty);
+    final after = MemoryDb.open(path);
+    expect(after.db.select("SELECT accepted FROM kinds WHERE name = 'aspect'").single['accepted'], 1);
+    expect(after.db.select("SELECT * FROM kinds WHERE name = 'rune'"), isEmpty);
+    after.close();
+  });
+
+  test('a question asked before comes back: "at ch 4, they asked"', () {
+    final path = _memory(tmp);
+    noteAsked(path, 'Why did Cassie leave Sunny?', 3);
+    noteAsked(path, 'What is the Forgotten Shore?', 1);
+    final items = buildPack(PackInput(path: path, question: 'Tell me about Cassie again', here: 3))
+        .where((i) => i.section == 'What the reader asked before')
+        .map((i) => i.text);
+    expect(items, ['At ch 4, they asked: "Why did Cassie leave Sunny?"']);
+  });
+
+  test('a series kept to how far the earlier book was read, brought over again cleanly, and searched by Talk', () {
+    final first = '${tmp.path}/books/one/memory.db';
+    Directory('${tmp.path}/books/one').createSync(recursive: true);
+    File(_memory(tmp)).copySync(first);
+    final second = '${tmp.path}/books/two/memory.db';
+    Directory('${tmp.path}/books/two').createSync(recursive: true);
+    MemoryDb.open(second).close();
+
+    // Read to chapter 2 of the first book: Nephis (chapter 4) stays there,
+    // and Sunny and Cassie are still allies.
+    expect(followOnAll(second, [(path: first, upTo: 1)]), 3);
+    expect(ledger(second).map((e) => e.name), isNot(contains('Nephis')));
+    final kept = MemoryDb.open(second);
+    expect(kept.db.select("SELECT count(*) n FROM relations WHERE rel = 'ally of'").first['n'], 1);
+    kept.close();
+
+    // All of it, brought over again: nobody twice, and the alliance that
+    // ended by the first book's end gone.
+    expect(followOnAll(second, [(path: first, upTo: null)]), 4);
+    expect(ledger(second).length, 4);
+    final all = MemoryDb.open(second);
+    expect(all.db.select("SELECT count(*) n FROM relations WHERE rel = 'ally of'").first['n'], 0);
+    all.setMeta('follows', 'one');
+    all.setMeta('follows_titles', 'Book One');
+    all.close();
+
+    // Talk: the earlier book found, its cards and text cited by book.
+    final books = earlierBooks(second);
+    expect(books.single.title, 'Book One');
+    expect(books.single.id, 'one');
+    final pack = earlierPack('Who is Cassie?', books);
+    expect(pack.map((i) => i.label), contains('Book One · ch 2'));
+    expect(pack.first.section, 'From Book One, an earlier book');
+    final found = searchEarlier('"Chapter 2"', books);
+    expect(found.single.label, 'Book One · ch 3');
+  });
+
   test('laid out the same each time, inside its square, no two nodes touching', () {
     final path = _memory(tmp);
     for (final g in [graphAt(path), graphAt(path, focus: ledger(path, query: 'sunny').single.id, depth: 2)]) {
@@ -237,15 +320,8 @@ void main() {
     expect(find.text('Centre here'), findsOneWidget);
     expect(find.text('Linked with…'), findsOneWidget);
 
-    // As a ball to turn, and back: the pick kept.
-    await tester.tap(find.byTooltip('See it as a ball to turn (3D)'));
-    await settle();
-    expect(find.byType(Graph3dView), findsOneWidget);
-    expect(find.text('Centre here'), findsOneWidget);
-    await tester.drag(find.byType(Graph3dView), const Offset(120, 0));
-    await settle();
-    await tester.tap(find.byTooltip('See it flat'));
-    await settle();
+    // The ball (3D) view is hidden for now: no toggle, and it is never drawn.
+    expect(find.byTooltip('See it as a ball to turn (3D)'), findsNothing);
     expect(find.byType(Graph3dView), findsNothing);
     await tester.pump(const Duration(seconds: 1));
   });

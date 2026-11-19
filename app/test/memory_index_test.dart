@@ -1,11 +1,14 @@
 // A book's memory, its first layer: the word index. Every word of every
 // chapter findable, each find tagged with its chapter and sentence; kept to
 // the reader's line when the spoiler guard is on; a chapter whose text
-// changed indexed again (and its notes dropped), one that did not, left.
+// changed indexed again (and its notes and what they put in the graph
+// dropped), one that did not, left.
 
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tomevoice_spike/ai/memory/chapter_notes_screen.dart';
+import 'package:tomevoice_spike/ai/memory/find_where_screen.dart';
 import 'package:tomevoice_spike/ai/memory/memory_db.dart';
 import 'package:tomevoice_spike/ai/memory/word_index.dart';
 import 'package:tomevoice_spike/library_store.dart';
@@ -63,6 +66,27 @@ void main() {
     // Odd typing does not break it.
     expect(db.search('"'), isEmpty);
     expect(db.search('AND OR *'), isEmpty);
+
+    // Find where…: in the book's order, how many chapters, kept to the line.
+    final all = findWhere(indexer.pathOf(id), 'weaver', null);
+    expect(all.hits.map((h) => h.place.chapter), [0, 1, 2]);
+    expect(all.chapters, 3);
+    expect(findWhere(indexer.pathOf(id), 'weaver', 1).chapters, 2);
+    expect(findWhere('${tmp.path}/none.db', 'weaver', null).hits, isEmpty);
+
+    // Chapter by chapter: each with its notes, kept to the line; one read again.
+    final w = MemoryDb.open(indexer.pathOf(id));
+    w.db.execute("INSERT INTO notes(ch, summary) VALUES (0, 'The tide goes out.')");
+    w.db.execute('UPDATE chapters SET noted = 1 WHERE ch = 0');
+    w.close();
+    final notes = chapterNotes(indexer.pathOf(id), null);
+    expect(notes.map((n) => n.ch), [0, 1, 2]);
+    expect(notes.first.title, contains('Low'));
+    expect(notes.first.summary, 'The tide goes out.');
+    expect(notes[1].summary, isNull);
+    expect(chapterNotes(indexer.pathOf(id), 0).length, 1);
+    forgetChapterNotes(indexer.pathOf(id), 0);
+    expect(chapterNotes(indexer.pathOf(id), null).first.summary, isNull);
   });
 
   test('indexing again does nothing; a changed chapter is indexed again and loses its notes', () async {
@@ -73,6 +97,16 @@ void main() {
 
     final db = MemoryDb.open(indexer.pathOf(id));
     db.db.execute("UPDATE chapters SET noted = 1 WHERE ch IN (0, 1)");
+    // What the notes of chapters 1 and 2 (0 and 1) put in: a gull met only
+    // in the first, the weaver in both.
+    db.db.execute("INSERT INTO notes(ch, summary) VALUES (0, 'The tide goes out.'), (1, 'The tide comes in.')");
+    db.db.execute("INSERT INTO entities(id, kind, name, first_ch, last_ch, mentions) VALUES "
+        "(1, 'creature', 'Gull', 0, 0, 1), (2, 'person', 'Weaver', 0, 1, 2)");
+    db.db.execute("INSERT INTO aliases(entity, alias, norm, ch) VALUES (1, 'the gull', 'the gull', 0)");
+    db.db.execute('INSERT INTO appearances(entity, ch) VALUES (1, 0), (2, 0), (2, 1)');
+    db.db.execute("INSERT INTO facts(entity, attr, value, from_ch) VALUES (2, 'lives', 'in a hut', 0), (2, 'mends', 'nets', 1)");
+    db.db.execute("INSERT INTO events(id, ch, what) VALUES (1, 0, 'The tide went out.'), (2, 1, 'She mended her nets.')");
+    db.db.execute("INSERT INTO event_roles(event, entity, role) VALUES (1, 1, 'witness'), (2, 2, 'doer')");
     db.close();
 
     final changed = tide.replaceFirst('Gulls cried.', 'Gulls cried and wheeled.');
@@ -96,6 +130,15 @@ void main() {
       for (final r in after.db.select('SELECT ch, noted FROM chapters')) r['ch'] as int: r['noted'] as int,
     };
     expect(noted, {0: 0, 1: 1, 2: 0});
+    // The changed chapter's notes are gone; the other's stay.
+    List<Object?> col(String sql) => [for (final r in after.db.select(sql)) r.columnAt(0)];
+    expect(col('SELECT ch FROM notes'), [1]);
+    expect(col('SELECT name FROM entities ORDER BY id'), ['Weaver']);
+    expect(col('SELECT mentions FROM entities'), [1]);
+    expect(col('SELECT entity FROM aliases'), isEmpty);
+    expect(col('SELECT value FROM facts'), ['nets']);
+    expect(col('SELECT what FROM events'), ['She mended her nets.']);
+    expect(col('SELECT event FROM event_roles'), [2]);
   });
 
   test("a web novel: the chapters on the phone, by their numbers; the rest join once downloaded", () async {
