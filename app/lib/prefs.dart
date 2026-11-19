@@ -55,6 +55,7 @@ class ListeningPrefs {
     this.autoScrollLines = 24,
     this.autoPageSeconds = 30,
     this.guideShown = false,
+    this.aiGuideShown = false,
     this.themeMode = ThemeMode.system,
     this.paletteId = 'forest',
     this.ownPage,
@@ -317,6 +318,10 @@ class ListeningPrefs {
   /// shows it), and again whenever Settings asks.
   bool guideShown;
 
+  /// Whether the guide to the AI and the memory has been shown, on the AI
+  /// page's first opening.
+  bool aiGuideShown;
+
   /// Light, dark, or the phone's choice.
   ThemeMode themeMode;
 
@@ -528,6 +533,7 @@ class ListeningPrefs {
         if (autoScrollLines != 24) 'autoScrollLines': autoScrollLines,
         if (autoPageSeconds != 30) 'autoPageSeconds': autoPageSeconds,
         if (guideShown) 'guideShown': true,
+        if (aiGuideShown) 'aiGuideShown': true,
         'themeMode': themeMode.name,
         'palette': paletteId,
         if (ownPage != null) 'ownPage': colourToHex(ownPage!),
@@ -639,6 +645,7 @@ class ListeningPrefs {
         autoScrollLines: ((json['autoScrollLines'] as num?)?.toInt() ?? 24).clamp(4, 120),
         autoPageSeconds: ((json['autoPageSeconds'] as num?)?.toInt() ?? 30).clamp(3, 600),
         guideShown: json['guideShown'] == true,
+        aiGuideShown: json['aiGuideShown'] == true,
         themeMode: ThemeMode.values.where((m) => m.name == json['themeMode']).firstOrNull ??
             ThemeMode.system,
         gridView: json['gridView'] as bool? ?? true,

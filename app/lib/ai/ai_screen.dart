@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../guide.dart';
 import '../prefs.dart';
 import '../theme.dart';
 import '../ui.dart';
@@ -32,6 +33,15 @@ class _AiScreenState extends State<AiScreen> {
   void initState() {
     super.initState();
     _ring.addListener(_changed);
+    // The guide to the AI, by itself the first time this page opens.
+    final prefs = ListeningPrefs.loaded;
+    if (GuideScreen.onFirstLaunch && prefs != null && !prefs.aiGuideShown) {
+      prefs.aiGuideShown = true;
+      prefs.save();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(showAiGuide(context));
+      });
+    }
   }
 
   @override
@@ -78,7 +88,18 @@ class _AiScreenState extends State<AiScreen> {
                           : 'Your keys, straight from this phone to each provider. When one has used up its '
                               'quota it rests, and the next takes over.',
                     ),
-                    const SizedBox(height: Gap.l),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: Gap.page - Gap.s),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: () => unawaited(showAiGuide(context)),
+                          icon: const Icon(Icons.school_outlined, size: 18),
+                          label: const Text('How the AI works'),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: Gap.s),
                     const Padding(
                       padding: EdgeInsets.symmetric(horizontal: Gap.page),
                       child: SectionTitle('Keys'),

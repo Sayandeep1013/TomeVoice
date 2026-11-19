@@ -659,6 +659,12 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           onTap: () => unawaited(showGuide(context)),
                         ),
                         _Link(
+                          icon: Icons.school_outlined,
+                          title: 'How the AI works',
+                          subtitle: 'Keys, the memory, Talk, the graph and spoilers',
+                          onTap: () => unawaited(showAiGuide(context)),
+                        ),
+                        _Link(
                           icon: Icons.info_outline_rounded,
                           title: 'About TomeVoice',
                           subtitle: 'Version, licences, source code',
