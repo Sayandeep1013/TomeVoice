@@ -16,6 +16,7 @@ import 'package:tomevoice_spike/ai/memory/hand_off.dart';
 import 'package:tomevoice_spike/ai/memory/ledger.dart';
 import 'package:tomevoice_spike/ai/memory/memory_db.dart';
 import 'package:tomevoice_spike/ai/memory/series.dart';
+import 'package:tomevoice_spike/ai/memory/threads_screen.dart';
 import 'package:tomevoice_spike/ai/talk/answer_pack.dart';
 import 'package:tomevoice_spike/ai/memory/whos_who_screen.dart';
 
@@ -132,6 +133,26 @@ void main() {
     // Again: no one made twice.
     followOn(second, first);
     expect(ledger(second).length, 4);
+  });
+
+  test('threads: open ones first, each step in order, kept to the line', () {
+    final path = _memory(tmp);
+    final m = MemoryDb.open(path);
+    m.db.execute("INSERT INTO threads(id, title, norm, raised_ch, resolved_ch, status) VALUES "
+        "(1, 'Who is the Weaver?', 'who is weaver', 0, NULL, 'open'), "
+        "(2, 'Will Cassie stay?', 'will cassie stay', 1, 3, 'resolved')");
+    m.db.execute("INSERT INTO thread_steps(thread, ch, step, what) VALUES "
+        "(1, 0, 'raised', 'A name on a wall'), (1, 2, 'advanced', 'A second sign'), "
+        "(2, 1, 'raised', 'She hesitates'), (2, 3, 'resolved', 'She leaves')");
+    m.close();
+    final all = storyThreads(path, null);
+    expect(all.map((t) => t.title), ['Who is the Weaver?', 'Will Cassie stay?']);
+    expect(all.first.steps.map((s) => s.what), ['A name on a wall', 'A second sign']);
+    expect(all.last.resolved, 3);
+    // At chapter 2: Cassie's is still open, and its end not shown.
+    final then = storyThreads(path, 1);
+    expect(then.every((t) => t.resolved == null), isTrue);
+    expect(then.firstWhere((t) => t.title == 'Will Cassie stay?').steps.length, 1);
   });
 
   test('kinds the AI suggests: listed, accepted for the Builder, or turned down', () {

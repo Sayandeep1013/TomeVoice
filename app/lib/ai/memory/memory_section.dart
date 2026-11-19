@@ -19,6 +19,7 @@ import 'hand_off.dart';
 import 'memory_builder.dart';
 import 'memory_service.dart';
 import 'theories_screen.dart';
+import 'threads_screen.dart';
 import 'whos_who_screen.dart';
 
 /// A book's page > Memory: what the AI companion remembers of the book,
@@ -283,6 +284,14 @@ class _BookMemorySectionState extends State<BookMemorySection> {
     ));
   }
 
+  Future<void> _openThreads() async {
+    final line = await _service.lineOf(widget.bookId);
+    if (!mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => ThreadsScreen(memoryPath: _service.pathOf(widget.bookId), line: line, onRead: widget.onRead),
+    ));
+  }
+
   Future<void> _openTheories() async {
     final here = await _service.hereOf(widget.bookId);
     if (!mounted) return;
@@ -532,6 +541,12 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                       label: const Text('Graph'),
                     ),
                   ],
+                  if (s.exists && s.noted > 0)
+                    OutlinedButton.icon(
+                      onPressed: () => unawaited(_openThreads()),
+                      icon: const Icon(Icons.timeline_rounded, size: 18),
+                      label: const Text('Threads'),
+                    ),
                   if (s.exists && s.noted > 0)
                     OutlinedButton.icon(
                       onPressed: () => unawaited(_openChapters()),
