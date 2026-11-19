@@ -282,7 +282,7 @@ class _BookMemorySectionState extends State<BookMemorySection> {
         break;
     }
     if (!s.exists || s.indexed == 0) return 'Not built yet';
-    if (s.noted == 0) return 'Its words are indexed: Find where… works. No notes yet.';
+    if (s.noted == 0) return 'Its words are indexed, so Talk can search the text. No notes yet.';
     final things = '${s.entities} ${s.entities == 1 ? 'person, place or thing' : 'people, places and things'}';
     if (s.noted + s.skipped >= s.indexed) return 'Built to chapter ${(s.lastNoted ?? 0) + 1} · $things';
     return '${s.noted} of ${s.indexed} chapters built · $things';

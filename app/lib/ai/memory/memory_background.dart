@@ -22,10 +22,18 @@ class MemoryBackground {
 
   /// The worker scheduled as [prefs] say, or stopped: on only while the AI
   /// has a key.
+  static (bool, bool, bool, int)? _applied;
+
   static Future<void> apply(ListeningPrefs prefs) async {
     final handle = PluginUtilities.getCallbackHandle(memoryBuildMain)?.toRawHandle();
     if (handle == null) return;
     final on = prefs.aiBackground && AiRing.instance.hasKeys;
+    // Asked again each time the key ring changes, which is after every
+    // call (its usage is counted): scheduled only when what it depends on
+    // has changed, so the hourly build is not put back each time.
+    final wanted = (on, prefs.aiBackgroundWifi, prefs.aiBackgroundCharging, handle);
+    if (wanted == _applied) return;
+    _applied = wanted;
     try {
       await SourcesBridge.scheduleMemory(
         handle: handle,
