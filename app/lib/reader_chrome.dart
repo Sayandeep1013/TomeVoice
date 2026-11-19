@@ -446,8 +446,12 @@ class BackToReadingPill extends StatelessWidget {
                     // would not show on it).
                     Icon(Icons.my_location_rounded, size: 16, color: Skin.accentSoftOf(context)),
                     const SizedBox(width: Gap.s),
-                    Text('Back to reading',
-                        style: Skin.ui(size: 14, weight: FontWeight.w600, color: Skin.onDark(context))),
+                    Flexible(
+                      child: Text('Back to reading',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Skin.ui(size: 14, weight: FontWeight.w600, color: Skin.onDark(context))),
+                    ),
                   ],
                 ),
               ),

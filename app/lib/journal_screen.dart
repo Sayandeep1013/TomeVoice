@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'ai/talk/talk_view.dart';
 import 'journal.dart';
 import 'journal_page.dart';
 import 'library_store.dart';
@@ -30,6 +31,10 @@ class _JournalScreenState extends State<JournalScreen> {
   Set<String> _present = const {};
   bool _loaded = false;
   String _query = '';
+
+  /// Which entries show: all, the reader's own writing, or talks with the
+  /// AI companion.
+  _Shown _shown = _Shown.all;
 
   ListeningPrefs get _prefs => ListeningPrefs.loaded ?? ListeningPrefs.memory;
 
@@ -82,9 +87,10 @@ class _JournalScreenState extends State<JournalScreen> {
     await writeAbout(context, widget.store, book);
   }
 
-  /// An entry opened to change it, its stamp kept.
-  Future<void> _edit(JournalEntry e) =>
-      openJournal(context, bookId: e.bookId, bookTitle: e.bookTitle, stampNow: () => e.stamp, entry: e);
+  /// An entry opened to change it, its stamp kept; a talk, to read again.
+  Future<void> _edit(JournalEntry e) => e.isTalk
+      ? Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => TalkTranscript(entry: e)))
+      : openJournal(context, bookId: e.bookId, bookTitle: e.bookTitle, stampNow: () => e.stamp, entry: e);
 
   @override
   Widget build(BuildContext context) {
@@ -99,9 +105,13 @@ class _JournalScreenState extends State<JournalScreen> {
                   (_books.containsKey(e.bookId) || !_present.contains(e.bookId)))
                 e,
           ];
+    final talks = mine.any((e) => e.isTalk);
+    final shown = talks ? _shown : _Shown.all;
     final thoughts = [
       for (final e in mine)
-        if (q.isEmpty || e.words.toLowerCase().contains(q) || e.bookTitle.toLowerCase().contains(q)) e,
+        if ((q.isEmpty || e.words.toLowerCase().contains(q) || e.bookTitle.toLowerCase().contains(q)) &&
+            (shown == _Shown.all || (shown == _Shown.talks) == e.isTalk))
+          e,
     ];
     final byBook = <String, List<JournalEntry>>{};
     for (final e in thoughts) {
@@ -138,6 +148,15 @@ class _JournalScreenState extends State<JournalScreen> {
                   ],
                 ],
               ),
+              if (talks)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.m),
+                  child: ChoiceRow<_Shown>(
+                    options: const [(_Shown.all, 'All'), (_Shown.mine, 'My writing'), (_Shown.talks, 'Talks')],
+                    value: shown,
+                    onChanged: (v) => setState(() => _shown = v),
+                  ),
+                ),
               if (mine.length > 6 && !_notebook)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.m),
@@ -151,9 +170,11 @@ class _JournalScreenState extends State<JournalScreen> {
                       : thoughts.isEmpty
                       ? EmptyState(
                           icon: Icons.edit_note_rounded,
-                          title: q.isNotEmpty ? 'Nothing matches' : 'No journal yet',
+                          title: q.isNotEmpty || shown != _Shown.all ? 'Nothing matches' : 'No journal yet',
                           body: q.isNotEmpty
                               ? 'Try other words.'
+                              : shown != _Shown.all
+                              ? 'Nothing of that kind yet.'
                               : 'Tap Write, or the pen on the player while you read or listen, and write how the '
                                   'book makes you feel. Each entry keeps the chapter you were at.',
                         )
@@ -228,3 +249,5 @@ class _JournalScreenState extends State<JournalScreen> {
     );
   }
 }
+
+enum _Shown { all, mine, talks }

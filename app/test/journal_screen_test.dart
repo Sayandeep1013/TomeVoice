@@ -124,18 +124,21 @@ void main() {
     await pump(tester, JournalScreen(store: store));
     expect(find.text('No journal yet'), findsOneWidget);
 
-    Future<void> settle() async {
-      for (var i = 0; i < 20; i++) {
+    // At least 20 rounds, and on until [until] is there (opening the book's
+    // page is real file work, slower on a busy CI runner), up to 200.
+    Future<void> settle([Finder? until]) async {
+      for (var i = 0; i < 200; i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
         await tester.pump(const Duration(milliseconds: 60));
+        if (i >= 19 && (until == null || until.evaluate().isNotEmpty)) break;
       }
     }
 
     await tester.tap(find.text('Write'));
-    await settle();
+    await settle(find.text('Write about'));
     expect(find.text('Write about'), findsOneWidget);
     await tester.tap(find.text('tide').last);
-    await settle();
+    await settle(find.text('HOW AM I FEELING?'));
     expect(find.text('HOW AM I FEELING?'), findsOneWidget);
     expect(find.text('WRITING AT CHAPTER 1'), findsOneWidget);
 

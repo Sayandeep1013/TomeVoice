@@ -2,7 +2,8 @@
 
 How TomeVoice is put together as of 1.6.0, Android only. Where the build differs from
 the first design (2026-09-01), the table in 2.3 says so; the reasoning behind each choice
-is in the [decision log](10-decisions-adr.md).
+is in the [decision log](10-decisions-adr.md). The AI companion (2.0) is
+outlined in 2.9 and described in full in [14](14-ai-companion.md).
 
 ## 2.1 The two contracts
 
@@ -93,6 +94,7 @@ See [ADR-003](10-decisions-adr.md#adr-003) for why this is not optional.
 | Background work | not specified | WorkManager 2.10.0 for the check for new chapters (`NovelCheckWorker.kt`); data-sync foreground services for downloads, OCR and saving as audio |
 | Catalogues | not planned | OPDS 1.2 (Atom, searched through OpenSearch) and OPDS 2 (JSON, searched through its URI template), read into the same feeds and entries (`opds.dart`, `opds2.dart`) |
 | The reader's own fonts | not planned | A `.ttf` or `.otf` file copied into the library's `fonts/` folder and loaded from its bytes at run time by Flutter's `FontLoader` (`own_fonts.dart`) |
+| AI companion (2.0) | not planned | The reader's own keys for any provider with an OpenAI-compatible API, called over `dart:io` straight from the phone; each book's memory in SQLite with FTS5 through `sqlite3` (FFI); building with the app closed by WorkManager (`MemoryBuildWorker.kt`). No model on the phone ([14](14-ai-companion.md)) |
 | Error log | not specified | Dart and Kotlin errors in a local log, scrubbed of titles and paths; since 1.6.0 native crashes and "not responding" closes are read from Android's record of past exits (Android 11 and later, `PastExits.kt`) |
 
 ## 2.4 Contract A: the Document Model
@@ -303,8 +305,8 @@ app/lib/                       The Flutter app, a mostly flat folder (about 130 
                                speech_service.dart, neural_voices.dart), web novels
                                (sources/, browse_, novel_, updates_, web_reader.dart),
                                the journal (journal.dart, journal_page.dart,
-                               journal_screen.dart, notebook.dart), and the rest by
-                               feature
+                               journal_screen.dart, notebook.dart), the AI companion
+                               (ai/, from 2.0: see 2.9), and the rest by feature
 app/android_overlay/           Kotlin and resources laid over the scaffolding that
                                `flutter create` makes in CI (its README says how)
 app/assets/                    fonts, the starter book, the voice catalogue, the bundled
@@ -317,3 +319,44 @@ mobile-qa/                     Maestro flows and the CI emulator script
 
 The dependency rule held: the two packages depend on neither Flutter nor each other. No
 parser imports a voice; no voice imports a parser. The app is the only place both meet.
+
+## 2.9 The AI layer (2.0)
+
+The AI reading companion (2.0) sits beside the reading
+and listening layers and reads from both; neither depends on it. Everything is in
+`app/lib/ai/`; [14](14-ai-companion.md) has the whole of it.
+
+```
+  reader (Talk, Explain this, name cards, Previously...) - book page (Memory) -
+  journal (talks) - Main menu > AI, Memory
+                |
++---------------v------------------------------------------------------+
+|  TALK  (ai/talk)                                                     |
+|  answer pack from the memory, within the spoiler line - tools -      |
+|  citations - answers said in the reading voice                       |
++---------------+------------------------------------------------------+
+                |
++---------------v------------------------------------------------------+
+|  MEMORY  (ai/memory)            one memory.db per book (SQLite, FTS5)|
+|  word index - Builder (chapter notes, merged into the graph) -       |
+|  story so far - theories - meaning search - series - hand-off        |
++---------------+------------------------------------------------------+
+                |
++---------------v------------------------------------------------------+
+|  KEY RING AND CLIENT  (ai_keys, ai_router, ai_client)                |
+|  the reader's keys, a job each, rotated when a quota is spent;       |
+|  OpenAI chat format over dart:io, straight to the provider           |
++----------------------------------------------------------------------+
+```
+
+- **No server, no model on the phone.** Calls go from the phone to the providers the
+  reader picked, with their keys. Keys are kept with the other passwords (`Secrets`),
+  in internal storage and out of backups.
+- **Off the UI isolate.** The client uses only `dart:io`, and the Builder, Talk, the
+  word index and the memory's screens read and write it in `Isolate.run`, each from a
+  top-level function given plain values (a closure made in a method would carry the
+  object, which cannot be sent).
+- **Two engines never write at once.** With the app open, `MemoryService` builds one book
+  at a time; with it closed, `MemoryBuildWorker` starts an engine of its own, as
+  `NovelCheckWorker` does, and never while the app's engine or a new-chapter check is
+  running.

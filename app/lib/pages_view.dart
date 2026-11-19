@@ -83,6 +83,8 @@ class PdfPagesView extends StatefulWidget {
     this.tapToTurn = true,
     this.dark,
     this.onTurned,
+    this.onTap,
+    this.inset = EdgeInsets.zero,
   });
 
   final String path;
@@ -114,6 +116,14 @@ class PdfPagesView extends StatefulWidget {
 
   /// A page came to rest; [byHand] when the reader turned to it.
   final void Function(int page, {required bool byHand})? onTurned;
+
+  /// A tap on a page that turns nothing (not at a side that turns it, nor
+  /// on a page zoomed in): the reader's bars go or come back, as on text.
+  final VoidCallback? onTap;
+
+  /// Room the bars laid over the pages take, kept clear at the scroll's
+  /// ends so the first page and the last are not under them.
+  final EdgeInsets inset;
 
   @override
   State<PdfPagesView> createState() => _PdfPagesViewState();
@@ -445,7 +455,7 @@ class _PdfPagesViewState extends State<PdfPagesView> {
                 initialScrollIndex: _current,
                 // A page zoomed in takes the finger: it moves under it.
                 physics: _zoomed.isEmpty ? null : const NeverScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(12, 4, 12, 120),
+                padding: EdgeInsets.fromLTRB(12, 4 + widget.inset.top, 12, 120 + widget.inset.bottom),
                 itemBuilder: (context, i) => _page(context, i, info.aspects[i]),
               ),
             ),
@@ -512,6 +522,7 @@ class _PdfPagesViewState extends State<PdfPagesView> {
                   crease: Colors.black,
                   tapToTurn: widget.tapToTurn,
                   held: zoomed,
+                  onTapMiddle: zoomed ? null : widget.onTap,
                   onSettled: settled,
                 )
               : NotificationListener<ScrollNotification>(
@@ -529,12 +540,14 @@ class _PdfPagesViewState extends State<PdfPagesView> {
                     // _turnable): its double tap arrives here with no place.
                     excludeFromSemantics: true,
                     onTapUp: (d) {
-                      if (zoomed || !widget.tapToTurn) return;
+                      if (zoomed) return;
                       final x = d.localPosition.dx / w;
-                      if (x < 0.28) {
+                      if (widget.tapToTurn && x < 0.28) {
                         _turn(-1);
-                      } else if (x > 0.72) {
+                      } else if (widget.tapToTurn && x > 0.72) {
                         _turn(1);
+                      } else {
+                        widget.onTap?.call();
                       }
                     },
                     child: PageView.builder(
@@ -618,6 +631,7 @@ class _PdfPagesViewState extends State<PdfPagesView> {
           // fling) must not move the voice. A screen reader's double tap
           // reads from the page, as its label says.
           return GestureDetector(
+            onTap: _zoomed.isEmpty ? widget.onTap : null,
             onLongPress: () {
               unawaited(HapticFeedback.selectionClick());
               (widget.onHoldPage ?? widget.onTapPage)(index);

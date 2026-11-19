@@ -204,7 +204,7 @@ void main() {
       await tester.pumpWidget(const SpikeApp());
       // The shelf reads library.json with real file IO; each hop needs the
       // real event loop, then a pump to deliver it to the widget.
-      for (var i = 0; i < 20 && find.text('Your shelf is empty').evaluate().isEmpty; i++) {
+      for (var i = 0; i < 80 && find.text('Your shelf is empty').evaluate().isEmpty; i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
         await tester.pump();
       }
@@ -221,8 +221,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(BrandMark), findsWidgets);
       expect(find.text('TomeVoice'), findsOneWidget);
+      // The menu scrolls: the last of it may be below the fold.
       for (final place in ['History', 'Categories', 'Settings', 'About']) {
-        expect(find.text(place), findsOneWidget, reason: place);
+        expect(find.text(place, skipOffstage: false), findsOneWidget, reason: place);
       }
       await finish(tester);
     });
@@ -996,7 +997,7 @@ void main() {
       await finish(tester);
     });
 
-    testWidgets("the pen on the player opens the book's journal at the voice's chapter", (tester) async {
+    testWidgets("the pen over the player (its own button, the player's controls in their places) opens the book's journal at the voice's chapter", (tester) async {
       withSound();
       final store = LibraryStore(_tmp);
       final nav = await pumpShelf(tester);
@@ -1894,6 +1895,8 @@ void main() {
       expect(find.text('Chapter 1'), findsOneWidget);
 
       // A chapter opens the reader right there (the place read first).
+      await tester.ensureVisible(find.text('Chapter 2'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Chapter 2'));
       await settleIo(tester, until: () => find.byType(ReaderScreen).evaluate().isNotEmpty);
       await tester.pumpAndSettle();

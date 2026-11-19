@@ -55,6 +55,9 @@ class NovelCheckWorker(context: Context, params: WorkerParameters) : Worker(cont
             return Result.success()
         }
         val handle = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(KEY_HANDLE, 0L)
+        // Memories being built here have the library: the check waits its
+        // next turn rather than start a second engine.
+        if (MemoryBuildWorker.running.get()) return Result.success()
         if (handle == 0L || !running.compareAndSet(false, true)) return Result.success()
         val main = Handler(Looper.getMainLooper())
         val engine = AtomicReference<FlutterEngine?>(null)

@@ -143,8 +143,26 @@ class JournalStamp {
       JournalStamp(at: at, chapter: chapter, number: number, title: title, fromNumber: fromNumber);
 }
 
-/// One entry of a book's journal: the template's questions answered, or a
-/// page written freely ([page]), stamped with where the story had reached.
+/// One turn of a talk with the AI companion: the reader's ([mine]) or its
+/// answer.
+@immutable
+class TalkLine {
+  const TalkLine({required this.mine, required this.text});
+
+  final bool mine;
+  final String text;
+
+  Map<String, Object?> toJson() => {'by': mine ? 'me' : 'ai', 'text': text};
+
+  static TalkLine? fromJson(Object? v) {
+    if (v is! Map || v['text'] is! String) return null;
+    return TalkLine(mine: v['by'] == 'me', text: v['text'] as String);
+  }
+}
+
+/// One entry of a book's journal: the template's questions answered, a
+/// page written freely ([page]), or a talk with the AI companion ([talk]),
+/// stamped with where the story had reached.
 @immutable
 class JournalEntry {
   const JournalEntry({
@@ -155,6 +173,7 @@ class JournalEntry {
     required this.stamp,
     this.answers = const [],
     this.page = '',
+    this.talk = const [],
     this.edited,
   });
 
@@ -169,21 +188,28 @@ class JournalEntry {
   /// Written freely, without the questions.
   final String page;
 
-  bool get isPage => answers.isEmpty;
+  /// A talk with the AI companion, kept when its sheet closed.
+  final List<TalkLine> talk;
 
-  bool get isEmpty => page.trim().isEmpty && answers.every((a) => a.isEmpty);
+  bool get isTalk => talk.isNotEmpty;
+
+  bool get isPage => answers.isEmpty && talk.isEmpty;
+
+  bool get isEmpty => page.trim().isEmpty && answers.every((a) => a.isEmpty) && talk.isEmpty;
 
   /// The feeling picked, for the sticker on the page (the first pick
   /// answered).
   String? get feeling => answers.where((a) => a.pick != null && a.pick!.trim().isNotEmpty).firstOrNull?.pick;
 
   /// Everything written, as one text (search, and the helper's reading).
-  String get words => isPage
-      ? page.trim()
-      : [
-          for (final a in answers)
-            if (!a.isEmpty) '${a.question} ${[if (a.pick != null) a.pick, if (a.text.isNotEmpty) a.text].join(' — ')}',
-        ].join('\n');
+  String get words => isTalk
+      ? [for (final l in talk) '${l.mine ? 'Me' : 'AI'}: ${l.text}'].join('\n')
+      : isPage
+          ? page.trim()
+          : [
+              for (final a in answers)
+                if (!a.isEmpty) '${a.question} ${[if (a.pick != null) a.pick, if (a.text.isNotEmpty) a.text].join(' — ')}',
+            ].join('\n');
 
   JournalEntry copyWith({List<JournalAnswer>? answers, String? page, DateTime? edited, JournalStamp? stamp, String? bookId}) =>
       JournalEntry(
@@ -194,6 +220,7 @@ class JournalEntry {
         stamp: stamp ?? this.stamp,
         answers: answers ?? this.answers,
         page: page ?? this.page,
+        talk: talk,
         edited: edited ?? this.edited,
       );
 
@@ -206,6 +233,7 @@ class JournalEntry {
         'stamp': stamp.toJson(),
         if (answers.isNotEmpty) 'answers': [for (final a in answers) a.toJson()],
         if (page.trim().isNotEmpty) 'page': page,
+        if (talk.isNotEmpty) 'talk': [for (final l in talk) l.toJson()],
       };
 
   static JournalEntry? fromJson(Object? json) {
@@ -226,6 +254,10 @@ class JournalEntry {
             if (JournalAnswer.fromJson(a) case final a?) a,
         ],
         page: json['page'] is String ? json['page'] as String : '',
+        talk: [
+          for (final l in (json['talk'] is List ? json['talk'] as List : const []))
+            if (TalkLine.fromJson(l) case final l?) l,
+        ],
       );
     } on Object {
       return null;

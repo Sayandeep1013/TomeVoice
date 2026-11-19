@@ -66,6 +66,13 @@ class ListeningPrefs {
     this.journalNotebook = false,
     this.journalQuestions,
     this.journalAsk = false,
+    this.aiSpeak = true,
+    this.aiRecapDays = 3,
+    this.aiLength = 'normal',
+    this.aiOwnKnowledge = false,
+    this.aiBackground = true,
+    this.aiBackgroundWifi = true,
+    this.aiBackgroundCharging = false,
     this.sort = LibrarySort.recent,
     this.bookColours = true,
     this.naturalVoices,
@@ -347,6 +354,26 @@ class ListeningPrefs {
   /// turned on).
   bool journalAsk;
 
+  /// Talk's answers said aloud in the reading voice (on unless turned off).
+  bool aiSpeak;
+
+  /// Days away from a book after which opening it offers "Previously…"
+  /// (0: never).
+  int aiRecapDays;
+
+  /// How long Talk's answers are: short, normal or long.
+  String aiLength;
+
+  /// Talk may use what the model knows of the book from elsewhere (off: it
+  /// keeps to what TomeVoice gives it).
+  bool aiOwnKnowledge;
+
+  /// Memories built with TomeVoice closed (on unless turned off), only on
+  /// Wi-Fi (on), only while charging (off).
+  bool aiBackground;
+  bool aiBackgroundWifi;
+  bool aiBackgroundCharging;
+
   /// Order of books in the library.
   LibrarySort sort;
 
@@ -512,6 +539,13 @@ class ListeningPrefs {
         'journalNotebook': journalNotebook,
         if (journalQuestions != null) 'journalQuestions': journalQuestions,
         'journalAsk': journalAsk,
+        'aiSpeak': aiSpeak,
+        'aiRecapDays': aiRecapDays,
+        'aiLength': aiLength,
+        'aiOwnKnowledge': aiOwnKnowledge,
+        'aiBackground': aiBackground,
+        'aiBackgroundWifi': aiBackgroundWifi,
+        'aiBackgroundCharging': aiBackgroundCharging,
         'sort': sort.name,
         'bookColours': bookColours,
         if (naturalVoices != null) 'naturalVoices': naturalVoices,
@@ -611,6 +645,13 @@ class ListeningPrefs {
         journalNotebook: json['journalNotebook'] as bool? ?? false,
         journalQuestions: json['journalQuestions'] is List ? List<Object?>.from(json['journalQuestions'] as List) : null,
         journalAsk: json['journalAsk'] as bool? ?? false,
+        aiSpeak: json['aiSpeak'] as bool? ?? true,
+        aiRecapDays: (json['aiRecapDays'] as num?)?.toInt() ?? 3,
+        aiLength: json['aiLength'] as String? ?? 'normal',
+        aiOwnKnowledge: json['aiOwnKnowledge'] as bool? ?? false,
+        aiBackground: json['aiBackground'] as bool? ?? true,
+        aiBackgroundWifi: json['aiBackgroundWifi'] as bool? ?? true,
+        aiBackgroundCharging: json['aiBackgroundCharging'] as bool? ?? false,
         paletteId: json['palette'] as String? ?? 'forest',
         ownPage: colourFromHex(json['ownPage']),
         ownAccent: colourFromHex(json['ownAccent']),

@@ -2569,6 +2569,12 @@ Set<int> webWindow(int at, int count, bool Function(int chapter) have, {int befo
 /// their text, the rest empty (and so skipped by the reader). With [around],
 /// only the chapters of [webWindow] round it have their text; with
 /// [chapters], only those. [notes]: the reader asked for notes read aloud.
+/// A web novel's layout with only [chapters] read from the phone (the
+/// rest stand as titles), off the UI thread's isolate: for the word index
+/// and the memory's Builder, a batch at a time.
+ReadingLayout loadWebChaptersSync(String dir, String id, Set<int> chapters) =>
+    _loadWebSync(dir, id, chapters: chapters);
+
 ReadingLayout _loadWebSync(String dir, String id, {int? around, Set<int>? chapters, bool notes = false}) {
   final info = WebNovelInfo.fromJson(
     Map<String, Object?>.from(jsonDecode(File('$dir/novel.json').readAsStringSync()) as Map),

@@ -14,13 +14,15 @@ import 'ui.dart';
 /// 'say' or 'skip'), or null; Save as audio is [onSaveAsAudio]'s, once the
 /// sheet has gone. [word] is the word under the finger ('' for none);
 /// [web], a web novel's sentence (a line like it can be left out, and its
-/// chapter is saved as audio, not the whole book).
+/// chapter is saved as audio, not the whole book). With [ai] (the AI has a
+/// key, the book may be sent), also 'explain' and 'who'.
 Future<String?> showSentenceActions(
   BuildContext context, {
   required String sentence,
   required String word,
   required bool web,
   required VoidCallback onSaveAsAudio,
+  bool ai = false,
 }) =>
     showModalBottomSheet<String>(
       context: context,
@@ -51,6 +53,19 @@ Future<String?> showSentenceActions(
                   ),
                 ),
                 SheetAction(icon: Icons.play_arrow_rounded, label: 'Read from here', onTap: () => Navigator.pop(ctx, 'read')),
+                if (ai)
+                  SheetAction(
+                    icon: Icons.auto_awesome_rounded,
+                    label: 'Explain this',
+                    detail: 'What it means here, from what the AI remembers of the book',
+                    onTap: () => Navigator.pop(ctx, 'explain'),
+                  ),
+                if (ai && word.isNotEmpty)
+                  SheetAction(
+                    icon: Icons.person_search_rounded,
+                    label: 'Who or what is "${word.replaceFirst(RegExp("['’]s\$"), '')}"?',
+                    onTap: () => Navigator.pop(ctx, 'who'),
+                  ),
                 SheetAction(icon: Icons.format_quote_rounded, label: 'Save as a quote', onTap: () => Navigator.pop(ctx, 'quote')),
                 SheetAction(
                   icon: Icons.ios_share_rounded,

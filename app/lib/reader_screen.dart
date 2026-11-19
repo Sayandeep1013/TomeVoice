@@ -4,12 +4,21 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show ValueListenable;
+import 'package:flutter/gestures.dart' show kDoubleTapTimeout;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
     show Clipboard, ClipboardData, HapticFeedback, SystemChrome, SystemUiMode, SystemUiOverlayStyle;
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
+import 'ai/ai_keys.dart';
+import 'ai/memory/memory_db.dart';
+import 'ai/memory/memory_service.dart';
+import 'ai/memory/theories.dart';
+import 'ai/memory/theories_screen.dart';
+import 'ai/talk/name_card.dart';
+import 'ai/talk/talk_engine.dart' show spokenAnswer, spokenPieces;
+import 'ai/talk/talk_sheet.dart';
 import 'auto_scroll.dart';
 import 'book_tint.dart';
 import 'cast.dart';
@@ -500,6 +509,17 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     _chrome.addListener(_onChrome);
     unawaited(_loadPrefs());
     unawaited(_reader.loadCover());
+    // A theory of the reader's the story has settled, at a chapter they
+    // have now reached: said once, a moment after the book opens.
+    // When the book was last read, before this opening moves it.
+    final lastRead = widget.store?.list(all: true).then((all) => all.where((e) => e.id == _book.id).firstOrNull?.openedAt);
+    _aiLater = Timer(const Duration(seconds: 2), () async {
+      if (!mounted) return;
+      unawaited(_offerPreviously(await lastRead));
+      unawaited(_tellTheories());
+      // A book whose memory is begun: what was added since, noted.
+      if (_talkable) unawaited(MemoryService.instance.keepUp(_book.id));
+    });
     if (_reader.resumeAt >= 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(_player.play(_cursor.value));
@@ -852,6 +872,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     // would ask this page to be built again.
     _watched?.layouts.removeListener(_voiceMoved);
     BackgroundReading.current.removeListener(_voiceMoved);
+    _pdfTap?.cancel();
+    _aiLater?.cancel();
     final open = _nowPlaying;
     final nav = _nowPlayingNav;
     if (open != null && nav != null && open.isActive) {
@@ -1373,6 +1395,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final c = _l.chapterOfUnit(_cursor.value);
     final was = _voiceChapter;
     _voiceChapter = c;
+    if (was != null && c != was && _talkable) unawaited(MemoryService.instance.keepUp(_book.id));
     if (was == null || c != was + 1 || !_player.isPlaying || !_prefs.journalAsk || !mounted) return;
     final last = _l.chapterFirstUnit[c] - 1;
     final done = stampAt(_l, last, numberOf: _chapterNumber);
@@ -1469,6 +1492,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       sentence: sentence,
       word: word,
       web: web,
+      ai: _talkable,
       onSaveAsAudio: () => unawaited(showSaveAsAudio(
         context,
         layout: _l,
@@ -1486,6 +1510,20 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     switch (picked) {
       case 'read':
         await _reader.goTo(unit, play: true);
+      case 'explain':
+        await _talk(first: 'Explain this, as it stands in the story here: "$sentence"');
+      case 'who':
+        final store = widget.store;
+        if (store == null) return;
+        await showNameCard(
+          context,
+          memoryPath: MemoryDb.pathIn(store.bookDir(_book.id)),
+          word: word,
+          sentence: sentence,
+          line: _talkLine(),
+          onLook: _lookAtPlace,
+          onAsk: (q) => unawaited(_talk(first: q)),
+        );
       case 'quote':
         // Widen it to the sentences around, add a note, then keep it.
         final choice = await showQuoteSheet(context, layout: _l, unit: unit);
@@ -1949,7 +1987,6 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       cover: _cover,
       onSleep: () => showListenSheet(context, _listen),
       onSave: () => unawaited(_save(MarkKind.quote)),
-      onWrite: _write,
       voice: _reader.voicePlaying,
     );
     // Out to the screen's own edges, past the safe area (the camera's side,
@@ -2106,13 +2143,12 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   Widget _scrollReading(BuildContext context, Widget bar, bool rail) {
     _pdfSpread = MediaQuery.sizeOf(context).width > MediaQuery.sizeOf(context).height &&
         MediaQuery.sizeOf(context).width >= 600;
-    // Upright, on the text (not a PDF's real pages, which keep the bars):
-    // the bars are laid over the text, which keeps its size.
-    if (!rail && !_showPages) return _scrollUnderBars(context, bar);
+    // Upright, the bars are laid over the text or a PDF's real pages, which
+    // keep their size; a tap puts them away and brings them back.
+    if (!rail) return _scrollUnderBars(context, bar);
     return Column(
       children: [
-        // A PDF's real pages keep the bars: a tap there reads from the page.
-        _overLight(FoldingBar(shown: _scrollBars, keep: _showPages, top: true, child: _topBar(context))),
+        _overLight(FoldingBar(shown: _scrollBars, top: true, child: _topBar(context))),
         Expanded(
           child: Stack(
             children: [
@@ -2121,20 +2157,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                 child: FadeIn(
                   key: ValueKey(_showPages),
                   child: _showPages
-                      ? _heldByTouch(PdfPagesView(
-                          path: widget.sourcePath!,
-                          layout: _l,
-                          cursor: _cursor,
-                          detached: _detached,
-                          onTapPage: (page) => _reader.goTo(_l.unitForPage(page), play: true),
-                          onHoldPage: (page) => unawaited(_onHoldPage(page)),
-                          controller: _pdf,
-                          turn: _prefs.pages ? PageTurn.byName(_prefs.pageTurn) : null,
-                          spread: _pdfSpread,
-                          tapToTurn: _prefs.tapToTurn,
-                          dark: _style.pdfInk,
-                          onTurned: _onPdfPage,
-                        ))
+                      ? _pdfPages()
                       : ValueListenableBuilder<bool>(
                           valueListenable: _veiled,
                           builder: (context, veiled, text) => AnimatedOpacity(
@@ -2165,8 +2188,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
                   // page's foot with the bars gone.
                   child: _withBars(shown, pill!),
                 ),
-                child: Center(
-                  child: AnimatedSwitcher(
+                child: _pillAndPen(
+                  context,
+                  AnimatedSwitcher(
                     duration: Motion.of(context, Motion.standard),
                     transitionBuilder: fadeRise,
                     child: _pill(context),
@@ -2176,9 +2200,56 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             ],
           ),
         ),
-        if (!rail) _overLight(FoldingBar(shown: _scrollBars, keep: _showPages, top: false, child: bar)),
+        if (!rail) _overLight(FoldingBar(shown: _scrollBars, top: false, child: bar)),
       ],
     );
+  }
+
+  /// A PDF's real pages, scrolled or turned. A tap that turns nothing puts
+  /// the bars away or brings them back, as on the text (once it is plain it
+  /// was not the first of two taps, which zoom); [inset] is the room the
+  /// bars laid over them take.
+  Widget _pdfPages({EdgeInsets inset = EdgeInsets.zero}) => NotificationListener<ScrollUpdateNotification>(
+        onNotification: (n) {
+          _lastMove = DateTime.now();
+          return false;
+        },
+        child: Listener(
+          onPointerDown: (_) {
+            final moved = _lastMove;
+            _tapStopsScroll = moved != null && DateTime.now().difference(moved) < const Duration(milliseconds: 150);
+          },
+          child: _heldByTouch(PdfPagesView(
+            path: widget.sourcePath!,
+            layout: _l,
+            cursor: _cursor,
+            detached: _detached,
+            onTapPage: (page) => _reader.goTo(_l.unitForPage(page), play: true),
+            onHoldPage: (page) => unawaited(_onHoldPage(page)),
+            controller: _pdf,
+            turn: _prefs.pages ? PageTurn.byName(_prefs.pageTurn) : null,
+            spread: _pdfSpread,
+            tapToTurn: _prefs.tapToTurn,
+            dark: _style.pdfInk,
+            onTurned: _onPdfPage,
+            inset: inset,
+            onTap: _tapPdf,
+          )),
+        ),
+      );
+
+  /// A tap on a PDF's page, held a double tap's time: a second tap in that
+  /// time was a double tap, which zooms, and the bars stay as they are.
+  Timer? _pdfTap;
+  void _tapPdf() {
+    if (_tapStopsScroll) return;
+    if (_pdfTap?.isActive ?? false) {
+      _pdfTap!.cancel();
+      return;
+    }
+    _pdfTap = Timer(kDoubleTapTimeout, () {
+      if (mounted) _scrollBars.value = !_scrollBars.value;
+    });
   }
 
   /// The bars' heights over the scrolling text (see [_scrollUnderBars]),
@@ -2203,7 +2274,18 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     return Stack(
       children: [
         Positioned.fill(
-          child: ValueListenableBuilder<bool>(
+          child: _showPages
+              ? FadeIn(
+                  key: const ValueKey('pdf'),
+                  child: ValueListenableBuilder<double>(
+                    valueListenable: _topBarHeight,
+                    builder: (context, top, _) => ValueListenableBuilder<double>(
+                      valueListenable: _footBarHeight,
+                      builder: (context, foot, _) => _pdfPages(inset: EdgeInsets.only(top: top, bottom: foot)),
+                    ),
+                  ),
+                )
+              : ValueListenableBuilder<bool>(
             valueListenable: _veiled,
             builder: (context, veiled, text) => AnimatedOpacity(
               opacity: veiled ? 0 : 1,
@@ -2254,8 +2336,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             ),
             child: pill,
           ),
-          child: Center(
-            child: AnimatedSwitcher(
+          child: _pillAndPen(
+            context,
+            AnimatedSwitcher(
               duration: Motion.of(context, Motion.standard),
               transitionBuilder: fadeRise,
               child: _pill(context),
@@ -2417,17 +2500,249 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     ));
   }
 
-  /// [pill] over the scroll, shown while the bars are ([shown]; a PDF's real
-  /// pages keep theirs). Reading alone, nothing covers the text.
+  /// [pill] over the scroll, shown while the bars are ([shown]). Reading
+  /// alone, nothing covers the text or the pages.
   Widget _withBars(bool shown, Widget pill) {
-    final on = shown || _showPages;
     return IgnorePointer(
-      ignoring: !on,
+      ignoring: !shown,
       child: AnimatedOpacity(
-        opacity: on ? 1 : 0,
+        opacity: shown ? 1 : 0,
         duration: Motion.of(context, Motion.quick),
         child: pill,
       ),
+    );
+  }
+
+  /// Talk is offered: the AI has a key, the book is in the library, and
+  /// not on a secret shelf (never sent).
+  bool get _talkable {
+    final store = widget.store;
+    return store != null &&
+        AiRing.instance.hasKeys &&
+        !_l.isEmpty &&
+        MemoryService.instance.maySend(_book.id);
+  }
+
+  /// A web novel's chapters are kept in its memory by their number in the
+  /// novel (its sections); a file's by its reading chapter.
+  int _memoryChapter(int unit) {
+    if (_l.isEmpty) return 0;
+    final u = unit.clamp(0, _l.units.length - 1);
+    return _book.source == SourceKind.web ? _l.units[u].sectionIndex : _l.unitChapter[u];
+  }
+
+  /// The chapter being read, from its start to the sentence the reader is
+  /// at: what "this" and "just now" mean in a question.
+  String _passageSoFar() {
+    if (_l.isEmpty) return '';
+    final u = _cursor.value.clamp(0, _l.units.length - 1);
+    final first = _l.chapterFirstUnit[_l.unitChapter[u]];
+    return [for (var i = first; i <= u; i++) _l.units[i].text].join(' ');
+  }
+
+  /// Talk about the book, over the page. With the spoiler guard on, the AI
+  /// keeps to the furthest of the chapter here and "I've read up to".
+  Future<void> _talk({String? first}) async {
+    final store = widget.store;
+    if (store == null) return;
+    await showTalk(
+      context,
+      bookId: _book.id,
+      bookTitle: _book.metadata.title,
+      memoryPath: MemoryDb.pathIn(store.bookDir(_book.id)),
+      stampNow: _stampNow,
+      here: () => _memoryChapter(_cursor.value),
+      line: _talkLine,
+      passage: _passageSoFar,
+      firstQuestion: first,
+      onLook: _lookAtPlace,
+      onSay: _sayAnswer,
+      onHush: _hush,
+    );
+  }
+
+  /// Which Talk answer is being said: a new one, or a hush, moves it on,
+  /// and the one before stops.
+  int _saying = 0;
+  bool _answerAloud = false;
+
+  /// The book was reading when an answer began: it reads on once the last
+  /// answer is done, or Talk is closed.
+  bool _bookWaits = false;
+
+  /// [text] said in the reading voice, a sentence or so at a time; the book
+  /// paused for it, and read on from where it was once the answer is done.
+  Future<void> _sayAnswer(String text) async {
+    final me = ++_saying;
+    if (_answerAloud) await _svc.stopPlayback();
+    if (_player.isPlaying) {
+      _bookWaits = true;
+      await _player.pause(now: true);
+    }
+    _answerAloud = true;
+    for (final piece in spokenPieces(spokenAnswer(text))) {
+      if (me != _saying || !mounted) break;
+      try {
+        await speakSample(
+          voiceName: _listen.voiceName ?? '',
+          text: piece,
+          settings: _prefs.settingsFor(_listen.voiceName, book: _book.id),
+          engineId: _prefs.engineId ?? _catalog.engineId,
+        );
+      } on Object catch (e) {
+        debugPrint('Talk answer could not be said: $e');
+        break;
+      }
+    }
+    if (me != _saying) return;
+    _answerAloud = false;
+    if (_bookWaits && mounted) {
+      _bookWaits = false;
+      await _player.play(_cursor.value);
+    }
+  }
+
+  /// An answer being said stops; the book's own reading is left alone.
+  void _hush() {
+    if (!_answerAloud) return;
+    _saying++;
+    _answerAloud = false;
+    unawaited(() async {
+      await _svc.stopPlayback();
+      if (_bookWaits && mounted) {
+        _bookWaits = false;
+        await _player.play(_cursor.value);
+      }
+    }());
+  }
+
+  /// The AI's offers a moment after the book opens; cancelled with the
+  /// page, so a closed page is not held until it fires.
+  Timer? _aiLater;
+
+  /// Back after some days ([ListeningPrefs.aiRecapDays]) to a book whose
+  /// memory has notes: an offer to hear what happened just before.
+  Future<void> _offerPreviously(DateTime? lastRead) async {
+    final days = _prefs.aiRecapDays;
+    if (days <= 0 || lastRead == null || !_talkable || !mounted) return;
+    final away = DateTime.now().difference(lastRead).inDays;
+    if (away < days) return;
+    final memory = MemoryService.instance.stateOf(_book.id);
+    await MemoryService.instance.refresh(_book.id);
+    if (memory.value.noted == 0 || !mounted) return;
+    showSnack(
+      context,
+      'Back after $away days. Hear what happened just before?',
+      margin: _snackMargin,
+      long: true,
+      actionLabel: 'Previously…',
+      onAction: () => unawaited(_talk(
+        first: 'Previously: catch me up on what happened in the chapters just before where I am, and who was '
+            'involved. Keep it short, like the recap before a new episode.',
+      )),
+    );
+  }
+
+  Future<void> _tellTheories() async {
+    final store = widget.store;
+    if (store == null || !_talkable) return;
+    final path = MemoryDb.pathIn(store.bookDir(_book.id));
+    final news = await untoldOff(path, _memoryChapter(_cursor.value));
+    if (news.isEmpty || !mounted) return;
+    final t = news.first;
+    final what = switch (t.status) {
+      'confirmed' => 'was right',
+      'busted' => 'was wrong',
+      _ => 'was partly right',
+    };
+    showSnack(
+      context,
+      news.length == 1
+          ? 'Your theory from chapter ${t.ch + 1} $what: chapter ${t.decidedCh! + 1} settled it.'
+          : '${news.length} of your theories have been settled by what you have read.',
+      margin: _snackMargin,
+      long: true,
+      actionLabel: 'See',
+      onAction: () => unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => TheoriesScreen(bookTitle: _book.metadata.title, memoryPath: path, here: _memoryChapter(_cursor.value)),
+      ))),
+    );
+    await markToldOff(path, [for (final x in news) x.id]);
+  }
+
+  /// The spoiler line, with the guard on: the furthest of the chapter here
+  /// and "I've read up to". Null with it off.
+  int? _talkLine() {
+    final s = MemoryService.instance.stateOf(_book.id).value;
+    if (!s.guard) return null;
+    final here = _memoryChapter(_cursor.value);
+    return s.readUpTo == null || s.readUpTo! < here ? here : s.readUpTo;
+  }
+
+  /// A place an answer or a card cites, looked at (the voice reads on).
+  void _lookAtPlace(MemoryPlace place) {
+    final at = ReadingCursor(sectionIndex: place.section, blockIndex: place.block, sentenceIndex: place.sentence);
+    final has = _l.chapters.contains(place.section) || _book.source != SourceKind.web;
+    if (!has) {
+      showSnack(context, 'Chapter ${place.chapter + 1} is not open here. Open it from Contents to read it.');
+      return;
+    }
+    _goOrLook(_l.unitForCursor(at, saved: true));
+  }
+
+  /// The pills, in the middle over the player, and at the right Talk (once
+  /// the AI has a key) and the journal's pen: buttons of their own, so the
+  /// player's controls keep their places, coming and going with the bars as
+  /// the pills do. Upright they stand one above the other; on its side, one
+  /// beside the other. Their edge is the player's (its side margin).
+  Widget _pillAndPen(BuildContext context, Widget pill) {
+    const size = 48.0;
+    const edge = Gap.m;
+    final upright = MediaQuery.orientationOf(context) == Orientation.portrait;
+    Widget button(String tip, IconData icon, VoidCallback onTap) => Material(
+          color: Skin.darkOn(context),
+          shape: const CircleBorder(),
+          elevation: 4,
+          child: IconButton(
+            tooltip: tip,
+            icon: Icon(icon, size: 20, color: Skin.onDark(context)),
+            onPressed: onTap,
+          ),
+        );
+    return ListenableBuilder(
+      listenable: Listenable.merge([AiRing.instance, MemoryService.instance.stateOf(_book.id)]),
+      builder: (context, _) {
+        final buttons = [
+          if (_talkable) button('Talk about the book', Icons.auto_awesome_outlined, () => unawaited(_talk())),
+          button('Write in your journal', Icons.edit_outlined, _write),
+        ];
+        final group = upright
+            ? Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final (i, b) in buttons.indexed) ...[if (i > 0) const SizedBox(height: Gap.s), b],
+                ],
+              )
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final (i, b) in buttons.indexed) ...[if (i > 0) const SizedBox(width: Gap.s), b],
+                ],
+              );
+        // As wide on the left as the buttons take on the right, so the pills
+        // stay in the middle.
+        final room = edge + (upright ? size : buttons.length * size + (buttons.length - 1) * Gap.s);
+        return Row(
+          // On one foot line: the pills stay where they were before the
+          // buttons stood beside them.
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            SizedBox(width: room),
+            Expanded(child: Center(child: pill)),
+            Padding(padding: const EdgeInsets.only(right: edge), child: group),
+          ],
+        );
+      },
     );
   }
 
@@ -2457,9 +2772,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             : ValueListenableBuilder<bool>(
                 valueListenable: _scrollBars,
                 builder: (context, shown, pill) => IgnorePointer(
-                  ignoring: !shown && !_showPages,
+                  ignoring: !shown,
                   child: AnimatedOpacity(
-                    opacity: shown || _showPages ? 1 : 0,
+                    opacity: shown ? 1 : 0,
                     duration: Motion.of(context, Motion.quick),
                     child: pill,
                   ),
@@ -2574,8 +2889,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
               ),
             ),
           ),
-          child: Center(
-            child: AnimatedSwitcher(
+          child: _pillAndPen(
+            context,
+            AnimatedSwitcher(
               duration: Motion.of(context, Motion.standard),
               transitionBuilder: fadeRise,
               child: _pill(context),

@@ -42,7 +42,8 @@ languages, with the screen off if you like. Keep a journal of what you think as 
   <img src="docs/images/now-playing-landscape.png" width="520" alt="Now Playing on its side: the cover beside the page, the sentence being read lit, the chapter bar and the controls">
 </p>
 
-No account. No cloud. Your books never leave the phone.
+No account. No cloud. Your books never leave the phone (unless you give the AI
+reading companion a key of your own: see below).
 
 **Android only for now: download the APK from [Releases](https://github.com/Sayandeep1013/TomeVoice/releases/latest).**
 
@@ -155,7 +156,7 @@ No account. No cloud. Your books never leave the phone.
   leave out site notices and credits, and, if you like, the authors' and translators'
   notes, rows of symbols and chapter titles said twice: the page still shows them, the
   voice passes over (Settings → Reading rules).
-- **A reading journal.** The pen on the player (or Write in the journal, in a book's
+- **A reading journal.** The pen over the player (or Write in the journal, in a book's
   menu) opens a notebook page that asks how you feel, why, what stood out and what you
   think happens next; skip any, or write freely on a blank page. Each entry is stamped
   with where the story had reached, the chapter the voice is reading or your place.
@@ -224,6 +225,73 @@ No account. No cloud. Your books never leave the phone.
   WCAG AA contrast standard in every one. A short guide shows the way on a new install.
 - **Gives you the voice controls readers don't:** speed (for every book, or this one
   only), pitch, the gap between words, and pauses at commas, sentences and paragraphs.
+
+## An AI reading companion (2.0)
+
+*New in 2.0. How it works, in full: [docs/14](docs/14-ai-companion.md).*
+
+A companion that remembers the book with you: who everyone is, what happened and why,
+and what is still unanswered. Off until you add a key; nothing changes for a reader who
+never does.
+
+- **Your own keys.** Google Gemini, Inception (Mercury), OpenRouter, Groq, OpenAI, or any
+  service that speaks the OpenAI chat format (give its address). Add as many keys as you
+  like, several from one provider too. A key that has used its quota rests until it
+  comes back, and the next one takes over; a key the provider refuses is shown in red.
+  Each key names a model for each job: one for building memories (many calls, so a
+  cheap, fast one), one for talking (the best you have), and, on Gemini, OpenAI or a
+  service of your own that has it, one for meaning search. **Check the key** lists its
+  models and picks likely ones. Main menu → **AI** shows each key's state and what it
+  used today.
+- **What is sent, and what never is.** Straight from the phone to the provider you
+  chose: there is no TomeVoice server, and no AI on the phone. Building a memory sends
+  each chapter's text once; a question sends only what it needs (the passage, the
+  book's notes and the parts of its text that bear on it, and your journal for that
+  book). Books on a secret shelf are never sent, and any book can be kept away from the
+  AI. Keys stay in the app's own storage and never go into a backup. By default the AI
+  answers only from what TomeVoice gives it, so a well-known book is not spoiled from
+  what the model learned elsewhere.
+- **A memory of each book.** **Build memory**, on a book's page, reads the book once,
+  chapter by chapter in the story's order, and keeps notes on the phone: a summary of
+  each chapter; the cast, places, groups, items, powers and terms, with every name they
+  go by and how they change over time (a rank, a title, who holds a sword, who is
+  dead); the events, who took part and what led to what; mysteries from raised to
+  resolved; and the story so far every 25 and every 250 chapters. Before it starts it
+  tells you how many chapters, calls and tokens it will take. It goes on with TomeVoice
+  closed for a long book (every hour or so, only on Wi-Fi and only while charging if you
+  say so), and once begun it is kept up as you read. For a web novel it can download
+  the chapters it needs, one at a time, and afterwards free the space they took: the
+  memory keeps its own copy of their words.
+- **A spoiler guard for each book**, off by default. On, the AI keeps to what you have
+  read; for a book you read partly elsewhere, tell it **I've read up to chapter…**.
+- **Talk about the book.** A button over the player opens Talk over the page, the book
+  still reading. Ask who someone is, what happened, why; answers cite the chapters they
+  come from, and a tap on one looks there without moving the voice. Answers are said
+  aloud in the voice reading the book, which pauses for them. Every talk is kept in the
+  book's journal, and the journal shows **All**, **My writing** or **Talks**.
+- **Explain this.** Hold a sentence and the AI says what it means there in the story.
+- **Who is "Oren"?** Hold a name for its card at once, from the book's memory with no
+  waiting and no network: who or what it is, other names, how it stands now, relations,
+  key events by chapter, a line they said. **Tell me more** asks Talk.
+- **Who's who** lists everyone and everything the memory knows, by kind, searchable.
+  The AI tidies the names as it goes (one card per character, a description renamed
+  once the book names them), and you can too: hold a name to rename it, join it to
+  another, or hand a card's later chapters to the character they really belong to.
+- **The memory graph** shows the story's web as points and fine lines: who matters
+  now, and who you may have forgotten (ringed in orange). Centre it on anyone, two
+  links out, or the whole web; a Story map of the book's groups as named islands; a
+  timeline shows the web at any chapter and plays it growing; a tap lights someone's
+  links and what they share with another; and it turns as a cloud in 3D.
+- **Theories.** Say what you think is going on: the AI weighs it, for and against, from
+  what you have read. As the memory reads on it checks your theories, and tells you
+  when you reach the chapter that settled one, never before.
+- **Previously…** Back to a book after a few days away, a short recap of the chapters
+  just before your place.
+- **A series follows on.** Link a book to the one before it, and its cast, how they
+  stood, open mysteries and story carry over.
+- **Talk elsewhere.** The memory as one Markdown page (the story so far, who matters,
+  what is unanswered, your theories and journal) to copy or share into ChatGPT, Gemini
+  or NotebookLM, kept to your chapter when the guard is on.
 
 ## What it deliberately does not do
 

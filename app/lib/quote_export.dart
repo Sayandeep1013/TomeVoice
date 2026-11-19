@@ -91,7 +91,11 @@ String quotesMarkdown(List<BookQuotes> books) {
         out.writeln('\n### ${_inline('${label[0].toUpperCase()}${label.substring(1)}')}, '
             '${d.year}-${two(d.month)}-${two(d.day)}');
         out.writeln();
-        if (j.isPage) {
+        if (j.isTalk) {
+          for (final l in j.talk) {
+            out.writeln('- **${l.mine ? 'Me' : 'AI'}:** ${l.text.trim().split('\n').map((x) => x.trim()).join('\n  ')}');
+          }
+        } else if (j.isPage) {
           for (final line in j.page.trim().split('\n')) {
             out.writeln(_lineStart(line.trim()));
           }

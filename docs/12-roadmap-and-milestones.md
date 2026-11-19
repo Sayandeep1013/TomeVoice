@@ -32,15 +32,15 @@ own font; replacing a book's file; your own chapters for a TXT book; Project Gut
 new OPDS 2 catalogue and any OPDS 2 feed; and DjVu books, read by their hidden text. The
 [changelog](../CHANGELOG.md) has the details.
 
-## Next: 2.0, an AI reading companion
-
-The next release is 2.0, an AI reading companion. It brings no AI of its own: it works
-with API keys the reader brings, and adds:
+**2.0.0 was released on 19 November 2026**: an AI reading companion. It brings no AI of
+its own: it works with API keys the reader brings, and adds:
 
 - a memory of the story, kept for each book as it is read;
 - talking about the book;
 - who's who in the story;
 - a memory graph.
+
+How it works: [14 — AI Companion](14-ai-companion.md). Before release it was tried on the owner's own phone with a 3,250-chapter web novel and a 213-chapter book, which found and fixed the name mix-ups the cast tidy now puts right.
 
 ## Also open
 
