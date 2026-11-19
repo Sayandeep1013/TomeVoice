@@ -450,6 +450,10 @@ CREATE TABLE IF NOT EXISTS vectors(
     inTransaction(() {
       final was = db.select('SELECT hash, noted FROM chapters WHERE ch = ?', [ch]);
       final changed = was.isNotEmpty && was.first['hash'] != null && was.first['hash'] != hash;
+      // Its text changed (an edited web-novel chapter, another edition):
+      // what was noted from the old text goes, so the new notes don't stand
+      // beside stale ones.
+      if (changed) dropNotesOf(ch);
       final old = _rowsOf(ch);
       if (old != null) db.execute('DELETE FROM text WHERE rowid BETWEEN ? AND ?', [old.lo, old.hi]);
       final put = db.prepare('INSERT INTO text(body, ch, sec, blk, sen, units) VALUES (?, ?, ?, ?, ?, ?)');
@@ -472,6 +476,46 @@ CREATE TABLE IF NOT EXISTS vectors(
         [ch, section, title, hash, sentences],
       );
     });
+  }
+
+  /// Everything the notes of chapter [ch] put in the memory, taken out
+  /// again: its summary, events, reveals, quotes and thread steps; the facts
+  /// and links it began (and those it ended, open again); its appearances;
+  /// the people and things first met there and nowhere else; and their
+  /// meaning-search vectors. Theories, the reader's own, stay.
+  void dropNotesOf(int ch) {
+    db.execute('DELETE FROM notes WHERE ch = ?', [ch]);
+    db.execute("DELETE FROM vectors WHERE owner = 'note' AND id = ?", [ch]);
+    db.execute("DELETE FROM vectors WHERE owner = 'event' AND ch = ?", [ch]);
+    db.execute('DELETE FROM event_roles WHERE event IN (SELECT id FROM events WHERE ch = ?)', [ch]);
+    db.execute(
+        'DELETE FROM event_links WHERE a IN (SELECT id FROM events WHERE ch = ?) OR b IN (SELECT id FROM events WHERE ch = ?)',
+        [ch, ch]);
+    db.execute('DELETE FROM events WHERE ch = ?', [ch]);
+    db.execute('DELETE FROM reveals WHERE ch = ?', [ch]);
+    db.execute('DELETE FROM quotes WHERE ch = ?', [ch]);
+    db.execute('DELETE FROM thread_steps WHERE ch = ?', [ch]);
+    db.execute(
+        "UPDATE threads SET status = 'open', resolved_ch = NULL WHERE resolved_ch = ?", [ch]);
+    db.execute('DELETE FROM threads WHERE raised_ch = ? AND id NOT IN (SELECT thread FROM thread_steps)', [ch]);
+    db.execute('DELETE FROM facts WHERE from_ch = ?', [ch]);
+    db.execute('UPDATE facts SET until_ch = NULL WHERE until_ch = ?', [ch]);
+    db.execute('DELETE FROM relations WHERE from_ch = ?', [ch]);
+    db.execute('UPDATE relations SET until_ch = NULL WHERE until_ch = ?', [ch]);
+    db.execute(
+        'UPDATE entities SET mentions = max(0, mentions - 1) WHERE id IN (SELECT entity FROM appearances WHERE ch = ?)',
+        [ch]);
+    db.execute('DELETE FROM appearances WHERE ch = ?', [ch]);
+    // Met first here and nowhere else, and not joined to another since.
+    const lone = 'SELECT id FROM entities WHERE first_ch = ? '
+        'AND id NOT IN (SELECT entity FROM appearances) '
+        'AND id NOT IN (SELECT entity FROM facts) '
+        'AND id NOT IN (SELECT a FROM relations) AND id NOT IN (SELECT b FROM relations) '
+        'AND id NOT IN (SELECT entity FROM event_roles) '
+        'AND id NOT IN (SELECT merged_into FROM entities WHERE merged_into IS NOT NULL)';
+    db.execute('DELETE FROM aliases WHERE entity IN ($lone)', [ch]);
+    db.execute('DELETE FROM entities WHERE id IN ($lone)', [ch]);
+    db.execute('UPDATE chapters SET noted = 0, note_error = NULL WHERE ch = ?', [ch]);
   }
 
   /// How many chapters are in the word index, and the last of them.
