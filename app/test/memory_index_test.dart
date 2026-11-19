@@ -143,6 +143,34 @@ void main() {
     expect(second.sentence > 0 || second.block > 0, isTrue);
   });
 
+  test("a chapter's text read and replaced by a jump to its rows; a memory made before learns where they are", () {
+    final dir = Directory.systemTemp.createTempSync('tv_rows');
+    final path = '${dir.path}/memory.db';
+    var m = MemoryDb.open(path);
+    TextChunk chunk(int ch, String text) => TextChunk(start: MemoryPlace(chapter: ch, section: ch), text: text);
+    for (var ch = 0; ch < 3; ch++) {
+      m.indexChapter(ch: ch, section: ch, title: 'C$ch', hash: 'h$ch', chunks: [chunk(ch, 'First of $ch.'), chunk(ch, 'Then $ch.')]);
+    }
+    m.indexChapter(ch: 1, section: 1, title: 'C1', hash: 'h1b', chunks: [chunk(1, 'All new.')]);
+    expect(m.chapterText(1).map((c) => c.text), ['All new.']);
+    expect(m.chapterText(0).map((c) => c.text), ['First of 0.', 'Then 0.']);
+    expect(m.chapterText(2).map((c) => c.text), ['First of 2.', 'Then 2.']);
+    expect(m.db.select('SELECT chars FROM chapter_rows WHERE ch = 1').single['chars'], 'All new.'.length);
+    // As a memory made before version 5 was: no record of where the rows are.
+    m.db.execute('DROP TABLE chapter_rows');
+    m.db.execute('PRAGMA user_version = 4');
+    m.close();
+    m = MemoryDb.open(path);
+    expect(m.chapterText(2).map((c) => c.text), ['First of 2.', 'Then 2.']);
+    expect(m.chapterText(1).map((c) => c.text), ['All new.']);
+    m.close();
+    try {
+      dir.deleteSync(recursive: true);
+    } on FileSystemException {
+      // Windows may hold the file.
+    }
+  });
+
   test('a fresh memory has the core kinds and the version', () {
     final db = MemoryDb.inMemory();
     addTearDown(db.close);

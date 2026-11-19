@@ -186,17 +186,28 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
     }
   }
 
-  Future<void> _open(ReadingLayout l, {required bool play, int? chapter, int? unit}) async {
+  /// Opened at [at] (a place Talk cited, from the memory graph): back to
+  /// this page first, then the book looking at it.
+  void _readAt(ReadingCursor at) {
+    final l = _layout;
+    final here = ModalRoute.of(context);
+    if (l == null || here == null) return;
+    Navigator.of(context).popUntil((r) => r == here);
+    unawaited(_open(l, play: false, at: at));
+  }
+
+  Future<void> _open(ReadingLayout l, {required bool play, int? chapter, int? unit, ReadingCursor? at}) async {
     final cursor = await _store.cursorFor(_entry.id);
     // A chapter or a sentence picked is looked at; the place stays (see
     // ReaderScreen.lookAt). Play on it reads from there.
-    final look = l.isEmpty
-        ? null
-        : unit != null
-            ? cursorOf(l.units[unit.clamp(0, l.units.length - 1)])
-            : chapter != null
-                ? cursorOf(l.units[l.chapterFirstUnit[chapter]])
-                : null;
+    final look = at ??
+        (l.isEmpty
+            ? null
+            : unit != null
+                ? cursorOf(l.units[unit.clamp(0, l.units.length - 1)])
+                : chapter != null
+                    ? cursorOf(l.units[l.chapterFirstUnit[chapter]])
+                    : null);
     if (!mounted) return;
     await Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => BookTint(
@@ -340,7 +351,12 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
       SliverPadding(
         padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
         sliver: SliverToBoxAdapter(
-          child: BookMemorySection(bookId: _entry.id, bookTitle: _entry.title, secret: _store.isSecret(_entry.id)),
+          child: BookMemorySection(
+            bookId: _entry.id,
+            bookTitle: _entry.title,
+            secret: _store.isSecret(_entry.id),
+            onRead: _readAt,
+          ),
         ),
       ),
     ];

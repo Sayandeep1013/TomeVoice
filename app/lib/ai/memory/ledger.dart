@@ -1390,3 +1390,47 @@ List<int> louvain(int n, List<(int, int, double)> links, {double resolution = 1}
   }
   return stored();
 }
+
+/// What the AI is told of each group to name it: its best-known members
+/// (up to ten) and what each is, keyed by the group's number.
+Map<int, String> groupBriefs(String path, Map<int, List<int>> members) {
+  final m = MemoryDb.open(path);
+  try {
+    return {
+      for (final MapEntry(key: g, value: ids) in members.entries)
+        g: [
+          for (final id in ids.take(10))
+            for (final r in m.db.select('SELECT name, kind, about FROM entities WHERE id = ?', [id]))
+              '${r['name']} (${r['kind']})${(r['about'] as String?)?.isNotEmpty == true ? ': ${r['about']}' : ''}',
+        ].join('; '),
+    };
+  } finally {
+    m.close();
+  }
+}
+
+/// The names kept for groups, by the key made of their best-known members.
+Map<String, String> groupNames(String path, Iterable<String> keys) {
+  final m = MemoryDb.open(path);
+  try {
+    m.db.execute('CREATE TABLE IF NOT EXISTS graph_group_names(k TEXT PRIMARY KEY, name TEXT NOT NULL)');
+    return {
+      for (final k in keys)
+        for (final r in m.db.select('SELECT name FROM graph_group_names WHERE k = ?', [k])) k: r['name'] as String,
+    };
+  } finally {
+    m.close();
+  }
+}
+
+void keepGroupNames(String path, Map<String, String> names) {
+  final m = MemoryDb.open(path);
+  try {
+    m.db.execute('CREATE TABLE IF NOT EXISTS graph_group_names(k TEXT PRIMARY KEY, name TEXT NOT NULL)');
+    for (final e in names.entries) {
+      m.db.execute('INSERT OR REPLACE INTO graph_group_names(k, name) VALUES (?, ?)', [e.key, e.value]);
+    }
+  } finally {
+    m.close();
+  }
+}

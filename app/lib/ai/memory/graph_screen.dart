@@ -7,6 +7,10 @@ import 'package:flutter/material.dart';
 import '../../theme.dart';
 import '../../ui.dart';
 import '../talk/name_card.dart';
+import '../ai_client.dart' show aiMessage;
+import '../ai_keys.dart';
+import '../ai_router.dart';
+import 'chapter_notes.dart' show jsonObjectIn;
 import 'graph3d_view.dart';
 import 'ledger.dart';
 import 'whos_who_screen.dart' show KindDot, kindColour, kindLabel;
@@ -24,6 +28,10 @@ Future<GraphView> _drawn(
         most: most,
         aspect: aspect));
 Future<Map<int, ({double x, double y, double z})>> _ballOff(GraphData g) => Isolate.run(() => layoutGraph3d(g));
+Future<Map<int, String>> _briefsOff(String path, Map<int, List<int>> members) =>
+    Isolate.run(() => groupBriefs(path, members));
+Future<Map<String, String>> _namesOff(String path, List<String> keys) => Isolate.run(() => groupNames(path, keys));
+Future<void> _keepNamesOff(String path, Map<String, String> names) => Isolate.run(() => keepGroupNames(path, names));
 Future<int?> _mainOff(String path, int? at) => Isolate.run(() => mainOf(path, at: at));
 Future<NodeDetail?> _detailOff(String path, int id, int at) => Isolate.run(() => nodeDetail(path, id, at));
 Future<({List<String> relations, List<({int ch, String what})> events})> _linksOff(String path, int a, int b, int at) =>
@@ -128,7 +136,13 @@ List<int>? graphPath(GraphData data, int a, int b, int chapter) {
 /// links them.
 class MemoryGraphScreen extends StatefulWidget {
   const MemoryGraphScreen(
-      {super.key, required this.bookTitle, required this.memoryPath, this.line, this.here, this.onAsk});
+      {super.key,
+      required this.bookTitle,
+      required this.memoryPath,
+      this.line,
+      this.here,
+      this.onAsk,
+      this.nameGroups = false});
 
   final String bookTitle;
   final String memoryPath;
@@ -141,6 +155,10 @@ class MemoryGraphScreen extends StatefulWidget {
 
   /// Asks the book's Talk about something (null: not offered).
   final Future<void> Function(String question)? onAsk;
+
+  /// Whether the Story map's groups may be named by the AI (not with the
+  /// spoiler guard on, nor for a book kept from the AI).
+  final bool nameGroups;
 
   @override
   State<MemoryGraphScreen> createState() => _MemoryGraphScreenState();
@@ -210,6 +228,10 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
   int _choices = 0;
   List<GraphSector> _sectors = const [];
   Map<int, int> _cluster = const {};
+
+  /// The Story map's groups' names, by group, kept or asked of the AI.
+  Map<int, String> _groupNames = const {};
+  bool _naming = false;
 
   /// The chapter the timeline was at before its last move: what is new, or
   /// ended, since then is marked.
@@ -292,7 +314,67 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
       if (_picked != null && !_at.containsKey(_picked)) _clearPick();
     });
     unawaited(_move.forward(from: 0));
+    if (_depth == GraphDepth.map) unawaited(_nameGroups());
     if (_ball) await _laidAsBall();
+  }
+
+  /// The Story map's groups named: those named before, from the memory;
+  /// the rest asked of the AI in one call, each from its best-known members,
+  /// and kept.
+  Future<void> _nameGroups() async {
+    final data = _data;
+    if (data == null || _naming) return;
+    final groups = graphGroups(data, _at, _cluster, _end);
+    String keyOf(GraphGroup g) => (g.members.take(3).toList()..sort()).join(',');
+    final keys = {for (final g in groups) g.id: keyOf(g)};
+    final kept = await _namesOff(widget.memoryPath, keys.values.toList());
+    if (!mounted) return;
+    setState(() => _groupNames = {
+          for (final g in groups)
+            if (kept[keys[g.id]] != null) g.id: kept[keys[g.id]]!,
+        });
+    final unnamed = [
+      for (final g in groups)
+        if (kept[keys[g.id]] == null && g.members.length >= 5) g
+    ];
+    if (unnamed.isEmpty || !widget.nameGroups || !AiRing.instance.hasKeys) return;
+    _naming = true;
+    try {
+      final briefs = await _briefsOff(widget.memoryPath, {for (final g in unnamed) g.id: g.members});
+      final reply = await AiRouter().chat(
+          AiJob.talker,
+          [
+            aiMessage(
+              'system',
+              'You name groups of characters, places and things from a novel, found by how they are linked in the '
+                  'story. Name each group in 2 to 5 words, as a reader of the book would know it: who or what holds it '
+                  'together (a band, a family, a place, a war, a quest). Use only what is given. Reply with JSON '
+                  'only: {"groups": [{"id": <number>, "name": "<name>"}]}',
+            ),
+            aiMessage('user', [for (final e in briefs.entries) 'Group ${e.key}: ${e.value}'].join('\n')),
+          ],
+          json: true,
+          temperature: 0.3);
+      final got = <String, String>{}, shown = <int, String>{};
+      final list = jsonObjectIn(reply.text)['groups'];
+      if (list is List) {
+        for (final item in list.whereType<Map>()) {
+          final id = (item['id'] as num?)?.toInt();
+          final name = (item['name'] as String?)?.trim();
+          if (id == null || name == null || name.isEmpty || !keys.containsKey(id)) continue;
+          got[keys[id]!] = name;
+          shown[id] = name;
+        }
+      }
+      if (got.isEmpty) return;
+      await _keepNamesOff(widget.memoryPath, got);
+      if (mounted) setState(() => _groupNames = {..._groupNames, ...shown});
+    } on Object {
+      // No key able, or a reply not understood: the groups keep the name
+      // of their best-known member.
+    } finally {
+      _naming = false;
+    }
   }
 
   /// How many to show: the reader's choice, or a fit (forty; the Story
@@ -734,6 +816,7 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
                                                     ? graphGroups(data, _shown, _cluster, _shownCh)
                                                     : const [],
                                                 hiddenLinks: _hiddenLinks,
+                                                groupNames: _groupNames,
                                                 since: _since,
                                                 path: _path,
                                                 viewport: _box,
@@ -1160,6 +1243,7 @@ class GraphPainter extends CustomPainter {
     this.sectors = const [],
     this.groups = const [],
     this.hiddenLinks = const {},
+    this.groupNames = const {},
     this.since,
     this.path,
     this.viewport = Size.zero,
@@ -1180,6 +1264,7 @@ class GraphPainter extends CustomPainter {
   final List<GraphSector> sectors;
   final List<GraphGroup> groups;
   final Set<LinkKind> hiddenLinks;
+  final Map<int, String> groupNames;
   final int? since;
   final List<int>? path;
 
@@ -1334,9 +1419,8 @@ class GraphPainter extends CustomPainter {
     // The groups' names, each on its island's top edge, always shown.
     for (final g in groups) {
       if (g.reach * scale >= openAt) continue;
-      final name = visible[g.top]?.name ?? '';
-      final rect = _pill(canvas, '$name and ${g.members.length - 1} more', g.centre - Offset(0, g.reach * 0.86),
-          12 * dp, groupColour(g.id),
+      final name = groupNames[g.id] ?? '${visible[g.top]?.name ?? ''} and ${g.members.length - 1} more';
+      final rect = _pill(canvas, name, g.centre - Offset(0, g.reach * 0.86), 12 * dp, groupColour(g.id),
           strong: false, force: true);
       if (rect != null) placed.add(rect);
     }
@@ -1474,5 +1558,6 @@ class GraphPainter extends CustomPainter {
       old.groups.length != groups.length ||
       old.hiddenLinks.length != hiddenLinks.length ||
       old.since != since ||
+      old.groupNames != groupNames ||
       old.path != path;
 }

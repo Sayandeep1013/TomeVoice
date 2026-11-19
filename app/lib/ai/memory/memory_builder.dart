@@ -223,8 +223,9 @@ BuildEstimate _estimate(String path, int? upTo, int tokens, int maxChapters) {
   final m = MemoryDb.open(path);
   try {
     final rows = m.db.select(
-      'SELECT c.ch, (SELECT sum(length(body)) FROM text t WHERE t.ch = c.ch) chars FROM chapters c '
-      'WHERE c.indexed = 1 AND c.noted = 0 AND c.note_error IS NULL${upTo == null ? '' : ' AND c.ch <= $upTo'}',
+      'SELECT c.ch, r.chars FROM chapters c LEFT JOIN chapter_rows r ON r.ch = c.ch '
+      'WHERE c.indexed = 1 AND c.noted = 0 AND c.note_error IS NULL${upTo == null ? '' : ' AND c.ch <= $upTo'} '
+      'ORDER BY c.ch',
     );
     var input = 0, calls = 0, inBatch = 0, batchTokens = 0;
     for (final r in rows) {

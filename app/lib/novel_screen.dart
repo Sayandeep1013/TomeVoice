@@ -669,7 +669,19 @@ class _NovelScreenState extends State<NovelScreen> {
       if (_entry != null)
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
-          sliver: SliverToBoxAdapter(child: BookMemorySection(bookId: _id, bookTitle: _entry!.title, secret: _store.isSecret(_id))),
+          sliver: SliverToBoxAdapter(
+            child: BookMemorySection(
+              bookId: _id,
+              bookTitle: _entry!.title,
+              secret: _store.isSecret(_id),
+              // A chapter Talk cites, from the graph: back here, then read it.
+              onRead: (at) {
+                final here = ModalRoute.of(context);
+                if (here != null) Navigator.of(context).popUntil((r) => r == here);
+                unawaited(_openReader(at: at));
+              },
+            ),
+          ),
         ),
     ];
     final chapterList = <Widget>[

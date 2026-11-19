@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor;
 
 import '../../theme.dart';
 import '../../ui.dart';
@@ -29,11 +30,15 @@ class BookMemorySection extends StatefulWidget {
     required this.secret,
     this.service,
     this.compact = true,
+    this.onRead,
   });
 
   final String bookId;
   final String bookTitle;
   final bool compact;
+
+  /// Opens the book at a place (a chapter Talk cites, from the graph).
+  final void Function(ReadingCursor at)? onRead;
 
   /// On a secret shelf: never sent, so never built.
   final bool secret;
@@ -77,15 +82,18 @@ class _BookMemorySectionState extends State<BookMemorySection> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                SheetHeader('${missing.length} ${missing.length == 1 ? 'chapter is' : 'chapters are'} not on the phone'),
+                SheetHeader(
+                    '${missing.length} ${missing.length == 1 ? 'chapter is' : 'chapters are'} not on the phone'),
                 Text(
                   'The memory is made from the chapters on the phone. Download the rest up to where you are, and '
                   'they join the memory as they come: one at a time, gently on the site'
                   '${missing.length > 200 ? ', so this many takes some hours' : ''}.',
-                  style: Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkSoftOn(context)).copyWith(height: 1.4),
+                  style:
+                      Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkSoftOn(context)).copyWith(height: 1.4),
                 ),
                 const SizedBox(height: Gap.l),
-                FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Download them, and build')),
+                FilledButton(
+                    onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Download them, and build')),
                 const SizedBox(height: Gap.s),
                 OutlinedButton(
                   onPressed: () => Navigator.of(ctx).pop(false),
@@ -100,12 +108,13 @@ class _BookMemorySectionState extends State<BookMemorySection> {
       if (fetch) await _service.download(widget.bookId, missing);
     }
     if (!mounted) return;
-    final est = await _service.estimate(widget.bookId);
-    if (!mounted) return;
-    if (est.chapters == 0) {
+    // Begun before: the reader agreed to it then; it simply goes on.
+    if (_service.stateOf(widget.bookId).value.noted > 0) {
       unawaited(_service.build(widget.bookId));
       return;
     }
+    // The sheet at once; what it would take, counted meanwhile.
+    final counting = _service.estimate(widget.bookId);
     final keys = AiRing.instance.forJob(AiJob.builder);
     final go = await showModalBottomSheet<bool>(
       context: context,
@@ -119,13 +128,24 @@ class _BookMemorySectionState extends State<BookMemorySection> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const SheetHeader('Build the memory', subtitle: 'Each chapter is read once, ever'),
-              Text(
-                '${est.chapters} ${est.chapters == 1 ? 'chapter' : 'chapters'} to read, in about '
-                '${est.calls} ${est.calls == 1 ? 'call' : 'calls'}: some ${tokenCount(est.tokens)} tokens, '
-                'with ${keys.map((k) => k.label).join(', then ')}. '
-                'It goes on while TomeVoice is open; when a key has used its quota for now, the next takes '
-                'over, and when all of them have, it waits for them.',
-                style: Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkSoftOn(context)).copyWith(height: 1.4),
+              FutureBuilder<BuildEstimate>(
+                future: counting,
+                builder: (context, snap) {
+                  final est = snap.data;
+                  return Text(
+                    est == null
+                        ? 'Counting what it would take…'
+                        : est.chapters == 0
+                            ? 'Every chapter on the phone is read already.'
+                            : '${est.chapters} ${est.chapters == 1 ? 'chapter' : 'chapters'} to read, in about '
+                                '${est.calls} ${est.calls == 1 ? 'call' : 'calls'}: some ${tokenCount(est.tokens)} '
+                                'tokens, with ${keys.map((k) => k.label).join(', then ')}. '
+                                'It goes on while TomeVoice is open; when a key has used its quota for now, the next '
+                                'takes over, and when all of them have, it waits for them.',
+                    style: Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkSoftOn(context))
+                        .copyWith(height: 1.4),
+                  );
+                },
               ),
               const SizedBox(height: Gap.l),
               FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Build')),
@@ -158,6 +178,7 @@ class _BookMemorySectionState extends State<BookMemorySection> {
         memoryPath: path,
         line: line,
         here: here,
+        nameGroups: line == null && _service.maySend(widget.bookId),
         // "Ask about this": the book's Talk, over the graph.
         onAsk: stamp == null || !_service.maySend(widget.bookId)
             ? null
@@ -170,7 +191,9 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                   line: () => line,
                   here: () => here,
                   passage: () => '',
-                  onLook: (_) {},
+                  // A chapter it cites: the book opened there.
+                  onLook: (p) => widget.onRead
+                      ?.call(ReadingCursor(sectionIndex: p.section, blockIndex: p.block, sentenceIndex: p.sentence)),
                   firstQuestion: question,
                 ),
       ),
@@ -243,8 +266,7 @@ class _BookMemorySectionState extends State<BookMemorySection> {
               child: ListView(
                 shrinkWrap: true,
                 children: [
-                  for (final b in books)
-                    ListTile(title: Text(b.title), onTap: () => Navigator.of(ctx).pop(b.id)),
+                  for (final b in books) ListTile(title: Text(b.title), onTap: () => Navigator.of(ctx).pop(b.id)),
                 ],
               ),
             ),
@@ -305,7 +327,8 @@ class _BookMemorySectionState extends State<BookMemorySection> {
             child: InkWell(
               borderRadius: BorderRadius.circular(Radii.row + 4),
               onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
-                builder: (_) => BookMemoryScreen(bookId: widget.bookId, bookTitle: widget.bookTitle),
+                builder: (_) =>
+                    BookMemoryScreen(bookId: widget.bookId, bookTitle: widget.bookTitle, onRead: widget.onRead),
               )),
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(Gap.l, Gap.m, Gap.s, Gap.m),
@@ -317,8 +340,7 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Memory',
-                              style: Skin.ui(size: 16, weight: FontWeight.w600, color: Skin.inkOn(context))),
+                          Text('Memory', style: Skin.ui(size: 16, weight: FontWeight.w600, color: Skin.inkOn(context))),
                           const SizedBox(height: 2),
                           Text(
                             s.private ? 'Kept away from the AI' : _line(s),
@@ -350,30 +372,30 @@ class _BookMemorySectionState extends State<BookMemorySection> {
               children: [
                 const Expanded(child: SectionTitle('Memory', note: 'AI')),
                 PopupMenuButton<String>(
-                    tooltip: 'More about the memory',
-                    onSelected: (v) {
-                      if (v == 'forget') unawaited(_forget());
-                      if (v == 'follows') unawaited(_followOn());
-                      if (v == 'private') unawaited(_service.setPrivate(widget.bookId, !s.private));
-                      if (v == 'read') unawaited(_readUpTo(s));
-                    },
-                    itemBuilder: (_) => [
-                      if (!s.private) ...[
-                        PopupMenuItem(
-                          value: 'read',
-                          child: Text(s.readUpTo == null
-                              ? "I've read up to chapter…"
-                              : "I've read up to chapter ${s.readUpTo! + 1}…"),
-                        ),
-                        const PopupMenuItem(value: 'follows', child: Text('Follows on from another book…')),
-                      ],
+                  tooltip: 'More about the memory',
+                  onSelected: (v) {
+                    if (v == 'forget') unawaited(_forget());
+                    if (v == 'follows') unawaited(_followOn());
+                    if (v == 'private') unawaited(_service.setPrivate(widget.bookId, !s.private));
+                    if (v == 'read') unawaited(_readUpTo(s));
+                  },
+                  itemBuilder: (_) => [
+                    if (!s.private) ...[
                       PopupMenuItem(
-                        value: 'private',
-                        child: Text(s.private ? 'Let the AI read this book' : 'Keep this book away from the AI'),
+                        value: 'read',
+                        child: Text(s.readUpTo == null
+                            ? "I've read up to chapter…"
+                            : "I've read up to chapter ${s.readUpTo! + 1}…"),
                       ),
-                      if (s.exists) const PopupMenuItem(value: 'forget', child: Text('Forget this memory')),
+                      const PopupMenuItem(value: 'follows', child: Text('Follows on from another book…')),
                     ],
-                  ),
+                    PopupMenuItem(
+                      value: 'private',
+                      child: Text(s.private ? 'Let the AI read this book' : 'Keep this book away from the AI'),
+                    ),
+                    if (s.exists) const PopupMenuItem(value: 'forget', child: Text('Forget this memory')),
+                  ],
+                ),
               ],
             ),
             const SizedBox(height: Gap.xs),
@@ -389,69 +411,67 @@ class _BookMemorySectionState extends State<BookMemorySection> {
               ),
             ],
             if (!s.private) ...[
-            const SizedBox(height: Gap.s),
-            Wrap(
-              spacing: Gap.s,
-              runSpacing: Gap.s,
-              children: [
-                if (busy)
-                  OutlinedButton.icon(
-                    onPressed: () => _service.pause(widget.bookId),
-                    icon: const Icon(Icons.pause_rounded, size: 18),
-                    label: const Text('Pause'),
-                  )
-                else if (left)
-                  FilledButton.tonalIcon(
-                    onPressed: () => unawaited(_build()),
-                    icon: const Icon(Icons.auto_awesome_rounded, size: 18),
-                    label: Text(s.noted == 0 ? 'Build memory' : 'Go on building'),
-                  ),
-                if (s.exists && s.noted > 0)
-                  OutlinedButton.icon(
-                    onPressed: () => unawaited(_openTheories()),
-                    icon: const Icon(Icons.lightbulb_outline_rounded, size: 18),
-                    label: const Text('Theories'),
-                  ),
-                if (s.entities > 0) ...[
-                  OutlinedButton.icon(
-                    onPressed: () => unawaited(_openWho()),
-                    icon: const Icon(Icons.groups_outlined, size: 18),
-                    label: const Text("Who's who"),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => unawaited(_openGraph()),
-                    icon: const Icon(Icons.hub_outlined, size: 18),
-                    label: const Text('Graph'),
-                  ),
+              const SizedBox(height: Gap.s),
+              Wrap(
+                spacing: Gap.s,
+                runSpacing: Gap.s,
+                children: [
+                  if (busy)
+                    OutlinedButton.icon(
+                      onPressed: () => _service.pause(widget.bookId),
+                      icon: const Icon(Icons.pause_rounded, size: 18),
+                      label: const Text('Pause'),
+                    )
+                  else if (left)
+                    FilledButton.tonalIcon(
+                      onPressed: () => unawaited(_build()),
+                      icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+                      label: Text(s.noted == 0 ? 'Build memory' : 'Go on building'),
+                    ),
+                  if (s.exists && s.noted > 0)
+                    OutlinedButton.icon(
+                      onPressed: () => unawaited(_openTheories()),
+                      icon: const Icon(Icons.lightbulb_outline_rounded, size: 18),
+                      label: const Text('Theories'),
+                    ),
+                  if (s.entities > 0) ...[
+                    OutlinedButton.icon(
+                      onPressed: () => unawaited(_openWho()),
+                      icon: const Icon(Icons.groups_outlined, size: 18),
+                      label: const Text("Who's who"),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () => unawaited(_openGraph()),
+                      icon: const Icon(Icons.hub_outlined, size: 18),
+                      label: const Text('Graph'),
+                    ),
+                  ],
+                  if (s.exists && s.noted > 0)
+                    OutlinedButton.icon(
+                      onPressed: () => unawaited(_handOff()),
+                      icon: const Icon(Icons.forum_outlined, size: 18),
+                      label: const Text('Talk elsewhere'),
+                    ),
                 ],
-                if (s.exists && s.noted > 0)
-                  OutlinedButton.icon(
-                    onPressed: () => unawaited(_handOff()),
-                    icon: const Icon(Icons.forum_outlined, size: 18),
-                    label: const Text('Talk elsewhere'),
-                  ),
-              ],
-            ),
-            if (s.skipped > 0)
-              Padding(
-                padding: const EdgeInsets.only(top: Gap.s),
-                child: TextButton.icon(
-                  onPressed: () => unawaited(_service.retrySkipped(widget.bookId)),
-                  icon: const Icon(Icons.replay_rounded, size: 18),
-                  label: Text('Try the ${s.skipped} passed-over ${s.skipped == 1 ? 'chapter' : 'chapters'} again'),
-                ),
               ),
-            _ChaptersBlock(bookId: widget.bookId, service: _service, memory: s),
-            SwitchListTile(
+              if (s.skipped > 0)
+                Padding(
+                  padding: const EdgeInsets.only(top: Gap.s),
+                  child: TextButton.icon(
+                    onPressed: () => unawaited(_service.retrySkipped(widget.bookId)),
+                    icon: const Icon(Icons.replay_rounded, size: 18),
+                    label: Text('Try the ${s.skipped} passed-over ${s.skipped == 1 ? 'chapter' : 'chapters'} again'),
+                  ),
+                ),
+              _ChaptersBlock(bookId: widget.bookId, service: _service, memory: s),
+              SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 value: s.guard,
                 onChanged: (v) => unawaited(_service.setGuard(widget.bookId, v)),
                 title: Text('Spoiler guard',
                     style: Skin.ui(size: 15, weight: FontWeight.w600, color: Skin.inkOn(context))),
                 subtitle: Text(
-                  s.guard
-                      ? 'The AI keeps to what you have read.'
-                      : 'Off: the AI may use all it remembers of the book.',
+                  s.guard ? 'The AI keeps to what you have read.' : 'Off: the AI may use all it remembers of the book.',
                   style: Skin.meta(context),
                 ),
               ),
@@ -466,10 +486,11 @@ class _BookMemorySectionState extends State<BookMemorySection> {
 /// A book's memory, on a page of its own: how far it is built, Build or
 /// Pause, the spoiler guard, Who's who, the graph, theories, Talk elsewhere.
 class BookMemoryScreen extends StatelessWidget {
-  const BookMemoryScreen({super.key, required this.bookId, required this.bookTitle});
+  const BookMemoryScreen({super.key, required this.bookId, required this.bookTitle, this.onRead});
 
   final String bookId;
   final String bookTitle;
+  final void Function(ReadingCursor at)? onRead;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -487,9 +508,11 @@ class BookMemoryScreen extends StatelessWidget {
                 ),
                 Expanded(
                   child: ListView(
-                    padding: EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.xxl + MediaQuery.viewPaddingOf(context).bottom),
+                    padding:
+                        EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.xxl + MediaQuery.viewPaddingOf(context).bottom),
                     children: [
-                      BookMemorySection(bookId: bookId, bookTitle: bookTitle, secret: false, compact: false),
+                      BookMemorySection(
+                          bookId: bookId, bookTitle: bookTitle, secret: false, compact: false, onRead: onRead),
                     ],
                   ),
                 ),
@@ -633,7 +656,8 @@ class _ChaptersBlockState extends State<_ChaptersBlock> {
     final n = await widget.service.downloadAll(widget.bookId);
     if (!mounted) return;
     setState(() => _busy = false);
-    showSnack(context, n == 0 ? 'Every chapter is on the phone or on its way.' : '$n chapters are on their way, one at a time.');
+    showSnack(context,
+        n == 0 ? 'Every chapter is on the phone or on its way.' : '$n chapters are on their way, one at a time.');
     // They join the memory as they come; it is built as they do.
     unawaited(widget.service.build(widget.bookId));
     await _load();
@@ -655,7 +679,8 @@ class _ChaptersBlockState extends State<_ChaptersBlock> {
     final r = await widget.service.freeSpace(widget.bookId);
     if (!mounted) return;
     setState(() => _busy = false);
-    showSnack(context, r.chapters == 0 ? 'Nothing to free yet.' : 'Freed ${sizeLabel(r.bytes)}: ${r.chapters} chapters.');
+    showSnack(
+        context, r.chapters == 0 ? 'Nothing to free yet.' : 'Freed ${sizeLabel(r.bytes)}: ${r.chapters} chapters.');
     await _load();
   }
 
@@ -668,7 +693,8 @@ class _ChaptersBlockState extends State<_ChaptersBlock> {
     final readOnPhone = math.min(c.onPhone, c.noted);
     final line = [
       '${c.onPhone} of ${c.total} chapters on the phone · ${sizeLabel(c.bytes)}',
-      if (q != null && q.waiting > 0) 'Downloading: ${q.waiting} to go${q.resting ? ' (the site asked for a rest)' : ''}',
+      if (q != null && q.waiting > 0)
+        'Downloading: ${q.waiting} to go${q.resting ? ' (the site asked for a rest)' : ''}',
       if (q != null && q.failed > 0) '${q.failed} could not be downloaded${q.problem == null ? '' : ': ${q.problem}'}',
     ];
     return Padding(

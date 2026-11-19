@@ -86,7 +86,7 @@ class MemoryDb {
   final Database db;
   final String path;
 
-  static const version = 4;
+  static const version = 5;
 
   static String pathIn(String bookDir) => '$bookDir/memory.db';
 
@@ -111,6 +111,19 @@ class MemoryDb {
   }
 
   void close() => db.close();
+
+  void _chapterRows() {
+    db.execute('CREATE TABLE IF NOT EXISTS chapter_rows(ch INTEGER PRIMARY KEY, lo INTEGER, hi INTEGER, chars INTEGER)');
+    db.execute('INSERT OR REPLACE INTO chapter_rows(ch, lo, hi, chars) '
+        'SELECT ch, min(rowid), max(rowid), sum(length(body)) FROM text GROUP BY ch');
+  }
+
+  /// Where chapter [ch]'s text is, as rows of the word index (null: none).
+  ({int lo, int hi})? _rowsOf(int ch) {
+    final r = db.select('SELECT lo, hi FROM chapter_rows WHERE ch = ?', [ch]);
+    if (r.isEmpty || r.first['lo'] == null) return null;
+    return (lo: r.first['lo'] as int, hi: r.first['hi'] as int);
+  }
 
   void _forgetNotNames() {
     for (final r in db.select('SELECT id, name FROM entities')) {
@@ -162,6 +175,10 @@ class MemoryDb {
       // forgotten.
       if (have >= 1 && have < 4) _tidyNames();
       if (have >= 1 && have < 4) _forgetNotNames();
+      // 5: where each chapter's text is in the word index, so it is read
+      // (and replaced) by a jump to its rows, not a scan of the whole book's
+      // text for it; and its size, for estimates.
+      if (have < 5) _chapterRows();
       db.execute('PRAGMA user_version = $version');
       db.execute('COMMIT');
     } on Object {
@@ -420,14 +437,20 @@ CREATE TABLE IF NOT EXISTS vectors(
     inTransaction(() {
       final was = db.select('SELECT hash, noted FROM chapters WHERE ch = ?', [ch]);
       final changed = was.isNotEmpty && was.first['hash'] != null && was.first['hash'] != hash;
-      db.execute('DELETE FROM text WHERE ch = ?', [ch]);
+      final old = _rowsOf(ch);
+      if (old != null) db.execute('DELETE FROM text WHERE rowid BETWEEN ? AND ?', [old.lo, old.hi]);
       final put = db.prepare('INSERT INTO text(body, ch, sec, blk, sen, units) VALUES (?, ?, ?, ?, ?, ?)');
-      var sentences = 0;
+      var sentences = 0, chars = 0;
+      int? lo, hi;
       for (final c in chunks) {
         put.execute([c.text, ch, c.start.section, c.start.block, c.start.sentence, c.units]);
+        hi = db.lastInsertRowId;
+        lo ??= hi;
         sentences += c.units;
+        chars += c.text.length;
       }
       put.close();
+      db.execute('INSERT OR REPLACE INTO chapter_rows(ch, lo, hi, chars) VALUES (?, ?, ?, ?)', [ch, lo, hi, chars]);
       db.execute(
         'INSERT INTO chapters(ch, section, title, hash, sentences, indexed, noted) VALUES (?, ?, ?, ?, ?, 1, 0) '
         'ON CONFLICT(ch) DO UPDATE SET section = excluded.section, title = excluded.title, hash = excluded.hash, '
@@ -521,14 +544,20 @@ CREATE TABLE IF NOT EXISTS vectors(
   }
 
   /// The text of chapter [ch], in order, from the word index.
-  List<TextChunk> chapterText(int ch) => [
-        for (final r in db.select('SELECT body, sec, blk, sen, units FROM text WHERE ch = ? ORDER BY sec, blk, sen', [ch]))
-          TextChunk(
-            start: MemoryPlace(chapter: ch, section: r['sec'] as int, block: r['blk'] as int, sentence: r['sen'] as int),
-            text: r['body'] as String,
-            units: r['units'] as int,
-          ),
-      ];
+  List<TextChunk> chapterText(int ch) {
+    final rows = _rowsOf(ch);
+    if (rows == null) return const [];
+    return [
+      for (final r in db.select(
+          'SELECT body, sec, blk, sen, units FROM text WHERE rowid BETWEEN ? AND ? ORDER BY sec, blk, sen',
+          [rows.lo, rows.hi]))
+        TextChunk(
+          start: MemoryPlace(chapter: ch, section: r['sec'] as int, block: r['blk'] as int, sentence: r['sen'] as int),
+          text: r['body'] as String,
+          units: r['units'] as int,
+        ),
+    ];
+  }
 
   /// The size of the memory on the phone.
   int get bytes {
