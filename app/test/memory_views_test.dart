@@ -134,6 +134,16 @@ void main() {
     expect(ledger(second).length, 4);
   });
 
+  test('a question asked before comes back: "at ch 4, they asked"', () {
+    final path = _memory(tmp);
+    noteAsked(path, 'Why did Cassie leave Sunny?', 3);
+    noteAsked(path, 'What is the Forgotten Shore?', 1);
+    final items = buildPack(PackInput(path: path, question: 'Tell me about Cassie again', here: 3))
+        .where((i) => i.section == 'What the reader asked before')
+        .map((i) => i.text);
+    expect(items, ['At ch 4, they asked: "Why did Cassie leave Sunny?"']);
+  });
+
   test('a series kept to how far the earlier book was read, brought over again cleanly, and searched by Talk', () {
     final first = '${tmp.path}/books/one/memory.db';
     Directory('${tmp.path}/books/one').createSync(recursive: true);

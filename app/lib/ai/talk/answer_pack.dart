@@ -166,6 +166,20 @@ List<PackItem> buildPack(PackInput i) {
       ));
     }
 
+    // What the reader asked before that touches this: "you asked at ch 12".
+    final keyWords = searchWords(i.question).split(' ').where((w) => w.length > 3).toSet();
+    if (keyWords.isNotEmpty) {
+      final before = [
+        for (final r in m.db.select('SELECT ch, question FROM asked ORDER BY id DESC LIMIT 300'))
+          if (normName(r['question'] as String).split(' ').any(keyWords.contains)) r,
+      ];
+      for (final r in before.take(3)) {
+        final ch = r['ch'] as int?;
+        items.add(PackItem('What the reader asked before',
+            '${ch == null ? 'Earlier' : 'At ${chapterLabel(ch)}'}, they asked: "${r['question']}"'));
+      }
+    }
+
     for (final j in i.journal.take(8)) {
       items.add(PackItem("The reader's journal", j));
     }
@@ -394,4 +408,17 @@ List<PackItem> searchEarlier(String query, List<EarlierBook> books) {
     }
   }
   return out.isEmpty ? [const PackItem('Earlier books', 'Nothing of that is in the earlier books.')] : out;
+}
+
+/// [question], asked at chapter [ch], kept in the memory at [path]: later
+/// answers can say "you asked about this at ch 12".
+void noteAsked(String path, String question, int? ch) {
+  if (!MemoryDb.existsAt(path)) return;
+  final m = MemoryDb.open(path);
+  try {
+    m.db.execute('INSERT INTO asked(ch, question, at) VALUES (?, ?, ?)',
+        [ch, question.length > 500 ? question.substring(0, 500) : question, DateTime.now().toUtc().toIso8601String()]);
+  } finally {
+    m.close();
+  }
 }

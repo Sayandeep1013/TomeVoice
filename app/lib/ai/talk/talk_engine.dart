@@ -71,6 +71,8 @@ Future<List<PackItem>> _packOff(PackInput input) => Isolate.run(() => buildPack(
 Future<List<PackItem>> _toolOff(String path, String name, Map<String, Object?> args, int? line) =>
     Isolate.run(() => runTool(path, name, args, line));
 /// The earlier books of the series the memory at [path] carries on from.
+Future<void> _noteAskedOff(String path, String question, int? ch) => Isolate.run(() => noteAsked(path, question, ch));
+
 Future<List<EarlierBook>> earlierBooksOff(String path) => Isolate.run(() => earlierBooks(path));
 Future<List<PackItem>> _earlierPackOff(String question, List<EarlierBook> books) =>
     Isolate.run(() => earlierPack(question, books));
@@ -286,6 +288,8 @@ class TalkEngine {
       ),
     ];
     final reply = await _converse(messages, line, onText);
+    // Kept, for "you asked about this before" (a theory is kept as one).
+    if (!theory && MemoryDb.existsAt(memoryPath)) unawaited(_noteAskedOff(memoryPath, question, here));
     _history
       ..add(aiMessage('user', question))
       ..add(aiMessage('assistant', reply));
