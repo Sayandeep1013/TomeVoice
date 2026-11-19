@@ -185,11 +185,20 @@ class _TalkSheetState extends State<TalkSheet> {
     ));
   }
 
-  /// The reader's journal for the book, within the line, for the AI to read.
+  /// The earlier books of the series this one carries on from, by id: their
+  /// titles, and how far the reader went in each (null: all of it).
+  Map<String, ({String title, int? upTo})> _earlier = const {};
+
+  /// The reader's journal for the book, within the line, for the AI to read;
+  /// then what they wrote of the earlier books of its series.
   List<String> _journalLines(int? line) => [
         for (final e in _journal.all)
           if (e.bookId == widget.bookId && !e.isTalk && (line == null || e.stamp.chapter <= line))
             '${e.stamp.label}, ${e.created.toLocal().toString().substring(0, 10)}: ${e.words}',
+        for (final e in _journal.all)
+          if (_earlier[e.bookId] case final b?
+              when !e.isTalk && (b.upTo == null || e.stamp.chapter <= b.upTo!))
+            'In ${b.title}, ${e.stamp.label}, ${e.created.toLocal().toString().substring(0, 10)}: ${e.words}',
       ];
 
   void _toEnd() {
@@ -204,6 +213,11 @@ class _TalkSheetState extends State<TalkSheet> {
   Future<void> _ask(String question) async {
     final q = question.trim();
     if (q.isEmpty || _busy) return;
+    if (MemoryDb.existsAt(widget.memoryPath)) {
+      _earlier = {
+        for (final b in await earlierBooksOff(widget.memoryPath)) b.id: (title: b.title, upTo: b.upTo),
+      };
+    }
     _stamp ??= widget.stampNow();
     final theory = _theory;
     final answer = _Turn.ai();

@@ -225,6 +225,9 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
   GraphDepth _depth = GraphDepth.all;
   final Set<String> _kinds = {};
   final Set<LinkKind> _hiddenLinks = {};
+
+  /// Those carried over from an earlier book of the series, hidden.
+  bool _hideEarlier = false;
   GraphNames _names = GraphNames.key;
 
   /// How many are shown (null: a fit for the book), and of how many.
@@ -821,6 +824,7 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
                                                     ? graphGroups(data, _shown, _cluster, _shownCh)
                                                     : const [],
                                                 hiddenLinks: _hiddenLinks,
+                                                hideEarlier: _hideEarlier,
                                                 groupNames: _groupNames,
                                                 since: _since,
                                                 path: _path,
@@ -850,6 +854,9 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
                                     shownKinds: _kinds,
                                     hiddenLinks: _hiddenLinks,
                                     forgotten: data.forgotten > 0,
+                                    earlier: data.nodes.any((n) => (n.firstCh ?? 0) < 0),
+                                    hideEarlier: _hideEarlier,
+                                    onEarlier: () => setState(() => _hideEarlier = !_hideEarlier),
                                     onKind: (k) {
                                       setState(() => _kinds.contains(k) ? _kinds.remove(k) : _kinds.add(k));
                                       unawaited(_load());
@@ -1106,6 +1113,9 @@ class _Legend extends StatelessWidget {
     required this.shownKinds,
     required this.hiddenLinks,
     required this.forgotten,
+    this.earlier = false,
+    this.hideEarlier = false,
+    this.onEarlier,
     required this.onKind,
     required this.onLink,
   });
@@ -1115,6 +1125,11 @@ class _Legend extends StatelessWidget {
   final Set<String> shownKinds;
   final Set<LinkKind> hiddenLinks;
   final bool forgotten;
+
+  /// Whether some came from an earlier book of the series (a tap hides them).
+  final bool earlier;
+  final bool hideEarlier;
+  final VoidCallback? onEarlier;
   final void Function(String kind) onKind;
   final void Function(LinkKind kind) onLink;
 
@@ -1161,6 +1176,18 @@ class _Legend extends StatelessWidget {
               ),
               'You may have forgotten',
               on: true,
+            ),
+          if (earlier)
+            row(
+              Container(
+                width: 11,
+                height: 11,
+                decoration:
+                    BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Skin.inkSoftOn(context), width: 1.6)),
+              ),
+              'From an earlier book',
+              on: !hideEarlier,
+              onTap: onEarlier,
             ),
           if (nodes.isNotEmpty) const SizedBox(height: 4),
           for (final k in kinds)
@@ -1248,6 +1275,7 @@ class GraphPainter extends CustomPainter {
     this.sectors = const [],
     this.groups = const [],
     this.hiddenLinks = const {},
+    this.hideEarlier = false,
     this.groupNames = const {},
     this.since,
     this.path,
@@ -1269,6 +1297,9 @@ class GraphPainter extends CustomPainter {
   final List<GraphSector> sectors;
   final List<GraphGroup> groups;
   final Set<LinkKind> hiddenLinks;
+
+  /// Those carried over from an earlier book (before chapter 1), left out.
+  final bool hideEarlier;
   final Map<int, String> groupNames;
   final int? since;
   final List<int>? path;
@@ -1288,7 +1319,7 @@ class GraphPainter extends CustomPainter {
     final px = 1.4 / scale;
     final visible = {
       for (final n in data.nodes)
-        if ((n.firstCh ?? 0) <= chapter && at[n.id] != null) n.id: n,
+        if ((n.firstCh ?? 0) <= chapter && at[n.id] != null && !(hideEarlier && (n.firstCh ?? 0) < 0)) n.id: n,
     };
     final from = since;
     bool isNew(int ch) => from != null && ch > from && ch <= chapter;
@@ -1387,6 +1418,17 @@ class GraphPainter extends CustomPainter {
         );
       }
       canvas.drawCircle(c, r, Paint()..color = colour.withValues(alpha: dim ? 0.18 : (inShut ? 0.6 : 1)));
+      // Carried over from an earlier book of the series: a thin plain ring.
+      if ((n.firstCh ?? 0) < 0 && !inShut) {
+        canvas.drawCircle(
+          c,
+          r + 2 * dp,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1 * dp
+            ..color = ink.withValues(alpha: dim ? 0.15 : 0.55),
+        );
+      }
       // One the reader may have forgotten: a broken amber ring.
       if (n.forgotten && !inShut) {
         _dashed(
@@ -1562,6 +1604,7 @@ class GraphPainter extends CustomPainter {
       old.sectors != sectors ||
       old.groups.length != groups.length ||
       old.hiddenLinks.length != hiddenLinks.length ||
+      old.hideEarlier != hideEarlier ||
       old.since != since ||
       old.groupNames != groupNames ||
       old.path != path;

@@ -134,6 +134,43 @@ void main() {
     expect(ledger(second).length, 4);
   });
 
+  test('a series kept to how far the earlier book was read, brought over again cleanly, and searched by Talk', () {
+    final first = '${tmp.path}/books/one/memory.db';
+    Directory('${tmp.path}/books/one').createSync(recursive: true);
+    File(_memory(tmp)).copySync(first);
+    final second = '${tmp.path}/books/two/memory.db';
+    Directory('${tmp.path}/books/two').createSync(recursive: true);
+    MemoryDb.open(second).close();
+
+    // Read to chapter 2 of the first book: Nephis (chapter 4) stays there,
+    // and Sunny and Cassie are still allies.
+    expect(followOnAll(second, [(path: first, upTo: 1)]), 3);
+    expect(ledger(second).map((e) => e.name), isNot(contains('Nephis')));
+    final kept = MemoryDb.open(second);
+    expect(kept.db.select("SELECT count(*) n FROM relations WHERE rel = 'ally of'").first['n'], 1);
+    kept.close();
+
+    // All of it, brought over again: nobody twice, and the alliance that
+    // ended by the first book's end gone.
+    expect(followOnAll(second, [(path: first, upTo: null)]), 4);
+    expect(ledger(second).length, 4);
+    final all = MemoryDb.open(second);
+    expect(all.db.select("SELECT count(*) n FROM relations WHERE rel = 'ally of'").first['n'], 0);
+    all.setMeta('follows', 'one');
+    all.setMeta('follows_titles', 'Book One');
+    all.close();
+
+    // Talk: the earlier book found, its cards and text cited by book.
+    final books = earlierBooks(second);
+    expect(books.single.title, 'Book One');
+    expect(books.single.id, 'one');
+    final pack = earlierPack('Who is Cassie?', books);
+    expect(pack.map((i) => i.label), contains('Book One · ch 2'));
+    expect(pack.first.section, 'From Book One, an earlier book');
+    final found = searchEarlier('"Chapter 2"', books);
+    expect(found.single.label, 'Book One · ch 3');
+  });
+
   test('laid out the same each time, inside its square, no two nodes touching', () {
     final path = _memory(tmp);
     for (final g in [graphAt(path), graphAt(path, focus: ledger(path, query: 'sunny').single.id, depth: 2)]) {

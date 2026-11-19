@@ -227,6 +227,42 @@ Future<void> _retrySkippedOff(String path) => Isolate.run(() {
     });
 Future<void> _setMetaOff(String path, String k, String? v) => Isolate.run(() => _setMeta(path, k, v));
 
+Future<String?> _getMetaOff(String path, String k) => Isolate.run(() {
+      final m = MemoryDb.open(path);
+      try {
+        return m.meta(k);
+      } finally {
+        m.close();
+      }
+    });
+
+/// What a memory holds, in a line: its notes, cast, names, facts and links
+/// counted, and the length of its names (a rename shows). Other writes (a
+/// pause, a setting) leave it as it was.
+Future<String> _signatureOff(String path) => Isolate.run(() {
+      final m = MemoryDb.open(path);
+      try {
+        return m.db.select('SELECT '
+            "(SELECT count(*) FROM notes) || ':' || "
+            "(SELECT count(*) FROM entities WHERE merged_into IS NULL) || ':' || "
+            "(SELECT coalesce(sum(length(name)), 0) FROM entities WHERE merged_into IS NULL) || ':' || "
+            "(SELECT count(*) FROM aliases) || ':' || (SELECT count(*) FROM facts) || ':' || "
+            '(SELECT count(*) FROM relations) AS s').first['s'] as String;
+      } finally {
+        m.close();
+      }
+    });
+
+/// An earlier book a memory follows on from, and whether its memory has
+/// changed since it was brought over.
+class FollowedBook {
+  const FollowedBook({required this.id, required this.title, required this.changed});
+
+  final String id;
+  final String title;
+  final bool changed;
+}
+
 /// Every book's memory, for the pages that show it and the work that makes
 /// it: the word index made on the phone, then the Builder's notes, one book
 /// built at a time (so keys' quotas go to one book until it is done). A
@@ -599,12 +635,89 @@ class MemoryService {
   /// [id]'s memory made to follow on from [previous]'s (the book before it
   /// in a series): its cast, how they stood, open threads and story carried
   /// over. How many people and things came over.
-  Future<int> followOnFrom(String id, String previous) async {
+  Future<int> followOnFrom(String id, String previous) => followOnFromAll(id, [previous]);
+
+  /// [id]'s memory made to follow on from the books [previous] (earliest
+  /// first): what they remember is brought over (again, if it was before),
+  /// and the link kept, so a change in them is noticed. With [id]'s spoiler
+  /// guard on, each comes over only as far as the reader went in it.
+  /// Returns how many people, places and things came over.
+  Future<int> followOnFromAll(String id, List<String> previous) async {
+    final store = _store;
+    if (store == null) return 0;
     final path = _path(id);
-    final n = await followOnOff(path, _path(previous));
-    await _setMetaOff(path, 'follows', previous);
+    await File(path).parent.create(recursive: true);
+    await refresh(id);
+    final guard = _n(id).value.guard;
+    final from = <({String path, int? upTo})>[];
+    final kept = <String>[];
+    final cuts = <String>[];
+    for (final p in previous) {
+      final f = File(_path(p));
+      if (p == id || !f.existsSync()) continue;
+      int? upTo;
+      if (guard) {
+        await refresh(p);
+        upTo = math.max(await hereOf(p), _n(p).value.readUpTo ?? 0);
+      }
+      from.add((path: f.path, upTo: upTo));
+      kept.add(p);
+      cuts.add(upTo == null ? '' : '$upTo');
+    }
+    final n = await followOnAllOff(path, from);
+    // What each held as it was brought over, to notice a change.
+    final seen = [for (final p in kept) await _signatureOff(_path(p))];
+    await _setMetaOff(path, 'follows', kept.isEmpty ? null : kept.join(','));
+    await _setMetaOff(path, 'follows_seen', kept.isEmpty ? null : seen.join(','));
+    // How far each was read (with the guard on): Talk keeps to it there too.
+    await _setMetaOff(path, 'follows_upto', kept.isEmpty ? null : cuts.join(','));
+    // Their names, for Talk to say which book a passage is from.
+    final titles = {for (final e in await store.list(all: true)) e.id: e.title.replaceAll('\n', ' ')};
+    await _setMetaOff(path, 'follows_titles', kept.isEmpty ? null : [for (final p in kept) titles[p] ?? 'An earlier book'].join('\n'));
     await refresh(id);
     return n;
+  }
+
+  /// The books [id]'s memory follows on from, earliest first, each with
+  /// whether its memory changed after it was brought over.
+  Future<List<FollowedBook>> followedBy(String id) async {
+    final store = _store;
+    if (store == null || !File(_path(id)).existsSync()) return const [];
+    final ids = (await _getMetaOff(_path(id), 'follows'))?.split(',').where((s) => s.isNotEmpty).toList() ?? const [];
+    if (ids.isEmpty) return const [];
+    final seen = (await _getMetaOff(_path(id), 'follows_seen'))?.split(',') ?? const [];
+    final titles = {for (final e in await store.list(all: true)) e.id: e.title};
+    return [
+      for (final (i, p) in ids.indexed)
+        if (titles[p] != null)
+          FollowedBook(
+            id: p,
+            title: titles[p]!,
+            changed: File(_path(p)).existsSync() && (i >= seen.length || seen[i] != await _signatureOff(_path(p))),
+          ),
+    ];
+  }
+
+  /// The book just before [id] in its series (by the library's series and
+  /// number) that has a memory to carry on from, or null.
+  Future<LibraryEntry?> earlierInSeries(String id) async {
+    final store = _store;
+    if (store == null) return null;
+    final all = await store.list(all: true);
+    final me = all.where((e) => e.id == id).firstOrNull;
+    final series = me?.series?.trim().toLowerCase();
+    final at = me?.seriesIndex;
+    if (me == null || series == null || series.isEmpty || at == null) return null;
+    final before = [
+      for (final e in all)
+        if (e.id != id &&
+            e.series?.trim().toLowerCase() == series &&
+            e.seriesIndex != null &&
+            e.seriesIndex! < at &&
+            MemoryDb.existsIn(store.bookDir(e.id)))
+          e,
+    ]..sort((a, b) => b.seriesIndex!.compareTo(a.seriesIndex!));
+    return before.firstOrNull;
   }
 
   /// [id]'s memory deleted, all of it.

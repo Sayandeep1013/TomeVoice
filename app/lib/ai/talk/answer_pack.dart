@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 
 import '../memory/graph.dart';
@@ -7,11 +8,15 @@ import '../memory/memory_db.dart';
 /// One piece of what an answer may draw on: its words, the heading it goes
 /// under, and where in the book it comes from (to cite, and to look there).
 class PackItem {
-  const PackItem(this.section, this.text, {this.place});
+  const PackItem(this.section, this.text, {this.place, this.label});
 
   final String section;
   final String text;
   final MemoryPlace? place;
+
+  /// How a citation of it reads, when not by its place in this book (a
+  /// passage of an earlier book: "Book One · ch 4").
+  final String? label;
 }
 
 /// What a question is answered from, gathered from the book's memory: kept
@@ -311,4 +316,82 @@ List<PackItem> runTool(String path, String name, Map<String, Object?> args, int?
   } finally {
     m.close();
   }
+}
+
+/// An earlier book of the series a memory carries on from: its memory, its
+/// title, and how far the reader went in it (null: all of it).
+typedef EarlierBook = ({String id, String path, String title, int? upTo});
+
+/// The earlier books the memory at [path] carries on from, earliest first
+/// (those whose memory is still on the phone).
+List<EarlierBook> earlierBooks(String path) {
+  if (!MemoryDb.existsAt(path)) return const [];
+  final m = MemoryDb.open(path);
+  try {
+    final ids = (m.meta('follows') ?? '').split(',').where((s) => s.isNotEmpty).toList();
+    final titles = (m.meta('follows_titles') ?? '').split('\n');
+    final cuts = (m.meta('follows_upto') ?? '').split(',');
+    final dir = File(path).parent.parent.path;
+    return [
+      for (final (i, id) in ids.indexed)
+        if (MemoryDb.existsAt('$dir/$id/memory.db'))
+          (
+            id: id,
+            path: '$dir/$id/memory.db',
+            title: i < titles.length && titles[i].trim().isNotEmpty ? titles[i].trim() : 'an earlier book',
+            upTo: i < cuts.length ? int.tryParse(cuts[i]) : null,
+          ),
+    ];
+  } finally {
+    m.close();
+  }
+}
+
+/// "Book One · ch 4".
+String earlierLabel(String title, int ch) => '$title · ${chapterLabel(ch)}';
+
+/// What the earlier books say to [question]: the cards of the names it asks
+/// about, and the passages where its words are, the latest book first.
+List<PackItem> earlierPack(String question, List<EarlierBook> books, {int perBook = 4}) {
+  final words = searchWords(question);
+  final out = <PackItem>[];
+  for (final b in books.reversed) {
+    final m = MemoryDb.open(b.path);
+    try {
+      final g = BookGraph(m);
+      final at = b.upTo ?? 1 << 30;
+      final section = 'From ${b.title}, an earlier book';
+      for (final id in g.namedIn(question).map(g.live).whereType<int>().take(2)) {
+        for (final c in cardItems(m, id, at).take(6)) {
+          out.add(PackItem(section, c.text, label: c.place == null ? b.title : earlierLabel(b.title, c.place!.chapter)));
+        }
+      }
+      if (words.isNotEmpty) {
+        for (final h in m.search(words, upTo: b.upTo, limit: perBook, any: true)) {
+          out.add(PackItem(section, '${earlierLabel(b.title, h.place.chapter)}: ${h.snippet}',
+              label: earlierLabel(b.title, h.place.chapter)));
+        }
+      }
+    } finally {
+      m.close();
+    }
+  }
+  return out;
+}
+
+/// The tool search_earlier_books: [query] in each earlier book's text.
+List<PackItem> searchEarlier(String query, List<EarlierBook> books) {
+  final out = <PackItem>[];
+  for (final b in books) {
+    final m = MemoryDb.open(b.path);
+    try {
+      for (final h in m.search(query, upTo: b.upTo, limit: 8)) {
+        out.add(PackItem('Passages in ${b.title}', '${earlierLabel(b.title, h.place.chapter)}: ${h.snippet}',
+            label: earlierLabel(b.title, h.place.chapter)));
+      }
+    } finally {
+      m.close();
+    }
+  }
+  return out.isEmpty ? [const PackItem('Earlier books', 'Nothing of that is in the earlier books.')] : out;
 }

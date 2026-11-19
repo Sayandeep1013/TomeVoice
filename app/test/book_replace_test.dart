@@ -109,9 +109,7 @@ void main() {
       db.setMeta('made by', 'hours of building');
       db.close();
 
-      final fresh = await replaceBookFile(store, old, file('sea.md', '${book('strange')}
-
-The end.'));
+      final fresh = await replaceBookFile(store, old, file('sea.md', '${book('strange')}\n\nThe end.'));
       expect(fresh, isNotNull);
       expect(MemoryDb.existsIn(store.bookDir(fresh!.id)), isTrue);
       final moved = MemoryDb.open(MemoryDb.pathIn(store.bookDir(fresh.id)));
