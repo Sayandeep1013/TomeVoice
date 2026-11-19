@@ -154,6 +154,31 @@ class _TalkSheetState extends State<TalkSheet> {
     super.dispose();
   }
 
+  /// A question of the reader's own, kept as a button for every book.
+  Future<void> _addPrompt() async {
+    final prefs = ListeningPrefs.loaded;
+    if (prefs == null) return;
+    final typed = await askText(
+      context,
+      title: 'A question of your own',
+      message: 'Kept as a button here, for every book. Hold it to take it away.',
+      hint: 'What would the main character do next?',
+    );
+    final q = typed?.trim() ?? '';
+    if (q.isEmpty || prefs.aiPrompts.contains(q) || !mounted) return;
+    setState(() => prefs.aiPrompts.add(q));
+    prefs.save();
+  }
+
+  Future<void> _forgetPrompt(String q) async {
+    final prefs = ListeningPrefs.loaded;
+    if (prefs == null) return;
+    final sure = await confirm(context, title: 'Take this question away?', body: q, action: 'Take it away');
+    if (!sure || !mounted) return;
+    setState(() => prefs.aiPrompts.remove(q));
+    prefs.save();
+  }
+
   /// The talk kept in the book's journal, stamped where the story was when
   /// it began.
   Future<void> _keep() async {
@@ -335,6 +360,21 @@ class _TalkSheetState extends State<TalkSheet> {
                               'What mysteries are still open?',
                             ])
                               ActionChip(label: Text(s), onPressed: () => unawaited(_ask(s))),
+                            // The reader's own, kept: held, one goes.
+                            for (final s in ListeningPrefs.loaded?.aiPrompts ?? const <String>[])
+                              GestureDetector(
+                                onLongPress: () => unawaited(_forgetPrompt(s)),
+                                child: ActionChip(
+                                  avatar: const Icon(Icons.bookmark_outline_rounded, size: 18),
+                                  label: Text(s),
+                                  onPressed: () => unawaited(_ask(s)),
+                                ),
+                              ),
+                            ActionChip(
+                              avatar: const Icon(Icons.add_rounded, size: 18),
+                              label: const Text('Your own'),
+                              onPressed: () => unawaited(_addPrompt()),
+                            ),
                             ActionChip(
                               avatar: const Icon(Icons.lightbulb_outline_rounded, size: 18),
                               label: const Text('I have a theory…'),

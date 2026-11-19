@@ -92,9 +92,11 @@ class ListeningPrefs {
     this.kosyncUrl,
     this.kosyncUser,
     List<String>? plainHttpOk,
+    List<String>? aiPrompts,
     List<Map<String, Object?>>? catalogues,
     Map<String, String>? catalogueUsers,
   })  : plainHttpOk = plainHttpOk ?? [],
+        aiPrompts = aiPrompts ?? [],
         catalogues = catalogues ?? [],
         catalogueUsers = catalogueUsers ?? {},
         voiceByLanguage = voiceByLanguage ?? {},
@@ -434,6 +436,9 @@ class ListeningPrefs {
   /// passwordMayGo).
   final List<String> plainHttpOk;
 
+  /// The reader's own questions, offered as buttons in Talk.
+  final List<String> aiPrompts;
+
   /// OPDS catalogues the reader added (see Catalogue), and the user names
   /// they sign in to the built-in ones with: kept with the settings, so a
   /// restore brings them back. Their passwords are kept apart.
@@ -578,6 +583,7 @@ class ListeningPrefs {
         if (kosyncUrl != null) 'kosyncUrl': kosyncUrl,
         if (kosyncUser != null) 'kosyncUser': kosyncUser,
         if (plainHttpOk.isNotEmpty) 'plainHttpOk': plainHttpOk,
+        if (aiPrompts.isNotEmpty) 'aiPrompts': aiPrompts,
         if (catalogues.isNotEmpty) 'catalogues': catalogues,
         if (catalogueUsers.isNotEmpty) 'catalogueUsers': catalogueUsers,
       };
@@ -696,6 +702,10 @@ class ListeningPrefs {
         plainHttpOk: [
           for (final u in json['plainHttpOk'] is List ? json['plainHttpOk'] as List : const [])
             if (u is String) u,
+        ],
+        aiPrompts: [
+          for (final u in json['aiPrompts'] is List ? json['aiPrompts'] as List : const [])
+            if (u is String && u.trim().isNotEmpty) u,
         ],
         catalogues: [
           for (final c in json['catalogues'] is List ? json['catalogues'] as List : const [])
