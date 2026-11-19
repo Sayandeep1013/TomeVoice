@@ -124,7 +124,9 @@ spoiler guard filters, how answers cite, and how a citation opens the right line
 book's chapters are numbered from 0 as the reader's chapters run; a web novel's by their
 place in the novel's chapter list, since only some may be on the phone.
 
-**Tables** (schema version 4, in `PRAGMA user_version`):
+**Tables** (schema version 6, in `PRAGMA user_version`; version 5 added `chapter_rows`,
+where each chapter's text sits in the word index, so it is read by a jump rather than a
+scan; version 6 forgot aliases that are not names, see 14.5):
 
 | Table | What it holds |
 |---|---|
@@ -209,6 +211,12 @@ stopping at any point loses at most the batch in flight:
 - Names are resolved to an existing entity by ref, by any alias (in its lookup form), or
   made new; every name used is kept as an alias with its chapter. A new description of
   an existing entity is kept from that chapter on.
+- **One card per character, by name.** When the AI's ref points at a card that does not
+  answer to the name given, and another card of that kind does, the name wins. Only
+  names are kept as aliases: pronouns, possessives ("her teacher") and lone lowercase
+  words ("creature") are not, since they let one card take another's chapters. A card
+  first known by a description ("Silver Haired Girl") is renamed when the book gives
+  its proper name.
 - Events are stored with their roles; "follows from" becomes an `event_links` row.
 - A **fact** that changes ends the value before it at this chapter. A **relation** that
   ends gets its `until_ch`. A chapter noted late (a web novel's chapter downloaded after
@@ -217,8 +225,25 @@ stopping at any point loses at most the batch in flight:
   rather than overwriting what came after.
 - Threads are matched by ref or by title; reveals and quotes are stored as given.
 
-`BookGraph.merge` can join two entities (the merged one stays, pointing at the other, so
-a merge can be undone), but no pass in 2.0 looks for duplicates by itself.
+`BookGraph.merge` joins two entities (the merged one stays, pointing at the other, so a
+merge can be undone).
+
+**The cast tidy** (`cast_tidy.dart`). Every 250 chapters noted, and when a book's notes
+are done, the Builder key is shown the 120 best-known entries (each with its chapters,
+what it is and its other names, with the chapter each was first used) and asked, in one
+call, for what to put right:
+
+- **same**: two entries that are one (merged, the best known keeping its name);
+- **taken**: a minor character's card that, from some chapter on, holds another's
+  story (`BookGraph.handOver` moves its names, appearances, roles, facts, relations and
+  quotes from that chapter to the other card). The chapter is the AI's, or, if earlier,
+  where the card's own chapters show a long gap before the other's story began
+  (`takeoverStart`);
+- **names**: a card named by a description, renamed to a name it already goes by;
+- **wrong**: another's names taken off a card.
+
+Only entries it was shown are changed, and nothing is made up. **Who's who** has the
+same tidy as a button, and the reader can do it by hand (14.9).
 
 **The story so far.** Between batches, once every chapter of a span of 25 has notes (and
 a later chapter is in the word index), the Builder key writes an account of it (150 to
@@ -371,32 +396,47 @@ or **Talks**.
 
 **Who's who** lists every entity as of the line, with a chip for each kind (a kind the
 book brought, such as Aspects, gets one too), found by any of its names, and sorted by
-Seen most, First met or By name. A tap opens the card.
+Seen most, First met or By name. A tap opens the card. Its wand asks the AI to tidy the
+names (14.5). Holding an entry offers **Rename**, **The same as…** (merge it with
+another; the better known keeps its name), and **Someone else from a chapter…** (hand
+what the card holds from a chapter on to another card; the chapter is suggested from
+the card's own chapters).
 
 **The memory graph** (`graph_screen.dart`, data and layout in `ledger.dart`):
 
-- It opens **round the most important person** up to the line: **Round** them, **Two
-  links out**, or **The whole web** (up to 120 entities, those that matter most). Those
-  met in only one chapter are hidden unless **Minor ones** is on; kinds can be filtered.
-- **Layout.** Round someone, they sit in the middle, those linked to them in a ring round
-  them (grouped by how they are linked), and the rest in rings further out, each near
-  what it links to. The whole web is a force layout. Either way no two nodes overlap, the
-  layout is the same each time, and it is made off the UI isolate. A node's size on the
-  screen is by how many chapters it appears in and does not grow with zoom: zooming in
-  spreads a crowd apart.
-- **Links** are relations (while they held) or events two took part in together,
-  coloured by what they are (allies, enemies, family, belonging dashed, other, shared
-  events), with a key. Groups wear a soft halo round their members. Names sit on small
-  pills, the most important first, none over another.
+- It opens on **The whole web**; the chips above it also give **Round** the most
+  important person (or anyone centred), **Two links out**, and the **Story map**. A
+  slider sets how many are shown, from the 10 that matter most to everyone. What matters
+  is what matters now: those in many chapters near the reader's place first, then a
+  share of those who were in many chapters but none lately, drawn with an orange ring as
+  ones **you may have forgotten**. Kinds can be filtered from the key.
+- **Layout.** Round someone, they sit in the middle, those linked to them round them
+  (grouped by how they are linked), and the rest further out, each near what it links
+  to. The whole web is a force layout of the book's groups (found by Louvain), placed
+  once and kept, so it does not jump as the chapter changes. Each node is pulled to the
+  middle by its own amount, so the web settles as an uneven cloud, not a circle or
+  rings. The **Story map** shows those groups as islands, each named by the AI from its
+  members (kept, and not asked for with the spoiler guard on). No two nodes overlap, the
+  layout is the same each time, and it is made off the UI isolate.
+- **Drawn as points.** A node is a small solid point with a soft glow, a little larger
+  the more chapters it is in (at most 7.5 dp), and it does not grow with zoom: zooming
+  in spreads a crowd apart. **Links** are fine straight lines in the ink colour,
+  relations (while they held) or events two took part in together; lit, they take the
+  colour of what they are (allies, enemies, family, belonging, other, shared events),
+  shown in the key. Groups wear a soft halo. Names are plain text with a halo, no pill,
+  the most important first, none over another; **More** shows the important names, all
+  that fit, or only those picked.
 - **The timeline.** A slider shows the web at any chapter up to the line, with nodes
   staying where they are; Play shows it growing from the first chapter in about eight
   seconds.
 - **A tap** lights a node's links and dims the rest, and shows what it is at that
   chapter, a strip of the chapters it is in, and its relations as chips, with **Card**,
   **Centre here** and **Linked with…** (tap a second node for the relations and shared
-  events between the two). Search centres the web on anyone by any name.
+  events between the two), and **Ask about this** opens Talk. Search centres the web
+  on anyone by any name.
 - **As a ball** (`graph3d_view.dart`): the same graph, chapter and pick in three
-  dimensions, the rings becoming shells round the person in the middle. One finger
+  dimensions, drawn the same way (points, fine links, plain names), each node at its own
+  distance from the person in the middle, so it is a cloud rather than shells. One finger
   turns it, two pinch it; it turns slowly by itself until touched, and not at all when
   the phone asks for less motion.
 
@@ -439,8 +479,11 @@ The companion is tested with a fake provider, an in-memory `memory.db` and fixed
 
 - The estimate before a build gives chapters, calls, tokens and keys, not time or cost;
   there is no spending cap per key.
-- No pass looks for duplicate entities (two names the Builder made for one person), and
-  there is no screen to accept a kind the Builder proposed.
+- The cast tidy sees only the 120 best-known entries; duplicates among minor ones stay
+  until the reader merges them in Who's who. There is no screen to accept a kind the
+  Builder proposed.
+- A series' next book is linked by hand (**Follows on from another book…** in its
+  Memory menu), and takes the earlier book's memory as it was then.
 - A chapter whose text changed is noted again, but the rows its old notes made are not
   taken out first.
 - The word index serves Talk and its tools; it has no search screen of its own yet.

@@ -43,7 +43,7 @@ languages, with the screen off if you like. Keep a journal of what you think as 
 </p>
 
 No account. No cloud. Your books never leave the phone (unless you give the AI
-companion coming in 2.0 a key of your own: see below).
+reading companion a key of your own: see below).
 
 **Android only for now: download the APK from [Releases](https://github.com/Sayandeep1013/TomeVoice/releases/latest).**
 
@@ -228,8 +228,7 @@ companion coming in 2.0 a key of your own: see below).
 
 ## An AI reading companion (2.0)
 
-*Coming in 2.0, on the `ai-companion` branch; not in a release yet. How it works, in
-full: [docs/14](docs/14-ai-companion.md).*
+*New in 2.0. How it works, in full: [docs/14](docs/14-ai-companion.md).*
 
 A companion that remembers the book with you: who everyone is, what happened and why,
 and what is still unanswered. Off until you add a key; nothing changes for a reader who
@@ -275,10 +274,14 @@ never does.
   waiting and no network: who or what it is, other names, how it stands now, relations,
   key events by chapter, a line they said. **Tell me more** asks Talk.
 - **Who's who** lists everyone and everything the memory knows, by kind, searchable.
-- **The memory graph** opens round the main character in rings, coloured by how people
-  are linked (allies, enemies, family, belonging); a timeline shows the web at any
-  chapter and plays it growing; a tap shows someone's links and what they share with
-  another; and it turns as a ball in 3D.
+  The AI tidies the names as it goes (one card per character, a description renamed
+  once the book names them), and you can too: hold a name to rename it, join it to
+  another, or hand a card's later chapters to the character they really belong to.
+- **The memory graph** shows the story's web as points and fine lines: who matters
+  now, and who you may have forgotten (ringed in orange). Centre it on anyone, two
+  links out, or the whole web; a Story map of the book's groups as named islands; a
+  timeline shows the web at any chapter and plays it growing; a tap lights someone's
+  links and what they share with another; and it turns as a cloud in 3D.
 - **Theories.** Say what you think is going on: the AI weighs it, for and against, from
   what you have read. As the memory reads on it checks your theories, and tells you
   when you reach the chapter that settled one, never before.

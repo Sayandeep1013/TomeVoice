@@ -3,9 +3,9 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
-## 2.0.0 (unreleased)
+## 2.0.0 (2026-11-19)
 
-An AI reading companion that remembers the book with you, working with your own keys. Not released yet: this is what the `ai-companion` branch holds.
+An AI reading companion that remembers the book with you, working with your own keys.
 
 #### Your keys (Main menu, AI)
 - Bring your own keys: Google Gemini, Inception (Mercury), OpenRouter, Groq, OpenAI, or any service that speaks the OpenAI chat format (give its address). As many as you like, several from one provider too, each with its own name.
@@ -21,15 +21,16 @@ An AI reading companion that remembers the book with you, working with your own 
 - A web novel's chapters for its memory: download the missing ones (one at a time, gently on the site), built in the story's order as they come; then free the space they took, since the memory keeps its own copy of their words.
 - A spoiler guard for each book, off by default: on, the AI keeps to what you have read. **I've read up to chapter…** for a book read partly elsewhere. **Keep this book away from the AI** for any book.
 - **Follows on from another book…**: a series' next book starts with the cast, how they stood, open mysteries and the story of the one before.
-- Main menu, **Memory**: every book's memory and how far it is built. A book's page shows it as one row that opens the book's Memory page.
+- Main menu, **Memory**: every book's memory and how far it is built, each book under its own highlighted name and author (a tap opens its Memory page), a line between books. A book's page shows it as one row that opens the book's Memory page.
+- One card per character: a name the AI gives wins over the card number it pointed at, words that are not names ("she", "her teacher") are never kept as one, and a character first known by a description ("Silver Haired Girl") takes their name once the book gives it. Every 250 chapters, and when a book is done, the AI tidies the cast: two cards for one character joined, a minor character's card that took over another's story handed back from the chapter it began, wrong names taken off.
 
 #### Talk about the book
 - **Talk**, a button over the player: ask anything about the book, with the voice still reading. Answers come from the book's memory and the passage you are at, cite the chapters they rest on (a tap on one looks there; Back to reading returns), and are said aloud in the voice reading the book, which pauses for them and reads on after. The speaker button turns that off; Say it again repeats one.
 - Every talk is kept in the book's journal, stamped with its chapter; the Journal shows **All**, **My writing** or **Talks**.
 - **Explain this**, in the menu of a held sentence: what it means there in the story.
 - **Who or what is "…"?**, holding a word: its card at once, from the memory with no waiting: who or what it is, other names, how it stands, relations, key events by chapter, a line they said. **Tell me more** asks Talk.
-- **Who's who**: everyone and everything the memory knows, by kind, by any name, sorted by seen most, first met or name.
-- **The memory graph**: rings round the main character (or two links out, or the whole web), links coloured by what they are, groups in a halo, a timeline that shows the web at any chapter and plays it growing, a tap for someone's links and what two people share, and the whole of it as a ball to turn (3D).
+- **Who's who**: everyone and everything the memory knows, by kind, by any name, sorted by seen most, first met or name. The wand asks the AI to tidy the names now; hold a name to **Rename** it, say it is **The same as…** another, or that it is **Someone else from a chapter…** on (the chapter suggested).
+- **The memory graph**: the story's web as points and fine lines, its names as plain text. It opens on the whole web of those who matter now, with those you may have forgotten ringed in orange, and a slider for how many (10 to everyone); or round anyone, two links out, or a **Story map** of the book's groups as islands the AI names. It settles as an uneven cloud, never rings. Links lit in colour by what they are, groups in a halo, a timeline that shows the web at any chapter and plays it growing, a tap for someone's links and what two people share (and Ask about this), and the whole of it as a cloud to turn (3D).
 - **Theories**: tap the bulb in Talk and say what you think is going on. The AI weighs it, for and against, from what you have read. As the memory reads on it checks your theories, and tells you when you reach the chapter that settled one, never before.
 - **Previously…**: back to a book after a few days away (a day, 3 days or a week; or never), a short recap of the chapters just before your place.
 - **Talk elsewhere**: the memory as one Markdown page (the story so far, who matters, what is unanswered, your theories and journal) to copy or share into ChatGPT, Gemini or NotebookLM, kept to your chapter when the guard is on.

@@ -18,7 +18,7 @@ import os
 want=os.environ.get('TV_PKG','app.tomevoice.test')
 focus=subprocess.run(['adb','shell','dumpsys','window'],capture_output=True).stdout.decode('utf8','replace')
 line=next((l for l in focus.splitlines() if 'mCurrentFocus' in l),'')
-if cmd in ('tap','tapmid') and (want+'/') not in line:
+if cmd in ('tap','tapmid','hold') and (want+'/') not in line:
     print('REFUSED: the window in front is not',want,'->',line.strip()); sys.exit(2)
 root=dump()
 if cmd=='list':
@@ -38,3 +38,9 @@ elif cmd=='tap':
     if len(hits)<=k: print('NOT FOUND',sys.argv[2]); sys.exit(1)
     lab,b=hits[k]; x=(b[0]+b[2])//2; y=(b[1]+b[3])//2
     subprocess.run(['adb','shell','input','tap',str(x),str(y)]); print('tapped',repr(lab[:60]),x,y)
+elif cmd=='hold':
+    pat=re.compile(sys.argv[2],re.S); k=int(sys.argv[3]) if len(sys.argv)>3 else 0
+    hits=[(lab,b) for lab,b,c in nodes(root) if pat.search(lab)]
+    if len(hits)<=k: print('NOT FOUND',sys.argv[2]); sys.exit(1)
+    lab,b=hits[k]; x=(b[0]+b[2])//2; y=(b[1]+b[3])//2
+    subprocess.run(['adb','shell','input','swipe',str(x),str(y),str(x),str(y),'700']); print('held',repr(lab[:60]),x,y)

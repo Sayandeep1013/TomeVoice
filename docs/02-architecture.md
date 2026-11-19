@@ -2,7 +2,7 @@
 
 How TomeVoice is put together as of 1.6.0, Android only. Where the build differs from
 the first design (2026-09-01), the table in 2.3 says so; the reasoning behind each choice
-is in the [decision log](10-decisions-adr.md). The AI companion coming in 2.0 is
+is in the [decision log](10-decisions-adr.md). The AI companion (2.0) is
 outlined in 2.9 and described in full in [14](14-ai-companion.md).
 
 ## 2.1 The two contracts
@@ -94,7 +94,7 @@ See [ADR-003](10-decisions-adr.md#adr-003) for why this is not optional.
 | Background work | not specified | WorkManager 2.10.0 for the check for new chapters (`NovelCheckWorker.kt`); data-sync foreground services for downloads, OCR and saving as audio |
 | Catalogues | not planned | OPDS 1.2 (Atom, searched through OpenSearch) and OPDS 2 (JSON, searched through its URI template), read into the same feeds and entries (`opds.dart`, `opds2.dart`) |
 | The reader's own fonts | not planned | A `.ttf` or `.otf` file copied into the library's `fonts/` folder and loaded from its bytes at run time by Flutter's `FontLoader` (`own_fonts.dart`) |
-| AI companion (2.0, unreleased) | not planned | The reader's own keys for any provider with an OpenAI-compatible API, called over `dart:io` straight from the phone; each book's memory in SQLite with FTS5 through `sqlite3` (FFI); building with the app closed by WorkManager (`MemoryBuildWorker.kt`). No model on the phone ([14](14-ai-companion.md)) |
+| AI companion (2.0) | not planned | The reader's own keys for any provider with an OpenAI-compatible API, called over `dart:io` straight from the phone; each book's memory in SQLite with FTS5 through `sqlite3` (FFI); building with the app closed by WorkManager (`MemoryBuildWorker.kt`). No model on the phone ([14](14-ai-companion.md)) |
 | Error log | not specified | Dart and Kotlin errors in a local log, scrubbed of titles and paths; since 1.6.0 native crashes and "not responding" closes are read from Android's record of past exits (Android 11 and later, `PastExits.kt`) |
 
 ## 2.4 Contract A: the Document Model
@@ -322,7 +322,7 @@ parser imports a voice; no voice imports a parser. The app is the only place bot
 
 ## 2.9 The AI layer (2.0)
 
-The AI reading companion, on the `ai-companion` branch for 2.0, sits beside the reading
+The AI reading companion (2.0) sits beside the reading
 and listening layers and reads from both; neither depends on it. Everything is in
 `app/lib/ai/`; [14](14-ai-companion.md) has the whole of it.
 
