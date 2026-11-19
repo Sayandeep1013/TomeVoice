@@ -227,6 +227,8 @@ class TalkEngine {
           'This book carries on from ${_earlier.map((b) => '"${b.title}"').join(' and ')}: material from '
               'there is marked with its book. Say which book something happened in.',
         length.ask,
+        'If the reader asks for a length ("in two minutes": about 300 words; "in ten minutes": about 1,500, '
+            'for listening), keep to theirs instead.',
       ].join('\n\n');
 
   String _render(List<PackItem> items) {

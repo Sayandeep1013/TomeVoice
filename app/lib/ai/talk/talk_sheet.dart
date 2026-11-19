@@ -326,7 +326,8 @@ class _TalkSheetState extends State<TalkSheet> {
                           children: [
                             for (final s in const [
                               'What just happened?',
-                              'Catch me up on the story so far',
+                              'Catch me up in two minutes',
+                              'Catch me up in ten minutes, in detail',
                               'Who is in this chapter?',
                               'What mysteries are still open?',
                             ])
