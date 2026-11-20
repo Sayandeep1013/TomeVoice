@@ -478,7 +478,6 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                     _Group(
                       title: 'Library',
                       children: [
-                        if (!playBuild)
                         _Link(
                           icon: Icons.extension_outlined,
                           title: 'Sources',
@@ -566,15 +565,12 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                             builder: (_) => SyncScreen(store: widget.store),
                           )),
                         ),
-                        if (!playBuild)
                         _Link(
                           icon: Icons.move_to_inbox_outlined,
                           title: 'Import from NovelDokusha',
                           subtitle: 'Bring your web novels across from a NovelDokusha backup (.zip)',
                           onTap: _importNovelDokusha,
                         ),
-                        // Web novels: not in the Play build.
-                        if (!playBuild) ...[
                         const SizedBox(height: Gap.l),
                         const SectionTitle('Download speed'),
                         const SizedBox(height: Gap.m),
@@ -626,7 +622,6 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           padding: EdgeInsets.zero,
                           onChanged: (v) => _change(() => _prefs.novelUpdates = v),
                         ),
-                        ],
                         const SizedBox(height: Gap.l),
                         _Link(
                           icon: Icons.folder_copy_outlined,

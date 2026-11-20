@@ -10,6 +10,7 @@ import 'sources/net_image.dart';
 import 'sources/source_engine.dart';
 import 'sources/source_store.dart';
 import 'sources/source_updates.dart';
+import 'store_build.dart';
 import 'theme.dart';
 import 'ui.dart';
 
@@ -258,9 +259,13 @@ class _SourcesScreenState extends State<SourcesScreen> {
                         Padding(
                           padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.m),
                           child: Text(
-                            'No source lists. Add the address of one to find web novels: TomeVoice reads lists in '
-                            'LNReader\'s format, so any LNReader plugin repository works. The sites belong to '
-                            'their owners; add only lists you trust.',
+                            playBuild
+                                ? 'No source lists: TomeVoice comes with none. Add the address of a list you '
+                                    "trust, in LNReader's plugin format, to find web novels. The sites and what "
+                                    'they publish belong to their owners.'
+                                : 'No source lists. Add the address of one to find web novels: TomeVoice reads '
+                                    "lists in LNReader's format, so any LNReader plugin repository works. The "
+                                    'sites belong to their owners; add only lists you trust.',
                             style: Skin.ui(size: 14.5, weight: FontWeight.w400, color: Skin.inkSoftOn(context))
                                 .copyWith(height: 1.45),
                           ),

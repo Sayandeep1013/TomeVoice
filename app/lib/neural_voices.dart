@@ -315,17 +315,33 @@ class NeuralCatalog {
           if (v.pack?.id == pack.id) v,
       ];
 
-  static NeuralCatalog parse(String text, {bool openOnly = playBuild}) {
+  /// The Play build: also list the voices whose recordings are licensed for
+  /// non-commercial use only, or whose licence is not stated (the reader's
+  /// choice, ListeningPrefs.moreVoices). Set before the catalog is read.
+  static bool wide = false;
+
+  /// Whether the Play build lists [voice]: open recordings always; with
+  /// [wide], the non-commercial and unstated ones too. Never one with no
+  /// licence granted, nor a game character's voice.
+  static bool offeredInPlay(NeuralVoice voice, {required bool wide}) => switch (voice.licence.use) {
+        LicenceUse.free || LicenceUse.credit => true,
+        LicenceUse.restricted => false,
+        LicenceUse.noncommercial || LicenceUse.unclear =>
+          wide && voice.licence.name != 'Not settled' && !voice.id.toLowerCase().contains('glados'),
+      };
+
+  static NeuralCatalog parse(String text, {bool openOnly = playBuild, bool? wide}) {
     final json = jsonDecode(text) as Map<String, Object?>;
     final packs = <String, NeuralPack>{
       for (final p in (json['packs'] as List? ?? const []).cast<Map<String, Object?>>())
         p['id']! as String: NeuralPack.fromJson(p),
     };
+    final more = wide ?? NeuralCatalog.wide;
     return NeuralCatalog([
       for (final v in (json['voices'] as List? ?? const []).cast<Map<String, Object?>>())
         if (NeuralVoice.fromJson(v, packs) case final voice?)
-          // The Play build offers only voices whose recordings are open.
-          if (!openOnly || voice.licence.use == LicenceUse.free || voice.licence.use == LicenceUse.credit) voice,
+          // The Play build offers open voices, and more when asked.
+          if (!openOnly || offeredInPlay(voice, wide: more)) voice,
     ], packs);
   }
 
@@ -405,6 +421,14 @@ class NeuralVoices extends ChangeNotifier {
     _catalog = read;
     notifyListeners();
     return read;
+  }
+
+  /// Read the catalog again, listing more voices or fewer ([wide], the Play
+  /// build's More voices).
+  Future<NeuralCatalog> reread({required bool wide}) {
+    NeuralCatalog.wide = wide;
+    _catalog = null;
+    return _loading = _readCatalog();
   }
 
   /// Use [c] as the catalog.

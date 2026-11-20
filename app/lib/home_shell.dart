@@ -88,6 +88,8 @@ Future<OpenLibrary> _open(String dir) async {
   // before any store reads the library half swapped.
   await clearStaleRestore(Directory(dir));
   final prefs = await ListeningPrefs.load(dir);
+  // The Play build lists more natural voices only when asked to.
+  NeuralCatalog.wide = prefs.moreVoices;
   // The reader's own font, if it is the page's, before a book opens.
   if (prefs.bookFont == BookFont.own) await OwnFonts.use(dir, prefs.ownFont);
   // Sources ask as the phone's own browser does (see Net.userAgent).
@@ -400,8 +402,6 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
   (UpdateEvery, bool)? _scheduled;
 
   Future<void> _scheduleChecks() async {
-    // No web novels in the Play build: nothing to check for.
-    if (playBuild) return;
     final every = UpdateEvery.byName(ListeningPrefs.loaded?.updateEvery);
     final charging = ListeningPrefs.loaded?.checkCharging ?? false;
     if ((every, charging) == _scheduled) return;
@@ -586,14 +586,12 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
               ),
               _item(context, Icons.auto_stories_outlined, Icons.auto_stories_rounded, 'Library',
                   selected: _place == _Place.library, onTap: () => _go(_Place.library)),
-              if (!playBuild)
-                _item(context, Icons.travel_explore_rounded, Icons.travel_explore_rounded, 'Browse',
+              _item(context, Icons.travel_explore_rounded, Icons.travel_explore_rounded, 'Browse',
                     selected: _place == _Place.browse, onTap: () => _go(_Place.browse)),
               // Ebook libraries (OPDS): Project Gutenberg, Standard Ebooks, Calibre.
               _item(context, Icons.local_library_outlined, Icons.local_library_rounded, 'Catalogues',
                   onTap: () => _push((s) => CataloguesScreen(store: s))),
-              if (!playBuild)
-                _item(context, Icons.new_releases_outlined, Icons.new_releases_rounded, 'Updates',
+              _item(context, Icons.new_releases_outlined, Icons.new_releases_rounded, 'Updates',
                     selected: _place == _Place.updates, onTap: () => _go(_Place.updates)),
               _item(context, Icons.history_rounded, Icons.history_rounded, 'History',
                   selected: _place == _Place.history, onTap: () => _go(_Place.history)),
@@ -616,8 +614,7 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
               ),
               _item(context, Icons.folder_copy_outlined, Icons.folder_copy_rounded, 'Categories',
                   onTap: () => _push((s) => CategoriesScreen(store: s))),
-              if (!playBuild)
-                _item(context, Icons.extension_outlined, Icons.extension_rounded, 'Sources',
+              _item(context, Icons.extension_outlined, Icons.extension_rounded, 'Sources',
                     onTap: () {
                       final sources = _sources;
                       if (sources != null) _push((_) => SourcesScreen(store: sources));

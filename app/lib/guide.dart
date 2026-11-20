@@ -65,7 +65,7 @@ const _cards = <GuideCard>[
       (Icons.add_rounded, 'Add books, at the top of the library: books on this phone, or a link.'),
       (Icons.local_library_outlined, 'Catalogues, in the menu: free classics to download.'),
       if (playBuild)
-        (Icons.ios_share_rounded, 'Share a file or a web page to TomeVoice from another app, and it is read too.')
+        (Icons.travel_explore_rounded, 'Browse, in the menu: web novels, from the source lists you add.')
       else
         (Icons.travel_explore_rounded, 'Browse, in the menu: web novels from their sites.'),
     ],
@@ -283,10 +283,7 @@ const aiGuideCards = <GuideCard>[
     [
       (Icons.menu_book_rounded, "On a book's page, open Memory and press Build memory."),
       (Icons.schedule_rounded, 'A long book takes hours on a free key. It goes on in the background, and with TomeVoice closed if you allow it on this page.'),
-      if (playBuild)
-        (Icons.forum_outlined, 'Talk works as soon as part of the book is read; building goes on from where it stopped.')
-      else
-        (Icons.download_rounded, 'A web novel fetches its missing chapters first. Once the memory has read them, Free the space deletes them again.'),
+      (Icons.download_rounded, 'A web novel fetches its missing chapters first. Once the memory has read them, Free the space deletes them again.'),
     ],
   ),
   GuideCard(
