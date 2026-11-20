@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor;
 import 'package:tomevoice_spike/ai/ai_client.dart';
 import 'package:tomevoice_spike/ai/ai_keys.dart';
+import 'package:tomevoice_spike/ai/ai_report.dart';
 import 'package:tomevoice_spike/ai/ai_router.dart';
 import 'package:tomevoice_spike/ai/memory/chapter_notes.dart';
 import 'package:tomevoice_spike/ai/memory/graph.dart';
@@ -297,6 +298,76 @@ void main() {
       expect(kept.talk.first.text, 'Who did Sunny meet?');
       expect(kept.talk.last.text, 'He met Cassie on the way (ch 2).');
       expect(kept.stamp.label, 'up to chapter 2');
+    });
+
+    testWidgets('an answer reported from Talk: why asked, what is sent said, the answer hidden and not kept', (tester) async {
+      final path = _memory(tmp);
+      Map<String, String>? sent;
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 2.75;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: TalkSheet(
+            bookId: 'b',
+            bookTitle: 'Shadow Slave',
+            memoryPath: path,
+            stampNow: () => const JournalStamp(at: ReadingCursor(sectionIndex: 1), chapter: 1, number: 2),
+            line: () => null,
+            here: () => 1,
+            passage: () => '',
+            onLook: (_) {},
+            engine: _Said(path, 'He met Cassie on the way [S7].', {
+              7: const TalkSource(7, 'ch 2', MemoryPlace(chapter: 1, section: 1)),
+            }),
+            sendReport: (r) async {
+              sent = r;
+              return true;
+            },
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('Answers by AI, which can be wrong'), findsOneWidget);
+      await tester.enterText(find.byType(TextField), 'Who did Sunny meet?');
+      await tester.tap(find.byTooltip('Ask'));
+      for (var i = 0; i < 100 && find.text('Report').evaluate().isEmpty; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+        await tester.pump();
+      }
+      await tester.tap(find.text('Report'));
+      await tester.pumpAndSettle();
+      expect(find.text('Report this answer'), findsOneWidget);
+      expect(find.textContaining('Nothing else from your book or your journal'), findsOneWidget);
+      // No reason yet: nothing to send.
+      expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Send report')).onPressed, isNull);
+      await tester.tap(find.text('Hateful or harassing'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Send report'));
+      for (var i = 0; i < 40 && sent == null; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 25)));
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+      expect(sent!['reason'], 'Hateful or harassing');
+      expect(sent!['question'], 'Who did Sunny meet?');
+      expect(sent!['answer'], contains('He met Cassie'));
+      expect(sent!['where'], 'Talk');
+      expect(find.text('You reported this answer, and it is hidden.'), findsOneWidget);
+      expect(find.textContaining('He met Cassie', findRichText: true), findsNothing);
+
+      // Closed: a talk with no answer left is not kept.
+      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      expect(JournalStore.instance.all, isEmpty);
+    });
+
+    test('an answer held back: sexual words beside a child, in one sentence; the book\'s darkness is not', () {
+      expect(aiAnswerHeld('In chapter 3 the child is described in sexual terms.'), isTrue);
+      expect(aiAnswerHeld('A 15-year-old and porn.'), isTrue);
+      expect(aiAnswerHeld('The children were starving after the siege. Later, two adults had sex.'), isFalse);
+      expect(aiAnswerHeld('Sunny is a Sleeper; Nephis is cold but kind.'), isFalse);
+      expect(aiSafetyRule, contains('under 18'));
     });
 
     testWidgets("the journal's filter: all, the reader's own writing, or the talks", (tester) async {

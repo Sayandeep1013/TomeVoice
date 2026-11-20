@@ -187,6 +187,17 @@ class AiRing extends ChangeNotifier {
   List<AiKey> get keys => List.unmodifiable(_keys);
   bool get hasKeys => _keys.isNotEmpty;
 
+  /// The reader agreed to what is sent ([ensureAiConsent]): until then,
+  /// nothing is. Adding a key is done only after agreeing, so it counts.
+  bool get consented => _consented;
+  var _consented = false;
+
+  Future<void> consent() async {
+    if (_consented) return;
+    _consented = true;
+    await _save();
+  }
+
   KeyState stateOf(String id) => _state[id] ?? const KeyState();
 
   /// Read the ring of the library at [root]: the keys from its secrets, the
@@ -197,9 +208,11 @@ class AiRing extends ChangeNotifier {
     _useFile = File('${(Secrets.home ?? root).path}/.ai_usage.json');
     _keys.clear();
     _order.clear();
+    _consented = false;
     try {
       final v = jsonDecode(secrets[_secretName] ?? '{}');
       if (v is Map) {
+        _consented = v['consent'] == true;
         for (final k in (v['keys'] as List? ?? const [])) {
           final key = AiKey.fromJson(k);
           if (key != null) _keys.add(key);
@@ -253,6 +266,7 @@ class AiRing extends ChangeNotifier {
     _order.clear();
     _state.clear();
     _use.clear();
+    _consented = false;
   }
 
   Future<void> _save() async {
@@ -262,6 +276,7 @@ class AiRing extends ChangeNotifier {
     await s.set(
       _secretName,
       jsonEncode({
+        if (_consented) 'consent': true,
         'keys': [for (final k in _keys) k.toJson()],
         'order': {for (final e in _order.entries) e.key.name: e.value},
         'state': {
@@ -278,6 +293,7 @@ class AiRing extends ChangeNotifier {
 
   /// A new key, or one changed: changed, it is given another chance.
   Future<void> put(AiKey key) async {
+    _consented = true;
     final i = _keys.indexWhere((k) => k.id == key.id);
     if (i < 0) {
       _keys.add(key);

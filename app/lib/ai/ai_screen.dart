@@ -13,6 +13,7 @@ import '../library_store.dart' show LibraryEntry;
 import 'memory/memory_background.dart';
 import 'memory/memory_builder.dart' show BuildPhase;
 import 'memory/memory_service.dart';
+import 'ai_consent.dart';
 import 'ai_keys.dart';
 
 /// Main menu > AI: the reader's keys, what each job uses, and how they have
@@ -42,6 +43,11 @@ class _AiScreenState extends State<AiScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(showAiGuide(context));
       });
+    } else if (_ring.hasKeys && !_ring.consented) {
+      // Keys added before this was asked: asked once now.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(ensureAiConsent(context, ring: _ring));
+      });
     }
   }
 
@@ -55,13 +61,16 @@ class _AiScreenState extends State<AiScreen> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _edit([AiKey? key]) => showModalBottomSheet<void>(
+  Future<void> _edit([AiKey? key]) async {
+    if (!await ensureAiConsent(context, ring: _ring) || !mounted) return;
+    await showModalBottomSheet<void>(
         context: context,
         sheetAnimationStyle: sheetMotion(context),
         isScrollControlled: true,
         useSafeArea: true,
         builder: (_) => KeySheet(ring: _ring, key: ValueKey(key?.id), editing: key, client: widget.client),
       );
+  }
 
   @override
   Widget build(BuildContext context) {

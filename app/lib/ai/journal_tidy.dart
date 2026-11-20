@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../theme.dart';
 import '../ui.dart';
 import 'ai_client.dart';
+import 'ai_consent.dart';
 import 'ai_keys.dart';
 import 'ai_router.dart';
 
@@ -18,6 +19,7 @@ const tidyAsk = 'You tidy words a reader spoke aloud into their reading journal,
 /// AI could not be reached; a note says so).
 Future<List<String>?> tidyJournalText(BuildContext context, List<String> texts, {AiRouter? router}) async {
   final r = router ?? AiRouter();
+  if (!await ensureAiConsent(context, ring: r.ring) || !context.mounted) return null;
   final out = <String>[];
   showSnack(context, 'Tidying what you said…');
   try {

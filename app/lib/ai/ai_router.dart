@@ -26,6 +26,9 @@ class AiResting implements Exception {
 /// quota is spent rests and the next takes over; one refused is marked so
 /// and skipped; the provider failing is tried once more after a moment,
 /// then the next key. What each call used is counted to its key.
+/// Why nothing was sent: the reader has not yet agreed (see AiRing.consent).
+const notConsented = AiError(AiFailure.request, 'TomeVoice needs your go-ahead first: open AI and agree to what is sent.');
+
 class AiRouter {
   AiRouter({AiRing? ring, AiClient? client, this.pause = const Duration(seconds: 2), DateTime Function()? clock})
       : ring = ring ?? AiRing.instance,
@@ -74,6 +77,8 @@ class AiRouter {
   /// [call] with each key of [job] in turn until one does it.
   Future<T> run<T>(AiJob job, Future<T> Function(AiKey key, AiEndpoint to) call) async {
     final keys = ring.forJob(job);
+    // Nothing is sent before the reader has agreed to what is.
+    if (keys.isNotEmpty && !ring.consented) throw AiResting(job, null, last: notConsented);
     AiError? last;
     for (final key in keys) {
       final state = ring.stateOf(key.id);

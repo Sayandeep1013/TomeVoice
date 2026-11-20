@@ -3,6 +3,7 @@ import 'dart:isolate';
 
 import '../ai_client.dart';
 import '../ai_keys.dart';
+import '../ai_report.dart' show aiSafetyRule;
 import '../ai_router.dart';
 import '../memory/memory_db.dart';
 import 'answer_pack.dart';
@@ -229,6 +230,7 @@ class TalkEngine {
           'This book carries on from ${_earlier.map((b) => '"${b.title}"').join(' and ')}: material from '
               'there is marked with its book. Say which book something happened in.',
         length.ask,
+        aiSafetyRule,
         'If the reader asks for a length ("in two minutes": about 300 words; "in ten minutes": about 1,500, '
             'for listening), keep to theirs instead.',
       ].join('\n\n');
