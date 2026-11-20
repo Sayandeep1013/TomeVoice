@@ -3,6 +3,33 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## 2.2.0 (2026-11-20)
+
+You stay in charge of the AI: it asks first, shows what it sent, and takes reports. Interview me at a chapter's end, chapter search in a memory, and undo for merges.
+
+#### The AI asks first, and shows its work
+- **Before the AI reads with you**: nothing is sent to any AI until you add a key and agree to what is sent.
+- **Report** any answer (harmful, sexual, hateful, wrong, or something else): it goes to the developer and the answer is hidden. **Say it again** asks afresh.
+- **What was sent**: every call to the AI (when, for what, which book, which model, how many tokens), kept on the phone.
+- **Your data**: export every memory, or forget them all, in one place.
+- **Use my journal**: Talk sends only the journal entries that bear on your question, and none when this is off.
+
+#### Your journal, out loud
+- **Interview me**: at a chapter's end the journal's questions are asked aloud, your spoken answers written down, and reading goes on.
+
+#### Memory
+- **Chapter by chapter** has a search: a chapter's number, or words from its title or notes.
+- **Undo a merge** in Who's who, right after it or later ("Take X apart again"), and undo the AI's tidy.
+- When the story settles a theory you stated, the verdict is written into your journal too.
+
+#### Web novels
+- A shared chapter link opens its novel.
+- **Download speed** (gentle, normal, fast), and checks for new chapters **only while charging** if you like.
+
+#### Fixes
+- An empty answer from the AI no longer leaves Talk on "Remembering…".
+- A privacy page: sayandeep1013.github.io/TomeVoice/privacy.html, linked from About.
+
 ## 2.1.0 (2026-11-20)
 
 Speak into your journal, a series that carries on by itself, a guide to the AI, and more ways to look into a book's memory.
