@@ -432,6 +432,15 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
 
   int get _shownCh => math.min(_chapter ?? _end, _end);
 
+  /// Closer ([by] over 1) or further, round the middle of the screen: for a
+  /// thumb, without pinching.
+  void _zoom(double by) {
+    if (_box == Size.zero) return;
+    final middle = _box.center(Offset.zero);
+    final at = MatrixUtils.transformPoint(Matrix4.inverted(_view.value), middle);
+    _glideTo(_viewAt(at, (viewScale(_view.value) * by).clamp(0.04, 6.0), middle));
+  }
+
   void _clearPick() {
     _picked = null;
     _second = null;
@@ -654,6 +663,10 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
   Widget build(BuildContext context) {
     final data = _data;
     final dark = Theme.of(context).brightness == Brightness.dark;
+    // The middle of the screen's own ground, for the names' halos and the
+    // nodes' rings: they blend into it in every colour theme, day or night.
+    final pal = Skin.paletteOf(context);
+    final ground = dark ? Color.lerp(pal.night[1], pal.night[2], 0.5)! : Color.lerp(pal.day[1], pal.day[2], 0.5)!;
     final kinds = {for (final n in data?.nodes ?? const <GraphNode>[]) n.kind}.toList()..sort();
     final used = {
       for (final e in data?.edges ?? const <GraphEdge>[])
@@ -832,6 +845,7 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
                                                 view: _view,
                                                 dark: dark,
                                                 ink: Skin.inkOn(context),
+                                                ground: ground,
                                                 names: _names,
                                                 sectors: _picked == null ? _sectors : const [],
                                                 groups: _depth == GraphDepth.map
@@ -858,11 +872,38 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
                                   child:
                                       SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
                                 ),
+                              if (!_ball)
+                                Positioned(
+                                  right: Gap.s,
+                                  bottom: Gap.s,
+                                  child: _ZoomButtons(
+                                    onCloser: () => _zoom(1.6),
+                                    onFurther: () => _zoom(1 / 1.6),
+                                    onAll: () => _glideTo(_fitView(_box)),
+                                  ),
+                                ),
+                              // The key, a tap away on the graph itself.
+                              if (!_legend)
+                                Positioned(
+                                  left: Gap.page,
+                                  top: Gap.s,
+                                  child: _KeyButton(
+                                    kinds: kinds.take(3).toList(),
+                                    onTap: () => setState(() => _legend = true),
+                                  ),
+                                ),
+                              // Kept within the graph's area, scrolling when a
+                              // book has many kinds.
                               if (_legend)
                                 Positioned(
                                   left: Gap.page,
                                   top: Gap.s,
-                                  child: _Legend(
+                                  bottom: Gap.s,
+                                  child: Align(
+                                    alignment: Alignment.topLeft,
+                                    child: SingleChildScrollView(
+                                      child: _Legend(
+                                    onClose: () => setState(() => _legend = false),
                                     kinds: used,
                                     nodes: kinds,
                                     shownKinds: _kinds,
@@ -877,12 +918,14 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
                                     },
                                     onLink: (k) => setState(
                                         () => _hiddenLinks.contains(k) ? _hiddenLinks.remove(k) : _hiddenLinks.add(k)),
+                                      ),
+                                    ),
                                   ),
                                 ),
                               if (_linking)
                                 Positioned(
-                                  left: 0,
-                                  right: 0,
+                                  left: 56,
+                                  right: 56,
                                   bottom: Gap.s,
                                   child: Center(
                                     child: Chip(label: Text('Now tap who to link ${_nameOf(_picked) ?? ''} with')),
@@ -1120,8 +1163,74 @@ class _PresencePainter extends CustomPainter {
   bool shouldRepaint(_PresencePainter old) => old.chapters != chapters || old.end != end;
 }
 
+/// The key, shut: a few of the kinds' dots and "Key", a tap opening it.
+class _KeyButton extends StatelessWidget {
+  const _KeyButton({required this.kinds, required this.onTap});
+
+  final List<String> kinds;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+        message: 'What the colours mean',
+        child: Material(
+          color: Skin.capsuleOn(context).withValues(alpha: 0.92),
+          borderRadius: BorderRadius.circular(Radii.pill),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(Radii.pill),
+            onTap: onTap,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 36),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final k in kinds) ...[KindDot(k, size: 8), const SizedBox(width: 3)],
+                    const SizedBox(width: 4),
+                    Text('Key', style: Skin.ui(size: 13, weight: FontWeight.w600, color: Skin.inkOn(context))),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+}
+
+/// Closer, further, and all of it: zoom for a thumb, without pinching.
+class _ZoomButtons extends StatelessWidget {
+  const _ZoomButtons({required this.onCloser, required this.onFurther, required this.onAll});
+
+  final VoidCallback onCloser;
+  final VoidCallback onFurther;
+  final VoidCallback onAll;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget button(IconData icon, String tip, VoidCallback onTap) => IconButton(
+          tooltip: tip,
+          icon: Icon(icon, size: 20, color: Skin.inkOn(context)),
+          onPressed: onTap,
+        );
+    return Material(
+      color: Skin.capsuleOn(context).withValues(alpha: 0.92),
+      borderRadius: BorderRadius.circular(Radii.pill),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          button(Icons.add_rounded, 'Closer', onCloser),
+          button(Icons.remove_rounded, 'Further', onFurther),
+          button(Icons.fit_screen_outlined, 'All of it', onAll),
+        ],
+      ),
+    );
+  }
+}
+
 class _Legend extends StatelessWidget {
   const _Legend({
+    required this.onClose,
     required this.kinds,
     required this.nodes,
     required this.shownKinds,
@@ -1146,9 +1255,15 @@ class _Legend extends StatelessWidget {
   final VoidCallback? onEarlier;
   final void Function(String kind) onKind;
   final void Function(LinkKind kind) onLink;
+  final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context) {
+    Widget dot(double size) => Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(shape: BoxShape.circle, color: Skin.inkSoftOn(context)),
+        );
     Widget row(Widget mark, String label, {required bool on, VoidCallback? onTap}) => InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(6),
@@ -1175,6 +1290,20 @@ class _Legend extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('KEY · TAP TO HIDE OR SHOW', style: Skin.meta(context, size: 10)),
+              const SizedBox(width: 4),
+              IconButton(
+                tooltip: 'Close the key',
+                visualDensity: VisualDensity.compact,
+                iconSize: 18,
+                icon: const Icon(Icons.close_rounded),
+                onPressed: onClose,
+              ),
+            ],
+          ),
           // A tap on a kind shows only it (and others tapped); on a link,
           // hides or shows those links.
           for (final k in {...nodes, ...shownKinds})
@@ -1203,6 +1332,9 @@ class _Legend extends StatelessWidget {
               on: !hideEarlier,
               onTap: onEarlier,
             ),
+          row(Row(mainAxisSize: MainAxisSize.min, children: [dot(4), const SizedBox(width: 2), dot(8)]),
+              'Bigger: in more chapters',
+              on: true),
           if (nodes.isNotEmpty) const SizedBox(height: 4),
           for (final k in kinds)
             row(Container(width: 16, height: 3, color: linkColour(k)), linkLabel(k),
@@ -1270,11 +1402,14 @@ class _FindSheetState extends State<_FindSheet> {
 /// not made or already ended, left out, every node in its place for the
 /// whole book, so the timeline does not move them. Nodes, lines and names
 /// keep their size on the screen whatever the zoom. Links are coloured by
-/// what they are, faint unless they touch the one picked; what came since
-/// [since] is marked, and links that ended since then are shown dashed.
-/// Ones the reader may have forgotten wear a broken amber ring. On the Story
-/// map, each group is a bubble with its name, opening into its members as
-/// it is zoomed into.
+/// what they are: softly at rest, in full when they touch the one picked;
+/// what came since [since] is marked, and links that ended since then are
+/// shown dashed. Each node wears a thin ring of the ground, so it stands
+/// clear of the links; the person in the middle and the one picked a firm
+/// ring of their own. Ones the reader may have forgotten wear a broken amber
+/// ring. On the Story map, each group is a bubble with its name, opening
+/// into its members as it is zoomed into. Only what is on the screen is
+/// drawn, and names are laid out once and kept, so a big book pans smoothly.
 class GraphPainter extends CustomPainter {
   GraphPainter({
     required this.data,
@@ -1285,6 +1420,7 @@ class GraphPainter extends CustomPainter {
     required this.view,
     required this.dark,
     required this.ink,
+    this.ground,
     this.names = GraphNames.key,
     this.sectors = const [],
     this.groups = const [],
@@ -1307,6 +1443,10 @@ class GraphPainter extends CustomPainter {
   final TransformationController view;
   final bool dark;
   final Color ink;
+
+  /// The ground the graph sits on (null: white by day, near black by night):
+  /// names wear a halo of it, and nodes a thin ring of it.
+  final Color? ground;
   final GraphNames names;
   final List<GraphSector> sectors;
   final List<GraphGroup> groups;
@@ -1325,12 +1465,56 @@ class GraphPainter extends CustomPainter {
 
   static Color groupColour(int i) => HSLColor.fromAHSL(1, (i * 137.508 + 200) % 360, 0.45, 0.55).toColor();
 
+  Color get _ground => ground ?? (dark ? const Color(0xFF101614) : Colors.white);
+
+  /// Names laid out once, at their size on the screen, and kept across
+  /// frames: a pan or a zoom draws the same names again, scaled, rather than
+  /// laying each out anew on every frame.
+  static final _labels = <(String, double, int, int, bool), TextPainter>{};
+  static const _labelsKept = 4000;
+
+  static TextPainter _label(String text, double size, FontWeight weight, Color colour, {bool halo = false}) =>
+      _labels[(text, size, weight.value, colour.toARGB32(), halo)] ??= TextPainter(
+        text: TextSpan(
+          text: text,
+          style: TextStyle(
+            fontFamily: 'Figtree',
+            fontSize: size,
+            fontWeight: weight,
+            color: halo ? null : colour,
+            foreground: halo
+                ? (Paint()
+                  ..style = PaintingStyle.stroke
+                  ..strokeWidth = size * 0.3
+                  ..strokeJoin = StrokeJoin.round
+                  ..color = colour)
+                : null,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+        maxLines: 1,
+        ellipsis: '…',
+      )..layout(maxWidth: size * 16);
+
   @override
   void paint(Canvas canvas, Size size) {
+    // Kept names let go of between frames, never while one is drawn.
+    if (_labels.length > _labelsKept) {
+      for (final t in _labels.values) {
+        t.dispose();
+      }
+      _labels.clear();
+    }
     final scale = viewScale(view.value);
     // A screen pixel, in the canvas's own units.
     final dp = 1 / scale;
     final px = 1.4 / scale;
+    final ground = _ground;
+    // What of the graph is on the screen now, and a margin round it: what
+    // lies wholly outside it is not drawn.
+    final shown = viewport == Size.zero ? null : MatrixUtils.inverseTransformRect(view.value, Offset.zero & viewport);
+    final room = shown?.inflate(24 * dp);
+    bool onScreen(Offset p, double r) => room == null || room.inflate(r).contains(p);
     final visible = {
       for (final n in data.nodes)
         if ((n.firstCh ?? 0) <= chapter && at[n.id] != null && !(hideEarlier && (n.firstCh ?? 0) < 0)) n.id: n,
@@ -1368,77 +1552,98 @@ class GraphPainter extends CustomPainter {
     final shut = <int>{};
     for (final g in groups) {
       final open = g.reach * scale >= openAt;
-      canvas.drawCircle(g.centre, g.reach, Paint()..color = groupColour(g.id).withValues(alpha: open ? 0.06 : 0.22));
+      if (onScreen(g.centre, g.reach)) {
+        canvas.drawCircle(g.centre, g.reach, Paint()..color = groupColour(g.id).withValues(alpha: open ? 0.06 : 0.22));
+      }
       if (!open) shut.addAll(g.members);
     }
 
     final many = edges.length > 1500;
+    final line = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
     for (final e in edges) {
       if (shut.contains(e.a) && shut.contains(e.b)) continue;
+      final p1 = o(e.a), p2 = o(e.b);
+      if (room != null && !room.overlaps(Rect.fromPoints(p1, p2))) continue;
       final pathEdge = onPath.contains((e.a, e.b));
       final lit = (picked != null && (e.a == picked || e.b == picked)) || pathEdge;
       final ended = !e.at(chapter);
       final fresh = isNew(e.fromCh);
       final faded = picked != null && !lit;
+      final shared = e.kind == LinkKind.shared;
       final colour = ended ? ink : linkColour(e.kind);
-      final p1 = o(e.a), p2 = o(e.b);
-      final mid = (p1 + p2) / 2;
-      // Straight and fine, in the ink's colour: a link's own colour shows
-      // when it is lit.
-      final line = Path()
-        ..moveTo(p1.dx, p1.dy)
-        ..lineTo(p2.dx, p2.dy);
-      final paint = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..color = (pathEdge ? _amber : (lit || fresh ? colour : ink)).withValues(
+      // At rest a link is fine and soft: its own colour drawn towards the
+      // ink, so allies, enemies and family show apart at a glance without
+      // shouting; events shared, plain ink, a little firmer the more there
+      // were. Lit, or new since the timeline moved, its colour in full.
+      final rest = shared || ended ? ink : Color.lerp(ink, colour, 0.7)!;
+      line
+        ..color = (pathEdge ? _amber : (lit || fresh ? colour : rest)).withValues(
           alpha: faded
               ? 0.04
               : ended
                   ? 0.25
                   : lit || fresh
                       ? 0.9
-                      : e.kind == LinkKind.shared
-                          ? 0.08
-                          : 0.22,
+                      : shared
+                          ? math.min(0.2, 0.06 + e.weight * 0.02)
+                          : 0.36,
         )
-        ..strokeWidth = (lit || fresh ? 1.3 : 0.6) * (pathEdge ? 1.8 : 1) * px;
+        ..strokeWidth = (lit || fresh ? 1.4 : (shared ? 0.6 : 0.8)) * (pathEdge ? 1.8 : 1) * px;
       if (e.kind == LinkKind.belongs || ended) {
-        _dashed(canvas, line, paint, 8 * px, 6 * px);
+        _dashLine(canvas, p1, p2, line, 8 * px, 6 * px);
       } else {
-        canvas.drawPath(line, paint);
+        canvas.drawLine(p1, p2, line);
       }
-      if (lit && e.kind != LinkKind.shared && !many) {
-        _pill(canvas, ended ? '${e.label} (ended)' : e.label, mid, 10.5 * dp, colour, strong: false);
+      if (lit && !shared && !many) {
+        _pill(canvas, ended ? '${e.label} (ended)' : e.label, (p1 + p2) / 2, 10.5, dp, colour, strong: false);
       }
     }
 
     // Nodes, the heaviest last so they sit on top.
     final order = visible.values.toList()..sort((a, b) => a.weight.compareTo(b.weight));
+    final fill = Paint();
+    final ring = Paint()..style = PaintingStyle.stroke;
     for (final n in order) {
       final c = o(n.id);
       final inShut = shut.contains(n.id);
       final r = nodeDp(n.weight) * dp * (inShut ? 0.7 : 1);
+      if (!onScreen(c, r * 3)) continue;
       final dim = picked != null && !near.contains(n.id);
       final colour = kindColour(n.kind);
       final newHere = n.firstCh != null && isNew(n.firstCh!);
-      // A point; a soft glow round the one picked, the person in the
-      // middle, and one new here.
-      if (n.id == picked || n.id == second || n.id == data.focus || newHere) {
+      final mark = n.id == picked || n.id == second;
+      // A soft glow round the one picked, the person in the middle, and one
+      // new here.
+      if (mark || n.id == data.focus || newHere) {
         canvas.drawCircle(
           c,
           r * 2.4 + 3 * dp,
-          Paint()..color = (newHere ? _amber : colour).withValues(alpha: n.id == picked || n.id == second ? 0.34 : 0.2),
+          fill..color = (newHere ? _amber : colour).withValues(alpha: mark ? 0.34 : 0.2),
         );
       }
-      canvas.drawCircle(c, r, Paint()..color = colour.withValues(alpha: dim ? 0.18 : (inShut ? 0.6 : 1)));
+      // A thin ring of the ground keeps it clear of the links that run into
+      // it, and of a neighbour.
+      if (!dim && !inShut) canvas.drawCircle(c, r + 1.3 * dp, fill..color = ground.withValues(alpha: 0.9));
+      canvas.drawCircle(c, r, fill..color = colour.withValues(alpha: dim ? 0.18 : (inShut ? 0.6 : 1)));
+      // The one picked (the accent) and the person in the middle (their own
+      // colour): a firm ring a little way out.
+      if ((mark || n.id == data.focus) && !inShut) {
+        canvas.drawCircle(
+          c,
+          r + 4.5 * dp,
+          ring
+            ..strokeWidth = 1.6 * dp
+            ..color = (mark ? _amber : colour).withValues(alpha: 0.95),
+        );
+      }
       // Carried over from an earlier book of the series: a thin plain ring.
       if ((n.firstCh ?? 0) < 0 && !inShut) {
         canvas.drawCircle(
           c,
           r + 2 * dp,
-          Paint()
-            ..style = PaintingStyle.stroke
+          ring
             ..strokeWidth = 1 * dp
             ..color = ink.withValues(alpha: dim ? 0.15 : 0.55),
         );
@@ -1458,17 +1663,19 @@ class GraphPainter extends CustomPainter {
       }
     }
 
-    // Names are kept off the circles as well as off each other.
+    // Names are kept off the circles as well as off each other (those on
+    // the screen: the rest cannot meet a name drawn there).
     final placed = <Rect>[
       if (visible.length <= 1500)
         for (final n in visible.values)
-          if (!shut.contains(n.id)) Rect.fromCircle(center: o(n.id), radius: nodeDp(n.weight) * dp),
+          if (!shut.contains(n.id) && onScreen(o(n.id), 0))
+            Rect.fromCircle(center: o(n.id), radius: nodeDp(n.weight) * dp),
     ];
     // The groups' names, each on its island's top edge, always shown.
     for (final g in groups) {
-      if (g.reach * scale >= openAt) continue;
+      if (g.reach * scale >= openAt || !onScreen(g.centre, g.reach)) continue;
       final name = groupNames[g.id] ?? '${visible[g.top]?.name ?? ''} and ${g.members.length - 1} more';
-      final rect = _pill(canvas, name, g.centre - Offset(0, g.reach * 0.86), 12 * dp, groupColour(g.id),
+      final rect = _pill(canvas, name, g.centre - Offset(0, g.reach * 0.86), 12, dp, groupColour(g.id),
           strong: false, force: true);
       if (rect != null) placed.add(rect);
     }
@@ -1477,7 +1684,7 @@ class GraphPainter extends CustomPainter {
     final f = data.focus;
     if (f != null && visible.containsKey(f) && f != picked && f != second) {
       final rect = _pill(
-          canvas, visible[f]!.name, o(f) + Offset(0, (nodeDp(visible[f]!.weight) + 10) * dp), 12.5 * dp, ink,
+          canvas, visible[f]!.name, o(f) + Offset(0, (nodeDp(visible[f]!.weight) + 15) * dp), 12.5, dp, ink,
           strong: false, force: true, bare: true);
       if (rect != null) placed.add(rect);
     }
@@ -1485,7 +1692,8 @@ class GraphPainter extends CustomPainter {
     // The sections of the ring round the focus.
     if (picked == null) {
       for (final c in sectors) {
-        final rect = _pill(canvas, linkLabel(c.kind), Offset(c.x, c.y), 10.5 * dp, linkColour(c.kind),
+        if (!onScreen(Offset(c.x, c.y), 0)) continue;
+        final rect = _pill(canvas, linkLabel(c.kind), Offset(c.x, c.y), 10.5, dp, linkColour(c.kind),
             strong: false, avoid: placed, faint: true);
         if (rect != null) placed.add(rect);
       }
@@ -1499,8 +1707,6 @@ class GraphPainter extends CustomPainter {
         final r = rank(b).compareTo(rank(a));
         return r != 0 ? r : b.weight.compareTo(a.weight);
       });
-    // What of the graph is on the screen now.
-    final shown = viewport == Size.zero ? null : MatrixUtils.inverseTransformRect(view.value, Offset.zero & viewport);
     var plain = 0;
     for (final n in byWeight) {
       if (n.id == f && f != picked && f != second) continue;
@@ -1511,13 +1717,16 @@ class GraphPainter extends CustomPainter {
         if (names == GraphNames.key && plain >= 16 && !n.forgotten) continue;
       }
       final strong = n.id == picked || n.id == second;
+      if (!strong && !onScreen(o(n.id), 0)) continue;
       // Below the circle, or above, right or left of it: the first free.
+      // The one picked a little further out, clear of its ring.
       final r = nodeDp(n.weight) * dp;
-      final w = _width(n.name, 11.5 * dp, strong);
+      final gap = (strong ? 14 : 9) * dp;
+      final w = _width(n.name, 11.5, dp, strong);
       Rect? rect;
       for (final at in [
-        o(n.id) + Offset(0, r + 9 * dp),
-        o(n.id) - Offset(0, r + 9 * dp),
+        o(n.id) + Offset(0, r + gap),
+        o(n.id) - Offset(0, r + gap),
         o(n.id) + Offset(r + 4 * dp + w / 2, 0),
         o(n.id) - Offset(r + 4 * dp + w / 2, 0),
       ]) {
@@ -1525,11 +1734,11 @@ class GraphPainter extends CustomPainter {
             shown != null && !shown.contains(at.translate(w / 2, 0))) {
           continue;
         }
-        rect = _pill(canvas, n.name, at, 11.5 * dp, ink, strong: strong, avoid: placed, bare: !strong);
+        rect = _pill(canvas, n.name, at, 11.5, dp, ink, strong: strong, avoid: placed, bare: !strong);
         if (rect != null) break;
       }
       rect ??= strong
-          ? _pill(canvas, n.name, o(n.id) + Offset(0, r + 9 * dp), 11.5 * dp, ink, strong: true, force: true)
+          ? _pill(canvas, n.name, o(n.id) + Offset(0, r + gap), 11.5, dp, ink, strong: true, force: true)
           : null;
       if (rect != null) {
         placed.add(rect);
@@ -1538,61 +1747,62 @@ class GraphPainter extends CustomPainter {
     }
   }
 
-  /// How wide [text]'s pill is.
-  double _width(String text, double size, bool strong) {
-    final tp = TextPainter(
-      text: TextSpan(
-          text: text,
-          style:
-              TextStyle(fontFamily: 'Figtree', fontSize: size, fontWeight: strong ? FontWeight.w700 : FontWeight.w600)),
-      textDirection: TextDirection.ltr,
-      maxLines: 1,
-    )..layout(maxWidth: size * 16);
-    return tp.width + size;
+  /// How wide a name's label is, in the canvas's units: [size] is its size
+  /// on the screen.
+  double _width(String text, double size, double dp, bool strong) {
+    final tp = strong
+        ? _label(text, size, FontWeight.w700, Colors.white)
+        : _label(text, size, FontWeight.w500, ink.withValues(alpha: 0.85));
+    return (tp.width + size) * dp;
   }
 
-  /// [text] on a small pill centred at [at]; null (and nothing drawn) when
-  /// it would overlap one of [avoid], unless [force].
-  Rect? _pill(Canvas canvas, String text, Offset at, double size, Color colour,
+  /// [text] on a small pill centred at [at], [size] high on the screen;
+  /// null (and nothing drawn) when it would overlap one of [avoid], unless
+  /// [force].
+  Rect? _pill(Canvas canvas, String text, Offset at, double size, double dp, Color colour,
       {required bool strong, List<Rect> avoid = const [], bool force = false, bool faint = false, bool bare = false}) {
-    TextPainter painter(Color? colour, Paint? stroke) => TextPainter(
-          text: TextSpan(
-            text: text,
-            style: TextStyle(
-              fontFamily: 'Figtree',
-              fontSize: size,
-              color: colour,
-              foreground: stroke,
-              fontWeight: strong ? FontWeight.w700 : (bare ? FontWeight.w500 : FontWeight.w600),
-            ),
-          ),
-          textDirection: TextDirection.ltr,
-          maxLines: 1,
-          ellipsis: '…',
-        )..layout(maxWidth: size * 16);
-    final tp = painter(strong ? Colors.white : colour.withValues(alpha: faint ? 0.75 : (bare ? 0.85 : 1)), null);
-    final pad = bare ? Offset(size * 0.2, size * 0.05) : Offset(size * 0.5, size * 0.25);
-    final rect = Rect.fromCenter(center: at, width: tp.width + pad.dx * 2, height: tp.height + pad.dy * 2);
+    final weight = strong ? FontWeight.w700 : (bare ? FontWeight.w500 : FontWeight.w600);
+    final tp =
+        _label(text, size, weight, strong ? Colors.white : colour.withValues(alpha: faint ? 0.75 : (bare ? 0.85 : 1)));
+    final pad = (bare ? Offset(size * 0.2, size * 0.05) : Offset(size * 0.5, size * 0.25)) * dp;
+    final rect = Rect.fromCenter(center: at, width: tp.width * dp + pad.dx * 2, height: tp.height * dp + pad.dy * 2);
     if (!force && avoid.any((r) => r.overlaps(rect))) return null;
-    final ground = dark ? const Color(0xFF101614) : Colors.white;
+    void draw(TextPainter t) {
+      canvas
+        ..save()
+        ..translate(rect.left + pad.dx, rect.top + pad.dy)
+        ..scale(dp);
+      t.paint(canvas, Offset.zero);
+      canvas.restore();
+    }
+
     if (bare) {
       // Plain text, kept legible over the links by a halo of the ground.
-      painter(
-        null,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = size * 0.3
-          ..strokeJoin = StrokeJoin.round
-          ..color = ground.withValues(alpha: 0.85),
-      ).paint(canvas, rect.topLeft + pad);
+      draw(_label(text, size, weight, _ground.withValues(alpha: 0.85), halo: true));
     } else {
       canvas.drawRRect(
         RRect.fromRectAndRadius(rect, Radius.circular(rect.height / 2)),
-        Paint()..color = strong ? _amber : ground.withValues(alpha: faint ? 0.55 : 0.82),
+        Paint()..color = strong ? _amber : _ground.withValues(alpha: faint ? 0.55 : 0.82),
       );
     }
-    tp.paint(canvas, rect.topLeft + pad);
+    draw(tp);
     return rect;
+  }
+
+  /// A straight dashed line from [a] to [b]; solid when it would take too
+  /// many dashes (one running far off the screen, zoomed right in).
+  void _dashLine(Canvas canvas, Offset a, Offset b, Paint paint, double on, double off) {
+    final d = b - a;
+    final length = d.distance;
+    if (length == 0) return;
+    if (length / (on + off) > 600) {
+      canvas.drawLine(a, b, paint);
+      return;
+    }
+    final step = d / length;
+    for (var t = 0.0; t < length; t += on + off) {
+      canvas.drawLine(a + step * t, a + step * math.min(t + on, length), paint);
+    }
   }
 
   void _dashed(Canvas canvas, Path path, Paint paint, double on, double off) {
@@ -1614,6 +1824,7 @@ class GraphPainter extends CustomPainter {
       old.second != second ||
       old.dark != dark ||
       old.ink != ink ||
+      old.ground != ground ||
       old.names != names ||
       old.sectors != sectors ||
       old.groups.length != groups.length ||
