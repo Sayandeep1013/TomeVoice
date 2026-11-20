@@ -1060,7 +1060,10 @@ class _ScreenOffRowState extends State<ScreenOffRow> {
             title: 'Keep reading with the screen off',
             subtitle: status.exempt
                 ? 'Allowed: battery saving leaves TomeVoice alone'
-                : 'Battery saving may stop the voice with the screen off. Tap to allow TomeVoice',
+                : playBuild
+                    ? 'Battery saving may stop the voice with the screen off. Tap, find TomeVoice in the list, '
+                        'and let it run unrestricted'
+                    : 'Battery saving may stop the voice with the screen off. Tap to allow TomeVoice',
             onTap: _open,
           ),
           if (maker != null)
