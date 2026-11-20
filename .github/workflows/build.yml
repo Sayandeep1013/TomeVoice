@@ -254,8 +254,17 @@ jobs:
           grep -q "android.media.browse.MediaBrowserService" "$M"
           grep -q "com.google.android.gms.car.application" "$M"
           test -f android/app/src/main/res/xml/automotive_app_desc.xml
-          # Settings > Listening's one-tap question about battery saving.
-          grep -q "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" "$M"
+          # Settings > Listening's one-tap question about battery saving (not
+          # in the Play build, which may not ask it); the backup rules that
+          # keep the keys out of Android's backup.
+          if [ "${TV_STORE:-}" = play ]; then
+            ! grep -q "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" "$M"
+            ! grep -q "REQUEST_INSTALL_PACKAGES" "$M"
+          else
+            grep -q "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" "$M"
+          fi
+          grep -q 'android:dataExtractionRules="@xml/data_extraction_rules"' "$M"
+          test -f android/app/src/main/res/xml/data_extraction_rules.xml
           # TomeVoice, or the test app when TV_APP_ID / TV_APP_LABEL say so.
           grep -qF "android:label=\"${TV_APP_LABEL:-TomeVoice}\"" "$M"
           # The secret shelf's fingerprint, face or PIN prompt.
