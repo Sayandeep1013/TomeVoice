@@ -3,6 +3,23 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## Unreleased
+
+A book's memory, easier to use every day, and a clearer graph.
+
+#### Memory
+- **A book's Memory page** lists what you can look through, each with a line saying what it is for and how many there are: Who's who, Chapter by chapter, Graph, Threads, Theories, Find where…, Talk elsewhere. The **spoiler guard** sits near the top and says what it covers.
+- **Chapter by chapter** opens with the newest chapters first; the order menu goes back to the start.
+- **Who's who**: a new order, **Seen lately**, puts those from the chapters you just read first ("who was that again?"). Each row says where they are in the book ("in 45 chapters, 3 to 210").
+- **See their links** on a card in Who's who opens the graph round them.
+
+#### The graph
+- Links show their kind's colour softly at rest (allies, enemies, family), and in full round the one you pick.
+- Each point has a thin ring of the background, so it stands clear of the lines; the person in the middle and the one picked have a ring of their own.
+- **Key** is a button on the graph itself, and says that bigger means in more chapters.
+- **Closer, Further, All of it** buttons, for zooming with one thumb.
+- Names keep to the colours of your theme, day or night, and a big book's graph pans more smoothly (only what is on the screen is drawn).
+
 ## 2.2.0 (2026-11-20)
 
 You stay in charge of the AI: it asks first, shows what it sent, and takes reports. Interview me at a chapter's end, chapter search in a memory, and undo for merges.
