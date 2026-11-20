@@ -142,10 +142,15 @@ class MemoryGraphScreen extends StatefulWidget {
       this.line,
       this.here,
       this.onAsk,
+      this.focus,
       this.nameGroups = false});
 
   final String bookTitle;
   final String memoryPath;
+
+  /// Who it opens round, picked (a card's "See their links"); null: the
+  /// whole web, round the main character.
+  final int? focus;
 
   /// The spoiler line (null: the guard is off).
   final int? line;
@@ -280,6 +285,15 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
   }
 
   Future<void> _start() async {
+    final asked = widget.focus;
+    if (asked != null) {
+      // Opened for one person: round them, their links lit.
+      _focus = asked;
+      _depth = GraphDepth.one;
+      await _load();
+      if (mounted && _at.containsKey(asked)) await _pick(asked);
+      return;
+    }
     _focus = await _mainOff(widget.memoryPath, widget.line);
     if (_focus == null) _depth = GraphDepth.all;
     await _load();

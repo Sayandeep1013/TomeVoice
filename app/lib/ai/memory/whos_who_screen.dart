@@ -89,9 +89,19 @@ class _WhosWhoScreenState extends State<WhosWhoScreen> {
       sheetAnimationStyle: sheetMotion(context),
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => NameCardSheet(card: card, line: widget.line),
+      builder: (_) => NameCardSheet(card: card, line: widget.line, onGraph: () => _graph(focus: e.id)),
     );
   }
+
+  /// The memory graph: the whole web, or round [focus], picked.
+  void _graph({int? focus}) => unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => MemoryGraphScreen(
+          bookTitle: widget.bookTitle,
+          memoryPath: widget.memoryPath,
+          line: widget.line,
+          focus: focus,
+        ),
+      )));
 
   /// The names of all tidied by the AI: one character split over two cards
   /// made one, a description replaced by the name, names on the wrong card
@@ -240,13 +250,7 @@ class _WhosWhoScreenState extends State<WhosWhoScreen> {
                   IconButton(
                     tooltip: 'The memory graph',
                     icon: const Icon(Icons.hub_outlined),
-                    onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
-                      builder: (_) => MemoryGraphScreen(
-                        bookTitle: widget.bookTitle,
-                        memoryPath: widget.memoryPath,
-                        line: widget.line,
-                      ),
-                    )),
+                    onPressed: _graph,
                   ),
                   if (widget.mayTidy && AiRing.instance.hasKeys)
                     _tidying
@@ -269,6 +273,7 @@ class _WhosWhoScreenState extends State<WhosWhoScreen> {
                     },
                     itemBuilder: (_) => const [
                       PopupMenuItem(value: LedgerOrder.importance, child: Text('Seen most')),
+                      PopupMenuItem(value: LedgerOrder.recent, child: Text('Seen lately')),
                       PopupMenuItem(value: LedgerOrder.firstMet, child: Text('First met')),
                       PopupMenuItem(value: LedgerOrder.name, child: Text('By name')),
                     ],
@@ -279,7 +284,8 @@ class _WhosWhoScreenState extends State<WhosWhoScreen> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
                 child: Text(
-                  '${widget.bookTitle}${widget.line == null ? '' : ' · as of chapter ${widget.line! + 1}'}',
+                  '${widget.bookTitle}${widget.line == null ? '' : ' · as of chapter ${widget.line! + 1}'}'
+                  '\nTap a name for its card · hold it to rename, or to join two',
                   style: Skin.meta(context),
                 ),
               ),
@@ -354,8 +360,7 @@ class _WhosWhoScreenState extends State<WhosWhoScreen> {
                                 subtitle: Text(
                                   [
                                     if (e.about != null && e.about!.isNotEmpty) e.about!,
-                                    '${kindLabel(e.kind)} · ${(e.firstCh ?? 0) < 0 ? 'from an earlier book' : 'first in chapter ${(e.firstCh ?? 0) + 1}'} · '
-                                        'in ${e.mentions} ${e.mentions == 1 ? 'chapter' : 'chapters'}',
+                                    '${kindLabel(e.kind)} · ${whereSeen(e)}',
                                   ].join('\n'),
                                   maxLines: 3,
                                   overflow: TextOverflow.ellipsis,
