@@ -312,7 +312,7 @@ class _TalkSheetState extends State<TalkSheet> {
       setState(() => answer.error = e.until != null
           ? 'Every key has used its quota for now. Ask again at ${wakeTime(e.until!)}.'
           : e.last == null
-              ? 'No key can talk yet: give one a model for Talking, in AI.'
+              ? 'No key can talk yet: give one a model for Talking, in AI settings.'
               : 'The AI could not answer: ${e.last!.message}');
     } on Object catch (e) {
       if (!mounted) return;

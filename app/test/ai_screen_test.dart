@@ -33,7 +33,11 @@ void main() {
       await tester.tap(find.text('I agree'));
       await tester.pumpAndSettle();
     }
-    await tester.tap(find.widgetWithText(ChoiceChip, provider));
+    // The provider, from its list over the sheet (the last such text: the
+    // field behind shows the one chosen so far).
+    await tester.tap(find.text('Provider'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(provider).last);
     await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextField, 'API key'), secret);
     if (builder != null) await tester.enterText(find.widgetWithText(TextField, 'Building memories'), builder);

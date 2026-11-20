@@ -17,7 +17,7 @@ import 'ai_consent.dart';
 import 'ai_data.dart';
 import 'ai_keys.dart';
 
-/// Main menu > AI: the reader's keys, what each job uses, and how they have
+/// AI chat > settings: the reader's keys, what each job uses, and how they have
 /// been used. The memories and their settings join it as they are built.
 class AiScreen extends StatefulWidget {
   const AiScreen({super.key, this.ring, this.client});
@@ -85,7 +85,7 @@ class _AiScreenState extends State<AiScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              ScreenTopBar(title: 'AI', onBack: () => Navigator.of(context).maybePop()),
+              ScreenTopBar(title: 'AI settings', onBack: () => Navigator.of(context).maybePop()),
               Expanded(
                 child: ListView(
                   padding: EdgeInsets.fromLTRB(0, 0, 0, Gap.xxl + bottom),
@@ -649,30 +649,58 @@ class _KeySheetState extends State<KeySheet> {
     if (mounted) Navigator.of(context).pop();
   }
 
+  /// The providers, one under another, each with what it is good for. The
+  /// mark before the chosen one sits in the same place for every row, so
+  /// choosing moves nothing (chips that grew a tick when chosen reflowed
+  /// the whole row, and the page with it).
+  Future<void> _chooseProvider() async {
+    final picked = await showModalBottomSheet<AiProvider>(
+      context: context,
+      sheetAnimationStyle: sheetMotion(context),
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => _ProviderPicker(chosen: _provider),
+    );
+    if (picked != null && picked != _provider && mounted) _pick(picked);
+  }
+
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(Gap.l, 0, Gap.l, Gap.l),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SheetHeader(widget.editing == null ? 'A new key' : 'The key'),
-                Wrap(
-                  spacing: Gap.s,
-                  runSpacing: Gap.s,
-                  children: [
-                    for (final p in AiProvider.values)
-                      ChoiceChip(label: Text(p.label), selected: p == _provider, onSelected: (_) => _pick(p)),
-                  ],
+  Widget build(BuildContext context) {
+    final soft = Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkSoftOn(context)).copyWith(height: 1.45);
+    final showModels = [
+      for (final job in AiJob.values)
+        if (job != AiJob.embedder || _provider.embeds || _provider == AiProvider.custom) job,
+    ];
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.s, Gap.xl, Gap.xl),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(widget.editing == null ? 'Add a key' : 'Change the key', style: Skin.title(context, size: 22)),
+              const SizedBox(height: Gap.s),
+              Text('From your own account with the provider. It stays on this phone and never goes into a backup.',
+                  style: soft),
+              const SizedBox(height: Gap.xl),
+              FormFields(children: [
+                // The provider, as a field like the others: tapped, its list
+                // opens over the sheet, so the sheet itself never reflows.
+                InkWell(
+                  borderRadius: BorderRadius.circular(Radii.row),
+                  onTap: () => unawaited(_chooseProvider()),
+                  child: InputDecorator(
+                    decoration: InputDecoration(
+                      labelText: 'Provider',
+                      helperText: _provider.note,
+                      helperMaxLines: 4,
+                      suffixIcon: const Icon(Icons.unfold_more_rounded),
+                    ),
+                    child: Text(_provider.label, style: Skin.ui(size: 16, weight: FontWeight.w500, color: Skin.inkOn(context))),
+                  ),
                 ),
-                const SizedBox(height: Gap.s),
-                Text(_provider.note,
-                    style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkSoftOn(context))
-                        .copyWith(height: 1.35)),
-                const SizedBox(height: Gap.m),
                 TextField(
                   controller: _secret,
                   obscureText: !_shown,
@@ -683,75 +711,65 @@ class _KeySheetState extends State<KeySheet> {
                     labelText: 'API key',
                     suffixIcon: IconButton(
                       tooltip: _shown ? 'Hide the key' : 'Show the key',
-                      icon: Icon(_shown ? Icons.visibility_off_rounded : Icons.visibility_rounded),
+                      icon: Icon(_shown ? Icons.visibility_off_outlined : Icons.visibility_outlined),
                       onPressed: () => setState(() => _shown = !_shown),
                     ),
                   ),
                 ),
-                const SizedBox(height: Gap.s),
                 TextField(
                   controller: _label,
                   textCapitalization: TextCapitalization.sentences,
                   decoration: InputDecoration(labelText: 'Its name (optional)', hintText: _provider.label),
                 ),
-                if (_provider == AiProvider.custom || _base.text != _provider.baseUrl) ...[
-                  const SizedBox(height: Gap.s),
+                if (_provider == AiProvider.custom || _base.text != _provider.baseUrl)
                   TextField(
                     controller: _base,
                     keyboardType: TextInputType.url,
                     autocorrect: false,
                     onChanged: (_) => setState(() {}),
-                    decoration: const InputDecoration(
-                      labelText: 'Address',
-                      hintText: 'https://example.com/v1',
+                    decoration: const InputDecoration(labelText: 'Address', hintText: 'https://example.com/v1'),
+                  ),
+              ]),
+              const SizedBox(height: Gap.m),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: _ready && !_checking ? () => unawaited(_check()) : null,
+                  icon: _checking
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.network_check_rounded, size: 18),
+                  label: const Text('Check the key'),
+                ),
+              ),
+              if (_checkNote != null) ...[
+                const SizedBox(height: Gap.s),
+                Text(_checkNote!,
+                    style: Skin.ui(
+                      size: 13,
+                      weight: FontWeight.w500,
+                      color: _checkFailed ? Theme.of(context).colorScheme.error : Skin.inkSoftOn(context),
+                    ).copyWith(height: 1.4)),
+              ],
+              const SizedBox(height: Gap.xl),
+              const Eyebrow('Models, a job each'),
+              const SizedBox(height: Gap.m),
+              FormFields(children: [
+                for (final job in showModels)
+                  TextField(
+                    controller: _models[job],
+                    autocorrect: false,
+                    decoration: InputDecoration(
+                      labelText: job.label,
+                      hintText: job == AiJob.embedder ? 'Leave empty to skip' : 'Leave empty: not used for this',
+                      suffixIcon: (_offered?.isNotEmpty ?? false)
+                          ? IconButton(
+                              tooltip: 'Choose a model for ${job.label.toLowerCase()}',
+                              icon: const Icon(Icons.list_rounded),
+                              onPressed: () => unawaited(_chooseModel(job)),
+                            )
+                          : null,
                     ),
                   ),
-                ],
-                const SizedBox(height: Gap.m),
-                Row(
-                  children: [
-                    OutlinedButton.icon(
-                      onPressed: _ready && !_checking ? () => unawaited(_check()) : null,
-                      icon: _checking
-                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                          : const Icon(Icons.network_check_rounded, size: 18),
-                      label: const Text('Check the key'),
-                    ),
-                  ],
-                ),
-                if (_checkNote != null) ...[
-                  const SizedBox(height: Gap.s),
-                  Text(_checkNote!,
-                      style: Skin.ui(
-                        size: 13,
-                        weight: FontWeight.w500,
-                        color: _checkFailed ? Theme.of(context).colorScheme.error : Skin.inkSoftOn(context),
-                      )),
-                ],
-                const SizedBox(height: Gap.l),
-                const Eyebrow('Models, a job each'),
-                const SizedBox(height: Gap.xs),
-                for (final job in AiJob.values)
-                  if (job != AiJob.embedder || _provider.embeds || _provider == AiProvider.custom)
-                    Padding(
-                      padding: const EdgeInsets.only(top: Gap.s),
-                      child: TextField(
-                        controller: _models[job],
-                        autocorrect: false,
-                        decoration: InputDecoration(
-                          labelText: job.label,
-                          hintText: job == AiJob.embedder ? 'Leave empty to skip' : 'Leave empty: not used for this',
-                          suffixIcon: (_offered?.isNotEmpty ?? false)
-                              ? IconButton(
-                                  tooltip: 'Choose a model for ${job.label.toLowerCase()}',
-                                  icon: const Icon(Icons.list_rounded),
-                                  onPressed: () => unawaited(_chooseModel(job)),
-                                )
-                              : null,
-                        ),
-                      ),
-                    ),
-                const SizedBox(height: Gap.m),
                 TextField(
                   controller: _cap,
                   keyboardType: TextInputType.text,
@@ -759,25 +777,90 @@ class _KeySheetState extends State<KeySheet> {
                     labelText: 'Daily limit, in tokens (optional)',
                     hintText: '2M, 500k, or empty for none',
                     helperText: 'Reached, the key rests until midnight and the next one takes over.',
+                    helperMaxLines: 2,
                   ),
                 ),
-                const SizedBox(height: Gap.l),
-                Row(
-                  children: [
-                    if (widget.editing != null)
-                      TextButton(
-                        onPressed: () => unawaited(_remove()),
-                        child: Text('Remove', style: TextStyle(color: Theme.of(context).colorScheme.error)),
-                      ),
-                    const Spacer(),
-                    FilledButton(
-                      onPressed: _ready ? () => unawaited(_save()) : null,
-                      child: const Text('Save'),
+              ]),
+              const SizedBox(height: Gap.xl),
+              Row(
+                children: [
+                  if (widget.editing != null)
+                    TextButton(
+                      onPressed: () => unawaited(_remove()),
+                      child: Text('Remove', style: TextStyle(color: Theme.of(context).colorScheme.error)),
                     ),
-                  ],
+                  const Spacer(),
+                  FilledButton(
+                    onPressed: _ready ? () => unawaited(_save()) : null,
+                    child: const Text('Save'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The providers to choose from, each with its note. Every row keeps the
+/// same mark slot before its name, filled for the chosen one.
+class _ProviderPicker extends StatelessWidget {
+  const _ProviderPicker({required this.chosen});
+
+  final AiProvider chosen;
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.only(bottom: Gap.l),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SheetHeader('Provider'),
+              for (final p in AiProvider.values)
+                InkWell(
+                  onTap: () => Navigator.of(context).pop(p),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: Gap.xl, vertical: 12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(
+                          width: 24,
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Icon(
+                              p == chosen ? Icons.radio_button_checked_rounded : Icons.radio_button_unchecked_rounded,
+                              size: 20,
+                              color: p == chosen ? Skin.accentInkOf(context) : Skin.inkFaintOn(context),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: Gap.l),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(p.label,
+                                  style: Skin.ui(
+                                      size: 16,
+                                      weight: p == chosen ? FontWeight.w700 : FontWeight.w500,
+                                      color: Skin.inkOn(context))),
+                              const SizedBox(height: 2),
+                              Text(p.note,
+                                  style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkSoftOn(context))
+                                      .copyWith(height: 1.35)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ],
-            ),
+            ],
           ),
         ),
       );

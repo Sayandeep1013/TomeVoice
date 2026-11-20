@@ -3,8 +3,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import 'ai/ai_chat_screen.dart';
 import 'ai/ai_keys.dart';
-import 'ai/ai_screen.dart';
 import 'ai/memory/memory_background.dart';
 import 'ai/memory/memory_section.dart';
 import 'ai/memory/memory_service.dart';
@@ -591,47 +591,63 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
                   ],
                 ),
               ),
+              // Grouped by what each is for, a quiet heading over each group.
+              _heading(context, 'Your books', first: true),
               _item(context, Icons.auto_stories_outlined, Icons.auto_stories_rounded, 'Library',
                   selected: _place == _Place.library, onTap: () => _go(_Place.library)),
-              _item(context, Icons.travel_explore_rounded, Icons.travel_explore_rounded, 'Browse',
-                    selected: _place == _Place.browse, onTap: () => _go(_Place.browse)),
-              // Ebook libraries (OPDS): Project Gutenberg, Standard Ebooks, Calibre.
-              _item(context, Icons.local_library_outlined, Icons.local_library_rounded, 'Catalogues',
-                  onTap: () => _push((s) => CataloguesScreen(store: s))),
-              _item(context, Icons.new_releases_outlined, Icons.new_releases_rounded, 'Updates',
-                    selected: _place == _Place.updates, onTap: () => _go(_Place.updates)),
+              _item(context, Icons.folder_copy_outlined, Icons.folder_copy_rounded, 'Categories',
+                  onTap: () => _push((s) => CategoriesScreen(store: s))),
               _item(context, Icons.history_rounded, Icons.history_rounded, 'History',
                   selected: _place == _Place.history, onTap: () => _go(_Place.history)),
               _item(context, Icons.bookmarks_outlined, Icons.bookmarks_rounded, 'Saved',
                   onTap: () => _push((s) => SavedScreen(store: s))),
-              // The reading journal: what was thought, a page a book.
-              _item(context, Icons.edit_note_outlined, Icons.edit_note_rounded, 'Journal',
-                  onTap: () => _push((s) => JournalScreen(store: s))),
-              // The reading companion: keys, the books' memories, Talk.
-              _item(context, Icons.auto_awesome_outlined, Icons.auto_awesome_rounded, 'AI',
-                  onTap: () => _push((_) => const AiScreen())),
-              // Every book's memory, how far it is built.
-              _item(context, Icons.psychology_outlined, Icons.psychology_rounded, 'Memory',
-                  onTap: () => _push((_) => const MemoriesScreen())),
               _item(context, Icons.insights_outlined, Icons.insights_rounded, 'Stats',
                   onTap: () => _push((s) => StatsScreen(store: s))),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: Gap.xl, vertical: Gap.m),
-                child: Divider(),
-              ),
-              _item(context, Icons.folder_copy_outlined, Icons.folder_copy_rounded, 'Categories',
-                  onTap: () => _push((s) => CategoriesScreen(store: s))),
+              _heading(context, 'Find books'),
+              _item(context, Icons.travel_explore_rounded, Icons.travel_explore_rounded, 'Browse',
+                    selected: _place == _Place.browse, onTap: () => _go(_Place.browse)),
+              _item(context, Icons.new_releases_outlined, Icons.new_releases_rounded, 'Updates',
+                    selected: _place == _Place.updates, onTap: () => _go(_Place.updates)),
+              // Ebook libraries (OPDS): Project Gutenberg, Standard Ebooks, Calibre.
+              _item(context, Icons.local_library_outlined, Icons.local_library_rounded, 'Catalogues',
+                  onTap: () => _push((s) => CataloguesScreen(store: s))),
               _item(context, Icons.extension_outlined, Icons.extension_rounded, 'Sources',
                     onTap: () {
                       final sources = _sources;
                       if (sources != null) _push((_) => SourcesScreen(store: sources));
                     }),
+              _heading(context, 'Thoughts and AI'),
+              // The reading journal: what was thought, a page a book.
+              _item(context, Icons.edit_note_outlined, Icons.edit_note_rounded, 'Journal',
+                  onTap: () => _push((s) => JournalScreen(store: s))),
+              // Talking with the AI; its keys and settings behind the gear there.
+              _item(context, Icons.forum_outlined, Icons.forum_rounded, 'AI chat',
+                  onTap: () => _push((s) => AiChatScreen(store: s))),
+              // Every book's memory, how far it is built.
+              _item(context, Icons.psychology_outlined, Icons.psychology_rounded, 'Memory',
+                  onTap: () => _push((_) => const MemoriesScreen())),
+              _heading(context, 'App'),
               _item(context, Icons.settings_outlined, Icons.settings_rounded, 'Settings',
                   onTap: () => _push((s) => SettingsScreen(store: s))),
               _item(context, Icons.info_outline_rounded, Icons.info_rounded, 'About',
                   onTap: () => _push((store) => AboutScreen(root: store.root))),
             ],
           ),
+        ),
+      );
+
+  /// A group's heading, with a rule above it (but the first's).
+  Widget _heading(BuildContext context, String label, {bool first = false}) => Padding(
+        padding: EdgeInsets.fromLTRB(Gap.xl + Gap.s, first ? 0 : Gap.s, Gap.xl, Gap.xs),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (!first) ...[
+              Divider(height: 1, color: Skin.inkOn(context).withValues(alpha: 0.12)),
+              const SizedBox(height: Gap.m),
+            ],
+            Eyebrow(label),
+          ],
         ),
       );
 

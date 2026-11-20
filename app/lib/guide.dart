@@ -271,7 +271,7 @@ const aiGuideCards = <GuideCard>[
     'Your own AI',
     'TomeVoice talks to an AI with your own key, straight from this phone. There is no TomeVoice server.',
     [
-      (Icons.add_rounded, 'Add a key on this page: Google Gemini, OpenRouter, Groq, Inception, OpenAI, AgentRouter or any service like them. Free tiers work.'),
+      (Icons.add_rounded, 'Add a key in AI settings, the gear in AI chat: Google Gemini, OpenRouter, Groq, Inception, OpenAI, AgentRouter or any service like them. Free tiers work.'),
       (Icons.sync_rounded, 'Add as many keys as you like. When one has used its quota it rests, and the next takes over.'),
       (Icons.lock_outline_rounded, 'Nothing of a book is sent until you add a key, and never a book on a secret shelf.'),
     ],
@@ -282,7 +282,7 @@ const aiGuideCards = <GuideCard>[
     'The AI reads a book once, chapter by chapter, and keeps notes: who is who, what happened, and where.',
     [
       (Icons.menu_book_rounded, "On a book's page, open Memory and press Build memory."),
-      (Icons.schedule_rounded, 'A long book takes hours on a free key. It goes on in the background, and with TomeVoice closed if you allow it on this page.'),
+      (Icons.schedule_rounded, 'A long book takes hours on a free key. It goes on in the background, and with TomeVoice closed if you allow it in AI settings.'),
       (Icons.download_rounded, 'A web novel fetches its missing chapters first. Once the memory has read them, Free the space deletes them again.'),
     ],
   ),
@@ -324,7 +324,7 @@ const aiGuideCards = <GuideCard>[
       (Icons.visibility_off_outlined, 'Spoiler guard, on a book\'s Memory: the AI keeps to what you have read. It is off until you turn it on.'),
       (Icons.block_rounded, "Keep this book away from the AI, in the Memory's menu: nothing of it is sent."),
       (Icons.link_rounded, 'A sequel can carry on from the book before it, so its people come along.'),
-      (Icons.flag_outlined, 'Report any answer from Talk; AI > What was sent lists every call made with your keys.'),
+      (Icons.flag_outlined, 'Report any answer from Talk; AI settings > What was sent lists every call made with your keys.'),
     ],
   ),
 ];
