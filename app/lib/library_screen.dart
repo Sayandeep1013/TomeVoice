@@ -13,6 +13,7 @@ import 'categories_screen.dart';
 import 'duplicates.dart';
 import 'library_store.dart';
 import 'listening_session.dart';
+import 'novel_link.dart';
 import 'novel_screen.dart';
 import 'ocr.dart';
 import 'ocr_jobs.dart';
@@ -252,6 +253,25 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     final link = sharedLink(tidyShared(text));
     final job = _Importing(shareName(text), note: link == null ? null : 'Fetching the page…');
     setState(() => _importing = job);
+    // A web novel's link, on the site of a source the reader has: its page
+    // there, to add or read, not the one page as an article.
+    if (link != null) {
+      NovelLink? novel;
+      try {
+        novel = await novelOfLink(link);
+      } on Object {
+        novel = null;
+      }
+      if (!mounted) return;
+      if (novel != null) {
+        if (identical(_importing, job)) setState(() => _importing = null);
+        final n = novel;
+        await Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => NovelScreen(store: _store, plugin: n.plugin, path: n.path, name: n.name),
+        ));
+        return;
+      }
+    }
     SharedOutcome? got;
     String? problem;
     var browse = false;

@@ -94,8 +94,9 @@ object SourcesBridge {
                     val handle = (call.argument<Any>("handle") as? Number)?.toLong() ?: 0L
                     val minutes = (call.argument<Any>("minutes") as? Number)?.toLong() ?: 0L
                     val unmetered = call.argument<Boolean>("unmetered") != false
+                    val charging = call.argument<Boolean>("charging") == true
                     try {
-                        NovelCheckWorker.schedule(appContext, handle, minutes, unmetered)
+                        NovelCheckWorker.schedule(appContext, handle, minutes, unmetered, charging)
                         result.success(true)
                     } catch (e: Exception) {
                         result.error("SCHEDULE", e.message, null)

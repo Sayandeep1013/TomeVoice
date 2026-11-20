@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'chapter_notes.dart';
@@ -512,10 +513,24 @@ class BookGraph {
   }
 
   /// [from] merged into [into]: its names, appearances, part in events,
-  /// facts and relations become [into]'s; it stays, pointing there, so a
-  /// merge can be undone.
-  void merge(int from, int into) {
+  /// facts and relations become [into]'s; it stays, pointing there, and
+  /// what moved is kept (by the reader or the AI, [by]), so the merge can be
+  /// undone ([undoMerge]).
+  void merge(int from, int into, {String by = 'reader'}) {
     if (from == into) return;
+    List<int> idsOf(String sql) => [for (final r in m.db.select(sql, [from])) r.columnAt(0) as int];
+    Set<String> aliasesOf(int id) => {for (final r in m.db.select('SELECT norm FROM aliases WHERE entity = ?', [id])) r['norm'] as String};
+    Set<int> chaptersOf(int id) => {for (final r in m.db.select('SELECT ch FROM appearances WHERE entity = ?', [id])) r['ch'] as int};
+    final hadAliases = aliasesOf(into);
+    final hadChapters = chaptersOf(into);
+    final moved = <String, Object>{
+      'roles': idsOf('SELECT rowid FROM event_roles WHERE entity = ?'),
+      'places': idsOf('SELECT id FROM events WHERE place = ?'),
+      'facts': idsOf('SELECT id FROM facts WHERE entity = ?'),
+      'relA': idsOf('SELECT id FROM relations WHERE a = ?'),
+      'relB': idsOf('SELECT id FROM relations WHERE b = ?'),
+      'quotes': idsOf('SELECT id FROM quotes WHERE speaker = ?'),
+    };
     m.db.execute('UPDATE entities SET merged_into = ? WHERE id = ?', [into, from]);
     for (final r in m.db.select('SELECT alias, ch FROM aliases WHERE entity = ?', [from])) {
       alias(into, r['alias'] as String, (r['ch'] as int?) ?? 0, own: true);
@@ -531,6 +546,67 @@ class BookGraph {
     for (final ids in _alias.values) {
       if (ids.remove(from)) ids.add(into);
     }
+    moved['aliases'] = aliasesOf(into).difference(hadAliases).toList();
+    moved['chapters'] = chaptersOf(into).difference(hadChapters).toList();
+    m.db.execute('INSERT INTO merges(from_id, into_id, at, by, moved) VALUES (?, ?, ?, ?, ?)',
+        [from, into, DateTime.now().toUtc().toIso8601String(), by, jsonEncode(moved)]);
+  }
+
+  /// Merges not undone, newest first: into [into] alone when given.
+  List<MergeRecord> merges({int? into}) => [
+        for (final r in m.db.select(
+          'SELECT g.id, g.from_id, g.into_id, g.at, g.by, f.name AS from_name, t.name AS into_name FROM merges g '
+          'JOIN entities f ON f.id = g.from_id JOIN entities t ON t.id = g.into_id '
+          'WHERE g.undone = 0 ${into == null ? '' : 'AND g.into_id = $into'} ORDER BY g.id DESC',
+        ))
+          MergeRecord(
+            id: r['id'] as int,
+            from: r['from_id'] as int,
+            into: r['into_id'] as int,
+            fromName: r['from_name'] as String,
+            intoName: r['into_name'] as String,
+            at: DateTime.tryParse(r['at'] as String) ?? DateTime.now(),
+            byAi: r['by'] == 'ai',
+          ),
+      ];
+
+  /// Merge [id] undone: the card merged away stands again with what it
+  /// brought (what still points to the card it went into; what the memory
+  /// has built since stays there). False when it was undone already.
+  bool undoMerge(int id) {
+    final r = m.db.select('SELECT from_id, into_id, moved FROM merges WHERE id = ? AND undone = 0', [id]).firstOrNull;
+    if (r == null) return false;
+    final from = r['from_id'] as int, into = r['into_id'] as int;
+    final moved = jsonDecode(r['moved'] as String) as Map<String, Object?>;
+    List<Object?> list(String k) => (moved[k] as List?) ?? const [];
+    void back(String sql, String k) {
+      for (final x in list(k)) {
+        m.db.execute(sql, [from, x, into]);
+      }
+    }
+
+    m.db.execute('UPDATE entities SET merged_into = NULL WHERE id = ?', [from]);
+    for (final norm in list('aliases')) {
+      m.db.execute('DELETE FROM aliases WHERE entity = ? AND norm = ?', [into, norm]);
+      _alias[norm as String]?.remove(into);
+    }
+    for (final ch in list('chapters')) {
+      m.db.execute('DELETE FROM appearances WHERE entity = ? AND ch = ?', [into, ch]);
+    }
+    back('UPDATE event_roles SET entity = ? WHERE rowid = ? AND entity = ?', 'roles');
+    back('UPDATE events SET place = ? WHERE id = ? AND place = ?', 'places');
+    back('UPDATE facts SET entity = ? WHERE id = ? AND entity = ?', 'facts');
+    back('UPDATE relations SET a = ? WHERE id = ? AND a = ?', 'relA');
+    back('UPDATE relations SET b = ? WHERE id = ? AND b = ?', 'relB');
+    back('UPDATE quotes SET speaker = ? WHERE id = ? AND speaker = ?', 'quotes');
+    // Its own names find it again.
+    for (final a in m.db.select('SELECT norm FROM aliases WHERE entity = ?', [from])) {
+      (_alias[a['norm'] as String] ??= {}).add(from);
+    }
+    m.db.execute('UPDATE merges SET undone = 1 WHERE id = ?', [id]);
+    _recount(from);
+    _recount(into);
+    return true;
   }
 
   void _recount(int id) => m.db.execute(
@@ -660,4 +736,27 @@ class BookGraph {
     ];
     return BuilderContext(kinds: kinds, entities: lines, events: events.reversed.toList(), threads: threads);
   }
+}
+
+/// One merge of two cards, as Who's who offers to undo it.
+class MergeRecord {
+  const MergeRecord({
+    required this.id,
+    required this.from,
+    required this.into,
+    required this.fromName,
+    required this.intoName,
+    required this.at,
+    this.byAi = false,
+  });
+
+  final int id;
+  final int from;
+  final int into;
+  final String fromName;
+  final String intoName;
+  final DateTime at;
+
+  /// Made by the AI's tidy, not by the reader.
+  final bool byAi;
 }

@@ -6,6 +6,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show ValueNotifier, visibleForTesting;
 
 import 'library_store.dart';
+import 'prefs.dart';
 import 'safe_file.dart';
 import 'sources/bridge.dart';
 import 'sources/models.dart';
@@ -95,18 +96,36 @@ class BookDownloads {
 /// that doubles each time (or what the site asked for, Retry-After), at
 /// most [maxTries] times; one whose source needs the reader (not installed,
 /// changed, a browser check) waits for them. Pause stops it all until Resume.
+/// How quickly chapters are fetched from one site: the pause between two
+/// requests to it. Faster gets a big novel sooner; a site may slow a reader
+/// down, or turn them away a while, for asking too often.
+enum DownloadPace {
+  gentle('Gentle', Duration(seconds: 4)),
+  normal('Normal', Duration(milliseconds: 1500)),
+  fast('Fast', Duration(milliseconds: 600));
+
+  const DownloadPace(this.label, this.gap);
+
+  final String label;
+  final Duration gap;
+
+  static DownloadPace byName(String? name) => values.where((p) => p.name == name).firstOrNull ?? normal;
+}
+
 class DownloadQueue {
-  DownloadQueue._();
+  DownloadQueue._() : _testPace = null;
 
   static final instance = DownloadQueue._();
 
   /// A queue of its own, for tests.
   @visibleForTesting
   DownloadQueue.forTests({Duration pace = const Duration(milliseconds: 1500), Duration backoff = const Duration(seconds: 5)})
-      : _pace = pace,
+      : _testPace = pace,
         _backoff = backoff;
 
-  Duration _pace = const Duration(milliseconds: 1500);
+  /// A test's own pace; otherwise the reader's (Settings > Download speed).
+  final Duration? _testPace;
+  Duration get _pace => _testPace ?? DownloadPace.byName(ListeningPrefs.loaded?.downloadPace).gap;
   Duration _backoff = const Duration(seconds: 5);
 
   static const maxTries = 5;

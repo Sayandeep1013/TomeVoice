@@ -396,14 +396,15 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
 
   /// The interval the background check was last given, so it is only asked
   /// for again when the reader changes it.
-  UpdateEvery? _scheduled;
+  (UpdateEvery, bool)? _scheduled;
 
   Future<void> _scheduleChecks() async {
     final every = UpdateEvery.byName(ListeningPrefs.loaded?.updateEvery);
-    if (every == _scheduled) return;
-    _scheduled = every;
+    final charging = ListeningPrefs.loaded?.checkCharging ?? false;
+    if ((every, charging) == _scheduled) return;
+    _scheduled = (every, charging);
     try {
-      await BackgroundChecks.schedule(every);
+      await BackgroundChecks.schedule(every, charging: charging);
     } on Object {
       _scheduled = null;
     }

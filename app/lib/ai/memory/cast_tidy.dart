@@ -89,7 +89,7 @@ int applyCastTidy(String path, Map<String, Object?> reply, Set<int> ids) {
         for (final o in (s['merge'] is List ? s['merge'] as List : const [])) {
           final id = idOf(o);
           if (id == null || id == keep) continue;
-          g.merge(id, keep);
+          g.merge(id, keep, by: 'ai');
           changes++;
         }
       }
@@ -212,6 +212,31 @@ Future<void> mergeEntity(String path, int from, int into) => Isolate.run(() {
       final m = MemoryDb.open(path);
       try {
         m.inTransaction(() => BookGraph(m).merge(from, into));
+      } finally {
+        m.close();
+      }
+    });
+
+/// The merges of the memory at [path] not undone, newest first; into
+/// [into] alone when given.
+Future<List<MergeRecord>> mergesOf(String path, {int? into}) => Isolate.run(() {
+      final m = MemoryDb.open(path);
+      try {
+        return BookGraph(m).merges(into: into);
+      } finally {
+        m.close();
+      }
+    });
+
+/// Merges [ids] undone, newest first.
+Future<void> undoMerges(String path, List<int> ids) => Isolate.run(() {
+      final m = MemoryDb.open(path);
+      try {
+        m.inTransaction(() {
+          for (final id in [...ids]..sort((a, b) => b - a)) {
+            BookGraph(m).undoMerge(id);
+          }
+        });
       } finally {
         m.close();
       }

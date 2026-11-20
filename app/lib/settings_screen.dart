@@ -23,6 +23,7 @@ import 'novel_updates.dart';
 import 'noveldokusha_import.dart';
 import 'own_colours.dart';
 import 'own_colours_sheet.dart';
+import 'download_queue.dart' show DownloadPace;
 import 'prefs.dart';
 import 'problem_report.dart';
 import 'relayout.dart';
@@ -45,6 +46,9 @@ const _svc = SpeechService();
 
 /// Where the project lives.
 const repositoryUrl = 'https://github.com/Sayandeep1013/TomeVoice';
+
+/// The privacy policy, on the site.
+const privacyUrl = 'https://sayandeep1013.github.io/TomeVoice/privacy.html';
 
 /// Settings, grouped the way readers look for them: how it looks, how the
 /// page reads, how it sounds, how the library is kept.
@@ -559,6 +563,21 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           onTap: _importNovelDokusha,
                         ),
                         const SizedBox(height: Gap.l),
+                        const SectionTitle('Download speed'),
+                        const SizedBox(height: Gap.m),
+                        ChoiceRow<String>(
+                          options: [for (final p in DownloadPace.values) (p.name, p.label)],
+                          value: DownloadPace.byName(_prefs.downloadPace).name,
+                          minSegment: 76,
+                          onChanged: (v) => _change(() => _prefs.downloadPace = v),
+                        ),
+                        const SizedBox(height: Gap.xs),
+                        Text(
+                          'How quickly chapters come from a site, for downloads and memories. Fast gets a long '
+                          'novel sooner, but a site may slow you down or turn you away for a while.',
+                          style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
+                        ),
+                        const SizedBox(height: Gap.l),
                         const SectionTitle('Check for new chapters'),
                         const SizedBox(height: Gap.m),
                         ChoiceRow<String>(
@@ -573,6 +592,13 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
                         ),
                         const SizedBox(height: Gap.s),
+                        SwitchRow(
+                          title: 'Only while charging',
+                          subtitle: 'With TomeVoice closed, novels are checked only while the phone charges',
+                          value: _prefs.checkCharging,
+                          padding: EdgeInsets.zero,
+                          onChanged: (v) => _change(() => _prefs.checkCharging = v),
+                        ),
                         SwitchRow(
                           title: "Only novels I've begun",
                           subtitle: 'One added but never opened is not checked',
@@ -1143,6 +1169,12 @@ class _AboutScreenState extends State<AboutScreen> {
                         title: 'Releases',
                         subtitle: 'Download the latest version',
                         onTap: () => _svc.openUrl('$repositoryUrl/releases/latest'),
+                      ),
+                      _Link(
+                        icon: Icons.privacy_tip_outlined,
+                        title: 'Privacy',
+                        subtitle: 'What stays on the phone, and what goes where',
+                        onTap: () => _svc.openUrl(privacyUrl),
                       ),
                       _Link(
                         icon: Icons.bug_report_outlined,

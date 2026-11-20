@@ -27,7 +27,7 @@ import 'chapter_finder.dart';
 import 'export_audio_sheet.dart';
 import 'fast_scroller.dart';
 import 'highlights.dart';
-import 'journal.dart' show JournalStamp;
+import 'journal.dart' show JournalEntry, JournalStamp, JournalStore;
 import 'journal_page.dart';
 import 'library_store.dart';
 import 'listening_session.dart' show BackgroundReading;
@@ -2682,6 +2682,18 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       ))),
     );
     await markToldOff(path, [for (final x in news) x.id]);
+    // And in the journal, where the reader looks back.
+    final stamp = _stampNow();
+    for (final x in news) {
+      await JournalStore.instance.put(JournalEntry(
+        id: JournalStore.newId(),
+        bookId: _book.id,
+        bookTitle: _book.metadata.title,
+        created: DateTime.now().toUtc(),
+        stamp: stamp,
+        talk: settledLines(x),
+      ));
+    }
   }
 
   /// The spoiler line, with the guard on: the furthest of the chapter here

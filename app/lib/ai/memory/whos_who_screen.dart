@@ -100,9 +100,12 @@ class _WhosWhoScreenState extends State<WhosWhoScreen> {
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _tidying = true);
     String said;
+    final before = (await mergesOf(widget.memoryPath)).map((r) => r.id).toSet();
+    var merged = <int>[];
     try {
       final n = await tidyCast(widget.memoryPath, AiRouter(about: widget.bookTitle));
       said = n == 0 ? 'The names were already in order' : 'Names tidied: $n ${n == 1 ? 'change' : 'changes'}';
+      merged = [for (final r in await mergesOf(widget.memoryPath)) if (!before.contains(r.id)) r.id];
     } on AiResting {
       said = 'No AI key can take this now. Try again later.';
     } on Object {
@@ -110,12 +113,22 @@ class _WhosWhoScreenState extends State<WhosWhoScreen> {
     }
     if (!mounted) return;
     setState(() => _tidying = false);
-    messenger.showSnackBar(SnackBar(content: Text(said)));
+    messenger.showSnackBar(SnackBar(
+      content: Text(said),
+      action: merged.isEmpty
+          ? null
+          : SnackBarAction(
+              label: 'Undo merges',
+              onPressed: () => unawaited(undoMerges(widget.memoryPath, merged).then((_) => _load())),
+            ),
+    ));
     unawaited(_load());
   }
 
   /// Renamed, or made one with another card.
   Future<void> _edit(LedgerEntry e) async {
+    final merges = await mergesOf(widget.memoryPath, into: e.id);
+    if (!mounted) return;
     final what = await showModalBottomSheet<String>(
       context: context,
       sheetAnimationStyle: sheetMotion(context),
@@ -145,12 +158,21 @@ class _WhosWhoScreenState extends State<WhosWhoScreen> {
               subtitle: const Text('From there on, the chapters go to another card'),
               onTap: () => Navigator.of(ctx).pop('split'),
             ),
+            for (final g in merges)
+              ListTile(
+                leading: const Icon(Icons.undo_rounded),
+                title: Text('Take ${g.fromName} apart again'),
+                subtitle: Text('Made one with ${e.name} ${g.byAi ? 'by the AI' : 'by you'}, ${_day(g.at)}'),
+                onTap: () => Navigator.of(ctx).pop('undo:${g.id}'),
+              ),
           ],
         ),
       ),
     );
     if (!mounted || what == null) return;
-    if (what == 'rename') {
+    if (what.startsWith('undo:')) {
+      await undoMerges(widget.memoryPath, [int.parse(what.substring(5))]);
+    } else if (what == 'rename') {
       final name = await askText(context, title: 'Rename', initial: e.name, hint: 'Name');
       if (name == null || name.trim().isEmpty || name.trim() == e.name) return;
       await renameEntity(widget.memoryPath, e.id, name.trim());
@@ -187,6 +209,16 @@ class _WhosWhoScreenState extends State<WhosWhoScreen> {
       // chapters and links go to it.
       final (keep, gone) = other.mentions >= e.mentions ? (other, e) : (e, other);
       await mergeEntity(widget.memoryPath, gone.id, keep.id);
+      final made = (await mergesOf(widget.memoryPath, into: keep.id)).where((r) => r.from == gone.id).firstOrNull;
+      if (mounted && made != null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('${gone.name} is now part of ${keep.name}'),
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () => unawaited(undoMerges(widget.memoryPath, [made.id]).then((_) => _load())),
+          ),
+        ));
+      }
     }
     unawaited(_load());
   }
@@ -556,4 +588,10 @@ class _KindsSheetState extends State<_KindsSheet> {
           ],
         ),
       );
+}
+
+String _day(DateTime at) {
+  final d = at.toLocal();
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return '${d.day} ${months[d.month - 1]}';
 }

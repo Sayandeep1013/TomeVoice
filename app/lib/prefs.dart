@@ -62,6 +62,8 @@ class ListeningPrefs {
     this.ownAccent,
     this.ownInk,
     this.updateEvery = 'daily',
+    this.checkCharging = false,
+    this.downloadPace = 'normal',
     this.checkStartedOnly = false,
     this.novelUpdates = false,
     this.gridView = true,
@@ -347,6 +349,12 @@ class ListeningPrefs {
   /// How often web novels are checked for new chapters (see UpdateEvery).
   String updateEvery;
 
+  /// The check with TomeVoice closed runs only while the phone charges.
+  bool checkCharging;
+
+  /// How quickly web-novel chapters are fetched (see DownloadPace).
+  String downloadPace;
+
   /// Only the web novels already begun are checked for new chapters.
   bool checkStartedOnly;
 
@@ -566,6 +574,8 @@ class ListeningPrefs {
         if (ownAccent != null) 'ownAccent': colourToHex(ownAccent!),
         if (ownInk != null) 'ownInk': colourToHex(ownInk!),
         'updateEvery': updateEvery,
+        if (checkCharging) 'checkCharging': true,
+        if (downloadPace != 'normal') 'downloadPace': downloadPace,
         if (checkStartedOnly) 'checkStartedOnly': true,
         if (novelUpdates) 'novelUpdates': true,
         'gridView': gridView,
@@ -700,6 +710,8 @@ class ListeningPrefs {
         ownAccent: colourFromHex(json['ownAccent']),
         ownInk: colourFromHex(json['ownInk']),
         updateEvery: json['updateEvery'] as String? ?? 'daily',
+        checkCharging: json['checkCharging'] == true,
+        downloadPace: json['downloadPace'] as String? ?? 'normal',
         checkStartedOnly: json['checkStartedOnly'] == true,
         novelUpdates: json['novelUpdates'] == true,
         sort: LibrarySort.values.where((m) => m.name == json['sort']).firstOrNull ??

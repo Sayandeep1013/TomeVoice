@@ -328,7 +328,7 @@ void main() {
         ),
       ));
       await tester.pumpAndSettle();
-      expect(find.text('Answers by AI, which can be wrong'), findsOneWidget);
+      expect(find.text('ANSWERS BY AI, WHICH CAN BE WRONG'), findsOneWidget);
       await tester.enterText(find.byType(TextField), 'Who did Sunny meet?');
       await tester.tap(find.byTooltip('Ask'));
       for (var i = 0; i < 100 && find.text('Report').evaluate().isEmpty; i++) {
