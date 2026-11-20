@@ -85,6 +85,19 @@ void main() {
     expect(notes.first.summary, 'The tide goes out.');
     expect(notes[1].summary, isNull);
     expect(chapterNotes(indexer.pathOf(id), 0).length, 1);
+    // Searched: by its number however typed, by title, by words in its notes.
+    List<int> find(String q) => findChapterNotes(notes, q).map((n) => n.ch).toList();
+    expect(find(''), [0, 1, 2]);
+    expect(find('2'), [1]);
+    expect(find('ch 3'), [2]);
+    expect(find('Chapter 1'), [0]);
+    expect(find('storm'), [2]);
+    expect(find('TIDE goes'), [0]);
+    expect(find('tide storm'), isEmpty);
+    expect(find('99'), isEmpty);
+    expect(chapterNumberIn('Ch. 120'), 120);
+    expect(chapterNumberIn('#7'), 7);
+    expect(chapterNumberIn('chapter of'), isNull);
     forgetChapterNotes(indexer.pathOf(id), 0);
     expect(chapterNotes(indexer.pathOf(id), null).first.summary, isNull);
   });
