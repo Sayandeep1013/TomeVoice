@@ -605,13 +605,19 @@ String durationLabel(Duration d) {
   return m == 0 ? '$h h' : '$h h $m min';
 }
 
+/// "about 12 min", or "under a minute" (never "about under a minute").
+String aboutDuration(Duration d) {
+  final label = durationLabel(d);
+  return label == 'under a minute' ? label : 'about $label';
+}
+
 /// "Chapter 3 of 12 · 42% · about 10 min left".
 String progressLabel(ExportStatus s) {
   final p = s.progress;
   return [
     if (p != null && p.chapters > 1) 'Chapter ${p.chapter} of ${p.chapters}',
     '${((p?.fraction ?? 0) * 100).floor()}%',
-    if (s.left != null) 'about ${durationLabel(s.left!)} left',
+    if (s.left != null) '${aboutDuration(s.left!)} left',
   ].join(' · ');
 }
 

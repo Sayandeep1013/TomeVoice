@@ -100,6 +100,8 @@ void main() {
       expect(safeFileName('...'), 'TomeVoice');
       expect(durationLabel(const Duration(minutes: 125)), '2 h 5 min');
       expect(durationLabel(const Duration(seconds: 20)), 'under a minute');
+      expect(aboutDuration(const Duration(seconds: 20)), 'under a minute');
+      expect(aboutDuration(const Duration(minutes: 12)), 'about 12 min');
       expect(roughLength(ExportPlan.book(layout), 1.0, 0).inMilliseconds, (layout.totalWords / 165 * 60000).round());
       expect(
         progressLabel(const ExportStatus(ExportPhase.making,
