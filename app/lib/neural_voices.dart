@@ -636,7 +636,7 @@ class NeuralVoices extends ChangeNotifier {
     downloading[key] = 0;
     notifyListeners();
     final keep = KeepAliveJob(key: 'voice:$key', kind: KeepAliveKind.voice, text: v.name, onStop: () => cancel(v));
-    KeepAlive.instance.begin(keep);
+    if (keepVoiceDownloadsAlive) KeepAlive.instance.begin(keep);
     var shown = -1;
     final part = File('${dir.path}/$key$_partial');
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 20);

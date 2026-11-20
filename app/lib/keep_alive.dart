@@ -19,6 +19,11 @@ import 'theme.dart' show Gap;
 // TomeVoice is open, and pick up where they were when it is opened again.
 const keepDownloadsAlive = true;
 
+/// Whether a natural voice's download is kept going by it too.
+// Play: as for chapter downloads, `!playBuild` here leaves voice downloads
+// out of the keep-alive in the Play build, if that task is not declared.
+const keepVoiceDownloadsAlive = true;
+
 /// The kinds of long work the app does itself, in its own Dart.
 enum KeepAliveKind {
   downloads('Downloading chapters', 'downloading chapters', 'Chapter downloads', 'Downloads'),
