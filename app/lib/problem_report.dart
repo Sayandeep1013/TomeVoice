@@ -252,8 +252,8 @@ class ProblemReportSheet extends StatelessWidget {
                     Expanded(
                       child: FilledButton.icon(
                         onPressed: () => unawaited(_open(context)),
-                        icon: Icon(playBuild ? Icons.mail_outline_rounded : Icons.open_in_new_rounded, size: 18),
-                        label: Text(playBuild ? 'Open as email' : 'Open GitHub'),
+                        icon: const Icon(playBuild ? Icons.mail_outline_rounded : Icons.open_in_new_rounded, size: 18),
+                        label: const Text(playBuild ? 'Open as email' : 'Open GitHub'),
                       ),
                     ),
                   ],
