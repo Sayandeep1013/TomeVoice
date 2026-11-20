@@ -242,7 +242,7 @@ class _JournalPageState extends State<JournalPage> {
     if (!mounted) return;
     final fields = [for (final c in _spoken) if (c.text.trim().isNotEmpty) c];
     if (fields.isEmpty) return;
-    final tidied = await tidyJournalText(context, [for (final c in fields) c.text]);
+    final tidied = await tidyJournalText(context, [for (final c in fields) c.text], about: widget.bookTitle);
     if (tidied == null || !mounted) return;
     for (final (i, c) in fields.indexed) {
       if (i < tidied.length) c.text = tidied[i];

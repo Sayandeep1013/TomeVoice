@@ -189,7 +189,7 @@ class TalkEngine {
     AiRouter? router,
     this.ownKnowledge = false,
     this.length = AnswerLength.normal,
-  }) : router = router ?? AiRouter();
+  }) : router = router ?? AiRouter(about: bookTitle);
 
   final String memoryPath;
   final String bookTitle;

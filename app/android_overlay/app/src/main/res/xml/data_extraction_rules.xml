@@ -1,14 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Android's own backup and phone-to-phone transfer (Android 12 and newer):
      everything as before, but never the keys and passwords (Secrets, AI
-     keys) or the AI usage counts. -->
+     keys), the AI usage counts or the log of what was sent. -->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="file" path=".secrets.json" />
         <exclude domain="file" path=".ai_usage.json" />
+        <exclude domain="file" path=".ai_log.json" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path=".secrets.json" />
         <exclude domain="file" path=".ai_usage.json" />
+        <exclude domain="file" path=".ai_log.json" />
     </device-transfer>
 </data-extraction-rules>

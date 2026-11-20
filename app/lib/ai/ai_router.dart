@@ -30,12 +30,21 @@ class AiResting implements Exception {
 const notConsented = AiError(AiFailure.request, 'TomeVoice needs your go-ahead first: open AI and agree to what is sent.');
 
 class AiRouter {
-  AiRouter({AiRing? ring, AiClient? client, this.pause = const Duration(seconds: 2), DateTime Function()? clock})
+  AiRouter({
+    AiRing? ring,
+    AiClient? client,
+    this.pause = const Duration(seconds: 2),
+    DateTime Function()? clock,
+    this.about,
+  })
       : ring = ring ?? AiRing.instance,
         client = client ?? AiClient(),
         _clock = clock ?? DateTime.now;
 
   final AiRing ring;
+
+  /// The book its calls are about, for the log of what was sent.
+  String? about;
   final AiClient client;
 
   /// The wait before trying a failing provider again.
@@ -86,6 +95,7 @@ class AiRouter {
       for (var attempt = 0; attempt < 2; attempt++) {
         try {
           final out = await call(key, key.endpoint(job));
+          ring.logCall(job, key, about: about, usage: out is AiReply ? out.usage : null);
           _troubles.remove(key.id);
           ring.cleared(key.id);
           lastKey = key;

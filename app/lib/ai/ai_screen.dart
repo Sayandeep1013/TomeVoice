@@ -14,6 +14,7 @@ import 'memory/memory_background.dart';
 import 'memory/memory_builder.dart' show BuildPhase;
 import 'memory/memory_service.dart';
 import 'ai_consent.dart';
+import 'ai_data.dart';
 import 'ai_keys.dart';
 
 /// Main menu > AI: the reader's keys, what each job uses, and how they have
@@ -153,6 +154,10 @@ class _AiScreenState extends State<AiScreen> {
                       'secret shelf, or kept away from the AI, are never sent. Your keys stay in this app '
                       "alone and never go into a backup, Android's own included.",
                     ),
+                    if (keys.isNotEmpty) ...[
+                      const SizedBox(height: Gap.xl),
+                      const AiDataSection(),
+                    ],
                   ],
                 ),
               ),
@@ -280,7 +285,7 @@ class _MemoriesState extends State<_Memories> {
                 _ => s.noted == 0
                     ? 'Not built yet'
                     : '${s.noted} of ${s.indexed} chapters · ${s.entities} people, places and things',
-              };
+              } + memorySizeNote(MemoryService.instance.pathOf(b.id));
               return ListTile(
                 contentPadding: const EdgeInsets.symmetric(horizontal: Gap.page),
                 title: Text(b.title, maxLines: 1, overflow: TextOverflow.ellipsis,

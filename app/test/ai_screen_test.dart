@@ -8,6 +8,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_spike/ai/ai_client.dart';
+import 'package:tomevoice_spike/ai/ai_data.dart';
 import 'package:tomevoice_spike/ai/ai_keys.dart';
 import 'package:tomevoice_spike/ai/ai_router.dart';
 import 'package:tomevoice_spike/ai/ai_screen.dart';
@@ -112,6 +113,52 @@ void main() {
     ring.reset();
     await ring.attach(tmp);
     expect(ring.consented, isTrue);
+  });
+
+  test('what was sent: each call logged with its book, kept on the phone, the oldest let go', () async {
+    final tmp = Directory.systemTemp.createTempSync('tv_log');
+    addTearDown(() => tmp.deleteSync(recursive: true));
+    final ring = AiRing.instance;
+    await ring.attach(tmp);
+    const key = AiKey(
+        id: 'a', provider: AiProvider.gemini, label: 'Gemini', baseUrl: 'https://x/v1', secret: 's1',
+        models: {AiJob.talker: 'flash', AiJob.builder: 'lite'});
+    await ring.put(key);
+    ring.logCall(AiJob.builder, key, about: 'Shadow Slave', usage: const AiUsage(input: 40000, output: 900));
+    ring.logCall(AiJob.talker, key, about: 'Shadow Slave', usage: const AiUsage(input: 3000, output: 200));
+    expect(ring.log.map((e) => (e.job, e.model, e.about)), [
+      (AiJob.builder, 'lite', 'Shadow Slave'),
+      (AiJob.talker, 'flash', 'Shadow Slave'),
+    ]);
+    await Future<void>.delayed(const Duration(milliseconds: 2200));
+    ring.reset();
+    await ring.attach(tmp);
+    expect(ring.log.length, 2);
+    expect(ring.log.last.input, 3000);
+    for (var i = 0; i < AiRing.logKept + 5; i++) {
+      ring.logCall(AiJob.talker, key);
+    }
+    expect(ring.log.length, AiRing.logKept);
+    await ring.clearLog();
+    expect(ring.log, isEmpty);
+    // Its save timer goes before the folder does.
+    ring.reset();
+  });
+
+  testWidgets('the list of what was sent, newest first', (tester) async {
+    const key = AiKey(
+        id: 'a', provider: AiProvider.gemini, label: 'Gemini', baseUrl: 'https://x/v1', secret: 's1',
+        models: {AiJob.talker: 'flash', AiJob.builder: 'lite'});
+    final ring = AiRing.instance;
+    ring.logCall(AiJob.builder, key, about: 'Lord of the Mysteries', usage: const AiUsage(input: 40000, output: 900));
+    ring.logCall(AiJob.talker, key, about: 'Shadow Slave', usage: const AiUsage(input: 3000, output: 200));
+    await tester.pumpWidget(const MaterialApp(home: AiLogScreen()));
+    await tester.pumpAndSettle();
+    final titles = tester.widgetList<ListTile>(find.byType(ListTile)).map((t) => (t.title! as Text).data).toList();
+    expect(titles, ['Talking · Shadow Slave', 'Building memories · Lord of the Mysteries']);
+    expect(find.textContaining('3.0k in, 200 out'), findsOneWidget);
+    expect(find.textContaining('40k in, 900 out'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 3));
   });
 
   testWidgets("a resting key says until when; a refused one says why", (tester) async {

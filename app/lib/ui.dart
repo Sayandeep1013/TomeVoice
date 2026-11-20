@@ -1307,10 +1307,13 @@ class _RouteWatchState extends State<_RouteWatch> {
 
 /// The top of a pushed screen: a round back button and the screen's title.
 class ScreenTopBar extends StatelessWidget {
-  const ScreenTopBar({super.key, required this.title, required this.onBack});
+  const ScreenTopBar({super.key, required this.title, required this.onBack, this.actions = const []});
 
   final String title;
   final VoidCallback onBack;
+
+  /// Buttons at the end of the bar.
+  final List<Widget> actions;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -1320,6 +1323,7 @@ class ScreenTopBar extends StatelessWidget {
             RoundButton(icon: Icons.arrow_back_rounded, tooltip: 'Back', onTap: onBack),
             const SizedBox(width: Gap.m),
             Expanded(child: Text(title, style: Skin.title(context, size: 26, weight: FontWeight.w500))),
+            ...actions,
           ],
         ),
       );

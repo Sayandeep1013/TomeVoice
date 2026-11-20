@@ -164,6 +164,55 @@ class DayUse {
       : DayUse();
 }
 
+/// One call to the AI, as the log of what was sent keeps it.
+class AiLogEntry {
+  const AiLogEntry({
+    required this.at,
+    required this.job,
+    required this.provider,
+    required this.model,
+    this.about,
+    this.input = 0,
+    this.output = 0,
+  });
+
+  final DateTime at;
+  final AiJob job;
+
+  /// The book it was about, when known.
+  final String? about;
+  final String provider;
+  final String model;
+  final int input;
+  final int output;
+
+  Map<String, Object?> toJson() => {
+        'at': at.toUtc().toIso8601String(),
+        'job': job.name,
+        if (about != null) 'about': about,
+        'provider': provider,
+        'model': model,
+        'in': input,
+        'out': output,
+      };
+
+  static AiLogEntry? fromJson(Object? v) {
+    if (v is! Map) return null;
+    final at = DateTime.tryParse(v['at'] as String? ?? '');
+    final job = AiJob.values.where((j) => j.name == v['job']).firstOrNull;
+    if (at == null || job == null) return null;
+    return AiLogEntry(
+      at: at,
+      job: job,
+      about: v['about'] as String?,
+      provider: v['provider'] as String? ?? '',
+      model: v['model'] as String? ?? '',
+      input: (v['in'] as num?)?.toInt() ?? 0,
+      output: (v['out'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
 /// The reader's keys, kept with the catalogue passwords (in the app's own
 /// storage, never in a backup), each job's order of them, and how each has
 /// been used. One for the app; [attach] reads it.
@@ -180,6 +229,45 @@ class AiRing extends ChangeNotifier {
   final _keys = <AiKey>[];
   final _order = <AiJob, List<String>>{};
   final _state = <String, KeyState>{};
+
+  /// What was sent, oldest first: the last [logKept] calls, kept on this
+  /// phone alone.
+  List<AiLogEntry> get log => List.unmodifiable(_log);
+  final _log = <AiLogEntry>[];
+  static const logKept = 300;
+  File? _logFile;
+  Timer? _logTimer;
+
+  /// A call made for [job] with [key], about [about].
+  void logCall(AiJob job, AiKey key, {String? about, AiUsage? usage, DateTime? now}) {
+    _log.add(AiLogEntry(
+      at: now ?? DateTime.now(),
+      job: job,
+      about: about,
+      provider: key.provider.label,
+      model: key.models[job] ?? '',
+      input: usage?.input ?? 0,
+      output: usage?.output ?? 0,
+    ));
+    if (_log.length > logKept) _log.removeRange(0, _log.length - logKept);
+    notifyListeners();
+    _logTimer ??= Timer(const Duration(seconds: 2), () {
+      _logTimer = null;
+      unawaited(_saveLog());
+    });
+  }
+
+  Future<void> clearLog() async {
+    _log.clear();
+    notifyListeners();
+    await _saveLog();
+  }
+
+  Future<void> _saveLog() async {
+    final f = _logFile;
+    if (f == null) return;
+    await writeSafely(f, jsonEncode([for (final e in _log) e.toJson()]));
+  }
 
   /// key id → day (yyyy-mm-dd) → use. Thirty days are kept.
   final _use = <String, Map<String, DayUse>>{};
@@ -206,6 +294,17 @@ class AiRing extends ChangeNotifier {
     final secrets = await Secrets.of(root);
     _secrets = secrets;
     _useFile = File('${(Secrets.home ?? root).path}/.ai_usage.json');
+    _logFile = File('${(Secrets.home ?? root).path}/.ai_log.json');
+    _log.clear();
+    try {
+      final f = _logFile!;
+      if (await f.exists()) {
+        final v = jsonDecode(await f.readAsString());
+        if (v is List) _log.addAll(v.map(AiLogEntry.fromJson).whereType<AiLogEntry>());
+      }
+    } on Object {
+      // Only a record: lost, it starts again.
+    }
     _keys.clear();
     _order.clear();
     _consented = false;
@@ -267,6 +366,10 @@ class AiRing extends ChangeNotifier {
     _state.clear();
     _use.clear();
     _consented = false;
+    _log.clear();
+    _logFile = null;
+    _logTimer?.cancel();
+    _logTimer = null;
   }
 
   Future<void> _save() async {

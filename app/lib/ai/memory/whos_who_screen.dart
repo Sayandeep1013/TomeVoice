@@ -101,7 +101,7 @@ class _WhosWhoScreenState extends State<WhosWhoScreen> {
     setState(() => _tidying = true);
     String said;
     try {
-      final n = await tidyCast(widget.memoryPath, AiRouter());
+      final n = await tidyCast(widget.memoryPath, AiRouter(about: widget.bookTitle));
       said = n == 0 ? 'The names were already in order' : 'Names tidied: $n ${n == 1 ? 'change' : 'changes'}';
     } on AiResting {
       said = 'No AI key can take this now. Try again later.';

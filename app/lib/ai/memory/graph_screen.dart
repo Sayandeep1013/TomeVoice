@@ -348,7 +348,7 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
     _naming = true;
     try {
       final briefs = await _briefsOff(widget.memoryPath, {for (final g in unnamed) g.id: g.members});
-      final reply = await AiRouter().chat(
+      final reply = await AiRouter(about: widget.bookTitle).chat(
           AiJob.talker,
           [
             aiMessage(

@@ -534,7 +534,14 @@ class MemoryService {
   }
 
   MemoryBuilder _builder(String id) => _builders[id] ??= () {
-        final b = MemoryBuilder(path: _path(id), router: _router);
+        final r = _router ?? AiRouter();
+        // The log of what was sent names the book.
+        if (_router == null) {
+          unawaited(_store?.list(all: true).then((all) {
+            r.about = all.where((e) => e.id == id).firstOrNull?.title;
+          }));
+        }
+        final b = MemoryBuilder(path: _path(id), router: r);
         b.state.addListener(() {
           final n = _n(id);
           n.value = n.value.copyWith(
