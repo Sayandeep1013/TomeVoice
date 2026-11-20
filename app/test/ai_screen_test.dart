@@ -35,7 +35,7 @@ void main() {
     }
     // The provider, from its list over the sheet (the last such text: the
     // field behind shows the one chosen so far).
-    await tester.tap(find.text('Provider'));
+    await tester.tap(find.byIcon(Icons.unfold_more_rounded));
     await tester.pumpAndSettle();
     await tester.tap(find.text(provider).last);
     await tester.pumpAndSettle();

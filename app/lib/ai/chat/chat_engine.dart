@@ -44,6 +44,7 @@ class ChatEngine {
     this.useJournal = true,
     this.usePast = true,
     this.mayRemember = true,
+    this.stream = true,
   })  : router = router ?? AiRouter(about: 'AI chat'),
         store = store ?? ChatStore.instance,
         journal = journal ?? JournalStore.instance;
@@ -60,6 +61,10 @@ class ChatEngine {
   final bool useJournal;
   final bool usePast;
   final bool mayRemember;
+
+  /// Answers shown as they come (off in tests, whose provider does not
+  /// stream).
+  final bool stream;
 
   /// Rounds of tool calls before an answer is asked for outright.
   static const maxRounds = 6;
@@ -227,7 +232,7 @@ class ChatEngine {
       if (last) messages.add(aiMessage('user', 'Answer now, from what you have found.'));
       final AiReply r;
       try {
-        r = await router.chat(AiJob.talker, messages, tools: tools && !last ? offered : const [], onText: (piece) {
+        r = await router.chat(AiJob.talker, messages, tools: tools && !last ? offered : const [], onText: !stream ? null : (piece) {
           if (p.stopped) return;
           reply.text += piece;
           if (aiAnswerHeld(reply.text)) reply.held = true;

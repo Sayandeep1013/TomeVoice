@@ -249,6 +249,7 @@ void main() {
         chat: chat,
         books: books,
         router: AiRouter(client: client, pause: Duration.zero),
+        stream: false,
       );
       var changes = 0;
       await engine.answer(ChatProgress(reply), onChange: () => changes++);
