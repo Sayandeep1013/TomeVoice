@@ -170,7 +170,11 @@ class MemoryDb {
     db.execute('PRAGMA busy_timeout = 8000');
     // One file, no -wal beside it: a backup or a move takes the book's
     // folder as it is.
-    db.execute('PRAGMA journal_mode = DELETE');
+    // Asked first: setting it takes a lock even when nothing changes, and
+    // a second connection opening while the Builder writes then failed at
+    // once ("database is locked") instead of waiting its turn.
+    final mode = db.select('PRAGMA journal_mode').first.columnAt(0);
+    if ('$mode'.toLowerCase() != 'delete') db.execute('PRAGMA journal_mode = DELETE');
     db.execute('PRAGMA foreign_keys = OFF');
     final have = db.select('PRAGMA user_version').first.columnAt(0) as int;
     if (have >= version) return;

@@ -10,6 +10,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show AssetBundle, PlatformException, rootBundle;
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
+import 'keep_alive.dart';
 import 'store_build.dart';
 
 /// Where the models come from: sherpa-onnx's release of speech models, in
@@ -625,12 +626,20 @@ class NeuralVoices extends ChangeNotifier {
   /// archive's own checksums and that the voice's files are all there.
   /// Throws [DownloadCancelled] when called off with [cancel]. [source] and
   /// [stall] stand in for the voice's address and [stallAfter] in tests.
+  ///
+  /// Kept going with the app in the background or the screen off
+  /// (LongJobs), its notification's Stop as [cancel].
   Future<void> download(NeuralVoice v, {@visibleForTesting Uri? source, Duration stall = stallAfter}) async {
     final key = v.modelId;
     if (downloading.containsKey(key)) return;
     _cancelled.remove(key);
     downloading[key] = 0;
     notifyListeners();
+    // Made elsewhere: a closure here that held this object would be carried
+    // into the unpacking isolate below, which cannot take it.
+    final keep = _keepJob(v);
+    if (keepVoiceDownloadsAlive) LongJobs.instance.begin(keep);
+    var shown = -1;
     final part = File('${dir.path}/$key$_partial');
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 20);
     _clients[key] = client;
@@ -664,6 +673,12 @@ class NeuralVoices extends ChangeNotifier {
             got += chunk.length;
             downloading[key] = 0.9 * (got / expected).clamp(0.0, 1.0);
             notifyListeners();
+            // The notification moves a whole per cent at a time.
+            final percent = (100 * downloading[key]!).floor();
+            if (percent != shown) {
+              shown = percent;
+              LongJobs.instance.update(keep.key, done: percent, total: 100);
+            }
           }
         } finally {
           await sink.close();
@@ -699,11 +714,16 @@ class NeuralVoices extends ChangeNotifier {
       if (cancelled) throw const DownloadCancelled();
       rethrow;
     } finally {
+      LongJobs.instance.end(keep.key, job: keep);
       _clients.remove(key);
       client.close(force: true);
       if (!keepPart && await part.exists()) await part.delete();
     }
   }
+
+  /// [v]'s download as the keep-alive shows it; its Stop calls it off.
+  KeepAliveJob _keepJob(NeuralVoice v) =>
+      KeepAliveJob(key: 'voice:${v.modelId}', kind: KeepAliveKind.voice, text: v.name, onStop: () => cancel(v));
 
   /// The whole size from "bytes 100-199/2000"; 0 when it is not said.
   static int _totalOf(String? range) => int.tryParse(range?.split('/').last.trim() ?? '') ?? 0;

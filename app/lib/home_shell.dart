@@ -26,6 +26,7 @@ import 'guide.dart';
 import 'history_screen.dart';
 import 'journal.dart';
 import 'journal_screen.dart';
+import 'keep_alive.dart';
 import 'library_screen.dart';
 import 'library_store.dart';
 import 'listening_session.dart' show BackgroundReading;
@@ -118,6 +119,9 @@ Future<OpenLibrary> _open(String dir) async {
       }, onError: (Object _) {}));
   store.changes.addListener(keepOutOfLog);
   keepOutOfLog();
+  // Long jobs (downloads, memories) kept going in the background, and what
+  // the last run left going, to pick up (keep_alive.dart).
+  await LongJobs.instance.attach(Directory(dir));
   // Chapters left downloading when the app last closed carry on.
   unawaited(DownloadQueue.instance.attach(store));
   await TintCache.instance.attach(Directory(dir));
@@ -127,6 +131,9 @@ Future<OpenLibrary> _open(String dir) async {
   // The reader's AI keys (kept with the catalogue passwords) and their use.
   await AiRing.instance.attach(Directory(dir));
   MemoryService.instance.attach(store);
+  // A memory that was being built when the app last closed goes on, once
+  // TomeVoice is in front (not for a book read from outside it).
+  LongJobs.instance.whenInFront(() => unawaited(MemoryService.instance.resumeInterrupted()));
   // Memories built with the app closed, while the AI has a key.
   unawaited(MemoryBackground.apply(prefs));
   AiRing.instance.addListener(() => unawaited(MemoryBackground.apply(ListeningPrefs.loaded ?? prefs)));

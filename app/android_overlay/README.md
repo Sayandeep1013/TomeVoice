@@ -42,7 +42,9 @@ the application id, set by `prepare_android.py`, is `app.tomevoice`.
 | `.../Ocr.kt` | Scanned pages read by Tesseract, in a data-sync service |
 | `.../AudioExport.kt` | Saving a book as audio (AAC in MP4, or MP3) |
 | `.../NarrationAudio.kt` | Decoding an EPUB's recorded narration |
-| `.../NovelCheckWorker.kt`, `DownloadService.kt`, `SourcesBridge.kt`, `BrowserCheck.kt` | Web novels: the check for new chapters with the app closed, downloads, platform calls, the hidden web view |
+| `.../NovelCheckWorker.kt`, `SourcesBridge.kt`, `BrowserCheck.kt` | Web novels: the check for new chapters with the app closed, platform calls, the hidden web view |
+| `.../KeepAlive.kt` | Long jobs the app's Dart does (chapters downloading, a memory being built, a voice downloading) kept going in the background: a data-sync service with a wake lock, Stop, and Android 15's daily limit |
+| `.../MemoryBuildWorker.kt` | Memories built with the app closed, hourly, in an engine of its own |
 | `.../NovelDokushaImport.kt` | Reading a NovelDokusha backup's database |
 | `.../LibraryBackup.kt`, `ShareProvider.kt`, `ErrorLog.kt`, `PastExits.kt` | Backups, files handed to other apps, Android-side crashes, and native crashes and freezes read back from Android's exit records |
 | `.../Widgets.kt`, `WidgetConfigActivity.kt` | The home-screen widgets |
@@ -61,8 +63,8 @@ its reason. Among them:
 - **The application id** `app.tomevoice` and the label (or the test app's, with
   `TV_APP_ID` / `TV_APP_LABEL`), and the signing key when `TV_KEYSTORE` is set.
 - **The services, permissions and intent filters**: reading with the screen off, Open with
-  and Share, the media browser, battery optimisation, OCR, saving as audio, web-novel
-  downloads.
+  and Share, the media browser, battery optimisation, OCR, saving as audio, long jobs
+  kept going in the background.
 - **Dependencies**: PdfBox-Android (without BouncyCastle's post-quantum tables),
   WorkManager, Tesseract4Android, jump3r; and only the CPU's own native code (`TV_ABIS`),
   stored compressed.

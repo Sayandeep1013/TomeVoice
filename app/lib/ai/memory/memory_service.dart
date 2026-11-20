@@ -7,8 +7,10 @@ import 'package:flutter/foundation.dart';
 
 import '../../download_queue.dart';
 import '../../journal.dart' show JournalStamp;
+import '../../keep_alive.dart';
 import '../../library_store.dart';
 import '../../prefs.dart' show ListeningPrefs;
+import '../../sources/bridge.dart' show SourcesBridge;
 import '../../sources/models.dart' show ChapterItem;
 import '../ai_keys.dart';
 import '../ai_router.dart';
@@ -269,10 +271,21 @@ class FollowedBook {
 /// built at a time (so keys' quotas go to one book until it is done). A
 /// build that stops because every key rests goes on by itself when the
 /// first wakes, while the app is open.
+///
+/// A build is kept going with the app in the background, the screen off or
+/// swiped from Recents ([keepAlive]), with a notification of how far it is.
+/// Each batch's notes are written in one transaction, so a build that is
+/// ended anyway (Android, a phone maker's battery saving) loses at most the
+/// batch it was waiting for, and goes on from the last chapter noted the
+/// next time TomeVoice is opened ([resumeInterrupted]).
 class MemoryService {
   MemoryService._();
 
   static final instance = MemoryService._();
+
+  /// What keeps a build going in the background (a test's own in tests).
+  @visibleForTesting
+  LongJobs keepAlive = LongJobs.instance;
 
   LibraryStore? _store;
   AiRouter? _router;
@@ -403,7 +416,7 @@ class MemoryService {
       return;
     }
     _keptAt[id] = DateTime.now();
-    await build(id);
+    await build(id, hint: false);
   }
 
   @visibleForTesting
@@ -424,8 +437,11 @@ class MemoryService {
     }
     _builders.clear();
     _states.clear();
+    _held.clear();
+    _titles.clear();
     _store = null;
     _router = null;
+    keepAlive = LongJobs.instance;
   }
 
   String _path(String id) => MemoryDb.pathIn(_store!.bookDir(id));
@@ -549,6 +565,11 @@ class MemoryService {
             noted: b.state.value.noted,
             skipped: b.state.value.skipped,
           );
+          final s = b.state.value;
+          if (s.phase == BuildPhase.running && s.total > 0) {
+            keepAlive.update(_keyOf(id),
+                text: '${_titles[id] ?? 'A book'} · ${s.noted} of ${s.total} chapters', done: s.noted, total: s.total);
+          }
         });
         return b;
       }();
@@ -574,21 +595,51 @@ class MemoryService {
   }
 
   /// Builds [id]'s memory: the word index, then the notes, until done,
-  /// paused, or every key rests (and then again when one wakes).
-  Future<void> build(String id) async {
+  /// paused, or every key rests (and then again when one wakes). Kept going
+  /// in the background meanwhile ([keepAlive]); [hint]: the reader asked
+  /// for it, and may be told once that battery saving can stop it.
+  Future<void> build(String id, {bool hint = true}) async {
     if (!maySend(id) || !AiRing.instance.hasKeys) return;
     _wakes.remove(id)?.cancel();
+    _held.remove(id);
     // One book at a time: the others wait their turn.
     for (final e in _builders.entries) {
       if (e.key != id && e.value.running) e.value.pause();
     }
+    // A build of it that was stopped a moment ago (paused, or held by
+    // Android) lands its last batch first, or this one would find it still
+    // running and do nothing.
+    await _landed(id);
+    // Begun as the work starts, while the reader is (most often) in the
+    // app: Android may not let the service start from the background.
+    final job = KeepAliveJob(
+      key: _keyOf(id),
+      kind: KeepAliveKind.memory,
+      text: _titles[id] ?? '',
+      resumable: true,
+      // The notification's Stop: as the reader's own Pause.
+      onStop: () => pause(id),
+      onHold: () => _hold(id),
+      onGoOn: () => _goOn(id),
+    );
+    keepAlive.begin(job, hint: hint);
+    try {
+      await _build(id);
+    } finally {
+      keepAlive.end(job.key, job: job);
+    }
+  }
+
+  Future<void> _build(String id) async {
+    if (!_titles.containsKey(id)) unawaited(_titleOf(id));
     // Asked to build: a pause the reader made is over.
     if (_paused.remove(id) || File(_path(id)).existsSync()) {
       if (File(_path(id)).existsSync()) await _setMetaOff(_path(id), 'paused', null);
     }
     if (_n(id).value.indexing == null) await index(id);
-    // The library closed meanwhile (a restore, a test's end): nothing more.
-    if (_store == null) return;
+    // The library closed meanwhile (a restore, a test's end), or Android
+    // held the work meanwhile: nothing more now.
+    if (_store == null || _held.contains(id)) return;
     if (!_n(id).value.begun) {
       final path = _path(id);
       await _setMetaOff(path, 'begun', '1');
@@ -609,8 +660,85 @@ class MemoryService {
       final wait = s.until!.difference(DateTime.now());
       _wakes[id] = Timer(wait.isNegative ? Duration.zero : wait + const Duration(seconds: 5), () {
         _wakes.remove(id);
-        unawaited(build(id));
+        unawaited(build(id, hint: false));
       });
+    }
+  }
+
+  static String _keyOf(String id) => 'memory:$id';
+
+  /// Book titles for the notification (a book on a secret shelf is never
+  /// built, so never named).
+  final _titles = <String, String>{};
+
+  Future<void> _titleOf(String id) async {
+    final e = (await _store?.list(all: true))?.where((e) => e.id == id).firstOrNull;
+    if (e == null) return;
+    _titles[id] = e.title.replaceAll('\n', ' ');
+    final s = _n(id).value;
+    keepAlive.update(_keyOf(id),
+        text: s.build.phase == BuildPhase.running && s.indexed > 0
+            ? '${_titles[id]} · ${s.noted} of ${s.indexed} chapters'
+            : _titles[id]);
+  }
+
+  /// Wait, a minute at most, for a stopping build of [id] to land its batch.
+  Future<void> _landed(String id) async {
+    final b = _builders[id];
+    for (var i = 0; b != null && b.stopping && i < 240; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+  }
+
+  /// Books whose building Android held (its daily time for work in the
+  /// background used up): stopped after the batch on its way, not paused
+  /// by the reader, and built on when the app is next in front.
+  final _held = <String>{};
+
+  void _hold(String id) {
+    _held.add(id);
+    _builders[id]?.pause();
+  }
+
+  void _goOn(String id) {
+    if (!_held.remove(id) || _paused.contains(id)) return;
+    unawaited(build(id, hint: false));
+  }
+
+  /// Books whose memory was being built when TomeVoice last closed with the
+  /// build still going (Android, or a phone maker's battery saving, ended
+  /// it; the phone restarted): built on from the last chapter noted, as if
+  /// never stopped. The reader is told (LongJobs). Not one paused since,
+  /// kept away from the AI, on a secret shelf, or with no key. Once the
+  /// app is in front: Android may not let the work's service start before.
+  Future<void> resumeInterrupted() async {
+    final store = _store;
+    if (store == null) return;
+    final left = keepAlive.leftOver('memory:');
+    if (left.isEmpty) return;
+    // The closed-app build finishing a batch: two runs never write one
+    // memory at once (two minutes at most).
+    for (var i = 0; i < 60 && await SourcesBridge.backgroundBusy(); i++) {
+      await Future<void>.delayed(const Duration(seconds: 2));
+    }
+    if (_store != store) return;
+    // The shelves known, for which are secret.
+    await store.list(all: true);
+    var resumed = false;
+    for (final key in left) {
+      final id = key.substring('memory:'.length);
+      var go = !resumed && AiRing.instance.hasKeys && AiRing.instance.consented && File(_path(id)).existsSync();
+      if (go) {
+        await refresh(id);
+        go = maySend(id) && !await _pausedOff(_path(id));
+      }
+      if (!go) {
+        keepAlive.end(key);
+        continue;
+      }
+      // One book at a time, as ever: the first, and the others let go.
+      resumed = true;
+      unawaited(build(id, hint: false));
     }
   }
 

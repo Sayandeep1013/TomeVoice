@@ -91,7 +91,7 @@ See [ADR-003](10-decisions-adr.md#adr-003) for why this is not optional.
 | Web novels | not planned | LNReader's source plugins in QuickJS (`flutter_qjs`), in a pool of background isolates ([ADR-019](10-decisions-adr.md#adr-019)) |
 | OCR | v1.x | Tesseract4Android 4.9.0 on the phone (`Ocr.kt`) |
 | Saving as audio | v1.x | AAC in MP4 by Android's encoder and muxer, MP3 by jump3r 1.0.5 (LAME in Java) (`AudioExport.kt`); chapter marks written by Dart |
-| Background work | not specified | WorkManager 2.10.0 for the check for new chapters (`NovelCheckWorker.kt`); data-sync foreground services for downloads, OCR and saving as audio |
+| Background work | not specified | WorkManager 2.10.0 for the check for new chapters (`NovelCheckWorker.kt`); data-sync foreground services for OCR, saving as audio, and the long jobs Dart does (downloads, building memories, voices: `KeepAlive.kt`) |
 | Catalogues | not planned | OPDS 1.2 (Atom, searched through OpenSearch) and OPDS 2 (JSON, searched through its URI template), read into the same feeds and entries (`opds.dart`, `opds2.dart`) |
 | The reader's own fonts | not planned | A `.ttf` or `.otf` file copied into the library's `fonts/` folder and loaded from its bytes at run time by Flutter's `FontLoader` (`own_fonts.dart`) |
 | AI companion (2.0) | not planned | The reader's own keys for any provider with an OpenAI-compatible API, called over `dart:io` straight from the phone; each book's memory in SQLite with FTS5 through `sqlite3` (FFI); building with the app closed by WorkManager (`MemoryBuildWorker.kt`). No model on the phone ([14](14-ai-companion.md)) |

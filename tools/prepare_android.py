@@ -53,8 +53,9 @@ copied in. The generated project cannot know about any of this:
     Play build must justify it or leave it out (docs/18).
 
 12. Web novels: WorkManager for the check for new chapters made with the app
-    closed (NovelCheckWorker.kt), and the downloads' data-sync service
-    (DownloadService.kt).
+    closed (NovelCheckWorker.kt). Long jobs the app's own Dart does (chapters
+    downloading, a book's memory being built, a voice downloading) keep going
+    in the background in one data-sync service (KeepAlive.kt).
 
 13. **OCR for scanned PDFs** (Ocr.kt): Tesseract4Android, Apache-2.0 like the
     Tesseract, Leptonica, libjpeg and libpng it bundles, from JitPack (it is
@@ -192,7 +193,8 @@ BATTERY = """    <uses-permission android:name="android.permission.REQUEST_IGNOR
 # Saving a book as audio (AudioExport.kt): a job that goes on with the screen
 # off, while nothing is read aloud. Its own blocks, so a manifest patched
 # before them gains them too.
-# For the three dataSync services: saving as audio, the downloads' queue and OCR.
+# For the three dataSync services: saving as audio, the keep-alive for long
+# jobs (downloads, memories) and OCR.
 DATA_SYNC_PERMISSION = """    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 """
 
@@ -202,10 +204,12 @@ EXPORT_SERVICE = """        <service
             android:foregroundServiceType="dataSync" />
 """
 
-# Web novels: chapters downloading in the background show their progress and
-# keep the app alive (DownloadService.kt, download_queue.dart).
-DOWNLOAD_SERVICE = """        <service
-            android:name=".DownloadService"
+# Long jobs the app's Dart does (chapters downloading, a book's memory being
+# built, a voice downloading) show their progress and keep the app alive with
+# the screen off (KeepAlive.kt, keep_alive.dart). In place of the downloads'
+# own DownloadService, which it replaced.
+KEEP_ALIVE_SERVICE = """        <service
+            android:name=".KeepAliveService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 """
@@ -405,10 +409,10 @@ def patch_manifest(path: Path, label: str = APP_LABEL, play: bool = False) -> st
         text = text.replace("</application>", WIDGETS + "    </application>", 1)
         notes.append("widgets")
 
-    # Web novels' downloads (DownloadService.kt).
-    if ".DownloadService" not in text:
-        text = text.replace("</application>", DOWNLOAD_SERVICE + "    </application>", 1)
-        notes.append("download service")
+    # Long jobs kept going in the background (KeepAlive.kt).
+    if ".KeepAliveService" not in text:
+        text = text.replace("</application>", KEEP_ALIVE_SERVICE + "    </application>", 1)
+        notes.append("keep-alive service")
 
     if ".ShareProvider" not in text:
         text = text.replace("</application>", PROVIDER + "    </application>", 1)

@@ -5,10 +5,10 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show ValueNotifier, visibleForTesting;
 
+import 'keep_alive.dart';
 import 'library_store.dart';
 import 'prefs.dart';
 import 'safe_file.dart';
-import 'sources/bridge.dart';
 import 'sources/models.dart';
 import 'sources/net.dart';
 import 'sources/plugin_host.dart';
@@ -87,9 +87,10 @@ class BookDownloads {
 
 /// Web-novel chapters to download, kept on disk (downloads.json in the
 /// library) so leaving a novel's page, or the app, does not lose them: the
-/// queue carries on in the background while the app lives, with a
-/// notification showing how far it is (Android's foreground service keeps
-/// the app alive meanwhile), and picks up where it was when the app opens.
+/// queue carries on in the background, with a notification showing how far
+/// it is (the keep-alive service keeps the app alive meanwhile, the screen off
+/// and swiped from Recents too), and picks up where it was when the app
+/// opens.
 ///
 /// One request at a time per site, a pause of [_pace] or more between two,
 /// a few sites at once. A chapter that fails is tried again after a wait
@@ -113,15 +114,24 @@ enum DownloadPace {
 }
 
 class DownloadQueue {
-  DownloadQueue._() : _testPace = null;
+  DownloadQueue._()
+      : _testPace = null,
+        _keep = null;
 
   static final instance = DownloadQueue._();
 
-  /// A queue of its own, for tests.
+  /// A queue of its own, for tests (and a keep-alive of the test's own).
   @visibleForTesting
-  DownloadQueue.forTests({Duration pace = const Duration(milliseconds: 1500), Duration backoff = const Duration(seconds: 5)})
+  DownloadQueue.forTests(
+      {Duration pace = const Duration(milliseconds: 1500),
+      Duration backoff = const Duration(seconds: 5),
+      LongJobs? keepAlive})
       : _testPace = pace,
-        _backoff = backoff;
+        _backoff = backoff,
+        _keep = keepAlive;
+
+  final LongJobs? _keep;
+  LongJobs get _keepAlive => _keep ?? LongJobs.instance;
 
   /// A test's own pace; otherwise the reader's (Settings > Download speed).
   final Duration? _testPace;
@@ -137,6 +147,11 @@ class DownloadQueue {
   File? _file;
   final _jobs = <DownloadJob>[];
   bool _paused = false;
+
+  /// Held by Android (its daily time for work in the background used up):
+  /// no new chapter starts until the app is next in front. Not the
+  /// reader's pause, and not kept on disk.
+  bool _held = false;
 
   /// Bumped on every change, for pages showing progress.
   final changes = ValueNotifier<int>(0);
@@ -355,7 +370,7 @@ class DownloadQueue {
   /// waits.
   void _kick() {
     _wake?.cancel();
-    if (_paused || _store == null) {
+    if (_paused || _held || _store == null) {
       _notify();
       return;
     }
@@ -493,7 +508,7 @@ class DownloadQueue {
   /// app meanwhile, as the downloads' own service may not start from there.
   Future<bool> settledBy(DateTime until) async {
     while (true) {
-      if (_paused || (_running.isEmpty && !_jobs.any((j) => j.failed == null))) return true;
+      if (_paused || _held || (_running.isEmpty && !_jobs.any((j) => j.failed == null))) return true;
       if (!DateTime.now().isBefore(until)) return false;
       await Future<void>.delayed(const Duration(milliseconds: 500));
     }
@@ -518,9 +533,11 @@ class DownloadQueue {
     changes.value++;
     final waiting = _jobs.where((j) => j.failed == null).length;
     if (waiting == 0 || _paused) {
-      unawaited(SourcesBridge.downloadProgress(null));
+      _keepAlive.end(_keepKey);
       return;
     }
+    // Waiting for the app to be in front again (Android's daily limit).
+    if (_held) return;
     final now = _running.values.firstOrNull;
     // A novel on a secret shelf is never named here, nor its chapter, the
     // shelf open or not: the notification shows on the lock screen, and
@@ -528,14 +545,50 @@ class DownloadQueue {
     // shelf is known (its title is found with the library's index).
     final title = now == null ? null : _titles[now.bookId];
     final shown = now != null && title != null && !(_store?.isSecret(now.bookId) ?? true) ? (title, now.name) : null;
-    unawaited(SourcesBridge.downloadProgress({
-      'title': shown?.$1 ?? 'Downloading chapters',
-      'text': shown == null ? '$waiting to go' : '${shown.$2} · $waiting to go',
-      'done': _done,
-      'total': _done + waiting,
-    }));
+    // Play: the one switch for leaving downloads out of the keep-alive in
+    // the Play build is keepDownloadsAlive (keep_alive.dart).
+    if (keepDownloadsAlive) {
+      // Begun as the first chapter is queued, while the reader is in the
+      // app: never on a later update, which may come with it behind.
+      _keepAlive.begin(
+        (_keepJob ??= KeepAliveJob(
+          key: _keepKey,
+          kind: KeepAliveKind.downloads,
+          resumable: true,
+          // The notification's Stop: as the reader's own Pause.
+          onStop: () => unawaited(pause()),
+          onHold: _hold,
+          onGoOn: _goOn,
+        ))
+          ..title = shown?.$1 ?? 'Downloading chapters'
+          ..text = shown == null ? '$waiting to go' : '${shown.$2} · $waiting to go'
+          ..done = _done
+          ..total = _done + waiting,
+      );
+    }
     if (now != null && title == null) unawaited(_title(now.bookId));
   }
+
+  static const _keepKey = 'downloads';
+  KeepAliveJob? _keepJob;
+
+  /// Android's daily time for work in the background is used up: the
+  /// chapters on their way land, no more start.
+  void _hold() {
+    _held = true;
+    _wake?.cancel();
+    changes.value++;
+  }
+
+  /// The app is in front again: the queue goes on.
+  void _goOn() {
+    if (!_held) return;
+    _held = false;
+    _kick();
+  }
+
+  /// Whether the queue waits for the app to be opened (Android's daily limit).
+  bool get held => _held;
 
   /// Novel titles for the notification, found with the library's index
   /// (never shown for one on a secret shelf).

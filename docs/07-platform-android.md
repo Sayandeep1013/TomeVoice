@@ -118,6 +118,7 @@ scrubber works.
 | Home | The activity stops, stays attached; the voice reads on |
 | Swiped from Recents, playing | The process is kept (a foreground service); the activity finishes but keeps the engine; `onTaskRemoved` leaves the reading alone. A reader page left open keeps reading in the engine |
 | Swiped from Recents, paused | `onTaskRemoved` sends `stop`: the place is saved, the service leaves the foreground 2 s later and stops, the engine goes 3 s after; the card becomes the resume card |
+| Swiped, downloading or building a memory | The engine stays while Dart has long work going (`KeepAlive.busy`), kept in the foreground by `KeepAliveService`; the work goes on, and the engine goes 3 s after the last job ends. A phone that ends the whole process anyway: the work picks up where it stopped when TomeVoice is opened, and says so |
 | Swiped, nothing read | The activity takes the engine with it (and Android kills a process with no foreground service on a swipe): a fresh start next time |
 | Android closes the activity | The engine stays; the next activity shows the app as it was |
 | Process killed | Everything goes; the place was saved within the last half minute (every 30 s while reading, since 1.5.0); Android 11+ keeps a resume card |
@@ -165,6 +166,35 @@ waiting to happen.
 buffer and the ear, and more on some codecs. Word highlighting will visibly lead the
 audio. Detect the output route, apply a stored per-route offset, and expose the
 calibration slider described in [§5.9](05-tts-controls-spec.md#59-highlighting).
+
+### Long jobs in the background (2.3)
+
+Chapter downloads, a book's memory being built and a natural voice downloading are
+Dart's, on the app's engine. `keep_alive.dart` (with `KeepAlive.kt`) keeps them going:
+
+- One `dataSync` foreground service, `KeepAliveService`, asked for **as a job begins**,
+  while the reader is in the app (Android 12+ refuses a start from the background). The
+  downloads' own `DownloadService` used to start with their first progress update, which
+  could come with the app already behind, and then nothing kept them alive. A start that
+  is refused anyway is asked for again when the app is next in front.
+- A partial wake lock, ten minutes at a time, renewed every four while the engine lives.
+- The engine stays while a job runs (`MainActivity.cleanUpFlutterEngine`,
+  `ReadingCore`'s retire), as for a book read aloud; it went with the activity before,
+  so a swipe from Recents ended the work under a still-running service.
+- One quiet notification: what runs, how far, and Stop (the reader's own Pause or Cancel).
+- Android 15's six hours a day for `dataSync` (`onTimeout`): the jobs are held (no
+  reader's pause written), a notification says so, and they go on when the app is next
+  in front, with a line saying why they paused.
+- Resumable jobs are written to `keep_alive.json` while they run; one a run ended under
+  is picked up the next time the app is opened. A memory goes on from its last noted
+  chapter: each batch's notes and the chapters' `noted` flags are one SQLite transaction
+  (rollback journal), so nothing is noted twice or half-noted.
+- A one-time, quiet hint when the reader starts a job and battery saving is on for
+  TomeVoice: Android's own question in the GitHub build, the list of apps in the Play
+  build. Settings > Listening has a "Keeps stopping?" line for makers' own killers.
+- Play: the keep-alive needs a `dataSync` declaration for memory building ("Network
+  processing", Other). Chapter downloads are not declared there by the owner's choice;
+  `keepDownloadsAlive` in `keep_alive.dart` is the one switch to leave them out.
 
 ## 7.4 OEM battery management
 

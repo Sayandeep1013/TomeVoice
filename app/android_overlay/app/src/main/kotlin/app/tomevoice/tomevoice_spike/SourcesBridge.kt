@@ -226,22 +226,6 @@ object SourcesBridge {
                         result.success(false)
                     }
                 }
-                "downloadProgress" -> {
-                    if (call.argument<Boolean>("active") == true) {
-                        DownloadService.update(
-                            appContext,
-                            DownloadService.Progress(
-                                title = call.argument<String>("title") ?: "Downloading chapters",
-                                text = call.argument<String>("text") ?: "",
-                                done = (call.argument<Any>("done") as? Number)?.toInt() ?: 0,
-                                total = (call.argument<Any>("total") as? Number)?.toInt() ?: 0,
-                            ),
-                        )
-                    } else {
-                        DownloadService.stop(appContext)
-                    }
-                    result.success(null)
-                }
                 // On Wi-Fi (a network not charged by the byte): what new
                 // chapters downloading by themselves wait for.
                 "unmetered" -> {

@@ -190,6 +190,9 @@ void _merge(String path, List<ChapterNotes> notes, Map<int, List<MemoryPlace>> p
     m.inTransaction(() {
       final made = <String, int>{};
       for (final n in notes) {
+        // Noted meanwhile by another run (the closed-app build, and the
+        // app's own just after it): kept as it was, never merged twice.
+        if (m.db.select('SELECT 1 FROM chapters WHERE ch = ? AND noted = 1', [n.chapter]).isNotEmpty) continue;
         g.apply(n, passages[n.chapter] ?? const [], made, model: model);
       }
     });
@@ -305,6 +308,9 @@ class MemoryBuilder {
   bool _running = false;
 
   bool get running => _running;
+
+  /// Paused, and landing the batch on its way.
+  bool get stopping => _running && _stop;
 
   ({int tokens, int chapters}) get _limits =>
       limits ?? batchSizeFor(router.ring.forJob(AiJob.builder).firstOrNull);

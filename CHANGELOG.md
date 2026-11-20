@@ -5,7 +5,7 @@ Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoi
 
 ## Unreleased
 
-A book's memory, easier to use every day, and a clearer graph.
+A book's memory, easier to use every day, a clearer graph, and long jobs that keep going in the background.
 
 #### Memory
 - **A book's Memory page** lists what you can look through, each with a line saying what it is for and how many there are: Who's who, Chapter by chapter, Graph, Threads, Theories, Find where…, Talk elsewhere. The **spoiler guard** sits near the top and says what it covers.
@@ -19,6 +19,13 @@ A book's memory, easier to use every day, and a clearer graph.
 - **Key** is a button on the graph itself, and says that bigger means in more chapters.
 - **Closer, Further, All of it** buttons, for zooming with one thumb.
 - Names keep to the colours of your theme, day or night, and a big book's graph pans more smoothly (only what is on the screen is drawn).
+
+#### Long jobs keep going in the background
+- **Chapter downloads, building a memory and downloading a voice** keep going with TomeVoice behind other apps, with the screen off, and after a swipe from Recents. One quiet notification says what is running and how far, with **Stop**.
+- They no longer stop when the app goes behind before the first chapter came, and the phone no longer sleeps under them with the screen off.
+- If a phone ends TomeVoice anyway, downloads and memory building **pick up where they stopped** the next time you open it, and say so. A memory goes on from the last chapter noted: nothing is sent twice.
+- Android 15 and later allow six hours a day of this work in the background: then it pauses, says so, and goes on when you open TomeVoice.
+- Once, when you start one of these and battery saving is on for TomeVoice, a short note with the setting a tap away. Settings > Listening has a **Keeps stopping?** line for phones (Nothing, Xiaomi, Samsung, OnePlus and others) that stop apps in ways of their own.
 
 ## 2.2.0 (2026-11-20)
 

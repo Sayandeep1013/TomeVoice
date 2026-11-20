@@ -281,6 +281,9 @@ jobs:
           # OCR for scanned PDFs: Tesseract4Android and its service.
           grep -q "tesseract4android" android/app/build.gradle.kts
           grep -q 'foregroundServiceType="dataSync"' "$M"
+          # Long jobs (downloads, memories) kept going in the background.
+          grep -q 'android:name=".KeepAliveService"' "$M"
+          test -f "$K/KeepAlive.kt"
           # Saving as MP3: the encoder (jump3r) and the save's service.
           grep -q "de.sciss:jump3r" android/app/build.gradle.kts
           grep -q "AudioExportService" "$M"
