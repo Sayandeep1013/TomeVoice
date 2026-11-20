@@ -400,6 +400,52 @@ class _BookMemorySectionState extends State<BookMemorySection> {
     return '${s.noted} of ${s.indexed} chapters built · $things';
   }
 
+  /// What the memory holds, each a row that says what it is: the everyday
+  /// ones first (who someone is, what happened lately), then the rest. While
+  /// nothing is noted yet, a line saying they come as it builds.
+  List<Widget> _explore(BookMemoryState s) {
+    final rows = memoryRows(s);
+    final hint = s.noted == 0 && (s.exists || s.building)
+        ? [
+            const SizedBox(height: Gap.s),
+            Text(
+              "As chapters are read, Who's who, the graph and each chapter's notes appear here.",
+              style:
+                  Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkSoftOn(context)).copyWith(height: 1.4),
+            ),
+          ]
+        : const <Widget>[];
+    if (rows.isEmpty) return hint;
+    VoidCallback open(MemoryRow r) => switch (r) {
+          MemoryRow.who => () => unawaited(_openWho()),
+          MemoryRow.chapters => () => unawaited(_openChapters()),
+          MemoryRow.graph => () => unawaited(_openGraph()),
+          MemoryRow.threads => () => unawaited(_openThreads()),
+          MemoryRow.theories => () => unawaited(_openTheories()),
+          MemoryRow.find => () => unawaited(_openFind()),
+          MemoryRow.elsewhere => () => unawaited(_handOff()),
+        };
+    return [
+      ...hint,
+      const SizedBox(height: Gap.m),
+      const Eyebrow('Look through it'),
+      const SizedBox(height: Gap.s),
+      Material(
+        color: Skin.capsuleOn(context),
+        borderRadius: BorderRadius.circular(Radii.row + 4),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          children: [
+            for (final (i, r) in rows.indexed) ...[
+              if (i > 0) Divider(height: 1, indent: Gap.l + 22 + Gap.m, color: Skin.outlineOn(context)),
+              _ExploreRow(row: r, state: s, onTap: open(r)),
+            ],
+          ],
+        ),
+      ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     // Off until the reader turns the AI on (adds a key), and never for a
@@ -508,68 +554,27 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                 onChange: () => unawaited(_followOn()),
               ),
             if (!s.private) ...[
-              const SizedBox(height: Gap.s),
-              Wrap(
-                spacing: Gap.s,
-                runSpacing: Gap.s,
-                children: [
-                  if (busy)
-                    OutlinedButton.icon(
-                      onPressed: () => _service.pause(widget.bookId),
-                      icon: const Icon(Icons.pause_rounded, size: 18),
-                      label: const Text('Pause'),
-                    )
-                  else if (left)
-                    FilledButton.tonalIcon(
-                      onPressed: () => unawaited(_build()),
-                      icon: const Icon(Icons.auto_awesome_rounded, size: 18),
-                      label: Text(s.noted == 0 ? 'Build memory' : 'Go on building'),
-                    ),
-                  if (s.exists && s.noted > 0)
-                    OutlinedButton.icon(
-                      onPressed: () => unawaited(_openTheories()),
-                      icon: const Icon(Icons.lightbulb_outline_rounded, size: 18),
-                      label: const Text('Theories'),
-                    ),
-                  if (s.entities > 0) ...[
-                    OutlinedButton.icon(
-                      onPressed: () => unawaited(_openWho()),
-                      icon: const Icon(Icons.groups_outlined, size: 18),
-                      label: const Text("Who's who"),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () => unawaited(_openGraph()),
-                      icon: const Icon(Icons.hub_outlined, size: 18),
-                      label: const Text('Graph'),
-                    ),
+              if (busy || left) ...[
+                const SizedBox(height: Gap.s),
+                Wrap(
+                  spacing: Gap.s,
+                  runSpacing: Gap.s,
+                  children: [
+                    if (busy)
+                      OutlinedButton.icon(
+                        onPressed: () => _service.pause(widget.bookId),
+                        icon: const Icon(Icons.pause_rounded, size: 18),
+                        label: const Text('Pause'),
+                      )
+                    else if (left)
+                      FilledButton.tonalIcon(
+                        onPressed: () => unawaited(_build()),
+                        icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+                        label: Text(s.noted == 0 ? 'Build memory' : 'Go on building'),
+                      ),
                   ],
-                  if (s.exists && s.noted > 0)
-                    OutlinedButton.icon(
-                      onPressed: () => unawaited(_openThreads()),
-                      icon: const Icon(Icons.timeline_rounded, size: 18),
-                      label: const Text('Threads'),
-                    ),
-                  // Passed-over chapters too: seen there, and read again one by one.
-                  if (s.exists && (s.noted > 0 || s.skipped > 0))
-                    OutlinedButton.icon(
-                      onPressed: () => unawaited(_openChapters()),
-                      icon: const Icon(Icons.format_list_bulleted_rounded, size: 18),
-                      label: const Text('Chapter by chapter'),
-                    ),
-                  if (s.exists && s.indexed > 0)
-                    OutlinedButton.icon(
-                      onPressed: () => unawaited(_openFind()),
-                      icon: const Icon(Icons.manage_search_rounded, size: 18),
-                      label: const Text('Find where…'),
-                    ),
-                  if (s.exists && s.noted > 0)
-                    OutlinedButton.icon(
-                      onPressed: () => unawaited(_handOff()),
-                      icon: const Icon(Icons.forum_outlined, size: 18),
-                      label: const Text('Talk elsewhere'),
-                    ),
-                ],
-              ),
+                ),
+              ],
               if (s.skipped > 0)
                 Padding(
                   padding: const EdgeInsets.only(top: Gap.s),
@@ -579,7 +584,7 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                     label: Text('Try the ${s.skipped} passed-over ${s.skipped == 1 ? 'chapter' : 'chapters'} again'),
                   ),
                 ),
-              _ChaptersBlock(bookId: widget.bookId, service: _service, memory: s),
+              // The guard near the top: it decides what every page below shows.
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 value: s.guard,
@@ -587,14 +592,120 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                 title: Text('Spoiler guard',
                     style: Skin.ui(size: 15, weight: FontWeight.w600, color: Skin.inkOn(context))),
                 subtitle: Text(
-                  s.guard ? 'The AI keeps to what you have read.' : 'Off: the AI may use all it remembers of the book.',
+                  s.guard
+                      ? "On: Who's who, the graph, the notes and Talk keep to what you have read."
+                      : 'Off: they may show all it remembers, past where you are.',
                   style: Skin.meta(context),
                 ),
               ),
+              ..._explore(s),
+              _ChaptersBlock(bookId: widget.bookId, service: _service, memory: s),
             ],
           ],
         );
       },
+    );
+  }
+}
+
+/// The ways into a memory, as its page lists them.
+enum MemoryRow { who, chapters, graph, threads, theories, find, elsewhere }
+
+/// The rows a memory in state [s] has something for, the everyday ones
+/// first: who someone is, what happened lately, how they are linked.
+List<MemoryRow> memoryRows(BookMemoryState s) => [
+      if (s.entities > 0) MemoryRow.who,
+      // Passed-over chapters too: seen there, and read again one by one.
+      if (s.exists && (s.noted > 0 || s.skipped > 0)) MemoryRow.chapters,
+      if (s.entities > 0) MemoryRow.graph,
+      if (s.exists && s.noted > 0) ...[MemoryRow.threads, MemoryRow.theories],
+      if (s.exists && s.indexed > 0) MemoryRow.find,
+      if (s.exists && s.noted > 0) MemoryRow.elsewhere,
+    ];
+
+/// One way into the memory: what it is called, what it is for, and how
+/// many there are when that helps.
+class _ExploreRow extends StatelessWidget {
+  const _ExploreRow({required this.row, required this.state, required this.onTap});
+
+  final MemoryRow row;
+  final BookMemoryState state;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final (icon, title, about, count) = switch (row) {
+      MemoryRow.who => (
+          Icons.groups_outlined,
+          "Who's who",
+          'Everyone and everything met so far, found by any name',
+          state.entities,
+        ),
+      MemoryRow.chapters => (
+          Icons.format_list_bulleted_rounded,
+          'Chapter by chapter',
+          'What happened in each chapter, the newest first',
+          state.noted,
+        ),
+      MemoryRow.graph => (Icons.hub_outlined, 'Graph', 'Who is linked to whom, and how it grew', null),
+      MemoryRow.threads => (
+          Icons.timeline_rounded,
+          'Threads',
+          "The story's open questions, and how each moved on",
+          null,
+        ),
+      MemoryRow.theories => (
+          Icons.lightbulb_outline_rounded,
+          'Theories',
+          'Your guesses about the story, and what came of them',
+          null,
+        ),
+      MemoryRow.find => (
+          Icons.manage_search_rounded,
+          'Find where…',
+          'Every word of the book searched, to the chapter it is in',
+          null,
+        ),
+      MemoryRow.elsewhere => (
+          Icons.forum_outlined,
+          'Talk elsewhere',
+          'What it remembers, ready to take to another AI chat',
+          null,
+        ),
+    };
+    return InkWell(
+      onTap: onTap,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 60),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(Gap.l, Gap.m, Gap.s, Gap.m),
+          child: Row(
+            children: [
+              Icon(icon, size: 22, color: Skin.accentInkOf(context)),
+              const SizedBox(width: Gap.m),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(title, style: Skin.ui(size: 15.5, weight: FontWeight.w600, color: Skin.inkOn(context))),
+                    const SizedBox(height: 2),
+                    Text(about,
+                        style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkSoftOn(context))
+                            .copyWith(height: 1.3)),
+                  ],
+                ),
+              ),
+              if (count != null && count > 0) ...[
+                const SizedBox(width: Gap.s),
+                Text('$count',
+                    style: Skin.ui(size: 14, weight: FontWeight.w600, color: Skin.inkSoftOn(context), tabular: true)),
+              ],
+              Icon(Icons.chevron_right_rounded, color: Skin.inkFaintOn(context)),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
