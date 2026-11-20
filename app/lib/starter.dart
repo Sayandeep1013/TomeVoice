@@ -8,6 +8,7 @@ import 'library_store.dart';
 import 'sources/source_engine.dart';
 import 'sources/source_store.dart';
 import 'speech_service.dart';
+import 'store_build.dart';
 
 /// What a new install starts with, so the first shelf is not empty: a
 /// public-domain classic that ships inside the app, two sources, and two
@@ -66,6 +67,8 @@ class Starter {
       }
     }
 
+    // The Play build has no web novels.
+    if (playBuild) return;
     final added = {...(done['novels'] as List? ?? const []).cast<String>()};
     if (done['plugins'] == true && added.length == _novels.length) return;
     try {

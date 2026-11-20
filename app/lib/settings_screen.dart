@@ -41,6 +41,7 @@ import 'updates.dart';
 import 'update_flow.dart';
 import 'voices.dart';
 import 'wallpaper_colours.dart';
+import 'store_build.dart';
 
 const _svc = SpeechService();
 
@@ -477,6 +478,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                     _Group(
                       title: 'Library',
                       children: [
+                        if (!playBuild)
                         _Link(
                           icon: Icons.extension_outlined,
                           title: 'Sources',
@@ -564,12 +566,15 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                             builder: (_) => SyncScreen(store: widget.store),
                           )),
                         ),
+                        if (!playBuild)
                         _Link(
                           icon: Icons.move_to_inbox_outlined,
                           title: 'Import from NovelDokusha',
                           subtitle: 'Bring your web novels across from a NovelDokusha backup (.zip)',
                           onTap: _importNovelDokusha,
                         ),
+                        // Web novels: not in the Play build.
+                        if (!playBuild) ...[
                         const SizedBox(height: Gap.l),
                         const SectionTitle('Download speed'),
                         const SizedBox(height: Gap.m),
@@ -621,6 +626,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           padding: EdgeInsets.zero,
                           onChanged: (v) => _change(() => _prefs.novelUpdates = v),
                         ),
+                        ],
                         const SizedBox(height: Gap.l),
                         _Link(
                           icon: Icons.folder_copy_outlined,
@@ -682,6 +688,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                     _Group(
                       title: 'About',
                       children: [
+                        if (!playBuild)
                         SwitchRow(
                           title: 'Tell me about new versions',
                           subtitle: 'Asks GitHub every few hours whether a newer TomeVoice is out',
@@ -1031,7 +1038,9 @@ class _ScreenOffRowState extends State<ScreenOffRow> {
   }
 
   Future<void> _open() async {
-    if (!await _svc.openBatterySettings() && mounted) {
+    // The Play build may not ask to be left out of battery saving: the
+    // list of apps opens, for the reader to change it there.
+    if (!await _svc.openBatterySettings(request: !playBuild) && mounted) {
       showSnack(context, 'This phone has no battery setting TomeVoice can open.');
     }
   }
@@ -1159,7 +1168,7 @@ class _AboutScreenState extends State<AboutScreen> {
                             .copyWith(height: 1.5),
                       ),
                       const SizedBox(height: Gap.xl),
-                      if (widget.root != null)
+                      if (widget.root != null && !playBuild)
                         _Link(
                           icon: Icons.system_update_outlined,
                           title: _checking ? 'Checking…' : 'Check for updates',
@@ -1172,6 +1181,7 @@ class _AboutScreenState extends State<AboutScreen> {
                         subtitle: 'github.com/Sayandeep1013/TomeVoice',
                         onTap: () => _svc.openUrl(repositoryUrl),
                       ),
+                      if (!playBuild)
                       _Link(
                         icon: Icons.new_releases_outlined,
                         title: 'Releases',

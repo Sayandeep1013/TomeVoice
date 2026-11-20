@@ -29,6 +29,7 @@ import 'speech_service.dart';
 import 'theme.dart';
 import 'ui.dart';
 import 'voices.dart';
+import 'store_build.dart';
 
 const _svc = SpeechService();
 
@@ -255,7 +256,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     setState(() => _importing = job);
     // A web novel's link, on the site of a source the reader has: its page
     // there, to add or read, not the one page as an article.
-    if (link != null) {
+    if (link != null && !playBuild) {
       NovelLink? novel;
       try {
         novel = await novelOfLink(link);

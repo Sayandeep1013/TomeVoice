@@ -54,6 +54,7 @@ import 'updates_screen.dart';
 import 'theme.dart';
 import 'ui.dart';
 import 'update_flow.dart';
+import 'store_build.dart';
 
 /// The library as the app keeps it open: its folder, the books, the
 /// sources (web novels) and the check for their new chapters, with the
@@ -399,6 +400,8 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
   (UpdateEvery, bool)? _scheduled;
 
   Future<void> _scheduleChecks() async {
+    // No web novels in the Play build: nothing to check for.
+    if (playBuild) return;
     final every = UpdateEvery.byName(ListeningPrefs.loaded?.updateEvery);
     final charging = ListeningPrefs.loaded?.checkCharging ?? false;
     if ((every, charging) == _scheduled) return;
@@ -480,6 +483,8 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
   /// put it off. Asked on opening and on coming back to the app; GitHub is
   /// asked at most every few hours (see AppUpdates.check).
   Future<void> _offerUpdate(Directory root) async {
+    // The Play build is updated by Play.
+    if (playBuild) return;
     // Not over the guide: asked again on coming back to the app.
     if (_offering || _guiding) return;
     _offering = true;
@@ -581,13 +586,15 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
               ),
               _item(context, Icons.auto_stories_outlined, Icons.auto_stories_rounded, 'Library',
                   selected: _place == _Place.library, onTap: () => _go(_Place.library)),
-              _item(context, Icons.travel_explore_rounded, Icons.travel_explore_rounded, 'Browse',
-                  selected: _place == _Place.browse, onTap: () => _go(_Place.browse)),
+              if (!playBuild)
+                _item(context, Icons.travel_explore_rounded, Icons.travel_explore_rounded, 'Browse',
+                    selected: _place == _Place.browse, onTap: () => _go(_Place.browse)),
               // Ebook libraries (OPDS): Project Gutenberg, Standard Ebooks, Calibre.
               _item(context, Icons.local_library_outlined, Icons.local_library_rounded, 'Catalogues',
                   onTap: () => _push((s) => CataloguesScreen(store: s))),
-              _item(context, Icons.new_releases_outlined, Icons.new_releases_rounded, 'Updates',
-                  selected: _place == _Place.updates, onTap: () => _go(_Place.updates)),
+              if (!playBuild)
+                _item(context, Icons.new_releases_outlined, Icons.new_releases_rounded, 'Updates',
+                    selected: _place == _Place.updates, onTap: () => _go(_Place.updates)),
               _item(context, Icons.history_rounded, Icons.history_rounded, 'History',
                   selected: _place == _Place.history, onTap: () => _go(_Place.history)),
               _item(context, Icons.bookmarks_outlined, Icons.bookmarks_rounded, 'Saved',
@@ -609,11 +616,12 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
               ),
               _item(context, Icons.folder_copy_outlined, Icons.folder_copy_rounded, 'Categories',
                   onTap: () => _push((s) => CategoriesScreen(store: s))),
-              _item(context, Icons.extension_outlined, Icons.extension_rounded, 'Sources',
-                  onTap: () {
-                    final sources = _sources;
-                    if (sources != null) _push((_) => SourcesScreen(store: sources));
-                  }),
+              if (!playBuild)
+                _item(context, Icons.extension_outlined, Icons.extension_rounded, 'Sources',
+                    onTap: () {
+                      final sources = _sources;
+                      if (sources != null) _push((_) => SourcesScreen(store: sources));
+                    }),
               _item(context, Icons.settings_outlined, Icons.settings_rounded, 'Settings',
                   onTap: () => _push((s) => SettingsScreen(store: s))),
               _item(context, Icons.info_outline_rounded, Icons.info_rounded, 'About',

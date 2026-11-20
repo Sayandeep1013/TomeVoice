@@ -314,9 +314,11 @@ class SpeechService {
 
   /// Android's setting that lets TomeVoice read on with the screen off.
   /// False when the phone has none to open.
-  Future<bool> openBatterySettings() async {
+  /// With [request] off, the list of apps opens without Android's question
+  /// (the Play build has no right to ask it).
+  Future<bool> openBatterySettings({bool request = true}) async {
     try {
-      return await _channel.invokeMethod<bool>('openBatterySettings') ?? false;
+      return await _channel.invokeMethod<bool>('openBatterySettings', {'request': request}) ?? false;
     } on Object {
       return false;
     }

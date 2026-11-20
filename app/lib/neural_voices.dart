@@ -10,6 +10,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show AssetBundle, PlatformException, rootBundle;
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
+import 'store_build.dart';
+
 /// Where the models come from: sherpa-onnx's release of speech models, in
 /// full precision. The half-size (fp16) ones crash the engine on phones:
 /// ONNX Runtime has no fp16 kernel for one of their layers on CPU (found on
@@ -313,7 +315,7 @@ class NeuralCatalog {
           if (v.pack?.id == pack.id) v,
       ];
 
-  static NeuralCatalog parse(String text) {
+  static NeuralCatalog parse(String text, {bool openOnly = playBuild}) {
     final json = jsonDecode(text) as Map<String, Object?>;
     final packs = <String, NeuralPack>{
       for (final p in (json['packs'] as List? ?? const []).cast<Map<String, Object?>>())
@@ -321,7 +323,9 @@ class NeuralCatalog {
     };
     return NeuralCatalog([
       for (final v in (json['voices'] as List? ?? const []).cast<Map<String, Object?>>())
-        if (NeuralVoice.fromJson(v, packs) case final voice?) voice,
+        if (NeuralVoice.fromJson(v, packs) case final voice?)
+          // The Play build offers only voices whose recordings are open.
+          if (!openOnly || voice.licence.use == LicenceUse.free || voice.licence.use == LicenceUse.credit) voice,
     ], packs);
   }
 
