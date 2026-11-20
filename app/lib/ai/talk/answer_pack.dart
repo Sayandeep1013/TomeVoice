@@ -248,7 +248,7 @@ List<PackItem> cardItems(MemoryDb m, int id, int at) {
     PackItem(
       head,
       '$name (${e['kind']})${names.isEmpty ? '' : ', also called ${names.take(8).join(', ')}'}. '
-      '${describedAt(m, id, at) ?? ''} First met in ${chapterLabel(first ?? 0)}.',
+      '${asSentence(describedAt(m, id, at))}First met in ${chapterLabel(first ?? 0)}.',
       place: first == null || first < 0 ? null : MemoryPlace(chapter: first, section: first),
     ),
   ];
@@ -452,4 +452,12 @@ void noteAsked(String path, String question, int? ch) {
   } finally {
     m.close();
   }
+}
+
+/// [text] as a sentence and a space ("Saved the city. "), or nothing: a
+/// summary may end without a full stop, and the next sentence follows it.
+String asSentence(String? text) {
+  final t = text?.trim() ?? '';
+  if (t.isEmpty) return '';
+  return RegExp(r'''[.!?…]["')]?$''').hasMatch(t) ? '$t ' : '$t. ';
 }

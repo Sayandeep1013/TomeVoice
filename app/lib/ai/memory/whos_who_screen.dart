@@ -357,14 +357,18 @@ class _WhosWhoScreenState extends State<WhosWhoScreen> {
                                 leading: KindDot(e.kind),
                                 title: Text(e.name,
                                     style: Skin.ui(size: 15.5, weight: FontWeight.w600, color: Skin.inkOn(context))),
-                                subtitle: Text(
-                                  [
-                                    if (e.about != null && e.about!.isNotEmpty) e.about!,
-                                    '${kindLabel(e.kind)} · ${whereSeen(e)}',
-                                  ].join('\n'),
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Skin.meta(context),
+                                // The summary gives way first: where they
+                                // were seen always shows.
+                                subtitle: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (e.about != null && e.about!.isNotEmpty)
+                                      Text(e.about!,
+                                          maxLines: 2, overflow: TextOverflow.ellipsis, style: Skin.meta(context)),
+                                    Text('${kindLabel(e.kind)} · ${whereSeen(e)}',
+                                        maxLines: 1, overflow: TextOverflow.ellipsis, style: Skin.meta(context)),
+                                  ],
                                 ),
                                 onTap: () => unawaited(_open(e)),
                                 onLongPress: () => unawaited(_edit(e)),
