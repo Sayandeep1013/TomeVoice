@@ -362,6 +362,39 @@ void main() {
       expect(JournalStore.instance.all, isEmpty);
     });
 
+    testWidgets('an empty answer is said, not left remembering for ever', (tester) async {
+      final path = _memory(tmp);
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 2.75;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: TalkSheet(
+            bookId: 'b',
+            bookTitle: 'Shadow Slave',
+            memoryPath: path,
+            stampNow: () => const JournalStamp(at: ReadingCursor(sectionIndex: 1), chapter: 1, number: 2),
+            line: () => null,
+            here: () => 1,
+            passage: () => '',
+            onLook: (_) {},
+            engine: _Said(path, '', const {}),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Who is Sunny?');
+      await tester.tap(find.byTooltip('Ask'));
+      for (var i = 0; i < 100 && find.textContaining('no answer').evaluate().isEmpty; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+        await tester.pump();
+      }
+      expect(find.textContaining('The AI sent back no answer'), findsOneWidget);
+      expect(find.text('Remembering…'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    });
+
     test('an answer held back: sexual words beside a child, in one sentence; the book\'s darkness is not', () {
       expect(aiAnswerHeld('In chapter 3 the child is described in sexual terms.'), isTrue);
       expect(aiAnswerHeld('A 15-year-old and porn.'), isTrue);

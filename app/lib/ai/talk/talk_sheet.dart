@@ -303,6 +303,8 @@ class _TalkSheetState extends State<TalkSheet> {
           ..sources = a.sources
           ..done = true
           ..held = answer.held || aiAnswerHeld(a.text);
+        // Nothing came back: said, not left "Remembering…" for ever.
+        if (a.text.trim().isEmpty) answer.error = 'The AI sent back no answer. Ask again, or try another model.';
       });
       if (_prefs.aiSpeak && !answer.held) _say(a.text);
     } on AiResting catch (e) {
