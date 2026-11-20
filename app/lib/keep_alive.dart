@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import 'safe_file.dart';
 import 'secret_shelf.dart';
+import 'sources/bridge.dart';
 import 'speech_service.dart';
 import 'store_build.dart';
 import 'theme.dart' show Gap;
@@ -146,8 +147,17 @@ class _ChannelPlatform implements KeepAlivePlatform {
 
   static const channel = MethodChannel('tomevoice/keepalive');
 
+  /// Android 13 and later show the notification (and its Stop) only with
+  /// the reader's leave: asked as the first long job of a launch starts,
+  /// the reader being in the app then. Refused once, not asked again.
+  static bool _askedToNotify = false;
+
   @override
   Future<bool> show(KeepAliveNotice n) async {
+    if (!_askedToNotify) {
+      _askedToNotify = true;
+      unawaited(SourcesBridge.askNotifications());
+    }
     try {
       return await channel.invokeMethod<bool>('show', {
             'title': n.title,

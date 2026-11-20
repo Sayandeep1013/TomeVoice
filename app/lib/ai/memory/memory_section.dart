@@ -186,7 +186,7 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                             : '${est.chapters} ${est.chapters == 1 ? 'chapter' : 'chapters'} to read, in about '
                                 '${est.calls} ${est.calls == 1 ? 'call' : 'calls'}: some ${tokenCount(est.tokens)} '
                                 'tokens, with ${keys.map((k) => k.label).join(', then ')}. '
-                                'It goes on while TomeVoice is open; when a key has used its quota for now, the next '
+                                'It goes on with TomeVoice behind other apps or the screen off; when a key has used its quota for now, the next '
                                 'takes over, and when all of them have, it waits for them.',
                     style: Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkSoftOn(context))
                         .copyWith(height: 1.4),
