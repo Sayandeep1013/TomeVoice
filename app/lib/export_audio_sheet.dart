@@ -333,7 +333,7 @@ class _SaveSheetState extends State<_SaveSheet> {
                   ),
                   const SizedBox(height: Gap.xs),
                   Text(
-                    'About ${durationLabel(length)} of audio · ${sizeLabel(bytes)} · '
+                    '${_capital(aboutDuration(length))} of audio · ${sizeLabel(bytes)} · '
                     '${_format.extensionOf(plan).toUpperCase()}',
                     style: soft,
                   ),
@@ -342,7 +342,7 @@ class _SaveSheetState extends State<_SaveSheet> {
                         ? 'Timing this phone…'
                         : work == null
                             ? 'How long it takes to make shows once it starts.'
-                            : 'Takes about ${durationLabel(work)} to make on this phone.',
+                            : 'Takes ${aboutDuration(work)} to make on this phone.',
                     style: soft,
                   ),
                 ],
@@ -559,3 +559,5 @@ class _ProgressSheetState extends State<_ProgressSheet> {
         },
       );
 }
+
+String _capital(String s) => s.isEmpty ? s : '${s[0].toUpperCase()}${s.substring(1)}';

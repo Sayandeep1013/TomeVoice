@@ -1322,11 +1322,34 @@ class ScreenTopBar extends StatelessWidget {
           children: [
             RoundButton(icon: Icons.arrow_back_rounded, tooltip: 'Back', onTap: onBack),
             const SizedBox(width: Gap.m),
-            Expanded(child: Text(title, style: Skin.title(context, size: 26, weight: FontWeight.w500))),
+            Expanded(
+              child: Text.rich(titleWithDashes(title, Skin.title(context, size: 26, weight: FontWeight.w500))),
+            ),
             ...actions,
           ],
         ),
       );
+}
+
+/// [text] in the title face, its dashes in the interface face: Bodoni
+/// Moda's hyphen and dashes are hairlines that vanish at a title's size
+/// ("Standard Ebooks - Newest Ebooks" read as a gap).
+TextSpan titleWithDashes(String text, TextStyle style) {
+  final dash = RegExp(r'[-‐-―−]+');
+  if (!dash.hasMatch(text)) return TextSpan(text: text, style: style);
+  final dashStyle = style.copyWith(
+    fontFamily: Skin.uiFamily,
+    fontVariations: [FontVariation('wght', (style.fontWeight ?? FontWeight.w500).value.toDouble())],
+  );
+  final spans = <TextSpan>[];
+  var at = 0;
+  for (final m in dash.allMatches(text)) {
+    if (m.start > at) spans.add(TextSpan(text: text.substring(at, m.start)));
+    spans.add(TextSpan(text: m[0], style: dashStyle));
+    at = m.end;
+  }
+  if (at < text.length) spans.add(TextSpan(text: text.substring(at)));
+  return TextSpan(style: style, children: spans);
 }
 
 /// A page's top bar ([child]) that stays put while the page scrolls under it:

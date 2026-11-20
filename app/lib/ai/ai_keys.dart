@@ -21,6 +21,9 @@ enum AiProvider {
       note: 'One key for many models, some of them free.'),
   groq('Groq', 'https://api.groq.com/openai/v1', note: 'Fast open models, with a free tier.'),
   openai('OpenAI', 'https://api.openai.com/v1', note: 'Paid by use.', embeds: true),
+  agentrouter('AgentRouter', 'https://agentrouter.org/v1',
+      note: 'A relay to many models (Claude, GPT, DeepSeek and others), with credit when you sign up. Your text '
+          'passes through it on its way to the model.'),
   custom('Another service', '', note: 'Any service that speaks the OpenAI chat format: give its address.');
 
   const AiProvider(this.label, this.baseUrl, {required this.note, this.embeds = false});

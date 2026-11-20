@@ -3,7 +3,7 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
-## Unreleased
+## 2.3.0 (2026-11-21)
 
 A book's memory, easier to use every day, a clearer graph, and long jobs that keep going in the background.
 
@@ -26,6 +26,16 @@ A book's memory, easier to use every day, a clearer graph, and long jobs that ke
 - If a phone ends TomeVoice anyway, downloads and memory building **pick up where they stopped** the next time you open it, and say so. A memory goes on from the last chapter noted: nothing is sent twice.
 - Android 15 and later allow six hours a day of this work in the background: then it pauses, says so, and goes on when you open TomeVoice.
 - Once, when you start one of these and battery saving is on for TomeVoice, a short note with the setting a tap away. Settings > Listening has a **Keeps stopping?** line for phones (Nothing, Xiaomi, Samsung, OnePlus and others) that stop apps in ways of their own.
+- The first long job asks to show its notification (Android 13 and later), so **Stop** is there when you need it.
+
+#### The AI
+- **AgentRouter** is one of the providers to choose from: one key for many models.
+
+#### Fixes
+- Who's who always says where someone was seen, however long their summary.
+- A person's card no longer runs two sentences together ("…is alive First met in…").
+- Save as audio no longer says "about under a minute".
+- A dash in a screen's title shows (a catalogue's "Standard Ebooks - Newest Ebooks" read as a gap).
 
 ## 2.2.0 (2026-11-20)
 
