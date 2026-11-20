@@ -95,6 +95,11 @@ void main() {
     expect(find('TIDE goes'), [0]);
     expect(find('tide storm'), isEmpty);
     expect(find('99'), isEmpty);
+    // The newest first (how the screen opens): the same finds, the latest on top.
+    List<int> newest(String q) => findChapterNotes(notes, q, newestFirst: true).map((n) => n.ch).toList();
+    expect(newest(''), [2, 1, 0]);
+    expect(newest('2'), [1]);
+    expect(newest('storm'), [2]);
     expect(chapterNumberIn('Ch. 120'), 120);
     expect(chapterNumberIn('#7'), 7);
     expect(chapterNumberIn('chapter of'), isNull);

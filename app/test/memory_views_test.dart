@@ -15,6 +15,8 @@ import 'package:tomevoice_spike/ai/memory/graph_screen.dart';
 import 'package:tomevoice_spike/ai/memory/hand_off.dart';
 import 'package:tomevoice_spike/ai/memory/ledger.dart';
 import 'package:tomevoice_spike/ai/memory/memory_db.dart';
+import 'package:tomevoice_spike/ai/memory/memory_section.dart';
+import 'package:tomevoice_spike/ai/memory/memory_service.dart';
 import 'package:tomevoice_spike/ai/memory/series.dart';
 import 'package:tomevoice_spike/ai/memory/threads_screen.dart';
 import 'package:tomevoice_spike/ai/talk/answer_pack.dart';
@@ -76,6 +78,19 @@ void main() {
     expect(ledger(path, order: LedgerOrder.firstMet).last.name, 'Nephis');
     expect(ledger(path).first.mentions, 4);
     expect(ledgerKinds(path), [(kind: 'person', count: 3, core: true), (kind: 'place', count: 1, core: true)]);
+    // Seen lately: those in the last chapter read first ("who was that
+    // again?"); Nephis, met once in chapter 4, before the Shore, last in 3.
+    expect(ledger(path, order: LedgerOrder.recent).map((e) => e.name),
+        ['Sunless', 'Cassie', 'Nephis', 'Forgotten Shore']);
+    expect(ledger(path, order: LedgerOrder.recent, at: 2).map((e) => e.name), isNot(contains('Nephis')));
+    // Where each is in the book, kept to the line.
+    String seen(String name, {int? at}) => whereSeen(ledger(path, at: at).firstWhere((e) => e.name == name));
+    expect(seen('Sunless'), 'in 4 chapters, 1 to 4');
+    expect(seen('Sunless', at: 1), 'in 2 chapters, 1 to 2');
+    expect(seen('Nephis'), 'in chapter 4');
+    expect(seen('Forgotten Shore'), 'in 2 chapters, 1 to 3');
+    expect(whereSeen(const LedgerEntry(id: 1, kind: 'person', name: 'Old', firstCh: -1, lastSeen: -1, mentions: 3)),
+        'from an earlier book · in 3 chapters');
   });
 
   test('the graph as of a chapter: a relation while it held, the events two shared', () {
@@ -323,6 +338,71 @@ void main() {
     // The ball (3D) view is hidden for now: no toggle, and it is never drawn.
     expect(find.byTooltip('See it as a ball to turn (3D)'), findsNothing);
     expect(find.byType(Graph3dView), findsNothing);
+    await tester.pump(const Duration(seconds: 1));
+  });
+
+  test('the memory page lists what there is to look through, the everyday ones first', () {
+    expect(memoryRows(const BookMemoryState()), isEmpty);
+    // Only the words indexed: Find where…, nothing else yet.
+    expect(memoryRows(const BookMemoryState(exists: true, indexed: 10)), [MemoryRow.find]);
+    expect(memoryRows(const BookMemoryState(exists: true, indexed: 10, noted: 4, entities: 12)), [
+      MemoryRow.who,
+      MemoryRow.chapters,
+      MemoryRow.graph,
+      MemoryRow.threads,
+      MemoryRow.theories,
+      MemoryRow.find,
+      MemoryRow.elsewhere,
+    ]);
+    // Every chapter passed over: still listed chapter by chapter, to read again.
+    expect(memoryRows(const BookMemoryState(exists: true, indexed: 3, skipped: 3)), [MemoryRow.chapters, MemoryRow.find]);
+  });
+
+  testWidgets("a card's See their links opens the graph round them, picked; the key and zoom sit on the graph",
+      (tester) async {
+    final path = _memory(tmp);
+    tester.view.physicalSize = const Size(1080, 2340);
+    tester.view.devicePixelRatio = 2.75;
+    addTearDown(tester.view.reset);
+    Future<void> settle() async {
+      for (var i = 0; i < 20; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 40)));
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    await tester.pumpWidget(MaterialApp(home: WhosWhoScreen(bookTitle: 'Shadow Slave', memoryPath: path)));
+    await settle();
+    // Where each is in the book, on their row.
+    expect(find.textContaining('in 4 chapters, 1 to 4'), findsOneWidget);
+    await tester.tap(find.text('Sunless'));
+    await settle();
+    await tester.tap(find.text('See their links'));
+    await settle();
+    expect(find.byType(MemoryGraphScreen), findsOneWidget);
+    expect(tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Round Sunless')).selected, isTrue);
+    final painter = tester.widget<CustomPaint>(
+        find.descendant(of: find.byType(InteractiveViewer), matching: find.byType(CustomPaint)).first).painter as GraphPainter;
+    expect(painter.picked, ledger(path, query: 'sunny').single.id);
+    expect(painter.ground, isNotNull);
+    expect(find.text('Centre here'), findsOneWidget);
+
+    // Zoom for a thumb.
+    expect(find.byTooltip('Closer'), findsOneWidget);
+    expect(find.byTooltip('Further'), findsOneWidget);
+    final before = viewScale(painter.view.value);
+    await tester.tap(find.byTooltip('Closer'));
+    await settle();
+    expect(viewScale(painter.view.value), greaterThan(before));
+
+    // The key, a tap away, and shut again.
+    await tester.tap(find.text('Key'));
+    await settle();
+    expect(find.text('Bigger: in more chapters'), findsOneWidget);
+    await tester.tap(find.byTooltip('Close the key'));
+    await settle();
+    expect(find.text('Bigger: in more chapters'), findsNothing);
+    expect(find.text('Key'), findsOneWidget);
     await tester.pump(const Duration(seconds: 1));
   });
 }

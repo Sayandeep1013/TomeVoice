@@ -54,17 +54,19 @@ int? chapterNumberIn(String query) {
 
 final _numbered = RegExp(r'^(?:ch(?:apter)?\.?\s*)?#?(\d+)$', caseSensitive: false);
 
-/// The [notes] a search for [query] finds, in the book's order: the
-/// chapter of that number first, then those whose title or notes hold
-/// every word typed. Everything when nothing is typed.
-List<ChapterNote> findChapterNotes(List<ChapterNote> notes, String query) {
+/// The [notes] a search for [query] finds, in the book's order (or the
+/// newest first, [newestFirst]): the chapter of that number first, then
+/// those whose title or notes hold every word typed. Everything when
+/// nothing is typed.
+List<ChapterNote> findChapterNotes(List<ChapterNote> notes, String query, {bool newestFirst = false}) {
+  final ordered = newestFirst ? notes.reversed.toList() : notes;
   final q = query.trim().toLowerCase();
-  if (q.isEmpty) return notes;
+  if (q.isEmpty) return ordered;
   final number = chapterNumberIn(q);
   final words = q.split(RegExp(r'\s+'));
   final byNumber = <ChapterNote>[];
   final byWords = <ChapterNote>[];
-  for (final c in notes) {
+  for (final c in ordered) {
     if (number != null && c.ch + 1 == number) {
       byNumber.add(c);
       continue;
@@ -106,6 +108,10 @@ class ChapterNotesScreen extends StatefulWidget {
 class _ChapterNotesScreenState extends State<ChapterNotesScreen> {
   List<ChapterNote>? _notes;
   String _query = '';
+
+  /// The latest chapters on top: what happened lately, without scrolling
+  /// through a long web novel's thousands; or from the start.
+  bool _newest = true;
   final _search = TextEditingController();
   final _list = ScrollController();
 
@@ -150,7 +156,7 @@ class _ChapterNotesScreenState extends State<ChapterNotesScreen> {
   @override
   Widget build(BuildContext context) {
     final notes = _notes;
-    final shown = notes == null ? null : findChapterNotes(notes, _query);
+    final shown = notes == null ? null : findChapterNotes(notes, _query, newestFirst: _newest);
     final searching = _query.trim().isNotEmpty;
     final bottom = MediaQuery.viewPaddingOf(context).bottom;
     return Scaffold(
@@ -161,7 +167,26 @@ class _ChapterNotesScreenState extends State<ChapterNotesScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              ScreenTopBar(title: 'Chapter by chapter', onBack: () => Navigator.of(context).maybePop()),
+              ScreenTopBar(
+                title: 'Chapter by chapter',
+                onBack: () => Navigator.of(context).maybePop(),
+                actions: [
+                  if (notes != null && notes.length > 1)
+                    PopupMenuButton<bool>(
+                      tooltip: 'Order',
+                      icon: const Icon(Icons.sort_rounded),
+                      initialValue: _newest,
+                      onSelected: (v) {
+                        setState(() => _newest = v);
+                        if (_list.hasClients) _list.jumpTo(0);
+                      },
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(value: true, child: Text('Newest first')),
+                        PopupMenuItem(value: false, child: Text('From the start')),
+                      ],
+                    ),
+                ],
+              ),
               if (notes != null && notes.isNotEmpty) ...[
                 Padding(
                   padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.xs),
@@ -180,9 +205,10 @@ class _ChapterNotesScreenState extends State<ChapterNotesScreen> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xs, Gap.page, Gap.s),
                   child: Text(
-                    searching
-                        ? '${shown!.length} OF ${notes.length} ${notes.length == 1 ? 'CHAPTER' : 'CHAPTERS'}'
-                        : '${notes.length} ${notes.length == 1 ? 'CHAPTER' : 'CHAPTERS'}',
+                    (searching
+                            ? '${shown!.length} OF ${notes.length} ${notes.length == 1 ? 'CHAPTER' : 'CHAPTERS'}'
+                            : '${notes.length} ${notes.length == 1 ? 'CHAPTER' : 'CHAPTERS'}') +
+                        (notes.length > 1 ? (_newest ? ' · NEWEST FIRST' : ' · FROM THE START') : ''),
                     style: Skin.meta(context),
                   ),
                 ),
