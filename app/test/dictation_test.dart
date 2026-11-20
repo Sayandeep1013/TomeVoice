@@ -146,6 +146,34 @@ void main() {
       await tester.pump(const Duration(seconds: 5));
     });
 
+    testWidgets('the first time, where the voice goes is said before listening', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final prefs = ListeningPrefs.memory;
+      expect(prefs.dictationTold, isFalse);
+      await open(tester, playing: false);
+      await tester.tap(find.bySemanticsLabel('Speak instead of writing'));
+      await tester.pumpAndSettle();
+      expect(find.text('Speak into your journal'), findsOneWidget);
+      expect(find.textContaining("phone's own speech service"), findsOneWidget);
+      expect(calls, isEmpty);
+
+      // Not now: nothing heard, and asked again next time.
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(calls, isEmpty);
+      expect(prefs.dictationTold, isFalse);
+
+      await tester.tap(find.bySemanticsLabel('Speak instead of writing'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Speak'));
+      await tester.pump();
+      expect(calls.single.method, 'start');
+      expect(prefs.dictationTold, isTrue);
+      expect(prefs.toJson()['dictationTold'], isTrue);
+      semantics.dispose();
+      await tester.pump(const Duration(seconds: 5));
+    });
+
     testWidgets('the microphone refused: said, and the book reads on', (tester) async {
       final semantics = tester.ensureSemantics();
       answer = 'denied';

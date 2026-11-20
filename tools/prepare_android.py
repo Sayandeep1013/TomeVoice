@@ -409,6 +409,20 @@ def patch_manifest(path: Path, label: str = APP_LABEL) -> str:
         text = text.replace("</application>", _open_activity() + "    </application>", 1)
         notes.append("open-with activity")
 
+    # Android's own backup leaves out the keys and passwords
+    # (res/xml/backup_rules.xml, data_extraction_rules.xml).
+    if "android:dataExtractionRules" not in text:
+        text, n = re.subn(
+            r"(<application\b)",
+            r'\1 android:fullBackupContent="@xml/backup_rules"'
+            r' android:dataExtractionRules="@xml/data_extraction_rules"',
+            text,
+            count=1,
+        )
+        if n != 1:
+            raise SystemExit("manifest: no <application> tag")
+        notes.append("backup rules")
+
     text, n = re.subn(r'android:launchMode="singleTop"', 'android:launchMode="singleTask"', text)
     if n:
         notes.append("singleTask")

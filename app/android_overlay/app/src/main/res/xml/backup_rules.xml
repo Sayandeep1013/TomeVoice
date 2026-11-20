@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android's own backup (Android 11 and older): everything as before, but
+     never the keys and passwords (Secrets, AI keys) or the AI usage counts. -->
+<full-backup-content>
+    <exclude domain="file" path=".secrets.json" />
+    <exclude domain="file" path=".ai_usage.json" />
+</full-backup-content>

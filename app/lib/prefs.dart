@@ -74,6 +74,8 @@ class ListeningPrefs {
     this.aiOwnKnowledge = false,
     this.aiGuardNew = false,
     this.aiKeepTalks = true,
+    this.aiUseJournal = true,
+    this.dictationTold = false,
     this.aiBackground = true,
     this.aiBackgroundWifi = true,
     this.aiBackgroundCharging = false,
@@ -387,6 +389,13 @@ class ListeningPrefs {
   /// Talks kept in the book's journal when Talk closes.
   bool aiKeepTalks;
 
+  /// Talk may read the reader's journal entries that bear on a question.
+  bool aiUseJournal;
+
+  /// The reader has been told, before speaking into the journal the first
+  /// time, that the phone's speech service hears it.
+  bool dictationTold;
+
   /// Memories built with TomeVoice closed (on unless turned off), only on
   /// Wi-Fi (on), only while charging (off).
   bool aiBackground;
@@ -569,6 +578,8 @@ class ListeningPrefs {
         'aiOwnKnowledge': aiOwnKnowledge,
         if (aiGuardNew) 'aiGuardNew': true,
         if (!aiKeepTalks) 'aiKeepTalks': false,
+        if (!aiUseJournal) 'aiUseJournal': false,
+        if (dictationTold) 'dictationTold': true,
         'aiBackground': aiBackground,
         'aiBackgroundWifi': aiBackgroundWifi,
         'aiBackgroundCharging': aiBackgroundCharging,
@@ -679,6 +690,8 @@ class ListeningPrefs {
         aiOwnKnowledge: json['aiOwnKnowledge'] as bool? ?? false,
         aiGuardNew: json['aiGuardNew'] == true,
         aiKeepTalks: json['aiKeepTalks'] != false,
+        aiUseJournal: json['aiUseJournal'] != false,
+        dictationTold: json['dictationTold'] == true,
         aiBackground: json['aiBackground'] as bool? ?? true,
         aiBackgroundWifi: json['aiBackgroundWifi'] as bool? ?? true,
         aiBackgroundCharging: json['aiBackgroundCharging'] as bool? ?? false,

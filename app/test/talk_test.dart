@@ -99,6 +99,25 @@ void main() {
   });
 
   group('the pack', () {
+    test("the journal goes only when it bears on the question, or the question is about it", () {
+      const entries = [
+        'ch 2, 2026-11-01: Sunny hides in the Dark Sea and I worry for him.',
+        'ch 5, 2026-11-03: Nephis is cold, but kind underneath.',
+        'ch 9, 2026-11-05: The weather in this book is always grim.',
+      ];
+      // Nothing shared: nothing of the journal sent.
+      expect(journalFor('What rank is Cassie now?', entries), isEmpty);
+      // A word shared with what was written, not with its "ch 2" label.
+      expect(journalFor('Why does Sunny hide?', entries), [entries[0]]);
+      expect(journalFor('What chapter is this?', entries), isEmpty);
+      // The most shared first in rank; kept in the order written.
+      expect(journalFor('Is Nephis kind to Sunny?', entries), [entries[0], entries[1]]);
+      // About the reader's own writing: the latest, up to the cap.
+      expect(journalFor('What did I write about the story?', entries), entries);
+      expect(journalFor('Was my theory right?', entries, max: 2), [entries[1], entries[2]]);
+      expect(journalFor('In my journal, what stood out?', const []), isEmpty);
+    });
+
     test("Sunny's card as it stood at chapter 2: still a Sleeper, the Weaver still a mystery", () {
       final path = _memory(tmp);
       final items = buildPack(PackInput(path: path, question: 'What rank is Sunny now?', line: 1, here: 1));

@@ -10,6 +10,7 @@ import '../ai_router.dart';
 import '../ai_screen.dart' show wakeTime;
 import '../memory/memory_db.dart';
 import '../memory/theories.dart';
+import 'answer_pack.dart' show journalFor;
 import 'talk_engine.dart';
 
 /// One turn shown in the sheet.
@@ -266,7 +267,7 @@ class _TalkSheetState extends State<TalkSheet> {
         line: line,
         here: widget.here(),
         passage: widget.passage(),
-        journal: _journalLines(line),
+        journal: (ListeningPrefs.loaded?.aiUseJournal ?? true) ? journalFor(q, _journalLines(line)) : const [],
         theory: theory,
         onText: (piece) {
           if (!mounted) return;
