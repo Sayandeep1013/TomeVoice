@@ -12,6 +12,7 @@ import 'package:tomevoice_spike/guide.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/neural_voices.dart';
 import 'package:tomevoice_spike/prefs.dart';
+import 'package:tomevoice_spike/problem_report.dart';
 import 'package:tomevoice_spike/settings_screen.dart';
 import 'package:tomevoice_spike/sources/source_store.dart';
 import 'package:tomevoice_spike/store_build.dart';
@@ -105,15 +106,18 @@ void main() {
       await tester.pump(const Duration(seconds: 10));
     });
 
-    testWidgets('About: no updates from GitHub, no Releases; Privacy and the source code stay', (tester) async {
+    testWidgets('About: nothing points to GitHub; Privacy is its own page, reports go by email', (tester) async {
       phone(tester);
       await tester.pumpWidget(MaterialApp(home: AboutScreen(root: tmp)));
       await tester.pumpAndSettle();
       final texts = await allTexts(tester);
       expect(texts, isNot(contains('Check for updates')));
       expect(texts, isNot(contains('Releases')));
+      expect(texts, isNot(contains('Source code')));
+      expect(texts.where((t) => t.contains('GitHub') || t.contains('github')), isEmpty);
       expect(texts, contains('Privacy'));
-      expect(texts, contains('Source code'));
+      expect(texts, contains('See every word it would say, then send it yourself by email'));
+      expect(privacyUrl, isNot(contains('github')));
       await tester.pumpWidget(const SizedBox());
       await tester.pump(const Duration(seconds: 10));
     });
@@ -131,5 +135,27 @@ void main() {
 
   test('the GitHub build keeps everything', skip: playBuild, () {
     expect(playBuild, isFalse);
+    expect(privacyUrl, contains('github.io'));
+  });
+
+  test('a problem report: GitHub in the GitHub build, an email in the Play one', () {
+    const report = (title: 'Problem in TomeVoice 2.2.0', body: 'Line one\nA & B + C');
+    final link = reportLink(report);
+    if (playBuild) {
+      expect(link.scheme, 'mailto');
+      expect(link.path, reportEmail);
+    } else {
+      expect('${link.scheme}://${link.host}${link.path}', issuesUrl);
+    }
+    final mail = mailLink(report).toString();
+    expect(mail, startsWith('mailto:$reportEmail?subject=Problem%20in%20TomeVoice%202.2.0&body='));
+    expect(mail, contains('Line%20one%0AA%20%26%20B%20%2B%20C'));
+    expect(mail, isNot(contains('+')));
+  });
+
+  test("the source code of this version, for the Play version's licences page", () {
+    expect(sourceArchiveUrl('2.2.0'), '$repositoryUrl/archive/refs/tags/v2.2.0.zip');
+    expect(sourceArchiveUrl('2.2.0+36'), '$repositoryUrl/archive/refs/tags/v2.2.0.zip');
+    expect(sourceArchiveUrl(null), '$repositoryUrl/archive/refs/heads/main.zip');
   });
 }
