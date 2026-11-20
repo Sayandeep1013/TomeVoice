@@ -306,11 +306,12 @@ List<({JournalEntry entry, String text})> journalHits(
   String query, {
   int max = 8,
 }) {
-  final fit = [
-    for (final e in all)
-      if (!e.isTalk && books[e.bookId] case final b?)
-        if (b.line == null || e.stamp.chapter <= b.line!) e,
-  ];
+  bool within(JournalEntry e) {
+    final b = books[e.bookId];
+    return !e.isTalk && b != null && (b.line == null || e.stamp.chapter <= b.line!);
+  }
+
+  final fit = [for (final e in all) if (within(e)) e];
   if (query.trim().isEmpty) {
     fit.sort((a, b) => b.created.compareTo(a.created));
     return [for (final e in fit.take(max)) (entry: e, text: e.words)];
