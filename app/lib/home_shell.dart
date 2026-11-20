@@ -4,9 +4,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import 'ai/ai_chat_screen.dart';
+import 'ai/chat/chat_store.dart';
 import 'ai/ai_keys.dart';
 import 'ai/memory/memory_background.dart';
-import 'ai/memory/memory_section.dart';
 import 'ai/memory/memory_service.dart';
 import 'app_update.dart';
 import 'auto_backup.dart';
@@ -128,6 +128,8 @@ Future<OpenLibrary> _open(String dir) async {
   await ReadingRules.instance.attach(Directory(dir));
   await MarkStore.instance.attach(Directory(dir));
   await JournalStore.instance.attach(Directory(dir));
+  // AI chat's conversations, and what it keeps about the reader.
+  await ChatStore.instance.attach(Directory(dir));
   // The reader's AI keys (kept with the catalogue passwords) and their use.
   await AiRing.instance.attach(Directory(dir));
   MemoryService.instance.attach(store);
@@ -620,12 +622,10 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
               // The reading journal: what was thought, a page a book.
               _item(context, Icons.edit_note_outlined, Icons.edit_note_rounded, 'Journal',
                   onTap: () => _push((s) => JournalScreen(store: s))),
-              // Talking with the AI; its keys and settings behind the gear there.
+              // Talking with the AI. The books' memories and AI settings are
+              // behind its buttons.
               _item(context, Icons.forum_outlined, Icons.forum_rounded, 'AI chat',
                   onTap: () => _push((s) => AiChatScreen(store: s))),
-              // Every book's memory, how far it is built.
-              _item(context, Icons.psychology_outlined, Icons.psychology_rounded, 'Memory',
-                  onTap: () => _push((_) => const MemoriesScreen())),
               _heading(context, 'App'),
               _item(context, Icons.settings_outlined, Icons.settings_rounded, 'Settings',
                   onTap: () => _push((s) => SettingsScreen(store: s))),

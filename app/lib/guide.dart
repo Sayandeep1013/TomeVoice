@@ -294,6 +294,7 @@ const aiGuideCards = <GuideCard>[
       (Icons.auto_awesome_outlined, 'In a book, tap the sparkle above the player. Talk opens over the page, and the book reads on.'),
       (Icons.record_voice_over_rounded, 'Answers can be said in the voice reading the book.'),
       (Icons.edit_outlined, "Each talk is kept in the book's journal, beside your own writing."),
+      (Icons.chat_outlined, 'AI chat, in the menu: longer chats about one book, a few, or all of them, kept to come back to.'),
     ],
   ),
   GuideCard(

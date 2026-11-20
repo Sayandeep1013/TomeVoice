@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'ai/chat/chat_screen.dart';
+import 'ai/chat/chat_store.dart';
 import 'ai/talk/talk_view.dart';
 import 'journal.dart';
 import 'journal_page.dart';
@@ -91,9 +93,17 @@ class _JournalScreenState extends State<JournalScreen> {
   }
 
   /// An entry opened to change it, its stamp kept; a talk, to read again.
-  Future<void> _edit(JournalEntry e) => e.isTalk
-      ? Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => TalkTranscript(entry: e)))
-      : openJournal(context, bookId: e.bookId, bookTitle: e.bookTitle, stampNow: () => e.stamp, entry: e);
+  /// A chat from AI chat, opened there to carry on.
+  Future<void> _edit(JournalEntry e) {
+    final chat = e.id.startsWith('chat-') ? ChatStore.instance.byId(e.id.substring(5)) : null;
+    if (chat != null) {
+      return Navigator.of(context)
+          .push(MaterialPageRoute<void>(builder: (_) => ChatScreen(store: widget.store, chat: chat)));
+    }
+    return e.isTalk
+        ? Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => TalkTranscript(entry: e)))
+        : openJournal(context, bookId: e.bookId, bookTitle: e.bookTitle, stampNow: () => e.stamp, entry: e);
+  }
 
   @override
   Widget build(BuildContext context) {
