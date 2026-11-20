@@ -344,6 +344,6 @@ void main() {
     });
     expect(journalText(m), 'He is a Sleeper (ch 1). Not yet.');
     expect(chatTitleFrom('  What   happened to the Weaver in the dark city, and why did it matter so much?'),
-        hasLength(lessThanOrEqualTo(47)));
+        hasLength(lessThanOrEqualTo(29)));
   });
 }

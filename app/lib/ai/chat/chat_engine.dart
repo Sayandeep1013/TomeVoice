@@ -379,5 +379,6 @@ class ChatEngine {
 String chatTitleFrom(String question) {
   final t = question.replaceAll(RegExp(r'\s+'), ' ').trim();
   if (t.isEmpty) return 'New chat';
-  return t.length <= 48 ? t : '${t.substring(0, 46).trimRight()}…';
+  // Short enough for one line of the title bar.
+  return t.length <= 30 ? t : '${t.substring(0, 28).trimRight()}…';
 }
