@@ -27,10 +27,21 @@ class AiReportForm {
   bool get ready => action.isNotEmpty && fields.isNotEmpty;
 }
 
-/// The developer's form. Empty until it is made (see
-/// private/play-store-report-2026-11-20.html §3); until then a report says
-/// it could not be sent.
-const aiReportForm = AiReportForm(action: '', fields: {});
+/// The developer's form, "TomeVoice AI reports" (made 20 Nov 2026 in the
+/// publishing account; no sign-in, no emails collected). A report is posted
+/// to it the way the form's own page would.
+const aiReportForm = AiReportForm(
+  action: 'https://docs.google.com/forms/d/e/1FAIpQLSfgtOj-lFdd4daTluiS8kYbI1GhEEmYbzGHEnVaDamWXi-1ZQ/formResponse',
+  fields: {
+    'reason': 'entry.1173485706',
+    'note': 'entry.1817592797',
+    'answer': 'entry.1020922861',
+    'question': 'entry.245498505',
+    'model': 'entry.701342862',
+    'where': 'entry.1983285404',
+    'version': 'entry.369128993',
+  },
+);
 
 /// Why an answer is reported.
 const aiReportReasons = [
