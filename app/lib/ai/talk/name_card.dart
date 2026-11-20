@@ -93,7 +93,7 @@ Future<void> showNameCard(
 }
 
 class NameCardSheet extends StatelessWidget {
-  const NameCardSheet({super.key, required this.card, required this.line, this.onLook, this.onAsk});
+  const NameCardSheet({super.key, required this.card, required this.line, this.onLook, this.onAsk, this.onGraph});
 
   final FoundCard card;
   final int? line;
@@ -101,6 +101,9 @@ class NameCardSheet extends StatelessWidget {
   /// Looking at a line's chapter, and asking Talk: only in the reader.
   final void Function(MemoryPlace place)? onLook;
   final void Function(String question)? onAsk;
+
+  /// The graph opened round this one, their links lit (from Who's who).
+  final VoidCallback? onGraph;
 
   @override
   Widget build(BuildContext context) {
@@ -141,19 +144,36 @@ class NameCardSheet extends StatelessWidget {
           ),
           SafeArea(
             top: false,
-            child: onAsk == null
+            child: onAsk == null && onGraph == null
                 ? const SizedBox(height: Gap.m)
                 : Padding(
-              padding: const EdgeInsets.fromLTRB(Gap.l, Gap.s, Gap.l, Gap.m),
-              child: FilledButton.tonalIcon(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  onAsk!('Tell me about ${card.name}: who or what they are, and what they have done so far.');
-                },
-                icon: const Icon(Icons.auto_awesome_rounded, size: 18),
-                label: const Text('Tell me more'),
-              ),
-            ),
+                    padding: const EdgeInsets.fromLTRB(Gap.l, Gap.s, Gap.l, Gap.m),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (onAsk != null)
+                          FilledButton.tonalIcon(
+                            onPressed: () {
+                              Navigator.of(context).pop();
+                              onAsk!(
+                                  'Tell me about ${card.name}: who or what they are, and what they have done so far.');
+                            },
+                            icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+                            label: const Text('Tell me more'),
+                          ),
+                        if (onAsk != null && onGraph != null) const SizedBox(height: Gap.s),
+                        if (onGraph != null)
+                          OutlinedButton.icon(
+                            onPressed: () {
+                              Navigator.of(context).pop();
+                              onGraph!();
+                            },
+                            icon: const Icon(Icons.hub_outlined, size: 18),
+                            label: const Text('See their links'),
+                          ),
+                      ],
+                    ),
+                  ),
           ),
         ],
       ),

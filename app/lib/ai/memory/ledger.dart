@@ -11,6 +11,7 @@ class LedgerEntry {
     required this.name,
     this.about,
     this.firstCh,
+    this.lastSeen,
     this.mentions = 0,
   });
 
@@ -20,11 +21,26 @@ class LedgerEntry {
   final String? about;
   final int? firstCh;
 
+  /// The last chapter it appears in, up to the line.
+  final int? lastSeen;
+
   /// Chapters it appears in.
   final int mentions;
 }
 
-enum LedgerOrder { importance, firstMet, name }
+/// Who's who's orders: seen most, seen lately (those in the chapters just
+/// read first: "who was that again?"), first met, by name.
+enum LedgerOrder { importance, recent, firstMet, name }
+
+/// Where [e] is in the book, as Who's who lists it: "in 45 chapters, 3 to
+/// 210"; "in chapter 3"; "from an earlier book".
+String whereSeen(LedgerEntry e) {
+  final first = e.firstCh ?? 0;
+  if (first < 0) return 'from an earlier book · in ${e.mentions} ${e.mentions == 1 ? 'chapter' : 'chapters'}';
+  final last = e.lastSeen;
+  if (e.mentions <= 1 || last == null || last <= first) return 'in chapter ${first + 1}';
+  return 'in ${e.mentions} chapters, ${first + 1} to ${last + 1}';
+}
 
 /// Who's who: the book's entities as of chapter [at] (null: all of them),
 /// of [kind] and matching [query] by any of their names.
@@ -42,13 +58,15 @@ List<LedgerEntry> ledger(String path,
     ].join(' AND ');
     final orderBy = switch (order) {
       LedgerOrder.importance => 'seen DESC, e.name',
+      LedgerOrder.recent => 'last_seen DESC, seen DESC, e.name',
       LedgerOrder.firstMet => 'e.first_ch, e.name',
       LedgerOrder.name => 'e.name COLLATE NOCASE',
     };
     return [
       for (final r in m.db.select(
         'SELECT e.id, e.kind, e.name, ${describedSql(line)} about, e.first_ch, '
-        '(SELECT count(*) FROM appearances a WHERE a.entity = e.id AND a.ch <= $line) seen '
+        '(SELECT count(*) FROM appearances a WHERE a.entity = e.id AND a.ch <= $line) seen, '
+        '(SELECT max(a.ch) FROM appearances a WHERE a.entity = e.id AND a.ch <= $line) last_seen '
         'FROM entities e WHERE $where ORDER BY $orderBy LIMIT 2000',
         [if (kind != null) kind, if (q.isNotEmpty) '%$q%'],
       ))
@@ -58,6 +76,7 @@ List<LedgerEntry> ledger(String path,
           name: r['name'] as String,
           about: r['about'] as String?,
           firstCh: r['first_ch'] as int?,
+          lastSeen: r['last_seen'] as int?,
           mentions: r['seen'] as int,
         ),
     ];

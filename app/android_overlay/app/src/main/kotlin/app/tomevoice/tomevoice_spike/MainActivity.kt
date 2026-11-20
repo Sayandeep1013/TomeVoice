@@ -320,13 +320,16 @@ class MainActivity : FlutterActivity() {
                 "translate" -> result.success(processText(call.argument<String>("text").orEmpty(), translate = true))
                 "openUrl" -> {
                     val scheme = Uri.parse(call.argument<String>("url").orEmpty()).scheme?.lowercase()
-                    if (scheme != "https" && scheme != "http") {
+                    if (scheme != "https" && scheme != "http" && scheme != "mailto") {
                         result.success(false)
                         return@setMethodCallHandler
                     }
                     try {
+                        // mailto: a problem report from the Play version,
+                        // opened in the reader's email app for them to send.
+                        val action = if (scheme == "mailto") Intent.ACTION_SENDTO else Intent.ACTION_VIEW
                         startActivity(
-                            Intent(Intent.ACTION_VIEW, Uri.parse(call.argument<String>("url").orEmpty()))
+                            Intent(action, Uri.parse(call.argument<String>("url").orEmpty()))
                                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         )
                         result.success(true)
