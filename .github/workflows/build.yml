@@ -17,9 +17,9 @@ on:
         required: false
         default: ""
       variant:
-        description: 'test: only a 64-bit APK of the separate test app (app.tomevoice.test, "TomeVoice Test"), never released. play: the Google Play app bundle (.aab), never released here'
+        description: 'test: only a 64-bit APK of the separate test app (app.tomevoice.test, "TomeVoice Test"), never released. play: the Google Play app bundle (.aab), never released here. play-test: the Play build as the test app, to try on a phone'
         type: choice
-        options: [release, test, play]
+        options: [release, test, play, play-test]
         default: release
       relock:
         description: "Only re-resolve the pubspec.lock files with the pinned SDKs and upload them (builds nothing)"
@@ -143,12 +143,12 @@ jobs:
       # risky build never touches the reader's books. Signed with the same key,
       # so each test build installs over the last. Empty for every other run,
       # which builds the real app.
-      TV_APP_ID: ${{ inputs.variant == 'test' && 'app.tomevoice.test' || '' }}
-      TV_APP_LABEL: ${{ inputs.variant == 'test' && 'TomeVoice Test' || '' }}
+      TV_APP_ID: ${{ (inputs.variant == 'test' || inputs.variant == 'play-test') && 'app.tomevoice.test' || '' }}
+      TV_APP_LABEL: ${{ (inputs.variant == 'test' || inputs.variant == 'play-test') && 'TomeVoice Test' || '' }}
       # variant=play builds the Google Play app bundle: no web novels, no
       # self-updater, no battery exemption request, only open voices (the
       # app's playBuild; tools/prepare_android.py's PLAY_FORBIDDEN).
-      TV_STORE: ${{ inputs.variant == 'play' && 'play' || '' }}
+      TV_STORE: ${{ (inputs.variant == 'play' || inputs.variant == 'play-test') && 'play' || '' }}
     steps:
       - *checkout
 
@@ -328,7 +328,7 @@ jobs:
       # what nearly every phone takes; the 32-bit one is for older and
       # Android Go phones. The test app is 64-bit only.
       - name: Build release APK (32-bit phones)
-        if: inputs.variant != 'test' && inputs.variant != 'play'
+        if: inputs.variant == 'release' || inputs.variant == ''
         working-directory: app
         env:
           TV_KEYSTORE_PASSWORD: ${{ secrets.TV_KEYSTORE_PASSWORD }}
@@ -344,7 +344,7 @@ jobs:
           TV_KEYSTORE_PASSWORD: ${{ secrets.TV_KEYSTORE_PASSWORD }}
           TV_ABIS: arm64-v8a
         run: |
-          flutter build apk --release --no-pub --target-platform android-arm64
+          flutter build apk --release --no-pub --target-platform android-arm64 --dart-define=TV_STORE=$TV_STORE
           # Each APK holds one CPU's native code, compressed.
           unzip -l build/app/outputs/flutter-apk/app-release.apk | grep -E "lib/" | awk '{print $4}' | cut -d/ -f2 | sort -u
           ls -la build/app/outputs/flutter-apk/app-release.apk
@@ -353,7 +353,7 @@ jobs:
       # one app bundle with both CPUs' code; Play makes each phone's APK from
       # it. Signed with the TomeVoice key as the upload key.
       - name: Play build tests
-        if: inputs.variant == 'play'
+        if: inputs.variant == 'play' || inputs.variant == 'play-test'
         working-directory: app
         run: flutter test --no-pub --dart-define=TV_STORE=play test/play_build_test.dart
 
@@ -443,7 +443,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload the 32-bit APK
-        if: inputs.variant != 'test' && inputs.variant != 'play'
+        if: inputs.variant == 'release' || inputs.variant == ''
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tomevoice-apk-32bit
@@ -451,7 +451,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload the APK
-        if: inputs.variant != 'test' && inputs.variant != 'play'
+        if: inputs.variant == 'release' || inputs.variant == ''
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tomevoice-apk
@@ -460,11 +460,11 @@ jobs:
 
       # Named for what it is: adb install -r TomeVoice-test.apk.
       - name: Name the test APK
-        if: inputs.variant == 'test'
+        if: inputs.variant == 'test' || inputs.variant == 'play-test'
         run: cp app/build/app/outputs/flutter-apk/app-release.apk "$RUNNER_TEMP/TomeVoice-test.apk"
 
       - name: Upload the test APK
-        if: inputs.variant == 'test'
+        if: inputs.variant == 'test' || inputs.variant == 'play-test'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tomevoice-test-apk
