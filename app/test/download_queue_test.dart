@@ -340,7 +340,8 @@ void main() {
     await q.resume();
     expect(keep.busy, isTrue);
     await until(() => q.of(a) == null);
-    expect(keep.busy, isFalse);
+    // The queue empties a moment before it lets the service go.
+    await until(() => !keep.busy);
     expect(service.stops, 2);
     expect(service.shown.last.done, greaterThan(0));
   });
