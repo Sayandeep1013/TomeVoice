@@ -48,8 +48,17 @@ const _svc = SpeechService();
 /// Where the project lives.
 const repositoryUrl = 'https://github.com/Sayandeep1013/TomeVoice';
 
-/// The privacy policy, on the site.
-const privacyUrl = 'https://sayandeep1013.github.io/TomeVoice/privacy.html';
+/// The privacy policy, on the site. The Play version's is a page of its
+/// own (the publisher's Google Site), about that version only.
+const privacyUrl = playBuild
+    ? 'https://sites.google.com/view/tomevoice'
+    : 'https://sayandeep1013.github.io/TomeVoice/privacy.html';
+
+/// The source code of TomeVoice [version], as an archive: what the GPL asks
+/// the Play version to point to, said on its licences page.
+String sourceArchiveUrl(String? version) => version == null || version.isEmpty
+    ? '$repositoryUrl/archive/refs/heads/main.zip'
+    : '$repositoryUrl/archive/refs/tags/v${version.split('+').first}.zip';
 
 /// Settings, grouped the way readers look for them: how it looks, how the
 /// page reads, how it sounds, how the library is kept.
@@ -1173,6 +1182,8 @@ class _AboutScreenState extends State<AboutScreen> {
                           subtitle: 'New versions are published on GitHub',
                           onTap: _checkForUpdate,
                         ),
+                      // Play: the source is offered on the licences page.
+                      if (!playBuild)
                       _Link(
                         icon: Icons.code_rounded,
                         title: 'Source code',
@@ -1195,7 +1206,9 @@ class _AboutScreenState extends State<AboutScreen> {
                       _Link(
                         icon: Icons.bug_report_outlined,
                         title: 'Report a problem',
-                        subtitle: 'See every word it would say, then send it yourself on GitHub',
+                        subtitle: playBuild
+                            ? 'See every word it would say, then send it yourself by email'
+                            : 'See every word it would say, then send it yourself on GitHub',
                         onTap: () => unawaited(showProblemReport(context)),
                       ),
                       _Link(
@@ -1206,7 +1219,9 @@ class _AboutScreenState extends State<AboutScreen> {
                           context: context,
                           applicationName: 'TomeVoice',
                           applicationVersion: _version,
-                          applicationLegalese: 'GPL-3.0',
+                          applicationLegalese: playBuild
+                              ? 'GPL-3.0. Source code of this version: ${sourceArchiveUrl(_version)}'
+                              : 'GPL-3.0',
                         ),
                       ),
                       // No Support row until there is a page to point it

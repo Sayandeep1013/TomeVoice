@@ -5,11 +5,16 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
 import 'error_log.dart';
 import 'speech_service.dart';
+import 'store_build.dart';
 import 'theme.dart';
 import 'ui.dart';
 
 /// Where a report goes: a new issue on the project's GitHub.
 const issuesUrl = 'https://github.com/Sayandeep1013/TomeVoice/issues/new';
+
+/// Where a report goes from the Play version: an email to the developer,
+/// which the reader sends from their own email app.
+const reportEmail = 'nofilterr.agency@gmail.com';
 
 /// The longest link a report is put in: GitHub turns away a new issue's
 /// address much past 8,000 characters, so the oldest errors give way first.
@@ -106,7 +111,7 @@ ProblemReport problemReport({
   final newest = current.reversed.take(reportErrors).toList();
   for (var n = newest.length; n > 0; n--) {
     final report = (title: title, body: body(newest.sublist(0, n)));
-    if (issueLink(report).toString().length <= maxLink) return report;
+    if (reportLink(report).toString().length <= maxLink) return report;
   }
   return (title: title, body: body(const []));
 }
@@ -132,6 +137,15 @@ List<String> _lines(ErrorEntry e) {
 /// The address that opens [report] on GitHub as a new issue, filled in.
 Uri issueLink(ProblemReport report) =>
     Uri.parse(issuesUrl).replace(queryParameters: {'title': report.title, 'body': report.body});
+
+/// The address that opens [report] as an email to [reportEmail], filled in.
+/// Spaces as %20, not +, which email apps would show as it is.
+Uri mailLink(ProblemReport report) => Uri.parse(
+      'mailto:$reportEmail?subject=${Uri.encodeComponent(report.title)}&body=${Uri.encodeComponent(report.body)}',
+    );
+
+/// Where Send opens [report]: GitHub, or an email in the Play version.
+Uri reportLink(ProblemReport report) => playBuild ? mailLink(report) : issueLink(report);
 
 /// About > Report a problem: the whole report, word for word as it would be
 /// sent, and a button that opens it on GitHub, filled in, for the reader to
@@ -170,12 +184,17 @@ class ProblemReportSheet extends StatelessWidget {
   }
 
   Future<void> _open(BuildContext context) async {
-    final opened = await const SpeechService().openUrl(issueLink(report).toString());
+    final opened = await const SpeechService().openUrl(reportLink(report).toString());
     if (!context.mounted) return;
     if (opened) {
       Navigator.of(context).pop();
     } else {
-      showSnack(context, 'No browser on this phone would open it. Copy the report instead.');
+      showSnack(
+        context,
+        playBuild
+            ? 'No email app on this phone would open it. Copy the report and send it to $reportEmail.'
+            : 'No browser on this phone would open it. Copy the report instead.',
+      );
     }
   }
 
@@ -191,8 +210,11 @@ class ProblemReportSheet extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: Gap.xl),
                 child: Text(
-                  'This is the whole report, word for word. Open GitHub and it is filled in there, '
-                  'for you to read, change and send yourself.',
+                  playBuild
+                      ? 'This is the whole report, word for word. Open it as an email and it is filled '
+                          'in there, for you to read, change and send yourself.'
+                      : 'This is the whole report, word for word. Open GitHub and it is filled in there, '
+                          'for you to read, change and send yourself.',
                   style: Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkSoftOn(context))
                       .copyWith(height: 1.4),
                 ),
@@ -230,8 +252,8 @@ class ProblemReportSheet extends StatelessWidget {
                     Expanded(
                       child: FilledButton.icon(
                         onPressed: () => unawaited(_open(context)),
-                        icon: const Icon(Icons.open_in_new_rounded, size: 18),
-                        label: const Text('Open GitHub'),
+                        icon: Icon(playBuild ? Icons.mail_outline_rounded : Icons.open_in_new_rounded, size: 18),
+                        label: Text(playBuild ? 'Open as email' : 'Open GitHub'),
                       ),
                     ),
                   ],
