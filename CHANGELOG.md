@@ -3,6 +3,15 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## Unreleased
+
+#### Long jobs keep going in the background
+- **Chapter downloads, building a memory and downloading a voice** keep going with TomeVoice behind other apps, with the screen off, and after a swipe from Recents. One quiet notification says what is running and how far, with **Stop**.
+- They no longer stop when the app goes behind before the first chapter came, and the phone no longer sleeps under them with the screen off.
+- If a phone ends TomeVoice anyway, downloads and memory building **pick up where they stopped** the next time you open it, and say so. A memory goes on from the last chapter noted: nothing is sent twice.
+- Android 15 and later allow six hours a day of this work in the background: then it pauses, says so, and goes on when you open TomeVoice.
+- Once, when you start one of these and battery saving is on for TomeVoice, a short note with the setting a tap away. Settings > Listening has a **Keeps stopping?** line for phones (Nothing, Xiaomi, Samsung, OnePlus and others) that stop apps in ways of their own.
+
 ## 2.2.0 (2026-11-20)
 
 You stay in charge of the AI: it asks first, shows what it sent, and takes reports. Interview me at a chapter's end, chapter search in a memory, and undo for merges.

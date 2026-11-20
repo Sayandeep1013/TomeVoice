@@ -998,10 +998,13 @@ class _Link extends StatelessWidget {
 }
 
 /// Settings > Listening: whether Android lets TomeVoice read on with the
-/// screen off, and the way to its setting (the phone's own question, or its
-/// list of apps). On phones whose makers stop apps in ways of their own as
-/// well, a line to the maker's page on dontkillmyapp.com, which says what
-/// else to turn off. Nothing shows where the phone cannot say (tests).
+/// screen off (and go on downloading chapters and building memories), and
+/// the way to its setting (the phone's own question, or its list of apps).
+/// Below it, "Keeps stopping?": on phones whose makers stop apps in ways of
+/// their own as well, a line to the maker's page on dontkillmyapp.com,
+/// which says what else to turn off; on others, while battery saving is
+/// on, the same line naming the usual makers. Nothing shows where the phone
+/// cannot say (tests).
 class ScreenOffRow extends StatefulWidget {
   const ScreenOffRow({super.key});
 
@@ -1056,12 +1059,13 @@ class _ScreenOffRowState extends State<ScreenOffRow> {
             subtitle: status.exempt
                 ? 'Allowed: battery saving leaves TomeVoice alone'
                 : playBuild
-                    ? 'Battery saving may stop the voice with the screen off. Tap, find TomeVoice in the list, '
-                        'and let it run unrestricted'
-                    : 'Battery saving may stop the voice with the screen off. Tap to allow TomeVoice',
+                    ? 'Battery saving may stop the voice, downloads and memory building with the screen off. '
+                        'Tap, find TomeVoice in the list, and let it run unrestricted'
+                    : 'Battery saving may stop the voice, downloads and memory building with the screen off. '
+                        'Tap to allow TomeVoice',
             onTap: _open,
           ),
-          if (maker != null)
+          if (maker != null || !status.exempt)
             // In line with the row's text, under its icon's gap.
             Padding(
               padding: const EdgeInsets.only(left: 38),
@@ -1069,12 +1073,15 @@ class _ScreenOffRowState extends State<ScreenOffRow> {
                 link: true,
                 child: InkWell(
                   borderRadius: BorderRadius.circular(Radii.row),
-                  onTap: () => _svc.openUrl('https://dontkillmyapp.com/${maker.page}'),
+                  onTap: () => _svc.openUrl('https://dontkillmyapp.com/${maker?.page ?? ''}'),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: Gap.xs),
                     child: Text(
-                      '${maker.name} phones can also stop apps in ways of their own: '
-                      'dontkillmyapp.com/${maker.page}',
+                      maker != null
+                          ? 'Keeps stopping? ${maker.name} phones can also stop apps in ways of their own: '
+                              'dontkillmyapp.com/${maker.page}'
+                          : 'Keeps stopping? Phones by Nothing, Xiaomi, Samsung, OnePlus and others can also stop '
+                              'apps in ways of their own: dontkillmyapp.com',
                       style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
                     ),
                   ),

@@ -656,12 +656,13 @@ class MainActivity : FlutterActivity() {
     override fun provideFlutterEngine(context: Context): FlutterEngine = ReadingCore.engineFor(this)
 
     /**
-     * Kept while a book is being read or saved as audio: a swipe from
-     * Recents, or Android closing the activity, leaves the voice reading and
-     * the save going. With neither, an activity that is finishing takes it
-     * along, so the next opening starts afresh, as it always did (decided in
-     * cleanUpFlutterEngine, which comes first). Never while a newer activity
-     * takes the engine over.
+     * Kept while a book is being read or saved as audio, or Dart has long
+     * work going (chapters downloading, a memory being built: KeepAlive): a
+     * swipe from Recents, or Android closing the activity, leaves the voice
+     * reading and the work going. With none, an activity that is finishing
+     * takes it along, so the next opening starts afresh, as it always did
+     * (decided in cleanUpFlutterEngine, which comes first). Never while a
+     * newer activity takes the engine over.
      */
     override fun shouldDestroyEngineWithHost(): Boolean = engineGoes
 
@@ -670,7 +671,8 @@ class MainActivity : FlutterActivity() {
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
         engineGoes = isFinishing && !isChangingConfigurations && ReadingCore.shows(this) &&
-            !ReadAloudService.isRunning() && !ReadAloudService.isStarting() && !ReadingCore.saving()
+            !ReadAloudService.isRunning() && !ReadAloudService.isStarting() && !ReadingCore.saving() &&
+            !KeepAlive.busy()
         // Reading and a save carry on; this activity's own calls (pickers,
         // the window, prompts) go with it.
         ReadingCore.detach(this)
@@ -1405,7 +1407,8 @@ class MainActivity : FlutterActivity() {
         dictation = null
         // The reading, the voice, the player and a save as audio are the
         // engine's and carry on (ReadingCore): leaving the app, by a swipe
-        // from Recents too, does not stop a book being read or saved. A scan
+        // from Recents too, does not stop a book being read or saved, nor
+        // chapters downloading or a memory being built (KeepAlive). A scan
         // being read goes on too, telling the engine (configureFlutterEngine).
         io.shutdown()
         pages.execute { PdfPages.close() }

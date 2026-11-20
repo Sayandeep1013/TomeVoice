@@ -53,10 +53,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  * what does.
  *
  * The engine outlives the activity while a book is being read, or about to
- * be, or saved as audio ([exporter]): a swipe from Recents, or Android
- * closing the activity, leaves the voice reading and the save going. With
- * neither and no activity it goes ([idle]), so the next opening starts
- * afresh, as it always did.
+ * be, or saved as audio ([exporter]), or while Dart has long work going
+ * (chapters downloading, a memory being built: KeepAlive): a swipe from
+ * Recents, or Android closing the activity, leaves the voice reading and
+ * the work going. With none of these and no activity it goes ([idle]), so
+ * the next opening starts afresh, as it always did.
  *
  * TTS: one engine instance, created with the Flutter engine and kept warm.
  * Listing voices and synthesising both use it. Earlier builds created a
@@ -118,6 +119,9 @@ object ReadingCore {
         // Web novels' channel from the start: a book read with no activity
         // opens the library, its sources included (openLibrary).
         SourcesBridge.attach(app, engine.dartExecutor.binaryMessenger, null)
+        // Long jobs Dart does (downloads, building memories), kept going
+        // with the app away (KeepAlive.kt).
+        KeepAlive.attach(app, engine.dartExecutor.binaryMessenger)
         return engine
     }
 
@@ -181,7 +185,9 @@ object ReadingCore {
     }
 
     private val retire = Runnable {
-        if (activity != null || ReadAloudService.isRunning() || ReadAloudService.isStarting() || saving()) {
+        if (activity != null || ReadAloudService.isRunning() || ReadAloudService.isStarting() || saving() ||
+            KeepAlive.busy()
+        ) {
             return@Runnable
         }
         // Its lifecycle listener (bind) lets everything else go.
@@ -218,6 +224,8 @@ object ReadingCore {
 
     private fun unbind() {
         main.removeCallbacks(retire)
+        // Its long jobs went with it: their service goes too.
+        KeepAlive.engineGone(app)
         FlutterEngineCache.getInstance().remove(ENGINE_ID)
         channel?.setMethodCallHandler(null)
         channel = null

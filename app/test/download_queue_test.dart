@@ -7,9 +7,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_spike/download_queue.dart';
+import 'package:tomevoice_spike/keep_alive.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/sources/models.dart';
 import 'package:tomevoice_spike/sources/plugin_host.dart';
@@ -60,6 +60,22 @@ class _Installed extends SourceStore {
   Future<PluginInfo?> installedById(String id) async => plugins.where((p) => p.id == id).firstOrNull;
 }
 
+/// The keep-alive service as a test sees it: what its notification said,
+/// and how often it was let go.
+class _Service implements KeepAlivePlatform {
+  final shown = <KeepAliveNotice>[];
+  var stops = 0;
+
+  @override
+  Future<bool> show(KeepAliveNotice notice) async {
+    shown.add(notice);
+    return true;
+  }
+
+  @override
+  Future<void> stop() async => stops++;
+}
+
 PluginInfo _plugin(String id) =>
     PluginInfo(id: id, name: 'Site $id', site: 'https://$id.test/', lang: 'English', version: '1', url: 'https://x/$id.js');
 
@@ -96,8 +112,12 @@ void main() {
   });
 
   /// A queue of the test's own, paused and let finish when the test ends.
-  DownloadQueue queue({Duration pace = const Duration(milliseconds: 1500), Duration backoff = const Duration(seconds: 5)}) {
-    final q = DownloadQueue.forTests(pace: pace, backoff: backoff);
+  DownloadQueue queue(
+      {Duration pace = const Duration(milliseconds: 1500),
+      Duration backoff = const Duration(seconds: 5),
+      KeepAlive? keepAlive}) {
+    final q = DownloadQueue.forTests(
+        pace: pace, backoff: backoff, keepAlive: keepAlive ?? KeepAlive.forTests(_Service(), inFront: () => false));
     queues.add(q);
     return q;
   }
@@ -274,14 +294,7 @@ void main() {
   });
 
   test("the notification names a novel and its chapter, but never a secret shelf's, open or not", () async {
-    final shown = <Map<Object?, Object?>>[];
-    const channel = MethodChannel('tomevoice/sources');
-    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    messenger.setMockMethodCallHandler(channel, (call) async {
-      if (call.method == 'downloadProgress' && call.arguments is Map) shown.add(call.arguments as Map);
-      return null;
-    });
-    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final service = _Service();
     final (open, oc) = await novel('a', 'shown', 2);
     final hidden = (await store.addWebNovel(
             _plugin('b'),
@@ -293,13 +306,90 @@ void main() {
     await store.moveBooks({hidden}, shelf.id);
     LibraryStore.secretOpen.value = true;
     addTearDown(() => LibraryStore.secretOpen.value = false);
-    final q = queue(pace: const Duration(milliseconds: 60));
+    final q = queue(pace: const Duration(milliseconds: 60), keepAlive: KeepAlive.forTests(service, inFront: () => false));
     await q.attach(store);
     await q.add(open, oc);
     await q.add(hidden, [for (var i = 1; i <= 2; i++) ChapterItem(name: 'The Hush Chapter $i', path: 'hush/$i')]);
     await until(() => q.of(open) == null && q.of(hidden) == null);
-    final said = [for (final m in shown) '${m['title']} ${m['text']}'];
+    final said = [for (final m in service.shown) '${m.title} ${m.text}'];
     expect(said.any((s) => s.contains('Novel shown') && s.contains('Chapter')), isTrue, reason: 'an open one is named');
     expect(said.where((s) => s.contains('Hush')), isEmpty);
+    // Nothing left to download: the service goes.
+    expect(service.stops, greaterThanOrEqualTo(1));
+  });
+
+  test('the service is asked for as the first chapter is queued, and let go when the queue is paused or done',
+      () async {
+    final service = _Service();
+    final keep = KeepAlive.forTests(service, inFront: () => true, exempt: () async => true);
+    final (a, ac) = await novel('a', 'na', 2);
+    final gate = Completer<void>();
+    sites.gates['na/1'] = gate.future;
+    final q = queue(pace: const Duration(milliseconds: 20), keepAlive: keep);
+    await q.attach(store);
+    expect(service.shown, isEmpty, reason: 'nothing waits');
+    await q.add(a, ac);
+    // At once, while the reader is in the app: not on a later update.
+    expect(keep.isRunning('downloads'), isTrue);
+    expect(service.shown.first.title, 'Downloading chapters');
+    expect(service.shown.first.text, '2 to go');
+    await q.pause();
+    expect(keep.busy, isFalse);
+    expect(service.stops, 1);
+    gate.complete();
+    await q.resume();
+    expect(keep.busy, isTrue);
+    await until(() => q.of(a) == null);
+    expect(keep.busy, isFalse);
+    expect(service.stops, 2);
+    expect(service.shown.last.done, greaterThan(0));
+  });
+
+  test("Android's daily limit: the chapter on its way lands, no more start, and they go on once the app is in front",
+      () async {
+    final service = _Service();
+    final said = <String>[];
+    final keep = KeepAlive.forTests(service,
+        inFront: () => true, exempt: () async => true, say: (text, {action, onAction}) => said.add(text));
+    final (a, ac) = await novel('a', 'na', 4);
+    final gate = Completer<void>();
+    sites.gates['na/1'] = gate.future;
+    final q = queue(pace: const Duration(milliseconds: 20), keepAlive: keep);
+    await q.attach(store);
+    await q.add(a, ac);
+    await until(() => sites.asked.containsKey('na/1'));
+    await keep.platformEvent('timeout');
+    expect(q.held, isTrue);
+    expect(keep.busy, isFalse);
+    expect(keep.held, isTrue);
+    gate.complete();
+    await until(() => store.downloadedChapters(a).length == 1);
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    expect(sites.asked.containsKey('na/2'), isFalse, reason: 'held: nothing new starts');
+    expect(q.paused, isFalse, reason: "not the reader's pause");
+    // The closed-app check does not wait on a held queue.
+    expect(await q.settledBy(DateTime.now().add(const Duration(seconds: 5))), isTrue);
+
+    keep.cameToFront();
+    expect(said.single, contains('Downloads paused while TomeVoice was away'));
+    expect(q.held, isFalse);
+    await until(() => q.of(a) == null);
+    expect(store.downloadedChapters(a).length, 4);
+  });
+
+  test("the notification's Stop is the reader's Pause", () async {
+    final service = _Service();
+    final keep = KeepAlive.forTests(service, inFront: () => false);
+    final (a, ac) = await novel('a', 'na', 3);
+    final gate = Completer<void>();
+    sites.gates['na/1'] = gate.future;
+    final q = queue(pace: const Duration(milliseconds: 20), keepAlive: keep);
+    await q.attach(store);
+    await q.add(a, ac);
+    await keep.platformEvent('stop');
+    await until(() => q.paused && !keep.busy);
+    gate.complete();
+    // Kept paused on disk too: it waits for Resume.
+    expect(await DownloadQueue.pausedIn(store.root), isTrue);
   });
 }
