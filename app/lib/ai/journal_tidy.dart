@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../theme.dart';
 import '../ui.dart';
 import 'ai_client.dart';
+import 'ai_consent.dart';
 import 'ai_keys.dart';
 import 'ai_router.dart';
 
@@ -16,8 +17,9 @@ const tidyAsk = 'You tidy words a reader spoke aloud into their reading journal,
 /// [texts] tidied by the AI, each shown beside what was said before it is
 /// used. The tidied texts, or null when the reader kept their own (or the
 /// AI could not be reached; a note says so).
-Future<List<String>?> tidyJournalText(BuildContext context, List<String> texts, {AiRouter? router}) async {
-  final r = router ?? AiRouter();
+Future<List<String>?> tidyJournalText(BuildContext context, List<String> texts, {AiRouter? router, String? about}) async {
+  final r = router ?? AiRouter(about: about);
+  if (!await ensureAiConsent(context, ring: r.ring) || !context.mounted) return null;
   final out = <String>[];
   showSnack(context, 'Tidying what you said…');
   try {

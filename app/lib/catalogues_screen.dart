@@ -258,7 +258,7 @@ class _CataloguesScreenState extends State<CataloguesScreen> {
         context,
         title: 'Your Patrons Circle email',
         message: 'Standard Ebooks is run by volunteers, and gives its whole catalogue as a feed to the members '
-            'of its Patrons Circle, who support it with donations. Members sign in with the email address '
+            'of its Patrons Circle. Members sign in with the email address '
             'they joined with; there is no password. Not a member? Its new releases, and Project Gutenberg, '
             'are free to everyone.',
         hint: 'name@example.com',

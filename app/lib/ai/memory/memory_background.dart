@@ -89,7 +89,7 @@ Future<Map<String, Object?>> runBackgroundBuild({
     if (!File(path).existsSync()) continue;
     if (!_begun(path)) continue;
     await WordIndexer(store).index(e.id);
-    final b = MemoryBuilder(path: path, router: router);
+    final b = MemoryBuilder(path: path, router: router ?? AiRouter(about: e.title));
     final watch = Timer.periodic(const Duration(seconds: 10), (_) async {
       if (DateTime.now().isAfter(until) || (stopWhen != null && await stopWhen())) b.pause();
     });

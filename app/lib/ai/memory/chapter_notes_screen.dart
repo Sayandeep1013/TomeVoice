@@ -45,6 +45,36 @@ void forgetChapterNotes(String path, int ch) {
   }
 }
 
+/// What a typed [query] reads as a chapter's number: "120", "ch 120",
+/// "Ch. 120", "chapter 120". Null when it is not one.
+int? chapterNumberIn(String query) {
+  final m = _numbered.firstMatch(query.trim());
+  return m == null ? null : int.tryParse(m.group(1)!);
+}
+
+final _numbered = RegExp(r'^(?:ch(?:apter)?\.?\s*)?#?(\d+)$', caseSensitive: false);
+
+/// The [notes] a search for [query] finds, in the book's order: the
+/// chapter of that number first, then those whose title or notes hold
+/// every word typed. Everything when nothing is typed.
+List<ChapterNote> findChapterNotes(List<ChapterNote> notes, String query) {
+  final q = query.trim().toLowerCase();
+  if (q.isEmpty) return notes;
+  final number = chapterNumberIn(q);
+  final words = q.split(RegExp(r'\s+'));
+  final byNumber = <ChapterNote>[];
+  final byWords = <ChapterNote>[];
+  for (final c in notes) {
+    if (number != null && c.ch + 1 == number) {
+      byNumber.add(c);
+      continue;
+    }
+    final text = '${c.title}\n${c.summary ?? ''}'.toLowerCase();
+    if (words.every(text.contains)) byWords.add(c);
+  }
+  return [...byNumber, ...byWords];
+}
+
 Future<List<ChapterNote>> _notesOff(String path, int? upTo) => Isolate.run(() => chapterNotes(path, upTo));
 
 /// [forgetChapterNotes] on another isolate.
@@ -75,6 +105,21 @@ class ChapterNotesScreen extends StatefulWidget {
 
 class _ChapterNotesScreenState extends State<ChapterNotesScreen> {
   List<ChapterNote>? _notes;
+  String _query = '';
+  final _search = TextEditingController();
+  final _list = ScrollController();
+
+  @override
+  void dispose() {
+    _search.dispose();
+    _list.dispose();
+    super.dispose();
+  }
+
+  void _find(String v) {
+    setState(() => _query = v);
+    if (_list.hasClients) _list.jumpTo(0);
+  }
 
   @override
   void initState() {
@@ -105,6 +150,8 @@ class _ChapterNotesScreenState extends State<ChapterNotesScreen> {
   @override
   Widget build(BuildContext context) {
     final notes = _notes;
+    final shown = notes == null ? null : findChapterNotes(notes, _query);
+    final searching = _query.trim().isNotEmpty;
     final bottom = MediaQuery.viewPaddingOf(context).bottom;
     return Scaffold(
       body: DecoratedBox(
@@ -115,6 +162,31 @@ class _ChapterNotesScreenState extends State<ChapterNotesScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               ScreenTopBar(title: 'Chapter by chapter', onBack: () => Navigator.of(context).maybePop()),
+              if (notes != null && notes.isNotEmpty) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.xs),
+                  child: SearchField(
+                    controller: _search,
+                    hint: 'Chapter number, or words in it',
+                    onChanged: _find,
+                    onClear: searching
+                        ? () {
+                            _search.clear();
+                            _find('');
+                          }
+                        : null,
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xs, Gap.page, Gap.s),
+                  child: Text(
+                    searching
+                        ? '${shown!.length} OF ${notes.length} ${notes.length == 1 ? 'CHAPTER' : 'CHAPTERS'}'
+                        : '${notes.length} ${notes.length == 1 ? 'CHAPTER' : 'CHAPTERS'}',
+                    style: Skin.meta(context),
+                  ),
+                ),
+              ],
               Expanded(
                 child: notes == null
                     ? const Center(child: CircularProgressIndicator())
@@ -124,11 +196,18 @@ class _ChapterNotesScreenState extends State<ChapterNotesScreen> {
                             title: 'No chapters yet',
                             body: 'Build the memory, and what it notes of each chapter shows here.',
                           )
-                        : ListView.builder(
-                            padding: EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.xl + bottom),
-                            itemCount: notes.length,
-                            itemBuilder: (context, i) => _chapter(context, notes[i]),
-                          ),
+                        : shown!.isEmpty
+                            ? Padding(
+                                padding: const EdgeInsets.all(Gap.xl),
+                                child: Text('No chapters match.', style: Skin.label(context, size: 15)),
+                              )
+                            : ListView.builder(
+                                controller: _list,
+                                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                                padding: EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.xl + bottom),
+                                itemCount: shown.length,
+                                itemBuilder: (context, i) => _chapter(context, shown[i]),
+                              ),
               ),
             ],
           ),
@@ -155,8 +234,16 @@ class _ChapterNotesScreenState extends State<ChapterNotesScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title,
-                        style: Skin.ui(size: 14, weight: FontWeight.w600, color: Skin.accentInkOf(context))),
+                    Text.rich(
+                      TextSpan(children: [
+                        // Its number, which a search by number finds: a book's own
+                        // titles ("CHAPTER IX.") often count otherwise.
+                        if (title != 'Chapter ${c.ch + 1}')
+                          TextSpan(text: '${c.ch + 1}  ·  ', style: Skin.meta(context, size: 12)),
+                        TextSpan(text: title),
+                      ]),
+                      style: Skin.ui(size: 14, weight: FontWeight.w600, color: Skin.accentInkOf(context)),
+                    ),
                     const SizedBox(height: Gap.xs),
                     Text(
                       body,

@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy · TomeVoice</title>
+<meta name="description" content="TomeVoice's privacy policy: no account, no analytics, no ads, no TomeVoice server. What leaves your phone, and where it goes.">
+<link rel="icon" href="icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..700;1,6..96,400..600&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ground: #141e19; --raised: #1b2721; --line: #2c3a33; --ink: #f2eada; --soft: #b9b2a3;
+  --amber: #e07b39; --wrap: 760px; --gutter: clamp(16px, 4vw, 40px); color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--ground); color: var(--ink); font: 400 17px/1.65 Figtree, system-ui, sans-serif; }
+a { color: var(--amber); }
+a:focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; border-radius: 6px; }
+.wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 var(--gutter); }
+.top { display: flex; align-items: center; justify-content: space-between; padding: 22px 0; gap: 16px; }
+.brand { display: flex; align-items: center; gap: 12px; text-decoration: none; color: var(--ink); }
+.brand img { width: 36px; height: 36px; border-radius: 9px; }
+.brand span { font: 500 22px/1 "Bodoni Moda", serif; }
+h1 { font: 500 clamp(36px, 5vw, 52px)/1.1 "Bodoni Moda", serif; margin: 18px 0 8px; }
+h2 { font: 500 26px/1.25 "Bodoni Moda", serif; margin: 44px 0 10px; }
+.meta { color: var(--soft); font-size: 15px; margin: 0 0 28px; }
+.short { background: var(--raised); border: 1px solid var(--line); border-radius: 16px; padding: 18px 22px; }
+.short p { margin: 6px 0; }
+ul { padding-left: 22px; } li { margin: 6px 0; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; margin: 10px 0; }
+th, td { text-align: left; vertical-align: top; padding: 10px 8px; border-bottom: 1px solid var(--line); }
+th { color: var(--soft); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; }
+footer { border-top: 1px solid var(--line); margin-top: 56px; padding: 30px 0 46px; color: var(--soft); font-size: 14px; }
+footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+footer a { color: inherit; }
+@media (max-width: 560px) { table, thead, tbody, tr, th, td { display: block; } thead { display: none; }
+  td { border: 0; padding: 4px 0; } tr { border-bottom: 1px solid var(--line); padding: 10px 0; } td:first-child { font-weight: 600; } }
+</style>
+</head>
+<body>
+<header class="wrap top">
+  <a class="brand" href="./"><img src="icon.png" alt=""><span>TomeVoice</span></a>
+</header>
+
+<main class="wrap">
+  <h1>Privacy</h1>
+  <p class="meta">Effective 20 November 2026 · applies to TomeVoice for Android, from Google Play and from GitHub</p>
+
+  <div class="short">
+    <p><strong>In short:</strong> TomeVoice has no account, no analytics, no ads, no crash reporting and no server of its own. Your books, places, notes and journal stay on your phone.</p>
+    <p>Something leaves the phone only when you use a feature that needs it: a voice or language download, a catalogue you browse, a link you open, a sync server you set up, the AI with a key you add, or a report you choose to send. Each is listed below.</p>
+  </div>
+
+  <h2>Who we are</h2>
+  <p>TomeVoice is free, open-source software (GPL-3.0) made by an independent developer, published on GitHub as <a href="https://github.com/Sayandeep1013/TomeVoice">Sayandeep1013/TomeVoice</a>. For any question about this policy, open an issue at <a href="https://github.com/Sayandeep1013/TomeVoice/issues">github.com/Sayandeep1013/TomeVoice/issues</a>.</p>
+
+  <h2>What stays on your phone</h2>
+  <ul>
+    <li>Your books and everything about them: where you are, bookmarks, quotes, reading time, covers, settings.</li>
+    <li>Your journal, and the talks with the AI that are kept in it.</li>
+    <li>Each book's AI memory (its notes, cast, graph, threads and theories), built from the AI's answers.</li>
+    <li>Your AI keys and server passwords. They are kept in the app's own storage and are never put in a backup: not in TomeVoice's, and not in Android's backup to Google.</li>
+    <li>A list of the calls made to the AI (when, for what, which book, which model, how many tokens), so you can see what was sent. It never leaves the phone.</li>
+    <li>A log of the app's own errors, with book titles and personal details taken out. It is sent only if you choose "Report a problem", which opens a GitHub issue you can read before sending.</li>
+  </ul>
+
+  <h2>What leaves your phone, and where it goes</h2>
+  <table>
+    <thead><tr><th>When you…</th><th>What is sent</th><th>To</th></tr></thead>
+    <tbody>
+      <tr><td>download a natural voice, or hear its sample</td><td>a request for that file (your phone's IP address, as with any download)</td><td>GitHub (sherpa-onnx's releases) and Hugging Face</td></tr>
+      <tr><td>read a scanned PDF (text recognition)</td><td>a request for the language data, once per language; the pages are read on the phone</td><td>GitHub</td></tr>
+      <tr><td>browse a catalogue (Project Gutenberg, Standard Ebooks, or one you add)</td><td>the catalogue pages you open; your Standard Ebooks email only if you sign in as a Patron</td><td>that catalogue</td></tr>
+      <tr><td>open or share a web link to read</td><td>a request for that page, as a browser would</td><td>that website</td></tr>
+      <tr><td>read web novels (GitHub version only)</td><td>requests for the novel's pages, as a browser would; the list of sources comes from LNReader's plugin list on GitHub</td><td>that novel's website, and GitHub</td></tr>
+      <tr><td>set up sync (WebDAV or KOReader)</td><td>your places, quotes, bookmarks and reading time (never the books themselves, nor anything on a secret shelf)</td><td>the server you enter: your own</td></tr>
+      <tr><td>speak into the journal</td><td>your voice, to turn it into words; TomeVoice keeps no recording</td><td>your phone's speech service (on most phones, Google's)</td></tr>
+      <tr><td>use the AI with your own key</td><td>to build a book's memory, the book's text, chapter by chapter; to answer a question, the passage you are at, the notes and parts of the book that bear on it, and journal entries that bear on it (you can turn that off); to tidy what you said, those words</td><td>the AI provider you choose (for example Google Gemini, OpenAI, OpenRouter, Groq or Inception), straight from your phone</td></tr>
+      <tr><td>report an AI answer</td><td>that answer, your question, the reason and note you give, the model's name and the app's version</td><td>the developer (a Google Form)</td></tr>
+      <tr><td>choose "Report a problem"</td><td>the error log described above, with your phone's model and Android version</td><td>GitHub, as an issue you open yourself</td></tr>
+    </tbody>
+  </table>
+  <p>The GitHub version also asks GitHub every few hours whether there is a new version (it can be turned off). The Google Play version gets its updates from Google Play.</p>
+
+  <h2>The AI</h2>
+  <ul>
+    <li>Nothing is sent to any AI until you add a key and agree, in the app, to what is sent.</li>
+    <li>The key is yours, and the provider is the one you pick. TomeVoice never sees what you send or what comes back: it goes straight between your phone and that provider. What the provider keeps, and whether it learns from it, is in its own terms (Google's free Gemini tier, for one, may use requests to improve its models).</li>
+    <li>Books on a secret shelf, and books you keep away from the AI, are never sent.</li>
+    <li>AI answers can be wrong or unsuitable. Any answer can be reported from the Talk screen; it is then hidden.</li>
+  </ul>
+
+  <h2>What we do not do</h2>
+  <ul>
+    <li>No sign-in or account, and no advertising or tracking of any kind.</li>
+    <li>No selling or sharing of your data: the developer receives nothing from your phone except an AI answer you report, or a problem report you send.</li>
+    <li>No location, contacts, photos or files beyond the books you choose to open.</li>
+  </ul>
+
+  <h2>Keeping it safe, and taking it away</h2>
+  <ul>
+    <li>Everything sent over the internet goes over HTTPS, except a server you set up yourself with a plain <code>http://</code> address (sync warns you before sending a password to one).</li>
+    <li>You can see what was sent to the AI (AI › What was sent), export every book's memory (AI › Export every memory), and forget one memory or all of them. Uninstalling TomeVoice removes everything it kept on the phone.</li>
+    <li>A report you sent can be removed: ask through the GitHub issues link above.</li>
+  </ul>
+
+  <h2>Children</h2>
+  <p>TomeVoice is not made for children under 13 and does not knowingly collect anything from them.</p>
+
+  <h2>Changes</h2>
+  <p>If this policy changes, the new one is posted here with its date, and the app's release notes say so.</p>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>TomeVoice is free software under the GPL-3.0.</span>
+    <span><a href="./">Home</a> &nbsp; <a href="https://github.com/Sayandeep1013/TomeVoice">Source on GitHub</a></span>
+  </div>
+</footer>
+</body>
+</html>

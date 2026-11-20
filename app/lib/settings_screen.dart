@@ -23,6 +23,7 @@ import 'novel_updates.dart';
 import 'noveldokusha_import.dart';
 import 'own_colours.dart';
 import 'own_colours_sheet.dart';
+import 'download_queue.dart' show DownloadPace;
 import 'prefs.dart';
 import 'problem_report.dart';
 import 'relayout.dart';
@@ -40,11 +41,15 @@ import 'updates.dart';
 import 'update_flow.dart';
 import 'voices.dart';
 import 'wallpaper_colours.dart';
+import 'store_build.dart';
 
 const _svc = SpeechService();
 
 /// Where the project lives.
 const repositoryUrl = 'https://github.com/Sayandeep1013/TomeVoice';
+
+/// The privacy policy, on the site.
+const privacyUrl = 'https://sayandeep1013.github.io/TomeVoice/privacy.html';
 
 /// Settings, grouped the way readers look for them: how it looks, how the
 /// page reads, how it sounds, how the library is kept.
@@ -386,6 +391,14 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           padding: EdgeInsets.zero,
                           onChanged: (v) => _change(() => _prefs.journalAsk = v),
                         ),
+                        SwitchRow(
+                          title: 'Interview me',
+                          subtitle: "At a chapter's end the reading waits, the voice asks your journal questions, "
+                              'and what you answer aloud is written down. Then it reads on',
+                          value: _prefs.journalInterview,
+                          padding: EdgeInsets.zero,
+                          onChanged: (v) => _change(() => _prefs.journalInterview = v),
+                        ),
                       ],
                     ),
                     _Group(
@@ -465,6 +478,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                     _Group(
                       title: 'Library',
                       children: [
+                        if (!playBuild)
                         _Link(
                           icon: Icons.extension_outlined,
                           title: 'Sources',
@@ -552,11 +566,29 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                             builder: (_) => SyncScreen(store: widget.store),
                           )),
                         ),
+                        if (!playBuild)
                         _Link(
                           icon: Icons.move_to_inbox_outlined,
                           title: 'Import from NovelDokusha',
                           subtitle: 'Bring your web novels across from a NovelDokusha backup (.zip)',
                           onTap: _importNovelDokusha,
+                        ),
+                        // Web novels: not in the Play build.
+                        if (!playBuild) ...[
+                        const SizedBox(height: Gap.l),
+                        const SectionTitle('Download speed'),
+                        const SizedBox(height: Gap.m),
+                        ChoiceRow<String>(
+                          options: [for (final p in DownloadPace.values) (p.name, p.label)],
+                          value: DownloadPace.byName(_prefs.downloadPace).name,
+                          minSegment: 76,
+                          onChanged: (v) => _change(() => _prefs.downloadPace = v),
+                        ),
+                        const SizedBox(height: Gap.xs),
+                        Text(
+                          'How quickly chapters come from a site, for downloads and memories. Fast gets a long '
+                          'novel sooner, but a site may slow you down or turn you away for a while.',
+                          style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
                         ),
                         const SizedBox(height: Gap.l),
                         const SectionTitle('Check for new chapters'),
@@ -574,6 +606,13 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                         ),
                         const SizedBox(height: Gap.s),
                         SwitchRow(
+                          title: 'Only while charging',
+                          subtitle: 'With TomeVoice closed, novels are checked only while the phone charges',
+                          value: _prefs.checkCharging,
+                          padding: EdgeInsets.zero,
+                          onChanged: (v) => _change(() => _prefs.checkCharging = v),
+                        ),
+                        SwitchRow(
                           title: "Only novels I've begun",
                           subtitle: 'One added but never opened is not checked',
                           value: _prefs.checkStartedOnly,
@@ -587,6 +626,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           padding: EdgeInsets.zero,
                           onChanged: (v) => _change(() => _prefs.novelUpdates = v),
                         ),
+                        ],
                         const SizedBox(height: Gap.l),
                         _Link(
                           icon: Icons.folder_copy_outlined,
@@ -648,6 +688,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                     _Group(
                       title: 'About',
                       children: [
+                        if (!playBuild)
                         SwitchRow(
                           title: 'Tell me about new versions',
                           subtitle: 'Asks GitHub every few hours whether a newer TomeVoice is out',
@@ -997,7 +1038,9 @@ class _ScreenOffRowState extends State<ScreenOffRow> {
   }
 
   Future<void> _open() async {
-    if (!await _svc.openBatterySettings() && mounted) {
+    // The Play build may not ask to be left out of battery saving: the
+    // list of apps opens, for the reader to change it there.
+    if (!await _svc.openBatterySettings(request: !playBuild) && mounted) {
       showSnack(context, 'This phone has no battery setting TomeVoice can open.');
     }
   }
@@ -1125,7 +1168,7 @@ class _AboutScreenState extends State<AboutScreen> {
                             .copyWith(height: 1.5),
                       ),
                       const SizedBox(height: Gap.xl),
-                      if (widget.root != null)
+                      if (widget.root != null && !playBuild)
                         _Link(
                           icon: Icons.system_update_outlined,
                           title: _checking ? 'Checking…' : 'Check for updates',
@@ -1138,11 +1181,18 @@ class _AboutScreenState extends State<AboutScreen> {
                         subtitle: 'github.com/Sayandeep1013/TomeVoice',
                         onTap: () => _svc.openUrl(repositoryUrl),
                       ),
+                      if (!playBuild)
                       _Link(
                         icon: Icons.new_releases_outlined,
                         title: 'Releases',
                         subtitle: 'Download the latest version',
                         onTap: () => _svc.openUrl('$repositoryUrl/releases/latest'),
+                      ),
+                      _Link(
+                        icon: Icons.privacy_tip_outlined,
+                        title: 'Privacy',
+                        subtitle: 'What stays on the phone, and what goes where',
+                        onTap: () => _svc.openUrl(privacyUrl),
                       ),
                       _Link(
                         icon: Icons.bug_report_outlined,

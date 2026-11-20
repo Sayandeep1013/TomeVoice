@@ -17,9 +17,9 @@ on:
         required: false
         default: ""
       variant:
-        description: 'test: only a 64-bit APK of the separate test app (app.tomevoice.test, "TomeVoice Test"), never released'
+        description: 'test: only a 64-bit APK of the separate test app (app.tomevoice.test, "TomeVoice Test"), never released. play: the Google Play app bundle (.aab), never released here'
         type: choice
-        options: [release, test]
+        options: [release, test, play]
         default: release
       relock:
         description: "Only re-resolve the pubspec.lock files with the pinned SDKs and upload them (builds nothing)"
@@ -145,6 +145,10 @@ jobs:
       # which builds the real app.
       TV_APP_ID: ${{ inputs.variant == 'test' && 'app.tomevoice.test' || '' }}
       TV_APP_LABEL: ${{ inputs.variant == 'test' && 'TomeVoice Test' || '' }}
+      # variant=play builds the Google Play app bundle: no web novels, no
+      # self-updater, no battery exemption request, only open voices (the
+      # app's playBuild; tools/prepare_android.py's PLAY_FORBIDDEN).
+      TV_STORE: ${{ inputs.variant == 'play' && 'play' || '' }}
     steps:
       - *checkout
 
@@ -250,8 +254,18 @@ jobs:
           grep -q "android.media.browse.MediaBrowserService" "$M"
           grep -q "com.google.android.gms.car.application" "$M"
           test -f android/app/src/main/res/xml/automotive_app_desc.xml
-          # Settings > Listening's one-tap question about battery saving.
-          grep -q "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" "$M"
+          # Settings > Listening's one-tap question about battery saving (not
+          # in the Play build, which may not ask it); the backup rules that
+          # keep the keys out of Android's backup.
+          if [ "${TV_STORE:-}" = play ]; then
+            if grep -qE "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS|REQUEST_INSTALL_PACKAGES" "$M"; then
+              echo "::error::the Play manifest asks for a permission Play forbids"; exit 1
+            fi
+          else
+            grep -q "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" "$M"
+          fi
+          grep -q 'android:dataExtractionRules="@xml/data_extraction_rules"' "$M"
+          test -f android/app/src/main/res/xml/data_extraction_rules.xml
           # TomeVoice, or the test app when TV_APP_ID / TV_APP_LABEL say so.
           grep -qF "android:label=\"${TV_APP_LABEL:-TomeVoice}\"" "$M"
           # The secret shelf's fingerprint, face or PIN prompt.
@@ -314,7 +328,7 @@ jobs:
       # what nearly every phone takes; the 32-bit one is for older and
       # Android Go phones. The test app is 64-bit only.
       - name: Build release APK (32-bit phones)
-        if: inputs.variant != 'test'
+        if: inputs.variant != 'test' && inputs.variant != 'play'
         working-directory: app
         env:
           TV_KEYSTORE_PASSWORD: ${{ secrets.TV_KEYSTORE_PASSWORD }}
@@ -324,6 +338,7 @@ jobs:
           cp build/app/outputs/flutter-apk/app-release.apk "$RUNNER_TEMP/app-release-32bit.apk"
 
       - name: Build release APK
+        if: inputs.variant != 'play'
         working-directory: app
         env:
           TV_KEYSTORE_PASSWORD: ${{ secrets.TV_KEYSTORE_PASSWORD }}
@@ -333,6 +348,23 @@ jobs:
           # Each APK holds one CPU's native code, compressed.
           unzip -l build/app/outputs/flutter-apk/app-release.apk | grep -E "lib/" | awk '{print $4}' | cut -d/ -f2 | sort -u
           ls -la build/app/outputs/flutter-apk/app-release.apk
+
+      # The Play build: the widget tests that check what it leaves out, then
+      # one app bundle with both CPUs' code; Play makes each phone's APK from
+      # it. Signed with the TomeVoice key as the upload key.
+      - name: Play build tests
+        if: inputs.variant == 'play'
+        working-directory: app
+        run: flutter test --no-pub --dart-define=TV_STORE=play test/play_build_test.dart
+
+      - name: Build the Play app bundle
+        if: inputs.variant == 'play'
+        working-directory: app
+        env:
+          TV_KEYSTORE_PASSWORD: ${{ secrets.TV_KEYSTORE_PASSWORD }}
+        run: |
+          flutter build appbundle --release --no-pub --dart-define=TV_STORE=play
+          ls -la build/app/outputs/bundle/release/app-release.aab
 
       - name: Delete the signing key
         if: always()
@@ -385,8 +417,33 @@ jobs:
             fi
           done
 
+      # Nothing Play forbids in the merged manifest, and every 64-bit library
+      # aligned for 16 KB pages (Play refuses updates without it from
+      # 1 February 2027).
+      - name: Check the Play app bundle
+        if: inputs.variant == 'play'
+        working-directory: app
+        run: |
+          set -euo pipefail
+          merged=$(find build/app/intermediates -path '*release*' -name AndroidManifest.xml | grep -i merged | head -n 1)
+          echo "merged manifest: $merged"
+          grep -o 'android.permission.[A-Z_]*' "$merged" | sort -u
+          for p in REQUEST_INSTALL_PACKAGES REQUEST_IGNORE_BATTERY_OPTIMIZATIONS; do
+            if grep -q "android.permission.$p" "$merged"; then echo "::error::the Play build still asks for $p"; exit 1; fi
+          done
+          grep -o 'android:foregroundServiceType="[a-zA-Z|]*"' "$merged" | sort | uniq -c
+          python3 ../tools/check_16kb.py build/app/outputs/bundle/release/app-release.aab
+
+      - name: Upload the Play app bundle
+        if: inputs.variant == 'play'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tomevoice-play-aab
+          path: app/build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+
       - name: Upload the 32-bit APK
-        if: inputs.variant != 'test'
+        if: inputs.variant != 'test' && inputs.variant != 'play'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tomevoice-apk-32bit
@@ -394,7 +451,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload the APK
-        if: inputs.variant != 'test'
+        if: inputs.variant != 'test' && inputs.variant != 'play'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tomevoice-apk
@@ -420,7 +477,7 @@ jobs:
   release:
     name: Attach to the release
     needs: android-apk
-    if: github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.variant != 'test'
+    if: github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.variant == 'release'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -459,7 +516,7 @@ jobs:
   # waits for it.
   emulator-apk:
     name: Emulator APK (x86_64)
-    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && !inputs.relock && inputs.variant != 'test' && (inputs.release_tag != '' || inputs.emulator))
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && !inputs.relock && inputs.variant == 'release' && (inputs.release_tag != '' || inputs.emulator))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

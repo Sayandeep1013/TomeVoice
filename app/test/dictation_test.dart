@@ -47,6 +47,8 @@ void main() {
     setUp(() {
       JournalStore.instance.reset();
       ListeningPrefs.reset();
+      // Told already, but in the test that tells.
+      ListeningPrefs.memory.dictationTold = true;
       calls = [];
       answer = 'listening';
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(_channel, (call) async {
@@ -142,6 +144,34 @@ void main() {
       await tester.pumpAndSettle();
       final e = JournalStore.instance.forBook('book').single;
       expect(e.answers.single.text, 'Sunny fought back and won');
+      semantics.dispose();
+      await tester.pump(const Duration(seconds: 5));
+    });
+
+    testWidgets('the first time, where the voice goes is said before listening', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final prefs = ListeningPrefs.memory..dictationTold = false;
+      Iterable<MethodCall> starts() => calls.where((c) => c.method == 'start');
+      await open(tester, playing: false);
+      await tester.tap(find.bySemanticsLabel('Speak instead of writing'));
+      await tester.pumpAndSettle();
+      expect(find.text('Speak into your journal'), findsOneWidget);
+      expect(find.textContaining("phone's own speech service"), findsOneWidget);
+      expect(starts(), isEmpty);
+
+      // Not now: nothing heard, and asked again next time.
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(starts(), isEmpty);
+      expect(prefs.dictationTold, isFalse);
+
+      await tester.tap(find.bySemanticsLabel('Speak instead of writing'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Speak'));
+      await tester.pump();
+      expect(starts().length, 1);
+      expect(prefs.dictationTold, isTrue);
+      expect(prefs.toJson()['dictationTold'], isTrue);
       semantics.dispose();
       await tester.pump(const Duration(seconds: 5));
     });

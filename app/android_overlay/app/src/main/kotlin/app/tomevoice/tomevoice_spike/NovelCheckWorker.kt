@@ -139,10 +139,11 @@ class NovelCheckWorker(context: Context, params: WorkerParameters) : Worker(cont
 
         /**
          * Run the Dart function behind [handle] every [minutes] (stopped at
-         * 0), on Wi-Fi only when [unmetered], never with the battery low. The
-         * same interval again keeps its place in the schedule.
+         * 0), on Wi-Fi only when [unmetered], only while charging when
+         * [charging], never with the battery low. The same interval again
+         * keeps its place in the schedule.
          */
-        fun schedule(context: Context, handle: Long, minutes: Long, unmetered: Boolean) {
+        fun schedule(context: Context, handle: Long, minutes: Long, unmetered: Boolean, charging: Boolean = false) {
             val wm = WorkManager.getInstance(context)
             if (minutes <= 0L || handle == 0L) {
                 wm.cancelUniqueWork(WORK)
@@ -152,6 +153,7 @@ class NovelCheckWorker(context: Context, params: WorkerParameters) : Worker(cont
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(if (unmetered) NetworkType.UNMETERED else NetworkType.CONNECTED)
                 .setRequiresBatteryNotLow(true)
+                .setRequiresCharging(charging)
                 .build()
             val request = PeriodicWorkRequest.Builder(NovelCheckWorker::class.java, minutes, TimeUnit.MINUTES)
                 .setConstraints(constraints)

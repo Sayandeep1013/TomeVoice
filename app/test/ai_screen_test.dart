@@ -2,10 +2,15 @@
 // with a model per job; each job lists its keys in order; a key's state
 // (resting, refused) shown.
 
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_spike/ai/ai_client.dart';
+import 'package:tomevoice_spike/ai/ai_data.dart';
 import 'package:tomevoice_spike/ai/ai_keys.dart';
+import 'package:tomevoice_spike/ai/ai_router.dart';
 import 'package:tomevoice_spike/ai/ai_screen.dart';
 
 void main() {
@@ -23,6 +28,11 @@ void main() {
   Future<void> addKey(WidgetTester tester, String provider, String secret, {String? builder, String? talker}) async {
     await tester.tap(find.textContaining(RegExp('^Add (a|another) key')));
     await tester.pumpAndSettle();
+    // The first time: what is sent, agreed to.
+    if (find.text('I agree').evaluate().isNotEmpty) {
+      await tester.tap(find.text('I agree'));
+      await tester.pumpAndSettle();
+    }
     await tester.tap(find.widgetWithText(ChoiceChip, provider));
     await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextField, 'API key'), secret);
@@ -54,6 +64,101 @@ void main() {
     expect(find.text('HOLD TO MOVE'), findsWidgets);
     await tester.scrollUntilVisible(find.text('Talking'), 200, scrollable: find.byType(Scrollable).first);
     expect(find.text('gemini-flash'), findsOneWidget);
+  });
+
+  testWidgets('nothing is sent before the reader agrees: asked once, before the first key', (tester) async {
+    await pump(tester);
+    await tester.tap(find.text('Add a key'));
+    await tester.pumpAndSettle();
+    expect(find.text('Before the AI reads with you'), findsOneWidget);
+    expect(find.textContaining('There is no TomeVoice server'), findsOneWidget);
+    // Not now: no key sheet, nothing agreed.
+    await tester.tap(find.text('Not now'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextField, 'API key'), findsNothing);
+    expect(AiRing.instance.consented, isFalse);
+
+    await addKey(tester, 'Google Gemini', 'AIza-5555', talker: 'gemini-flash');
+    expect(AiRing.instance.consented, isTrue);
+    // Asked once only.
+    await tester.tap(find.text('Add another key'));
+    await tester.pumpAndSettle();
+    expect(find.text('Before the AI reads with you'), findsNothing);
+    expect(find.widgetWithText(TextField, 'API key'), findsOneWidget);
+  });
+
+  test('a ring kept from before the question (an update) has not agreed; the router sends nothing', () async {
+    final tmp = Directory.systemTemp.createTempSync('tv_consent');
+    addTearDown(() => tmp.deleteSync(recursive: true));
+    const key = AiKey(
+        id: 'a', provider: AiProvider.gemini, label: 'Gemini', baseUrl: 'http://127.0.0.1:9/v1', secret: 's1',
+        models: {AiJob.talker: 'flash'});
+    // As 2.1 kept it: keys, no consent.
+    File('${tmp.path}/.secrets.json').writeAsStringSync(jsonEncode({
+      'ai.ring': jsonEncode({
+        'keys': [key.toJson()],
+      }),
+    }));
+    final ring = AiRing.instance;
+    await ring.attach(tmp);
+    expect(ring.hasKeys, isTrue);
+    expect(ring.consented, isFalse);
+    await expectLater(
+      AiRouter(ring: ring).chat(AiJob.talker, [aiMessage('user', 'hi')]),
+      throwsA(isA<AiResting>().having((e) => e.last, 'last', notConsented)),
+    );
+    await ring.consent();
+    expect(ring.consented, isTrue);
+    // Kept: read again, still agreed.
+    ring.reset();
+    await ring.attach(tmp);
+    expect(ring.consented, isTrue);
+  });
+
+  test('what was sent: each call logged with its book, kept on the phone, the oldest let go', () async {
+    final tmp = Directory.systemTemp.createTempSync('tv_log');
+    addTearDown(() => tmp.deleteSync(recursive: true));
+    final ring = AiRing.instance;
+    await ring.attach(tmp);
+    const key = AiKey(
+        id: 'a', provider: AiProvider.gemini, label: 'Gemini', baseUrl: 'https://x/v1', secret: 's1',
+        models: {AiJob.talker: 'flash', AiJob.builder: 'lite'});
+    await ring.put(key);
+    ring.logCall(AiJob.builder, key, about: 'Shadow Slave', usage: const AiUsage(input: 40000, output: 900));
+    ring.logCall(AiJob.talker, key, about: 'Shadow Slave', usage: const AiUsage(input: 3000, output: 200));
+    expect(ring.log.map((e) => (e.job, e.model, e.about)), [
+      (AiJob.builder, 'lite', 'Shadow Slave'),
+      (AiJob.talker, 'flash', 'Shadow Slave'),
+    ]);
+    await Future<void>.delayed(const Duration(milliseconds: 2200));
+    ring.reset();
+    await ring.attach(tmp);
+    expect(ring.log.length, 2);
+    expect(ring.log.last.input, 3000);
+    for (var i = 0; i < AiRing.logKept + 5; i++) {
+      ring.logCall(AiJob.talker, key);
+    }
+    expect(ring.log.length, AiRing.logKept);
+    await ring.clearLog();
+    expect(ring.log, isEmpty);
+    // Its save timer goes before the folder does.
+    ring.reset();
+  });
+
+  testWidgets('the list of what was sent, newest first', (tester) async {
+    const key = AiKey(
+        id: 'a', provider: AiProvider.gemini, label: 'Gemini', baseUrl: 'https://x/v1', secret: 's1',
+        models: {AiJob.talker: 'flash', AiJob.builder: 'lite'});
+    final ring = AiRing.instance;
+    ring.logCall(AiJob.builder, key, about: 'Lord of the Mysteries', usage: const AiUsage(input: 40000, output: 900));
+    ring.logCall(AiJob.talker, key, about: 'Shadow Slave', usage: const AiUsage(input: 3000, output: 200));
+    await tester.pumpWidget(const MaterialApp(home: AiLogScreen()));
+    await tester.pumpAndSettle();
+    final titles = tester.widgetList<ListTile>(find.byType(ListTile)).map((t) => (t.title! as Text).data).toList();
+    expect(titles, ['Talking · Shadow Slave', 'Building memories · Lord of the Mysteries']);
+    expect(find.textContaining('3.0k in, 200 out'), findsOneWidget);
+    expect(find.textContaining('40k in, 900 out'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 3));
   });
 
   testWidgets("a resting key says until when; a refused one says why", (tester) async {

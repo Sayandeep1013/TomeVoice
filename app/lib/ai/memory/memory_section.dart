@@ -6,6 +6,7 @@ import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor;
 
 import '../../theme.dart';
 import '../../ui.dart';
+import '../ai_consent.dart';
 import '../ai_keys.dart';
 import '../ai_screen.dart' show tokenCount, wakeTime;
 import '../../backup_flow.dart' show sizeLabel;
@@ -72,6 +73,7 @@ class _BookMemorySectionState extends State<BookMemorySection> {
   }
 
   Future<void> _build() async {
+    if (!await ensureAiConsent(context) || !mounted) return;
     // A web novel's chapters not on the phone: fetched first, if wanted.
     final missing = await _service.missingChapters(widget.bookId);
     if (missing.isNotEmpty && mounted) {
@@ -547,7 +549,8 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                       icon: const Icon(Icons.timeline_rounded, size: 18),
                       label: const Text('Threads'),
                     ),
-                  if (s.exists && s.noted > 0)
+                  // Passed-over chapters too: seen there, and read again one by one.
+                  if (s.exists && (s.noted > 0 || s.skipped > 0))
                     OutlinedButton.icon(
                       onPressed: () => unawaited(_openChapters()),
                       icon: const Icon(Icons.format_list_bulleted_rounded, size: 18),

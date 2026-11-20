@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check that an APK's 64-bit native libraries are aligned for 16 KB pages.
+"""Check that an APK's (or app bundle's) 64-bit native libraries are aligned for 16 KB pages.
 
 Android 15 and later run on phones with 16 KB memory pages, and Google Play
 requires apps that target them to have every 64-bit library's loadable
@@ -66,6 +66,9 @@ def main() -> int:
     with zipfile.ZipFile(args.apk) as apk:
         for info in sorted(apk.infolist(), key=lambda i: i.filename):
             parts = info.filename.split("/")
+            # An app bundle (.aab) keeps them under base/lib/<abi>/.
+            if parts[0] == "base":
+                parts = parts[1:]
             if len(parts) != 3 or parts[0] != "lib" or not parts[2].endswith(".so"):
                 continue
             abi, name = parts[1], parts[2]

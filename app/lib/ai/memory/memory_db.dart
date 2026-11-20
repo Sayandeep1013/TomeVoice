@@ -86,7 +86,7 @@ class MemoryDb {
   final Database db;
   final String path;
 
-  static const version = 6;
+  static const version = 7;
 
   static String pathIn(String bookDir) => '$bookDir/memory.db';
 
@@ -192,6 +192,12 @@ class MemoryDb {
       // 6: names that are not names ("she", "her teacher", "creature"),
       // which let one card take another's chapters, forgotten.
       if (have >= 1 && have < 6) _forgetNotNameAliases();
+      // 7: each merge of two cards kept, with what it moved, so it can be
+      // undone.
+      if (have < 7) {
+        db.execute('CREATE TABLE IF NOT EXISTS merges(id INTEGER PRIMARY KEY, from_id INTEGER NOT NULL, '
+            "into_id INTEGER NOT NULL, at TEXT NOT NULL, by TEXT NOT NULL, moved TEXT NOT NULL, undone INTEGER DEFAULT 0)");
+      }
       db.execute('PRAGMA user_version = $version');
       db.execute('COMMIT');
     } on Object {

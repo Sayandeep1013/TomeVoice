@@ -31,11 +31,12 @@ import 'updates.dart';
 class BackgroundChecks {
   const BackgroundChecks._();
 
-  /// Have the check run every [every] (stopped when it is Off).
-  static Future<void> schedule(UpdateEvery every) async {
+  /// Have the check run every [every] (stopped when it is Off), only while
+  /// the phone charges when [charging].
+  static Future<void> schedule(UpdateEvery every, {bool charging = false}) async {
     final handle = PluginUtilities.getCallbackHandle(backgroundCheckMain)?.toRawHandle();
     if (handle == null) return;
-    await SourcesBridge.scheduleChecks(handle: handle, minutes: every.interval?.inMinutes ?? 0);
+    await SourcesBridge.scheduleChecks(handle: handle, minutes: every.interval?.inMinutes ?? 0, charging: charging);
   }
 }
 

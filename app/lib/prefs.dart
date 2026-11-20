@@ -62,18 +62,23 @@ class ListeningPrefs {
     this.ownAccent,
     this.ownInk,
     this.updateEvery = 'daily',
+    this.checkCharging = false,
+    this.downloadPace = 'normal',
     this.checkStartedOnly = false,
     this.novelUpdates = false,
     this.gridView = true,
     this.journalNotebook = false,
     this.journalQuestions,
     this.journalAsk = false,
+    this.journalInterview = false,
     this.aiSpeak = true,
     this.aiRecapDays = 3,
     this.aiLength = 'normal',
     this.aiOwnKnowledge = false,
     this.aiGuardNew = false,
     this.aiKeepTalks = true,
+    this.aiUseJournal = true,
+    this.dictationTold = false,
     this.aiBackground = true,
     this.aiBackgroundWifi = true,
     this.aiBackgroundCharging = false,
@@ -345,6 +350,12 @@ class ListeningPrefs {
   /// How often web novels are checked for new chapters (see UpdateEvery).
   String updateEvery;
 
+  /// The check with TomeVoice closed runs only while the phone charges.
+  bool checkCharging;
+
+  /// How quickly web-novel chapters are fetched (see DownloadPace).
+  String downloadPace;
+
   /// Only the web novels already begun are checked for new chapters.
   bool checkStartedOnly;
 
@@ -367,6 +378,10 @@ class ListeningPrefs {
   /// turned on).
   bool journalAsk;
 
+  /// Interview me: at a chapter's end the journal's questions are asked
+  /// aloud and the answers, spoken, written down.
+  bool journalInterview;
+
   /// Talk's answers said aloud in the reading voice (on unless turned off).
   bool aiSpeak;
 
@@ -386,6 +401,13 @@ class ListeningPrefs {
 
   /// Talks kept in the book's journal when Talk closes.
   bool aiKeepTalks;
+
+  /// Talk may read the reader's journal entries that bear on a question.
+  bool aiUseJournal;
+
+  /// The reader has been told, before speaking into the journal the first
+  /// time, that the phone's speech service hears it.
+  bool dictationTold;
 
   /// Memories built with TomeVoice closed (on unless turned off), only on
   /// Wi-Fi (on), only while charging (off).
@@ -557,18 +579,23 @@ class ListeningPrefs {
         if (ownAccent != null) 'ownAccent': colourToHex(ownAccent!),
         if (ownInk != null) 'ownInk': colourToHex(ownInk!),
         'updateEvery': updateEvery,
+        if (checkCharging) 'checkCharging': true,
+        if (downloadPace != 'normal') 'downloadPace': downloadPace,
         if (checkStartedOnly) 'checkStartedOnly': true,
         if (novelUpdates) 'novelUpdates': true,
         'gridView': gridView,
         'journalNotebook': journalNotebook,
         if (journalQuestions != null) 'journalQuestions': journalQuestions,
         'journalAsk': journalAsk,
+        if (journalInterview) 'journalInterview': true,
         'aiSpeak': aiSpeak,
         'aiRecapDays': aiRecapDays,
         'aiLength': aiLength,
         'aiOwnKnowledge': aiOwnKnowledge,
         if (aiGuardNew) 'aiGuardNew': true,
         if (!aiKeepTalks) 'aiKeepTalks': false,
+        if (!aiUseJournal) 'aiUseJournal': false,
+        if (dictationTold) 'dictationTold': true,
         'aiBackground': aiBackground,
         'aiBackgroundWifi': aiBackgroundWifi,
         'aiBackgroundCharging': aiBackgroundCharging,
@@ -673,12 +700,15 @@ class ListeningPrefs {
         journalNotebook: json['journalNotebook'] as bool? ?? false,
         journalQuestions: json['journalQuestions'] is List ? List<Object?>.from(json['journalQuestions'] as List) : null,
         journalAsk: json['journalAsk'] as bool? ?? false,
+        journalInterview: json['journalInterview'] == true,
         aiSpeak: json['aiSpeak'] as bool? ?? true,
         aiRecapDays: (json['aiRecapDays'] as num?)?.toInt() ?? 3,
         aiLength: json['aiLength'] as String? ?? 'normal',
         aiOwnKnowledge: json['aiOwnKnowledge'] as bool? ?? false,
         aiGuardNew: json['aiGuardNew'] == true,
         aiKeepTalks: json['aiKeepTalks'] != false,
+        aiUseJournal: json['aiUseJournal'] != false,
+        dictationTold: json['dictationTold'] == true,
         aiBackground: json['aiBackground'] as bool? ?? true,
         aiBackgroundWifi: json['aiBackgroundWifi'] as bool? ?? true,
         aiBackgroundCharging: json['aiBackgroundCharging'] as bool? ?? false,
@@ -687,6 +717,8 @@ class ListeningPrefs {
         ownAccent: colourFromHex(json['ownAccent']),
         ownInk: colourFromHex(json['ownInk']),
         updateEvery: json['updateEvery'] as String? ?? 'daily',
+        checkCharging: json['checkCharging'] == true,
+        downloadPace: json['downloadPace'] as String? ?? 'normal',
         checkStartedOnly: json['checkStartedOnly'] == true,
         novelUpdates: json['novelUpdates'] == true,
         sort: LibrarySort.values.where((m) => m.name == json['sort']).firstOrNull ??

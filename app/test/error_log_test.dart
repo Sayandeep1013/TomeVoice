@@ -283,7 +283,10 @@ void main() {
       addTearDown(tester.view.reset);
       await tester.pumpWidget(const MaterialApp(home: AboutScreen()));
       await tester.pumpAndSettle();
+      expect(find.text('Privacy'), findsOneWidget);
 
+      await tester.ensureVisible(find.text('Report a problem'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Report a problem'));
       await tester.pumpAndSettle();
       final shown = tester.widget<SelectableText>(find.byType(SelectableText)).data!;

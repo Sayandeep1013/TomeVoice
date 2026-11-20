@@ -1,5 +1,6 @@
 import 'dart:isolate';
 
+import '../../journal.dart' show TalkLine;
 import 'memory_db.dart';
 
 /// A theory the reader stated, and what the story has said of it.
@@ -173,4 +174,19 @@ String chaptersForCheck(String path, List<int> chapters) {
   } finally {
     m.close();
   }
+}
+
+/// A settled theory as the journal keeps it: the reader's own words, then
+/// the verdict, which is the AI's.
+List<TalkLine> settledLines(Theory t) {
+  final what = switch (t.status) {
+    'confirmed' => 'It was right',
+    'busted' => 'It was wrong',
+    _ => 'It was partly right',
+  };
+  final why = (t.verdict ?? '').trim();
+  return [
+    TalkLine(mine: true, text: 'My theory, at chapter ${t.ch + 1}: ${t.text}'),
+    TalkLine(mine: false, text: '$what: chapter ${(t.decidedCh ?? t.ch) + 1} settled it.${why.isEmpty ? '' : ' $why'}'),
+  ];
 }

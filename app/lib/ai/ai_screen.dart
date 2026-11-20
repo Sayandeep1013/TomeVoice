@@ -13,6 +13,8 @@ import '../library_store.dart' show LibraryEntry;
 import 'memory/memory_background.dart';
 import 'memory/memory_builder.dart' show BuildPhase;
 import 'memory/memory_service.dart';
+import 'ai_consent.dart';
+import 'ai_data.dart';
 import 'ai_keys.dart';
 
 /// Main menu > AI: the reader's keys, what each job uses, and how they have
@@ -42,6 +44,11 @@ class _AiScreenState extends State<AiScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(showAiGuide(context));
       });
+    } else if (_ring.hasKeys && !_ring.consented) {
+      // Keys added before this was asked: asked once now.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(ensureAiConsent(context, ring: _ring));
+      });
     }
   }
 
@@ -55,13 +62,16 @@ class _AiScreenState extends State<AiScreen> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _edit([AiKey? key]) => showModalBottomSheet<void>(
+  Future<void> _edit([AiKey? key]) async {
+    if (!await ensureAiConsent(context, ring: _ring) || !mounted) return;
+    await showModalBottomSheet<void>(
         context: context,
         sheetAnimationStyle: sheetMotion(context),
         isScrollControlled: true,
         useSafeArea: true,
         builder: (_) => KeySheet(ring: _ring, key: ValueKey(key?.id), editing: key, client: widget.client),
       );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -137,11 +147,17 @@ class _AiScreenState extends State<AiScreen> {
                     const SizedBox(height: Gap.s),
                     _para(
                       context,
-                      "Only what a question needs: the passage you ask about, a book's notes and the parts "
-                      "of its text that bear on it, and your journal when you ask about it. Books on a "
-                      'secret shelf are never sent. Keys are kept in this app alone, and never go into a '
-                      'backup.',
+                      "Building a memory sends the book's text, chapter by chapter, for the AI to read and "
+                      'note. A question sends what it needs: the passage you are at, the notes and the '
+                      'parts of the text that bear on it, and journal entries that bear on it (Use my '
+                      'journal). What you say into the journal goes only when you tap Tidy. Books on a '
+                      'secret shelf, or kept away from the AI, are never sent. Your keys stay in this app '
+                      "alone and never go into a backup, Android's own included.",
                     ),
+                    if (keys.isNotEmpty) ...[
+                      const SizedBox(height: Gap.xl),
+                      const AiDataSection(),
+                    ],
                   ],
                 ),
               ),
@@ -269,7 +285,7 @@ class _MemoriesState extends State<_Memories> {
                 _ => s.noted == 0
                     ? 'Not built yet'
                     : '${s.noted} of ${s.indexed} chapters · ${s.entities} people, places and things',
-              };
+              } + memorySizeNote(MemoryService.instance.pathOf(b.id));
               return ListTile(
                 contentPadding: const EdgeInsets.symmetric(horizontal: Gap.page),
                 title: Text(b.title, maxLines: 1, overflow: TextOverflow.ellipsis,
@@ -338,6 +354,12 @@ class _TalkSettingsState extends State<_TalkSettings> {
             subtitle: "Each talk is kept in the book's journal when Talk closes",
             value: _p.aiKeepTalks,
             onChanged: (v) => _set((p) => p.aiKeepTalks = v),
+          ),
+          SwitchRow(
+            title: 'Use my journal',
+            subtitle: "Talk reads what you wrote in the book's journal when it bears on your question",
+            value: _p.aiUseJournal,
+            onChanged: (v) => _set((p) => p.aiUseJournal = v),
           ),
           SwitchRow(
             title: 'Spoiler guard on for new books',

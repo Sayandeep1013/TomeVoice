@@ -74,8 +74,13 @@ class SourcesBridge {
   /// see background_check.dart) every [minutes], with the network the
   /// reader allows ([unmetered]: Wi-Fi only) and the battery not low;
   /// [minutes] 0 stops it.
-  static Future<void> scheduleChecks({required int handle, required int minutes, bool unmetered = true}) =>
-      _ask<void>('scheduleChecks', {'handle': handle, 'minutes': minutes, 'unmetered': unmetered});
+  static Future<void> scheduleChecks({
+    required int handle,
+    required int minutes,
+    bool unmetered = true,
+    bool charging = false,
+  }) =>
+      _ask<void>('scheduleChecks', {'handle': handle, 'minutes': minutes, 'unmetered': unmetered, 'charging': charging});
 
   /// MemoryBuildWorker runs the Dart function behind [handle] every
   /// [minutes] (0 stops it), on Wi-Fi only when [unmetered], only while

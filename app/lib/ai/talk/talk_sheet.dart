@@ -7,17 +7,21 @@ import '../../prefs.dart';
 import '../../theme.dart';
 import '../../ui.dart';
 import '../ai_router.dart';
+import '../ai_consent.dart';
+import '../ai_report.dart';
 import '../ai_screen.dart' show wakeTime;
 import '../memory/memory_db.dart';
 import '../memory/theories.dart';
+import 'answer_pack.dart' show journalFor;
 import 'talk_engine.dart';
 
 /// One turn shown in the sheet.
 class _Turn {
   _Turn.mine(this.text)
       : mine = true,
+        question = '',
         sources = const {};
-  _Turn.ai()
+  _Turn.ai([this.question = ''])
       : mine = false,
         text = '',
         sources = const {};
@@ -27,6 +31,15 @@ class _Turn {
   Map<int, TalkSource> sources;
   bool done = false;
   String? error;
+
+  /// The question an answer is to.
+  final String question;
+
+  /// An answer held back by the check ([aiAnswerHeld]), or one the reader
+  /// reported: not shown, said or kept.
+  bool held = false;
+  bool reported = false;
+  bool get hidden => held || reported;
 }
 
 /// Opens Talk over the reader: half the screen, the book still showing
@@ -45,8 +58,9 @@ Future<void> showTalk(
   TalkEngine? engine,
   Future<void> Function(String text)? onSay,
   VoidCallback? onHush,
-}) =>
-    showModalBottomSheet<void>(
+}) async {
+  if (!await ensureAiConsent(context) || !context.mounted) return;
+  await showModalBottomSheet<void>(
       context: context,
       sheetAnimationStyle: sheetMotion(context),
       isScrollControlled: true,
@@ -68,6 +82,7 @@ Future<void> showTalk(
         onHush: onHush,
       ),
     );
+}
 
 /// Talk: questions about the book answered from its memory, each answer
 /// citing chapters a tap looks at; kept in the book's journal when closed.
@@ -87,6 +102,7 @@ class TalkSheet extends StatefulWidget {
     this.journal,
     this.onSay,
     this.onHush,
+    this.sendReport,
   });
 
   final String bookId;
@@ -106,6 +122,9 @@ class TalkSheet extends StatefulWidget {
   /// An answer said aloud in the reading voice, and the saying stopped.
   final Future<void> Function(String text)? onSay;
   final VoidCallback? onHush;
+
+  /// Where a report goes (the developer's form by default); for tests.
+  final Future<bool> Function(Map<String, String> report)? sendReport;
 
   @override
   State<TalkSheet> createState() => _TalkSheetState();
@@ -200,7 +219,7 @@ class _TalkSheetState extends State<TalkSheet> {
         .trim();
     final lines = [
       for (final t in _turns)
-        if (t.text.trim().isNotEmpty && t.error == null) TalkLine(mine: t.mine, text: t.mine ? t.text.trim() : kept(t)),
+        if (t.text.trim().isNotEmpty && t.error == null && !t.hidden) TalkLine(mine: t.mine, text: t.mine ? t.text.trim() : kept(t)),
     ];
     if (!lines.any((l) => !l.mine)) return;
     await _journal.put(JournalEntry(
@@ -248,7 +267,7 @@ class _TalkSheetState extends State<TalkSheet> {
     }
     _stamp ??= widget.stampNow();
     final theory = _theory;
-    final answer = _Turn.ai();
+    final answer = _Turn.ai(q);
     setState(() {
       _busy = true;
       _theory = false;
@@ -266,11 +285,14 @@ class _TalkSheetState extends State<TalkSheet> {
         line: line,
         here: widget.here(),
         passage: widget.passage(),
-        journal: _journalLines(line),
+        journal: (ListeningPrefs.loaded?.aiUseJournal ?? true) ? journalFor(q, _journalLines(line)) : const [],
         theory: theory,
         onText: (piece) {
           if (!mounted) return;
-          setState(() => answer.text += piece);
+          setState(() {
+            answer.text += piece;
+            if (aiAnswerHeld(answer.text)) answer.held = true;
+          });
           _toEnd();
         },
       );
@@ -279,9 +301,12 @@ class _TalkSheetState extends State<TalkSheet> {
         answer
           ..text = a.text
           ..sources = a.sources
-          ..done = true;
+          ..done = true
+          ..held = answer.held || aiAnswerHeld(a.text);
+        // Nothing came back: said, not left "Remembering…" for ever.
+        if (a.text.trim().isEmpty) answer.error = 'The AI sent back no answer. Ask again, or try another model.';
       });
-      if (_prefs.aiSpeak) _say(a.text);
+      if (_prefs.aiSpeak && !answer.held) _say(a.text);
     } on AiResting catch (e) {
       if (!mounted) return;
       setState(() => answer.error = e.until != null
@@ -315,7 +340,9 @@ class _TalkSheetState extends State<TalkSheet> {
                 Expanded(
                   child: SheetHeader(
                     'Talk about ${widget.bookTitle}',
-                    subtitle: line == null ? 'Kept in your journal' : 'Keeping to chapter ${line + 1}',
+                    subtitle: line == null
+                        ? 'Answers by AI, which can be wrong'
+                        : 'Answers by AI, keeping to chapter ${line + 1}',
                   ),
                 ),
                 if (widget.onSay != null)
@@ -434,6 +461,18 @@ class _TalkSheetState extends State<TalkSheet> {
     );
   }
 
+  Future<void> _report(_Turn t) async {
+    widget.onHush?.call();
+    final done = await reportAiAnswer(
+      context,
+      answer: t.text,
+      question: t.question,
+      where: 'Talk',
+      send: widget.sendReport,
+    );
+    if (done && mounted) setState(() => t.reported = true);
+  }
+
   Widget _turn(BuildContext context, _Turn t) {
     if (t.mine) {
       return Align(
@@ -467,6 +506,17 @@ class _TalkSheetState extends State<TalkSheet> {
         ),
       );
     }
+    if (t.hidden) {
+      return Padding(
+        padding: const EdgeInsets.only(top: Gap.m, right: 24),
+        child: Text(
+          t.reported
+              ? 'You reported this answer, and it is hidden.'
+              : 'This answer was held back: it may have broken the rules on harmful content.',
+          style: Skin.label(context, size: 14),
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.only(top: Gap.m, right: 24),
       child: Column(
@@ -480,12 +530,24 @@ class _TalkSheetState extends State<TalkSheet> {
               widget.onLook(p);
             },
           ),
-          if (t.done && widget.onSay != null)
-            TextButton.icon(
-              style: TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: EdgeInsets.zero),
-              onPressed: () => _say(t.text),
-              icon: const Icon(Icons.replay_rounded, size: 16),
-              label: const Text('Say it again'),
+          if (t.done)
+            Wrap(
+              spacing: Gap.m,
+              children: [
+                if (widget.onSay != null)
+                  TextButton.icon(
+                    style: TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: EdgeInsets.zero),
+                    onPressed: () => _say(t.text),
+                    icon: const Icon(Icons.replay_rounded, size: 16),
+                    label: const Text('Say it again'),
+                  ),
+                TextButton.icon(
+                  style: TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: EdgeInsets.zero),
+                  onPressed: () => unawaited(_report(t)),
+                  icon: const Icon(Icons.flag_outlined, size: 16),
+                  label: const Text('Report'),
+                ),
+              ],
             ),
         ],
       ),

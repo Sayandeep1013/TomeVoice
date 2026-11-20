@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'brand.dart';
 import 'theme.dart';
 import 'ui.dart';
+import 'store_build.dart';
 
 /// Show the guide over the app (Settings asks for it again).
 Future<void> showGuide(BuildContext context) =>
@@ -63,7 +64,10 @@ const _cards = <GuideCard>[
     [
       (Icons.add_rounded, 'Add books, at the top of the library: books on this phone, or a link.'),
       (Icons.local_library_outlined, 'Catalogues, in the menu: free classics to download.'),
-      (Icons.travel_explore_rounded, 'Browse, in the menu: web novels from their sites.'),
+      if (playBuild)
+        (Icons.ios_share_rounded, 'Share a file or a web page to TomeVoice from another app, and it is read too.')
+      else
+        (Icons.travel_explore_rounded, 'Browse, in the menu: web novels from their sites.'),
     ],
   ),
   GuideCard(
@@ -279,7 +283,10 @@ const aiGuideCards = <GuideCard>[
     [
       (Icons.menu_book_rounded, "On a book's page, open Memory and press Build memory."),
       (Icons.schedule_rounded, 'A long book takes hours on a free key. It goes on in the background, and with TomeVoice closed if you allow it on this page.'),
-      (Icons.download_rounded, 'A web novel fetches its missing chapters first. Once the memory has read them, Free the space deletes them again.'),
+      if (playBuild)
+        (Icons.forum_outlined, 'Talk works as soon as part of the book is read; building goes on from where it stopped.')
+      else
+        (Icons.download_rounded, 'A web novel fetches its missing chapters first. Once the memory has read them, Free the space deletes them again.'),
     ],
   ),
   GuideCard(
@@ -320,6 +327,7 @@ const aiGuideCards = <GuideCard>[
       (Icons.visibility_off_outlined, 'Spoiler guard, on a book\'s Memory: the AI keeps to what you have read. It is off until you turn it on.'),
       (Icons.block_rounded, "Keep this book away from the AI, in the Memory's menu: nothing of it is sent."),
       (Icons.link_rounded, 'A sequel can carry on from the book before it, so its people come along.'),
+      (Icons.flag_outlined, 'Report any answer from Talk; AI > What was sent lists every call made with your keys.'),
     ],
   ),
 ];

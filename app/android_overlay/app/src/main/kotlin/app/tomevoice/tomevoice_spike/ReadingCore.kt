@@ -310,7 +310,7 @@ object ReadingCore {
             }
             "activityAttached" -> result.success(activity != null)
             "batteryStatus" -> result.success(batteryStatus())
-            "openBatterySettings" -> result.success(openBatterySettings())
+            "openBatterySettings" -> result.success(openBatterySettings(call.argument<Boolean>("request") != false))
             else -> return false
         }
         return true
@@ -409,12 +409,15 @@ object ReadingCore {
      * docs/18), else the list of apps, else TomeVoice's own settings page.
      * Some phones have only some of these. False when none would open.
      */
-    private fun openBatterySettings(): Boolean {
+    /** Android's question to leave TomeVoice out of battery saving, unless
+     * [request] is off (the Play build may not ask it): then the list of apps,
+     * or the app's own page. */
+    private fun openBatterySettings(request: Boolean = true): Boolean {
         val from: Context = activity ?: app
         val pkg = Uri.parse("package:" + app.packageName)
         val power = app.getSystemService(Context.POWER_SERVICE) as PowerManager
         val tries = listOfNotNull(
-            if (power.isIgnoringBatteryOptimizations(app.packageName)) {
+            if (!request || power.isIgnoringBatteryOptimizations(app.packageName)) {
                 null
             } else {
                 Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, pkg)

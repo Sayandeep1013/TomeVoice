@@ -200,6 +200,46 @@ void main() {
       expect(m.db.select('SELECT noted FROM chapters WHERE ch = 0').single['noted'], 0);
     });
 
+    test('a merge undone: the card merged away stands again with its names, chapters and facts', () {
+      g.apply(
+        const ChapterNotes(chapter: 0, summary: 's', entities: [
+          NoteEntity(ref: 'new:Cassie', kind: 'person', name: 'Cassie'),
+          NoteEntity(ref: 'new:Cassia', kind: 'person', name: 'Cassia'),
+        ], facts: [
+          NoteFact(of: 'new:Cassia', attr: 'sight', value: 'blind'),
+          NoteFact(of: 'new:Cassie', attr: 'voice', value: 'soft'),
+        ]),
+        _places(0, 1),
+        {},
+      );
+      g.apply(
+        const ChapterNotes(chapter: 1, summary: 's', entities: [
+          NoteEntity(ref: 'new:Cassia', kind: 'person', name: 'Cassia'),
+        ]),
+        _places(1, 1),
+        {},
+      );
+      final cassie = g.byName('Cassie')!, cassia = g.byName('Cassia')!;
+      int count(String sql, List<Object?> args) => m.db.select(sql, args).first.columnAt(0) as int;
+      g.merge(cassia, cassie, by: 'ai');
+      expect(count('SELECT count(*) FROM appearances WHERE entity = ?', [cassie]), 2);
+      final made = g.merges().single;
+      expect((made.from, made.into, made.fromName, made.intoName, made.byAi), (cassia, cassie, 'Cassia', 'Cassie', true));
+      expect(g.merges(into: cassia), isEmpty);
+
+      expect(g.undoMerge(made.id), isTrue);
+      expect(g.undoMerge(made.id), isFalse);
+      expect(g.merges(), isEmpty);
+      expect(g.live(cassia), cassia);
+      expect(g.byName('Cassia'), cassia);
+      // Cassie keeps only her own: one chapter, her own fact and name.
+      expect(count('SELECT count(*) FROM appearances WHERE entity = ?', [cassie]), 1);
+      expect(m.db.select('SELECT attr FROM facts WHERE entity = ?', [cassie]).single['attr'], 'voice');
+      expect(m.db.select('SELECT attr FROM facts WHERE entity = ?', [cassia]).single['attr'], 'sight');
+      expect(count("SELECT count(*) FROM aliases WHERE entity = ? AND norm = 'cassia'", [cassie]), 0);
+      expect(m.db.select('SELECT mentions FROM entities WHERE id = ?', [cassia]).single['mentions'], 2);
+    });
+
     test("what someone is, as known at a chapter: a later description does not leak back", () {
       g.apply(
         const ChapterNotes(chapter: 0, summary: 's', entities: [
@@ -607,6 +647,11 @@ void main() {
       expect(untold(path, 2).single.id, id);
       markTold(path, [id]);
       expect(untold(path, 2), isEmpty);
+      // As the journal keeps it: the reader's words, then the AI's verdict.
+      final lines = settledLines(known);
+      expect(lines.map((l) => l.mine), [true, false]);
+      expect(lines.first.text, 'My theory, at chapter 1: Mira is walking home.');
+      expect(lines.last.text, 'It was right: chapter 3 settled it. She reaches her door.');
     });
 
     test('kept up as it is read: a begun memory takes in new chapters; a book never built is left alone', () async {

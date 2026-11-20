@@ -5,6 +5,7 @@ import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor, 
 
 import 'ai/ai_keys.dart';
 import 'ai/journal_tidy.dart';
+import 'ai/memory/memory_service.dart' show MemoryService;
 import 'book_card.dart';
 import 'dictation.dart';
 import 'journal.dart';
@@ -192,12 +193,15 @@ class _JournalPageState extends State<JournalPage> {
       await d.stop();
       return;
     }
+    if (!await _toldOfDictation()) return;
     // The book's voice would be heard too: it waits.
     _readOn ??= await widget.hold?.call();
     final ok = await d.start(language: widget.language);
     if (!ok) _readsOn();
     if (mounted) setState(() {});
   }
+
+  Future<bool> _toldOfDictation() async => await tellOfDictation(context) && mounted;
 
   /// The book's voice reads on, once the reader has finished speaking.
   void _readsOn() {
@@ -221,7 +225,7 @@ class _JournalPageState extends State<JournalPage> {
     if (!mounted) return;
     final fields = [for (final c in _spoken) if (c.text.trim().isNotEmpty) c];
     if (fields.isEmpty) return;
-    final tidied = await tidyJournalText(context, [for (final c in fields) c.text]);
+    final tidied = await tidyJournalText(context, [for (final c in fields) c.text], about: widget.bookTitle);
     if (tidied == null || !mounted) return;
     for (final (i, c) in fields.indexed) {
       if (i < tidied.length) c.text = tidied[i];
@@ -353,7 +357,10 @@ class _JournalPageState extends State<JournalPage> {
                               ],
                             ),
                           ),
-                          if (_spoken.isNotEmpty && AiRing.instance.hasKeys)
+                          // Never for a book on a secret shelf or kept away from the AI.
+                          if (_spoken.isNotEmpty &&
+                              AiRing.instance.hasKeys &&
+                              MemoryService.instance.maySend(widget.bookId))
                             IconButton(
                               tooltip: 'Tidy what you said',
                               icon: Icon(Icons.auto_fix_high_rounded, color: soft),
@@ -838,4 +845,23 @@ class _MicButton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Before speaking is first heard: where what is said goes. False when the
+/// reader would rather not. Asked once (ListeningPrefs.dictationTold).
+Future<bool> tellOfDictation(BuildContext context) async {
+  final p = ListeningPrefs.loaded;
+  if (p == null || p.dictationTold) return true;
+  final go = await confirm(
+    context,
+    title: 'Speak into your journal',
+    body: "Your phone's own speech service (on most phones, Google's) turns what you say into words. "
+        'It may send your voice to that service to do it. TomeVoice keeps no recording: only the words '
+        'come back, into your journal.',
+    action: 'Speak',
+  );
+  if (!go) return false;
+  p.dictationTold = true;
+  p.save();
+  return true;
 }

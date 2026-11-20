@@ -70,6 +70,37 @@ String searchWords(String question) => [
         if (w.length > 2 && !_stop.contains(w)) w,
     ].take(8).join(' ');
 
+/// A question that asks about the reader's own writing ("what did I write
+/// about Sunny?", "in my journal…", "my theory").
+final _aboutJournal = RegExp(
+  r"\b(journal|my notes?|i (wrote|write|noted|said|say|thought|think|felt|feel|guessed|predicted)|"
+  r"my (theor(y|ies)|thoughts?|guess|feelings?))\b",
+  caseSensitive: false,
+);
+
+/// Which of the reader's [entries] go with [question]: the latest [max]
+/// when it asks about their own writing; otherwise only those that share a
+/// word worth searching for with it, the most shared first. None when
+/// nothing bears on it, so the journal is sent only when it matters.
+List<String> journalFor(String question, List<String> entries, {int max = 8}) {
+  if (entries.isEmpty) return const [];
+  if (_aboutJournal.hasMatch(question)) return entries.reversed.take(max).toList().reversed.toList();
+  final words = searchWords(question).split(' ').where((w) => w.length > 3).toSet();
+  if (words.isEmpty) return const [];
+  final scored = <(int, int)>[];
+  for (var i = 0; i < entries.length; i++) {
+    // The words written, not the "ch 3, 2026-11-20:" label before them.
+    final text = entries[i];
+    final colon = text.indexOf(': ');
+    final said = normName(colon < 0 ? text : text.substring(colon + 2)).split(' ').toSet();
+    final shared = words.where(said.contains).length;
+    if (shared > 0) scored.add((shared, i));
+  }
+  scored.sort((a, b) => b.$1 != a.$1 ? b.$1 - a.$1 : b.$2 - a.$2);
+  final kept = [for (final s in scored.take(max)) s.$2]..sort();
+  return [for (final i in kept) entries[i]];
+}
+
 /// Chapter [ch] as the reader counts it; before the first, an earlier book
 /// of the series.
 String chapterLabel(int ch) => ch < 0 ? 'an earlier book' : 'ch ${ch + 1}';

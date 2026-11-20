@@ -346,7 +346,16 @@ def _open_activity() -> str:
 """
 
 
-def patch_manifest(path: Path, label: str = APP_LABEL) -> str:
+# What the Google Play build (TV_STORE=play) may not have: installing other
+# APKs (the GitHub self-updater's) and asking to be left out of battery
+# saving (private/play-store-report-2026-11-20.html, section 1).
+PLAY_FORBIDDEN = (
+    "android.permission.REQUEST_INSTALL_PACKAGES",
+    "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+)
+
+
+def patch_manifest(path: Path, label: str = APP_LABEL, play: bool = False) -> str:
     text = path.read_text(encoding="utf-8")
     notes = []
 
@@ -360,7 +369,7 @@ def patch_manifest(path: Path, label: str = APP_LABEL) -> str:
             raise SystemExit("manifest: no <manifest> tag")
         notes.append("permissions")
 
-    if "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" not in text:
+    if not play and "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" not in text:
         text, n = re.subn(r"(<manifest\b[^>]*>\n?)", r"\1" + BATTERY, text, count=1)
         if n != 1:
             raise SystemExit("manifest: no <manifest> tag")
@@ -409,6 +418,20 @@ def patch_manifest(path: Path, label: str = APP_LABEL) -> str:
         text = text.replace("</application>", _open_activity() + "    </application>", 1)
         notes.append("open-with activity")
 
+    # Android's own backup leaves out the keys and passwords
+    # (res/xml/backup_rules.xml, data_extraction_rules.xml).
+    if "android:dataExtractionRules" not in text:
+        text, n = re.subn(
+            r"(<application\b)",
+            r'\1 android:fullBackupContent="@xml/backup_rules"'
+            r' android:dataExtractionRules="@xml/data_extraction_rules"',
+            text,
+            count=1,
+        )
+        if n != 1:
+            raise SystemExit("manifest: no <application> tag")
+        notes.append("backup rules")
+
     text, n = re.subn(r'android:launchMode="singleTop"', 'android:launchMode="singleTask"', text)
     if n:
         notes.append("singleTask")
@@ -421,6 +444,12 @@ def patch_manifest(path: Path, label: str = APP_LABEL) -> str:
     )
     if n:
         notes.append(f"label {label}")
+
+    if play:
+        for name in PLAY_FORBIDDEN:
+            text, n = re.subn(r'[ \t]*<uses-permission android:name="' + re.escape(name) + r'" />\n', "", text)
+            if n:
+                notes.append(f"play: without {name.rsplit('.', 1)[-1]}")
 
     path.write_text(text, encoding="utf-8")
     return "manifest: " + (", ".join(notes) if notes else "already patched")
@@ -569,7 +598,10 @@ def main() -> int:
     manifest = app_dir / "android/app/src/main/AndroidManifest.xml"
     if not manifest.exists():
         raise SystemExit(f"not found: {manifest} (run flutter create first)")
-    print(patch_manifest(manifest, label))
+    play = os.environ.get("TV_STORE") == "play"
+    if play:
+        print("store: Google Play (no self-updater, no battery exemption request)")
+    print(patch_manifest(manifest, label, play=play))
 
     gradle_candidates = [
         app_dir / "android/app/build.gradle.kts",
