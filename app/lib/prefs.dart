@@ -71,6 +71,7 @@ class ListeningPrefs {
     this.journalQuestions,
     this.journalAsk = false,
     this.journalInterview = false,
+    this.moreVoices = false,
     this.aiSpeak = true,
     this.aiRecapDays = 3,
     this.aiLength = 'normal',
@@ -382,6 +383,10 @@ class ListeningPrefs {
   /// aloud and the answers, spoken, written down.
   bool journalInterview;
 
+  /// The Play build: also list natural voices whose recordings are licensed
+  /// for non-commercial use only, or whose licence is not stated.
+  bool moreVoices;
+
   /// Talk's answers said aloud in the reading voice (on unless turned off).
   bool aiSpeak;
 
@@ -588,6 +593,7 @@ class ListeningPrefs {
         if (journalQuestions != null) 'journalQuestions': journalQuestions,
         'journalAsk': journalAsk,
         if (journalInterview) 'journalInterview': true,
+        if (moreVoices) 'moreVoices': true,
         'aiSpeak': aiSpeak,
         'aiRecapDays': aiRecapDays,
         'aiLength': aiLength,
@@ -701,6 +707,7 @@ class ListeningPrefs {
         journalQuestions: json['journalQuestions'] is List ? List<Object?>.from(json['journalQuestions'] as List) : null,
         journalAsk: json['journalAsk'] as bool? ?? false,
         journalInterview: json['journalInterview'] == true,
+        moreVoices: json['moreVoices'] == true,
         aiSpeak: json['aiSpeak'] as bool? ?? true,
         aiRecapDays: (json['aiRecapDays'] as num?)?.toInt() ?? 3,
         aiLength: json['aiLength'] as String? ?? 'normal',

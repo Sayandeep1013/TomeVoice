@@ -11,6 +11,7 @@ import 'sources/net_image.dart';
 import 'sources/source_engine.dart';
 import 'sources/source_store.dart';
 import 'sources_screen.dart';
+import 'store_build.dart';
 import 'theme.dart';
 import 'ui.dart';
 
@@ -245,9 +246,13 @@ class _BrowseScreenState extends State<BrowseScreen> {
                         child: EmptyState(
                           icon: Icons.travel_explore_rounded,
                           title: 'Find web novels',
-                          body: 'Install the sites you read from the list in Sources, or bring your own list. '
-                              'Then search them all '
-                              'from here, add novels to your library, and listen to them like any book.',
+                          body: playBuild
+                              ? 'TomeVoice comes with no sources. Add a source list you trust in Sources and '
+                                  'install the sites you read; then search them all from here, add novels to '
+                                  'your library, and listen to them like any book.'
+                              : 'Install the sites you read from the list in Sources, or bring your own list. '
+                                  'Then search them all '
+                                  'from here, add novels to your library, and listen to them like any book.',
                           action: FilledButton.icon(
                             onPressed: _openSources,
                             icon: const Icon(Icons.extension_outlined),

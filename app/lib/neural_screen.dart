@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'neural_voices.dart';
 import 'prefs.dart';
 import 'speech_service.dart';
+import 'store_build.dart';
 import 'theme.dart';
 import 'ui.dart';
 import 'voices.dart';
@@ -115,6 +116,34 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
     setState(() => _prefs.naturalVoices = yes);
     _prefs.save();
     if (!yes) Navigator.of(context).maybePop();
+  }
+
+  /// More voices (the Play build): said once what the extra ones' licences
+  /// mean, then the catalog is read again with them or without.
+  Future<void> _moreVoices(bool on) async {
+    if (on) {
+      final yes = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('More voices'),
+          content: const Text(
+            'These voices learned from recordings whose makers allow only non-commercial use, or did not '
+            'say. TomeVoice is free, and listening to your own books with them is personal use. Each '
+            "voice's licence stays shown with it: tap it for what its model card says.",
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Not now')),
+            FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Show them')),
+          ],
+        ),
+      );
+      if (yes != true || !mounted) return;
+    }
+    setState(() => _prefs.moreVoices = on);
+    _prefs.save();
+    await _voices.reread(wide: on);
+    VoiceCatalog.instance.neuralChanged();
+    if (mounted) setState(() {});
   }
 
   Future<void> _download(NeuralVoice v) async {
@@ -278,6 +307,18 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
                         ),
                         const SizedBox(height: Gap.l),
                         ...(_query.trim().isEmpty ? _offer(context) : _found(context)),
+                        // The Play build lists only open voices unless asked.
+                        if (playBuild) ...[
+                          const SizedBox(height: Gap.l),
+                          SwitchRow(
+                            title: 'More voices',
+                            subtitle: 'Also list voices whose recordings allow only non-commercial use, '
+                                'or whose licence is not stated',
+                            value: _prefs.moreVoices,
+                            padding: EdgeInsets.zero,
+                            onChanged: _moreVoices,
+                          ),
+                        ],
                       ],
                       const SizedBox(height: Gap.l),
                       Text(

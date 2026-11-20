@@ -1,7 +1,8 @@
 // The Google Play build (--dart-define=TV_STORE=play, the CI's play job):
-// no web novels or their sources, no self-updater, only the voices whose
-// recordings are open, and the guide saying nothing of what is not there.
-// In the ordinary test run (the GitHub build) these are skipped.
+// Browse and Sources stay but no source list comes with the app, no
+// self-updater, only the voices whose recordings are open unless the reader
+// asks for more, and the guide saying nothing of what is not there. In the
+// ordinary test run (the GitHub build) the Play group is skipped.
 
 import 'dart:io';
 
@@ -12,6 +13,7 @@ import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/neural_voices.dart';
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/settings_screen.dart';
+import 'package:tomevoice_spike/sources/source_store.dart';
 import 'package:tomevoice_spike/store_build.dart';
 
 void main() {
@@ -54,31 +56,49 @@ void main() {
     return seen;
   }
 
+  test('More voices: non-commercial and unstated ones, never none-granted or a game character', () async {
+    final text = await File('assets/voices/catalog.json').readAsString();
+    final all = NeuralCatalog.parse(text, openOnly: false);
+    final open = NeuralCatalog.parse(text, openOnly: true, wide: false);
+    final more = NeuralCatalog.parse(text, openOnly: true, wide: true);
+    expect(open.voices.map((v) => v.licence.use).toSet(), {LicenceUse.free, LicenceUse.credit});
+    expect(more.voices.length, greaterThan(open.voices.length));
+    expect(more.voices.length, lessThan(all.voices.length));
+    expect(more.voices.map((v) => v.licence.use), contains(LicenceUse.noncommercial));
+    expect(more.voices.map((v) => v.licence.use), isNot(contains(LicenceUse.restricted)));
+    expect(more.voices.where((v) => v.id.toLowerCase().contains('glados')), isEmpty);
+    final names = {for (final v in more.forLanguage('en')) v.name};
+    expect(names, containsAll(['Ryan', 'Lessac', 'Amy']));
+    expect(names, isNot(contains('Alan')));
+  });
+
   group('the Play build', skip: !playBuild, () {
+    test('comes with no source list', () {
+      expect(SourceStore.builtIn, isEmpty);
+    });
+
     test('only voices whose recordings are open', () async {
       final all = NeuralCatalog.parse(await File('assets/voices/catalog.json').readAsString(), openOnly: false);
-      final play = NeuralCatalog.parse(await File('assets/voices/catalog.json').readAsString());
+      final play = NeuralCatalog.parse(await File('assets/voices/catalog.json').readAsString(), wide: false);
       expect(play.voices.length, lessThan(all.voices.length));
       expect(play.voices.map((v) => v.licence.use).toSet(), {LicenceUse.free, LicenceUse.credit});
       expect(play.voices, isNotEmpty);
     });
 
-    testWidgets('Settings: no sources, no NovelDokusha, no web-novel downloads, no new-version check', (tester) async {
+    testWidgets('Settings: sources and web novels stay; no new-version check', (tester) async {
       phone(tester);
       await tester.pumpWidget(MaterialApp(home: SettingsScreen(store: LibraryStore(tmp))));
       await tester.pumpAndSettle();
       final texts = await allTexts(tester);
-      for (final gone in [
+      expect(texts, isNot(contains('Tell me about new versions')));
+      for (final kept in [
         'Sources',
         'Import from NovelDokusha',
         'Download speed',
-        'Check for new chapters',
-        'Find on NovelUpdates',
-        'Tell me about new versions',
+        'Reading rules',
+        'Interview me',
+        'About TomeVoice',
       ]) {
-        expect(texts, isNot(contains(gone)), reason: gone);
-      }
-      for (final kept in ['Reading rules', 'Interview me', 'About TomeVoice']) {
         expect(texts, contains(kept), reason: kept);
       }
       await tester.pumpWidget(const SizedBox());
@@ -98,12 +118,12 @@ void main() {
       await tester.pump(const Duration(seconds: 10));
     });
 
-    testWidgets('the guide speaks of sharing, not of browsing web novels', (tester) async {
+    testWidgets("the guide says the source lists are the reader's own", (tester) async {
       phone(tester);
       await tester.pumpWidget(const MaterialApp(home: GuideScreen()));
       await tester.pumpAndSettle();
-      expect(find.textContaining('web novels'), findsNothing);
-      expect(find.textContaining('Share a file or a web page'), findsOneWidget);
+      expect(find.textContaining('from the source lists you add'), findsOneWidget);
+      expect(find.textContaining('web novels from their sites'), findsNothing);
       await tester.pumpWidget(const SizedBox());
       await tester.pump(const Duration(seconds: 10));
     });

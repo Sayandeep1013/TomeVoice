@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show ValueNotifier, visibleForTesting;
 
+import '../store_build.dart';
 import 'models.dart';
 import 'net.dart';
 import 'sha256.dart';
@@ -27,10 +28,13 @@ class SourceStore {
       : dir = Directory('${root.path}/sources');
 
   /// LNReader's plugin list: some 300 sites in many languages, kept up to
-  /// date by its community.
-  static const builtIn = [
-    'https://raw.githubusercontent.com/LNReader/lnreader-plugins/plugins/v3.0.0/.dist/plugins.min.json',
-  ];
+  /// date by its community. The Play build comes with no list: the reader
+  /// adds their own.
+  static const builtIn = playBuild
+      ? <String>[]
+      : [
+          'https://raw.githubusercontent.com/LNReader/lnreader-plugins/plugins/v3.0.0/.dist/plugins.min.json',
+        ];
 
   final Directory dir;
 
