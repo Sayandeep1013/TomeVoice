@@ -201,24 +201,7 @@ class _JournalPageState extends State<JournalPage> {
     if (mounted) setState(() {});
   }
 
-  /// Before the first time: where what is said goes. False when the reader
-  /// would rather not.
-  Future<bool> _toldOfDictation() async {
-    final p = ListeningPrefs.loaded;
-    if (p == null || p.dictationTold) return true;
-    final go = await confirm(
-      context,
-      title: 'Speak into your journal',
-      body: "Your phone's own speech service (on most phones, Google's) turns what you say into words. "
-          'It may send your voice to that service to do it. TomeVoice keeps no recording: only the words '
-          'come back, into this page.',
-      action: 'Speak',
-    );
-    if (!go) return false;
-    p.dictationTold = true;
-    p.save();
-    return mounted;
-  }
+  Future<bool> _toldOfDictation() async => await tellOfDictation(context) && mounted;
 
   /// The book's voice reads on, once the reader has finished speaking.
   void _readsOn() {
@@ -862,4 +845,23 @@ class _MicButton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Before speaking is first heard: where what is said goes. False when the
+/// reader would rather not. Asked once (ListeningPrefs.dictationTold).
+Future<bool> tellOfDictation(BuildContext context) async {
+  final p = ListeningPrefs.loaded;
+  if (p == null || p.dictationTold) return true;
+  final go = await confirm(
+    context,
+    title: 'Speak into your journal',
+    body: "Your phone's own speech service (on most phones, Google's) turns what you say into words. "
+        'It may send your voice to that service to do it. TomeVoice keeps no recording: only the words '
+        'come back, into your journal.',
+    action: 'Speak',
+  );
+  if (!go) return false;
+  p.dictationTold = true;
+  p.save();
+  return true;
 }

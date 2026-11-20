@@ -27,7 +27,8 @@ import 'chapter_finder.dart';
 import 'export_audio_sheet.dart';
 import 'fast_scroller.dart';
 import 'highlights.dart';
-import 'journal.dart' show JournalEntry, JournalStamp, JournalStore;
+import 'interview.dart';
+import 'journal.dart' show JournalEntry, JournalStamp, JournalStore, journalQuestionsOf;
 import 'journal_page.dart';
 import 'library_store.dart';
 import 'listening_session.dart' show BackgroundReading;
@@ -1387,6 +1388,57 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     ));
   }
 
+  bool _interviewing = false;
+
+  /// Interview me about the chapter just read ([done]): the reading waits,
+  /// the journal's questions are asked in the reading voice and answered
+  /// aloud, the answers kept in the journal; then the reading goes on.
+  Future<void> _interview(JournalStamp done) async {
+    if (_interviewing) return;
+    _interviewing = true;
+    try {
+      if (!await tellOfDictation(context) || !mounted) return;
+      final reading = _player.isPlaying;
+      if (reading) await _player.pause(now: true);
+      if (!mounted) return;
+      final answers = await runInterview(
+        context,
+        questions: journalQuestionsOf(_prefs),
+        chapter: done.number,
+        say: _sayOnly,
+        hush: () => unawaited(_svc.stopPlayback()),
+        language: _reader.language,
+      );
+      if (answers != null && answers.isNotEmpty) {
+        await JournalStore.instance.put(JournalEntry(
+          id: JournalStore.newId(),
+          bookId: _book.id,
+          bookTitle: _book.metadata.title,
+          created: DateTime.now().toUtc(),
+          stamp: done,
+          answers: answers,
+        ));
+        if (mounted) showSnack(context, 'Kept in your journal', margin: _snackMargin);
+      }
+      if (reading && mounted) await _player.play(_cursor.value);
+    } finally {
+      _interviewing = false;
+    }
+  }
+
+  /// [text] said in the reading voice, the book's own reading left alone.
+  Future<void> _sayOnly(String text) async {
+    for (final piece in spokenPieces(text)) {
+      if (!mounted) return;
+      await speakSample(
+        voiceName: _listen.voiceName ?? '',
+        text: piece,
+        settings: _prefs.settingsFor(_listen.voiceName, book: _book.id),
+        engineId: _prefs.engineId ?? _catalog.engineId,
+      );
+    }
+  }
+
   /// Where the story is now: the voice's sentence (in the chapters it reads
   /// in the background, when the page shows others), else the place.
   JournalStamp _stampNow() {
@@ -1410,9 +1462,17 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final was = _voiceChapter;
     _voiceChapter = c;
     if (was != null && c != was && _talkable) unawaited(MemoryService.instance.keepUp(_book.id));
-    if (was == null || c != was + 1 || !_player.isPlaying || !_prefs.journalAsk || !mounted) return;
+    if (was == null || c != was + 1 || !_player.isPlaying || !mounted) return;
+    if (!_prefs.journalAsk && !_prefs.journalInterview) return;
     final last = _l.chapterFirstUnit[c] - 1;
     final done = stampAt(_l, last, numberOf: _chapterNumber);
+    // Interview me: asked aloud, answered aloud. Only with the book on the
+    // screen: the microphone is not heard from the background.
+    if (_prefs.journalInterview && WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+      unawaited(_interview(done));
+      return;
+    }
+    if (!_prefs.journalAsk) return;
     showSnack(
       context,
       'Write about chapter ${done.number}?',

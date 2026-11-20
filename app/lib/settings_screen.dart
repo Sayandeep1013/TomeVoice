@@ -390,6 +390,14 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           padding: EdgeInsets.zero,
                           onChanged: (v) => _change(() => _prefs.journalAsk = v),
                         ),
+                        SwitchRow(
+                          title: 'Interview me',
+                          subtitle: "At a chapter's end the reading waits, the voice asks your journal questions, "
+                              'and what you answer aloud is written down. Then it reads on',
+                          value: _prefs.journalInterview,
+                          padding: EdgeInsets.zero,
+                          onChanged: (v) => _change(() => _prefs.journalInterview = v),
+                        ),
                       ],
                     ),
                     _Group(

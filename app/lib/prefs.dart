@@ -70,6 +70,7 @@ class ListeningPrefs {
     this.journalNotebook = false,
     this.journalQuestions,
     this.journalAsk = false,
+    this.journalInterview = false,
     this.aiSpeak = true,
     this.aiRecapDays = 3,
     this.aiLength = 'normal',
@@ -377,6 +378,10 @@ class ListeningPrefs {
   /// turned on).
   bool journalAsk;
 
+  /// Interview me: at a chapter's end the journal's questions are asked
+  /// aloud and the answers, spoken, written down.
+  bool journalInterview;
+
   /// Talk's answers said aloud in the reading voice (on unless turned off).
   bool aiSpeak;
 
@@ -582,6 +587,7 @@ class ListeningPrefs {
         'journalNotebook': journalNotebook,
         if (journalQuestions != null) 'journalQuestions': journalQuestions,
         'journalAsk': journalAsk,
+        if (journalInterview) 'journalInterview': true,
         'aiSpeak': aiSpeak,
         'aiRecapDays': aiRecapDays,
         'aiLength': aiLength,
@@ -694,6 +700,7 @@ class ListeningPrefs {
         journalNotebook: json['journalNotebook'] as bool? ?? false,
         journalQuestions: json['journalQuestions'] is List ? List<Object?>.from(json['journalQuestions'] as List) : null,
         journalAsk: json['journalAsk'] as bool? ?? false,
+        journalInterview: json['journalInterview'] == true,
         aiSpeak: json['aiSpeak'] as bool? ?? true,
         aiRecapDays: (json['aiRecapDays'] as num?)?.toInt() ?? 3,
         aiLength: json['aiLength'] as String? ?? 'normal',
