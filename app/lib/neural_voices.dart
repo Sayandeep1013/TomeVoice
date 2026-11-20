@@ -635,7 +635,9 @@ class NeuralVoices extends ChangeNotifier {
     _cancelled.remove(key);
     downloading[key] = 0;
     notifyListeners();
-    final keep = KeepAliveJob(key: 'voice:$key', kind: KeepAliveKind.voice, text: v.name, onStop: () => cancel(v));
+    // Made elsewhere: a closure here that held this object would be carried
+    // into the unpacking isolate below, which cannot take it.
+    final keep = _keepJob(v);
     if (keepVoiceDownloadsAlive) LongJobs.instance.begin(keep);
     var shown = -1;
     final part = File('${dir.path}/$key$_partial');
@@ -718,6 +720,10 @@ class NeuralVoices extends ChangeNotifier {
       if (!keepPart && await part.exists()) await part.delete();
     }
   }
+
+  /// [v]'s download as the keep-alive shows it; its Stop calls it off.
+  KeepAliveJob _keepJob(NeuralVoice v) =>
+      KeepAliveJob(key: 'voice:${v.modelId}', kind: KeepAliveKind.voice, text: v.name, onStop: () => cancel(v));
 
   /// The whole size from "bytes 100-199/2000"; 0 when it is not said.
   static int _totalOf(String? range) => int.tryParse(range?.split('/').last.trim() ?? '') ?? 0;

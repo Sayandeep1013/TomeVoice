@@ -389,7 +389,10 @@ void main() {
     await keep.platformEvent('stop');
     await until(() => q.paused && !keep.busy);
     gate.complete();
+    await until(() => store.downloadedChapters(a).isNotEmpty);
+    await q.whenIdle();
     // Kept paused on disk too: it waits for Resume.
     expect(await DownloadQueue.pausedIn(store.root), isTrue);
+    expect(sites.asked.containsKey('na/2'), isFalse);
   });
 }

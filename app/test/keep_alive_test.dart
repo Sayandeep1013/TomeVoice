@@ -66,9 +66,9 @@ KeepAliveJob _memory(String book, {void Function()? onStop, void Function()? onH
 /// A moment for the platform's answers to land.
 Future<void> _settle() => Future<void>.delayed(const Duration(milliseconds: 10));
 
+// No test binding: with it every HTTP request answers 400, and the memory's
+// tests ask a server of their own.
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
-
   group('the jobs', () {
     test('the service is asked for as the first job begins, told of each change, and let go with the last', () async {
       final service = _Service();
