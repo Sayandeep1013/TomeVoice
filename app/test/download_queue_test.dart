@@ -115,9 +115,9 @@ void main() {
   DownloadQueue queue(
       {Duration pace = const Duration(milliseconds: 1500),
       Duration backoff = const Duration(seconds: 5),
-      KeepAlive? keepAlive}) {
+      LongJobs? keepAlive}) {
     final q = DownloadQueue.forTests(
-        pace: pace, backoff: backoff, keepAlive: keepAlive ?? KeepAlive.forTests(_Service(), inFront: () => false));
+        pace: pace, backoff: backoff, keepAlive: keepAlive ?? LongJobs.forTests(_Service(), inFront: () => false));
     queues.add(q);
     return q;
   }
@@ -306,7 +306,7 @@ void main() {
     await store.moveBooks({hidden}, shelf.id);
     LibraryStore.secretOpen.value = true;
     addTearDown(() => LibraryStore.secretOpen.value = false);
-    final q = queue(pace: const Duration(milliseconds: 60), keepAlive: KeepAlive.forTests(service, inFront: () => false));
+    final q = queue(pace: const Duration(milliseconds: 60), keepAlive: LongJobs.forTests(service, inFront: () => false));
     await q.attach(store);
     await q.add(open, oc);
     await q.add(hidden, [for (var i = 1; i <= 2; i++) ChapterItem(name: 'The Hush Chapter $i', path: 'hush/$i')]);
@@ -321,7 +321,7 @@ void main() {
   test('the service is asked for as the first chapter is queued, and let go when the queue is paused or done',
       () async {
     final service = _Service();
-    final keep = KeepAlive.forTests(service, inFront: () => true, exempt: () async => true);
+    final keep = LongJobs.forTests(service, inFront: () => true, exempt: () async => true);
     final (a, ac) = await novel('a', 'na', 2);
     final gate = Completer<void>();
     sites.gates['na/1'] = gate.future;
@@ -349,7 +349,7 @@ void main() {
       () async {
     final service = _Service();
     final said = <String>[];
-    final keep = KeepAlive.forTests(service,
+    final keep = LongJobs.forTests(service,
         inFront: () => true, exempt: () async => true, say: (text, {action, onAction}) => said.add(text));
     final (a, ac) = await novel('a', 'na', 4);
     final gate = Completer<void>();
@@ -379,7 +379,7 @@ void main() {
 
   test("the notification's Stop is the reader's Pause", () async {
     final service = _Service();
-    final keep = KeepAlive.forTests(service, inFront: () => false);
+    final keep = LongJobs.forTests(service, inFront: () => false);
     final (a, ac) = await novel('a', 'na', 3);
     final gate = Completer<void>();
     sites.gates['na/1'] = gate.future;

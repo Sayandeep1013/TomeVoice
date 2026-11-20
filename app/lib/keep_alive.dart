@@ -194,15 +194,15 @@ class _ChannelPlatform implements KeepAlivePlatform {
 /// that a run ended (Android, or a phone maker's battery saving, closing
 /// the app) is picked up the next time it is opened, and the reader is
 /// told.
-class KeepAlive {
-  KeepAlive._(this._platform) : _inFrontNow = null, _exempt = null, _sayTo = null, _gather = const Duration(seconds: 2);
+class LongJobs {
+  LongJobs._(this._platform) : _inFrontNow = null, _exempt = null, _sayTo = null, _gather = const Duration(seconds: 2);
 
-  static final instance = KeepAlive._(const _ChannelPlatform());
+  static final instance = LongJobs._(const _ChannelPlatform());
 
   /// One of a test's own: what is in front, the battery and what is said
   /// stand in for the app's.
   @visibleForTesting
-  KeepAlive.forTests(
+  LongJobs.forTests(
     this._platform, {
     bool Function()? inFront,
     Future<bool?> Function()? exempt,

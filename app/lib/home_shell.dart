@@ -121,7 +121,7 @@ Future<OpenLibrary> _open(String dir) async {
   keepOutOfLog();
   // Long jobs (downloads, memories) kept going in the background, and what
   // the last run left going, to pick up (keep_alive.dart).
-  await KeepAlive.instance.attach(Directory(dir));
+  await LongJobs.instance.attach(Directory(dir));
   // Chapters left downloading when the app last closed carry on.
   unawaited(DownloadQueue.instance.attach(store));
   await TintCache.instance.attach(Directory(dir));
@@ -133,7 +133,7 @@ Future<OpenLibrary> _open(String dir) async {
   MemoryService.instance.attach(store);
   // A memory that was being built when the app last closed goes on, once
   // TomeVoice is in front (not for a book read from outside it).
-  KeepAlive.instance.whenInFront(() => unawaited(MemoryService.instance.resumeInterrupted()));
+  LongJobs.instance.whenInFront(() => unawaited(MemoryService.instance.resumeInterrupted()));
   // Memories built with the app closed, while the AI has a key.
   unawaited(MemoryBackground.apply(prefs));
   AiRing.instance.addListener(() => unawaited(MemoryBackground.apply(ListeningPrefs.loaded ?? prefs)));

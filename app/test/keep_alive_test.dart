@@ -72,7 +72,7 @@ void main() {
   group('the jobs', () {
     test('the service is asked for as the first job begins, told of each change, and let go with the last', () async {
       final service = _Service();
-      final keep = KeepAlive.forTests(service, inFront: () => true, exempt: () async => true);
+      final keep = LongJobs.forTests(service, inFront: () => true, exempt: () async => true);
       keep.begin(_downloads());
       expect(keep.busy, isTrue);
       expect(service.shown, hasLength(1), reason: 'at once, as the job begins');
@@ -110,7 +110,7 @@ void main() {
 
     test('a second start of the same work leaves it to the first', () {
       final service = _Service();
-      final keep = KeepAlive.forTests(service, inFront: () => false);
+      final keep = LongJobs.forTests(service, inFront: () => false);
       final first = _memory('b');
       final second = _memory('b');
       keep.begin(first);
@@ -124,7 +124,7 @@ void main() {
     });
 
     test("the notification's Stop stops each job as its own Stop would", () async {
-      final keep = KeepAlive.forTests(_Service(), inFront: () => false);
+      final keep = LongJobs.forTests(_Service(), inFront: () => false);
       final stopped = <String>[];
       keep.begin(_downloads(onStop: () => stopped.add('downloads')));
       keep.begin(_memory('b', onStop: () => stopped.add('memory')));
@@ -134,7 +134,7 @@ void main() {
 
     test('refused (the app behind other apps): asked again once the app is in front', () async {
       final service = _Service()..up = false;
-      final keep = KeepAlive.forTests(service, inFront: () => false);
+      final keep = LongJobs.forTests(service, inFront: () => false);
       keep.begin(_downloads());
       await _settle();
       expect(service.shown, hasLength(1));
@@ -179,7 +179,7 @@ void main() {
       final service = _Service();
       final said = <String>[];
       var front = false;
-      final keep = KeepAlive.forTests(service,
+      final keep = LongJobs.forTests(service,
           inFront: () => front, say: (text, {action, onAction}) => said.add(text));
       await keep.attach(tmp);
       final held = <String>[], goneOn = <String>[];
@@ -209,7 +209,7 @@ void main() {
 
     test('nothing running: nothing to hold', () async {
       final service = _Service();
-      final keep = KeepAlive.forTests(service, inFront: () => true);
+      final keep = LongJobs.forTests(service, inFront: () => true);
       await keep.platformEvent('timeout');
       expect(keep.held, isFalse);
       expect(service.stops, 0);
@@ -229,7 +229,7 @@ void main() {
     });
 
     test('written down while a job runs, and gone when it ends', () async {
-      final keep = KeepAlive.forTests(_Service(), inFront: () => true);
+      final keep = LongJobs.forTests(_Service(), inFront: () => true);
       await keep.attach(tmp);
       keep.begin(_memory('b'), hint: false);
       keep.begin(KeepAliveJob(key: 'voice:x', kind: KeepAliveKind.voice));
@@ -245,7 +245,7 @@ void main() {
         'resume': ['downloads', 'memory:b', 'memory:c'],
       }));
       final said = <String>[];
-      final keep = KeepAlive.forTests(_Service(),
+      final keep = LongJobs.forTests(_Service(),
           inFront: () => true, say: (text, {action, onAction}) => said.add(text), exempt: () async => true);
       await keep.attach(tmp);
       expect(keep.leftOver('memory:'), ['memory:b', 'memory:c']);
@@ -262,14 +262,14 @@ void main() {
 
     test('a broken file: nothing to pick up', () async {
       File('${tmp.path}/keep_alive.json').writeAsStringSync('{not json');
-      final keep = KeepAlive.forTests(_Service(), inFront: () => true);
+      final keep = LongJobs.forTests(_Service(), inFront: () => true);
       await keep.attach(tmp);
       expect(keep.leftOver(''), isEmpty);
     });
 
     test('what waits for the app to be in front runs then, once', () {
       var front = false;
-      final keep = KeepAlive.forTests(_Service(), inFront: () => front);
+      final keep = LongJobs.forTests(_Service(), inFront: () => front);
       var ran = 0;
       keep.whenInFront(() => ran++);
       expect(ran, 0);
@@ -296,7 +296,7 @@ void main() {
 
     test('once ever, only while battery saving holds TomeVoice back, with the setting a tap away', () async {
       final said = <(String, String?)>[];
-      KeepAlive make(bool exempt) => KeepAlive.forTests(_Service(),
+      LongJobs make(bool exempt) => LongJobs.forTests(_Service(),
           inFront: () => true,
           exempt: () async => exempt,
           say: (text, {action, onAction}) => said.add((text, action)));
@@ -337,7 +337,7 @@ void main() {
 
     test('never with the app behind other apps', () async {
       final said = <String>[];
-      final keep = KeepAlive.forTests(_Service(),
+      final keep = LongJobs.forTests(_Service(),
           inFront: () => false, exempt: () async => false, say: (text, {action, onAction}) => said.add(text));
       await keep.attach(tmp);
       keep.begin(_downloads());
@@ -465,7 +465,7 @@ void main() {
       asked.clear();
       answer = notes;
       final said = <String>[];
-      final keep = KeepAlive.forTests(_Service(),
+      final keep = LongJobs.forTests(_Service(),
           inFront: () => true, exempt: () async => true, say: (text, {action, onAction}) => said.add(text));
       await keep.attach(tmp);
       final service = MemoryService.instance
@@ -493,7 +493,7 @@ void main() {
         'resume': ['memory:$id'],
       }));
       answer = notes;
-      final keep = KeepAlive.forTests(_Service(), inFront: () => true, exempt: () async => true);
+      final keep = LongJobs.forTests(_Service(), inFront: () => true, exempt: () async => true);
       await keep.attach(tmp);
       final service = MemoryService.instance
         ..reset()
@@ -519,7 +519,7 @@ void main() {
       };
       final service = _Service();
       final said = <String>[];
-      final keep = KeepAlive.forTests(service,
+      final keep = LongJobs.forTests(service,
           inFront: () => true, exempt: () async => true, say: (text, {action, onAction}) => said.add(text));
       await keep.attach(tmp);
       final memory = MemoryService.instance
@@ -559,7 +559,7 @@ void main() {
         if (calls == 1) await gate.future;
         await notes(req, body);
       };
-      final keep = KeepAlive.forTests(_Service(), inFront: () => false);
+      final keep = LongJobs.forTests(_Service(), inFront: () => false);
       final memory = MemoryService.instance
         ..reset()
         ..keepAlive = keep

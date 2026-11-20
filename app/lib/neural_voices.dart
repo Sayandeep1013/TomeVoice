@@ -628,7 +628,7 @@ class NeuralVoices extends ChangeNotifier {
   /// [stall] stand in for the voice's address and [stallAfter] in tests.
   ///
   /// Kept going with the app in the background or the screen off
-  /// (KeepAlive), its notification's Stop as [cancel].
+  /// (LongJobs), its notification's Stop as [cancel].
   Future<void> download(NeuralVoice v, {@visibleForTesting Uri? source, Duration stall = stallAfter}) async {
     final key = v.modelId;
     if (downloading.containsKey(key)) return;
@@ -636,7 +636,7 @@ class NeuralVoices extends ChangeNotifier {
     downloading[key] = 0;
     notifyListeners();
     final keep = KeepAliveJob(key: 'voice:$key', kind: KeepAliveKind.voice, text: v.name, onStop: () => cancel(v));
-    if (keepVoiceDownloadsAlive) KeepAlive.instance.begin(keep);
+    if (keepVoiceDownloadsAlive) LongJobs.instance.begin(keep);
     var shown = -1;
     final part = File('${dir.path}/$key$_partial');
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 20);
@@ -675,7 +675,7 @@ class NeuralVoices extends ChangeNotifier {
             final percent = (100 * downloading[key]!).floor();
             if (percent != shown) {
               shown = percent;
-              KeepAlive.instance.update(keep.key, done: percent, total: 100);
+              LongJobs.instance.update(keep.key, done: percent, total: 100);
             }
           }
         } finally {
@@ -712,7 +712,7 @@ class NeuralVoices extends ChangeNotifier {
       if (cancelled) throw const DownloadCancelled();
       rethrow;
     } finally {
-      KeepAlive.instance.end(keep.key, job: keep);
+      LongJobs.instance.end(keep.key, job: keep);
       _clients.remove(key);
       client.close(force: true);
       if (!keepPart && await part.exists()) await part.delete();

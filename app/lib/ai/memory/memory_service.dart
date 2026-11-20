@@ -285,7 +285,7 @@ class MemoryService {
 
   /// What keeps a build going in the background (a test's own in tests).
   @visibleForTesting
-  KeepAlive keepAlive = KeepAlive.instance;
+  LongJobs keepAlive = LongJobs.instance;
 
   LibraryStore? _store;
   AiRouter? _router;
@@ -441,7 +441,7 @@ class MemoryService {
     _titles.clear();
     _store = null;
     _router = null;
-    keepAlive = KeepAlive.instance;
+    keepAlive = LongJobs.instance;
   }
 
   String _path(String id) => MemoryDb.pathIn(_store!.bookDir(id));
@@ -708,7 +708,7 @@ class MemoryService {
   /// Books whose memory was being built when TomeVoice last closed with the
   /// build still going (Android, or a phone maker's battery saving, ended
   /// it; the phone restarted): built on from the last chapter noted, as if
-  /// never stopped. The reader is told (KeepAlive). Not one paused since,
+  /// never stopped. The reader is told (LongJobs). Not one paused since,
   /// kept away from the AI, on a secret shelf, or with no key. Once the
   /// app is in front: Android may not let the work's service start before.
   Future<void> resumeInterrupted() async {

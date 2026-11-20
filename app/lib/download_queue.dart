@@ -88,7 +88,7 @@ class BookDownloads {
 /// Web-novel chapters to download, kept on disk (downloads.json in the
 /// library) so leaving a novel's page, or the app, does not lose them: the
 /// queue carries on in the background, with a notification showing how far
-/// it is (KeepAlive's service keeps the app alive meanwhile, the screen off
+/// it is (the keep-alive service keeps the app alive meanwhile, the screen off
 /// and swiped from Recents too), and picks up where it was when the app
 /// opens.
 ///
@@ -125,13 +125,13 @@ class DownloadQueue {
   DownloadQueue.forTests(
       {Duration pace = const Duration(milliseconds: 1500),
       Duration backoff = const Duration(seconds: 5),
-      KeepAlive? keepAlive})
+      LongJobs? keepAlive})
       : _testPace = pace,
         _backoff = backoff,
         _keep = keepAlive;
 
-  final KeepAlive? _keep;
-  KeepAlive get _keepAlive => _keep ?? KeepAlive.instance;
+  final LongJobs? _keep;
+  LongJobs get _keepAlive => _keep ?? LongJobs.instance;
 
   /// A test's own pace; otherwise the reader's (Settings > Download speed).
   final Duration? _testPace;
