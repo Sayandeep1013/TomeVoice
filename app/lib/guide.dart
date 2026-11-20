@@ -320,6 +320,7 @@ const aiGuideCards = <GuideCard>[
       (Icons.visibility_off_outlined, 'Spoiler guard, on a book\'s Memory: the AI keeps to what you have read. It is off until you turn it on.'),
       (Icons.block_rounded, "Keep this book away from the AI, in the Memory's menu: nothing of it is sent."),
       (Icons.link_rounded, 'A sequel can carry on from the book before it, so its people come along.'),
+      (Icons.flag_outlined, 'Report any answer from Talk; AI > What was sent lists every call made with your keys.'),
     ],
   ),
 ];
