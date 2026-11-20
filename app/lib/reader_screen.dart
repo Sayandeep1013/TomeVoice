@@ -1404,7 +1404,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       final answers = await runInterview(
         context,
         questions: journalQuestionsOf(_prefs),
-        chapter: done.number,
+        chapter: done.number ?? done.chapter + 1,
         say: _sayOnly,
         hush: () => unawaited(_svc.stopPlayback()),
         language: _reader.language,
