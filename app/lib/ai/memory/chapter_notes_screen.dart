@@ -234,8 +234,16 @@ class _ChapterNotesScreenState extends State<ChapterNotesScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title,
-                        style: Skin.ui(size: 14, weight: FontWeight.w600, color: Skin.accentInkOf(context))),
+                    Text.rich(
+                      TextSpan(children: [
+                        // Its number, which a search by number finds: a book's own
+                        // titles ("CHAPTER IX.") often count otherwise.
+                        if (title != 'Chapter ${c.ch + 1}')
+                          TextSpan(text: '${c.ch + 1}  ·  ', style: Skin.meta(context, size: 12)),
+                        TextSpan(text: title),
+                      ]),
+                      style: Skin.ui(size: 14, weight: FontWeight.w600, color: Skin.accentInkOf(context)),
+                    ),
                     const SizedBox(height: Gap.xs),
                     Text(
                       body,

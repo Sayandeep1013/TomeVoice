@@ -549,7 +549,8 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                       icon: const Icon(Icons.timeline_rounded, size: 18),
                       label: const Text('Threads'),
                     ),
-                  if (s.exists && s.noted > 0)
+                  // Passed-over chapters too: seen there, and read again one by one.
+                  if (s.exists && (s.noted > 0 || s.skipped > 0))
                     OutlinedButton.icon(
                       onPressed: () => unawaited(_openChapters()),
                       icon: const Icon(Icons.format_list_bulleted_rounded, size: 18),
