@@ -260,7 +260,7 @@ class _ChatScreenState extends State<ChatScreen> {
       await d.stop();
       return;
     }
-    if (!await tellOfDictation(context) || !mounted) return;
+    if (!await tellOfDictation(context, into: 'as your question') || !mounted) return;
     _hush();
     await d.start();
     if (mounted) setState(() {});

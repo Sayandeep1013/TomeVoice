@@ -5,8 +5,6 @@
 // sentence (which made an old phone crawl), and is not taken for the end of
 // the chapter (which left the media card on Playing).
 
-import 'dart:typed_data';
-
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_audio/tomevoice_audio.dart';
