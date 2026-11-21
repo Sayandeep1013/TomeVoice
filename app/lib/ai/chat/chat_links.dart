@@ -15,7 +15,13 @@ import 'chat_tools.dart';
 /// first.
 Future<List<LibraryEntry>> chatableBooks({MemoryService? service}) async {
   final s = service ?? MemoryService.instance;
-  final books = [for (final b in await s.booksWithMemory()) if (s.maySend(b.id)) b];
+  final all = await s.booksWithMemory();
+  // Each read first: a book kept away from the AI says so only once its
+  // memory has been read.
+  for (final b in all) {
+    await s.refresh(b.id);
+  }
+  final books = [for (final b in all) if (s.maySend(b.id)) b];
   books.sort((a, b) => (b.openedAt ?? b.addedAt).compareTo(a.openedAt ?? a.addedAt));
   return books;
 }

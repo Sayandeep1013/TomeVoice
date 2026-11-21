@@ -3,6 +3,13 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## 2.4.2 (2026-11-21)
+
+Book memories show again.
+
+- **Fixed:** after opening AI chat, a book's memory could show as "Not built yet" (in Book memories and on the book's page) until the app was restarted. Nothing was lost: the memory was all there, just not read. Each memory is now read the first time anything asks about it, and read again if it was busy.
+- AI chat now reads each book's memory before choosing which books it may use, so a book kept away from the AI is never included, even straight after opening the app.
+
 ## 2.4.1 (2026-11-21)
 
 Deleting a chat takes only what that chat made.
