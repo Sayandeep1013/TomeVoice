@@ -498,7 +498,13 @@ class MemoryService {
   }
 
   /// Book [id]'s memory, kept up to date while it is watched.
-  ValueListenable<BookMemoryState> stateOf(String id) {
+  ValueListenable<BookMemoryState> stateOf(String id) => _n(id);
+
+  /// Book [id]'s state, read from its memory the first time it is asked
+  /// for, whoever asks. (Asked first by AI chat's list of books, it was
+  /// made blank and never read: the Memory page then said "Not built yet"
+  /// over a whole memory, until the app was restarted.)
+  ValueNotifier<BookMemoryState> _n(String id) {
     final had = _states[id];
     if (had != null) return had;
     final n = _states[id] = ValueNotifier(const BookMemoryState());
@@ -506,18 +512,34 @@ class MemoryService {
     return n;
   }
 
-  ValueNotifier<BookMemoryState> _n(String id) => _states[id] ??= ValueNotifier(const BookMemoryState());
+  /// [path] read; busy a moment (the Builder writing a batch, a word index
+  /// being made), asked again a little later, rather than left unread.
+  /// Null if it could not be read, or the library closed meanwhile.
+  Future<_Read?> _readRetrying(String path, LibraryStore store) async {
+    for (var attempt = 0;; attempt++) {
+      try {
+        return await _readOff(path);
+      } on Object {
+        if (attempt >= 3 || _store != store) return null;
+        await Future<void>.delayed(Duration(seconds: 2 << attempt));
+      }
+    }
+  }
+
+  /// Book [id]'s state as it stands, made blank if none, without reading.
+  ValueNotifier<BookMemoryState> _blank(String id) => _states[id] ??= ValueNotifier(const BookMemoryState());
 
   Future<void> refresh(String id) async {
     final store = _store;
     if (store == null) return;
     final path = _path(id);
     if (!File(path).existsSync()) {
-      _n(id).value = _n(id).value.copyWith(exists: false, indexed: 0, noted: 0, entities: 0, bytes: 0);
+      _blank(id).value = _blank(id).value.copyWith(exists: false, indexed: 0, noted: 0, entities: 0, bytes: 0);
       return;
     }
-    final r = await _readOff(path);
-    final n = _n(id);
+    final r = await _readRetrying(path, store);
+    if (r == null) return;
+    final n = _blank(id);
     n.value = n.value.copyWith(
       exists: true,
       indexed: r.indexed,

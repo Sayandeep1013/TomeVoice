@@ -677,6 +677,18 @@ void main() {
 
       await service.build(id);
       expect(service.stateOf(id).value.noted, 3);
+      // The app opened again, and AI chat asks first whether the book may
+      // go to the AI: the memory is read all the same, not left blank (the
+      // Memory page said "Not built yet" over a whole memory).
+      service
+        ..reset()
+        ..attach(store, router: AiRouter(pause: Duration.zero));
+      expect(service.maySend(id), isTrue);
+      for (var i = 0; i < 200 && service.stateOf(id).value.noted == 0; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(service.stateOf(id).value.noted, 3);
+      expect(service.stateOf(id).value.exists, isTrue);
       final calls = sent.length;
       await store.saveChapterAt(id, 'c3', '<p>Mira reached the river.</p>');
       await store.saveChapterAt(id, 'c4', '<p>Mira crossed it.</p>');
