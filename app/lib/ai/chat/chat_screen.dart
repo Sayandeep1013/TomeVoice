@@ -729,7 +729,7 @@ Future<bool> confirmChatDelete(BuildContext context, Chat chat, ChatStore store)
   ];
   final stays = chat.books.length == 1
       ? " Your own journal pages and the book's memory stay as they were."
-      : ' Your journal and the books' memories stay as they were.';
+      : " Your journal and the books' memories stay as they were.";
   return confirm(context,
       title: 'Delete this chat completely?',
       body: gone.isEmpty
