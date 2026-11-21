@@ -252,6 +252,10 @@ class ChatStore {
   final _chats = <String, Chat>{};
   List<ReaderNote> _notes = const [];
 
+  /// Chats deleted completely: never saved again, even by an answer, a
+  /// summary or a note still on its way when they went.
+  final _wiped = <String>{};
+
   /// Every chat, the pinned first, then the latest.
   List<Chat> get all => _chats.values.toList()
     ..sort((a, b) => a.pinned != b.pinned ? (a.pinned ? -1 : 1) : b.updated.compareTo(a.updated));
@@ -260,11 +264,18 @@ class ChatStore {
 
   List<ReaderNote> get notes => _notes;
 
+  /// Whether chat [id] was deleted completely.
+  bool wiped(String id) => _wiped.contains(id);
+
+  /// The notes the AI kept from chat [id].
+  List<ReaderNote> notesFrom(String id) => [for (final n in _notes) if (n.chatId == id) n];
+
   @visibleForTesting
   void reset() {
     _dir = null;
     _chats.clear();
     _notes = const [];
+    _wiped.clear();
     changes.value++;
   }
 
@@ -308,9 +319,14 @@ class ChatStore {
 
   /// Keep [chat] (new, or changed).
   Future<void> put(Chat chat) async {
+    if (_wiped.contains(chat.id)) return;
     chat.updated = DateTime.now().toUtc();
     _chats[chat.id] = chat;
     changes.value++;
+    await _write(chat);
+  }
+
+  Future<void> _write(Chat chat) async {
     final dir = _dir;
     if (dir == null || RestoreGate.shut) return;
     try {
@@ -334,10 +350,33 @@ class ChatStore {
     }
   }
 
+  /// Chat [id] gone, and all it left here: the notes kept from it, and
+  /// the places other chats cite from it. Nothing saves it again.
+  Future<void> wipe(String id) async {
+    _wiped.add(id);
+    await remove(id);
+    if (_notes.any((n) => n.chatId == id)) {
+      _notes = [for (final n in _notes) if (n.chatId != id) n];
+      await _saveNotes();
+    }
+    for (final c in _chats.values) {
+      var changed = false;
+      for (final m in c.messages) {
+        if (m.sources.values.any((s) => s.chatId == id)) {
+          m.sources = {for (final e in m.sources.entries) if (e.value.chatId != id) e.key: e.value};
+          changed = true;
+        }
+      }
+      // Saved as it was otherwise: not moved up the list.
+      if (changed) await _write(c);
+    }
+    changes.value++;
+  }
+
   /// Keep a note about the reader; the same words twice are kept once.
   Future<ReaderNote?> remember(String text, {String? bookId, String? bookTitle, String? chatId}) async {
     final t = text.trim();
-    if (t.isEmpty) return null;
+    if (t.isEmpty || (chatId != null && _wiped.contains(chatId))) return null;
     final same = _notes.where((n) => n.text.toLowerCase() == t.toLowerCase()).firstOrNull;
     if (same != null) return same;
     final note = ReaderNote(

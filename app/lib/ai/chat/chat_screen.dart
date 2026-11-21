@@ -100,7 +100,7 @@ class _ChatScreenState extends State<ChatScreen> {
     // A chat with a few answers is summarised as it is left, to be found by
     // later chats ("like we said").
     final books = _books;
-    if (books != null && _chat.answers >= 2 && _chat.summary == null) {
+    if (books != null && _chat.answers >= 2 && _chat.summary == null && !_store.wiped(_chat.id)) {
       unawaited(_engine(books).summariseOnLeave());
     }
     super.dispose();
@@ -292,12 +292,10 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _delete() async {
-    final sure = await confirm(context,
-        title: 'Delete this chat?',
-        body: 'It goes from AI chat. What was kept of it in a journal stays there.',
-        action: 'Delete');
-    if (!sure || !mounted) return;
-    await _store.remove(_chat.id);
+    if (!await confirmChatDelete(context, _chat, _store) || !mounted) return;
+    _busy?.stopped = true;
+    _hush();
+    await deleteChatCompletely(_chat, store: _store);
     if (mounted) Navigator.of(context).maybePop();
   }
 
@@ -707,3 +705,23 @@ class _ScopeSheetState extends State<ScopeSheet> {
         ),
       );
 }
+
+/// Asks before chat [chat] is deleted completely, saying all that goes.
+Future<bool> confirmChatDelete(BuildContext context, Chat chat, ChatStore store) {
+  final notes = store.notesFrom(chat.id).length;
+  final gone = [
+    if (chat.books.length == 1) 'its page in the journal',
+    if (notes > 0) notes == 1 ? 'the note the AI kept from it' : 'the $notes notes the AI kept from it',
+    if (chat.books.length == 1) "its questions in the book's memory",
+    if (chat.summary != null) 'its summary, which later chats could look back at',
+  ];
+  return confirm(context,
+      title: 'Delete this chat completely?',
+      body: gone.isEmpty
+          ? 'It goes from the app, and nothing of it is kept. This cannot be undone.'
+          : 'It goes from the app, and so does ${_listed(gone)}. Nothing of it is kept. This cannot be undone.',
+      action: 'Delete');
+}
+
+String _listed(List<String> items) =>
+    items.length == 1 ? items.first : '${items.sublist(0, items.length - 1).join(', ')} and ${items.last}';

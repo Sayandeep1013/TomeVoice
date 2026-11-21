@@ -228,9 +228,12 @@ final _covers = <String, Future<Uint8List?>>{};
 /// The catalogues: the free libraries, the ones that need an account, and
 /// the reader's own. Each opens to browse, search and add books.
 class CataloguesScreen extends StatefulWidget {
-  const CataloguesScreen({super.key, required this.store});
+  const CataloguesScreen({super.key, required this.store, this.embedded = false});
 
   final LibraryStore store;
+
+  /// Shown as a tab of Browse: only the list, under Browse's own top bar.
+  final bool embedded;
 
   @override
   State<CataloguesScreen> createState() => _CataloguesScreenState();
@@ -316,17 +319,7 @@ class _CataloguesScreenState extends State<CataloguesScreen> {
   Widget build(BuildContext context) {
     final all = _all;
     final own = [for (final c in all ?? const <Catalogue>[]) if (!c.preset) c];
-    return Scaffold(
-      body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
-        child: SafeArea(
-          bottom: false,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              ScreenTopBar(title: 'Catalogues', onBack: () => Navigator.of(context).maybePop()),
-              Expanded(
-                child: all == null
+    final Widget list = all == null
                     ? const Center(child: CircularProgressIndicator())
                     : ListView(
                         padding: EdgeInsets.fromLTRB(
@@ -387,8 +380,18 @@ class _CataloguesScreenState extends State<CataloguesScreen> {
                             label: const Text('Add a catalogue'),
                           ),
                         ],
-                      ),
-              ),
+                      );
+    if (widget.embedded) return list;
+    return Scaffold(
+      body: DecoratedBox(
+        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        child: SafeArea(
+          bottom: false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ScreenTopBar(title: 'Catalogues', onBack: () => Navigator.of(context).maybePop()),
+              Expanded(child: list),
             ],
           ),
         ),

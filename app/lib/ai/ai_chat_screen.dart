@@ -101,11 +101,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
   }
 
   Future<void> _delete(Chat c) async {
-    final sure = await confirm(context,
-        title: 'Delete this chat?',
-        body: 'It goes from AI chat. What was kept of it in a journal stays there.',
-        action: 'Delete');
-    if (sure) await _chats.remove(c.id);
+    if (await confirmChatDelete(context, c, _chats)) await deleteChatCompletely(c, store: _chats, journal: _journal);
   }
 
   String _about(Chat c) {

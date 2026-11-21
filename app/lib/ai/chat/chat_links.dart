@@ -1,8 +1,11 @@
+import 'dart:isolate';
+
 import '../../journal.dart';
 import '../../library_store.dart' show LibraryEntry;
 import '../../prefs.dart';
 import '../memory/memory_db.dart';
 import '../memory/memory_service.dart';
+import '../talk/answer_pack.dart' show forgetAsked;
 import '../talk/talk_engine.dart' show citeMarks, citeNumbers;
 import 'chat_store.dart';
 import 'chat_tools.dart';
@@ -62,9 +65,10 @@ String journalIdOf(Chat chat) => 'chat-${chat.id}';
 /// A chat about one book kept in that book's journal (as Talk's talks are),
 /// one entry a chat, brought up to date as it goes on; stamped where the
 /// reader was when it began. Off when Keep talks in the journal is.
-Future<void> keepChatInJournal(Chat chat, {JournalStore? journal, MemoryService? service}) async {
+Future<void> keepChatInJournal(Chat chat, {JournalStore? journal, MemoryService? service, ChatStore? store}) async {
   final j = journal ?? JournalStore.instance;
-  if (!(ListeningPrefs.loaded?.aiKeepTalks ?? true) || chat.books.length != 1) return;
+  final chats = store ?? ChatStore.instance;
+  if (!(ListeningPrefs.loaded?.aiKeepTalks ?? true) || chat.books.length != 1 || chats.wiped(chat.id)) return;
   final lines = [
     for (final m in chat.messages)
       if (m.error == null && !m.held && m.text.trim().isNotEmpty) TalkLine(mine: m.mine, text: m.mine ? m.text.trim() : journalText(m)),
@@ -77,7 +81,7 @@ Future<void> keepChatInJournal(Chat chat, {JournalStore? journal, MemoryService?
   final stamp = before?.stamp ?? await s.stampOf(bookId);
   if (stamp == null) return;
   final title = before?.bookTitle ?? (await chatableBooks(service: s)).where((b) => b.id == bookId).firstOrNull?.title;
-  if (title == null) return;
+  if (title == null || chats.wiped(chat.id)) return;
   await j.put(JournalEntry(
     id: id,
     bookId: bookId,
@@ -86,4 +90,27 @@ Future<void> keepChatInJournal(Chat chat, {JournalStore? journal, MemoryService?
     stamp: stamp,
     talk: lines,
   ));
+}
+
+/// Chat [chat] taken out of the app completely, as if it had never been
+/// had: the chat and its summary, its page in the journal, the notes the
+/// AI kept from it, its questions in the book's memory ("you asked this
+/// before"), and the places other chats cite from it.
+Future<void> deleteChatCompletely(Chat chat,
+    {ChatStore? store, JournalStore? journal, String Function(String bookId)? memoryOf}) async {
+  final chats = store ?? ChatStore.instance;
+  final j = journal ?? JournalStore.instance;
+  await chats.wipe(chat.id);
+  final id = journalIdOf(chat);
+  if (j.all.any((e) => e.id == id)) await j.remove(id);
+  // Only a chat about one book keeps its questions with the book.
+  final questions = [for (final m in chat.messages) if (m.mine && m.text.isNotEmpty) m.text];
+  if (chat.books.length == 1 && questions.isNotEmpty) {
+    final path = (memoryOf ?? MemoryService.instance.pathOf)(chat.books.first);
+    try {
+      await Isolate.run(() => forgetAsked(path, questions));
+    } on Object {
+      // The memory is not open to change now; its questions only remind.
+    }
+  }
 }

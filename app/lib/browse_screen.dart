@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'browser_check.dart';
+import 'catalogues_screen.dart';
 import 'library_store.dart';
 import 'novel_screen.dart';
 import 'plugin_options.dart';
@@ -16,7 +17,8 @@ import 'theme.dart';
 import 'ui.dart';
 
 /// Find web novels: search every installed source at once, or open one
-/// source to browse what is popular or new there.
+/// source to browse what is popular or new there. Its second tab is the
+/// ebook catalogues (OPDS); its Sources button, the sites installed.
 class BrowseScreen extends StatefulWidget {
   const BrowseScreen({super.key, required this.store, required this.sources});
 
@@ -43,6 +45,9 @@ class _BrowseScreenState extends State<BrowseScreen> {
   List<_Results> _results = const [];
   bool _onlyFound = false;
   int _searchRun = 0;
+
+  /// The ebook catalogues tab is showing, not the web novels.
+  bool _catalogues = false;
 
   /// The languages global search asks the sources of (as the lists name
   /// them); null until chosen: the phone's languages and the library's.
@@ -216,6 +221,15 @@ class _BrowseScreenState extends State<BrowseScreen> {
               ),
             ),
             Padding(
+              padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.m),
+              child: ChoiceRow<bool>(
+                options: const [(false, 'Web novels'), (true, 'Catalogues')],
+                value: _catalogues,
+                onChanged: (v) => setState(() => _catalogues = v),
+              ),
+            ),
+            if (_catalogues) Expanded(child: CataloguesScreen(store: widget.store, embedded: true)),
+            if (!_catalogues) Padding(
               padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
               child: TextField(
                 controller: _search,
@@ -239,7 +253,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
                 onSubmitted: _globalSearch,
               ),
             ),
-            Expanded(
+            if (!_catalogues) Expanded(
               child: _installed.isEmpty
                   ? Center(
                       child: SingleChildScrollView(

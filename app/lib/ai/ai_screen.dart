@@ -867,7 +867,8 @@ class _ProviderPicker extends StatelessWidget {
 }
 
 /// A likely model for [job] among [models]: Mercury's own; for Gemini a
-/// Flash-Lite to build, a Flash to talk, its embedding model to search.
+/// Flash-Lite to build, a Flash to talk, its embedding model to search; for
+/// 100milionseek a DeepSeek Flash to build.
 String? suggestModel(AiProvider provider, AiJob job, List<String> models) {
   if (models.isEmpty) return null;
   bool has(String m, List<String> words) => words.every(m.toLowerCase().contains);
@@ -892,6 +893,11 @@ String? suggestModel(AiProvider provider, AiJob job, List<String> models) {
               ?? best((m) => has(m, ['flash']) && chat(m))
           : best((m) => has(m, ['flash']) && !has(m, ['lite']) && chat(m) && !has(m, ['preview']))
               ?? best((m) => has(m, ['flash']) && chat(m));
+    case AiProvider.milionseek:
+      return job == AiJob.builder
+          ? best((m) => has(m, ['deepseek', 'flash']) && chat(m)) ?? best((m) => has(m, ['deepseek']) && chat(m))
+          : best((m) => has(m, ['deepseek']) && !has(m, ['flash']) && chat(m))
+              ?? best((m) => has(m, ['deepseek']) && chat(m));
     default:
       return null;
   }

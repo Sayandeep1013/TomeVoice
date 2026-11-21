@@ -194,6 +194,9 @@ void main() {
     expect(suggestModel(AiProvider.gemini, AiJob.talker, gemini), 'gemini-3.6-flash');
     expect(suggestModel(AiProvider.gemini, AiJob.embedder, gemini), 'gemini-embedding-001');
     expect(suggestModel(AiProvider.inception, AiJob.builder, ['mercury-coder', 'mercury-2', 'mercury-3']), 'mercury-3');
+    const seek = ['deepseek-v4.1-flash-free', 'deepseek-v4.1-free'];
+    expect(suggestModel(AiProvider.milionseek, AiJob.builder, seek), 'deepseek-v4.1-flash-free');
+    expect(suggestModel(AiProvider.milionseek, AiJob.talker, seek), 'deepseek-v4.1-free');
     expect(suggestModel(AiProvider.openrouter, AiJob.talker, ['a/b']), isNull);
   });
 

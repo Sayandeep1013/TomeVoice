@@ -276,7 +276,7 @@ class ChatEngine {
       reply.error = 'The AI sent back no answer. Ask again, or try another model.';
     }
     // Asked about one book: kept with its memory, for "you asked this before".
-    if (books.length == 1 && !p.stopped) {
+    if (books.length == 1 && !p.stopped && !store.wiped(chat.id)) {
       final b = books.values.first;
       if (b.hasMemory && MemoryDb.existsAt(b.memoryPath)) {
         try {

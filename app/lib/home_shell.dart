@@ -17,7 +17,6 @@ import 'backup_flow.dart';
 import 'book_tint.dart';
 import 'brand.dart';
 import 'browse_screen.dart';
-import 'catalogues_screen.dart';
 import 'categories_screen.dart';
 import 'download_queue.dart';
 import 'error_log.dart';
@@ -47,7 +46,6 @@ import 'sync.dart';
 import 'sources/net.dart';
 import 'sources/source_engine.dart';
 import 'sources/source_store.dart';
-import 'sources_screen.dart';
 import 'speech_service.dart';
 import 'starter.dart';
 import 'updates.dart';
@@ -603,21 +601,11 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
                   selected: _place == _Place.history, onTap: () => _go(_Place.history)),
               _item(context, Icons.bookmarks_outlined, Icons.bookmarks_rounded, 'Saved',
                   onTap: () => _push((s) => SavedScreen(store: s))),
-              _item(context, Icons.insights_outlined, Icons.insights_rounded, 'Stats',
-                  onTap: () => _push((s) => StatsScreen(store: s))),
               _heading(context, 'Find books'),
               _item(context, Icons.travel_explore_rounded, Icons.travel_explore_rounded, 'Browse',
                     selected: _place == _Place.browse, onTap: () => _go(_Place.browse)),
               _item(context, Icons.new_releases_outlined, Icons.new_releases_rounded, 'Updates',
                     selected: _place == _Place.updates, onTap: () => _go(_Place.updates)),
-              // Ebook libraries (OPDS): Project Gutenberg, Standard Ebooks, Calibre.
-              _item(context, Icons.local_library_outlined, Icons.local_library_rounded, 'Catalogues',
-                  onTap: () => _push((s) => CataloguesScreen(store: s))),
-              _item(context, Icons.extension_outlined, Icons.extension_rounded, 'Sources',
-                    onTap: () {
-                      final sources = _sources;
-                      if (sources != null) _push((_) => SourcesScreen(store: sources));
-                    }),
               _heading(context, 'Thoughts and AI'),
               // The reading journal: what was thought, a page a book.
               _item(context, Icons.edit_note_outlined, Icons.edit_note_rounded, 'Journal',

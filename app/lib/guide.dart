@@ -63,7 +63,7 @@ const _cards = <GuideCard>[
     'EPUB, PDF, DjVu, Word, MOBI, FB2 and plain text, read aloud on your phone.',
     [
       (Icons.add_rounded, 'Add books, at the top of the library: books on this phone, or a link.'),
-      (Icons.local_library_outlined, 'Catalogues, in the menu: free classics to download.'),
+      (Icons.local_library_outlined, 'Browse > Catalogues, in the menu: free classics to download.'),
       if (playBuild)
         (Icons.travel_explore_rounded, 'Browse, in the menu: web novels, from the source lists you add.')
       else
@@ -271,7 +271,7 @@ const aiGuideCards = <GuideCard>[
     'Your own AI',
     'TomeVoice talks to an AI with your own key, straight from this phone. There is no TomeVoice server.',
     [
-      (Icons.add_rounded, 'Add a key in AI settings, the gear in AI chat: Google Gemini, OpenRouter, Groq, Inception, OpenAI, AgentRouter or any service like them. Free tiers work.'),
+      (Icons.add_rounded, 'Add a key in AI settings, the gear in AI chat: Google Gemini, OpenRouter, Groq, Inception, OpenAI, AgentRouter, 100milionseek or any service like them. Free tiers work.'),
       (Icons.sync_rounded, 'Add as many keys as you like. When one has used its quota it rests, and the next takes over.'),
       (Icons.lock_outline_rounded, 'Nothing of a book is sent until you add a key, and never a book on a secret shelf.'),
     ],

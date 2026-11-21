@@ -21,6 +21,7 @@ import 'package:tomevoice_spike/ai/chat/chat_tools.dart';
 import 'package:tomevoice_spike/ai/memory/chapter_notes.dart';
 import 'package:tomevoice_spike/ai/memory/graph.dart';
 import 'package:tomevoice_spike/ai/memory/memory_db.dart';
+import 'package:tomevoice_spike/ai/talk/answer_pack.dart' show noteAsked;
 import 'package:tomevoice_spike/journal.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/prefs.dart';
@@ -142,6 +143,56 @@ void main() {
 
     await store.remove(c.id);
     expect(File('${tmp.path}/chats/${c.id}.json').existsSync(), isFalse);
+  });
+
+  test('a chat deleted completely: its file, journal page, notes, asked questions and citations all go', () async {
+    final store = ChatStore.instance;
+    await store.attach(tmp);
+    final path = _memory(tmp);
+    final c = store.start(['b1'])
+      ..messages.addAll([
+        ChatMessage(mine: true, text: 'Is Cassie lying to Sunny?'),
+        ChatMessage(mine: false, text: 'Not so far [S1].'),
+      ])
+      ..summary = 'They wondered about Cassie.';
+    await store.put(c);
+    final other = store.start(const [])
+      ..messages.add(ChatMessage(mine: false, text: 'As you said before [S1] [S2].', sources: {
+        1: ChatSource(n: 1, label: 'Earlier chat', chatId: c.id),
+        2: const ChatSource(n: 2, label: 'ch 2', bookId: 'b1', chapter: 1, section: 1),
+      }));
+    await store.put(other);
+    final otherUpdated = store.byId(other.id)!.updated;
+    await store.remember('Distrusts Cassie', chatId: c.id);
+    await store.remember('Likes short answers');
+    noteAsked(path, 'Is Cassie lying to Sunny?', 2);
+    noteAsked(path, 'Who is the Weaver?', 1);
+    await JournalStore.instance.put(_thought('b1', 'Shadow Slave', 1, 'kept', id: journalIdOf(c)));
+    await JournalStore.instance.put(_thought('b1', 'Shadow Slave', 1, 'mine', id: 'own'));
+
+    await deleteChatCompletely(c, store: store, memoryOf: (_) => path);
+
+    expect(store.byId(c.id), isNull);
+    expect(File('${tmp.path}/chats/${c.id}.json').existsSync(), isFalse);
+    expect(store.notes.map((n) => n.text), ['Likes short answers']);
+    expect(JournalStore.instance.all.map((e) => e.id), ['own']);
+    final m = MemoryDb.open(path);
+    try {
+      expect(m.db.select('SELECT question FROM asked').map((r) => r['question']), ['Who is the Weaver?']);
+    } finally {
+      m.close();
+    }
+    // The other chat no longer cites it, and keeps its place in the list.
+    expect(store.byId(other.id)!.messages.single.sources.keys, [2]);
+    expect(store.byId(other.id)!.updated, otherUpdated);
+    // Nothing saves it again: a late answer, summary or note.
+    await store.put(c);
+    expect(await store.remember('Late note', chatId: c.id), isNull);
+    expect(store.byId(c.id), isNull);
+    store.reset();
+    await store.attach(tmp);
+    expect(store.byId(c.id), isNull);
+    expect(store.byId(other.id)!.messages.single.sources.keys, [2]);
   });
 
   test("the new tools: the cast, the graph's ties, chapter stretches, all kept to the line", () {
