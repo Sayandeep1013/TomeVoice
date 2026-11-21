@@ -287,6 +287,13 @@ void main() {
     // No relative on the phone: its own language, not English.
     expect(catalog.bestFor('sv')!.language, 'hi');
     expect(catalog.bestFor('pl')!.language, 'hi');
+    // A Bengali book with no Bengali voice: none, not a Hindi or English
+    // voice that cannot read its letters (it says nothing, or stalls).
+    expect(catalog.bestFor('bn'), isNull);
+    catalog.phoneLanguage = 'en';
+    expect(catalog.bestFor('bn'), isNull);
+    expect(catalog.bestFor('mr')!.language, 'hi');
+    catalog.phoneLanguage = 'hi';
     expect(languageName('be'), 'Belarusian');
 
     // A voice of its own wins.

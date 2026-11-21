@@ -113,6 +113,7 @@ class PlaybackScheduler {
     this.fallbackVoiceOf,
     this.speakers,
     this.narration,
+    this.noVoice,
   });
 
   final SpeechService service;
@@ -157,6 +158,12 @@ class PlaybackScheduler {
   /// recording is what it is), one it leaves out among lines it reads is
   /// passed over, and the rest is read by the voice.
   final BookNarration? narration;
+
+  /// Why there is no voice to read this book with ("No Bengali voice…"),
+  /// or null: asked before reading starts, so the phone's engine is not
+  /// handed text in letters none of its voices can read (Samsung's crashed
+  /// on Bengali, again for every sentence, and the phone crawled).
+  final String? Function()? noVoice;
 
   /// The voice for the words in quotation marks in unit [i]: the one the
   /// book's cast gives whoever says them (the narrator's, for a character
@@ -308,6 +315,12 @@ class PlaybackScheduler {
     error.value = null;
     _levelDb = null;
     _restarted = false;
+    final missing = noVoice?.call();
+    if (missing != null) {
+      error.value = missing;
+      state.value = PlayState.idle;
+      return;
+    }
     state.value = PlayState.loading;
     // The phone's audio first: during a call the answer is "later", and the
     // sentence is made meanwhile and waits, paused, for the call to end
@@ -619,6 +632,23 @@ class PlaybackScheduler {
   /// [e] is an online voice out of reach (see [_offline]).
   static bool offline(PlatformException e) => _offline(e);
 
+  /// What to tell the reader when the speech engine failed for good, by
+  /// Android's error code; null for an error one sentence may have alone.
+  static String? engineHint(PlatformException e) {
+    if (e.code != 'TTS_ERROR') return null;
+    final code = RegExp(r'code (-?\d+)').firstMatch(e.message ?? '')?.group(1);
+    return switch (code) {
+      '-4' => "The phone's speech engine stopped working on this book (Android error -4). It may have no voice "
+          "for the book's language: choose another voice, or another speech engine, under Voice.",
+      '-9' => "This voice is not downloaded yet. Download it in the phone's speech settings, or choose another "
+          'voice under Voice.',
+      _ => null,
+    };
+  }
+
+  static const timeoutHint = 'The voice did not answer. It may not be installed for this language: choose '
+      "another voice, or download the language's voice in the phone's speech settings.";
+
   static const offlineHint = 'The voice needs the internet and could not reach it. Try again, or pick a voice '
       "that works offline (or download this language's voice in the phone's speech settings).";
 
@@ -763,6 +793,20 @@ class PlaybackScheduler {
         if (e.code == 'EMPTY_TEXT') {
           _next = i + 1;
           continue;
+        }
+        // No answer from the voice in 30 s: asked again, it is 30 s more of
+        // silence each time (a voice the engine lists but cannot speak, as
+        // a Bengali voice never downloaded). Reading stops at once, saying so.
+        if (e.code == 'TTS_TIMEOUT') {
+          error.value = timeoutHint;
+          break;
+        }
+        // The engine itself failed (its service crashed: Android's -4), or
+        // the voice is not downloaded (-9): every sentence would fail the
+        // same way, each time restarting the engine. Stopped at once.
+        if (engineHint(e) case final hint?) {
+          error.value = hint;
+          break;
         }
         // An online voice out of reach: the same sentence again, after a
         // breath, twice, before it counts.
@@ -959,7 +1003,10 @@ class PlaybackScheduler {
   Future<void> _finish(int gen) async {
     if (gen != _gen) return;
     _stopTicker();
-    _reachedEnd = true;
+    // Only a reading that got to the end reached it: one ended by an error
+    // (a voice that would not speak) is not read on into the next chapter,
+    // which left the media card saying Playing over a stopped reader.
+    _reachedEnd = error.value == null;
     state.value = PlayState.idle;
     word.value = WordMark.none;
     level.value = 0;

@@ -212,10 +212,17 @@ class ReadAloudService : MediaBrowserService() {
                 return
             }
             val intent = Intent(ctx, ReadAloudService::class.java)
-            if (Build.VERSION.SDK_INT >= 26) {
-                ctx.startForegroundService(intent)
-            } else {
-                ctx.startService(intent)
+            try {
+                if (Build.VERSION.SDK_INT >= 26) {
+                    ctx.startForegroundService(intent)
+                } else {
+                    ctx.startService(intent)
+                }
+            } catch (e: Exception) {
+                // Android 12+ will not start it from the background
+                // (ForegroundServiceStartNotAllowedException): the card
+                // comes back with the next change made in front, and the
+                // call does not fail, leaving the card behind the app.
             }
         }
 
@@ -225,6 +232,14 @@ class ReadAloudService : MediaBrowserService() {
             instance?.let {
                 it.keepAwake(false)
                 it.publishState()
+                // The card's own buttons too: before Android 13 they are
+                // the notification's, and it went on showing Pause over a
+                // reading that had ended.
+                try {
+                    it.refresh()
+                } catch (e: Exception) {
+                    // Notifications off: nothing to show it on.
+                }
             }
             Widgets.refreshAll(ctx)
             main.removeCallbacks(afterEnd)

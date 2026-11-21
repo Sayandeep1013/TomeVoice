@@ -1479,6 +1479,9 @@ class _VoicePickerState extends State<_VoicePicker> {
   late String _language = widget.controller.language;
   String? _previewing;
 
+  /// Another speech engine with a voice for [_language], asked once.
+  Future<({String id, String label})?>? _otherEngine;
+
   /// Words typed to find a language or a voice, lower case.
   String _query = '';
   final _find = TextEditingController();
@@ -1592,7 +1595,10 @@ class _VoicePickerState extends State<_VoicePicker> {
                   _LanguagePill(
                     label: languageName(l),
                     selected: l == _language,
-                    onTap: () => setState(() => _language = l),
+                    onTap: () => setState(() {
+                      _language = l;
+                      _otherEngine = null;
+                    }),
                   ),
                   const SizedBox(width: Gap.s),
                 ],
@@ -1847,16 +1853,38 @@ class _VoicePickerState extends State<_VoicePicker> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('No ${languageName(_language)} voice on this phone yet.',
+            Text('No ${languageName(_language)} voice in this speech engine.',
                 style: Skin.ui(size: 16, weight: FontWeight.w600, color: Skin.inkOn(context))),
-            const SizedBox(height: Gap.xs),
+            // Another engine on the phone with one (Google's, beside
+            // Samsung's): a tap away.
+            FutureBuilder<({String id, String label})?>(
+              future: _otherEngine ??= _catalog.otherEngineFor(_language),
+              builder: (context, snap) {
+                final other = snap.data;
+                if (other == null) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(top: Gap.m),
+                  child: FilledButton(
+                    onPressed: () async {
+                      _prefs.engineId = other.id;
+                      _prefs.save();
+                      await _catalog.switchEngine(other.id);
+                      widget.controller.onChanged(restart: true);
+                      if (mounted) setState(() => _otherEngine = null);
+                    },
+                    child: Text('Use ${other.label}, which has one'),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: Gap.m),
             Text(
-              'Install one in the speech settings (Speech Services by Google, then Install voice data), '
+              'Or install one in the speech settings (Speech Services by Google, then Install voice data), '
               'then come back.',
               style: Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkSoftOn(context)),
             ),
             const SizedBox(height: Gap.l),
-            FilledButton(
+            OutlinedButton(
               onPressed: () => const SpeechService().openTtsSettings(),
               child: const Text('Open speech settings'),
             ),

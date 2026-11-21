@@ -13,6 +13,7 @@ import '../../reader_screen.dart' show openBook;
 import '../../speech_service.dart';
 import '../../theme.dart';
 import '../../ui.dart';
+import '../../voices.dart';
 import '../ai_consent.dart';
 import '../ai_report.dart';
 import '../ai_router.dart';
@@ -192,30 +193,41 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   // The voice: the first book's own, or the usual one of its language.
-  String? get _voice {
+  /// The voice an answer is read in: the book's own, when it speaks the
+  /// answer's language; else that language's usual voice; else the best
+  /// one on the phone for it (as a book with no voice chosen reads).
+  Future<String?> _voiceFor(String text) async {
+    final catalog = VoiceCatalog.instance;
+    await catalog.ensureLoaded();
+    final language = answerLanguage(text);
     final books = _books;
     final first = books == null || books.isEmpty ? null : books.values.first.id;
-    final own = first == null ? null : _prefs.voiceByBook[first];
-    return own ?? _prefs.voiceByLanguage['en'] ?? (_prefs.voiceByLanguage.values.firstOrNull);
+    final own = catalog.byName(first == null ? null : _prefs.voiceByBook[first]);
+    if (own != null && own.language == language) return own.name;
+    final usual = catalog.byName(_prefs.voiceByLanguage[language]);
+    if (usual != null && usual.language == language) return usual.name;
+    return catalog.bestFor(language)?.name;
   }
 
   void _say(String text) {
-    final voice = _voice;
-    if (voice == null) {
-      showSnack(context, 'Pick a voice for a book first: answers are read in it.');
-      return;
-    }
     final me = ++_saying;
     setState(() => _sayingText = text);
     unawaited(() async {
       try {
+        final voice = await _voiceFor(text);
+        if (voice == null) {
+          if (mounted && me == _saying) {
+            showSnack(context, 'No voice on this phone reads this. Get one in the speech settings.');
+          }
+          return;
+        }
         for (final piece in spokenPieces(spokenAnswer(text))) {
           if (me != _saying || !mounted) break;
           await speakSample(
             voiceName: voice,
             text: piece,
             settings: _prefs.settingsFor(voice, book: _books?.values.firstOrNull?.id),
-            engineId: _prefs.engineId,
+            engineId: _prefs.engineId ?? VoiceCatalog.instance.engineId,
           );
         }
       } on Object {
@@ -725,3 +737,41 @@ Future<bool> confirmChatDelete(BuildContext context, Chat chat, ChatStore store)
 
 String _listed(List<String> items) =>
     items.length == 1 ? items.first : '${items.sublist(0, items.length - 1).join(', ')} and ${items.last}';
+
+/// The language an answer is written in, by its letters: Bengali, Hindi
+/// and the others with scripts of their own; else English.
+String answerLanguage(String text) {
+  const scripts = <(int, int, String)>[
+    (0x0980, 0x09FF, 'bn'),
+    (0x0900, 0x097F, 'hi'),
+    (0x0A80, 0x0AFF, 'gu'),
+    (0x0A00, 0x0A7F, 'pa'),
+    (0x0B80, 0x0BFF, 'ta'),
+    (0x0C00, 0x0C7F, 'te'),
+    (0x0C80, 0x0CFF, 'kn'),
+    (0x0D00, 0x0D7F, 'ml'),
+    (0x0600, 0x06FF, 'ar'),
+    (0x0400, 0x04FF, 'ru'),
+    (0x0E00, 0x0E7F, 'th'),
+    (0x3040, 0x30FF, 'ja'),
+    (0xAC00, 0xD7AF, 'ko'),
+    (0x4E00, 0x9FFF, 'zh'),
+  ];
+  final counts = <String, int>{};
+  var latin = 0;
+  for (final r in text.runes) {
+    if ((r >= 0x41 && r <= 0x5A) || (r >= 0x61 && r <= 0x7A)) {
+      latin++;
+      continue;
+    }
+    for (final (lo, hi, l) in scripts) {
+      if (r >= lo && r <= hi) {
+        counts[l] = (counts[l] ?? 0) + 1;
+        break;
+      }
+    }
+  }
+  if (counts.isEmpty) return 'en';
+  final top = counts.entries.reduce((a, b) => a.value >= b.value ? a : b);
+  return top.value > latin ? top.key : 'en';
+}

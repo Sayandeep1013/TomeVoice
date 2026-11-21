@@ -416,7 +416,7 @@ class MemoryService {
       return;
     }
     _keptAt[id] = DateTime.now();
-    await build(id, hint: false);
+    await build(id, hint: false, stayAlive: false);
   }
 
   @visibleForTesting
@@ -598,7 +598,12 @@ class MemoryService {
   /// paused, or every key rests (and then again when one wakes). Kept going
   /// in the background meanwhile ([keepAlive]); [hint]: the reader asked
   /// for it, and may be told once that battery saving can stop it.
-  Future<void> build(String id, {bool hint = true}) async {
+  ///
+  /// [stayAlive] false: no keep-alive of its own (a few new chapters noted
+  /// as the reader reads on, every minute and a half: starting a foreground
+  /// service each time, with its notification and wake lock, made an old
+  /// phone stutter while it read aloud).
+  Future<void> build(String id, {bool hint = true, bool stayAlive = true}) async {
     if (!maySend(id) || !AiRing.instance.hasKeys) return;
     _wakes.remove(id)?.cancel();
     _held.remove(id);
@@ -622,6 +627,10 @@ class MemoryService {
       onHold: () => _hold(id),
       onGoOn: () => _goOn(id),
     );
+    if (!stayAlive) {
+      await _build(id);
+      return;
+    }
     keepAlive.begin(job, hint: hint);
     try {
       await _build(id);
