@@ -145,7 +145,7 @@ void main() {
     expect(File('${tmp.path}/chats/${c.id}.json').existsSync(), isFalse);
   });
 
-  test('a chat deleted completely: its file, journal page, notes, asked questions and citations all go', () async {
+  test("a chat deleted completely: its file, its copy in the journal, its notes, its asked questions and citations go; the reader's own pages and questions asked elsewhere stay", () async {
     final store = ChatStore.instance;
     await store.attach(tmp);
     final path = _memory(tmp);
@@ -167,6 +167,13 @@ void main() {
     await store.remember('Likes short answers');
     noteAsked(path, 'Is Cassie lying to Sunny?', 2);
     noteAsked(path, 'Who is the Weaver?', 1);
+    // The same words asked in Talk a while ago: not the chat's, so they stay.
+    final talk = MemoryDb.open(path);
+    try {
+      talk.db.execute("INSERT INTO asked(ch, question, at) VALUES (1, 'Is Cassie lying to Sunny?', '2026-01-02T10:00:00.000Z')");
+    } finally {
+      talk.close();
+    }
     await JournalStore.instance.put(_thought('b1', 'Shadow Slave', 1, 'kept', id: journalIdOf(c)));
     await JournalStore.instance.put(_thought('b1', 'Shadow Slave', 1, 'mine', id: 'own'));
 
@@ -178,7 +185,10 @@ void main() {
     expect(JournalStore.instance.all.map((e) => e.id), ['own']);
     final m = MemoryDb.open(path);
     try {
-      expect(m.db.select('SELECT question FROM asked').map((r) => r['question']), ['Who is the Weaver?']);
+      expect(m.db.select('SELECT question, at FROM asked ORDER BY id').map((r) => '${r['question']} ${r['at']}'), [
+        startsWith('Who is the Weaver? '),
+        'Is Cassie lying to Sunny? 2026-01-02T10:00:00.000Z',
+      ]);
     } finally {
       m.close();
     }

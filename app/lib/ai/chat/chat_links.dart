@@ -93,9 +93,12 @@ Future<void> keepChatInJournal(Chat chat, {JournalStore? journal, MemoryService?
 }
 
 /// Chat [chat] taken out of the app completely, as if it had never been
-/// had: the chat and its summary, its page in the journal, the notes the
-/// AI kept from it, its questions in the book's memory ("you asked this
-/// before"), and the places other chats cite from it.
+/// had: the chat and its summary, the copy of it kept in the journal (its
+/// own entry, `chat-<id>`: the reader's own pages, which it may have read,
+/// stay as they are), the notes the AI kept from it, the questions asked in
+/// it that the book's memory kept ("you asked this before"), and the
+/// places other chats cite from it. A chat changes nothing else: it reads
+/// the memory and the journal, and writes only these.
 Future<void> deleteChatCompletely(Chat chat,
     {ChatStore? store, JournalStore? journal, String Function(String bookId)? memoryOf}) async {
   final chats = store ?? ChatStore.instance;
@@ -104,11 +107,18 @@ Future<void> deleteChatCompletely(Chat chat,
   final id = journalIdOf(chat);
   if (j.all.any((e) => e.id == id)) await j.remove(id);
   // Only a chat about one book keeps its questions with the book.
-  final questions = [for (final m in chat.messages) if (m.mine && m.text.isNotEmpty) m.text];
-  if (chat.books.length == 1 && questions.isNotEmpty) {
+  final asked = [for (final m in chat.messages) if (m.mine && m.text.isNotEmpty) m];
+  if (chat.books.length == 1 && asked.isNotEmpty) {
     final path = (memoryOf ?? MemoryService.instance.pathOf)(chat.books.first);
+    final questions = [for (final m in asked) m.text];
+    // Kept as each was answered: from the first asked to a while after the
+    // last answer (an answer can take minutes, with its lookups).
+    final from = asked.first.at.subtract(const Duration(minutes: 1));
+    final to = [chat.updated, ...chat.messages.map((m) => m.at)]
+        .reduce((a, b) => a.isAfter(b) ? a : b)
+        .add(const Duration(minutes: 15));
     try {
-      await Isolate.run(() => forgetAsked(path, questions));
+      await Isolate.run(() => forgetAsked(path, questions, from, to));
     } on Object {
       // The memory is not open to change now; its questions only remind.
     }

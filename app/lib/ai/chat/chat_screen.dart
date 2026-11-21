@@ -722,16 +722,19 @@ class _ScopeSheetState extends State<ScopeSheet> {
 Future<bool> confirmChatDelete(BuildContext context, Chat chat, ChatStore store) {
   final notes = store.notesFrom(chat.id).length;
   final gone = [
-    if (chat.books.length == 1) 'its page in the journal',
+    if (chat.books.length == 1) 'the copy of it in the journal',
     if (notes > 0) notes == 1 ? 'the note the AI kept from it' : 'the $notes notes the AI kept from it',
-    if (chat.books.length == 1) "its questions in the book's memory",
+    if (chat.books.length == 1) "the questions from it that the book's memory kept",
     if (chat.summary != null) 'its summary, which later chats could look back at',
   ];
+  final stays = chat.books.length == 1
+      ? " Your own journal pages and the book's memory stay as they were."
+      : " Your journal and the books' memories stay as they were.";
   return confirm(context,
       title: 'Delete this chat completely?',
       body: gone.isEmpty
-          ? 'It goes from the app, and nothing of it is kept. This cannot be undone.'
-          : 'It goes from the app, and so does ${_listed(gone)}. Nothing of it is kept. This cannot be undone.',
+          ? 'It goes from the app, and nothing of it is kept.$stays This cannot be undone.'
+          : 'It goes from the app, and so does ${_listed(gone)}.$stays This cannot be undone.',
       action: 'Delete');
 }
 

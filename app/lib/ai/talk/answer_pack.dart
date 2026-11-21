@@ -454,14 +454,20 @@ void noteAsked(String path, String question, int? ch) {
   }
 }
 
-/// The questions [questions] no longer kept in the memory at [path] (the
-/// chat they were asked in deleted completely).
-void forgetAsked(String path, List<String> questions) {
+/// The questions [questions], asked between [from] and [to], no longer
+/// kept in the memory at [path] (the chat they were asked in deleted
+/// completely). The same words asked elsewhere (in Talk, another chat, at
+/// another time) stay.
+void forgetAsked(String path, List<String> questions, DateTime from, DateTime to) {
   if (questions.isEmpty || !MemoryDb.existsAt(path)) return;
   final m = MemoryDb.open(path);
   try {
     for (final q in questions) {
-      m.db.execute('DELETE FROM asked WHERE question = ?', [q.length > 500 ? q.substring(0, 500) : q]);
+      m.db.execute('DELETE FROM asked WHERE question = ? AND at >= ? AND at <= ?', [
+        q.length > 500 ? q.substring(0, 500) : q,
+        from.toUtc().toIso8601String(),
+        to.toUtc().toIso8601String(),
+      ]);
     }
   } finally {
     m.close();
