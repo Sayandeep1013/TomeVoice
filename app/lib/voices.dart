@@ -258,6 +258,11 @@ class VoiceCatalog extends ChangeNotifier {
     if (has(language)) return language;
     final near = relatedLanguage[language];
     if (near != null && has(near)) return near;
+    // In the same letters (Marathi in a Hindi voice, both Devanagari).
+    if (ownLetters(language)) {
+      final same = voices.where((v) => _script(v.language) == _script(language)).firstOrNull;
+      if (same != null) return same.language;
+    }
     final own = (phoneLanguage ?? PlatformDispatcher.instance.locale.languageCode).toLowerCase();
     // Only a voice that can read its letters: not English for Bengali.
     return has(own) && readsLettersOf(own, language) ? own : language;

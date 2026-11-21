@@ -370,7 +370,7 @@ void main() {
       }
 
       await pick('bn');
-      expect(find.text('No Bengali voice on this phone yet.'), findsOneWidget);
+      expect(find.text('No Bengali voice in this speech engine.'), findsOneWidget);
       expect(find.textContaining('Natural voices for'), findsNothing);
 
       await pick('hi');

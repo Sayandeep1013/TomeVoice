@@ -21,6 +21,14 @@ AI chat: talk with the AI about one book, a few, or all of them, in conversation
 - In groups, each with a heading: Your books, Find books, Thoughts and AI, App.
 - **Catalogues** is a tab of **Browse**, and Sources the button at its top. **Stats** is a tab of **History**.
 
+#### Reading aloud: Bengali and older phones
+- **A book in Bengali (or Hindi, Arabic, or another language with letters of its own) on a phone with no voice for it** now says so ("No Bengali voice in this speech engine"), instead of handing the text to an English voice. On some phones that voice's engine crashed on every sentence ("Synthesis failed (code -4)") and the phone slowed right down.
+- When another speech engine on the phone has that language (Google's, beside Samsung's), the voice list offers it in one tap: **Use Speech Services by Google, which has one**.
+- If the speech engine fails outright, or a voice doesn't answer, reading **stops at once** with a line saying why and what to do, instead of retrying for minutes.
+- **The notification no longer says Playing when reading has stopped**: after an error in a web novel, and on Android 12 and older when reading ends.
+- Long jobs update their notification at most once a second, and the memory catching up as you read no longer starts a background service every minute and a half. Both were a load on older phones.
+- AI chat reads answers aloud in the voice the book uses, even when you never picked one, and in a Bengali voice when the answer is in Bengali.
+
 #### The AI's keys
 - **Add a key** no longer jumps about: the provider is chosen from a list, and the page is laid out like the rest of the app.
 - **100milionseek** is one of the providers to choose from: DeepSeek models, free for now, through a relay run by people not named on its site.
