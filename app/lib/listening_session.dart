@@ -82,6 +82,10 @@ PlaybackScheduler readingScheduler({
     pitchOf: (voice) => prefs().pitchOf(voice),
     quoteOpenAt: quoteOpenAt,
     fallbackVoiceOf: () => VoiceCatalog.instance.bestFor(language)?.name,
+    // A book in letters no voice here reads (Bengali, with Samsung's engine
+    // alone): said so, not handed to a voice that crashes on it.
+    noVoice: () =>
+        prefs().narratedBooks.contains(bookId) ? null : VoiceCatalog.instance.noVoiceFor(language, listen().voiceName),
     // Its characters' lines in their own voices, when the book's page gave
     // them any (cast.dart); nothing is read for a book whose characters
     // have none.

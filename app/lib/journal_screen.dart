@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'ai/chat/chat_screen.dart';
+import 'ai/chat/chat_store.dart';
 import 'ai/talk/talk_view.dart';
 import 'journal.dart';
 import 'journal_page.dart';
@@ -16,10 +18,13 @@ import 'ui.dart';
 /// as a list (the first look) or as a notebook, a page a book, newest book
 /// first. With [bookId], one book's alone (from its page).
 class JournalScreen extends StatefulWidget {
-  const JournalScreen({super.key, required this.store, this.bookId});
+  const JournalScreen({super.key, required this.store, this.bookId, this.onlyTalks = false});
 
   final LibraryStore store;
   final String? bookId;
+
+  /// Opened from AI chat's past talks: the talks with the AI alone, at first.
+  final bool onlyTalks;
 
   @override
   State<JournalScreen> createState() => _JournalScreenState();
@@ -34,7 +39,7 @@ class _JournalScreenState extends State<JournalScreen> {
 
   /// Which entries show: all, the reader's own writing, or talks with the
   /// AI companion.
-  _Shown _shown = _Shown.all;
+  late _Shown _shown = widget.onlyTalks ? _Shown.talks : _Shown.all;
 
   ListeningPrefs get _prefs => ListeningPrefs.loaded ?? ListeningPrefs.memory;
 
@@ -88,9 +93,17 @@ class _JournalScreenState extends State<JournalScreen> {
   }
 
   /// An entry opened to change it, its stamp kept; a talk, to read again.
-  Future<void> _edit(JournalEntry e) => e.isTalk
-      ? Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => TalkTranscript(entry: e)))
-      : openJournal(context, bookId: e.bookId, bookTitle: e.bookTitle, stampNow: () => e.stamp, entry: e);
+  /// A chat from AI chat, opened there to carry on.
+  Future<void> _edit(JournalEntry e) {
+    final chat = e.id.startsWith('chat-') ? ChatStore.instance.byId(e.id.substring(5)) : null;
+    if (chat != null) {
+      return Navigator.of(context)
+          .push(MaterialPageRoute<void>(builder: (_) => ChatScreen(store: widget.store, chat: chat)));
+    }
+    return e.isTalk
+        ? Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => TalkTranscript(entry: e)))
+        : openJournal(context, bookId: e.bookId, bookTitle: e.bookTitle, stampNow: () => e.stamp, entry: e);
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -205,7 +205,12 @@ class _ChannelPlatform implements KeepAlivePlatform {
 /// the app) is picked up the next time it is opened, and the reader is
 /// told.
 class LongJobs {
-  LongJobs._(this._platform) : _inFrontNow = null, _exempt = null, _sayTo = null, _gather = const Duration(seconds: 2);
+  LongJobs._(this._platform)
+      : _inFrontNow = null,
+        _exempt = null,
+        _sayTo = null,
+        _gather = const Duration(seconds: 2),
+        _gap = const Duration(seconds: 1);
 
   static final instance = LongJobs._(const _ChannelPlatform());
 
@@ -218,10 +223,12 @@ class LongJobs {
     Future<bool?> Function()? exempt,
     void Function(String text, {String? action, VoidCallback? onAction})? say,
     Duration gather = Duration.zero,
+    Duration gap = Duration.zero,
   }) : _inFrontNow = inFront,
        _exempt = exempt,
        _sayTo = say,
-       _gather = gather;
+       _gather = gather,
+       _gap = gap;
 
   final KeepAlivePlatform _platform;
   final bool Function()? _inFrontNow;
@@ -231,6 +238,13 @@ class LongJobs {
   /// How long to gather the jobs picked up after a run ended, to name them
   /// in one line.
   final Duration _gather;
+
+  /// The least time between two progress updates of the notification: a
+  /// voice download said each 1 % of it, and every post took the wake lock
+  /// again, a load an old phone felt.
+  final Duration _gap;
+  DateTime? _postedAt;
+  Timer? _later;
 
   /// The jobs running, in the order they began.
   final _jobs = <String, KeepAliveJob>{};
@@ -363,6 +377,21 @@ class LongJobs {
     if (_jobs.isEmpty) return;
     final n = keepAliveNotice([..._jobs.values]);
     if (!force && _up && n == _shown) return;
+    // Progress said at most once a [_gap]; the latest, a moment later.
+    final at = _postedAt;
+    if (!force && _up && at != null) {
+      final since = DateTime.now().difference(at);
+      if (since < _gap) {
+        _later ??= Timer(_gap - since, () {
+          _later = null;
+          _show();
+        });
+        return;
+      }
+    }
+    _later?.cancel();
+    _later = null;
+    _postedAt = DateTime.now();
     _shown = n;
     unawaited(
       _platform.show(n).then((up) {

@@ -5,11 +5,12 @@ import 'package:flutter/material.dart';
 import 'book_card.dart';
 import 'library_store.dart';
 import 'reader_screen.dart';
+import 'stats_screen.dart';
 import 'theme.dart';
 import 'ui.dart';
 
 /// Books by when you last opened them, newest first and grouped by day, with
-/// one-tap resume.
+/// one-tap resume; and, in its second tab, the reading stats.
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key, required this.store});
 
@@ -22,6 +23,9 @@ class HistoryScreen extends StatefulWidget {
 class _HistoryScreenState extends State<HistoryScreen> with WhenShown<HistoryScreen> {
   List<LibraryEntry> _entries = const [];
   bool _loaded = false;
+
+  /// The stats tab is showing, not the books.
+  bool _stats = false;
 
   /// Rows folding away, before their books leave the history.
   final _leaving = <String>{};
@@ -77,25 +81,41 @@ class _HistoryScreenState extends State<HistoryScreen> with WhenShown<HistoryScr
       decoration: BoxDecoration(gradient: Skin.ground(context)),
       child: SafeArea(
         bottom: false,
-        child: CustomScrollView(
-          slivers: [
-            SliverPadding(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
               padding: const EdgeInsets.fromLTRB(Gap.m, Gap.s, Gap.page, Gap.s),
-              sliver: SliverToBoxAdapter(
-                child: Row(
-                  children: [
-                    RoundButton(
-                      icon: Icons.menu_rounded,
-                      tooltip: 'Menu',
-                      size: 42,
-                      onTap: () => Scaffold.maybeOf(context)?.openDrawer(),
-                    ),
-                    const SizedBox(width: Gap.m),
-                    Text('History', style: Skin.title(context, size: 28, weight: FontWeight.w500)),
-                  ],
-                ),
+              child: Row(
+                children: [
+                  RoundButton(
+                    icon: Icons.menu_rounded,
+                    tooltip: 'Menu',
+                    size: 42,
+                    onTap: () => Scaffold.maybeOf(context)?.openDrawer(),
+                  ),
+                  const SizedBox(width: Gap.m),
+                  Text('History', style: Skin.title(context, size: 28, weight: FontWeight.w500)),
+                ],
               ),
             ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
+              child: ChoiceRow<bool>(
+                options: const [(false, 'Books'), (true, 'Stats')],
+                value: _stats,
+                onChanged: (v) => setState(() => _stats = v),
+              ),
+            ),
+            Expanded(child: _stats ? StatsScreen(store: widget.store, embedded: true) : _books(groups)),
+          ],
+        ),
+      ),
+    ));
+  }
+
+  Widget _books(Map<String, List<LibraryEntry>> groups) => CustomScrollView(
+          slivers: [
             if (_loaded && _entries.isEmpty)
               const SliverFillRemaining(
                 hasScrollBody: false,
@@ -133,10 +153,7 @@ class _HistoryScreenState extends State<HistoryScreen> with WhenShown<HistoryScr
             ],
             const SliverToBoxAdapter(child: SizedBox(height: Gap.xxl)),
           ],
-        ),
-      ),
-    ));
-  }
+        );
 }
 
 class _HistoryRow extends StatelessWidget {

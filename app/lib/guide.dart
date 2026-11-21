@@ -63,7 +63,7 @@ const _cards = <GuideCard>[
     'EPUB, PDF, DjVu, Word, MOBI, FB2 and plain text, read aloud on your phone.',
     [
       (Icons.add_rounded, 'Add books, at the top of the library: books on this phone, or a link.'),
-      (Icons.local_library_outlined, 'Catalogues, in the menu: free classics to download.'),
+      (Icons.local_library_outlined, 'Browse > Catalogues, in the menu: free classics to download.'),
       if (playBuild)
         (Icons.travel_explore_rounded, 'Browse, in the menu: web novels, from the source lists you add.')
       else
@@ -271,7 +271,7 @@ const aiGuideCards = <GuideCard>[
     'Your own AI',
     'TomeVoice talks to an AI with your own key, straight from this phone. There is no TomeVoice server.',
     [
-      (Icons.add_rounded, 'Add a key on this page: Google Gemini, OpenRouter, Groq, Inception, OpenAI, AgentRouter or any service like them. Free tiers work.'),
+      (Icons.add_rounded, 'Add a key in AI settings, the gear in AI chat: Google Gemini, OpenRouter, Groq, Inception, OpenAI, AgentRouter, 100milionseek or any service like them. Free tiers work.'),
       (Icons.sync_rounded, 'Add as many keys as you like. When one has used its quota it rests, and the next takes over.'),
       (Icons.lock_outline_rounded, 'Nothing of a book is sent until you add a key, and never a book on a secret shelf.'),
     ],
@@ -282,7 +282,7 @@ const aiGuideCards = <GuideCard>[
     'The AI reads a book once, chapter by chapter, and keeps notes: who is who, what happened, and where.',
     [
       (Icons.menu_book_rounded, "On a book's page, open Memory and press Build memory."),
-      (Icons.schedule_rounded, 'A long book takes hours on a free key. It goes on in the background, and with TomeVoice closed if you allow it on this page.'),
+      (Icons.schedule_rounded, 'A long book takes hours on a free key. It goes on in the background, and with TomeVoice closed if you allow it in AI settings.'),
       (Icons.download_rounded, 'A web novel fetches its missing chapters first. Once the memory has read them, Free the space deletes them again.'),
     ],
   ),
@@ -294,6 +294,7 @@ const aiGuideCards = <GuideCard>[
       (Icons.auto_awesome_outlined, 'In a book, tap the sparkle above the player. Talk opens over the page, and the book reads on.'),
       (Icons.record_voice_over_rounded, 'Answers can be said in the voice reading the book.'),
       (Icons.edit_outlined, "Each talk is kept in the book's journal, beside your own writing."),
+      (Icons.chat_outlined, 'AI chat, in the menu: longer chats about one book, a few, or all of them, kept to come back to.'),
     ],
   ),
   GuideCard(
@@ -324,7 +325,7 @@ const aiGuideCards = <GuideCard>[
       (Icons.visibility_off_outlined, 'Spoiler guard, on a book\'s Memory: the AI keeps to what you have read. It is off until you turn it on.'),
       (Icons.block_rounded, "Keep this book away from the AI, in the Memory's menu: nothing of it is sent."),
       (Icons.link_rounded, 'A sequel can carry on from the book before it, so its people come along.'),
-      (Icons.flag_outlined, 'Report any answer from Talk; AI > What was sent lists every call made with your keys.'),
+      (Icons.flag_outlined, 'Report any answer from Talk; AI settings > What was sent lists every call made with your keys.'),
     ],
   ),
 ];

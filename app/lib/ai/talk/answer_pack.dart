@@ -454,6 +454,20 @@ void noteAsked(String path, String question, int? ch) {
   }
 }
 
+/// The questions [questions] no longer kept in the memory at [path] (the
+/// chat they were asked in deleted completely).
+void forgetAsked(String path, List<String> questions) {
+  if (questions.isEmpty || !MemoryDb.existsAt(path)) return;
+  final m = MemoryDb.open(path);
+  try {
+    for (final q in questions) {
+      m.db.execute('DELETE FROM asked WHERE question = ?', [q.length > 500 ? q.substring(0, 500) : q]);
+    }
+  } finally {
+    m.close();
+  }
+}
+
 /// [text] as a sentence and a space ("Saved the city. "), or nothing: a
 /// summary may end without a full stop, and the next sentence follows it.
 String asSentence(String? text) {

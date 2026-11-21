@@ -3,6 +3,36 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## 2.4.0 (2026-11-21)
+
+AI chat: talk with the AI about one book, a few, or all of them, in conversations it keeps. And a shorter menu.
+
+#### AI chat
+- **AI** in the menu is now **AI chat**: start a new chat, or carry on an old one. Chats are grouped Pinned, Today, This week and Earlier, and can be searched, renamed and pinned.
+- **About:** a chat is about one book, a few, or all your books with a memory. Change it with the button at the top.
+- **The AI looks things up itself** before it answers: Who's who, the main characters, how people are tied in the graph, events, chapter notes, a chapter's text, storylines, your theories, a word search, your journal and your earlier chats. Under each answer, **Looked in** says where it looked, and the chapter chips open the book at that sentence. Each book's spoiler line holds for every lookup.
+- **Copy, Read aloud, Again and Report** under each answer; **Stop** while it answers; the **microphone** to ask by speaking.
+- **Tied to your journal:** a chat about one book is kept in that book's journal, and tapping it there opens the chat again.
+- **What the AI remembers about you:** things you tell it to keep (what you like, how you like answers) are listed, each one deletable. Long chats get a short summary, so later chats can look back at them. Both can be turned off.
+- **Delete a chat completely:** it goes with every trace of it: its page in the journal, the notes the AI kept from it, its questions in the book's memory, and the places other chats cite it.
+- **AI settings** (keys, the spoiler guard, everything the AI page had) is behind the gear in AI chat, and the books' memories behind the button beside it.
+
+#### The menu
+- In groups, each with a heading: Your books, Find books, Thoughts and AI, App.
+- **Catalogues** is a tab of **Browse**, and Sources the button at its top. **Stats** is a tab of **History**.
+
+#### Reading aloud: Bengali and older phones
+- **A book in Bengali (or Hindi, Arabic, or another language with letters of its own) on a phone with no voice for it** now says so ("No Bengali voice in this speech engine"), instead of handing the text to an English voice. On some phones that voice's engine crashed on every sentence ("Synthesis failed (code -4)") and the phone slowed right down.
+- When another speech engine on the phone has that language (Google's, beside Samsung's), the voice list offers it in one tap: **Use Speech Services by Google, which has one**.
+- If the speech engine fails outright, or a voice doesn't answer, reading **stops at once** with a line saying why and what to do, instead of retrying for minutes.
+- **The notification no longer says Playing when reading has stopped**: after an error in a web novel, and on Android 12 and older when reading ends.
+- Long jobs update their notification at most once a second, and the memory catching up as you read no longer starts a background service every minute and a half. Both were a load on older phones.
+- AI chat reads answers aloud in the voice the book uses, even when you never picked one, and in a Bengali voice when the answer is in Bengali.
+
+#### The AI's keys
+- **Add a key** no longer jumps about: the provider is chosen from a list, and the page is laid out like the rest of the app.
+- **100milionseek** is one of the providers to choose from: DeepSeek models, free for now, through a relay run by people not named on its site.
+
 ## 2.3.0 (2026-11-21)
 
 A book's memory, easier to use every day, a clearer graph, and long jobs that keep going in the background.

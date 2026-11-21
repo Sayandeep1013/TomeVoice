@@ -849,15 +849,15 @@ class _MicButton extends StatelessWidget {
 
 /// Before speaking is first heard: where what is said goes. False when the
 /// reader would rather not. Asked once (ListeningPrefs.dictationTold).
-Future<bool> tellOfDictation(BuildContext context) async {
+Future<bool> tellOfDictation(BuildContext context, {String into = 'into your journal'}) async {
   final p = ListeningPrefs.loaded;
   if (p == null || p.dictationTold) return true;
   final go = await confirm(
     context,
-    title: 'Speak into your journal',
+    title: 'Speak instead of typing',
     body: "Your phone's own speech service (on most phones, Google's) turns what you say into words. "
         'It may send your voice to that service to do it. TomeVoice keeps no recording: only the words '
-        'come back, into your journal.',
+        'come back, $into.',
     action: 'Speak',
   );
   if (!go) return false;

@@ -24,6 +24,9 @@ enum AiProvider {
   agentrouter('AgentRouter', 'https://agentrouter.org/v1',
       note: 'A relay to many models (Claude, GPT, DeepSeek and others), with credit when you sign up. Your text '
           'passes through it on its way to the model.'),
+  milionseek('100milionseek', 'https://100milionseek.top/v1',
+      note: 'DeepSeek models, free for now, through a relay run by people not named on its site: your text '
+          'passes through it. Its keys start with hms-.'),
   custom('Another service', '', note: 'Any service that speaks the OpenAI chat format: give its address.');
 
   const AiProvider(this.label, this.baseUrl, {required this.note, this.embeds = false});

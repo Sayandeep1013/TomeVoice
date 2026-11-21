@@ -411,7 +411,7 @@ void main() {
       ));
       await tester.tap(find.text('Voices'));
       await tester.pumpAndSettle();
-      expect(find.text('No English voice on this phone yet.'), findsOneWidget);
+      expect(find.text('No English voice in this speech engine.'), findsOneWidget);
       await tester.tap(find.text("Book's own narration"));
       await tester.pumpAndSettle();
       expect(c.narrated, isTrue);

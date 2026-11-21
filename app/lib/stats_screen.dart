@@ -13,9 +13,12 @@ import 'ui.dart';
 /// Reading habits: the streak, this week, twenty weeks of days as dots, and
 /// what was read most. Everything stays on the phone.
 class StatsScreen extends StatefulWidget {
-  const StatsScreen({super.key, required this.store});
+  const StatsScreen({super.key, required this.store, this.embedded = false});
 
   final LibraryStore store;
+
+  /// Shown as a tab of History: only the figures, under History's top bar.
+  final bool embedded;
 
   @override
   State<StatsScreen> createState() => _StatsScreenState();
@@ -72,17 +75,7 @@ class _StatsScreenState extends State<StatsScreen> {
     final ink = Skin.inkOn(context);
     final accent = Skin.accentMarkOf(context);
     final goal = _stats.goal.inMinutes;
-    return Scaffold(
-      body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
-        child: SafeArea(
-          bottom: false,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              ScreenTopBar(title: 'Stats', onBack: () => Navigator.of(context).maybePop()),
-              Expanded(
-                child: ListView(
+    final list = ListView(
                   padding: EdgeInsets.fromLTRB(
                       Gap.page, Gap.s, Gap.page, Gap.xxl + MediaQuery.viewPaddingOf(context).bottom),
                   children: [
@@ -167,8 +160,18 @@ class _StatsScreenState extends State<StatsScreen> {
                       style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
                     ),
                   ],
-                ),
-              ),
+                );
+    if (widget.embedded) return list;
+    return Scaffold(
+      body: DecoratedBox(
+        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        child: SafeArea(
+          bottom: false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ScreenTopBar(title: 'Stats', onBack: () => Navigator.of(context).maybePop()),
+              Expanded(child: list),
             ],
           ),
         ),

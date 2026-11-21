@@ -793,7 +793,7 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
                             body: AiRing.instance.hasKeys
                                 ? "Open a book and tap Memory on its page: the AI reads it once, chapter by chapter, "
                                     'and remembers who is who and what happened.'
-                                : 'Add a key in AI first. Then, from a book\'s page, the AI reads it once and remembers '
+                                : 'Add a key in AI chat > settings first. Then, from a book\'s page, the AI reads it once and remembers '
                                     'who is who and what happened.',
                           )
                         : ListView(

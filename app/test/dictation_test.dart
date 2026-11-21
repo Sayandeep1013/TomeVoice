@@ -155,7 +155,7 @@ void main() {
       await open(tester, playing: false);
       await tester.tap(find.bySemanticsLabel('Speak instead of writing'));
       await tester.pumpAndSettle();
-      expect(find.text('Speak into your journal'), findsOneWidget);
+      expect(find.text('Speak instead of typing'), findsOneWidget);
       expect(find.textContaining("phone's own speech service"), findsOneWidget);
       expect(starts(), isEmpty);
 

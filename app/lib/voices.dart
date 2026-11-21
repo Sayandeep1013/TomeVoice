@@ -156,14 +156,84 @@ class VoiceCatalog extends ChangeNotifier {
   /// The voice to use for [language] when the user has not chosen one: a
   /// speaker of its own, so it is one the list can show as chosen. With no
   /// voice for [language] on the phone, one for [voiceLanguageFor].
+  ///
+  /// None for a language with letters of its own (Bengali, Hindi, Arabic…)
+  /// when no voice here reads them: an English voice handed Bengali text
+  /// says nothing, or stalls, and the reader is better told there is no
+  /// Bengali voice, and where to get one.
   VoiceInfo? bestFor(String language) {
     final pick = SpeechService.pickVoice(
       [for (final v in _withoutAliases(voices)) v.toMap()],
       voiceLanguageFor(language),
       preferRegion: PlatformDispatcher.instance.locale.countryCode,
     );
-    return pick == null ? null : byName(pick['name'] as String?);
+    final v = pick == null ? null : byName(pick['name'] as String?);
+    if (v != null && !readsLettersOf(v.language, language)) return null;
+    return v;
   }
+
+  /// The script each language is written in, for those not in Latin letters.
+  static const _scripts = {
+    'bn': 'beng', 'as': 'beng',
+    'hi': 'deva', 'mr': 'deva', 'ne': 'deva', 'sa': 'deva',
+    'gu': 'gujr', 'pa': 'guru', 'or': 'orya', 'ta': 'taml', 'te': 'telu', 'kn': 'knda', 'ml': 'mlym',
+    'si': 'sinh', 'th': 'thai', 'lo': 'laoo', 'km': 'khmr', 'my': 'mymr', 'ka': 'geor', 'hy': 'armn',
+    'am': 'ethi', 'he': 'hebr', 'yi': 'hebr', 'el': 'grek',
+    'ar': 'arab', 'fa': 'arab', 'ur': 'arab', 'ps': 'arab',
+    'ru': 'cyrl', 'uk': 'cyrl', 'be': 'cyrl', 'bg': 'cyrl', 'sr': 'cyrl', 'mk': 'cyrl', 'kk': 'cyrl',
+    'zh': 'hani', 'ja': 'jpan', 'ko': 'kore',
+  };
+
+  static String _script(String language) => _scripts[language] ?? 'latn';
+
+  /// Whether [language] has letters of its own, not Latin ones.
+  static bool ownLetters(String language) => _script(language) != 'latn';
+
+  /// Why a [language] book cannot be read aloud here, or null: no voice
+  /// (of the phone's engine, or natural) reads its letters.
+  String? noVoiceFor(String language, String? voiceName) {
+    if (!loaded || !ownLetters(language) || isNeural(voiceName)) return null;
+    final v = byName(voiceName);
+    if (v != null && readsLettersOf(v.language, language)) return null;
+    final name = languageName(language);
+    return 'No $name voice in this speech engine. Choose one under Voice: another speech engine may have '
+        "one, or download $name in the phone's speech settings.";
+  }
+
+  /// Whether a [voice] language voice can read a [language] book: its own
+  /// language, its relative ([relatedLanguage]), the same letters, or any
+  /// voice for a book in Latin letters.
+  static bool readsLettersOf(String voice, String language) =>
+      voice == language ||
+      relatedLanguage[language] == voice ||
+      _script(language) == 'latn' ||
+      _script(voice) == _script(language);
+
+  /// Another speech engine on the phone that has a voice installed for
+  /// [language], when this one has none: Samsung's has no Bengali, Google's
+  /// does. Asked once an engine and language.
+  Future<({String id, String label})?> otherEngineFor(String language) async {
+    for (final e in engines) {
+      final id = e['name'];
+      if (id == null || id == engineId) continue;
+      final key = '$id/$language';
+      final known = _otherHas[key];
+      final has = known ??
+          (_otherHas[key] = await () async {
+            try {
+              final list = await _svc.voices(id);
+              return list.any((v) =>
+                  (v['locale'] as String? ?? '').toLowerCase().startsWith(language) && v['installed'] != false);
+            } on Object {
+              return false;
+            }
+          }());
+      if (has) return (id: id, label: (e['label'] ?? '').isEmpty ? id : e['label']!);
+    }
+    return null;
+  }
+
+  final _otherHas = <String, bool>{};
 
   /// Languages read in a related language's voice when the phone has none
   /// of their own: Ukrainian, Belarusian, Bulgarian, Serbian and Macedonian
@@ -188,8 +258,14 @@ class VoiceCatalog extends ChangeNotifier {
     if (has(language)) return language;
     final near = relatedLanguage[language];
     if (near != null && has(near)) return near;
+    // In the same letters (Marathi in a Hindi voice, both Devanagari).
+    if (ownLetters(language)) {
+      final same = voices.where((v) => _script(v.language) == _script(language)).firstOrNull;
+      if (same != null) return same.language;
+    }
     final own = (phoneLanguage ?? PlatformDispatcher.instance.locale.languageCode).toLowerCase();
-    return has(own) ? own : language;
+    // Only a voice that can read its letters: not English for Bengali.
+    return has(own) && readsLettersOf(own, language) ? own : language;
   }
 
   /// The phone's own language, in tests.

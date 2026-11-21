@@ -33,7 +33,11 @@ void main() {
       await tester.tap(find.text('I agree'));
       await tester.pumpAndSettle();
     }
-    await tester.tap(find.widgetWithText(ChoiceChip, provider));
+    // The provider, from its list over the sheet (the last such text: the
+    // field behind shows the one chosen so far).
+    await tester.tap(find.byIcon(Icons.unfold_more_rounded));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(provider).last);
     await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextField, 'API key'), secret);
     if (builder != null) await tester.enterText(find.widgetWithText(TextField, 'Building memories'), builder);
@@ -190,6 +194,9 @@ void main() {
     expect(suggestModel(AiProvider.gemini, AiJob.talker, gemini), 'gemini-3.6-flash');
     expect(suggestModel(AiProvider.gemini, AiJob.embedder, gemini), 'gemini-embedding-001');
     expect(suggestModel(AiProvider.inception, AiJob.builder, ['mercury-coder', 'mercury-2', 'mercury-3']), 'mercury-3');
+    const seek = ['deepseek-v4.1-flash-free', 'deepseek-v4.1-free'];
+    expect(suggestModel(AiProvider.milionseek, AiJob.builder, seek), 'deepseek-v4.1-flash-free');
+    expect(suggestModel(AiProvider.milionseek, AiJob.talker, seek), 'deepseek-v4.1-free');
     expect(suggestModel(AiProvider.openrouter, AiJob.talker, ['a/b']), isNull);
   });
 

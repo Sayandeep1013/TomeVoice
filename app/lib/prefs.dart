@@ -79,6 +79,8 @@ class ListeningPrefs {
     this.aiGuardNew = false,
     this.aiKeepTalks = true,
     this.aiUseJournal = true,
+    this.aiChatRemember = true,
+    this.aiChatPast = true,
     this.dictationTold = false,
     this.aiBackground = true,
     this.aiBackgroundWifi = true,
@@ -410,6 +412,14 @@ class ListeningPrefs {
   /// Talk may read the reader's journal entries that bear on a question.
   bool aiUseJournal;
 
+  /// AI chat may keep short notes about the reader (what they like, what
+  /// they think of a book), shown and deletable in AI chat.
+  bool aiChatRemember;
+
+  /// AI chat may look through earlier chats and talks when they bear on a
+  /// question.
+  bool aiChatPast;
+
   /// The reader has been told, before speaking into the journal the first
   /// time, that the phone's speech service hears it.
   bool dictationTold;
@@ -601,6 +611,8 @@ class ListeningPrefs {
         if (aiGuardNew) 'aiGuardNew': true,
         if (!aiKeepTalks) 'aiKeepTalks': false,
         if (!aiUseJournal) 'aiUseJournal': false,
+        if (!aiChatRemember) 'aiChatRemember': false,
+        if (!aiChatPast) 'aiChatPast': false,
         if (dictationTold) 'dictationTold': true,
         'aiBackground': aiBackground,
         'aiBackgroundWifi': aiBackgroundWifi,
@@ -715,6 +727,8 @@ class ListeningPrefs {
         aiGuardNew: json['aiGuardNew'] == true,
         aiKeepTalks: json['aiKeepTalks'] != false,
         aiUseJournal: json['aiUseJournal'] != false,
+        aiChatRemember: json['aiChatRemember'] != false,
+        aiChatPast: json['aiChatPast'] != false,
         dictationTold: json['dictationTold'] == true,
         aiBackground: json['aiBackground'] as bool? ?? true,
         aiBackgroundWifi: json['aiBackgroundWifi'] as bool? ?? true,
