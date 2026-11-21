@@ -3,6 +3,13 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## 2.4.1 (2026-11-21)
+
+Deleting a chat takes only what that chat made.
+
+- **Delete this chat completely** now removes only what the chat itself added: its copy in the journal, the notes the AI kept from it, and the questions asked in it. The same question asked in Talk or another chat stays in the book's memory; before, it went too.
+- Your own journal pages and the book's memory are never touched, even when the chat read them, and the delete dialog now says so.
+
 ## 2.4.0 (2026-11-21)
 
 AI chat: talk with the AI about one book, a few, or all of them, in conversations it keeps. And a shorter menu.
