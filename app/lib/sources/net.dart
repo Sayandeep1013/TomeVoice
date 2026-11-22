@@ -17,7 +17,7 @@ String friendlyError(Object e) {
   // A message already in words (the catalogue's own "answered with an
   // error (HTTP 404)") is said as it is, not wrapped in a second one.
   if (e is HttpException) {
-    return e.message.toLowerCase().contains('answered with an error')
+    return e.message.toLowerCase().contains('answered with an error') || e.message.startsWith('The catalogue ')
         ? e.message
         : 'The site answered with an error (${e.message}).';
   }
