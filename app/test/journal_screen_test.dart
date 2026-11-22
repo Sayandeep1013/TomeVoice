@@ -138,6 +138,18 @@ void main() {
     await tester.pump(const Duration(seconds: 5));
   });
 
+  testWidgets('one novel from two sources is one book in the journal', (tester) async {
+    await thought('web-a', 'Shadow Slave', 3, 'From the first site.', minutes: 5);
+    await thought('web-b', 'Shadow  slave ', 9, 'From the second site.');
+    await pump(tester, JournalScreen(store: store));
+    expect(find.textContaining('2 entries'), findsOneWidget);
+    await tester.tap(find.textContaining('2 entries'));
+    await tester.pumpAndSettle();
+    expect(find.text('From the first site.'), findsOneWidget);
+    expect(find.text('From the second site.'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 5));
+  });
+
   testWidgets("a book's journal with nothing in it: no export", (tester) async {
     await thought('p', 'Persuasion', 7, 'Anne waited long enough.');
     await pump(tester, BookJournalScreen(store: store, bookId: 'm', bookTitle: 'Middlemarch'));

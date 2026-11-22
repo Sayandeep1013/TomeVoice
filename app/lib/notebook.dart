@@ -166,7 +166,10 @@ class _NotebookPagesState extends State<NotebookPages> {
   }
 
   static const _tabWidth = 30.0;
-  static const _tabHeight = 46.0;
+
+  /// Each tab's height: 46 when they fit; shorter as there are more books,
+  /// down to 28 (still a finger's tap); past that, the tabs scroll.
+  double _tabHeight = 46;
 
   @override
   void didUpdateWidget(NotebookPages old) {
@@ -276,7 +279,11 @@ class _NotebookPagesState extends State<NotebookPages> {
           ),
           SizedBox(
             width: _tabWidth + 6,
-            child: ListView.builder(
+            child: LayoutBuilder(builder: (context, box) {
+              final room = box.maxHeight - Gap.l * 2;
+              final n = widget.pages.length;
+              _tabHeight = n == 0 || !room.isFinite ? 46.0 : (room / n - 4).clamp(28.0, 46.0);
+              return ListView.builder(
               controller: _tabs,
               padding: const EdgeInsets.only(top: Gap.l, bottom: Gap.l),
               itemCount: widget.pages.length,
@@ -290,7 +297,8 @@ class _NotebookPagesState extends State<NotebookPages> {
                 height: _tabHeight,
                 onTap: () => _turnTo(i),
               ),
-            ),
+              );
+            }),
           ),
         ],
       ),

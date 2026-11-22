@@ -15,6 +15,11 @@ import 'quote_export.dart';
 import 'theme.dart';
 import 'ui.dart';
 
+/// What groups a book's entries: its title, so the same novel from two
+/// sources (or read again after it was removed and added back) is one book
+/// in the journal.
+String journalKey(String title) => title.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+
 /// An entry opened: a chat from AI chat in AI chat, to carry on; a talk to
 /// read again; the reader's own writing to change, its stamp kept.
 Future<void> openJournalEntry(BuildContext context, LibraryStore store, JournalEntry e) {
@@ -133,11 +138,17 @@ class _JournalScreenState extends State<JournalScreen> {
             (shown == _Shown.all || (shown == _Shown.talks) == e.isTalk))
           e,
     ];
-    final byBook = <String, List<JournalEntry>>{};
+    // One book a title: the entries of the same novel from two sources
+    // together, under the id of the one in the library (the newest else).
+    final groups = <String, List<JournalEntry>>{};
     for (final e in thoughts) {
-      byBook.putIfAbsent(e.bookId, () => []).add(e);
+      groups.putIfAbsent(journalKey(e.bookTitle), () => []).add(e);
     }
-    final books = {for (final e in mine) e.bookId};
+    final byBook = <String, List<JournalEntry>>{
+      for (final g in groups.values)
+        (g.where((e) => _books.containsKey(e.bookId)).firstOrNull ?? g.first).bookId: g,
+    };
+    final books = {for (final e in mine) journalKey(e.bookTitle)};
     final at = widget.bookId;
     final openAt = at == null ? 0 : math.max(0, byBook.keys.toList().indexOf(at));
     return Scaffold(
@@ -363,7 +374,12 @@ class _BookJournalScreenState extends State<BookJournalScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final all = _journal.forBook(widget.bookId);
+    // This book's, and the same title's from another source.
+    final key = journalKey(widget.bookTitle);
+    final all = [
+      for (final e in _journal.all)
+        if (e.bookId == widget.bookId || journalKey(e.bookTitle) == key) e,
+    ];
     final talks = all.any((e) => e.isTalk);
     final shown = talks ? _shown : _Shown.all;
     final entries = [
