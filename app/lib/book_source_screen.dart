@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import 'browser_check.dart' show signInToSite;
 import 'library_store.dart';
 import 'novel_screen.dart';
 import 'reader_screen.dart' show openBook;
@@ -143,6 +144,22 @@ class _BookSourceScreenState extends State<BookSourceScreen> {
       if (!mounted) return;
       showSnack(context, 'Added to your library.',
           actionLabel: 'Open', onAction: () => unawaited(openBook(context, widget.store, added)));
+    } on HttpException catch (e) {
+      if (!mounted) return;
+      final m = e.message;
+      // Signed out (never signed in, or the site's sign-in ran out): said
+      // so, with the way back in a tap away.
+      if (m.contains('HTTP 401') || m.contains('HTTP 403')) {
+        showSnack(context, '${widget.plugin.name} wants you signed in to download.',
+            long: true,
+            actionLabel: 'Sign in',
+            onAction: () => unawaited(signInToSite(context, widget.plugin)));
+      } else if (m.contains('HTTP 429')) {
+        showSnack(context, '${widget.plugin.name} says you have downloaded as much as it allows for now. Try later.',
+            long: true);
+      } else {
+        showSnack(context, 'It could not be downloaded: ${friendlyError(e)}');
+      }
     } on Object catch (e) {
       if (mounted) showSnack(context, 'It could not be downloaded: ${friendlyError(e)}');
     } finally {
