@@ -17,6 +17,7 @@
         <include domain="external" path="marks.json" />
         <include domain="external" path="stats.json" />
         <include domain="external" path="chats/" />
+        <include domain="external" path="memory_series.json" />
         <include domain="file" path="sources/repos.json" />
         <include domain="file" path="sources/installed.json" />
         <include domain="file" path="sources/plugins/" />
