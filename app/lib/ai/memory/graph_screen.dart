@@ -318,7 +318,9 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
   Future<void> _load() async {
     final n = ++_asked;
     setState(() => _loading = true);
-    final r = await _drawn(
+    final GraphView r;
+    try {
+      r = await _drawn(
       widget.memoryPath,
       widget.line,
       widget.here,
@@ -328,6 +330,14 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
       _shownMost,
       _aspect,
     );
+    } on Object {
+      // Not to be drawn now: said, not left loading for ever.
+      if (mounted && n == _asked) {
+        setState(() => _loading = false);
+        showSnack(context, 'The graph could not be drawn. Try again in a moment.');
+      }
+      return;
+    }
     if (!mounted || n != _asked) return;
     final was = _shown;
     setState(() {
@@ -621,13 +631,13 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
       top: false,
       child: Container(
         margin: const EdgeInsets.fromLTRB(Gap.s, Gap.xs, Gap.s, Gap.s),
-        padding: const EdgeInsets.fromLTRB(Gap.l, Gap.s, Gap.s, Gap.xs),
+        padding: const EdgeInsets.fromLTRB(Gap.l, Gap.xs, Gap.s, Gap.xs),
         decoration: BoxDecoration(
           color: Skin.capsuleOn(context),
           borderRadius: BorderRadius.circular(18),
         ),
         child: SliderTheme(
-          data: SliderTheme.of(context).copyWith(padding: const EdgeInsets.fromLTRB(4, 10, 12, 10)),
+          data: SliderTheme.of(context).copyWith(padding: const EdgeInsets.fromLTRB(4, 2, 16, 8)),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1632,7 +1642,8 @@ class GraphPainter extends CustomPainter {
     for (var i = 0; i < n; i++) {
       if (i == 0 || byWeight[i].weight != byWeight[i - 1].weight) rankOf = i;
       final p = n <= 1 ? 0.0 : rankOf / (n - 1);
-      final r = least + (8.5 - least) * math.pow(1 - p, 5);
+      // Steeply: the top few in a hundred stand out, the rest are points.
+      final r = least + (8.5 - least) * math.pow(1 - p, 12);
       radius[byWeight[i].id] = byWeight[i].id == data.focus ? math.max(r, 7.0) : r;
     }
     // Each group its own colour, the biggest first; one alone, plain.
@@ -2109,7 +2120,7 @@ class _ControlRow extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: Skin.ui(size: 13, weight: FontWeight.w600, color: Skin.inkOn(context))),
               ),
-              if (action != null) action! else const SizedBox(height: 40),
+              if (action != null) action! else const SizedBox(height: 36),
             ],
           ),
           slider,
