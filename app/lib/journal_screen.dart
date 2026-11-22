@@ -16,7 +16,8 @@ import 'ui.dart';
 
 /// The reading journal, apart from Saved: what was thought about each book,
 /// as a list (the first look) or as a notebook, a page a book, newest book
-/// first. With [bookId], one book's alone (from its page).
+/// first. With [bookId], it opens on that book's (from its page), and a row
+/// of books above lets the reader move to another's, or to all of them.
 class JournalScreen extends StatefulWidget {
   const JournalScreen({super.key, required this.store, this.bookId, this.onlyTalks = false});
 
@@ -36,6 +37,10 @@ class _JournalScreenState extends State<JournalScreen> {
   Set<String> _present = const {};
   bool _loaded = false;
   String _query = '';
+
+  /// The book whose entries show (null: every book's); it starts as the
+  /// book the journal was opened from.
+  late String? _book = widget.bookId;
 
   /// Which entries show: all, the reader's own writing, or talks with the
   /// AI companion.
@@ -82,7 +87,7 @@ class _JournalScreenState extends State<JournalScreen> {
   /// A new entry: about [bookId] when given (a page's or a list's Write),
   /// else about the book picked.
   Future<void> _write([String? bookId]) async {
-    final id = bookId ?? widget.bookId;
+    final id = bookId ?? _book;
     final book = id == null ? await pickBookToWrite(context, widget.store) : _books[id];
     if (!mounted) return;
     if (book == null) {
@@ -110,14 +115,18 @@ class _JournalScreenState extends State<JournalScreen> {
     final q = _query.trim().toLowerCase();
     // Not a book's on a shut secret shelf (in the library, but not on the
     // shelves shown); a book no longer in the library keeps its thoughts.
-    final mine = !_loaded
+    final every = !_loaded
         ? const <JournalEntry>[]
         : [
             for (final e in _journal.all)
-              if ((widget.bookId == null || e.bookId == widget.bookId) &&
-                  (_books.containsKey(e.bookId) || !_present.contains(e.bookId)))
-                e,
+              if (_books.containsKey(e.bookId) || !_present.contains(e.bookId)) e,
           ];
+    final mine = [for (final e in every) if (_book == null || e.bookId == _book) e];
+    // The books with entries, the one opened from first, then the latest.
+    final withEntries = <String, String>{
+      if (widget.bookId != null && _books[widget.bookId] != null) widget.bookId!: _books[widget.bookId]!.title,
+      for (final e in every) e.bookId: _books[e.bookId]?.title ?? e.bookTitle,
+    };
     final talks = mine.any((e) => e.isTalk);
     final shown = talks ? _shown : _Shown.all;
     final thoughts = [
@@ -156,11 +165,35 @@ class _JournalScreenState extends State<JournalScreen> {
                     ),
                     Padding(
                       padding: const EdgeInsets.only(right: Gap.s),
-                      child: ExportQuotesButton(store: widget.store, bookId: widget.bookId, journal: true),
+                      child: ExportQuotesButton(store: widget.store, bookId: _book, journal: true),
                     ),
                   ],
                 ],
               ),
+              // Which book's entries: all, or one; from a book's page, that
+              // book's at first, the others a tap away.
+              if (withEntries.length > 1 || (_book != null && withEntries.isNotEmpty))
+                SizedBox(
+                  height: 48,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
+                    children: [
+                      for (final (id, title) in [(null, 'All books'), ...withEntries.entries.map((e) => (e.key, e.value))])
+                        Padding(
+                          padding: const EdgeInsets.only(right: Gap.s),
+                          child: ChoiceChip(
+                            label: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 200),
+                              child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                            ),
+                            selected: _book == id,
+                            onSelected: (_) => setState(() => _book = id),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               if (talks)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.m),

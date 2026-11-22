@@ -14,7 +14,12 @@ import 'chapter_finder.dart';
 import 'download_queue.dart';
 import 'epub_export.dart';
 import 'fast_scroller.dart';
+import 'journal.dart';
+import 'journal_page.dart';
+import 'journal_screen.dart';
+import 'listening_session.dart' show BackgroundReading;
 import 'library_store.dart';
+import 'novel_move.dart' show chapterNumberOf;
 import 'novel_move_screen.dart';
 import 'novel_updates.dart';
 import 'prefs.dart';
@@ -501,6 +506,33 @@ class _NovelScreenState extends State<NovelScreen> {
   Future<void> _downloadOne(int chapter) => _downloadList([chapter], first: true);
 
   /// Whether chapter [i] shows as read: its own mark, or the place past it.
+  /// The novel's chapters, for the journal: each by the number it goes by.
+  List<JournalChapter> _journalChapters() => [
+        for (var i = 0; i < _chapters.length; i++)
+          (chapter: i, number: _numberOf(i), title: _chapters[i].name),
+      ];
+
+  int _numberOf(int i) =>
+      chapterNumberOf(_chapters[i].name)?.floor() ?? _chapters[i].number?.floor() ?? i + 1;
+
+  /// Where the story is, for the journal: the voice's sentence when it
+  /// reads this novel in the background, else the chapter read up to.
+  JournalStamp _stampNow() {
+    final bg = BackgroundReading.current.value;
+    if (bg != null && bg.bookId == _id) {
+      return stampAt(bg.layout, bg.unit,
+          numberOf: (c) => chapterNumberOf(bg.layout.chapterTitle(c))?.floor() ?? c + 1);
+    }
+    final c = _current < 0 ? 0 : _current;
+    final known = c < _chapters.length;
+    return JournalStamp(
+      at: ReadingCursor(sectionIndex: c, blockIndex: 0, sentenceIndex: 0),
+      chapter: c,
+      number: known ? _numberOf(c) : c + 1,
+      title: known ? _chapters[c].name : null,
+    );
+  }
+
   bool _isRead(int i) => i >= 0 && i < _chapters.length && _marks.isRead(i, _chapters[i].path, _current);
 
   /// The picked chapters marked read ([how] 'read') or unread ('unread');
@@ -665,6 +697,23 @@ class _NovelScreenState extends State<NovelScreen> {
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
           sliver: SliverToBoxAdapter(child: BookSavedSection(store: _store, entry: _entry!)),
+        ),
+      // The journal, as for a book: stamped with the chapter read up to, or
+      // any chapter of the list (none need be downloaded to write about it).
+      if (_entry != null)
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
+          sliver: SliverToBoxAdapter(
+            child: BookJournalSection(
+              bookId: _id,
+              bookTitle: _entry!.title,
+              stampNow: _stampNow,
+              chapters: _journalChapters,
+              onSeeAll: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => JournalScreen(store: _store, bookId: _id)),
+              ),
+            ),
+          ),
         ),
       if (_entry != null)
         SliverPadding(

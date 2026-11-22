@@ -89,12 +89,21 @@ void main() {
     await tester.pump(const Duration(seconds: 5));
   });
 
-  testWidgets("one book's journal alone, from its page", (tester) async {
+  testWidgets("from a book's page, its journal first; the other books a tap away", (tester) async {
     await thought('m', 'Middlemarch', 3, 'Dorothea deserves better.');
     await thought('p', 'Persuasion', 7, 'Anne waited long enough.');
     await pump(tester, JournalScreen(store: store, bookId: 'm'));
     expect(find.text('Dorothea deserves better.'), findsOneWidget);
     expect(find.text('Anne waited long enough.'), findsNothing);
+    expect(tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Middlemarch')).selected, isTrue);
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Persuasion'));
+    await tester.pumpAndSettle();
+    expect(find.text('Dorothea deserves better.'), findsNothing);
+    expect(find.text('Anne waited long enough.'), findsOneWidget);
+    await tester.tap(find.widgetWithText(ChoiceChip, 'All books'));
+    await tester.pumpAndSettle();
+    expect(find.text('Dorothea deserves better.'), findsOneWidget);
+    expect(find.text('Anne waited long enough.'), findsOneWidget);
   });
 
   testWidgets('empty, it says how to write', (tester) async {

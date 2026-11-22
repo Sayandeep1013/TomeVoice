@@ -342,6 +342,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
             bookId: _entry.id,
             bookTitle: _entry.title,
             stampNow: _stampNow,
+            chapters: () => _layout == null ? const [] : journalChaptersOf(_layout!),
             onSeeAll: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => JournalScreen(store: _store, bookId: _entry.id)),
             ),
