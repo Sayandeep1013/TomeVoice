@@ -3,6 +3,42 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## 2.5.0 (2026-11-23)
+
+Series memory, a journal for every book, a calmer AI chat, a new graph, designer themes, and sources that offer whole books.
+
+#### AI chat
+- **Answers are never read aloud by themselves.** Tap **Read aloud** under an answer to hear it. (Talk over the book keeps its own switch, now off unless you turn it on.)
+- **Leaving a chat no longer stops the answer.** It goes on and is kept; the chat list says **Answering…** until it is in.
+- **Follow-ups keep their thread:** "what did he do then?" is answered from the conversation, and a chat opened again remembers its last messages, not only a summary.
+- The AI's look-ups and its notes about you no longer switch off for the rest of the session after one refused request.
+- A daily token limit on a key now holds (the call that reached it used to clear it).
+
+#### Memory
+- **Series:** books whose memories are read together. Starting a memory asks whether the book carries on from another (the likely ones first); earlier books with no memory are built first. A series is one card in **Memory**, with **All books** (Who's who, the graph, chapters and threads across the books, a person met in several books one entry) or **Book 1, Book 2…** one at a time. Rename, add a book, take one out, or undo the series. AI chat can talk about a whole series.
+- **New memory** at the top of the Memory screen: pick a book and start.
+
+#### Graph
+- **Only the ones who matter most stand out**; the rest are fine points, on a dotted grid.
+- **Each group in its own colour** (or by kind, in the key), links blending between groups.
+- **Smooth to move and zoom**, with no wall at the edges; **All of it** shows the whole web.
+- The timeline and how many are shown float over the graph.
+
+#### Journal
+- **One card per book**, each the same size; a tap opens that book's journal, **every entry its own box**. The same novel from two sites is one book.
+- **Web novels have a journal** too, and any entry can be **about any chapter**: pick it from the book's list (nothing needs downloading).
+- From a book's page the journal opens at that book; **All books' journals** is a tap away. Find a book by its name.
+- The notebook's tabs shrink to fit many books, then scroll.
+
+#### Look
+- **Designer themes:** Library, Matcha, Rosewater, Slate, Dune, Midnight Ink, Plum and Maple, by day and by night, over the whole app; and the page tones **Vellum** and **Lamplight**.
+- **Sliders** with a track set into the page and a wide handle that lifts as you hold it.
+
+#### Books and sources
+- **Sources that offer whole books:** a source can now offer a book's EPUB or PDF to download into your library, with your sign-in to its site kept for that source. Signed out, it says so with **Sign in** a tap away. (Not in the Google Play version. TomeVoice provides no sources.)
+- **Add a catalogue** tries the address first and says plainly when it is a web page, not a catalogue; a catalogue that is down says so.
+- After reinstalling from the same Google account, Android now brings back your settings, catalogues, journal, chats, marks, stats and installed sources (not the books: restore your TomeVoice backup for those; keys and passwords are never backed up).
+
 ## 2.4.2 (2026-11-21)
 
 Book memories show again.

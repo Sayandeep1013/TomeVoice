@@ -1669,9 +1669,10 @@ class GraphPainter extends CustomPainter {
     var rankOf = 0;
     for (var i = 0; i < n; i++) {
       if (i == 0 || byWeight[i].weight != byWeight[i - 1].weight) rankOf = i;
-      final p = n <= 1 ? 0.0 : rankOf / (n - 1);
-      // Steeply: the top few in a hundred stand out, the rest are points.
-      final r = least + (8.5 - least) * math.pow(1 - p, 12);
+      // By place, not share: about a dozen stand out however many are
+      // shown (by share, a web of 1,800 still drew some fifty large), and
+      // the rest are fine points.
+      final r = least + (8.5 - least) * math.exp(-rankOf / 6);
       radius[byWeight[i].id] = byWeight[i].id == data.focus ? math.max(r, 7.0) : r;
     }
     // Each group its own colour, the biggest first; one alone, plain.
