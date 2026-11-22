@@ -1010,7 +1010,13 @@ class _ChapterSheetState extends State<_ChapterSheet> {
                       return ListTile(
                         selected: here,
                         title: Text(
-                          title.isEmpty || title == 'Chapter ${c.number}' ? 'Chapter ${c.number}' : '${c.number}. $title',
+                          title.isEmpty
+                              ? 'Chapter ${c.number}'
+                              // A title that says its number already is not
+                              // given it twice ("Chapter 12 The Fall").
+                              : RegExp('\\b${c.number}\\b').hasMatch(title)
+                                  ? title
+                                  : '${c.number}. $title',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
