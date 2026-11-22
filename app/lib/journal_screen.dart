@@ -457,10 +457,11 @@ class _BookJournalScreenState extends State<BookJournalScreen> {
                           decoration:
                               ink.tone.paperOf(context).copyWith(borderRadius: BorderRadius.circular(Radii.card / 1.5)),
                           child: Padding(
-                            padding: const EdgeInsets.all(Gap.s),
+                            padding: const EdgeInsets.all(Gap.xs),
                             child: JournalEntryCard(
                               entry: entries[i],
                               ink: ink,
+                              boxed: false,
                               onTap: () => unawaited(openJournalEntry(context, widget.store, entries[i])),
                               onHold: () => unawaited(removeJournalEntry(context, entries[i])),
                             ),

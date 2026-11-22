@@ -617,7 +617,12 @@ class _JournalPageState extends State<JournalPage> {
 /// when, the feeling as a sticker, the answers (or the page) in
 /// handwriting. A tap opens it to change; held, [onHold] (to remove it).
 class JournalEntryCard extends StatelessWidget {
-  const JournalEntryCard({super.key, required this.entry, required this.ink, this.onTap, this.onHold});
+  const JournalEntryCard(
+      {super.key, required this.entry, required this.ink, this.onTap, this.onHold, this.boxed = true});
+
+  /// Drawn as a box of its own (on a notebook page, among others); off
+  /// where its card is the box already.
+  final bool boxed;
 
   final JournalEntry entry;
   final NotebookInk ink;
@@ -634,10 +639,10 @@ class JournalEntryCard extends StatelessWidget {
     // next begins is plain, and each is tapped by itself.
     final box = BorderRadius.circular(12);
     return Material(
-      color: tone.ink!.withValues(alpha: tone.dark ? 0.06 : 0.035),
+      color: boxed ? tone.ink!.withValues(alpha: tone.dark ? 0.06 : 0.035) : Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: box,
-        side: BorderSide(color: tone.ink!.withValues(alpha: 0.16)),
+        side: boxed ? BorderSide(color: tone.ink!.withValues(alpha: 0.16)) : BorderSide.none,
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(

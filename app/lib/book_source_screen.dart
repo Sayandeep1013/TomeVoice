@@ -76,12 +76,17 @@ Future<LibraryEntry> addFromSource(
   }
 }
 
+/// The downloaded file's name: the book's own (as the source gave it), so
+/// a file with no title inside (a PDF, often) is not shelved under the
+/// site's file name; the extension from the site's name, else the format.
 String _fileName(String? given, SourceBook book, BookFile file) {
-  final safe = (given ?? '').replaceAll(RegExp(r'[\\/:*?"<>|]'), '').trim();
-  if (safe.isNotEmpty && safe.contains('.')) return safe;
-  final title = book.name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '').trim();
-  final ext = file.format == 'file' ? 'epub' : file.format;
-  return '${title.isEmpty ? 'book' : title}.$ext';
+  String clean(String t) => t.replaceAll(RegExp(r'[\\/:*?"<>|]'), '').trim();
+  final title = clean(book.name);
+  final named = clean(given ?? '');
+  final dot = named.lastIndexOf('.');
+  final ext = dot > 0 && dot < named.length - 1 ? named.substring(dot + 1) : (file.format == 'file' ? 'epub' : file.format);
+  if (title.isEmpty) return named.isNotEmpty && dot > 0 ? named : 'book.$ext';
+  return '$title.$ext';
 }
 
 /// A book from a book-file source: its cover, name, author and blurb, and a
