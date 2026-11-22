@@ -211,39 +211,6 @@ class _BookMemorySectionState extends State<BookMemorySection> {
   /// The books before this one in a series, picked from the books with a
   /// memory (several for an omnibus or a spin-off): what they remember
   /// carried over. None picked undoes it.
-  Future<void> _followOn() async {
-    final books = [
-      for (final b in await _service.booksWithMemory())
-        if (b.id != widget.bookId) b,
-    ]..sort((a, b) {
-        final s = (a.series ?? '').compareTo(b.series ?? '');
-        return s != 0 ? s : (a.seriesIndex ?? 0).compareTo(b.seriesIndex ?? 0);
-      });
-    final linked = {for (final f in await _service.followedBy(widget.bookId)) f.id};
-    if (!mounted) return;
-    if (books.isEmpty) {
-      showSnack(context, 'Build the memory of the book before this one first, then link them here.');
-      return;
-    }
-    final picked = await showModalBottomSheet<Set<String>>(
-      context: context,
-      sheetAnimationStyle: sheetMotion(context),
-      useSafeArea: true,
-      isScrollControlled: true,
-      builder: (ctx) => _FollowsSheet(books: books, linked: linked),
-    );
-    if (picked == null || !mounted) return;
-    final order = [for (final b in books) if (picked.contains(b.id)) b.id];
-    final n = await _service.followOnFromAll(widget.bookId, order);
-    if (mounted) {
-      showSnack(
-          context,
-          order.isEmpty
-              ? 'It no longer carries on from another book.'
-              : '$n people, places and things carried over. Building goes on from them.');
-    }
-  }
-
   Future<void> _forget() async {
     final sure = await confirm(context,
         title: 'Forget what it remembers?',
@@ -386,7 +353,7 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                   tooltip: 'More about the memory',
                   onSelected: (v) {
                     if (v == 'forget') unawaited(_forget());
-                    if (v == 'follows') unawaited(_followOn());
+                    if (v == 'follows') unawaited(carryOnFrom(context, widget.bookId, service: _service));
                     if (v == 'private') unawaited(_service.setPrivate(widget.bookId, !s.private));
                     if (v == 'read') unawaited(_readUpTo(s));
                   },
@@ -398,7 +365,7 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                             ? "I've read up to chapter…"
                             : "I've read up to chapter ${s.readUpTo! + 1}…"),
                       ),
-                      const PopupMenuItem(value: 'follows', child: Text('Carries on from another book…')),
+                      const PopupMenuItem(value: 'follows', child: Text('Add to a series…')),
                     ],
                     PopupMenuItem(
                       value: 'private',
@@ -426,7 +393,7 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                 key: ValueKey('follows ${s.entities} ${s.noted}'),
                 service: _service,
                 bookId: widget.bookId,
-                onChange: () => unawaited(_followOn()),
+                onChange: () => unawaited(carryOnFrom(context, widget.bookId, service: _service)),
               ),
             if (!s.private) ...[
               if (busy || left) ...[
@@ -642,7 +609,8 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
   void initState() {
     super.initState();
     SeriesStore.instance.changes.addListener(_load);
-    _load();
+    // Books linked the old way become series, once.
+    unawaited(seriesFromOldLinks().whenComplete(_load));
   }
 
   @override

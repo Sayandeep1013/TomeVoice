@@ -139,6 +139,60 @@ Future<void> startMemory(BuildContext context, String bookId, {MemoryService? se
   if (go == true) unawaited(memory.buildInOrder(queue));
 }
 
+/// A book's Memory menu > Add to a series…: the book just before it,
+/// picked as when a memory starts; the series made or joined, and the
+/// book's memory made to carry on from the books before it (their cast for
+/// building, Talk's look back). Null when nothing was picked.
+Future<void> carryOnFrom(BuildContext context, String bookId, {MemoryService? service}) async {
+  final memory = service ?? MemoryService.instance;
+  final store = memory.library;
+  if (store == null) return;
+  final all = [for (final e in await store.list()) if (!store.isSecret(e.id)) e];
+  final me = all.where((e) => e.id == bookId).firstOrNull;
+  if (me == null || all.length < 2 || !context.mounted) return;
+  final earlier = await showModalBottomSheet<_Carry>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    sheetAnimationStyle: sheetMotion(context),
+    useSafeArea: true,
+    builder: (_) => _CarriesOnSheet(book: me, books: all, store: store, fresh: 'Not part of a series'),
+  );
+  if (earlier == null || !context.mounted) return;
+  if (earlier.id == null) {
+    await SeriesStore.instance.remove(bookId);
+    if (MemoryDb.existsIn(store.bookDir(bookId))) await memory.followOnFromAll(bookId, const []);
+    if (context.mounted) showSnack(context, '${me.title} is in no series now. Its memory stays as it is.');
+    return;
+  }
+  final from = all.firstWhere((e) => e.id == earlier.id);
+  final name = SeriesStore.instance.ofBook(from.id)?.name ??
+      ((from.series?.trim().isNotEmpty ?? false) ? from.series!.trim() : from.title);
+  final series = await SeriesStore.instance.carryOn(bookId, earlier: from.id, name: name);
+  final before = [for (final b in series.before(bookId)) if (MemoryDb.existsIn(store.bookDir(b))) b];
+  if (MemoryDb.existsIn(store.bookDir(bookId)) && before.isNotEmpty) await memory.followOnFromAll(bookId, before);
+  if (context.mounted) showSnack(context, '${me.title} is now Book ${series.indexOf(bookId) + 1} of ${series.name}.');
+}
+
+/// Books linked the old way ("Carries on from another book", before series)
+/// made into series, once: each book after the ones it carried on from.
+Future<void> seriesFromOldLinks({MemoryService? service}) async {
+  final memory = service ?? MemoryService.instance;
+  for (final e in await memory.booksWithMemory()) {
+    if (SeriesStore.instance.ofBook(e.id) != null) continue;
+    final linked = await memory.followedBy(e.id);
+    if (linked.isEmpty) continue;
+    final name = (e.series?.trim().isNotEmpty ?? false) ? e.series!.trim() : linked.first.title;
+    // The chain first (each after the one before), then this book last.
+    for (var i = 1; i < linked.length; i++) {
+      if (SeriesStore.instance.ofBook(linked[i].id) == null) {
+        await SeriesStore.instance.carryOn(linked[i].id, earlier: linked[i - 1].id, name: name);
+      }
+    }
+    await SeriesStore.instance.carryOn(e.id, earlier: linked.last.id, name: name);
+  }
+}
+
 /// The Memory screen's New memory: which book. Every book of the library
 /// (not a shut secret shelf's), the latest read first, found by a search;
 /// those with a memory already marked.
@@ -175,8 +229,10 @@ class _Carry {
 /// same series in the library, an earlier number; then the same author),
 /// then every other book, found by a search; "No, it starts fresh" a tap.
 class _CarriesOnSheet extends StatelessWidget {
-  const _CarriesOnSheet({required this.book, required this.books, required this.store});
+  const _CarriesOnSheet({required this.book, required this.books, required this.store, this.fresh = 'No, it starts fresh'});
 
+  /// The words of the choice that it carries on from no book.
+  final String fresh;
   final LibraryEntry book;
   final List<LibraryEntry> books;
   final LibraryStore store;
@@ -213,7 +269,7 @@ class _CarriesOnSheet extends StatelessWidget {
       likely: likely,
       header: OutlinedButton(
         onPressed: () => Navigator.of(context).pop(const _Carry(null)),
-        child: const Text('No, it starts fresh'),
+        child: Text(fresh),
       ),
       onPick: (e) => Navigator.of(context).pop(_Carry(e.id)),
     );
