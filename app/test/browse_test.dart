@@ -407,6 +407,10 @@ void main() {
     ));
     await settle(tester, () => find.text('Chapter 4').evaluate().isNotEmpty);
 
+    // The page's journal and memory rows sit above the chapters: up to them.
+    await tester.drag(find.byType(CustomScrollView).first, const Offset(0, -400));
+    await tester.pumpAndSettle();
+
     await tester.longPress(find.text('Chapter 2'));
     await tester.pumpAndSettle();
     expect(find.text('1 selected'), findsOneWidget);

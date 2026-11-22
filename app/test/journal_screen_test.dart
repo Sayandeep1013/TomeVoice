@@ -114,6 +114,37 @@ void main() {
     await tester.pump(const Duration(seconds: 5));
   });
 
+  testWidgets("each book one card; a tap opens its journal, every entry whole, and the others a tap away", (tester) async {
+    await thought('m', 'Middlemarch', 3, 'Dorothea deserves better.', minutes: 5);
+    await thought('m', 'Middlemarch', 5, 'Lydgate chose badly.', minutes: 2);
+    await thought('p', 'Persuasion', 7, 'Anne waited long enough.');
+    await pump(tester, JournalScreen(store: store));
+    // Two books, two cards: Middlemarch's shows its latest entry alone.
+    expect(find.byKey(const ValueKey('journal m')), findsOneWidget);
+    expect(find.byKey(const ValueKey('journal p')), findsOneWidget);
+    expect(find.textContaining('Lydgate chose badly.'), findsOneWidget);
+    expect(find.textContaining('Dorothea deserves better.'), findsNothing);
+    expect(find.textContaining('2 entries'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('journal m')));
+    await tester.pumpAndSettle();
+    expect(find.byType(BookJournalScreen), findsOneWidget);
+    expect(find.text('Dorothea deserves better.'), findsOneWidget);
+    expect(find.text('Lydgate chose badly.'), findsOneWidget);
+    expect(find.text('Anne waited long enough.'), findsNothing);
+    expect(find.byTooltip('Export as Markdown'), findsOneWidget);
+    await tester.tap(find.text('All books’ journals'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('journal p')), findsOneWidget);
+    await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets("a book's journal with nothing in it: no export", (tester) async {
+    await thought('p', 'Persuasion', 7, 'Anne waited long enough.');
+    await pump(tester, BookJournalScreen(store: store, bookId: 'm', bookTitle: 'Middlemarch'));
+    expect(find.text('No journal for this book yet'), findsOneWidget);
+    expect(find.byTooltip('Export as Markdown'), findsNothing);
+  });
+
   testWidgets('empty, it says how to write', (tester) async {
     await pump(tester, JournalScreen(store: store));
     expect(find.text('No journal yet'), findsOneWidget);

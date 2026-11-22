@@ -506,16 +506,6 @@ class _NovelScreenState extends State<NovelScreen> {
   Future<void> _downloadOne(int chapter) => _downloadList([chapter], first: true);
 
   /// Whether chapter [i] shows as read: its own mark, or the place past it.
-  /// The novel's journal: its entries when it has some, else a new one.
-  Future<void> _journal(LibraryEntry e, {required bool written}) async {
-    if (written) {
-      await Navigator.of(context)
-          .push(MaterialPageRoute<void>(builder: (_) => JournalScreen(store: _store, bookId: _id)));
-      return;
-    }
-    await openJournal(context, bookId: _id, bookTitle: e.title, stampNow: _stampNow, chapters: _journalChapters());
-  }
-
   /// The novel's chapters, for the journal: each by the number it goes by.
   List<JournalChapter> _journalChapters() => [
         for (var i = 0; i < _chapters.length; i++)
@@ -707,6 +697,31 @@ class _NovelScreenState extends State<NovelScreen> {
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
           sliver: SliverToBoxAdapter(child: BookSavedSection(store: _store, entry: _entry!)),
+        ),
+      // The journal, as on a book's page: stamped with the chapter read up
+      // to, or any chapter of the list (none need be downloaded).
+      if (_entry != null)
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xl, Gap.page, 0),
+          sliver: SliverToBoxAdapter(
+            child: BookJournalSection(
+              bookId: _id,
+              bookTitle: _entry!.title,
+              stampNow: _stampNow,
+              chapters: _journalChapters,
+              onSeeAll: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => BookJournalScreen(
+                    store: _store,
+                    bookId: _id,
+                    bookTitle: _entry!.title,
+                    stampNow: _stampNow,
+                    chapters: _journalChapters,
+                  ),
+                ),
+              ),
+            ),
+          ),
         ),
       if (_entry != null)
         SliverPadding(
@@ -1200,33 +1215,10 @@ class _NovelScreenState extends State<NovelScreen> {
             label: const Text('Add to library'),
           )
         else
-          // The journal beside it, not as a section of its own: the chapters
-          // stay where they were. Stamped with the chapter read up to, or
-          // any chapter of the list (none need be downloaded).
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () => moveBook(context, _store, e),
-                  icon: Icon(Icons.library_add_check_rounded, size: 20, color: Skin.accentInkOf(context)),
-                  label: const Text('In your library', maxLines: 1, overflow: TextOverflow.ellipsis),
-                ),
-              ),
-              const SizedBox(width: Gap.m),
-              Expanded(
-                child: ValueListenableBuilder<int>(
-                  valueListenable: JournalStore.instance.changes,
-                  builder: (context, _, __) {
-                    final n = JournalStore.instance.forBook(_id).length;
-                    return OutlinedButton.icon(
-                      onPressed: () => unawaited(_journal(e, written: n > 0)),
-                      icon: const Icon(Icons.edit_note_rounded, size: 20),
-                      label: Text(n == 0 ? 'Journal' : 'Journal · $n', maxLines: 1, overflow: TextOverflow.ellipsis),
-                    );
-                  },
-                ),
-              ),
-            ],
+          OutlinedButton.icon(
+            onPressed: () => moveBook(context, _store, e),
+            icon: Icon(Icons.library_add_check_rounded, size: 20, color: Skin.accentInkOf(context)),
+            label: const Text('In your library'),
           ),
       ],
     );
