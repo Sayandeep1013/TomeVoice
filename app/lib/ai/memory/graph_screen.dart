@@ -212,7 +212,9 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
   /// onto each other (then as near as the spacing allows, a little closer
   /// than the layout's own, which still keeps them apart), the person in
   /// the middle, or the middle of it, in view.
-  Matrix4 _fitView(Size box) {
+  Matrix4 _fitView(Size whole) {
+    // The part of the area not under the controls.
+    final box = Size(whole.width, math.max(120.0, whole.height - _controlsRoom));
     final all = math.min(box.width / _size, box.height / _height);
     // The whole web and the map: truly all of it (most nodes are fine
     // points now, so they no longer crowd when it is seen whole).
@@ -591,7 +593,7 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
   }
 
   /// The "how many" slider: from the few that matter most now to everyone.
-  Widget _howMany(BuildContext context, GraphData? data) {
+  Widget _howMany(BuildContext context, GraphData? data, Color ground) {
     final steps = [
       for (final s in graphSteps)
         if (s < _choices) s,
@@ -604,6 +606,7 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
     final all = steps[at] >= _choices;
     return _ControlRow(
       title: 'How many',
+      ground: ground,
       value: [
         all ? 'Everyone ($_choices)' : 'The ${steps[at]} who matter most, of $_choices',
         if (forgotten > 0) '$forgotten forgotten',
@@ -623,23 +626,32 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
     );
   }
 
-  /// The timeline and how many are shown, together in one panel under the
-  /// graph: what each does named above its track, the tracks lined up.
-  Widget _controls(BuildContext context, GraphData? data) {
+  /// How much of the graph's foot the controls cover.
+  double get _controlsRoom {
+    if (_ball) return 0;
+    final rows = (_end > 0 ? 1 : 0) + (_choices > graphSteps.first ? 1 : 0);
+    if (rows == 0) return 0;
+    final inset = _picked == null ? MediaQuery.viewPaddingOf(context).bottom : 0.0;
+    return rows * 76.0 + Gap.s + inset;
+  }
+
+  /// The timeline and how many are shown, together at the graph's foot,
+  /// over it, with no ground of their own (the web shows through); what
+  /// each does named above its track, the tracks lined up, the words kept
+  /// legible over the links by a halo of the page's [ground].
+  Widget _controls(BuildContext context, GraphData? data, Color ground) {
     final timeline = _end > 0;
     final howMany = _choices > graphSteps.first;
     if (!timeline && !howMany) return const SizedBox.shrink();
-    return SafeArea(
-      top: false,
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(Gap.s, Gap.xs, Gap.s, Gap.s),
-        padding: const EdgeInsets.fromLTRB(Gap.l, Gap.xs, Gap.s, Gap.xs),
-        decoration: BoxDecoration(
-          color: Skin.capsuleOn(context),
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: SliderTheme(
-          data: SliderTheme.of(context).copyWith(padding: const EdgeInsets.fromLTRB(4, 2, 16, 8)),
+    final panel = Padding(
+      padding: const EdgeInsets.fromLTRB(Gap.l, 0, Gap.s, Gap.s),
+      child: SliderTheme(
+        data: SliderTheme.of(context).copyWith(padding: const EdgeInsets.fromLTRB(4, 2, 20, 8)),
+        child: DefaultTextStyle.merge(
+          style: TextStyle(shadows: [
+            for (final o in const [Offset(0, 0), Offset(1, 1), Offset(-1, -1)])
+              Shadow(color: ground, blurRadius: 6, offset: o),
+          ]),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -647,6 +659,7 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
               if (timeline)
                 _ControlRow(
                   title: 'Timeline',
+                  ground: ground,
                   value: _shownCh >= _end ? 'Up to chapter ${_end + 1}, all of it' : 'As of chapter ${_shownCh + 1} of ${_end + 1}',
                   action: IconButton(
                     tooltip: _playing == null ? 'Play the web growing' : 'Stop',
@@ -667,14 +680,15 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
                     },
                   ),
                 ),
-              if (timeline && howMany) Divider(height: Gap.s, color: Skin.outlineOn(context).withValues(alpha: 0.5)),
-              if (howMany) _howMany(context, data),
+              if (howMany) _howMany(context, data, ground),
             ],
           ),
         ),
       ),
     );
+    return _picked == null ? SafeArea(top: false, child: panel) : panel;
   }
+
 
 
   /// The web played growing, from the first chapter to the line, in about
@@ -948,14 +962,27 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
                                   child:
                                       SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
                                 ),
+                              // The timeline and how many, over the graph's foot
+                              // with no ground of their own: the web shows
+                              // through, and runs on under them.
+                              if (!_ball)
+                                Positioned(
+                                  left: 0,
+                                  right: 0,
+                                  bottom: 0,
+                                  child: _controls(context, data, ground),
+                                ),
                               if (!_ball)
                                 Positioned(
                                   right: Gap.s,
-                                  bottom: Gap.s,
-                                  child: _ZoomButtons(
+                                  top: 0,
+                                  bottom: _controlsRoom,
+                                  child: Center(
+                                    child: _ZoomButtons(
                                     onCloser: () => _zoom(1.6),
                                     onFurther: () => _zoom(1 / 1.6),
                                     onAll: () => _glideTo(_fitView(_box)),
+                                  ),
                                   ),
                                 ),
                               // The key, a tap away on the graph itself.
@@ -1004,7 +1031,7 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
                                 Positioned(
                                   left: 56,
                                   right: 56,
-                                  bottom: Gap.s,
+                                  bottom: _controlsRoom + Gap.s,
                                   child: Center(
                                     child: Chip(label: Text('Now tap who to link ${_nameOf(_picked) ?? ''} with')),
                                   ),
@@ -1013,7 +1040,6 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
                           ),
               ),
               if (_picked != null) _panel(context),
-              _controls(context, data),
             ],
           ),
         ),
@@ -2100,8 +2126,10 @@ class _Prep {
 /// One control under the graph: its name and what it is set to above, a
 /// button beside them if it has one, its track below.
 class _ControlRow extends StatelessWidget {
-  const _ControlRow({required this.title, required this.value, required this.slider, this.action});
+  const _ControlRow({required this.title, required this.value, required this.slider, required this.ground, this.action});
 
+  /// The page's ground, a halo round the words so they read over the links.
+  final Color ground;
   final String title;
   final String value;
   final Widget slider;
@@ -2114,13 +2142,15 @@ class _ControlRow extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text(title.toUpperCase(), style: Skin.meta(context, size: 10.5).copyWith(letterSpacing: 1.1)),
+              Text(title.toUpperCase(),
+                  style: Skin.meta(context, size: 10.5).copyWith(letterSpacing: 1.1, shadows: _halo(ground))),
               const SizedBox(width: Gap.s),
               Expanded(
                 child: Text(value,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: Skin.ui(size: 13, weight: FontWeight.w600, color: Skin.inkOn(context))),
+                    style: Skin.ui(size: 13, weight: FontWeight.w600, color: Skin.inkOn(context))
+                        .copyWith(shadows: _halo(ground))),
               ),
               if (action != null) action! else const SizedBox(height: 36),
             ],
@@ -2129,3 +2159,9 @@ class _ControlRow extends StatelessWidget {
         ],
       );
 }
+
+/// A soft halo of [ground] round words drawn over the graph.
+List<Shadow> _halo(Color ground) => [
+      for (final o in const [Offset(0, 0), Offset(1, 1), Offset(-1, -1), Offset(1, -1), Offset(-1, 1)])
+        Shadow(color: ground, blurRadius: 5, offset: o),
+    ];

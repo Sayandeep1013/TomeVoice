@@ -140,7 +140,7 @@ class _ChapterScrubberState extends State<ChapterScrubber> {
         data: SliderTheme.of(context).copyWith(
           inactiveTrackColor: Skin.onDark(context).withValues(alpha: 0.14),
           trackHeight: 4,
-          thumbShape: const PillThumbShape(width: 20, height: 12),
+          thumbShape: const PillThumbShape(width: 32, height: 14),
           overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
         ),
         child: TapBand(

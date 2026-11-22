@@ -64,7 +64,7 @@ class InsetTrackShape extends SliderTrackShape with BaseSliderTrackShape {
 /// A horizontal pill to pull, with two grip lines; it grows a little and
 /// lifts while held.
 class PillThumbShape extends SliderComponentShape {
-  const PillThumbShape({this.width = 26, this.height = 16});
+  const PillThumbShape({this.width = 40, this.height = 18});
 
   final double width;
   final double height;
@@ -120,7 +120,7 @@ class PillThumbShape extends SliderComponentShape {
       ..strokeWidth = 1.4
       ..strokeCap = StrokeCap.round
       ..color = (colour.computeLuminance() > 0.5 ? Colors.black : Colors.white).withValues(alpha: 0.45);
-    for (final dx in const [-2.5, 2.5]) {
+    for (final dx in const [-3.5, 0.0, 3.5]) {
       canvas.drawLine(center + Offset(dx, -h * 0.22), center + Offset(dx, h * 0.22), grip);
     }
   }
