@@ -247,7 +247,7 @@ class _JournalScreenState extends State<JournalScreen> {
         final id = ids[i];
         final entries = byBook[id]!;
         final shown = entries.take(2).toList();
-        final soft = ink.tone.inkSoft;
+        final soft = ink.tone.inkSoft ?? Skin.inkSoftOn(context);
         return Column(
           key: ValueKey('journal $id'),
           crossAxisAlignment: CrossAxisAlignment.stretch,
