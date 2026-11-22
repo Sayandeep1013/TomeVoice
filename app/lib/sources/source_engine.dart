@@ -261,6 +261,30 @@ class SourceEngine {
     return r;
   }
 
+  /// Whether source [p] offers whole book files (its parseBook) rather than
+  /// a novel's chapters. Book-file sources are for the GitHub build only.
+  Future<bool> offersBooks(PluginInfo p) async => (await _call(p, '__kind', const [])) == 'books';
+
+  /// A book's details and the files it comes as (a book-file source).
+  Future<SourceBook> book(PluginInfo p, String path) async {
+    final b = SourceBook.fromJs(await _call(p, 'parseBook', [path]), path: path);
+    if (b.files.isEmpty) throw SourceException('The source gave no file for this book.');
+    return b;
+  }
+
+  /// Where file [url] is downloaded from, and the headers it needs (a source
+  /// may turn a link into a signed one); the link as it is when the source
+  /// has nothing to add.
+  Future<({String url, Map<String, String> headers})> fileLink(PluginInfo p, String url) async {
+    final r = await _call(p, 'resolveFile', [url]);
+    if (r is String && r.isNotEmpty) return (url: r, headers: const <String, String>{});
+    final m = r is Map ? r : const {};
+    return (
+      url: '${m['url'] ?? url}',
+      headers: {for (final e in ((m['headers'] as Map?) ?? const {}).entries) '${e.key}': '${e.value}'},
+    );
+  }
+
   /// The web address of a novel or chapter path, for "Open in browser".
   Future<String> resolveUrl(PluginInfo p, String path, {bool novel = true}) async {
     final r = await _call(p, 'resolveUrl', [path, novel]);

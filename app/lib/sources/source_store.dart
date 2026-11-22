@@ -223,7 +223,7 @@ class SourceStore {
   bool _isHttps(String url) {
     final u = Uri.tryParse(url);
     if (u == null || u.host.isEmpty) return false;
-    return u.scheme == 'https' || (allowInsecure && u.scheme == 'http');
+    return u.scheme == 'https' || ((allowInsecure || testBuild) && u.scheme == 'http');
   }
 
   // ------------------------------------------------------------ repositories

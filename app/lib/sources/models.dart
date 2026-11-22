@@ -230,3 +230,71 @@ class SourceNovel {
     return s == null || s.isEmpty ? null : s;
   }
 }
+
+/// A file of a book a book-file source offers: its format (epub, pdf…), a
+/// label ("EPUB, 2.1 MB"), and where it is fetched from.
+class BookFile {
+  const BookFile({required this.url, required this.format, this.label, this.size});
+
+  final String url;
+  final String format;
+  final String? label;
+
+  /// In bytes, when the site says.
+  final int? size;
+
+  static BookFile? fromJs(Object? o) {
+    if (o is! Map) return null;
+    final url = '${o['url'] ?? ''}'.trim();
+    if (url.isEmpty) return null;
+    final format = '${o['format'] ?? ''}'.trim().toLowerCase();
+    return BookFile(
+      url: url,
+      format: format.isEmpty ? 'file' : format,
+      label: (o['label'] as String?)?.trim(),
+      size: (o['size'] as num?)?.toInt(),
+    );
+  }
+}
+
+/// A book from a book-file source (parseBook): its details and the files it
+/// comes as. Only in the GitHub build.
+class SourceBook {
+  const SourceBook({
+    required this.path,
+    required this.name,
+    this.cover,
+    this.author,
+    this.summary,
+    this.language,
+    this.year,
+    this.files = const [],
+  });
+
+  final String path;
+  final String name;
+  final String? cover;
+  final String? author;
+  final String? summary;
+  final String? language;
+  final String? year;
+  final List<BookFile> files;
+
+  static SourceBook fromJs(Object? o, {required String path}) {
+    final m = o is Map ? o : const {};
+    String? str(Object? v) => v == null || '$v'.trim().isEmpty ? null : '$v'.trim();
+    return SourceBook(
+      path: path,
+      name: str(m['name']) ?? 'A book',
+      cover: str(m['cover']),
+      author: str(m['author']),
+      summary: str(m['summary']),
+      language: str(m['language']),
+      year: str(m['year']),
+      files: [
+        for (final f in (m['files'] as List?) ?? const [])
+          if (BookFile.fromJs(f) case final f?) f,
+      ],
+    );
+  }
+}
