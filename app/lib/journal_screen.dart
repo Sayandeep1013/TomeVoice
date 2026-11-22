@@ -445,31 +445,27 @@ class _BookJournalScreenState extends State<BookJournalScreen> {
                                 'chapter you were at.'
                             : '',
                       )
-                    : ListView(
+                    // Each entry its own box, apart from the next: as many
+                    // boxes as entries, newest first, each opened by itself.
+                    : ListView.separated(
                         padding:
                             EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, 96 + MediaQuery.viewPaddingOf(context).bottom),
-                        children: [
-                          DecoratedBox(
-                            decoration: ink.tone
-                                .paperOf(context)
-                                .copyWith(borderRadius: BorderRadius.circular(Radii.card / 1.5)),
-                            child: Padding(
-                              padding: const EdgeInsets.fromLTRB(Gap.l, Gap.s, Gap.l, Gap.s),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  for (final e in entries)
-                                    JournalEntryCard(
-                                      entry: e,
-                                      ink: ink,
-                                      onTap: () => unawaited(openJournalEntry(context, widget.store, e)),
-                                      onHold: () => unawaited(removeJournalEntry(context, e)),
-                                    ),
-                                ],
-                              ),
+                        itemCount: entries.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: Gap.m),
+                        itemBuilder: (context, i) => DecoratedBox(
+                          key: ValueKey('entry ${entries[i].id}'),
+                          decoration:
+                              ink.tone.paperOf(context).copyWith(borderRadius: BorderRadius.circular(Radii.card / 1.5)),
+                          child: Padding(
+                            padding: const EdgeInsets.all(Gap.s),
+                            child: JournalEntryCard(
+                              entry: entries[i],
+                              ink: ink,
+                              onTap: () => unawaited(openJournalEntry(context, widget.store, entries[i])),
+                              onHold: () => unawaited(removeJournalEntry(context, entries[i])),
                             ),
                           ),
-                        ],
+                        ),
                       ),
               ),
             ],

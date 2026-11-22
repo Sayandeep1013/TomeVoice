@@ -280,12 +280,14 @@ class _NotebookPagesState extends State<NotebookPages> {
           SizedBox(
             width: _tabWidth + 6,
             child: LayoutBuilder(builder: (context, box) {
-              final room = box.maxHeight - Gap.l * 2;
+              // Clear of the Journal's round Write button at the foot.
+              final foot = widget.onWrite != null ? 96.0 : Gap.l;
+              final room = box.maxHeight - Gap.l - foot;
               final n = widget.pages.length;
               _tabHeight = n == 0 || !room.isFinite ? 46.0 : (room / n - 4).clamp(28.0, 46.0);
               return ListView.builder(
               controller: _tabs,
-              padding: const EdgeInsets.only(top: Gap.l, bottom: Gap.l),
+              padding: EdgeInsets.only(top: Gap.l, bottom: foot),
               itemCount: widget.pages.length,
               itemBuilder: (context, i) => _Tab(
                 number: i + 1,

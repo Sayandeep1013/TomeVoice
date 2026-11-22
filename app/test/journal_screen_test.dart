@@ -130,6 +130,10 @@ void main() {
     expect(find.byType(BookJournalScreen), findsOneWidget);
     expect(find.text('Dorothea deserves better.'), findsOneWidget);
     expect(find.text('Lydgate chose badly.'), findsOneWidget);
+    // Two entries, two boxes apart, each opened by itself.
+    final first = tester.getRect(find.byKey(const ValueKey('entry m5')));
+    final second = tester.getRect(find.byKey(const ValueKey('entry m3')));
+    expect(second.top, greaterThan(first.bottom));
     expect(find.text('Anne waited long enough.'), findsNothing);
     expect(find.byTooltip('Export as Markdown'), findsOneWidget);
     await tester.tap(find.text('All books’ journals'));

@@ -125,7 +125,7 @@ class _SeriesMemoryScreenState extends State<SeriesMemoryScreen> {
     if (!mounted) return;
     final title = _series?.name ?? '';
     final Widget page = switch (what) {
-      'who' => WhosWhoScreen(bookTitle: title, memoryPath: path, line: line, mayTidy: false),
+      'who' => WhosWhoScreen(bookTitle: title, memoryPath: path, line: line, readOnly: true),
       'graph' => MemoryGraphScreen(bookTitle: title, memoryPath: path, line: line, here: line),
       'chapters' => ChapterNotesScreen(bookTitle: title, memoryPath: path, line: line),
       _ => ThreadsScreen(memoryPath: path, line: line),

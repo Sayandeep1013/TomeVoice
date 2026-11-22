@@ -630,12 +630,21 @@ class JournalEntryCard extends StatelessWidget {
     final soft = tone.inkSoft!;
     final feeling = entry.feeling;
     final shown = entry.isPage ? const <JournalAnswer>[] : [for (final a in entry.answers) if (a.text.trim().isNotEmpty) a];
-    return InkWell(
-      borderRadius: BorderRadius.circular(6),
+    // Each entry a box of its own on the paper: where one ends and the
+    // next begins is plain, and each is tapped by itself.
+    final box = BorderRadius.circular(12);
+    return Material(
+      color: tone.ink!.withValues(alpha: tone.dark ? 0.06 : 0.035),
+      shape: RoundedRectangleBorder(
+        borderRadius: box,
+        side: BorderSide(color: tone.ink!.withValues(alpha: 0.16)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
       onTap: onTap,
       onLongPress: onHold,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: Gap.s, horizontal: 2),
+        padding: const EdgeInsets.fromLTRB(Gap.m, Gap.s, Gap.m, Gap.s),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -684,6 +693,7 @@ class JournalEntryCard extends StatelessWidget {
               ],
           ],
         ),
+      ),
       ),
     );
   }

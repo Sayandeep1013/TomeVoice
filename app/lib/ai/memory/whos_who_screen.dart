@@ -20,7 +20,17 @@ import 'memory_db.dart';
 /// tidy the names of all.
 class WhosWhoScreen extends StatefulWidget {
   const WhosWhoScreen(
-      {super.key, required this.bookTitle, required this.memoryPath, this.line, this.mayTidy = false});
+      {super.key,
+      required this.bookTitle,
+      required this.memoryPath,
+      this.line,
+      this.mayTidy = false,
+      this.readOnly = false});
+
+  /// Looked at, not changed: a series read as one is made again from its
+  /// books, so a rename or a join there would not last (each book's own
+  /// Who's who is where they are made).
+  final bool readOnly;
 
   final String bookTitle;
   final String memoryPath;
@@ -285,7 +295,7 @@ class _WhosWhoScreenState extends State<WhosWhoScreen> {
                 padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
                 child: Text(
                   '${widget.bookTitle}${widget.line == null ? '' : ' · as of chapter ${widget.line! + 1}'}'
-                  '\nTap a name for its card · hold it to rename, or to join two',
+                  '${widget.readOnly ? '\nTap a name for its card · rename or join in a book\'s own Who\'s who' : '\nTap a name for its card · hold it to rename, or to join two'}',
                   style: Skin.meta(context),
                 ),
               ),
@@ -312,7 +322,7 @@ class _WhosWhoScreenState extends State<WhosWhoScreen> {
                   ],
                 ),
               ),
-              if (_proposed.isNotEmpty)
+              if (_proposed.isNotEmpty && !widget.readOnly)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(Gap.page - Gap.s, Gap.xs, Gap.page, 0),
                   child: Align(
@@ -371,7 +381,7 @@ class _WhosWhoScreenState extends State<WhosWhoScreen> {
                                   ],
                                 ),
                                 onTap: () => unawaited(_open(e)),
-                                onLongPress: () => unawaited(_edit(e)),
+                                onLongPress: widget.readOnly ? null : () => unawaited(_edit(e)),
                               );
                             },
                           ),
