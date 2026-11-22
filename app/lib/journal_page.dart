@@ -745,7 +745,7 @@ class BookJournalSection extends StatelessWidget {
               ? 'Write how the book makes you feel, as you read'
               : '${entries.length} ${entries.length == 1 ? 'entry' : 'entries'} · '
                   '${latest.isTalk ? 'a talk' : 'thoughts'} ${latest.stamp.label}, ${savedWhen(latest.created)}';
-          final words = latest?.words.replaceAll(RegExp(r'\n\s*\n+'), '\n').trim() ?? '';
+          final words = latest?.words.replaceAll(RegExp(r'\s*\n\s*'), ' · ').trim() ?? '';
           return Material(
             color: Skin.capsuleOn(context),
             borderRadius: BorderRadius.circular(Radii.row + 4),
@@ -764,15 +764,21 @@ class BookJournalSection extends StatelessWidget {
                         children: [
                           Text('Journal', style: Skin.ui(size: 16, weight: FontWeight.w600, color: Skin.inkOn(context))),
                           const SizedBox(height: 2),
-                          Text(line, maxLines: 2, overflow: TextOverflow.ellipsis, style: Skin.meta(context)),
+                          Text(line, maxLines: 1, overflow: TextOverflow.ellipsis, style: Skin.meta(context)),
+                          // Always two lines high, cut with "…": the row is
+                          // the same size however much was written.
                           if (words.isNotEmpty)
                             Padding(
                               padding: const EdgeInsets.only(top: 2),
-                              child: Text(
-                                words,
-                                maxLines: 3,
-                                overflow: TextOverflow.ellipsis,
-                                style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkSoftOn(context)),
+                              child: SizedBox(
+                                height: 13.5 * 1.3 * 2,
+                                child: Text(
+                                  words,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkSoftOn(context))
+                                      .copyWith(height: 1.3),
+                                ),
                               ),
                             ),
                         ],

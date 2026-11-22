@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -16,8 +17,9 @@ import 'ui.dart';
 
 /// The reading journal, apart from Saved: what was thought about each book,
 /// as a list (the first look) or as a notebook, a page a book, newest book
-/// first. With [bookId], it opens on that book's (from its page), and a row
-/// of books above lets the reader move to another's, or to all of them.
+/// first. With [bookId] (opened from a book's page) it is the same whole
+/// journal, opened at that book: the notebook at its page, the list at its
+/// card; every other book's a page turn or a scroll away.
 class JournalScreen extends StatefulWidget {
   const JournalScreen({super.key, required this.store, this.bookId, this.onlyTalks = false});
 
@@ -38,9 +40,13 @@ class _JournalScreenState extends State<JournalScreen> {
   bool _loaded = false;
   String _query = '';
 
-  /// The book whose entries show (null: every book's); it starts as the
-  /// book the journal was opened from.
-  late String? _book = widget.bookId;
+  /// Each book's card in the list is the same height, so the list can
+  /// open at the book it came from.
+  static const _cardHeight = 268.0;
+
+  /// A book whose "All entries" was tapped in the list: the notebook opens
+  /// at its page.
+  String? _openAtBook;
 
   /// Which entries show: all, the reader's own writing, or talks with the
   /// AI companion.
@@ -87,7 +93,7 @@ class _JournalScreenState extends State<JournalScreen> {
   /// A new entry: about [bookId] when given (a page's or a list's Write),
   /// else about the book picked.
   Future<void> _write([String? bookId]) async {
-    final id = bookId ?? _book;
+    final id = bookId ?? widget.bookId;
     final book = id == null ? await pickBookToWrite(context, widget.store) : _books[id];
     if (!mounted) return;
     if (book == null) {
@@ -115,18 +121,12 @@ class _JournalScreenState extends State<JournalScreen> {
     final q = _query.trim().toLowerCase();
     // Not a book's on a shut secret shelf (in the library, but not on the
     // shelves shown); a book no longer in the library keeps its thoughts.
-    final every = !_loaded
+    final mine = !_loaded
         ? const <JournalEntry>[]
         : [
             for (final e in _journal.all)
               if (_books.containsKey(e.bookId) || !_present.contains(e.bookId)) e,
           ];
-    final mine = [for (final e in every) if (_book == null || e.bookId == _book) e];
-    // The books with entries, the one opened from first, then the latest.
-    final withEntries = <String, String>{
-      if (widget.bookId != null && _books[widget.bookId] != null) widget.bookId!: _books[widget.bookId]!.title,
-      for (final e in every) e.bookId: _books[e.bookId]?.title ?? e.bookTitle,
-    };
     final talks = mine.any((e) => e.isTalk);
     final shown = talks ? _shown : _Shown.all;
     final thoughts = [
@@ -139,6 +139,10 @@ class _JournalScreenState extends State<JournalScreen> {
     for (final e in thoughts) {
       byBook.putIfAbsent(e.bookId, () => []).add(e);
     }
+    final byBookAll = {for (final e in mine) e.bookId};
+    // Where it opens: at the book it was opened from.
+    final at = _openAtBook ?? widget.bookId;
+    final openAt = at == null ? 0 : math.max(0, byBook.keys.toList().indexOf(at));
     return Scaffold(
       floatingActionButton: !_loaded
           ? null
@@ -165,35 +169,11 @@ class _JournalScreenState extends State<JournalScreen> {
                     ),
                     Padding(
                       padding: const EdgeInsets.only(right: Gap.s),
-                      child: ExportQuotesButton(store: widget.store, bookId: _book, journal: true),
+                      child: ExportQuotesButton(store: widget.store, journal: true),
                     ),
                   ],
                 ],
               ),
-              // Which book's entries: all, or one; from a book's page, that
-              // book's at first, the others a tap away.
-              if (withEntries.length > 1 || (_book != null && withEntries.isNotEmpty))
-                SizedBox(
-                  height: 48,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
-                    children: [
-                      for (final (id, title) in [(null, 'All books'), ...withEntries.entries.map((e) => (e.key, e.value))])
-                        Padding(
-                          padding: const EdgeInsets.only(right: Gap.s),
-                          child: ChoiceChip(
-                            label: ConstrainedBox(
-                              constraints: const BoxConstraints(maxWidth: 200),
-                              child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                            ),
-                            selected: _book == id,
-                            onSelected: (_) => setState(() => _book = id),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
               if (talks)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.m),
@@ -203,10 +183,13 @@ class _JournalScreenState extends State<JournalScreen> {
                     onChanged: (v) => setState(() => _shown = v),
                   ),
                 ),
-              if (mine.length > 6 && !_notebook)
+              // A book found by its name (or by words written about it),
+              // rather than a row of every book's name.
+              if (byBookAll.length > 1)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.m),
-                  child: SearchField(hint: 'Search your journal', onChanged: (v) => setState(() => _query = v)),
+                  child: SearchField(
+                      hint: 'Find a book, or words you wrote', onChanged: (v) => setState(() => _query = v)),
                 ),
               Expanded(
                 child: FadeIn(
@@ -235,8 +218,9 @@ class _JournalScreenState extends State<JournalScreen> {
                           onJournal: (e) => unawaited(_edit(e)),
                           onJournalHold: (e) => unawaited(removeJournalEntry(context, e)),
                           onWrite: (id) => unawaited(_write(id)),
+                          initialPage: openAt,
                         )
-                      : _list(context, byBook),
+                      : _list(context, byBook, openAt),
                 ),
               ),
             ],
@@ -246,52 +230,107 @@ class _JournalScreenState extends State<JournalScreen> {
     );
   }
 
-  /// Each book's entries on a strip of the notebook's paper.
-  Widget _list(BuildContext context, Map<String, List<JournalEntry>> byBook) {
+  /// Each book a card of the same height on the notebook's paper: its
+  /// latest entries, cut with "…" (a tap opens one whole), and how many more
+  /// there are (a tap opens the book's page of the notebook).
+  Widget _list(BuildContext context, Map<String, List<JournalEntry>> byBook, int openAt) {
     final ink = NotebookInk.of(context);
-    return ListView(
-      // Room under the last entry for the Write button.
+    final ids = byBook.keys.toList();
+    return ListView.builder(
+      key: ValueKey('journal list $openAt ${ids.length}'),
+      controller: ScrollController(initialScrollOffset: openAt * _cardHeight),
+      itemExtent: _cardHeight,
+      // Room under the last card for the Write button.
       padding: EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, 96 + MediaQuery.viewPaddingOf(context).bottom),
-      children: [
-        for (final MapEntry(key: id, value: entries) in byBook.entries) ...[
-          Padding(
-            padding: const EdgeInsets.only(top: Gap.l, bottom: Gap.s),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(_books[id]?.title ?? entries.first.bookTitle,
-                      maxLines: 1, overflow: TextOverflow.ellipsis, style: Skin.title(context, size: 17)),
-                ),
-                if (_books.containsKey(id))
-                  TextButton.icon(
-                    onPressed: () => unawaited(_write(id)),
-                    icon: const Icon(Icons.edit_outlined, size: 18),
-                    label: const Text('Write'),
-                  ),
-              ],
-            ),
-          ),
-          DecoratedBox(
-            key: ValueKey('journal $id'),
-            decoration: ink.tone.paperOf(context).copyWith(borderRadius: BorderRadius.circular(Radii.card / 1.5)),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(Gap.l, Gap.s, Gap.l, Gap.s),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+      itemCount: ids.length,
+      itemBuilder: (context, i) {
+        final id = ids[i];
+        final entries = byBook[id]!;
+        final shown = entries.take(2).toList();
+        final soft = ink.tone.inkSoft;
+        return Column(
+          key: ValueKey('journal $id'),
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              height: 52,
+              child: Row(
                 children: [
-                  for (final e in entries)
-                    JournalEntryCard(
-                      entry: e,
-                      ink: ink,
-                      onTap: () => unawaited(_edit(e)),
-                      onHold: () => unawaited(removeJournalEntry(context, e)),
+                  Expanded(
+                    child: Text(_books[id]?.title ?? entries.first.bookTitle,
+                        maxLines: 1, overflow: TextOverflow.ellipsis, style: Skin.title(context, size: 17)),
+                  ),
+                  if (_books.containsKey(id))
+                    TextButton.icon(
+                      onPressed: () => unawaited(_write(id)),
+                      icon: const Icon(Icons.edit_outlined, size: 18),
+                      label: const Text('Write'),
                     ),
                 ],
               ),
             ),
-          ),
-        ],
-      ],
+            Expanded(
+              child: Material(
+                color: Colors.transparent,
+                child: Ink(
+                  decoration:
+                      ink.tone.paperOf(context).copyWith(borderRadius: BorderRadius.circular(Radii.card / 1.5)),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(Gap.l, Gap.s, Gap.l, Gap.xs),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (final e in shown)
+                          InkWell(
+                            onTap: () => unawaited(_edit(e)),
+                            onLongPress: () => unawaited(removeJournalEntry(context, e)),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    [
+                                      '${e.isTalk ? 'A talk' : 'Thoughts'} ${e.stamp.label}',
+                                      savedWhen(e.created),
+                                      if (e.feeling != null) e.feeling!,
+                                    ].join(' · '),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: handwriting(16, soft, weight: FontWeight.w600),
+                                  ),
+                                  Text(
+                                    e.words.replaceAll(RegExp(r'\s*\n\s*'), ' · ').trim(),
+                                    maxLines: shown.length == 1 ? 4 : 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: handwriting(19, ink.pen).copyWith(height: 1.15),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        const Spacer(),
+                        if (entries.length > shown.length)
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton(
+                              onPressed: () {
+                                _openAtBook = id;
+                                _setNotebook(true);
+                              },
+                              child: Text('All ${entries.length} entries'),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: Gap.m),
+          ],
+        );
+      },
     );
   }
 }

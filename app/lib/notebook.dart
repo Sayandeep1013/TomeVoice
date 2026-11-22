@@ -29,7 +29,11 @@ class NotebookPages extends StatefulWidget {
     this.onJournal,
     this.onJournalHold,
     this.onWrite,
+    this.initialPage = 0,
   });
+
+  /// The page it opens at (the book the journal was opened from).
+  final int initialPage;
 
   /// Write a new entry for the book of a page (the Journal's own pages).
   final void Function(String bookId)? onWrite;
@@ -150,9 +154,16 @@ TextStyle handwriting(double size, Color color, {FontWeight weight = FontWeight.
     TextStyle(fontFamily: 'Caveat', fontSize: size, height: 1.15, color: color, fontWeight: weight);
 
 class _NotebookPagesState extends State<NotebookPages> {
-  late final PageController _pages = PageController();
+  late final PageController _pages = PageController(initialPage: _at);
   final _tabs = ScrollController();
-  int _at = 0;
+  late int _at = widget.initialPage.clamp(0, math.max(0, widget.pages.length - 1));
+
+  @override
+  void initState() {
+    super.initState();
+    // Opened at a book's page: its tab brought into view among the others.
+    if (_at > 0) WidgetsBinding.instance.addPostFrameCallback((_) => mounted ? _turned(_at) : null);
+  }
 
   static const _tabWidth = 30.0;
   static const _tabHeight = 46.0;
