@@ -296,6 +296,13 @@ class ChatStore {
                   if (ReaderNote.fromJson(n) case final n?) n,
               ];
             } else if (Chat.fromJson(raw) case final c?) {
+              // An answer the app was closed in the middle of: said so,
+              // not left waiting for ever.
+              for (final m in c.messages) {
+                if (!m.mine && m.text.trim().isEmpty && m.error == null && !m.held) {
+                  m.error = 'Not finished: TomeVoice was closed while it answered. Ask again.';
+                }
+              }
               _chats[c.id] = c;
             }
           } on Object {

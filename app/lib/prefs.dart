@@ -72,7 +72,7 @@ class ListeningPrefs {
     this.journalAsk = false,
     this.journalInterview = false,
     this.moreVoices = false,
-    this.aiSpeak = true,
+    this.aiSpeak = false,
     this.aiRecapDays = 3,
     this.aiLength = 'normal',
     this.aiOwnKnowledge = false,
@@ -389,7 +389,10 @@ class ListeningPrefs {
   /// for non-commercial use only, or whose licence is not stated.
   bool moreVoices;
 
-  /// Talk's answers said aloud in the reading voice (on unless turned off).
+  /// Talk's answers said aloud in the reading voice as they come (off
+  /// unless turned on, since 22 Nov 2026: it broke into the book being
+  /// read, and caught the reader off guard). AI chat never does: an
+  /// answer there is read only when Read aloud is tapped.
   bool aiSpeak;
 
   /// Days away from a book after which opening it offers "Previously…"
@@ -604,7 +607,7 @@ class ListeningPrefs {
         'journalAsk': journalAsk,
         if (journalInterview) 'journalInterview': true,
         if (moreVoices) 'moreVoices': true,
-        'aiSpeak': aiSpeak,
+        if (aiSpeak) 'talkAloud': true,
         'aiRecapDays': aiRecapDays,
         'aiLength': aiLength,
         'aiOwnKnowledge': aiOwnKnowledge,
@@ -720,7 +723,7 @@ class ListeningPrefs {
         journalAsk: json['journalAsk'] as bool? ?? false,
         journalInterview: json['journalInterview'] == true,
         moreVoices: json['moreVoices'] == true,
-        aiSpeak: json['aiSpeak'] as bool? ?? true,
+        aiSpeak: json['talkAloud'] == true,
         aiRecapDays: (json['aiRecapDays'] as num?)?.toInt() ?? 3,
         aiLength: json['aiLength'] as String? ?? 'normal',
         aiOwnKnowledge: json['aiOwnKnowledge'] as bool? ?? false,

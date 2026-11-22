@@ -16,6 +16,7 @@ import 'package:tomevoice_spike/ai/ai_router.dart';
 import 'package:tomevoice_spike/ai/ai_screen.dart';
 import 'package:tomevoice_spike/ai/chat/chat_engine.dart';
 import 'package:tomevoice_spike/ai/chat/chat_links.dart';
+import 'package:tomevoice_spike/ai/chat/chat_runner.dart';
 import 'package:tomevoice_spike/ai/chat/chat_store.dart';
 import 'package:tomevoice_spike/ai/chat/chat_tools.dart';
 import 'package:tomevoice_spike/ai/memory/chapter_notes.dart';
@@ -253,6 +254,13 @@ void main() {
       server.listen((req) async {
         sent.add((jsonDecode(await utf8.decoder.bind(req).join()) as Map).cast<String, Object?>());
         final r = replies.removeAt(0);
+        if (r is _Status) {
+          req.response.statusCode = r.code;
+          req.response.headers.contentType = ContentType.json;
+          req.response.write(jsonEncode({'error': {'message': r.message}}));
+          await req.response.close();
+          return;
+        }
         req.response.headers.contentType = ContentType.json;
         req.response.write(jsonEncode(r));
         await req.response.close();
@@ -348,6 +356,72 @@ void main() {
       // The summary call went to the Building key's model.
       expect(sent.single['model'], 'lite');
     });
+
+    test('a chat taken up again sends its last messages as they were, not only the summary', () async {
+      final chat = ChatStore.instance.start(const []);
+      for (var i = 0; i < 3; i++) {
+        chat.messages
+          ..add(ChatMessage(mine: true, text: 'Question $i'))
+          ..add(ChatMessage(mine: false, text: 'Answer $i'));
+      }
+      // Left with a summary of the whole chat, as leaving the screen makes.
+      chat
+        ..summary = 'They talked.'
+        ..summarisedAt = chat.messages.length;
+      chat.messages.add(ChatMessage(mine: true, text: 'And why did he do that?'));
+      final reply = ChatMessage(mine: false, text: '');
+      chat.messages.add(reply);
+      replies.add(said('Because of the Spell.'));
+      final engine = ChatEngine(chat: chat, books: const {}, router: AiRouter(client: client, pause: Duration.zero), stream: false);
+      await engine.answer(ChatProgress(reply), onChange: () {});
+      final sentText = [for (final m in sent.single['messages'] as List) (m as Map)['content']];
+      expect(sentText, containsAll(['Question 0', 'Answer 0', 'Question 2', 'Answer 2']));
+      // The summary is not sent in place of messages that go whole.
+      expect(sentText.where((t) => '$t'.contains('They talked.')), isEmpty);
+      expect(reply.text, 'Because of the Spell.');
+    });
+
+    test('a request turned down for another reason does not switch the tools off for later answers', () async {
+      final chat = ChatStore.instance.start(const [])..messages.add(ChatMessage(mine: true, text: 'Hello'));
+      final reply = ChatMessage(mine: false, text: '');
+      chat.messages.add(reply);
+      replies
+        ..add(const _Status(400, 'The prompt is too long'))
+        ..add(said('Hi.'));
+      final engine = ChatEngine(chat: chat, books: const {}, router: AiRouter(client: client, pause: Duration.zero), stream: false);
+      await engine.answer(ChatProgress(reply), onChange: () {});
+      expect(reply.text, 'Hi.');
+      expect(sent[0]['tools'], isNotNull);
+      expect(sent[1]['tools'], isNull);
+      // The next answer has its tools again.
+      chat.messages.add(ChatMessage(mine: true, text: 'Who is Sunny?'));
+      final next = ChatMessage(mine: false, text: '');
+      chat.messages.add(next);
+      replies.add(said('A Sleeper.'));
+      await engine.answer(ChatProgress(next), onChange: () {});
+      expect(sent[2]['tools'], isNotNull);
+      expect(saysNoTools('This model does not support tools'), isTrue);
+      expect(saysNoTools('The prompt is too long'), isFalse);
+    });
+
+    test('an answer goes on and is kept when its screen is left', () async {
+      final chat = ChatStore.instance.start(const []);
+      replies.add(said('Here it is.'));
+      final engine = ChatEngine(chat: chat, books: const {}, router: AiRouter(client: client, pause: Duration.zero), stream: false);
+      final asked = ChatRunner.instance.ask(chat, 'Tell me something', engine);
+      // At once: the chat is kept with the question, and is answering.
+      expect(ChatRunner.instance.busy(chat.id), isTrue);
+      expect(chat.title, 'Tell me something');
+      await asked;
+      expect(ChatRunner.instance.busy(chat.id), isFalse);
+      expect(ChatStore.instance.byId(chat.id)!.messages.last.text, 'Here it is.');
+    });
+  });
+
+  test('Talk answers aloud is off unless turned on, whatever an older version saved', () {
+    expect(ListeningPrefs.fromJson(const {'aiSpeak': true}).aiSpeak, isFalse);
+    final on = ListeningPrefs.fromJson(const {})..aiSpeak = true;
+    expect(ListeningPrefs.fromJson(on.toJson()).aiSpeak, isTrue);
   });
 
   testWidgets('AI chat with no key points to its settings; the gear opens AI settings', (tester) async {
@@ -407,4 +481,12 @@ void main() {
     expect(chatTitleFrom('  What   happened to the Weaver in the dark city, and why did it matter so much?'),
         hasLength(lessThanOrEqualTo(29)));
   });
+}
+
+/// A refusal from the provider: [code] with [message].
+class _Status {
+  const _Status(this.code, this.message);
+
+  final int code;
+  final String message;
 }

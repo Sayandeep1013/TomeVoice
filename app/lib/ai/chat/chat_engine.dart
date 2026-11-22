@@ -113,6 +113,9 @@ class ChatEngine {
           '${useJournal ? ', search_journal for what the reader wrote' : ''}'
           '${usePast ? ', search_past_chats when they refer to an earlier talk' : ''}. '
           'Do not call a tool for small talk.',
+      'This is one conversation: a follow-up ("and then?", "why did he do that?", "what about her?") means '
+          'the people and events of the messages before it. Work out who and what from the conversation, and '
+          'look up what you need with the tools.',
       if (mayRemember)
         'When the reader tells you something lasting about themselves (a taste, an opinion of a book, how they '
             'like answers), keep it with the remember tool, briefly, without making a fuss of it.',
@@ -201,9 +204,12 @@ class ChatEngine {
   List<Map<String, Object?>> _history() {
     // Up to the question being asked, which is sent apart.
     final upTo = chat.messages.lastIndexWhere((m) => m.mine).clamp(0, chat.messages.length);
-    final from = (upTo - keptVerbatim).clamp(chat.summarisedAt.clamp(0, upTo), upTo);
+    // The last few always go as they were, even when the summary (made as
+    // a chat is left) covers them too: a summary alone lost the thread of
+    // a chat taken up again.
+    final from = (upTo - keptVerbatim).clamp(0, upTo);
     return [
-      if (chat.summary != null && chat.summary!.trim().isNotEmpty)
+      if (from > 0 && chat.summary != null && chat.summary!.trim().isNotEmpty)
         aiMessage('system', 'Earlier in this chat (summary): ${chat.summary}'),
       for (final m in chat.messages.sublist(from, upTo))
         if (m.error == null && !m.held && m.text.trim().isNotEmpty) aiMessage(m.mine ? 'user' : 'assistant', m.text),
@@ -216,7 +222,9 @@ class ChatEngine {
     final reply = p.message;
     final question = chat.messages.lastWhere((m) => m.mine).text;
     final sources = <int, ChatSource>{};
-    final material = await _pack(question, sources);
+    // A follow-up ("what did he do then?") names little: the material is
+    // looked for with the question before it too.
+    final material = await _pack(_lookFor(question), sources);
     final messages = [
       aiMessage('system', _system()),
       ..._history(),
@@ -239,9 +247,12 @@ class ChatEngine {
           onChange();
         });
       } on AiResting catch (e) {
-        // A provider that turns tools down: once more without them.
+        // Turned down with tools: once more without them, for this answer.
+        // Only a provider that says it takes no tools is asked without
+        // them from then on; any other refusal (too long, a bad message)
+        // once switched the tools off until the app was restarted.
         if (tools && e.last?.kind == AiFailure.request) {
-          if (key != null) _noTools.add(key.id);
+          if (key != null && saysNoTools(e.last!.message)) _noTools.add(key.id);
           tools = false;
           reply.text = '';
           continue;
@@ -286,6 +297,14 @@ class ChatEngine {
         }
       }
     }
+  }
+
+  /// What the material for [question] is looked for with: the question
+  /// itself, and the reader's question before it, when there is one.
+  String _lookFor(String question) {
+    final mine = [for (final m in chat.messages) if (m.mine && m.text.trim().isNotEmpty) m.text.trim()];
+    if (mine.length < 2) return question;
+    return '$question ${mine[mine.length - 2]}';
   }
 
   /// One tool's answer, as the model reads it.
@@ -381,4 +400,10 @@ String chatTitleFrom(String question) {
   if (t.isEmpty) return 'New chat';
   // Short enough for one line of the title bar.
   return t.length <= 30 ? t : '${t.substring(0, 28).trimRight()}…';
+}
+
+/// Whether a provider's refusal says it does not take tools at all.
+bool saysNoTools(String message) {
+  final m = message.toLowerCase();
+  return m.contains('tool') || m.contains('function');
 }
