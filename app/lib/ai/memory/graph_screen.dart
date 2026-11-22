@@ -214,7 +214,9 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
   /// the middle, or the middle of it, in view.
   Matrix4 _fitView(Size box) {
     final all = math.min(box.width / _size, box.height / _height);
-    final s = _depth == GraphDepth.map ? all : math.max(all, 0.7 / canvasPerDp);
+    // The whole web and the map: truly all of it (most nodes are fine
+    // points now, so they no longer crowd when it is seen whole).
+    final s = _depth == GraphDepth.map || _depth == GraphDepth.all ? all : math.max(all, 0.7 / canvasPerDp);
     return _viewAt(_middle(), s, box.center(Offset.zero));
   }
 
