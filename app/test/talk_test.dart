@@ -425,16 +425,16 @@ void main() {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
         await tester.pump();
       }
-      expect(find.text('My own words about it.'), findsOneWidget);
-      expect(find.text('The heroine.'), findsOneWidget);
+      expect(find.textContaining('My own words about it.'), findsOneWidget);
+      expect(find.textContaining('The heroine.'), findsOneWidget);
       await tester.tap(find.text('Talks'));
       await tester.pumpAndSettle();
-      expect(find.text('My own words about it.'), findsNothing);
-      expect(find.text('The heroine.'), findsOneWidget);
+      expect(find.textContaining('My own words about it.'), findsNothing);
+      expect(find.textContaining('The heroine.'), findsOneWidget);
       await tester.tap(find.text('My writing'));
       await tester.pumpAndSettle();
-      expect(find.text('My own words about it.'), findsOneWidget);
-      expect(find.text('The heroine.'), findsNothing);
+      expect(find.textContaining('My own words about it.'), findsOneWidget);
+      expect(find.textContaining('The heroine.'), findsNothing);
       await tester.pump(const Duration(seconds: 5));
     });
   });
