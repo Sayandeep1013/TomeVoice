@@ -347,6 +347,19 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                             alignment: Alignment.centerLeft,
                             child: TextButton(onPressed: _pickOwn, child: const Text('Change your colours')),
                           ),
+                        // The designer themes, apart: each a reading place
+                        // or a material, over the whole app.
+                        const SizedBox(height: Gap.l),
+                        const SectionTitle('Designer themes'),
+                        const SizedBox(height: Gap.m),
+                        _PaletteSwatches(
+                          selected: chosenPaletteId(_prefs),
+                          own: OwnColours.of(_prefs).made.palette,
+                          wallpaper: null,
+                          designer: true,
+                          onPick: (id) => _changeTheme(() => _prefs.paletteId = id),
+                          onOwn: _pickOwn,
+                        ),
                         const SizedBox(height: Gap.l),
                         SwitchRow(
                           title: 'Colours from book covers',
@@ -748,8 +761,11 @@ class _PaletteSwatches extends StatelessWidget {
     required this.wallpaper,
     required this.onPick,
     required this.onOwn,
+    this.designer = false,
   });
 
+  /// The designer themes alone; else the five, the wallpaper's and yours.
+  final bool designer;
   final String selected;
   final Palette own;
   final Palette? wallpaper;
@@ -759,11 +775,14 @@ class _PaletteSwatches extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = Skin.isDark(context);
-    final themes = [
-      for (final p in Palette.all) (p, p.id, p.label),
-      if (wallpaper != null) (wallpaper!, 'wallpaper', 'Wallpaper'),
-      (own, 'own', 'Your own'),
-    ];
+    final themes = designer
+        ? [for (final p in Palette.designer) (p, p.id, p.label)]
+        : [
+            for (final p in Palette.all)
+              if (!Palette.designer.contains(p)) (p, p.id, p.label),
+            if (wallpaper != null) (wallpaper!, 'wallpaper', 'Wallpaper'),
+            (own, 'own', 'Your own'),
+          ];
     // Rows of as many as fit with their names whole (four on a phone held
     // upright), so none hides off the side.
     return LayoutBuilder(

@@ -1250,11 +1250,16 @@ class _PageTones extends StatelessWidget {
   final ValueChanged<PageTone> onPick;
 
   @override
-  Widget build(BuildContext context) => Row(
+  // A row that scrolls: the tones each a swatch of their own width, the
+  // designer ones after the five.
+  Widget build(BuildContext context) => SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
         children: [
           for (final t in PageTone.all) ...[
             if (t != PageTone.all.first) const SizedBox(width: Gap.s),
-            Expanded(
+            SizedBox(
+              width: 76,
               child: Semantics(
                 button: true,
                 selected: t == selected,
@@ -1286,6 +1291,7 @@ class _PageTones extends StatelessWidget {
             ),
           ],
         ],
+      ),
       );
 }
 
