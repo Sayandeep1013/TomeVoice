@@ -16,18 +16,22 @@ sentence, the spoken word highlighted, in your phone's voices or natural ones in
 languages, with the screen off if you like. Keep a journal of what you think as you go.
 
 <p align="center">
-  <img src="docs/images/store/01-read-aloud.jpg" width="250" alt="Any book, read aloud: Frankenstein, Chapter V, being read, the spoken sentence lit and its word marked, with the player below">
+  <img src="docs/images/store/1-library.jpg" width="195" alt="The library: free classics as cover tiles with their format, language and listening time, on the Reading shelf">
   &nbsp;
-  <img src="docs/images/store/02-graph.jpg" width="250" alt="See who's who: the memory graph of a long web novel, some 1,800 people in coloured groups and the dozen who matter most drawn large">
+  <img src="docs/images/store/2-reading-aloud.jpg" width="195" alt="Pride and Prejudice read aloud: the sentence being read lit and its word marked, the player below">
   &nbsp;
-  <img src="docs/images/store/03-ai-chat.jpg" width="250" alt="Talk about what you read: asking why Elizabeth turns Darcy down in Pride and Prejudice, the answer pointing to chapters 34 and 16">
+  <img src="docs/images/store/3-listening.jpg" width="195" alt="The listening sheet: speed, the sleep timer, the voices for the book, its dialogue and characters, and the reading style">
+  &nbsp;
+  <img src="docs/images/store/4-journal.jpg" width="195" alt="Writing in the journal at chapter 2: how the book feels, why, what stood out and what happens next">
 </p>
 <p align="center">
-  <img src="docs/images/store/04-journal.jpg" width="250" alt="A journal for every book: four entries on Pride and Prejudice, each in its own box with the chapter it was written at and how it felt">
+  <img src="docs/images/store/6-memory-graph.jpg" width="195" alt="The memory graph of a long web novel: some 1,800 people in coloured groups, the dozen who matter most drawn large">
   &nbsp;
-  <img src="docs/images/store/05-themes.jpg" width="250" alt="Make it yours: the eight designer themes, Midnight Ink chosen, above Light or dark and the reading layout">
+  <img src="docs/images/store/7-ai-chat.jpg" width="195" alt="AI chat about Frankenstein: why Victor abandons the creature, answered from chapter 11, with where it looked">
   &nbsp;
-  <img src="docs/images/store/06-catalogues.jpg" width="250" alt="Thousands of free classics: Standard Ebooks' newest books, each added in a tap">
+  <img src="docs/images/store/8-themes.jpg" width="195" alt="Settings: the colour themes and the eight designer themes, Forest chosen">
+  &nbsp;
+  <img src="docs/images/store/5-free-classics.jpg" width="195" alt="Standard Ebooks' newest books in Catalogues, each added in a tap">
 </p>
 
 <details>
