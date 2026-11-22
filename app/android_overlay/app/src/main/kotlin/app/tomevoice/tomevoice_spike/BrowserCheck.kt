@@ -138,6 +138,9 @@ object BrowserCheck {
      * be is not.
      */
     private fun onOpenInternet(host: String): Boolean {
+        // The separate test app (never released) may reach a test site on
+        // the PC, through adb reverse; every released app may not.
+        if (allowLocalForTests) return true
         literal(host)?.let { return isPublicAddress(it) }
         return try {
             val all = InetAddress.getAllByName(host)
@@ -146,6 +149,10 @@ object BrowserCheck {
             false
         }
     }
+
+    /** Set at launch in the test app (app.tomevoice.test) alone. */
+    @Volatile
+    var allowLocalForTests = false
 
     /** What a request turned away gets: an empty 403. */
     private fun refusal(): WebResourceResponse =
