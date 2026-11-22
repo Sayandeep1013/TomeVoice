@@ -12,6 +12,7 @@ import '../ui.dart';
 import 'ai_keys.dart';
 import 'ai_screen.dart';
 import 'chat/chat_links.dart';
+import 'chat/chat_runner.dart';
 import 'chat/chat_screen.dart';
 import 'chat/chat_store.dart';
 import 'memory/memory_section.dart' show MemoriesScreen;
@@ -289,7 +290,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
                         overflow: TextOverflow.ellipsis,
                         style: Skin.ui(size: 16, weight: FontWeight.w500, color: Skin.inkOn(context))),
                     const SizedBox(height: 2),
-                    Text('${_about(c)} · ${_when(c.updated)}',
+                    Text(ChatRunner.instance.busy(c.id) ? 'Answering… · ${_about(c)}' : '${_about(c)} · ${_when(c.updated)}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context))),

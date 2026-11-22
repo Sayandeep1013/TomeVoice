@@ -149,6 +149,9 @@ jobs:
       # self-updater, no battery exemption request, only open voices (the
       # app's playBuild; tools/prepare_android.py's PLAY_FORBIDDEN).
       TV_STORE: ${{ (inputs.variant == 'play' || inputs.variant == 'play-test') && 'play' || '' }}
+      # The test app only (never released): its sources may reach a site on
+      # the PC (a test site, through adb reverse), lists over plain http.
+      TV_TEST: ${{ (inputs.variant == 'test' || inputs.variant == 'play-test') && '1' || '' }}
     steps:
       - *checkout
 
@@ -347,7 +350,7 @@ jobs:
           TV_KEYSTORE_PASSWORD: ${{ secrets.TV_KEYSTORE_PASSWORD }}
           TV_ABIS: arm64-v8a
         run: |
-          flutter build apk --release --no-pub --target-platform android-arm64 --dart-define=TV_STORE=$TV_STORE
+          flutter build apk --release --no-pub --target-platform android-arm64 --dart-define=TV_STORE=$TV_STORE --dart-define=TV_TEST=$TV_TEST
           # Each APK holds one CPU's native code, compressed.
           unzip -l build/app/outputs/flutter-apk/app-release.apk | grep -E "lib/" | awk '{print $4}' | cut -d/ -f2 | sort -u
           ls -la build/app/outputs/flutter-apk/app-release.apk

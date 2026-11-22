@@ -16,6 +16,24 @@ sentence, the spoken word highlighted, in your phone's voices or natural ones in
 languages, with the screen off if you like. Keep a journal of what you think as you go.
 
 <p align="center">
+  <img src="docs/images/store/01-read-aloud.jpg" width="250" alt="Any book, read aloud: Frankenstein, Chapter V, being read, the spoken sentence lit and its word marked, with the player below">
+  &nbsp;
+  <img src="docs/images/store/02-graph.jpg" width="250" alt="See who's who: the memory graph of a long web novel, some 1,800 people in coloured groups and the dozen who matter most drawn large">
+  &nbsp;
+  <img src="docs/images/store/03-ai-chat.jpg" width="250" alt="Talk about what you read: asking why Elizabeth turns Darcy down in Pride and Prejudice, the answer pointing to chapters 34 and 16">
+</p>
+<p align="center">
+  <img src="docs/images/store/04-journal.jpg" width="250" alt="A journal for every book: four entries on Pride and Prejudice, each in its own box with the chapter it was written at and how it felt">
+  &nbsp;
+  <img src="docs/images/store/05-themes.jpg" width="250" alt="Make it yours: the eight designer themes, Midnight Ink chosen, above Light or dark and the reading layout">
+  &nbsp;
+  <img src="docs/images/store/06-catalogues.jpg" width="250" alt="Thousands of free classics: Standard Ebooks' newest books, each added in a tap">
+</p>
+
+<details>
+<summary>More screenshots</summary>
+
+<p align="center">
   <img src="docs/images/library.png" width="240" alt="The library's Reading shelf as cover tiles, each with its format, language and progress, and Red Rising, the book being read, waiting at the bottom with a play button">
   &nbsp;
   <img src="docs/images/book.png" width="240" alt="A Storm of Swords' page: its shelf, Book 3 of A Song of Ice and Fire, Continue and Read, the voice chosen for this book, the characters with voices of their own, and its chapters with the current one marked">
@@ -41,6 +59,8 @@ languages, with the screen off if you like. Keep a journal of what you think as 
   &nbsp;
   <img src="docs/images/now-playing-landscape.png" width="520" alt="Now Playing on its side: the cover beside the page, the sentence being read lit, the chapter bar and the controls">
 </p>
+
+</details>
 
 No account. No cloud. Your books never leave the phone (unless you give the AI
 reading companion a key of your own: see below).
@@ -223,11 +243,17 @@ With [Obtainium](https://obtainium.imranr.dev/), the button above adds TomeVoice
   and let new chapters download by themselves. Your
   NovelDokusha library can be imported from its backup
   ([ADR-019](docs/10-decisions-adr.md#adr-019)).
+- **Book sources (this GitHub build only).** A source can offer whole book files
+  rather than chapters: open a book, pick EPUB or PDF, and it downloads with your
+  sign-in to that site and joins your library like a file you opened. When the site
+  wants you signed in, or says you have downloaded as much as it allows for now,
+  TomeVoice says so. The Play Store build does not open them.
 - **Never an empty shelf.** A new install starts with *Pride and Prejudice* (public
   domain, with its 1894 peacock cover) and two popular web novels, *Shadow Slave* and
   *Lord of the Mysteries*, ready to play. Remove them like any other book.
-- **Colour themes:** Forest, Lavender, Ocean, Black for OLED screens and Paper, your own
-  colours (kept readable), or your wallpaper's on Android 12 and later. Text meets the
+- **Colour themes:** Forest, Lavender, Ocean, Black for OLED screens and Paper; eight
+  designer themes (Library, Matcha, Rosewater, Slate, Dune, Midnight Ink, Plum and
+  Maple); your own colours (kept readable), or your wallpaper's on Android 12 and later. Text meets the
   WCAG AA contrast standard in every one. A short guide shows the way on a new install.
 - **Gives you the voice controls readers don't:** speed (for every book, or this one
   only), pitch, the gap between words, and pauses at commas, sentences and paragraphs.
@@ -273,9 +299,14 @@ never does.
   A guide to all of it opens the first time you visit the AI page.
 - **Talk about the book.** A button over the player opens Talk over the page, the book
   still reading. Ask who someone is, what happened, why; answers cite the chapters they
-  come from, and a tap on one looks there without moving the voice. Answers are said
-  aloud in the voice reading the book, which pauses for them. Every talk is kept in the
-  book's journal, and the journal shows **All**, **My writing** or **Talks**.
+  come from, and a tap on one looks there without moving the voice. Answers can be said
+  aloud in the voice reading the book, which pauses for them (**Talk answers aloud**, in
+  Main menu → AI; off unless you turn it on). Every talk is kept in the book's journal,
+  and the journal shows **All**, **My writing** or **Talks**.
+- **AI chat.** Main menu → **AI chat**: chats of their own, about a book or a whole
+  series, kept to come back to. Answers cite the chapters, follow on from what was
+  asked before, and carry on if you leave the chat (its row says **Answering…**). An
+  answer is read aloud only when you tap **Read aloud**.
 - **Explain this.** Hold a sentence and the AI says what it means there in the story.
 - **Who is "Oren"?** Hold a name for its card at once, from the book's memory with no
   waiting and no network: who or what it is, other names, how it stands now, relations,
@@ -284,8 +315,9 @@ never does.
   The AI tidies the names as it goes (one card per character, a description renamed
   once the book names them), and you can too: hold a name to rename it, join it to
   another, or hand a card's later chapters to the character they really belong to.
-- **The memory graph** shows the story's web as points and fine lines: who matters
-  now, and who you may have forgotten (ringed in orange). Centre it on anyone, two
+- **The memory graph** shows the story's web on a dotted grid: the dozen who matter
+  most drawn large, everyone else as fine points coloured by group or by kind, and who
+  you may have forgotten ringed in orange. It pans and zooms smoothly with thousands. Centre it on anyone, two
   links out, or the whole web; a Story map of the book's groups as named islands; a
   timeline shows the web at any chapter and plays it growing; a tap lights someone's
   links and what they share with another.
@@ -297,11 +329,12 @@ never does.
   when you reach the chapter that settled one, never before.
 - **Previously…** Back to a book after a few days away, a short recap of the chapters
   just before your place.
-- **A series carries on.** Building a book whose series has an earlier book with a
-  memory offers to carry on from it: its cast, how they stood, open mysteries and
-  story come over (only as far as you read it, with the guard on), and come over again
-  when that memory changes. Talk looks into the earlier books too, citing them by book
-  and chapter.
+- **Series and sequels.** Building a book's memory asks whether it carries on from
+  another book; the earlier books are built first, in order, and kept together as a
+  series. **Book memories** (where **New memory** starts one) shows a series as one:
+  **All books** reads them as one story, each book's chapters after the one before's
+  and a character met in several books one entry, in Who's who, the graph, chapter by
+  chapter and threads; or one book at a time. A chat can be about the whole series.
 - **Talk elsewhere.** The memory as one Markdown page (the story so far, who matters,
   what is unanswered, your theories and journal) to copy or share into ChatGPT, Gemini
   or NotebookLM, kept to your chapter when the guard is on.

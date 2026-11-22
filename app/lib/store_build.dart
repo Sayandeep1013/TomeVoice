@@ -6,3 +6,9 @@
 /// private/play-store-report-2026-11-20.html). Nothing is removed from the
 /// GitHub build for Play's sake.
 const playBuild = String.fromEnvironment('TV_STORE') == 'play';
+
+/// The separate test app (app.tomevoice.test, CI's variant=test), never
+/// released: its sources may reach a test site on the PC through adb
+/// reverse, and take a source list over plain http. Every released build
+/// keeps both refused.
+const testBuild = String.fromEnvironment('TV_TEST') == '1';

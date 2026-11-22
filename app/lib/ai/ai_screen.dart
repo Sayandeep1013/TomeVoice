@@ -368,8 +368,9 @@ class _TalkSettingsState extends State<_TalkSettings> {
             onChanged: (v) => _set((p) => p.aiGuardNew = v),
           ),
           SwitchRow(
-            title: 'Answers aloud',
-            subtitle: 'Said in the voice reading the book, which pauses for them',
+            title: 'Talk answers aloud',
+            subtitle: 'In Talk over the book, each answer is said as it comes, and the book pauses for it. '
+                'AI chat reads an answer only when you tap Read aloud',
             value: _p.aiSpeak,
             onChanged: (v) => _set((p) => p.aiSpeak = v),
           ),

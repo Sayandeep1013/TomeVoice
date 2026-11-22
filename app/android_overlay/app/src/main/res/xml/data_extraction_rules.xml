@@ -1,16 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Android's own backup and phone-to-phone transfer (Android 12 and newer):
-     everything as before, but never the keys and passwords (Secrets, AI
-     keys), the AI usage counts or the log of what was sent. -->
+<!-- Android's own backup and phone-to-phone transfer (Android 12 and newer).
+     Cloud backup takes nothing past 25 MB, and a library with its books is
+     always past it, so nothing came back after a reinstall. Only the small
+     things go now, which come back by themselves on a reinstall from the
+     same Google account: settings and catalogues, the journal, chats and
+     what the AI keeps about the reader, marks, stats, and the installed
+     sources (never their sign-ins). Not the library list: without the book
+     files it would show books that cannot open; the library comes back from
+     TomeVoice's own backup (Settings, Back up library). Keys and passwords
+     (.secrets.json) are never included. A phone-to-phone transfer has no
+     such cap and takes everything but the keys, as before. -->
 <data-extraction-rules>
     <cloud-backup>
-        <exclude domain="file" path=".secrets.json" />
-        <exclude domain="file" path=".ai_usage.json" />
-        <exclude domain="file" path=".ai_log.json" />
+        <include domain="external" path="prefs.json" />
+        <include domain="external" path="journal.json" />
+        <include domain="external" path="marks.json" />
+        <include domain="external" path="stats.json" />
+        <include domain="external" path="chats/" />
+        <include domain="external" path="memory_series.json" />
+        <include domain="file" path="sources/repos.json" />
+        <include domain="file" path="sources/installed.json" />
+        <include domain="file" path="sources/plugins/" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path=".secrets.json" />
         <exclude domain="file" path=".ai_usage.json" />
         <exclude domain="file" path=".ai_log.json" />
+        <exclude domain="file" path="sources/cookies.json" />
     </device-transfer>
 </data-extraction-rules>

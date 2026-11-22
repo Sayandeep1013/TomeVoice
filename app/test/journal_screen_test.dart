@@ -68,8 +68,8 @@ void main() {
 
     // The list is the first look (the owner's choice, 18 November).
     expect(find.byType(NotebookPages), findsNothing);
-    expect(find.text('Anne waited long enough.'), findsOneWidget);
-    expect(find.text('Dorothea deserves better.'), findsOneWidget);
+    expect(find.textContaining('Anne waited long enough.'), findsOneWidget);
+    expect(find.textContaining('Dorothea deserves better.'), findsOneWidget);
     await tester.tap(find.byTooltip('Show as a notebook'));
     await tester.pumpAndSettle();
     expect(find.byType(NotebookPages), findsOneWidget);
@@ -89,12 +89,76 @@ void main() {
     await tester.pump(const Duration(seconds: 5));
   });
 
-  testWidgets("one book's journal alone, from its page", (tester) async {
-    await thought('m', 'Middlemarch', 3, 'Dorothea deserves better.');
+  testWidgets("from a book's page: the whole journal, opened at that book; a book found by search", (tester) async {
+    await thought('m', 'Middlemarch', 3, 'Dorothea deserves better.', minutes: 5);
     await thought('p', 'Persuasion', 7, 'Anne waited long enough.');
+    // In the list: every book's card, each the same height.
     await pump(tester, JournalScreen(store: store, bookId: 'm'));
+    expect(find.textContaining('Dorothea deserves better.'), findsOneWidget);
+    expect(find.textContaining('Anne waited long enough.'), findsOneWidget);
+    expect(tester.getSize(find.byKey(const ValueKey('journal m'))).height,
+        tester.getSize(find.byKey(const ValueKey('journal p'))).height);
+    // A book found by its name.
+    await tester.enterText(find.byType(TextField), 'persua');
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Dorothea deserves better.'), findsNothing);
+    expect(find.textContaining('Anne waited long enough.'), findsOneWidget);
+
+    // As a notebook: at that book's page, with every book's tab.
+    ListeningPrefs.memory.journalNotebook = true;
+    await pump(tester, JournalScreen(key: UniqueKey(), store: store, bookId: 'm'));
+    expect(find.byType(NotebookPages), findsOneWidget);
     expect(find.text('Dorothea deserves better.'), findsOneWidget);
+    expect(find.bySemanticsLabel('Page 1: Persuasion'), findsOneWidget);
+    expect(find.bySemanticsLabel('Page 2: Middlemarch'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets("each book one card; a tap opens its journal, every entry whole, and the others a tap away", (tester) async {
+    await thought('m', 'Middlemarch', 3, 'Dorothea deserves better.', minutes: 5);
+    await thought('m', 'Middlemarch', 5, 'Lydgate chose badly.', minutes: 2);
+    await thought('p', 'Persuasion', 7, 'Anne waited long enough.');
+    await pump(tester, JournalScreen(store: store));
+    // Two books, two cards: Middlemarch's shows its latest entry alone.
+    expect(find.byKey(const ValueKey('journal m')), findsOneWidget);
+    expect(find.byKey(const ValueKey('journal p')), findsOneWidget);
+    expect(find.textContaining('Lydgate chose badly.'), findsOneWidget);
+    expect(find.textContaining('Dorothea deserves better.'), findsNothing);
+    expect(find.textContaining('2 entries'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('journal m')));
+    await tester.pumpAndSettle();
+    expect(find.byType(BookJournalScreen), findsOneWidget);
+    expect(find.text('Dorothea deserves better.'), findsOneWidget);
+    expect(find.text('Lydgate chose badly.'), findsOneWidget);
+    // Two entries, two boxes apart, each opened by itself.
+    final first = tester.getRect(find.byKey(const ValueKey('entry m5')));
+    final second = tester.getRect(find.byKey(const ValueKey('entry m3')));
+    expect(second.top, greaterThan(first.bottom));
     expect(find.text('Anne waited long enough.'), findsNothing);
+    expect(find.byTooltip('Export as Markdown'), findsOneWidget);
+    await tester.tap(find.text('All books’ journals'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('journal p')), findsOneWidget);
+    await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('one novel from two sources is one book in the journal', (tester) async {
+    await thought('web-a', 'Shadow Slave', 3, 'From the first site.', minutes: 5);
+    await thought('web-b', 'Shadow  slave ', 9, 'From the second site.');
+    await pump(tester, JournalScreen(store: store));
+    expect(find.textContaining('2 entries'), findsOneWidget);
+    await tester.tap(find.textContaining('2 entries'));
+    await tester.pumpAndSettle();
+    expect(find.text('From the first site.'), findsOneWidget);
+    expect(find.text('From the second site.'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets("a book's journal with nothing in it: no export", (tester) async {
+    await thought('p', 'Persuasion', 7, 'Anne waited long enough.');
+    await pump(tester, BookJournalScreen(store: store, bookId: 'm', bookTitle: 'Middlemarch'));
+    expect(find.text('No journal for this book yet'), findsOneWidget);
+    expect(find.byTooltip('Export as Markdown'), findsNothing);
   });
 
   testWidgets('empty, it says how to write', (tester) async {

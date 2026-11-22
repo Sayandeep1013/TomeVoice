@@ -287,6 +287,15 @@
     if (method === 'popularNovels' && args[1] && args[1].filters == null) {
       args[1].filters = p.filters || {};
     }
+    // Book-file sources (GitHub build): does it offer whole book files
+    // (parseBook) rather than chapters? A link it need not change for a
+    // download is the link as it is.
+    if (method === '__kind') {
+      return Promise.resolve(JSON.stringify(typeof p.parseBook === 'function' ? 'books' : 'novels'));
+    }
+    if (method === 'resolveFile' && typeof p.resolveFile !== 'function') {
+      return Promise.resolve(JSON.stringify({ url: args[0] }));
+    }
     if (method === 'resolveUrl') {
       var path = args[0];
       if (isUrlAbsolute(path)) return Promise.resolve(JSON.stringify(path));

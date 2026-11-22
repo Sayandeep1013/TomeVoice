@@ -16,14 +16,14 @@ import '../../ui.dart';
 import '../../voices.dart';
 import '../ai_consent.dart';
 import '../ai_report.dart';
-import '../ai_router.dart';
-import '../ai_screen.dart' show wakeTime;
 import '../memory/memory_db.dart' show MemoryPlace;
 import '../talk/talk_engine.dart' show AnswerLength, TalkSource, spokenAnswer, spokenPieces;
 import '../talk/talk_sheet.dart' show CitedText;
 import 'chat_engine.dart';
 import 'chat_links.dart';
+import 'chat_runner.dart';
 import 'chat_store.dart';
+import '../memory/series_store.dart';
 import 'chat_tools.dart';
 
 /// One chat with the AI, full screen: what it is about at the top (one
@@ -64,7 +64,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final _input = TextEditingController();
   final _scroll = ScrollController();
   final _focus = FocusNode();
-  ChatProgress? _busy;
+  ChatProgress? get _busy => ChatRunner.instance.of(_chat.id);
   Dictation? _dictation;
   final _noWords = ValueNotifier<String>('');
   final _notListening = ValueNotifier<bool>(false);
@@ -81,6 +81,15 @@ class _ChatScreenState extends State<ChatScreen> {
       if (q != null && mounted) unawaited(_send(q));
     }));
     _input.addListener(_typed);
+    // An answer on its way (asked before the chat was left) shows as it
+    // grows.
+    ChatRunner.instance.changes.addListener(_grew);
+  }
+
+  void _grew() {
+    if (!mounted) return;
+    setState(() {});
+    _toEnd();
   }
 
   void _typed() {
@@ -89,7 +98,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
-    _busy?.stopped = true;
+    // Leaving does not stop an answer on its way: it is kept when it comes.
+    ChatRunner.instance.changes.removeListener(_grew);
     _hush();
     _dictation?.dispose();
     _noWords.dispose();
@@ -101,7 +111,11 @@ class _ChatScreenState extends State<ChatScreen> {
     // A chat with a few answers is summarised as it is left, to be found by
     // later chats ("like we said").
     final books = _books;
-    if (books != null && _chat.answers >= 2 && _chat.summary == null && !_store.wiped(_chat.id)) {
+    if (books != null &&
+        _chat.answers >= 2 &&
+        _chat.summary == null &&
+        !_store.wiped(_chat.id) &&
+        !ChatRunner.instance.busy(_chat.id)) {
       unawaited(_engine(books).summariseOnLeave());
     }
     super.dispose();
@@ -140,47 +154,16 @@ class _ChatScreenState extends State<ChatScreen> {
     if (q.isEmpty || _busy != null || books == null) return;
     if (!await ensureAiConsent(context) || !mounted) return;
     if (_dictation?.listening.value ?? false) await _dictation?.stop();
-    final reply = ChatMessage(mine: false, text: '');
-    final p = ChatProgress(reply);
-    setState(() {
-      _busy = p;
-      _chat.messages
-        ..add(ChatMessage(mine: true, text: q))
-        ..add(reply);
-      if (!_chat.titled && _chat.title == 'New chat') _chat.title = chatTitleFrom(q);
-      _input.clear();
-    });
+    _input.clear();
     _toEnd();
-    final engine = _engine(books);
-    try {
-      await engine.answer(p, onChange: () {
-        if (mounted) setState(() {});
-        _toEnd();
-      });
-      if (_prefs.aiSpeak && !reply.held && reply.error == null && !p.stopped) _say(reply.text);
-    } on AiResting catch (e) {
-      reply.error = e.until != null
-          ? 'Every key has used its quota for now. Ask again at ${wakeTime(e.until!)}.'
-          : e.last == null
-              ? 'No key can talk yet: give one a model for Talking, in AI settings.'
-              : 'The AI could not answer: ${e.last!.message}';
-    } on Object catch (e) {
-      reply.error = 'The AI could not answer: $e';
-    } finally {
-      if (p.stopped && reply.text.trim().isEmpty && reply.error == null) reply.error = 'Stopped.';
-      if (mounted) setState(() => _busy = null);
-      _toEnd();
-      await _store.put(_chat);
-      unawaited(keepChatInJournal(_chat));
-      unawaited(engine.compact());
-    }
+    // Answered apart from this screen, so leaving does not stop it; read
+    // aloud only when the reader taps Read aloud.
+    await ChatRunner.instance.ask(_chat, q, _engine(books), store: _store);
+    if (mounted) setState(() {});
+    _toEnd();
   }
 
-  void _stop() {
-    final p = _busy;
-    if (p == null) return;
-    setState(() => p.stopped = true);
-  }
+  void _stop() => ChatRunner.instance.stop(_chat.id);
 
   /// The last question asked again (after an error, or for another answer).
   Future<void> _again(ChatMessage answer) async {
@@ -305,7 +288,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _delete() async {
     if (!await confirmChatDelete(context, _chat, _store) || !mounted) return;
-    _busy?.stopped = true;
+    ChatRunner.instance.stop(_chat.id);
     _hush();
     await deleteChatCompletely(_chat, store: _store);
     if (mounted) Navigator.of(context).maybePop();
@@ -661,6 +644,19 @@ class _ScopeSheetState extends State<ScopeSheet> {
                       on: _picked.isEmpty,
                       onTap: () => setState(_picked.clear),
                     ),
+                    // A series as one choice: all its books with a memory.
+                    for (final series in SeriesStore.instance.all)
+                      if ([for (final b in widget.books) b.id].where(series.books.contains).length > 1)
+                        () {
+                          final ids = {for (final b in widget.books) if (series.books.contains(b.id)) b.id};
+                          return _row(
+                            title: series.name,
+                            subtitle: 'The series, ${ids.length} books',
+                            on: ids.every(_picked.contains),
+                            onTap: () => setState(() =>
+                                ids.every(_picked.contains) ? _picked.removeAll(ids) : _picked.addAll(ids)),
+                          );
+                        }(),
                     for (final b in widget.books)
                       _row(
                         title: b.title,

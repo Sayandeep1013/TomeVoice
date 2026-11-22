@@ -8,6 +8,7 @@ import 'ai/chat/chat_store.dart';
 import 'ai/ai_keys.dart';
 import 'ai/memory/memory_background.dart';
 import 'ai/memory/memory_service.dart';
+import 'ai/memory/series_store.dart';
 import 'app_update.dart';
 import 'auto_backup.dart';
 import 'auto_download.dart';
@@ -128,6 +129,8 @@ Future<OpenLibrary> _open(String dir) async {
   await JournalStore.instance.attach(Directory(dir));
   // AI chat's conversations, and what it keeps about the reader.
   await ChatStore.instance.attach(Directory(dir));
+  // Books whose memories are read together, as a series.
+  await SeriesStore.instance.attach(Directory(dir));
   // The reader's AI keys (kept with the catalogue passwords) and their use.
   await AiRing.instance.attach(Directory(dir));
   MemoryService.instance.attach(store);

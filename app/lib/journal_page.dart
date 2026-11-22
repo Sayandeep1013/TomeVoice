@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor, ReadingLayout;
@@ -47,16 +48,34 @@ Future<JournalEntry?> openJournal(
   JournalEntry? entry,
   String? language,
   Future<VoidCallback?> Function()? hold,
+  List<JournalChapter>? chapters,
 }) async {
   final kept = await Navigator.of(context).push<JournalEntry>(MaterialPageRoute(
     builder: (_) => JournalPage(
-        bookId: bookId, bookTitle: bookTitle, stampNow: stampNow, entry: entry, language: language, hold: hold),
+        bookId: bookId,
+        bookTitle: bookTitle,
+        stampNow: stampNow,
+        entry: entry,
+        language: language,
+        hold: hold,
+        chapters: chapters),
   ));
   if (kept != null && context.mounted) {
     showSnack(context, entry == null ? 'In your journal, ${kept.stamp.label}.' : 'Changed.');
   }
   return kept;
 }
+
+/// A chapter an entry can be stamped with, from the book's list of them
+/// (for a web novel, its whole list: nothing need be downloaded to write
+/// about a chapter).
+typedef JournalChapter = ({int chapter, int number, String title});
+
+/// The chapters of a laid-out book, for the journal's chapter picker.
+List<JournalChapter> journalChaptersOf(ReadingLayout layout) => [
+      for (var c = 0; c < layout.chapters.length; c++)
+        (chapter: c, number: c + 1, title: layout.chapterTitle(c)),
+    ];
 
 /// The journal's page: the template's questions on the notebook's squared
 /// paper, answered in handwriting, the feelings as stickers to tap; or a
@@ -72,7 +91,12 @@ class JournalPage extends StatefulWidget {
     this.language,
     this.hold,
     this.dictation,
+    this.chapters,
   });
+
+  /// The book's chapters, when known: the stamp can then be changed to
+  /// another (the entry is about chapter 300, written at 412).
+  final List<JournalChapter>? chapters;
 
   final String bookId;
   final String bookTitle;
@@ -107,6 +131,29 @@ class _JournalPageState extends State<JournalPage> {
   late bool _blank;
   late final JournalStamp _began;
   bool _kept = false;
+
+  /// A chapter picked for the entry, in place of where the story is.
+  JournalStamp? _picked;
+
+  /// Another chapter for this entry, picked from the book's list.
+  Future<void> _pickChapter() async {
+    final list = widget.chapters;
+    if (list == null || list.isEmpty) return;
+    final current = (_picked ?? _began).chapter;
+    final picked = await showModalBottomSheet<JournalChapter>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _ChapterSheet(chapters: list, current: current),
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _picked = JournalStamp(
+          at: ReadingCursor(sectionIndex: picked.chapter, blockIndex: 0, sentenceIndex: 0),
+          chapter: picked.chapter,
+          number: picked.number,
+          title: picked.title,
+        ));
+  }
 
   /// Speaking instead of writing: made when first asked.
   Dictation? _dictation;
@@ -253,7 +300,9 @@ class _JournalPageState extends State<JournalPage> {
     }
     final old = widget.entry;
     final JournalStamp stamp;
-    if (old != null) {
+    if (_picked != null) {
+      stamp = _picked!;
+    } else if (old != null) {
       stamp = old.stamp;
     } else {
       // Where the story is now: the voice may have read on while the pen
@@ -265,7 +314,8 @@ class _JournalPageState extends State<JournalPage> {
     }
     final answers = _blank ? const <JournalAnswer>[] : [for (final a in _answers) if (!a.isEmpty) a];
     final entry = old != null
-        ? old.copyWith(answers: answers, page: _blank ? _page.text.trim() : '', edited: DateTime.now().toUtc())
+        ? old.copyWith(
+            answers: answers, page: _blank ? _page.text.trim() : '', edited: DateTime.now().toUtc(), stamp: stamp)
         : JournalEntry(
             id: JournalStore.newId(),
             bookId: widget.bookId,
@@ -300,6 +350,35 @@ class _JournalPageState extends State<JournalPage> {
       _kept = true;
       Navigator.of(context).pop();
     }
+  }
+
+  /// Where the entry is stamped; with the book's chapters known, a tap
+  /// picks another.
+  Widget _stampLine(BuildContext context, Color soft) {
+    final stamp = _picked ?? _began;
+    final text = _picked != null
+        ? 'about ${stamp.label.replaceFirst('up to ', '')}'
+        : widget.entry == null
+            ? 'writing at ${stamp.label.replaceFirst('up to ', '')}'
+            : stamp.label;
+    final style = Skin.meta(context, size: 10.5, color: soft);
+    if (widget.chapters == null || widget.chapters!.isEmpty) return Text(text.toUpperCase(), style: style);
+    return InkWell(
+      onTap: () => unawaited(_pickChapter()),
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(child: Text(text.toUpperCase(), maxLines: 1, overflow: TextOverflow.ellipsis, style: style)),
+            const SizedBox(width: 2),
+            Icon(Icons.expand_more_rounded, size: 16, color: soft),
+            Text('CHANGE', style: style.copyWith(decoration: TextDecoration.underline)),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -349,11 +428,7 @@ class _JournalPageState extends State<JournalPage> {
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: handwriting(26, text, weight: FontWeight.w700)),
-                                Text(
-                                  (widget.entry == null ? 'writing at ${_began.label.replaceFirst('up to ', '')}' : _began.label)
-                                      .toUpperCase(),
-                                  style: Skin.meta(context, size: 10.5, color: soft),
-                                ),
+                                _stampLine(context, soft),
                               ],
                             ),
                           ),
@@ -542,7 +617,12 @@ class _JournalPageState extends State<JournalPage> {
 /// when, the feeling as a sticker, the answers (or the page) in
 /// handwriting. A tap opens it to change; held, [onHold] (to remove it).
 class JournalEntryCard extends StatelessWidget {
-  const JournalEntryCard({super.key, required this.entry, required this.ink, this.onTap, this.onHold});
+  const JournalEntryCard(
+      {super.key, required this.entry, required this.ink, this.onTap, this.onHold, this.boxed = true});
+
+  /// Drawn as a box of its own (on a notebook page, among others); off
+  /// where its card is the box already.
+  final bool boxed;
 
   final JournalEntry entry;
   final NotebookInk ink;
@@ -555,12 +635,21 @@ class JournalEntryCard extends StatelessWidget {
     final soft = tone.inkSoft!;
     final feeling = entry.feeling;
     final shown = entry.isPage ? const <JournalAnswer>[] : [for (final a in entry.answers) if (a.text.trim().isNotEmpty) a];
-    return InkWell(
-      borderRadius: BorderRadius.circular(6),
+    // Each entry a box of its own on the paper: where one ends and the
+    // next begins is plain, and each is tapped by itself.
+    final box = BorderRadius.circular(12);
+    return Material(
+      color: boxed ? tone.ink!.withValues(alpha: tone.dark ? 0.06 : 0.035) : Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: box,
+        side: boxed ? BorderSide(color: tone.ink!.withValues(alpha: 0.16)) : BorderSide.none,
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
       onTap: onTap,
       onLongPress: onHold,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: Gap.s, horizontal: 2),
+        padding: const EdgeInsets.fromLTRB(Gap.m, Gap.s, Gap.m, Gap.s),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -610,6 +699,7 @@ class JournalEntryCard extends StatelessWidget {
           ],
         ),
       ),
+      ),
     );
   }
 }
@@ -642,7 +732,10 @@ Future<void> removeJournalEntry(BuildContext context, JournalEntry entry) async 
 /// notebook's paper, and Write.
 class BookJournalSection extends StatelessWidget {
   const BookJournalSection(
-      {super.key, required this.bookId, required this.bookTitle, required this.stampNow, this.onSeeAll});
+      {super.key, required this.bookId, required this.bookTitle, required this.stampNow, this.onSeeAll, this.chapters});
+
+  /// The book's chapters, for picking which one an entry is about.
+  final List<JournalChapter> Function()? chapters;
 
   /// The book's whole journal (the Journal, this book's alone).
   final VoidCallback? onSeeAll;
@@ -656,15 +749,18 @@ class BookJournalSection extends StatelessWidget {
         valueListenable: JournalStore.instance.changes,
         builder: (context, _, __) {
           final entries = JournalStore.instance.forBook(bookId);
-          void write() => unawaited(openJournal(context, bookId: bookId, bookTitle: bookTitle, stampNow: stampNow));
+          void write() => unawaited(openJournal(context,
+              bookId: bookId, bookTitle: bookTitle, stampNow: stampNow, chapters: chapters?.call()));
           final latest = entries.firstOrNull;
-          // One row, so the chapters are not pushed down (the owner's
-          // choice): how many, the latest; the whole journal a tap away.
+          // A compact block, so the chapters are not pushed far down: how
+          // many, the latest, and its first lines as written (each answer on
+          // a line of its own, wrapping, not run together on one cut line);
+          // the whole journal a tap away.
           final line = latest == null
               ? 'Write how the book makes you feel, as you read'
               : '${entries.length} ${entries.length == 1 ? 'entry' : 'entries'} · '
                   '${latest.isTalk ? 'a talk' : 'thoughts'} ${latest.stamp.label}, ${savedWhen(latest.created)}';
-          final words = latest?.words.replaceAll('\n', ' ').trim() ?? '';
+          final words = latest?.words.replaceAll(RegExp(r'\s*\n\s*'), ' · ').trim() ?? '';
           return Material(
             color: Skin.capsuleOn(context),
             borderRadius: BorderRadius.circular(Radii.row + 4),
@@ -684,14 +780,20 @@ class BookJournalSection extends StatelessWidget {
                           Text('Journal', style: Skin.ui(size: 16, weight: FontWeight.w600, color: Skin.inkOn(context))),
                           const SizedBox(height: 2),
                           Text(line, maxLines: 1, overflow: TextOverflow.ellipsis, style: Skin.meta(context)),
+                          // Always two lines high, cut with "…": the row is
+                          // the same size however much was written.
                           if (words.isNotEmpty)
                             Padding(
                               padding: const EdgeInsets.only(top: 2),
-                              child: Text(
-                                words,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkSoftOn(context)),
+                              child: SizedBox(
+                                height: 13.5 * 1.3 * 2,
+                                child: Text(
+                                  words,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkSoftOn(context))
+                                      .copyWith(height: 1.3),
+                                ),
                               ),
                             ),
                         ],
@@ -864,4 +966,89 @@ Future<bool> tellOfDictation(BuildContext context, {String into = 'into your jou
   p.dictationTold = true;
   p.save();
   return true;
+}
+
+/// The book's chapters to pick one from: opened at the one given, with a
+/// box to jump to a number or find a title (a web novel may have
+/// thousands).
+class _ChapterSheet extends StatefulWidget {
+  const _ChapterSheet({required this.chapters, required this.current});
+
+  final List<JournalChapter> chapters;
+  final int current;
+
+  @override
+  State<_ChapterSheet> createState() => _ChapterSheetState();
+}
+
+class _ChapterSheetState extends State<_ChapterSheet> {
+  static const _row = 56.0;
+  String _query = '';
+  late final _scroll = ScrollController(
+    initialScrollOffset: math.max(0, widget.chapters.indexWhere((c) => c.chapter == widget.current) - 3) * _row,
+  );
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final q = _query.trim().toLowerCase();
+    final n = int.tryParse(q);
+    final shown = q.isEmpty
+        ? widget.chapters
+        : [
+            for (final c in widget.chapters)
+              if (c.number == n || c.title.toLowerCase().contains(q)) c,
+          ];
+    return SizedBox(
+      height: MediaQuery.sizeOf(context).height * 0.75,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
+            child: Text('Which chapter is it about?', style: Skin.title(context, size: 18)),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
+            child: SearchField(hint: 'A number, or words of its title', onChanged: (v) => setState(() => _query = v)),
+          ),
+          Expanded(
+            child: shown.isEmpty
+                ? Center(child: Text('No chapter matches.', style: Skin.meta(context)))
+                : ListView.builder(
+                    controller: q.isEmpty ? _scroll : null,
+                    itemExtent: _row,
+                    itemCount: shown.length,
+                    itemBuilder: (context, i) {
+                      final c = shown[i];
+                      final here = c.chapter == widget.current;
+                      final title = c.title.trim();
+                      return ListTile(
+                        selected: here,
+                        title: Text(
+                          title.isEmpty
+                              ? 'Chapter ${c.number}'
+                              // A title that says its number already is not
+                              // given it twice ("Chapter 12 The Fall").
+                              : RegExp('\\b${c.number}\\b').hasMatch(title)
+                                  ? title
+                                  : '${c.number}. $title',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        trailing: here ? const Icon(Icons.check_rounded) : null,
+                        onTap: () => Navigator.of(context).pop(c),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
 }

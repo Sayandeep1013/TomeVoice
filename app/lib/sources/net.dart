@@ -5,6 +5,7 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'bridge.dart';
+import '../store_build.dart';
 import 'cookies.dart';
 
 /// [e] in words a reader understands: no "SocketException" on screen.
@@ -13,7 +14,13 @@ String friendlyError(Object e) {
   if (e is SocketException) return 'Could not reach the site. Check the internet connection.';
   if (e is HandshakeException || e is TlsException) return "The site's secure connection failed.";
   if (e is TimeoutException) return 'The site took too long to answer.';
-  if (e is HttpException) return 'The site answered with an error (${e.message}).';
+  // A message already in words (the catalogue's own "answered with an
+  // error (HTTP 404)") is said as it is, not wrapped in a second one.
+  if (e is HttpException) {
+    return e.message.toLowerCase().contains('answered with an error') || e.message.startsWith('The catalogue ')
+        ? e.message
+        : 'The site answered with an error (${e.message}).';
+  }
   final s = '$e';
   return sourceErrorInWords(s.startsWith('FormatException: ') ? s.substring(17) : s);
 }
@@ -221,7 +228,7 @@ class Net {
 
   /// Tests run their sites on this machine; the app never sets this (the
   /// source workers are handed it, so tests reach them too).
-  static bool allowPrivateAddresses = false;
+  static bool allowPrivateAddresses = testBuild;
 
   final _client = HttpClient();
 
@@ -540,6 +547,68 @@ class Net {
       final out = <String, String>{};
       res.headers.forEach((name, values) => out[name.toLowerCase()] = values.join(', '));
       return NetResponse(status: res.statusCode, url: uri.toString(), headers: out, bytes: builder.takeBytes());
+    }
+    throw HttpException('Too many redirects', uri: uri);
+  }
+
+  /// The most a book file may be (a big PDF fits; anything past it is not a
+  /// book).
+  static const maxFile = 400 << 20;
+
+  /// [url] saved to [to] as it comes (a book file, too big to hold), with
+  /// source [partition]'s cookies (a site the reader signed in to), its
+  /// redirects followed, as [request] does. [onProgress] hears the bytes so
+  /// far and the whole (-1 when not said). The file name the site gives
+  /// (Content-Disposition), if it gives one.
+  Future<({String? name, String? type})> download(
+    String url,
+    File to, {
+    Map<String, String> headers = const {},
+    String partition = '',
+    void Function(int done, int total)? onProgress,
+    Duration timeout = const Duration(seconds: 45),
+  }) async {
+    var uri = Uri.parse(url);
+    for (var hop = 0; hop < 8; hop++) {
+      if (!isWebAddress(uri.toString())) throw BlockedAddressException('Only web pages can be asked for.');
+      final req = await _client.getUrl(uri).timeout(timeout);
+      req.followRedirects = false;
+      req.headers.set(HttpHeaders.userAgentHeader, userAgent);
+      final cookie = jar.headerFor(uri, partition: partition);
+      if (cookie != null) req.headers.set(HttpHeaders.cookieHeader, cookie);
+      headers.forEach((k, v) => req.headers.set(k, v));
+      final res = await req.close().timeout(timeout);
+      if (res.cookies.isNotEmpty) _took(uri, res.cookies, partition);
+      final location = res.headers.value(HttpHeaders.locationHeader);
+      if (res.isRedirect && location != null) {
+        await res.drain<void>().timeout(timeout);
+        uri = uri.resolve(location);
+        continue;
+      }
+      if (res.statusCode >= 400) {
+        await res.drain<void>().timeout(timeout);
+        throw HttpException('The site answered with an error (HTTP ${res.statusCode}).', uri: uri);
+      }
+      final total = res.contentLength;
+      if (total > maxFile) throw HttpException('The file is too large to be a book', uri: uri);
+      final sink = to.openWrite();
+      var done = 0;
+      try {
+        await for (final chunk in res.timeout(timeout)) {
+          done += chunk.length;
+          if (done > maxFile) throw HttpException('The file is too large to be a book', uri: uri);
+          sink.add(chunk);
+          onProgress?.call(done, total);
+        }
+      } finally {
+        await sink.close();
+      }
+      final disposition = res.headers.value('content-disposition') ?? '';
+      final named = RegExp(r'''filename\*?=(?:UTF-8'')?"?([^";]+)"?''', caseSensitive: false).firstMatch(disposition);
+      return (
+        name: named == null ? null : Uri.decodeComponent(named.group(1)!.trim()),
+        type: res.headers.contentType?.mimeType,
+      );
     }
     throw HttpException('Too many redirects', uri: uri);
   }

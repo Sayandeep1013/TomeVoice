@@ -29,7 +29,11 @@ class NotebookPages extends StatefulWidget {
     this.onJournal,
     this.onJournalHold,
     this.onWrite,
+    this.initialPage = 0,
   });
+
+  /// The page it opens at (the book the journal was opened from).
+  final int initialPage;
 
   /// Write a new entry for the book of a page (the Journal's own pages).
   final void Function(String bookId)? onWrite;
@@ -150,12 +154,22 @@ TextStyle handwriting(double size, Color color, {FontWeight weight = FontWeight.
     TextStyle(fontFamily: 'Caveat', fontSize: size, height: 1.15, color: color, fontWeight: weight);
 
 class _NotebookPagesState extends State<NotebookPages> {
-  late final PageController _pages = PageController();
+  late final PageController _pages = PageController(initialPage: _at);
   final _tabs = ScrollController();
-  int _at = 0;
+  late int _at = widget.initialPage.clamp(0, math.max(0, widget.pages.length - 1));
+
+  @override
+  void initState() {
+    super.initState();
+    // Opened at a book's page: its tab brought into view among the others.
+    if (_at > 0) WidgetsBinding.instance.addPostFrameCallback((_) => mounted ? _turned(_at) : null);
+  }
 
   static const _tabWidth = 30.0;
-  static const _tabHeight = 46.0;
+
+  /// Each tab's height: 46 when they fit; shorter as there are more books,
+  /// down to 28 (still a finger's tap); past that, the tabs scroll.
+  double _tabHeight = 46;
 
   @override
   void didUpdateWidget(NotebookPages old) {
@@ -265,9 +279,15 @@ class _NotebookPagesState extends State<NotebookPages> {
           ),
           SizedBox(
             width: _tabWidth + 6,
-            child: ListView.builder(
+            child: LayoutBuilder(builder: (context, box) {
+              // Clear of the Journal's round Write button at the foot.
+              final foot = widget.onWrite != null ? 96.0 : Gap.l;
+              final room = box.maxHeight - Gap.l - foot;
+              final n = widget.pages.length;
+              _tabHeight = n == 0 || !room.isFinite ? 46.0 : (room / n - 4).clamp(28.0, 46.0);
+              return ListView.builder(
               controller: _tabs,
-              padding: const EdgeInsets.only(top: Gap.l, bottom: Gap.l),
+              padding: EdgeInsets.only(top: Gap.l, bottom: foot),
               itemCount: widget.pages.length,
               itemBuilder: (context, i) => _Tab(
                 number: i + 1,
@@ -279,7 +299,8 @@ class _NotebookPagesState extends State<NotebookPages> {
                 height: _tabHeight,
                 onTap: () => _turnTo(i),
               ),
-            ),
+              );
+            }),
           ),
         ],
       ),

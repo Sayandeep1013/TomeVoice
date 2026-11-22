@@ -1016,7 +1016,20 @@ GraphView graphAndLayout(
     }
   }
   final l = layoutGraph(g, aspect: aspect);
-  return (data: g, at: l.at, size: l.size, height: l.height, sectors: l.sectors, cluster: const {});
+  return (data: g, at: l.at, size: l.size, height: l.height, sectors: l.sectors, cluster: clustersOf(g));
+}
+
+/// The groups among [g]'s nodes (by [louvain] over its links), for
+/// colouring each group its own: node id to group, the biggest group 0.
+Map<int, int> clustersOf(GraphData g) {
+  final index = {for (final (i, n) in g.nodes.indexed) n.id: i};
+  final links = [
+    for (final e in g.edges)
+      if (index[e.a] != null && index[e.b] != null)
+        (index[e.a]!, index[e.b]!, e.kind == LinkKind.shared ? 0.5 : 1.0),
+  ];
+  final group = louvain(g.nodes.length, links);
+  return {for (final (i, n) in g.nodes.indexed) n.id: group[i]};
 }
 
 /// Where each node sits in three dimensions, for the graph seen as a ball
@@ -1425,8 +1438,16 @@ List<int> louvain(int n, List<(int, int, double)> links, {double resolution = 1}
   }
 
   final minX = x.reduce(math.min), minY = y.reduce(math.min);
-  m.db.execute('BEGIN');
+  // Kept for next time when it can be; a memory that cannot be written to
+  // is still drawn, laid out afresh each time.
+  ({Map<int, ({double x, double y})> at, Map<int, int> cluster, double size, double height}) fresh() => (
+        at: {for (var i = 0; i < n; i++) ids[i].id: (x: x[i] - minX + 130, y: y[i] - minY + 130)},
+        cluster: {for (var i = 0; i < n; i++) ids[i].id: groups[i]},
+        size: math.max(1000.0, x.reduce(math.max) - minX + 260),
+        height: math.max(1000.0, y.reduce(math.max) - minY + 260),
+      );
   try {
+    m.db.execute('BEGIN');
     m.db.execute('DELETE FROM graph_places');
     final put = m.db.prepare('INSERT INTO graph_places(entity, x, y, cluster) VALUES (?, ?, ?, ?)');
     for (var i = 0; i < n; i++) {
@@ -1436,8 +1457,12 @@ List<int> louvain(int n, List<(int, int, double)> links, {double resolution = 1}
     m.setMeta('graph_places', sig);
     m.db.execute('COMMIT');
   } on Object {
-    m.db.execute('ROLLBACK');
-    rethrow;
+    try {
+      m.db.execute('ROLLBACK');
+    } on Object {
+      // Nothing begun.
+    }
+    return fresh();
   }
   return stored();
 }

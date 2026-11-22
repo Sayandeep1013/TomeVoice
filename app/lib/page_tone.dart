@@ -99,7 +99,30 @@ class PageTone {
     grid: Color(0x2E4A78A8),
   );
 
-  static const all = [app, eink, papyrus, notebook, dusk];
+  /// Designer: pale calfskin, warm and even, for long reading by day.
+  static const vellum = PageTone(
+    'vellum',
+    'Vellum',
+    paper: [Color(0xFFF4EDDF), Color(0xFFEDE3CF)],
+    ink: Color(0xFF3A2F22),
+    inkSoft: Color(0xFF5E5040),
+    accent: Color(0xFF8A4E1C),
+    vignette: Color(0x22735A30),
+  );
+
+  /// Designer: a warm dark page, between Dusk and Black, as under a lamp.
+  static const lamplight = PageTone(
+    'lamplight',
+    'Lamplight',
+    paper: [Color(0xFF1E1A14), Color(0xFF26211A)],
+    ink: Color(0xFFE8DCC4),
+    inkSoft: Color(0xFFB8AA92),
+    accent: Color(0xFFE0A050),
+    dark: true,
+    vignette: Color(0x66000000),
+  );
+
+  static const all = [app, eink, papyrus, notebook, dusk, vellum, lamplight];
 
   static PageTone byId(String? id) => all.where((t) => t.id == id).firstOrNull ?? app;
 

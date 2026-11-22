@@ -229,6 +229,14 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     expect(ring.stateOf('c').restingAt(noon), isTrue);
     expect(ring.stateOf('c').restUntil, DateTime(2026, 11, 21));
+    // The call that reached it worked, and a call that works clears what is
+    // held against a key: never this rest.
+    ring.cleared('c', now: noon);
+    expect(ring.stateOf('c').restingAt(noon), isTrue);
+    // A rest for anything else goes.
+    await ring.rest('c', DateTime(2026, 11, 20, 13), 'The provider failed (500)');
+    ring.cleared('c', now: noon);
+    expect(ring.stateOf('c').restingAt(noon), isFalse);
   });
   test("checking a key says whether its model calls tools and keeps to JSON", () async {
     const to = AiEndpoint(baseUrl: 'u', key: 'k', model: 'mercury-3');

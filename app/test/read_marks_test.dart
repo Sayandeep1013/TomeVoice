@@ -166,6 +166,10 @@ void main() {
       await tester.pumpWidget(MaterialApp(home: NovelScreen(store: store, plugin: _plugin, path: 'novel/1', name: 'Shadow')));
       await settle(tester, () => find.text('Chapter 5').evaluate().isNotEmpty);
 
+      // The page's journal and memory rows sit above the chapters: up to them.
+      await tester.drag(find.byType(CustomScrollView).first, const Offset(0, -400));
+      await tester.pumpAndSettle();
+
       // One chapter: Mark as read.
       await tester.longPress(find.text('Chapter 5'));
       await tester.pumpAndSettle();

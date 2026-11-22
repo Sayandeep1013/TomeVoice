@@ -135,6 +135,9 @@ void main() {
     expect(find.text('Writer'), findsOneWidget);
     expect(find.text('In your library'), findsOneWidget);
     expect(find.text('Listen'), findsOneWidget);
+    // The page's journal and memory rows sit above the chapters: up to them.
+    await tester.drag(find.byType(CustomScrollView).first, const Offset(0, -400));
+    await tester.pumpAndSettle();
     for (var i = 1; i <= 4; i++) {
       expect(find.text('Chapter $i'), findsOneWidget);
     }
@@ -406,6 +409,10 @@ void main() {
       home: NovelScreen(store: store, plugin: plugin, path: 'novel/1', name: 'Shadow'),
     ));
     await settle(tester, () => find.text('Chapter 4').evaluate().isNotEmpty);
+
+    // The page's journal and memory rows sit above the chapters: up to them.
+    await tester.drag(find.byType(CustomScrollView).first, const Offset(0, -400));
+    await tester.pumpAndSettle();
 
     await tester.longPress(find.text('Chapter 2'));
     await tester.pumpAndSettle();

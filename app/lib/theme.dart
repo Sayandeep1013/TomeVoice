@@ -7,6 +7,7 @@ import 'package:material_color_utilities/material_color_utilities.dart' show Hct
 
 import 'contrast.dart';
 import 'own_fonts.dart' show OwnFonts;
+import 'slider_shapes.dart';
 
 /// The visual language, in one place.
 ///
@@ -345,14 +346,17 @@ class Skin {
       ),
       iconTheme: IconThemeData(color: inkColor, size: 22),
       dividerTheme: DividerThemeData(color: outline, thickness: 1, space: 1),
+      // A track set into the page and a pill to pull, which lifts as it is
+      // held (see slider_shapes.dart).
       sliderTheme: SliderThemeData(
-        trackHeight: 3,
+        trackHeight: 6,
         activeTrackColor: slide,
-        inactiveTrackColor: inkColor.withValues(alpha: 0.14),
+        inactiveTrackColor: inkColor.withValues(alpha: 0.12),
         thumbColor: dark ? amberSoft : slide,
         overlayColor: amber.withValues(alpha: 0.12),
-        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-        overlayShape: const RoundSliderOverlayShape(overlayRadius: 18),
+        trackShape: const InsetTrackShape(),
+        thumbShape: const PillThumbShape(),
+        overlayShape: const RoundSliderOverlayShape(overlayRadius: 20),
         tickMarkShape: SliderTickMarkShape.noTickMark,
         activeTickMarkColor: Colors.transparent,
         inactiveTickMarkColor: Colors.transparent,
@@ -693,7 +697,143 @@ class Palette {
     only: Brightness.light,
   );
 
-  static const all = [forest, lavender, ocean, black, paper];
+  /// Designer: oxblood leather and brass.
+  static final library = readable(const Palette(
+    id: 'library',
+    label: 'Library',
+    day: [Color(0xFFE9DCCB), Color(0xFFE2CFB8), Color(0xFFEEE3D2), Color(0xFFE6D2BC)],
+    night: [Color(0xFF21140F), Color(0xFF2D1A14), Color(0xFF33241A), Color(0xFF3B2A1C)],
+    accent: Color(0xFFD4A24A),
+    accentSoft: Color(0xFFDCB46E),
+    accentDeep: Color(0xFF9E6B23),
+    onAccent: Color(0xFF1A120B),
+    nightCapsule: Color(0xF2463530),
+    nightSheet: Color(0xFF150D09),
+    daySheet: Color(0xFFF7F2EA),
+  ));
+
+  /// Designer: green tea and clay.
+  static final matcha = readable(const Palette(
+    id: 'matcha',
+    label: 'Matcha',
+    day: [Color(0xFFD9E3C8), Color(0xFFCBD9B4), Color(0xFFEEEADB), Color(0xFFE6DFC9)],
+    night: [Color(0xFF161D12), Color(0xFF1F2A19), Color(0xFF2A2A1C), Color(0xFF30301F)],
+    accent: Color(0xFFD98F55),
+    accentSoft: Color(0xFFE0A577),
+    accentDeep: Color(0xFFB5652E),
+    onAccent: Color(0xFF1A120B),
+    nightCapsule: Color(0xF2394334),
+    nightSheet: Color(0xFF0E120B),
+    daySheet: Color(0xFFF7F5EE),
+  ));
+
+  /// Designer: faded rose and plum ink.
+  static final rosewater = readable(const Palette(
+    id: 'rosewater',
+    label: 'Rosewater',
+    day: [Color(0xFFF0DCDA), Color(0xFFE9CCCB), Color(0xFFF3E6E0), Color(0xFFEDD9D2)],
+    night: [Color(0xFF24171A), Color(0xFF2F1D22), Color(0xFF33232A), Color(0xFF3A2630)],
+    accent: Color(0xFFE08A98),
+    accentSoft: Color(0xFFE6A1AC),
+    accentDeep: Color(0xFFA84A5C),
+    onAccent: Color(0xFF1A120B),
+    nightCapsule: Color(0xF247383C),
+    nightSheet: Color(0xFF170E10),
+    daySheet: Color(0xFFF9F3F1),
+  ));
+
+  /// Designer: blue-grey stone and copper.
+  static final slate = readable(const Palette(
+    id: 'slate',
+    label: 'Slate',
+    day: [Color(0xFFD5DAE0), Color(0xFFC6CDD6), Color(0xFFE6E4E0), Color(0xFFDED9D2)],
+    night: [Color(0xFF15191F), Color(0xFF1D232B), Color(0xFF242930), Color(0xFF2A2F36)],
+    accent: Color(0xFFD8925A),
+    accentSoft: Color(0xFFDFA77B),
+    accentDeep: Color(0xFFA8602A),
+    onAccent: Color(0xFF1A120B),
+    nightCapsule: Color(0xF2383D44),
+    nightSheet: Color(0xFF0D1014),
+    daySheet: Color(0xFFF3F2F1),
+  ));
+
+  /// Designer: desert sand and terracotta.
+  static final dune = readable(const Palette(
+    id: 'dune',
+    label: 'Dune',
+    day: [Color(0xFFEBDDC4), Color(0xFFE3D0B0), Color(0xFFF1E6D3), Color(0xFFE9D6BA)],
+    night: [Color(0xFF221A12), Color(0xFF2E2318), Color(0xFF372A1C), Color(0xFF3E2F1F)],
+    accent: Color(0xFFE08A5E),
+    accentSoft: Color(0xFFE6A17E),
+    accentDeep: Color(0xFFB2552E),
+    onAccent: Color(0xFF1A120B),
+    nightCapsule: Color(0xF2473D33),
+    nightSheet: Color(0xFF16100B),
+    daySheet: Color(0xFFF8F3EB),
+  ));
+
+  /// Designer: indigo and old gold.
+  static final midnightInk = readable(const Palette(
+    id: 'midnight-ink',
+    label: 'Midnight Ink',
+    day: [Color(0xFFD6DAEB), Color(0xFFC7CDE6), Color(0xFFE5E3EC), Color(0xFFDDD8E5)],
+    night: [Color(0xFF0F1328), Color(0xFF161C38), Color(0xFF1C2040), Color(0xFF23264A)],
+    accent: Color(0xFFD9A646),
+    accentSoft: Color(0xFFE0B76B),
+    accentDeep: Color(0xFF8A6A1E),
+    onAccent: Color(0xFF1A120B),
+    nightCapsule: Color(0xF231374F),
+    nightSheet: Color(0xFF090C1A),
+    daySheet: Color(0xFFF3F2F6),
+  ));
+
+  /// Designer: aubergine and apricot.
+  static final plum = readable(const Palette(
+    id: 'plum',
+    label: 'Plum',
+    day: [Color(0xFFE3D6E3), Color(0xFFD9C6D8), Color(0xFFEEE4EA), Color(0xFFE8D9E2)],
+    night: [Color(0xFF1E1420), Color(0xFF2A1B2C), Color(0xFF311F32), Color(0xFF382338)],
+    accent: Color(0xFFE89A6A),
+    accentSoft: Color(0xFFECAE87),
+    accentDeep: Color(0xFFA8582E),
+    onAccent: Color(0xFF1A120B),
+    nightCapsule: Color(0xF2433645),
+    nightSheet: Color(0xFF130D14),
+    daySheet: Color(0xFFF7F2F5),
+  ));
+
+  /// Designer: autumn leaves and cinnamon.
+  static final maple = readable(const Palette(
+    id: 'maple',
+    label: 'Maple',
+    day: [Color(0xFFF0D9C2), Color(0xFFE8C9A8), Color(0xFFF2E5D5), Color(0xFFECD5BC)],
+    night: [Color(0xFF24150D), Color(0xFF321D11), Color(0xFF3A2414), Color(0xFF432A17)],
+    accent: Color(0xFFE07A4A),
+    accentSoft: Color(0xFFE6946E),
+    accentDeep: Color(0xFFA8401F),
+    onAccent: Color(0xFF1A120B),
+    nightCapsule: Color(0xF24A382D),
+    nightSheet: Color(0xFF170D08),
+    daySheet: Color(0xFFF9F3EC),
+  ));
+
+  /// The designer themes, each a reading place or a material: the same make
+  /// as the five, fitted by [readable] so every word on them reads.
+  static final designer = [library, matcha, rosewater, slate, dune, midnightInk, plum, maple];
+
+  /// What each designer theme is made of, for its swatch.
+  static const designerNotes = {
+    'library': 'Oxblood leather and brass',
+    'matcha': 'Green tea and clay',
+    'rosewater': 'Faded rose and plum ink',
+    'slate': 'Blue-grey stone and copper',
+    'dune': 'Desert sand and terracotta',
+    'midnight-ink': 'Indigo and old gold',
+    'plum': 'Aubergine and apricot',
+    'maple': 'Autumn leaves and cinnamon',
+  };
+
+  static final all = [forest, lavender, ocean, black, paper, ...designer];
 
   static Palette byId(String? id) => all.where((p) => p.id == id).firstOrNull ?? forest;
 

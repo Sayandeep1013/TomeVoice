@@ -17,6 +17,7 @@ import '../ai_router.dart';
 import 'memory_builder.dart';
 import 'memory_db.dart';
 import 'series.dart';
+import 'series_store.dart';
 import 'word_index.dart';
 
 /// Where a book's memory stands, as its page shows it.
@@ -625,6 +626,27 @@ class MemoryService {
   /// as the reader reads on, every minute and a half: starting a foreground
   /// service each time, with its notification and wake lock, made an old
   /// phone stutter while it read aloud).
+  /// The library the memories are of (null before the app has opened it).
+  LibraryStore? get library => _store;
+
+  /// Books [ids] built one after another, in this order (a series' earlier
+  /// books first, then the one asked for). Each carries on from the books
+  /// before it in its series that have a memory: their cast, for knowing
+  /// who returns, and Talk's look back into them. A book left unfinished
+  /// (paused, or every key resting) holds the ones after it.
+  Future<void> buildInOrder(List<String> ids) async {
+    for (final id in ids) {
+      final series = SeriesStore.instance.ofBook(id);
+      if (series != null) {
+        final before = [for (final b in series.before(id)) if (File(_path(b)).existsSync()) b];
+        if (before.isNotEmpty) await followOnFromAll(id, before);
+      }
+      await build(id);
+      final st = _n(id).value;
+      if (_paused.contains(id) || st.noted + st.skipped < st.indexed) break;
+    }
+  }
+
   Future<void> build(String id, {bool hint = true, bool stayAlive = true}) async {
     if (!maySend(id) || !AiRing.instance.hasKeys) return;
     _wakes.remove(id)?.cancel();

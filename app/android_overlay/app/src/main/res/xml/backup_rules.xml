@@ -1,8 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Android's own backup (Android 11 and older): everything as before, but
-     never the keys and passwords (Secrets, AI keys), the AI usage counts or the log of what was sent. -->
+<!-- Android's own backup on Android 11 and older: only the small things
+     (see data_extraction_rules.xml for why), never keys or sign-ins. -->
 <full-backup-content>
-    <exclude domain="file" path=".secrets.json" />
-    <exclude domain="file" path=".ai_usage.json" />
-    <exclude domain="file" path=".ai_log.json" />
+    <include domain="external" path="prefs.json" />
+    <include domain="external" path="journal.json" />
+    <include domain="external" path="marks.json" />
+    <include domain="external" path="stats.json" />
+    <include domain="external" path="chats/" />
+    <include domain="external" path="memory_series.json" />
+    <include domain="file" path="sources/repos.json" />
+    <include domain="file" path="sources/installed.json" />
+    <include domain="file" path="sources/plugins/" />
 </full-backup-content>

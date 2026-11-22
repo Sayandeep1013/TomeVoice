@@ -460,10 +460,19 @@ class AiRing extends ChangeNotifier {
     await _save();
   }
 
-  /// It worked: whatever was held against it goes.
-  void cleared(String id) {
-    if (_state.remove(id) != null) unawaited(_save());
+  /// It worked: whatever was held against it goes; but not a rest for its
+  /// daily limit, which the very call that worked may have just reached (it
+  /// was cleared at once, so the limit never held).
+  void cleared(String id, {DateTime? now}) {
+    final s = _state[id];
+    if (s == null) return;
+    if ((s.lastError?.startsWith(dailyLimitReached) ?? false) && s.restingAt(now ?? DateTime.now())) return;
+    _state.remove(id);
+    unawaited(_save());
   }
+
+  /// How a rest for the daily limit is said, and known.
+  static const dailyLimitReached = 'its daily limit of';
 
   /// The soonest a resting key of [job] wakes, if all of them rest.
   DateTime? wakesAt(AiJob job, {DateTime? now}) {
@@ -493,7 +502,7 @@ class AiRing extends ChangeNotifier {
     final cap = _keys.where((k) => k.id == id).firstOrNull?.dailyCap;
     final at = now ?? DateTime.now();
     if (cap != null && day.input + day.output >= cap && !stateOf(id).restingAt(at)) {
-      unawaited(rest(id, DateTime(at.year, at.month, at.day + 1), 'its daily limit of $cap tokens is used'));
+      unawaited(rest(id, DateTime(at.year, at.month, at.day + 1), '$dailyLimitReached $cap tokens is used'));
     }
     if (days.length > 30) {
       final sorted = days.keys.toList()..sort();

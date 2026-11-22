@@ -410,6 +410,11 @@ class OpdsClient {
       await res.drain<void>();
       throw const OpdsAuthException();
     }
+    if (res.statusCode >= 500) {
+      await res.drain<void>();
+      throw HttpException('The catalogue is down or busy right now (HTTP ${res.statusCode}). Try again later.',
+          uri: url);
+    }
     if (res.statusCode >= 400) {
       await res.drain<void>();
       throw HttpException('The catalogue answered with an error (HTTP ${res.statusCode}).', uri: url);

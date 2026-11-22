@@ -472,6 +472,12 @@ class _CatalogueFormState extends State<_CatalogueForm> {
   bool _passwordShown = false;
   String? _problem;
 
+  /// The address being tried before it is saved.
+  bool _checking = false;
+
+  /// It could not be reached: the reader may save it all the same.
+  bool _mayForce = false;
+
   bool get _email => widget.existing?.emailOnly ?? false;
 
   @override
@@ -482,7 +488,7 @@ class _CatalogueFormState extends State<_CatalogueForm> {
     });
   }
 
-  void _save() {
+  Future<void> _save({bool force = false}) async {
     final existing = widget.existing;
     if (existing != null && existing.preset) {
       Navigator.pop(context, (existing.withUser(_user.text), null));
@@ -497,6 +503,49 @@ class _CatalogueFormState extends State<_CatalogueForm> {
     }
     // Calibre's content server lists its books at /opds.
     if (widget.calibre && (uri.path.isEmpty || uri.path == '/')) url = uri.replace(path: '/opds').toString();
+    // Tried before it is kept: a web page is not a catalogue (a site's own
+    // pages, a shop, a library's site), and is said to be one now rather
+    // than as a puzzle when it is opened.
+    if (!force && !widget.calibre) {
+      setState(() {
+        _checking = true;
+        _problem = null;
+        _mayForce = false;
+      });
+      final client = OpdsClient(
+        Uri.parse(url),
+        user: _user.text.trim().isEmpty ? null : _user.text.trim(),
+        password: _password.text.isEmpty ? null : _password.text,
+      );
+      try {
+        await client.feed(Uri.parse(url));
+      } on OpdsFormatException {
+        if (mounted) {
+          setState(() => _problem = 'This address is a web page, not a catalogue. A catalogue is a list of books made '
+              'for reading apps (OPDS), such as a Calibre library or Standard Ebooks; most sites have none.');
+        }
+        return;
+      } on OpdsAuthException {
+        if (mounted) {
+          setState(() => _problem = _user.text.trim().isEmpty
+              ? 'This catalogue asks to sign in: give its user name and password.'
+              : 'The catalogue did not take this user name and password.');
+        }
+        return;
+      } on Object catch (e) {
+        if (mounted) {
+          setState(() {
+            _problem = 'It could not be reached: ${friendlyError(e)}';
+            _mayForce = true;
+          });
+        }
+        return;
+      } finally {
+        client.close();
+        if (mounted) setState(() => _checking = false);
+      }
+    }
+    if (!mounted) return;
     final title = _title.text.trim().isEmpty ? uri.host : _title.text.trim();
     final c = Catalogue(
       id: existing?.id ?? 'c${DateTime.now().millisecondsSinceEpoch.toRadixString(36)}',
@@ -578,7 +627,16 @@ class _CatalogueFormState extends State<_CatalogueForm> {
                   ),
               ]),
               const SizedBox(height: Gap.xl),
-              FilledButton(onPressed: _save, child: Text(preset ? 'Sign in' : 'Save')),
+              FilledButton(
+                onPressed: _checking ? null : () => unawaited(_save()),
+                child: _checking
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                    : Text(preset ? 'Sign in' : 'Save'),
+              ),
+              if (_mayForce && !_checking) ...[
+                const SizedBox(height: Gap.s),
+                OutlinedButton(onPressed: () => unawaited(_save(force: true)), child: const Text('Save anyway')),
+              ],
             ],
           ),
         ),

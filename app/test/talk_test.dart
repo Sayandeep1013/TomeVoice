@@ -420,7 +420,7 @@ void main() {
       tester.view.physicalSize = const Size(1080, 2340);
       tester.view.devicePixelRatio = 2.75;
       addTearDown(tester.view.reset);
-      await tester.pumpWidget(MaterialApp(home: JournalScreen(store: store)));
+      await tester.pumpWidget(MaterialApp(home: BookJournalScreen(store: store, bookId: 'gone', bookTitle: 'A book')));
       for (var i = 0; i < 10; i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
         await tester.pump();

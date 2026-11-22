@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'book_source_screen.dart';
 import 'browser_check.dart';
 import 'catalogues_screen.dart';
 import 'library_store.dart';
@@ -174,9 +175,8 @@ class _BrowseScreenState extends State<BrowseScreen> {
         builder: (_) => SourcesScreen(store: widget.sources),
       ));
 
-  void _openNovel(PluginInfo p, NovelItem n) => Navigator.of(context).push(MaterialPageRoute<void>(
-        builder: (_) => NovelScreen(store: widget.store, plugin: p, path: n.path, name: n.name, cover: n.cover),
-      ));
+  // A novel, or (a book-file source, GitHub build) a book to download.
+  void _openNovel(PluginInfo p, NovelItem n) => unawaited(openSourceResult(context, widget.store, p, n));
 
   @override
   Widget build(BuildContext context) {
@@ -754,15 +754,8 @@ class _SourceScreenState extends State<SourceScreen> {
                                   referer: widget.plugin.site,
                                   partition: widget.plugin.id,
                                   inLibrary: _inLibrary.contains(LibraryStore.webId(widget.plugin.id, _items[i].path)),
-                                  onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
-                                    builder: (_) => NovelScreen(
-                                      store: widget.store,
-                                      plugin: widget.plugin,
-                                      path: _items[i].path,
-                                      name: _items[i].name,
-                                      cover: _items[i].cover,
-                                    ),
-                                  )),
+                                  onTap: () =>
+                                      unawaited(openSourceResult(context, widget.store, widget.plugin, _items[i])),
                                 ),
                               ),
                             ),

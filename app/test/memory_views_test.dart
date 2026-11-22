@@ -398,10 +398,10 @@ void main() {
     // The key, a tap away, and shut again.
     await tester.tap(find.text('Key'));
     await settle();
-    expect(find.text('Bigger: in more chapters'), findsOneWidget);
+    expect(find.text('Bigger: matters more (in more chapters)'), findsOneWidget);
     await tester.tap(find.byTooltip('Close the key'));
     await settle();
-    expect(find.text('Bigger: in more chapters'), findsNothing);
+    expect(find.text('Bigger: matters more (in more chapters)'), findsNothing);
     expect(find.text('Key'), findsOneWidget);
     await tester.pump(const Duration(seconds: 1));
   });
