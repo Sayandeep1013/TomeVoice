@@ -1016,7 +1016,20 @@ GraphView graphAndLayout(
     }
   }
   final l = layoutGraph(g, aspect: aspect);
-  return (data: g, at: l.at, size: l.size, height: l.height, sectors: l.sectors, cluster: const {});
+  return (data: g, at: l.at, size: l.size, height: l.height, sectors: l.sectors, cluster: clustersOf(g));
+}
+
+/// The groups among [g]'s nodes (by [louvain] over its links), for
+/// colouring each group its own: node id to group, the biggest group 0.
+Map<int, int> clustersOf(GraphData g) {
+  final index = {for (final (i, n) in g.nodes.indexed) n.id: i};
+  final links = [
+    for (final e in g.edges)
+      if (index[e.a] != null && index[e.b] != null)
+        (index[e.a]!, index[e.b]!, e.kind == LinkKind.shared ? 0.5 : 1.0),
+  ];
+  final group = louvain(g.nodes.length, links);
+  return {for (final (i, n) in g.nodes.indexed) n.id: group[i]};
 }
 
 /// Where each node sits in three dimensions, for the graph seen as a ball

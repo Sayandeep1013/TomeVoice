@@ -7,6 +7,7 @@ import 'package:material_color_utilities/material_color_utilities.dart' show Hct
 
 import 'contrast.dart';
 import 'own_fonts.dart' show OwnFonts;
+import 'slider_shapes.dart';
 
 /// The visual language, in one place.
 ///
@@ -345,14 +346,17 @@ class Skin {
       ),
       iconTheme: IconThemeData(color: inkColor, size: 22),
       dividerTheme: DividerThemeData(color: outline, thickness: 1, space: 1),
+      // A track set into the page and a pill to pull, which lifts as it is
+      // held (see slider_shapes.dart).
       sliderTheme: SliderThemeData(
-        trackHeight: 3,
+        trackHeight: 6,
         activeTrackColor: slide,
-        inactiveTrackColor: inkColor.withValues(alpha: 0.14),
+        inactiveTrackColor: inkColor.withValues(alpha: 0.12),
         thumbColor: dark ? amberSoft : slide,
         overlayColor: amber.withValues(alpha: 0.12),
-        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-        overlayShape: const RoundSliderOverlayShape(overlayRadius: 18),
+        trackShape: const InsetTrackShape(),
+        thumbShape: const PillThumbShape(),
+        overlayShape: const RoundSliderOverlayShape(overlayRadius: 20),
         tickMarkShape: SliderTickMarkShape.noTickMark,
         activeTickMarkColor: Colors.transparent,
         inactiveTickMarkColor: Colors.transparent,

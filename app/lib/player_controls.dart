@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 
 import 'scheduler.dart';
+import 'slider_shapes.dart';
 import 'theme.dart';
 import 'ui.dart';
 
@@ -138,7 +139,8 @@ class _ChapterScrubberState extends State<ChapterScrubber> {
   Widget build(BuildContext context) => SliderTheme(
         data: SliderTheme.of(context).copyWith(
           inactiveTrackColor: Skin.onDark(context).withValues(alpha: 0.14),
-          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+          trackHeight: 4,
+          thumbShape: const PillThumbShape(width: 20, height: 12),
           overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
         ),
         child: TapBand(
