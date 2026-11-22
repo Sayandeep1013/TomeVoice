@@ -15,7 +15,7 @@ one too), a Word file or a web page, press play, and it reads to you sentence by
 sentence, the spoken word highlighted, in your phone's voices or natural ones in 42
 languages, with the screen off if you like. Keep a journal of what you think as you go.
 
-<p align="center">
+<!-- <p align="center">
   <img src="docs/images/store/1-library.jpg" width="195" alt="The library: free classics as cover tiles with their format, language and listening time, on the Reading shelf">
   &nbsp;
   <img src="docs/images/store/2-reading-aloud.jpg" width="195" alt="Pride and Prejudice read aloud: the sentence being read lit and its word marked, the player below">
@@ -35,7 +35,7 @@ languages, with the screen off if you like. Keep a journal of what you think as 
 </p>
 
 <details>
-<summary>More screenshots</summary>
+<summary>More screenshots</summary> -->
 
 <p align="center">
   <img src="docs/images/library.png" width="240" alt="The library's Reading shelf as cover tiles, each with its format, language and progress, and Red Rising, the book being read, waiting at the bottom with a play button">
