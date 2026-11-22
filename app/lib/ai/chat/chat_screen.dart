@@ -23,6 +23,7 @@ import 'chat_engine.dart';
 import 'chat_links.dart';
 import 'chat_runner.dart';
 import 'chat_store.dart';
+import '../memory/series_store.dart';
 import 'chat_tools.dart';
 
 /// One chat with the AI, full screen: what it is about at the top (one
@@ -643,6 +644,19 @@ class _ScopeSheetState extends State<ScopeSheet> {
                       on: _picked.isEmpty,
                       onTap: () => setState(_picked.clear),
                     ),
+                    // A series as one choice: all its books with a memory.
+                    for (final series in SeriesStore.instance.all)
+                      if ([for (final b in widget.books) b.id].where(series.books.contains).length > 1)
+                        () {
+                          final ids = {for (final b in widget.books) if (series.books.contains(b.id)) b.id};
+                          return _row(
+                            title: series.name,
+                            subtitle: 'The series, ${ids.length} books',
+                            on: ids.every(_picked.contains),
+                            onTap: () => setState(() =>
+                                ids.every(_picked.contains) ? _picked.removeAll(ids) : _picked.addAll(ids)),
+                          );
+                        }(),
                     for (final b in widget.books)
                       _row(
                         title: b.title,

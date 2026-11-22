@@ -6,9 +6,8 @@ import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor;
 
 import '../../theme.dart';
 import '../../ui.dart';
-import '../ai_consent.dart';
 import '../ai_keys.dart';
-import '../ai_screen.dart' show tokenCount, wakeTime;
+import '../ai_screen.dart' show wakeTime;
 import '../../backup_flow.dart' show sizeLabel;
 import '../../download_queue.dart';
 import '../../library_store.dart' show LibraryEntry;
@@ -19,6 +18,9 @@ import 'graph_screen.dart';
 import 'hand_off.dart';
 import 'memory_builder.dart';
 import 'memory_service.dart';
+import 'series_flow.dart';
+import 'series_screen.dart';
+import 'series_store.dart';
 import 'theories_screen.dart';
 import 'threads_screen.dart';
 import 'whos_who_screen.dart';
@@ -72,136 +74,9 @@ class _BookMemorySectionState extends State<BookMemorySection> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _build() async {
-    if (!await ensureAiConsent(context) || !mounted) return;
-    // A web novel's chapters not on the phone: fetched first, if wanted.
-    final missing = await _service.missingChapters(widget.bookId);
-    if (missing.isNotEmpty && mounted) {
-      final fetch = await showModalBottomSheet<bool>(
-        context: context,
-        sheetAnimationStyle: sheetMotion(context),
-        useSafeArea: true,
-        builder: (ctx) => SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(Gap.l, 0, Gap.l, Gap.l),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SheetHeader(
-                    '${missing.length} ${missing.length == 1 ? 'chapter is' : 'chapters are'} not on the phone'),
-                Text(
-                  'The memory is made from the chapters on the phone. Download the rest up to where you are, and '
-                  'they join the memory as they come: one at a time, gently on the site'
-                  '${missing.length > 200 ? ', so this many takes some hours' : ''}.',
-                  style:
-                      Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkSoftOn(context)).copyWith(height: 1.4),
-                ),
-                const SizedBox(height: Gap.l),
-                FilledButton(
-                    onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Download them, and build')),
-                const SizedBox(height: Gap.s),
-                OutlinedButton(
-                  onPressed: () => Navigator.of(ctx).pop(false),
-                  child: const Text('Build with what is here'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-      if (fetch == null || !mounted) return;
-      if (fetch) await _service.download(widget.bookId, missing);
-    }
-    if (!mounted) return;
-    // Begun before: the reader agreed to it then; it simply goes on.
-    if (_service.stateOf(widget.bookId).value.noted > 0) {
-      unawaited(_service.build(widget.bookId));
-      return;
-    }
-    // The book before it in its series has a memory: offered, once, to
-    // carry on from it.
-    final earlier = await _service.earlierInSeries(widget.bookId);
-    final linked = earlier == null ? const <FollowedBook>[] : await _service.followedBy(widget.bookId);
-    if (!mounted) return;
-    if (earlier != null && linked.isEmpty) {
-      final carry = await showModalBottomSheet<bool>(
-        context: context,
-        sheetAnimationStyle: sheetMotion(context),
-        useSafeArea: true,
-        builder: (ctx) => SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(Gap.l, 0, Gap.l, Gap.l),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SheetHeader('Carry on from ${earlier.title}?', subtitle: 'The book before this one in its series'),
-                Text(
-                  'Its memory comes over: the people, places and things as they stood, the threads left open and '
-                  'the story so far. This book builds on from them, and Talk can look back into it.',
-                  style:
-                      Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkSoftOn(context)).copyWith(height: 1.4),
-                ),
-                const SizedBox(height: Gap.l),
-                FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Carry on from it')),
-                const SizedBox(height: Gap.s),
-                OutlinedButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Start fresh')),
-              ],
-            ),
-          ),
-        ),
-      );
-      if (carry == null || !mounted) return;
-      if (carry) {
-        final n = await _service.followOnFromAll(widget.bookId, [earlier.id]);
-        if (mounted) showSnack(context, '$n people, places and things carried over from ${earlier.title}.');
-      }
-      if (!mounted) return;
-    }
-    // The sheet at once; what it would take, counted meanwhile.
-    final counting = _service.estimate(widget.bookId);
-    final keys = AiRing.instance.forJob(AiJob.builder);
-    final go = await showModalBottomSheet<bool>(
-      context: context,
-      sheetAnimationStyle: sheetMotion(context),
-      useSafeArea: true,
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(Gap.l, 0, Gap.l, Gap.l),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SheetHeader('Build the memory', subtitle: 'Each chapter is read once, ever'),
-              FutureBuilder<BuildEstimate>(
-                future: counting,
-                builder: (context, snap) {
-                  final est = snap.data;
-                  return Text(
-                    est == null
-                        ? 'Counting what it would take…'
-                        : est.chapters == 0
-                            ? 'Every chapter on the phone is read already.'
-                            : '${est.chapters} ${est.chapters == 1 ? 'chapter' : 'chapters'} to read, in about '
-                                '${est.calls} ${est.calls == 1 ? 'call' : 'calls'}: some ${tokenCount(est.tokens)} '
-                                'tokens, with ${keys.map((k) => k.label).join(', then ')}. '
-                                'It goes on with TomeVoice behind other apps or the screen off; when a key has used its quota for now, the next '
-                                'takes over, and when all of them have, it waits for them.',
-                    style: Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkSoftOn(context))
-                        .copyWith(height: 1.4),
-                  );
-                },
-              ),
-              const SizedBox(height: Gap.l),
-              FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Build')),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (go == true) unawaited(_service.build(widget.bookId));
-  }
+  /// Consent, missing chapters, whether it carries on from another book
+  /// (a series), what it will take, then building (see startMemory).
+  Future<void> _build() => startMemory(context, widget.bookId, service: _service);
 
   Future<void> _openWho() async {
     final line = await _service.lineOf(widget.bookId);
@@ -766,14 +641,91 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
   @override
   void initState() {
     super.initState();
+    SeriesStore.instance.changes.addListener(_load);
+    _load();
+  }
+
+  @override
+  void dispose() {
+    SeriesStore.instance.changes.removeListener(_load);
+    super.dispose();
+  }
+
+  void _load() {
     unawaited(MemoryService.instance.booksWithMemory().then((b) {
       if (mounted) setState(() => _books = [for (final e in b) (id: e.id, title: e.title, author: e.authors.join(', '))]);
     }));
   }
 
+  /// New memory: a book picked, then started as from its page.
+  Future<void> _newMemory() async {
+    final store = MemoryService.instance.library;
+    if (store == null) return;
+    final book = await pickBookForMemory(context, store);
+    if (book == null || !mounted) return;
+    await startMemory(context, book.id);
+    if (!mounted) return;
+    _load();
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => BookMemoryScreen(bookId: book.id, bookTitle: book.title),
+    ));
+    _load();
+  }
+
+  Widget _bookRow(BuildContext context, ({String id, String title, String author}) b, {String? number}) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // The book first, plainly its own: its name, then its memory.
+          InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => BookMemoryScreen(bookId: b.id, bookTitle: b.title),
+            )),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: Gap.s),
+              child: Row(
+                children: [
+                  Container(
+                    width: 4,
+                    height: 40,
+                    decoration: BoxDecoration(color: Skin.accentOf(context), borderRadius: BorderRadius.circular(2)),
+                  ),
+                  const SizedBox(width: Gap.m),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (number != null) Text(number.toUpperCase(), style: Skin.meta(context, size: 10.5)),
+                        Text(b.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: Skin.title(context, size: 20)),
+                        if (b.author.isNotEmpty) Text(b.author, style: Skin.meta(context)),
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.chevron_right_rounded, color: Skin.inkOn(context).withValues(alpha: 0.5)),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: Gap.s),
+          BookMemorySection(bookId: b.id, bookTitle: b.title, secret: false),
+        ],
+      );
+
   @override
   Widget build(BuildContext context) {
     final books = _books;
+    final byId = {for (final b in books ?? const <({String id, String title, String author})>[]) b.id: b};
+    // A series shows once, as a card of its books; the rest one by one.
+    final series = [
+      for (final s in SeriesStore.instance.all)
+        if (s.books.any(byId.containsKey)) s,
+    ];
+    final inSeries = {for (final s in series) ...s.books};
+    final single = [for (final b in books ?? const <({String id, String title, String author})>[]) if (!inSeries.contains(b.id)) b];
+    final items = <Widget>[
+      for (final s in series) _SeriesCard(series: s, books: byId),
+      for (final b in single) _bookRow(context, b),
+    ];
     return Scaffold(
       body: DecoratedBox(
         decoration: BoxDecoration(gradient: Skin.ground(context)),
@@ -783,6 +735,18 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               ScreenTopBar(title: 'Memory', onBack: () => Navigator.of(context).maybePop()),
+              if (AiRing.instance.hasKeys)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.m),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: FilledButton.icon(
+                      onPressed: () => unawaited(_newMemory()),
+                      icon: const Icon(Icons.add_rounded),
+                      label: const Text('New memory'),
+                    ),
+                  ),
+                ),
               Expanded(
                 child: books == null
                     ? const SizedBox.shrink()
@@ -791,8 +755,8 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
                             icon: Icons.auto_awesome_outlined,
                             title: 'No memories yet',
                             body: AiRing.instance.hasKeys
-                                ? "Open a book and tap Memory on its page: the AI reads it once, chapter by chapter, "
-                                    'and remembers who is who and what happened.'
+                                ? 'Tap New memory and pick a book, or tap Memory on a book\'s page: the AI reads it '
+                                    'once, chapter by chapter, and remembers who is who and what happened.'
                                 : 'Add a key in AI chat > settings first. Then, from a book\'s page, the AI reads it once and remembers '
                                     'who is who and what happened.',
                           )
@@ -800,54 +764,73 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
                             padding: EdgeInsets.fromLTRB(
                                 Gap.page, 0, Gap.page, Gap.xxl + MediaQuery.viewPaddingOf(context).bottom),
                             children: [
-                              for (final (i, b) in books.indexed) ...[
+                              for (final (i, w) in items.indexed) ...[
                                 if (i > 0)
                                   Padding(
                                     padding: const EdgeInsets.symmetric(vertical: Gap.l),
                                     child: Divider(height: 1, color: Skin.inkOn(context).withValues(alpha: 0.14)),
                                   ),
-                                // The book first, plainly its own: its name, then its memory.
-                                InkWell(
-                                  borderRadius: BorderRadius.circular(12),
-                                  onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
-                                    builder: (_) => BookMemoryScreen(bookId: b.id, bookTitle: b.title),
-                                  )),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: Gap.s),
-                                    child: Row(
-                                      children: [
-                                        Container(
-                                          width: 4,
-                                          height: 40,
-                                          decoration: BoxDecoration(
-                                            color: Skin.accentOf(context),
-                                            borderRadius: BorderRadius.circular(2),
-                                          ),
-                                        ),
-                                        const SizedBox(width: Gap.m),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text(b.title,
-                                                  maxLines: 2,
-                                                  overflow: TextOverflow.ellipsis,
-                                                  style: Skin.title(context, size: 20)),
-                                              if (b.author.isNotEmpty) Text(b.author, style: Skin.meta(context)),
-                                            ],
-                                          ),
-                                        ),
-                                        Icon(Icons.chevron_right_rounded, color: Skin.inkOn(context).withValues(alpha: 0.5)),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: Gap.s),
-                                BookMemorySection(bookId: b.id, bookTitle: b.title, secret: false),
+                                w,
                               ],
                             ],
                           ),
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A series on the Memory screen: its name and books in order, how far
+/// each is built; a tap opens the series' memory (every book together, or
+/// one at a time).
+class _SeriesCard extends StatelessWidget {
+  const _SeriesCard({required this.series, required this.books});
+
+  final MemorySeries series;
+  final Map<String, ({String id, String title, String author})> books;
+
+  @override
+  Widget build(BuildContext context) {
+    final service = MemoryService.instance;
+    return Material(
+      color: Skin.capsuleOn(context),
+      borderRadius: BorderRadius.circular(Radii.row + 4),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(Radii.row + 4),
+        onTap: () => Navigator.of(context)
+            .push(MaterialPageRoute<void>(builder: (_) => SeriesMemoryScreen(seriesId: series.id))),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(Gap.l, Gap.m, Gap.s, Gap.m),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('SERIES · ${series.books.length} BOOKS', style: Skin.meta(context, size: 10.5)),
+                    Text(series.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: Skin.title(context, size: 20)),
+                    const SizedBox(height: Gap.xs),
+                    for (final (i, id) in series.books.indexed)
+                      ValueListenableBuilder<BookMemoryState>(
+                        valueListenable: service.stateOf(id),
+                        builder: (context, st, _) => Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            'Book ${i + 1} · ${books[id]?.title ?? 'not in the library'} · '
+                            '${!st.exists || st.noted == 0 ? 'no memory yet' : 'built to chapter ${st.noted}'}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkSoftOn(context)),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: Skin.inkSoftOn(context)),
             ],
           ),
         ),

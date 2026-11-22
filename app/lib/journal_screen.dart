@@ -54,7 +54,7 @@ class _JournalScreenState extends State<JournalScreen> {
   String _query = '';
 
   /// Every book's card is this high, however much it has.
-  static const _cardHeight = 158.0;
+  static const _cardHeight = 138.0;
 
   /// Which entries show: all, the reader's own writing, or talks with the
   /// AI companion.
