@@ -47,6 +47,10 @@ reading companion a key of your own: see below).
 
 **Android only for now: download the APK from [Releases](https://github.com/Sayandeep1013/TomeVoice/releases/latest).**
 
+<a href=""><img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium.png" alt="Get it on Obtainium" height="54"></a>
+
+With [Obtainium](https://obtainium.imranr.dev/), the button above adds TomeVoice set up to take the main APK (not the 32-bit one) and tells you when a new release is out.
+
 ---
 
 ## What it does
