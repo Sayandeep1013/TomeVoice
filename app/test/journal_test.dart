@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor, ReadingLayout, ingestString;
 import 'package:tomevoice_spike/journal.dart';
+import 'package:tomevoice_spike/notebook.dart' show savedWhen;
 import 'package:tomevoice_spike/journal_page.dart';
 import 'package:tomevoice_spike/journal_questions_screen.dart';
 import 'package:tomevoice_spike/prefs.dart';
@@ -266,6 +267,19 @@ void main() {
       await tester.pumpAndSettle();
       expect(ListeningPrefs.memory.journalQuestions, isNull, reason: "the defaults again: nothing of the reader's kept");
       await tester.pump(const Duration(seconds: 5));
+    });
+  });
+
+  group('when it was written', () {
+    test('calendar days, not 24-hour spans, and the year when it is not this one', () {
+      final now = DateTime(2026, 11, 23, 8, 30);
+      expect(savedWhen(DateTime(2026, 11, 23, 0, 5), now: now), 'today');
+      expect(savedWhen(DateTime(2026, 11, 22, 23, 50), now: now), 'yesterday', reason: 'last night, seen this morning');
+      expect(savedWhen(DateTime(2026, 11, 20, 9), now: now), '3 days ago');
+      expect(savedWhen(DateTime(2026, 10, 12, 9), now: now), '12 Oct');
+      expect(savedWhen(DateTime(2025, 10, 12, 9), now: now), '12 Oct 2025');
+      expect(savedWhen(DateTime(2026, 11, 24, 9), now: now), 'today', reason: 'a clock behind never says "-1 days ago"');
+      expect(savedWhen(DateTime.utc(2026, 11, 22, 12), now: now), isNot('today'));
     });
   });
 }

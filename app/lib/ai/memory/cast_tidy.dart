@@ -10,6 +10,9 @@ import 'memory_db.dart';
 /// How many chapters are noted between tidyings of the cast.
 const tidyEvery = 250;
 
+/// Chapters noted since the last tidy before a caught-up book is tidied again.
+const tidyAtLeast = 25;
+
 /// What the AI is asked to tidy the cast: the memory is noted a few
 /// chapters at a time, and sometimes splits one character over two cards
 /// (known first by a description, then by name), or puts a name on the
@@ -131,7 +134,10 @@ int applyCastTidy(String path, Map<String, Object?> reply, Set<int> ids) {
 int _noted(MemoryDb m) => m.db.select('SELECT count(*) n FROM chapters WHERE noted = 1').first['n'] as int;
 
 /// Whether the cast is due a tidying: [tidyEvery] chapters noted since the
-/// last, or the book's notes finished since.
+/// last, or the book's notes finished since. "Finished" is also true each
+/// time the builder catches up with a book still being downloaded or
+/// followed, so then [tidyAtLeast] new chapters are wanted too: one new
+/// chapter is not worth a call bigger than the chapter's own.
 bool castTidyDue(String path) {
   final m = MemoryDb.open(path);
   try {
@@ -139,7 +145,7 @@ bool castTidyDue(String path) {
     final last = int.tryParse(m.meta('cast_tidied') ?? '') ?? 0;
     if (noted < 30 || noted <= last) return false;
     final left = m.db.select('SELECT count(*) n FROM chapters WHERE noted = 0 AND note_error IS NULL').first['n'] as int;
-    return noted - last >= tidyEvery || left == 0;
+    return noted - last >= tidyEvery || (left == 0 && (last == 0 || noted - last >= tidyAtLeast));
   } finally {
     m.close();
   }
@@ -161,7 +167,12 @@ void markCastTidied(String path) {
 /// changes nothing (and is not asked again until more is noted).
 Future<int> tidyCast(String path, AiRouter router) async {
   final brief = await Isolate.run(() => castBrief(path));
-  if (brief.ids.length < 2) return 0;
+  if (brief.ids.length < 2) {
+    // Nothing to join: marked done, or the builder would find it due again
+    // at once and go round for ever.
+    await Isolate.run(() => markCastTidied(path));
+    return 0;
+  }
   final reply = await router.chat(AiJob.builder, [
     aiMessage('system', castTidyInstructions),
     aiMessage('user', brief.text),

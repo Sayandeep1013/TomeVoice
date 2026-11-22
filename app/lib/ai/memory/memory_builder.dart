@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show File;
 import 'dart:isolate';
 import 'dart:math' as math;
 
@@ -184,6 +185,9 @@ void _keepArc(String path, int level, int from, int to, String summary) {
 }
 
 void _merge(String path, List<ChapterNotes> notes, Map<int, List<MemoryPlace>> passages, String? model) {
+  // Forgotten while this batch was out: opening the path would make a new,
+  // empty memory with only this batch's people in it.
+  if (!File(path).existsSync()) return;
   final m = MemoryDb.open(path);
   try {
     final g = BookGraph(m);
@@ -386,10 +390,21 @@ class MemoryBuilder {
       }
       state.value = state.value.copyWith(phase: BuildPhase.paused);
       return state.value;
+    } on Object catch (e) {
+      // Anything not foreseen (a reply of an odd shape, the memory file
+      // busy): the build stops and says so, with "Go on building", rather
+      // than leaving the page at "Building" with nothing going on.
+      state.value = state.value.copyWith(phase: BuildPhase.failed, error: _plain(e));
+      return state.value;
     } finally {
       _running = false;
     }
   }
+
+  static String _plain(Object e) => switch (e) {
+        AiError(:final message) => message,
+        _ => 'something went wrong ($e)'.split('\n').first,
+      };
 
   /// A span's summary written and kept; false when the work stops (every
   /// key resting). A reply with nothing in it is kept as a dash, so the

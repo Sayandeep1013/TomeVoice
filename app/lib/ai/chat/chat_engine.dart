@@ -122,8 +122,8 @@ class ChatEngine {
       if (notes.isNotEmpty)
         'What you have kept about this reader (theirs to delete):\n${notes.take(30).map((n) => '- ${n.text}'
             '${n.bookTitle == null ? '' : ' (about "${n.bookTitle}")'}').join('\n')}',
-      'After each sentence that rests on the material, cite it as [S3] (several: [S3, S7]). Cite only numbers '
-          'given to you.${many ? ' Say which book something is from.' : ''}',
+      'After each sentence that rests on the material, cite it as [S3] (several: [S3, S7], each number '
+          'written out, never a range). Cite only numbers given to you.${many ? ' Say which book something is from.' : ''}',
       length.ask,
       aiSafetyRule,
     ].join('\n\n');

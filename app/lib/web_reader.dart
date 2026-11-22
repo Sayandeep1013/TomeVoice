@@ -373,10 +373,14 @@ class _WebNovelReaderState extends State<WebNovelReader> {
     }
   }
 
-  /// The highest chapter number with text, in a row from [from].
+  /// The highest chapter number with text, in a row from [from], looking at
+  /// most two ahead: all the fetching ahead needs to know. From the store's
+  /// set of chapters on the phone, not a file check each: with thousands
+  /// downloaded, walking to the end on every page turn was a hitch.
   int _lastLoaded(int from) {
+    final here = _store.downloadedChapters(_id);
     var c = from;
-    while (c + 1 < _total && _store.hasChapter(_id, c + 1)) {
+    while (c + 1 < _total && c - from < 2 && here.contains(c + 1)) {
       c++;
     }
     return c;

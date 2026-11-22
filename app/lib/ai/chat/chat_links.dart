@@ -7,6 +7,7 @@ import '../memory/memory_db.dart';
 import '../memory/memory_service.dart';
 import '../talk/answer_pack.dart' show forgetAsked;
 import '../talk/talk_engine.dart' show citeMarks, citeNumbers;
+import 'chat_runner.dart' show ChatRunner;
 import 'chat_store.dart';
 import 'chat_tools.dart';
 
@@ -109,6 +110,9 @@ Future<void> deleteChatCompletely(Chat chat,
     {ChatStore? store, JournalStore? journal, String Function(String bookId)? memoryOf}) async {
   final chats = store ?? ChatStore.instance;
   final j = journal ?? JournalStore.instance;
+  // An answer still coming is stopped first: its look-ups would otherwise
+  // go on, paid for, and be thrown away.
+  ChatRunner.instance.stop(chat.id);
   await chats.wipe(chat.id);
   final id = journalIdOf(chat);
   if (j.all.any((e) => e.id == id)) await j.remove(id);

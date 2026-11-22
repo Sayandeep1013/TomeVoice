@@ -782,7 +782,9 @@ class ReaderController {
       case 'action':
         switch (e['action']) {
           case 'play':
-            if (player.state.value != PlayState.playing) unawaited(togglePlay());
+            // Not while the first sentence is still being made (loading):
+            // togglePlay would pause it.
+            if (!player.isPlaying) unawaited(togglePlay());
           case 'pause':
             unawaited(player.pause());
           case 'stop':

@@ -330,6 +330,35 @@ void main() {
       expect(m.db.select('SELECT entity FROM facts').single['entity'], nephis);
     });
 
+    test('a caught-up book is tidied again only after enough new chapters', () {
+      final dir = Directory.systemTemp.createTempSync('tv_tidy_due');
+      final path = '${dir.path}/memory.db';
+      final mm = MemoryDb.open(path);
+      for (var c = 0; c < 40; c++) {
+        mm.indexChapter(ch: c, section: c, title: 'C$c', hash: 'h$c', chunks: const [TextChunk(start: _p, text: 'x')]);
+      }
+      mm.db.execute('UPDATE chapters SET noted = 1');
+      mm.close();
+      expect(castTidyDue(path), isTrue, reason: 'never tidied and caught up');
+      markCastTidied(path);
+      expect(castTidyDue(path), isFalse);
+      var m = MemoryDb.open(path);
+      m.indexChapter(ch: 40, section: 40, title: 'C40', hash: 'h40', chunks: const [TextChunk(start: _p, text: 'x')]);
+      m.db.execute('UPDATE chapters SET noted = 1');
+      m.close();
+      expect(castTidyDue(path), isFalse, reason: 'one new chapter of a followed book is not worth a tidy call');
+      m = MemoryDb.open(path);
+      for (var c = 41; c < 41 + tidyAtLeast; c++) {
+        m.indexChapter(ch: c, section: c, title: 'C$c', hash: 'h$c', chunks: const [TextChunk(start: _p, text: 'x')]);
+      }
+      m.db.execute('UPDATE chapters SET noted = 1');
+      m.close();
+      expect(castTidyDue(path), isTrue);
+      try {
+        dir.deleteSync(recursive: true);
+      } on Object {/* Windows file locks */}
+    });
+
     test('the cast tidied by the AI: two cards made one, a description named, a wrong name taken off', () {
       final dir = Directory.systemTemp.createTempSync('tv_cast');
       final path = '${dir.path}/memory.db';

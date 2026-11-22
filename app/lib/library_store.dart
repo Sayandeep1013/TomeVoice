@@ -250,6 +250,9 @@ class LibraryStore {
   /// (a size of -1: there was none).
   (DateTime, int)? _seen;
 
+  /// Writes of the index under way (see [_rereadIfChanged]).
+  int _writing = 0;
+
   (DateTime, int) _stamp() {
     final s = _indexFile.statSync();
     return s.type == FileSystemEntityType.notFound ? (DateTime(0), -1) : (s.modified, s.size);
@@ -262,6 +265,11 @@ class LibraryStore {
   void _rereadIfChanged() {
     final seen = _seen;
     if (seen == null) return;
+    // A write of our own is landing: the file on disk is already new while
+    // [_seen] is set only once the write's answer comes back. Read now, it
+    // would look like another copy's and drop a change still waiting to be
+    // written after it.
+    if (_writing > 0) return;
     try {
       final now = _stamp();
       if (now == seen || now.$2 < 0) return;
@@ -391,6 +399,7 @@ class LibraryStore {
     // What is written now holds every place kept here so far.
     final written = Map.of(_unwritten);
     _unwritten.clear();
+    _writing++;
     try {
       // One write at a time, each to its own temp file (two writes sharing
       // one temp name could interleave into invalid JSON, read back as no
@@ -410,6 +419,8 @@ class LibraryStore {
       written.forEach((id, p) => _unwritten.putIfAbsent(id, () => p));
       if (_unwritten.isNotEmpty && _window == null) _openWindow();
       rethrow;
+    } finally {
+      _writing--;
     }
     _seen = _stamp();
     if (place) {

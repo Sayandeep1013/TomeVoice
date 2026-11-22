@@ -209,9 +209,12 @@ class DownloadQueue {
     if (info != null) _pluginOf[bookId] = info.plugin.id;
     final at = {for (var i = 0; i < (info?.chapters.length ?? 0); i++) info!.chapters[i].path: i};
     final queued = {for (final j in _jobs) if (j.bookId == bookId) j.path};
+    // The store's set, not a file check per chapter: "Download all" on a
+    // novel of thousands was thousands of checks on the UI thread.
+    final here = store.downloadedChapters(bookId);
     final fresh = [
       for (final c in chapters)
-        if (!queued.contains(c.path) && !(at[c.path] != null && store.hasChapter(bookId, at[c.path]!)))
+        if (!queued.contains(c.path) && !(at[c.path] != null && here.contains(at[c.path]!)))
           DownloadJob(bookId: bookId, path: c.path, name: c.name),
     ];
     if (fresh.isEmpty) return 0;
@@ -273,10 +276,13 @@ class DownloadQueue {
       final info = await store.webNovel(id);
       if (info == null) continue;
       final index = {for (var i = 0; i < info.chapters.length; i++) info.chapters[i].path: i};
+      // Every waiting job is looked at after each saved chapter: from the
+      // store's set, not a file check each (millions over a big download).
+      final here = store.downloadedChapters(id);
       for (final j in [..._jobs]) {
         if (j.bookId != id || _running.containsValue(j)) continue;
         final at = index[j.path];
-        if (at == null || !store.hasChapter(id, at)) continue;
+        if (at == null || !here.contains(at)) continue;
         _jobs.remove(j);
         gone++;
         if (j.failed == null) _doneOf[id] = (_doneOf[id] ?? 0) + 1;

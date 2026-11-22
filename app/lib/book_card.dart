@@ -216,17 +216,20 @@ String listenLength(int words, {double speed = 1}) {
 /// The speed book [id] is listened at: its own, or the one for every book.
 double speedOf(String id) => (ListeningPrefs.loaded ?? ListeningPrefs.memory).speedFor(id);
 
-/// "today", "yesterday", "3 days ago", "12 Oct".
+/// "today", "yesterday", "3 days ago", "12 Oct", "12 Oct 2025": calendar
+/// days on this phone's clock, with the year when it is not this year.
 String relativeDay(DateTime when, {DateTime? now}) {
-  final today = now ?? DateTime.now();
-  final a = DateTime(when.year, when.month, when.day);
-  final b = DateTime(today.year, today.month, today.day);
+  final w = when.toLocal();
+  final today = (now ?? DateTime.now()).toLocal();
+  // UTC dates, so a clock change in between does not make a day 23 hours.
+  final a = DateTime.utc(w.year, w.month, w.day);
+  final b = DateTime.utc(today.year, today.month, today.day);
   final days = b.difference(a).inDays;
   if (days <= 0) return 'today';
   if (days == 1) return 'yesterday';
   if (days < 7) return '$days days ago';
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  return '${when.day} ${months[when.month - 1]}';
+  return '${w.day} ${months[w.month - 1]}${w.year == today.year ? '' : ' ${w.year}'}';
 }
 
 /// "34%". A book that has been started never reads "0%".

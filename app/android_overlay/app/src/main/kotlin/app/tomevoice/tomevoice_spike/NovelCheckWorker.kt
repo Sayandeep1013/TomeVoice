@@ -59,6 +59,13 @@ class NovelCheckWorker(context: Context, params: WorkerParameters) : Worker(cont
         // next turn rather than start a second engine.
         if (MemoryBuildWorker.running.get()) return Result.success()
         if (handle == 0L || !running.compareAndSet(false, true)) return Result.success()
+        // Taken, then looked again: the build may have looked at this flag
+        // just before it was set. Each sets its own and then reads the
+        // other's, so the two never both go on (at worst both wait a turn).
+        if (MemoryBuildWorker.running.get()) {
+            running.set(false)
+            return Result.success()
+        }
         val main = Handler(Looper.getMainLooper())
         val engine = AtomicReference<FlutterEngine?>(null)
         try {

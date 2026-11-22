@@ -258,7 +258,9 @@ class KosyncClient {
       req.add(bytes);
     }
     final res = await req.close().timeout(const Duration(seconds: 30));
-    final text = await res.transform(utf8.decoder).join();
+    // The body has its own limit: a server that sends headers and then
+    // stalls would otherwise hold every later sync (they join this one).
+    final text = await res.transform(utf8.decoder).join().timeout(const Duration(seconds: 30));
     Object? body;
     try {
       body = text.isEmpty ? null : jsonDecode(text);

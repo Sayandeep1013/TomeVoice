@@ -164,6 +164,28 @@ void main() {
       expect(pieces.join(' '), long);
     });
 
+    test('citation marks in the forms models write, ranges spelled out', () {
+      final en = String.fromCharCode(0x2013);
+      List<int>? nums(String t) {
+        final m = citeMarks.allMatches('x $t y').toList();
+        return m.length == 1 && m.single.group(0) == t ? citeNumbers(t) : null;
+      }
+
+      expect(nums('[S3, S5]'), [3, 5]);
+      expect(nums('[S118${en}S119]'), [118, 119]);
+      expect(nums('[S118-121]'), [118, 119, 120, 121]);
+      expect(nums('[S4 to S6]'), [4, 5, 6]);
+      expect(nums('[S1; S2]'), [1, 2]);
+      expect(nums('[ S1 ]'), [1]);
+      expect(nums('[s7]'), [7]);
+      expect(nums('${String.fromCharCode(0x3010)}S9${String.fromCharCode(0x3011)}'), [9]);
+      expect(nums('[S1-S99]'), [1, 99], reason: 'a range over 30 keeps only its ends');
+      for (final t in ['[Sx]', '[1]', '[Sunny]', '[S3 dogs]']) {
+        expect(citeMarks.hasMatch(t), isFalse, reason: t);
+      }
+      expect(spokenAnswer('He left [S118${en}S119].'), 'He left.');
+    });
+
     test("the tools keep to the line too", () {
       final path = _memory(tmp);
       expect(runTool(path, 'read_chapter', {'chapter': 5}, 1).single.text, contains('past where the reader is'));

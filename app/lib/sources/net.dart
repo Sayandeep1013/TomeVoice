@@ -606,11 +606,22 @@ class Net {
       final disposition = res.headers.value('content-disposition') ?? '';
       final named = RegExp(r'''filename\*?=(?:UTF-8'')?"?([^";]+)"?''', caseSensitive: false).firstMatch(disposition);
       return (
-        name: named == null ? null : Uri.decodeComponent(named.group(1)!.trim()),
+        name: named == null ? null : _decodedName(named.group(1)!.trim()),
         type: res.headers.contentType?.mimeType,
       );
     }
     throw HttpException('Too many redirects', uri: uri);
+  }
+
+  /// A file name from a server's header, %-decoded when it is encoded. A
+  /// bare "%" ("100% Guide.epub") is kept as it is: decoding throws there,
+  /// and failing a download already saved over its name was wrong.
+  static String _decodedName(String raw) {
+    try {
+      return Uri.decodeComponent(raw);
+    } on Object {
+      return raw;
+    }
   }
 
   /// GET [url] as text; throws on an HTTP error.
