@@ -61,7 +61,9 @@ List<int> citeNumbers(String mark) {
       final from = out.last;
       final range = between.contains('to') || between.split('').any(_dashes.contains);
       if (range && n > from && n - from <= 30) {
-        for (var k = from + 1; k < n; k++) out.add(k);
+        for (var k = from + 1; k < n; k++) {
+          out.add(k);
+        }
       }
     }
     out.add(n);
