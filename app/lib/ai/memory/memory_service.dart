@@ -365,7 +365,7 @@ class MemoryService {
   Future<int> downloadAll(String id) async {
     final info = await _store?.webNovel(id);
     if (info == null) return 0;
-    return DownloadQueue.instance.add(id, info.chapters);
+    return DownloadQueue.instance.add(id, info.chapters, byReader: true);
   }
 
   /// The downloaded chapters of web novel [id] the memory has already read

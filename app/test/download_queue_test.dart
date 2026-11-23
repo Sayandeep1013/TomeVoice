@@ -398,4 +398,42 @@ void main() {
     expect(await DownloadQueue.pausedIn(store.root), isTrue);
     expect(sites.asked.containsKey('na/2'), isFalse);
   });
+
+  test('a pause ends with nothing left waiting: the next chapters asked for come, not "Paused"', () async {
+    final (a, ac) = await novel('a', 'na', 1);
+    final (b, bc) = await novel('b', 'nb', 2);
+    final gate = Completer<void>();
+    sites.gates['na/1'] = gate.future;
+    final q = queue(pace: Duration.zero);
+    await q.attach(store);
+    await q.add(a, ac);
+    await until(() => sites.asked['na/1'] != null);
+    // Paused (or the notification's Stop) with only the chapter on its way.
+    await q.pause();
+    gate.complete();
+    await until(() => q.of(a) == null && !q.paused);
+    await q.whenIdle();
+    var onDisk = true;
+    for (var i = 0; i < 100 && onDisk; i++) {
+      onDisk = await DownloadQueue.pausedIn(store.root);
+      if (onDisk) await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    expect(onDisk, isFalse, reason: 'nothing was left to hold back');
+    // Later, Download next 5 elsewhere (the background check's add too).
+    await q.add(b, bc);
+    await until(() => store.downloadedChapters(b).length == 2);
+  });
+
+  test("the reader's own Download ends a pause of theirs from before; the background check's leaves it", () async {
+    final (a, ac) = await novel('a', 'na', 2);
+    final (b, bc) = await novel('b', 'nb', 2);
+    final q = queue(pace: Duration.zero);
+    await q.attach(store);
+    await q.pause();
+    await q.add(a, ac);
+    expect((q.paused, q.of(a)!.waiting), (true, 2), reason: 'a background add keeps the pause');
+    await q.add(b, bc, byReader: true);
+    expect(q.paused, isFalse);
+    await until(() => store.downloadedChapters(a).length == 2 && store.downloadedChapters(b).length == 2);
+  });
 }

@@ -453,11 +453,24 @@ class _NovelScreenState extends State<NovelScreen> {
     );
   }
 
-  /// Download [count] chapters from [from] (the place reached, by default)
-  /// that are not on the phone yet.
+  /// Download the next [count] chapters from [from] (the place reached, by
+  /// default) that are neither on the phone nor on their way: "next 10"
+  /// pressed again brings the 10 after those, not nothing.
   Future<void> _download(int count, {int? from}) async {
     final start = from ?? (_current < 0 ? 0 : _current);
-    await _downloadList([for (var i = start; i < start + count && i < _chapters.length; i++) i]);
+    final next = [
+      for (var i = start; i < _chapters.length; i++)
+        if (!_downloaded.contains(i) && !_queued.contains(_chapters[i].path)) i,
+    ].take(count).toList();
+    if (next.isEmpty) {
+      showSnack(
+          context,
+          from == null && start > 0
+              ? 'Every chapter from your place on is on the phone, or on its way.'
+              : 'Every chapter is on the phone, or on its way.');
+      return;
+    }
+    await _downloadList(next);
   }
 
   /// Download those of [chapters] not on the phone yet, in order: queued
@@ -473,7 +486,7 @@ class _NovelScreenState extends State<NovelScreen> {
     final e = await _ensureAdded(announce: false);
     if (e == null || !mounted) return;
     wanted = [for (final i in _placesOf(paths, wanted)) if (!_downloaded.contains(i)) i]..sort();
-    final added = await DownloadQueue.instance.add(_id, [for (final i in wanted) _chapters[i]], first: first);
+    final added = await DownloadQueue.instance.add(_id, [for (final i in wanted) _chapters[i]], first: first, byReader: true);
     if (!mounted || wanted.length == 1) return;
     showSnack(
       context,
@@ -1330,10 +1343,28 @@ class _NovelScreenState extends State<NovelScreen> {
                 child: _swap(
                   context,
                   _queued.contains(c.path) && !have
-                      ? const Center(
-                          key: ValueKey('fetching'),
-                          child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-                        )
+                      // Queued while the queue is paused (or held till the
+                      // app is open), or the site asked for a rest: waiting,
+                      // not a spinner turning for ever.
+                      ? DownloadQueue.instance.paused ||
+                              DownloadQueue.instance.held ||
+                              (_downloads?.resting ?? false)
+                          ? Tooltip(
+                              key: const ValueKey('queued'),
+                              message: DownloadQueue.instance.paused
+                                  ? 'Waiting to download (paused)'
+                                  : 'Waiting to download',
+                              child: Icon(
+                                  DownloadQueue.instance.paused
+                                      ? Icons.pause_circle_outline_rounded
+                                      : Icons.schedule_rounded,
+                                  size: 20,
+                                  color: Skin.inkFaintOn(context)),
+                            )
+                          : const Center(
+                              key: ValueKey('fetching'),
+                              child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                            )
                       : have
                           ? Tooltip(
                               key: const ValueKey('have'),
