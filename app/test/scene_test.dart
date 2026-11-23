@@ -220,6 +220,9 @@ void main() {
             await tester.tap(find.byTooltip('Menu').first);
             await tester.pumpAndSettle();
           }
+          // On a small phone the drawer's lower rows are scrolled to.
+          await tester.ensureVisible(find.text(place).last);
+          await tester.pumpAndSettle();
           await tester.tap(find.text(place).last);
           await settleIo(tester);
           expect(tester.takeException(), isNull, reason: place);

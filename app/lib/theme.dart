@@ -895,9 +895,9 @@ class Palette {
     day: [Color(0xFF0C2216), Color(0xFF0A1B11), Color(0xFF08160E), Color(0xFF050D08)],
     night: [Color(0xFF0C2216), Color(0xFF0A1B11), Color(0xFF08160E), Color(0xFF050D08)],
     // The glow of its mushrooms.
-    accent: Color(0xFF52D6AE),
-    accentSoft: Color(0xFF8AE6C8),
-    accentDeep: Color(0xFF1E7A60),
+    accent: Color(0xFF3CBF96),
+    accentSoft: Color(0xFF6FD8B6),
+    accentDeep: Color(0xFF1A6E55),
     onAccent: Color(0xFF0A1A14),
     nightCapsule: Color(0xF2142A1B),
     nightSheet: Color(0xFF07120B),
