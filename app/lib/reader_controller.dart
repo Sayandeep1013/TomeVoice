@@ -938,13 +938,18 @@ class ReaderController {
     _syncMarked();
   }
 
+  /// Auto-scroll is moving the page (set by the reader's screen): its place
+  /// moves every couple of seconds, saved as the voice's is (see
+  /// [_schedulePersist]), and at once when it stops.
+  bool autoReading = false;
+
   /// The place saved a moment after it moves; while the voice reads on,
   /// every [readingSaveEvery] instead, and at once when it pauses, stops, or
   /// the chapter changes. Saved at every sentence (with a flush to the
   /// disk, and the home screen's widget drawn again), hours of listening
   /// woke the storage thousands of times.
   void _schedulePersist({bool soon = false}) {
-    final reading = player.isPlaying && !soon;
+    final reading = (player.isPlaying || autoReading) && !soon;
     if (reading && _persistTimer != null && _persistTimer!.isActive) return;
     _persistTimer?.cancel();
     _persistTimer = Timer(reading ? readingSaveEvery : const Duration(milliseconds: 1500), () => unawaited(persist()));

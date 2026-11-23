@@ -106,6 +106,12 @@ class _PageCurlState extends State<PageCurl> with SingleTickerProviderStateMixin
   Offset? _dragStart;
   Size _size = Size.zero;
 
+  /// The leaves of the turn under way, made once at its start: each frame
+  /// of the turn moves them, and Flutter passes over a widget it was given
+  /// before, where calling [PageCurl.leaf] again built every piece of each
+  /// page (three or four) on every frame.
+  final _leaves = <(int, int), Widget>{};
+
   @override
   void initState() {
     super.initState();
@@ -120,6 +126,8 @@ class _PageCurlState extends State<PageCurl> with SingleTickerProviderStateMixin
       widget.controller._state = this;
     }
     if (_index >= widget.itemCount) _index = math.max(0, widget.itemCount - 1);
+    // Its pages may be others now (a new size, a new look).
+    _leaves.clear();
   }
 
   @override
@@ -164,6 +172,7 @@ class _PageCurlState extends State<PageCurl> with SingleTickerProviderStateMixin
 
   void _start({required bool forward, required bool top, required bool byHand}) {
     _byHand = byHand;
+    _leaves.clear();
     _turn = _Turn(forward ? _index : _index - 1, top);
     _q = forward ? 0 : 1;
     _lift = Offset.zero;
@@ -196,6 +205,7 @@ class _PageCurlState extends State<PageCurl> with SingleTickerProviderStateMixin
     final turn = _turn;
     if (turn == null || !mounted) return;
     final done = _animTo >= 0.5;
+    _leaves.clear();
     setState(() {
       _index = done ? turn.from + 1 : turn.from;
       _turn = null;
@@ -288,12 +298,16 @@ class _PageCurlState extends State<PageCurl> with SingleTickerProviderStateMixin
         },
       );
 
-  Widget _paperLeaf(BuildContext context, int index, int side) => RepaintBoundary(
-        child: DecoratedBox(
-          decoration: widget.paper,
-          child: widget.leaf(context, index, side),
-        ),
-      );
+  Widget _paperLeaf(BuildContext context, int index, int side) {
+    Widget make() => RepaintBoundary(
+          child: DecoratedBox(
+            decoration: widget.paper,
+            child: widget.leaf(context, index, side),
+          ),
+        );
+    if (_turn == null) return make();
+    return _leaves[(index, side)] ??= make();
+  }
 
   Widget _still(BuildContext context) {
     if (!widget.spread) return _paperLeaf(context, _index, 0);

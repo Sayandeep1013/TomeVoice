@@ -60,6 +60,9 @@ void main() {
       ),
     ));
     await tester.pumpAndSettle();
+    // A look changed again soon after the last is cut once it rests.
+    await tester.pump(lookQuiet);
+    await tester.pumpAndSettle();
   }
 
   setUp(() {
@@ -98,6 +101,42 @@ void main() {
     await pump(tester, look(19));
     expect(showing(first), isTrue);
     expect(controller.range!.$1, first);
+  });
+
+  testWidgets('a text size tapped up and up is cut once it rests, on the same sentence', (tester) async {
+    phone(tester);
+    await pump(tester, look(19));
+    final first = await turnTo(tester, 6);
+    Future<void> change(double size) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PagedBook(
+            layout: layout,
+            look: look(size),
+            controller: controller,
+            startUnit: 0,
+            marked: marked,
+            word: word,
+            chapterName: (c) => 'One',
+            onPage: (unit, {required byHand}) {},
+            onTapMiddle: () {},
+            onHold: (item, offset) {},
+            pictureOf: (block, size) => SizedBox.fromSize(size: size),
+          ),
+        ),
+      ));
+      await tester.pump();
+    }
+
+    await change(22);
+    final atOnce = controller.range;
+    expect(showing(first), isTrue, reason: 'the first change is cut at once');
+    await change(26);
+    expect(controller.range, atOnce, reason: 'the next, made at once after, waits');
+    await tester.pump(lookQuiet);
+    await tester.pumpAndSettle();
+    expect(controller.range, isNot(atOnce), reason: 'cut once it rests');
+    expect(showing(first), isTrue);
   });
 
   testWidgets('turning the phone shows the same sentence', (tester) async {
