@@ -489,6 +489,7 @@ class MemoryService {
     _afterSaves.clear();
     _savedAgain.clear();
     _keptAt.clear();
+    _indexRuns.clear();
     for (final t in _wakes.values) {
       t.cancel();
     }
@@ -640,8 +641,15 @@ class MemoryService {
     await build(id, hint: false);
   }
 
-  /// The word index of [id] brought up to date (free, on the phone).
-  Future<void> index(String id) async {
+  /// The word index of [id] brought up to date (free, on the phone). One
+  /// run a book at a time: those asking meanwhile wait for it. (The Build
+  /// sheet counts and finds where "the next ten" end at once; two runs on a
+  /// memory not yet made both made its tables, and one failed.)
+  Future<void> index(String id) => _indexRuns[id] ??= _index(id).whenComplete(() => _indexRuns.remove(id));
+
+  final _indexRuns = <String, Future<void>>{};
+
+  Future<void> _index(String id) async {
     final store = _store;
     if (store == null) return;
     final n = _n(id);

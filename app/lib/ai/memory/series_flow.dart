@@ -366,12 +366,14 @@ class _BuildSheetState extends State<_BuildSheet> {
               builder: (context, snap) => _KeyChoice(
                 chosen: _far == BuildFar.all,
                 title: 'Every chapter on the phone',
-                body: snap.data == null
-                    ? 'Counting…'
-                    : snap.data!.chapters == 0
-                        ? 'Every chapter on the phone is in it already.'
-                        : '${snap.data!.chapters} ${snap.data!.chapters == 1 ? 'chapter is' : 'chapters are'} '
-                            'not in it yet.',
+                body: snap.hasError
+                    ? 'Could not be counted.'
+                    : snap.data == null
+                        ? 'Counting…'
+                        : snap.data!.chapters == 0
+                            ? 'Every chapter on the phone is in it already.'
+                            : '${snap.data!.chapters} ${snap.data!.chapters == 1 ? 'chapter is' : 'chapters are'} '
+                                'not in it yet.',
                 onTap: () => _pick(BuildFar.all),
               ),
             ),
@@ -408,16 +410,18 @@ class _BuildSheetState extends State<_BuildSheet> {
               builder: (context, snap) {
                 final est = snap.data;
                 return Text(
-                  est == null
-                      ? 'Counting what it would take…'
-                      : est.chapters == 0
-                          ? (_far == BuildFar.all
-                              ? 'Every chapter on the phone is read already.'
-                              : 'Every chapter up to there is read already.')
-                          : '${est.chapters} ${est.chapters == 1 ? 'chapter' : 'chapters'} to read, in about '
-                              '${est.calls} ${est.calls == 1 ? 'call' : 'calls'}: some ${tokenCount(est.tokens)} '
-                              'tokens. It goes on with TomeVoice behind other apps or the screen off.'
-                              '${keys.length == 1 ? ' When ${keys.single.label} has used its quota for now, it waits for it.' : ''}',
+                  snap.hasError
+                      ? 'What it would take could not be counted (${snap.error}). Building still works.'
+                      : est == null
+                          ? 'Counting what it would take…'
+                          : est.chapters == 0
+                              ? (_far == BuildFar.all
+                                  ? 'Every chapter on the phone is read already.'
+                                  : 'Every chapter up to there is read already.')
+                              : '${est.chapters} ${est.chapters == 1 ? 'chapter' : 'chapters'} to read, in about '
+                                  '${est.calls} ${est.calls == 1 ? 'call' : 'calls'}: some ${tokenCount(est.tokens)} '
+                                  'tokens. It goes on with TomeVoice behind other apps or the screen off.'
+                                  '${keys.length == 1 ? ' When ${keys.single.label} has used its quota for now, it waits for it.' : ''}',
                   style: soft,
                 );
               },
