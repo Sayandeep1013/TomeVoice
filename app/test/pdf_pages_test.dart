@@ -119,8 +119,16 @@ void main() {
     await tester.pump();
   }
 
-  Matrix4 zoomOf(WidgetTester tester) =>
-      tester.widget<InteractiveViewer>(find.byType(InteractiveViewer)).transformationController!.value;
+  /// The pages, each one that can zoom. Its zoom viewer is there only
+  /// while it is zoomed in.
+  Finder zoomPages() => find.byWidgetPredicate((w) => w.runtimeType.toString() == '_ZoomPage');
+
+  /// The zoomed page's zoom; none zoomed is the whole page.
+  Matrix4 zoomOf(WidgetTester tester) {
+    final viewer = find.byType(InteractiveViewer);
+    if (viewer.evaluate().isEmpty) return Matrix4.identity();
+    return tester.widget<InteractiveViewer>(viewer.first).transformationController!.value;
+  }
 
   /// A finger drawn across the page in small steps, as a hand moves (a pan
   /// starts only once the finger has gone some way).
@@ -157,7 +165,7 @@ void main() {
         ..pageTurn = turn;
       await openPdf(tester);
       expect(shown(), '1');
-      final page = find.byType(InteractiveViewer);
+      final page = zoomPages();
       expect(page, findsOneWidget);
       final c = tester.getCenter(page);
 
@@ -199,7 +207,7 @@ void main() {
       expect(shown(), '2');
 
       // Two taps in the middle come closer, there.
-      final mid = tester.getCenter(find.byType(InteractiveViewer));
+      final mid = tester.getCenter(zoomPages());
       await tester.tapAt(mid);
       await tester.pump(const Duration(milliseconds: 60));
       await tester.tapAt(mid);
@@ -211,20 +219,37 @@ void main() {
 
   testWidgets('scrolled, a page zooms too, and holds the list still while zoomed in', (tester) async {
     await openPdf(tester);
-    final first = find.byType(InteractiveViewer).first;
+    final first = zoomPages().first;
     final c = tester.getCenter(first);
     await tester.tapAt(c);
     await tester.pump(const Duration(milliseconds: 60));
     await tester.tapAt(c);
     await tester.pumpAndSettle();
-    expect(tester.widget<InteractiveViewer>(first).transformationController!.value.getMaxScaleOnAxis(),
-        greaterThan(2));
+    expect(zoomOf(tester).getMaxScaleOnAxis(), greaterThan(2));
     final top = tester.getTopLeft(first).dy;
-    final y = tester.widget<InteractiveViewer>(first).transformationController!.value.storage[13];
+    final y = zoomOf(tester).storage[13];
     // A drag up moves the page under the finger, not the list.
     await slide(tester, c, const Offset(0, -200));
     expect(tester.getTopLeft(first).dy, top);
-    expect(tester.widget<InteractiveViewer>(first).transformationController!.value.storage[13], lessThan(y - 50));
+    expect(zoomOf(tester).storage[13], lessThan(y - 50));
+    await finish(tester);
+  });
+
+  testWidgets('scrolled, a fast flick moves the list: a page at its whole size does not take it', (tester) async {
+    await openPdf(tester);
+    final list = find.descendant(of: find.byType(PdfPagesView), matching: find.byType(Scrollable)).first;
+    final before = tester.state<ScrollableState>(list).position.pixels;
+    // A flick as a quick hand makes it: the first move already far past
+    // both the list's and a zoom's slop.
+    final finger = await tester.startGesture(tester.getCenter(zoomPages().first));
+    for (var i = 0; i < 4; i++) {
+      await finger.moveBy(const Offset(0, -120));
+      await tester.pump(const Duration(milliseconds: 8));
+    }
+    await finger.up();
+    await tester.pumpAndSettle();
+    expect(tester.state<ScrollableState>(list).position.pixels, greaterThan(before + 300));
+    expect(find.byType(InteractiveViewer), findsNothing, reason: 'nothing was zoomed');
     await finish(tester);
   });
 
@@ -516,13 +541,13 @@ void main() {
     testWidgets('a page zoomed in comes back to its whole size as it is cut, and the list scrolls again',
         (tester) async {
       await openPdf(tester);
-      final first = find.byType(InteractiveViewer).first;
+      final first = zoomPages().first;
       final c = tester.getCenter(first);
       await tester.tapAt(c);
       await tester.pump(const Duration(milliseconds: 60));
       await tester.tapAt(c);
       await tester.pumpAndSettle();
-      Matrix4 zoom() => tester.widget<InteractiveViewer>(first).transformationController!.value;
+      Matrix4 zoom() => zoomOf(tester);
       expect(zoom().getMaxScaleOnAxis(), greaterThan(2));
       ListeningPrefs.memory
         ..pdfCrop = true
