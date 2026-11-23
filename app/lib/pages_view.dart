@@ -940,6 +940,9 @@ class _ZoomPageState extends State<_ZoomPage> with SingleTickerProviderStateMixi
   static const _closer = 2.5;
 
   final _zoom = TransformationController();
+
+  /// The page itself, kept as it is when the zoom viewer comes and goes.
+  final _pageKey = GlobalKey();
   late final _glide = AnimationController(vsync: this, duration: Motion.standard)..addListener(_onGlide);
   Matrix4Tween? _tween;
   bool _zoomed = false;
@@ -996,7 +999,8 @@ class _ZoomPageState extends State<_ZoomPage> with SingleTickerProviderStateMixi
   void _onZoom() {
     final zoomed = _zoom.value.getMaxScaleOnAxis() > 1.01;
     if (zoomed == _zoomed) return;
-    _zoomed = zoomed;
+    // The viewer that pans a zoomed page is there only while zoomed in.
+    setState(() => _zoomed = zoomed);
     widget.onZoom(widget.page, zoomed);
   }
 
@@ -1120,13 +1124,19 @@ class _ZoomPageState extends State<_ZoomPage> with SingleTickerProviderStateMixi
                 ..onEnd = _pinchEnd,
             ),
           },
-          child: InteractiveViewer(
-            transformationController: _zoom,
-            minScale: 1,
-            maxScale: _most,
-            onInteractionStart: (_) => _glide.stop(),
-            child: widget.child,
-          ),
+          // Only a zoomed page has the viewer that pans it. At its whole
+          // size the viewer's own gesture took a fast flick of the list
+          // (its first move past both slops at once, the viewer asked
+          // first) and moved nothing, so the pages would not fling.
+          child: _zoomed
+              ? InteractiveViewer(
+                  transformationController: _zoom,
+                  minScale: 1,
+                  maxScale: _most,
+                  onInteractionStart: (_) => _glide.stop(),
+                  child: KeyedSubtree(key: _pageKey, child: widget.child),
+                )
+              : KeyedSubtree(key: _pageKey, child: widget.child),
         ),
       );
 }
