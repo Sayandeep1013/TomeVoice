@@ -117,7 +117,7 @@ Future<void> forgetAllMemories(BuildContext context) async {
     context,
     title: 'Forget every memory?',
     body: 'The notes, cast, graph, threads and theories of ${books.length} '
-        '${books.length == 1 ? 'book' : 'books'} go from this phone. Your books, places and journal stay. '
+        '${books.length == 1 ? 'book' : 'books'} go from this phone. Your books, downloaded chapters, places, journal and AI chats stay. '
         'A memory can be built again, at the cost of the calls.',
     action: 'Forget them all',
   );
@@ -162,7 +162,8 @@ class AiLogScreen extends StatelessWidget {
                             final sure = await confirm(
                               context,
                               title: 'Clear the list?',
-                              body: 'Only this record goes; nothing at the provider changes.',
+                              body: 'Only this list of what was sent goes. The tokens counted for each key today, and its daily limit, '
+                                  'stay as they are; nothing at the provider changes.',
                               action: 'Clear',
                             );
                             if (sure) await r.clearLog();

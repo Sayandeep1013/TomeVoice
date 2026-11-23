@@ -593,7 +593,8 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
       context,
       title: 'Remove $n ${n == 1 ? 'book' : 'books'}?',
       body:
-          'They are deleted from TomeVoice with their reading places. '
+          'They are deleted from TomeVoice, with their reading places, any downloaded chapters and any '
+          'book memory. Your journal and the quotes you saved stay (not for books on a secret shelf). '
           'The original files on your phone are not touched.',
       action: 'Remove',
     );

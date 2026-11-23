@@ -145,7 +145,7 @@ class _ChapterNotesScreenState extends State<ChapterNotesScreen> {
       context,
       title: 'Read chapter ${c.ch + 1} again?',
       body: 'What the AI noted of it goes (its summary, and what it put in the cast and the graph), and it is read '
-          'afresh as the memory builds.',
+          "afresh as the memory builds (one more call). The other chapters' notes and your journal stay.",
       action: 'Read it again',
     );
     if (!sure) return;

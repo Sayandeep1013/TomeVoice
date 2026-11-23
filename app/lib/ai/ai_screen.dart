@@ -645,7 +645,10 @@ class _KeySheetState extends State<KeySheet> {
     final k = widget.editing;
     if (k == null) return;
     final sure = await confirm(context,
-        title: 'Remove this key?', body: 'TomeVoice forgets it. The provider still has it.', action: 'Remove');
+        title: 'Remove this key?',
+        body: 'TomeVoice forgets this key. The memories and chats made with it stay. '
+            'The key still works at the provider: delete it there if you want it gone for good.',
+        action: 'Remove');
     if (!sure) return;
     await widget.ring.remove(k.id);
     if (mounted) Navigator.of(context).pop();

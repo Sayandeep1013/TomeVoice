@@ -358,7 +358,10 @@ class _ReaderNotesScreenState extends State<ReaderNotesScreen> {
 
   Future<void> _forgetAll() async {
     final sure = await confirm(context,
-        title: 'Forget everything?', body: 'Every note the AI kept about you goes.', action: 'Forget all');
+        title: 'Forget everything?',
+        body: 'Every note the AI kept about you goes, so later chats start without them. '
+            'Your chats themselves, your journal and the book memories stay.',
+        action: 'Forget all');
     if (sure) await _chats.forgetAll();
   }
 

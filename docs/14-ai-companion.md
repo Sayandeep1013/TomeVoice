@@ -304,7 +304,7 @@ A memory is made from the chapters on the phone. For a web novel:
 - While chapters are still downloading, the Builder goes no further than the chapter
   before the first one not yet on the phone, so ranks, titles and relations are told in
   order. Once nothing waits, it builds the rest wherever it is.
-- **Free the space** deletes the downloaded chapters the memory has already read (in the
+- **Free up space** deletes the downloaded chapters the memory has already read (in the
   word index, with notes). The memory keeps its own copy of their words; a chapter
   opened to read is fetched again from the site.
 
