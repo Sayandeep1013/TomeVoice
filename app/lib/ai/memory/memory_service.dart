@@ -39,7 +39,22 @@ class BookMemoryState {
     this.begun = false,
     this.private = false,
     this.buildKeys,
+    this.buildTo,
+    this.autoBuild = true,
+    this.leftUnder = 0,
   });
+
+  /// Where the reader asked it to stop (0-based; [buildToMeta]); null:
+  /// every chapter on the phone.
+  final int? buildTo;
+
+  /// New chapters join it by themselves ([autoBuildMeta]); off: only when
+  /// the reader taps Build.
+  final bool autoBuild;
+
+  /// Chapters with no notes yet up to [buildTo] (all of them, with none):
+  /// what Go on building would read.
+  final int leftUnder;
 
   /// Which keys build it, as the reader chose ([buildKeysMeta]): any in
   /// turn, or one only (null: the first only).
@@ -93,6 +108,10 @@ class BookMemoryState {
     bool? private,
     String? buildKeys,
     bool clearBuildKeys = false,
+    int? buildTo,
+    bool clearBuildTo = false,
+    bool? autoBuild,
+    int? leftUnder,
   }) =>
       BookMemoryState(
         exists: exists ?? this.exists,
@@ -109,6 +128,9 @@ class BookMemoryState {
         begun: begun ?? this.begun,
         private: private ?? this.private,
         buildKeys: clearBuildKeys ? null : (buildKeys ?? this.buildKeys),
+        buildTo: clearBuildTo ? null : (buildTo ?? this.buildTo),
+        autoBuild: autoBuild ?? this.autoBuild,
+        leftUnder: leftUnder ?? this.leftUnder,
       );
 }
 
@@ -124,6 +146,9 @@ typedef _Read = ({
   bool begun,
   bool private,
   String? buildKeys,
+  int? buildTo,
+  bool autoBuild,
+  int leftUnder,
 });
 
 _Read _read(String path) {
@@ -134,6 +159,12 @@ _Read _read(String path) {
             'max(CASE WHEN noted = 1 THEN ch END) last FROM chapters WHERE indexed = 1')
         .first;
     final e = m.db.select('SELECT count(*) n FROM entities WHERE merged_into IS NULL').first;
+    final to = int.tryParse(m.meta(buildToMeta) ?? '');
+    final left = m.db.select(
+      'SELECT count(*) n FROM chapters WHERE indexed = 1 AND noted = 0 AND note_error IS NULL'
+      '${to == null ? '' : ' AND ch <= ?'}',
+      [if (to != null) to],
+    ).first['n'] as int;
     return (
       indexed: c['n'] as int,
       noted: (c['noted'] as int?) ?? 0,
@@ -146,6 +177,9 @@ _Read _read(String path) {
       begun: m.meta('begun') == '1',
       private: m.meta('private') == '1',
       buildKeys: m.meta(buildKeysMeta),
+      buildTo: to,
+      autoBuild: m.meta(autoBuildMeta) != 'off',
+      leftUnder: left,
     );
   } finally {
     m.close();
@@ -436,7 +470,13 @@ class MemoryService {
       return;
     }
     _keptAt[id] = DateTime.now();
-    await build(id, hint: false, stayAlive: false);
+    // Built only when the reader taps Build: the new chapters' words are
+    // still indexed (free, on the phone), so Talk's search finds them.
+    if (!_n(id).value.autoBuild) {
+      await index(id);
+      return;
+    }
+    await build(id, hint: false, stayAlive: false, asked: false);
   }
 
   @visibleForTesting
@@ -556,7 +596,8 @@ class MemoryService {
     if (store == null) return;
     final path = _path(id);
     if (!File(path).existsSync()) {
-      _blank(id).value = _blank(id).value.copyWith(exists: false, indexed: 0, noted: 0, entities: 0, bytes: 0);
+      _blank(id).value = _blank(id).value.copyWith(
+          exists: false, indexed: 0, noted: 0, entities: 0, bytes: 0, leftUnder: 0, clearBuildTo: true, autoBuild: true);
       return;
     }
     final r = await _readRetrying(path, store);
@@ -577,6 +618,10 @@ class MemoryService {
       private: r.private,
       buildKeys: r.buildKeys,
       clearBuildKeys: r.buildKeys == null,
+      buildTo: r.buildTo,
+      clearBuildTo: r.buildTo == null,
+      autoBuild: r.autoBuild,
+      leftUnder: r.leftUnder,
     );
   }
 
@@ -636,10 +681,53 @@ class MemoryService {
       }();
 
   /// What building the rest of [id]'s memory would take; the word index is
-  /// made first.
-  Future<BuildEstimate> estimate(String id) async {
+  /// made first. Up to chapter [to] (0-based) when given, every chapter on
+  /// the phone when [all], else up to where the reader last asked it to
+  /// stop.
+  Future<BuildEstimate> estimate(String id, {int? to, bool all = false}) async {
     await index(id);
-    return _builder(id).estimate();
+    final b = _builder(id);
+    b.upTo = await _upToFor(id, all ? null : to ?? await _buildToOf(id));
+    return b.estimate();
+  }
+
+  /// The chapter (0-based) [n] chapters on from where [id]'s memory has
+  /// got to; null when none is left.
+  Future<int?> nthLeftOf(String id, int n) async {
+    await index(id);
+    return nthLeftOff(_path(id), n);
+  }
+
+  /// Where [id]'s memory stops, as the reader asked (null: nowhere).
+  Future<int?> _buildToOf(String id) async {
+    if (!File(_path(id)).existsSync()) return null;
+    return int.tryParse(await _getMetaOff(_path(id), buildToMeta) ?? '');
+  }
+
+  /// How far a build of [id] goes: no further than [to], and while its
+  /// chapters are still downloading (one by one, from the first), only up
+  /// to the first not yet on the phone, so the memory is made in the
+  /// story's order (a rank before it changes, a meeting before the
+  /// falling-out). Once nothing waits, the rest, wherever it is.
+  Future<int?> _upToFor(String id, int? to) async {
+    final waiting = (DownloadQueue.instance.of(id)?.waiting ?? 0) > 0;
+    final gap = waiting && File(_path(id)).existsSync() ? await _firstGapOff(_path(id)) - 1 : null;
+    if (gap == null) return to;
+    return to == null ? gap : math.min(gap, to);
+  }
+
+  /// Build [id]'s memory no further than chapter [to] (0-based), by hand or
+  /// by itself, until the reader asks for more; null: every chapter.
+  Future<void> setBuildTo(String id, int? to) async {
+    await _setMetaOff(_path(id), buildToMeta, to?.toString());
+    await refresh(id);
+  }
+
+  /// [id]'s new chapters join its memory by themselves ([on]), or only when
+  /// the reader taps Build.
+  Future<void> setAutoBuild(String id, bool on) async {
+    await _setMetaOff(_path(id), autoBuildMeta, on ? 'on' : 'off');
+    _n(id).value = _n(id).value.copyWith(exists: true, autoBuild: on);
   }
 
   /// Whether [id] may be sent to a provider at all: never from a secret
@@ -685,7 +773,11 @@ class MemoryService {
     }
   }
 
-  Future<void> build(String id, {bool hint = true, bool stayAlive = true}) async {
+  /// [asked] false: begun by itself (kept up as the book is read), not by
+  /// the reader. A build the reader asked for is marked until it is done,
+  /// so the build with the app closed finishes it even when the book's new
+  /// chapters are not built by themselves.
+  Future<void> build(String id, {bool hint = true, bool stayAlive = true, bool asked = true}) async {
     if (!maySend(id) || !AiRing.instance.hasKeys) return;
     _wakes.remove(id)?.cancel();
     _held.remove(id);
@@ -711,13 +803,13 @@ class MemoryService {
       onGoOn: () => _goOn(id),
     );
     if (!stayAlive) {
-      await _build(id);
+      await _build(id, asked: asked);
       return;
     }
     keepAlive.begin(job, hint: hint);
     var kept = false;
     try {
-      await _build(id);
+      await _build(id, asked: asked);
       // Resting a short while (a key's per-minute limit, a dropped signal):
       // the work and its notification are kept, so the wake lock holds and
       // the wake-up comes with the screen off. It used to be let go at each
@@ -750,7 +842,7 @@ class MemoryService {
     if (job != null) keepAlive.end(job.key, job: job);
   }
 
-  Future<void> _build(String id) async {
+  Future<void> _build(String id, {bool asked = true}) async {
     if (!_titles.containsKey(id)) unawaited(_titleOf(id));
     // Asked to build: a pause the reader made is over.
     if (_paused.remove(id) || File(_path(id)).existsSync()) {
@@ -766,15 +858,18 @@ class MemoryService {
       _n(id).value = _n(id).value.copyWith(begun: true);
       // "Spoiler guard on for new books": this one is new.
       if (ListeningPrefs.loaded?.aiGuardNew ?? false) await setGuard(id, true);
+      // Whether new books build their new chapters by themselves, unless
+      // the Build sheet said for this one.
+      if (await _getMetaOff(path, autoBuildMeta) == null) {
+        await setAutoBuild(id, ListeningPrefs.loaded?.aiAutoNew ?? true);
+      }
     }
-    // While its chapters are still downloading (one by one, from the
-    // first), only up to the first not yet on the phone: the memory is made
-    // in the story's order, a rank before it changes, a meeting before the
-    // falling-out. Once nothing waits, the rest, wherever it is.
-    final waiting = (DownloadQueue.instance.of(id)?.waiting ?? 0) > 0;
+    if (asked) await _setMetaOff(_path(id), askedMeta, '1');
     final builder = _builder(id);
-    builder.upTo = waiting ? await _firstGapOff(_path(id)) - 1 : null;
+    builder.upTo = await _upToFor(id, await _buildToOf(id));
     final s = await builder.run();
+    // What the reader asked for is built: the mark goes.
+    if (s.phase == BuildPhase.done && File(_path(id)).existsSync()) await _setMetaOff(_path(id), askedMeta, null);
     await refresh(id);
     if (s.phase == BuildPhase.resting && s.until != null) {
       final wait = s.until!.difference(DateTime.now());

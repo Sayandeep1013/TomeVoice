@@ -1,9 +1,13 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
+
+import 'speech_service.dart';
 
 /// Scene themes: a place, not a colour. Each draws its own backdrop behind
 /// every screen (stone and torches, a forest, a starship's hull), frames the
@@ -1408,29 +1412,107 @@ class SceneLife extends StatefulWidget {
 @visibleForTesting
 bool sceneLifeMoves = !Platform.environment.containsKey('FLUTTER_TEST');
 
-class _SceneLifeState extends State<SceneLife> with SingleTickerProviderStateMixin {
-  final _time = ValueNotifier<double>(0);
-  late final _ticker = createTicker(_tick);
-  Duration _last = Duration.zero;
+/// Android's battery saver is on: the scenes' life stands still, as when
+/// the phone removes animations. Read as the app opens and each time it
+/// comes back to the front.
+final sceneBatterySaver = ValueNotifier<bool>(false);
+DateTime? _saverAskedAt;
 
-  void _tick(Duration t) {
-    // About 30 a second is smooth for flames and fireflies, and half the work.
-    if (t - _last < const Duration(milliseconds: 33)) return;
-    _last = t;
-    _time.value = t.inMicroseconds / 1e6;
+Future<void> _askSaver() async {
+  if (!Platform.isAndroid) return;
+  final now = DateTime.now();
+  final was = _saverAskedAt;
+  if (was != null && now.difference(was) < const Duration(seconds: 5)) return;
+  _saverAskedAt = now;
+  final d = await const SpeechService().phoneDetails();
+  sceneBatterySaver.value = d['powerSave'] == true;
+}
+
+class _SceneLifeState extends State<SceneLife> with WidgetsBindingObserver {
+  final _time = ValueNotifier<double>(0);
+  final _clock = Stopwatch();
+  Timer? _timer;
+  int? _frame;
+
+  /// False while another screen covers this one, or it is put away
+  /// (TickerMode off).
+  bool _current = true;
+  bool _enabled = true;
+
+  /// The phone removes animations (read with the screen's other settings).
+  bool _noMotion = false;
+
+  /// How long to wait after a picture before asking for the next frame:
+  /// drawn on the first frame after 26 ms, about 30 a second at 60, 90 and
+  /// 120 Hz alike, smooth for flames and fireflies. A ticker woke every
+  /// frame of the display (twice or four times the pictures drawn) for as
+  /// long as a scene was on screen, reading aloud on a slow phone too.
+  static const _rest = Duration(milliseconds: 26);
+
+  bool get _visible {
+    final app = WidgetsBinding.instance.lifecycleState;
+    final still = !sceneLifeMoves || _noMotion || sceneBatterySaver.value;
+    return !still && _current && _enabled && (app == null || app == AppLifecycleState.resumed);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    sceneBatterySaver.addListener(_sync);
+    if (sceneLifeMoves) unawaited(_askSaver());
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final still = !sceneLifeMoves || (MediaQuery.maybeDisableAnimationsOf(context) ?? false);
-    if (still && _ticker.isActive) _ticker.stop();
-    if (!still && !_ticker.isActive) _ticker.start();
+    _current = ModalRoute.isCurrentOf(context) ?? true;
+    _enabled = TickerMode.valuesOf(context).enabled;
+    _noMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    _sync();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && sceneLifeMoves) unawaited(_askSaver());
+    _sync();
+  }
+
+  /// Moving only while it can be seen and may move; asleep otherwise (no
+  /// timer left running behind another screen or with the app away).
+  void _sync() {
+    if (!mounted) return;
+    if (!_visible) {
+      _timer?.cancel();
+      _timer = null;
+      if (_frame != null) SchedulerBinding.instance.cancelFrameCallbackWithId(_frame!);
+      _frame = null;
+      _clock.stop();
+    } else if (_timer == null && _frame == null) {
+      _clock.start();
+      _next();
+    }
+  }
+
+  void _next() {
+    _timer = Timer(_rest, () {
+      _timer = null;
+      if (!mounted || !_visible) return;
+      _frame = SchedulerBinding.instance.scheduleFrameCallback((_) {
+        _frame = null;
+        if (!mounted || !_visible) return;
+        _time.value = _clock.elapsedMicroseconds / 1e6;
+        _next();
+      });
+    });
   }
 
   @override
   void dispose() {
-    _ticker.dispose();
+    WidgetsBinding.instance.removeObserver(this);
+    sceneBatterySaver.removeListener(_sync);
+    _timer?.cancel();
+    if (_frame != null) SchedulerBinding.instance.cancelFrameCallbackWithId(_frame!);
     _time.dispose();
     super.dispose();
   }

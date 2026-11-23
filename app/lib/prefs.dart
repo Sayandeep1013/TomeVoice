@@ -77,6 +77,7 @@ class ListeningPrefs {
     this.aiLength = 'normal',
     this.aiOwnKnowledge = false,
     this.aiGuardNew = false,
+    this.aiAutoNew = true,
     this.aiKeepTalks = true,
     this.aiUseJournal = true,
     this.aiChatRemember = true,
@@ -409,6 +410,10 @@ class ListeningPrefs {
   /// The spoiler guard turned on for each book whose memory is begun.
   bool aiGuardNew;
 
+  /// A book whose memory is begun builds its new chapters by itself (on),
+  /// or only when the reader taps Build (off). Each book can change it.
+  bool aiAutoNew;
+
   /// Talks kept in the book's journal when Talk closes.
   bool aiKeepTalks;
 
@@ -612,6 +617,7 @@ class ListeningPrefs {
         'aiLength': aiLength,
         'aiOwnKnowledge': aiOwnKnowledge,
         if (aiGuardNew) 'aiGuardNew': true,
+        if (!aiAutoNew) 'aiAutoNew': false,
         if (!aiKeepTalks) 'aiKeepTalks': false,
         if (!aiUseJournal) 'aiUseJournal': false,
         if (!aiChatRemember) 'aiChatRemember': false,
@@ -728,6 +734,7 @@ class ListeningPrefs {
         aiLength: json['aiLength'] as String? ?? 'normal',
         aiOwnKnowledge: json['aiOwnKnowledge'] as bool? ?? false,
         aiGuardNew: json['aiGuardNew'] == true,
+        aiAutoNew: json['aiAutoNew'] != false,
         aiKeepTalks: json['aiKeepTalks'] != false,
         aiUseJournal: json['aiUseJournal'] != false,
         aiChatRemember: json['aiChatRemember'] != false,

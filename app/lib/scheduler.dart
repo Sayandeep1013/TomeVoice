@@ -515,6 +515,7 @@ class PlaybackScheduler {
     _focusWait = null;
     ++_pauseToken;
     VoiceLog.instance.note('resume');
+    _warmNatural();
     _rewindTimer?.cancel();
     _rewindDue = false;
     error.value = null;
@@ -530,6 +531,19 @@ class PlaybackScheduler {
     state.value = PlayState.playing;
     _startTicker(gen);
     await service.resumePlayback();
+  }
+
+  /// A natural voice let go while reading was paused (after three minutes
+  /// unused) loaded again at once, while what was made before the pause
+  /// plays. Left to the next sentence, the load came on top of making it:
+  /// on a slow 32-bit phone that sentence took 20 s for 5 s of speech, and
+  /// the voice was silent for ten (a friend's log, 23 Nov 2026).
+  void _warmNatural() {
+    final narrator = voiceNameOf();
+    if (_failed.contains(narrator)) return;
+    final natural = neuralVoiceFor(narrator);
+    if (natural == null || NeuralEngine.instance.holds(natural)) return;
+    unawaited(NeuralEngine.instance.warm(natural, urgent: true));
   }
 
   Future<void> stop() async {

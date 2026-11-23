@@ -94,9 +94,10 @@ Future<Map<String, Object?>> runBackgroundBuild({
     if (store.isSecret(e.id)) continue;
     final path = MemoryDb.pathIn(store.bookDir(e.id));
     if (!File(path).existsSync()) continue;
-    if (!_begun(path)) continue;
+    final due = _due(path);
+    if (due == null) continue;
     await WordIndexer(store).index(e.id);
-    final b = MemoryBuilder(path: path, router: router ?? AiRouter(about: e.title));
+    final b = MemoryBuilder(path: path, router: router ?? AiRouter(about: e.title), upTo: due.upTo);
     final watch = Timer.periodic(const Duration(seconds: 10), (_) async {
       if (DateTime.now().isAfter(until) || (stopWhen != null && await stopWhen())) b.pause();
     });
@@ -104,6 +105,7 @@ Future<Map<String, Object?>> runBackgroundBuild({
     final had = b.state.value.noted;
     final s = await b.run();
     watch.cancel();
+    if (s.phase == BuildPhase.done) _setMeta(path, askedMeta, null);
     noted += s.noted - had;
     if (s.phase == BuildPhase.resting || s.phase == BuildPhase.failed) break;
   }
@@ -111,12 +113,27 @@ Future<Map<String, Object?>> runBackgroundBuild({
   return {'found': 0, 'noted': noted};
 }
 
-bool _begun(String path) {
+/// Whether a memory is built with the app closed, and how far: one the
+/// reader began, not paused or kept away from the AI; whose new chapters
+/// are built by themselves, or with a build the reader asked for not yet
+/// done. Null when it is not.
+({int? upTo})? _due(String path) {
   final m = MemoryDb.open(path);
   try {
-    if (m.meta('private') == '1' || m.meta('paused') == '1') return false;
-    if (m.meta('begun') == '1') return true;
-    return (m.db.select('SELECT count(*) n FROM notes').first['n'] as int) > 0;
+    if (m.meta('private') == '1' || m.meta('paused') == '1') return null;
+    final begun = m.meta('begun') == '1' || (m.db.select('SELECT count(*) n FROM notes').first['n'] as int) > 0;
+    if (!begun) return null;
+    if (m.meta(autoBuildMeta) == 'off' && m.meta(askedMeta) != '1') return null;
+    return (upTo: int.tryParse(m.meta(buildToMeta) ?? ''));
+  } finally {
+    m.close();
+  }
+}
+
+void _setMeta(String path, String k, String? v) {
+  final m = MemoryDb.open(path);
+  try {
+    m.setMeta(k, v);
   } finally {
     m.close();
   }

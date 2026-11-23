@@ -305,7 +305,9 @@ List<String> voiceLogSummary(List<VoiceEvent> events) {
   // Starts heard.
   final sounds = events.where((e) => e.kind == 'sound' && e.n('ms') != null).toList();
   if (sounds.isEmpty) {
-    out.add('No start was timed yet: press Play with the log on.');
+    out.add(events.any((e) => e.kind == 'resume')
+        ? 'Reading was only resumed with the log on, so no start was timed: press Play on a book to time one.'
+        : 'No start was timed yet: press Play with the log on.');
   } else {
     final byWhat = <String, List<int>>{};
     for (final e in sounds) {
@@ -366,6 +368,14 @@ List<String> voiceLogSummary(List<VoiceEvent> events) {
   }
   for (final e in errors.entries) {
     out.add('Error${e.value > 1 ? ' (${e.value} times)' : ''}: ${e.key}');
+  }
+  // Natural voices loaded (at the start, after one was let go while
+  // paused): the first sentence after waits for it.
+  final loads = events.where((e) => e.kind == 'voice loaded' && e.n('ms') != null).map((e) => e.n('ms')!.round()).toList();
+  if (loads.isNotEmpty) {
+    out.add('A natural voice was loaded ${_times(loads.length)}, in ${_secs(_median(loads))}'
+        '${loads.length > 1 ? ' as a rule (slowest ${_secs(loads.reduce((a, b) => a > b ? a : b))})' : ''}: '
+        'the sentence made just after waits for it.');
   }
   int count(String kind) => events.where((e) => e.kind == kind).length;
   if (count('fallback') > 0) out.add("A natural voice gave way to the phone's ${_times(count('fallback'))}.");
