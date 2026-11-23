@@ -286,7 +286,15 @@ Future<void> rewritePaths(File index, {required String from, required String to}
 /// log and when it last asked Android how runs ended, this phone's own
 /// (error_log.dart: they share the library's folder only on a phone with no
 /// storage outside the app).
-const keptOnPhone = {'voices', 'ocr', 'app_update.json', ErrorLog.fileName, ErrorLog.exitsName};
+const keptOnPhone = {
+  'voices',
+  'ocr',
+  'app_update.json',
+  ErrorLog.fileName,
+  ErrorLog.exitsName,
+  'voice-log.jsonl',
+  'voice-log.on',
+};
 
 /// What a replace kept of the library it replaced, that the backup did not
 /// have: books on a secret shelf, downloaded chapters, and the AI memories

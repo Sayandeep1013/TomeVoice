@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'safe_file.dart';
 import 'sources/bridge.dart';
 import 'speech_service.dart';
+import 'voice_log.dart' show VoiceLog;
 
 /// One error the app met: when, in which version, what it said and where in
 /// the code. [from] is `app` for the app's own code, `android` for a crash
@@ -377,7 +378,11 @@ void zoneError(Object error, StackTrace stack) {
 Future<void> openErrorLog() async {
   try {
     final dir = await SourcesBridge.sourcesRoot();
-    if (dir != null) await ErrorLog.instance.attach(Directory(dir));
+    if (dir != null) {
+      await ErrorLog.instance.attach(Directory(dir));
+      // The voice log, kept beside it (off unless the reader turned it on).
+      await VoiceLog.instance.attach(Directory(dir));
+    }
     ErrorLog.instance.version = await const SpeechService().appVersion() ?? '';
     ErrorLog.instance.addPast(await SourcesBridge.pastExits());
   } on Object {

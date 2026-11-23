@@ -14,6 +14,7 @@ import 'dialogue.dart';
 import 'neural_voices.dart';
 import 'reading_rules.dart';
 import 'speech_service.dart';
+import 'voice_log.dart';
 
 enum PlayState { idle, loading, playing, paused }
 
@@ -297,6 +298,14 @@ class PlaybackScheduler {
   bool _stale = false;
   Timer? _remakeTimer;
 
+  /// For the voice log (voice_log.dart): when the last change of speed or
+  /// voice was asked for; when this start was asked for and what it was,
+  /// until it is heard; when the voice last ran dry, until it is heard again.
+  DateTime? _changedAt;
+  DateTime? _askedAt;
+  String _asked = '';
+  DateTime? _dryAt;
+
   /// [SpeechService.streamStops] when this scheduler last started its own
   /// stream: a voice sample (or another reading) played since has taken
   /// the player, and what this one had queued there is gone.
@@ -336,6 +345,8 @@ class PlaybackScheduler {
   void remake({int Function()? from}) {
     if (!active) return;
     _stale = true;
+    // The voice log times the restart from the last change asked for.
+    _changedAt = DateTime.now();
     _remakeTimer?.cancel();
     _remakeTimer = Timer(remakeAfter, () {
       _remakeTimer = null;
@@ -357,6 +368,10 @@ class PlaybackScheduler {
   /// again.
   Future<void> play(int from, {bool reuse = false}) async {
     if (units.isEmpty) return;
+    // For the voice log: what this start was, and when it was asked for.
+    final asked = _changedAt != null ? 'a change of speed or voice' : (reuse ? 'a skip' : 'Play');
+    final askedAt = _changedAt ?? DateTime.now();
+    _changedAt = null;
     // What is queued is not the way it is said now: nothing of it is reused.
     if (reuse && !_stale && state.value == PlayState.playing) {
       final to = from.clamp(0, units.length - 1);
@@ -381,8 +396,22 @@ class PlaybackScheduler {
     error.value = null;
     _levelDb = null;
     _restarted = false;
+    _askedAt = askedAt;
+    _asked = asked;
+    _dryAt = null;
+    if (VoiceLog.instance.on) {
+      final voice = voiceNameOf();
+      VoiceLog.instance.note('ask', {
+        'for': asked,
+        'speed': settingsFor(units[_next].text).speedScale,
+        'voice': voice ?? '',
+        'natural': isNeural(voice),
+        'engine': engineIdOf() ?? '',
+      });
+    }
     final missing = noVoice?.call();
     if (missing != null) {
+      VoiceLog.instance.note('error', {'code': 'NO_VOICE', 'message': voiceLogError(missing)});
       error.value = missing;
       state.value = PlayState.idle;
       return;
@@ -417,6 +446,7 @@ class PlaybackScheduler {
     if (!active || state.value == PlayState.paused) return;
     final gen = _gen;
     final token = ++_pauseToken;
+    VoiceLog.instance.note('pause');
     state.value = PlayState.paused;
     onPaused?.call();
     _rewindDue = false;
@@ -484,6 +514,7 @@ class PlaybackScheduler {
     unawaited(_focusWait?.cancel());
     _focusWait = null;
     ++_pauseToken;
+    VoiceLog.instance.note('resume');
     _rewindTimer?.cancel();
     _rewindDue = false;
     error.value = null;
@@ -502,7 +533,9 @@ class PlaybackScheduler {
   }
 
   Future<void> stop() async {
+    if (active) VoiceLog.instance.note('stop');
     _stale = false;
+    _changedAt = null;
     _remakeTimer?.cancel();
     _remakeTimer = null;
     await _reset();
@@ -750,6 +783,11 @@ class PlaybackScheduler {
     if (natural.isEmpty) return false;
     if (natural.contains(narrator) && fallbackVoiceOf?.call() == null) return false;
     _failed.addAll(natural);
+    VoiceLog.instance.note('fallback', {
+      'from': natural.first,
+      'to': fallbackVoiceOf?.call() ?? '',
+      'why': voiceLogError(e),
+    });
     final name = neuralVoiceFor(natural.first)?.name ?? 'The natural voice';
     debugPrint('TomeVoice: $name failed ($e); reading on in the phone\'s voice');
     notice.value = natural.contains(narrator)
@@ -853,6 +891,7 @@ class PlaybackScheduler {
         // alone, then the rest.
         final plain = quoted == null || (open != true && !text.contains(_quoteMark));
         final cut = quickStart && _chunks.isEmpty && plain ? firstClauseEnd(text) : -1;
+        var headSpeechMs = 0;
         if (cut > 0) {
           final head = await makeSentence(
             service: service,
@@ -869,6 +908,8 @@ class PlaybackScheduler {
           );
           if (head == null || gen != _gen) return;
           if (!await _queue(gen, i, head, said.changed ? _onPage(head.timings, said) : head.timings)) return;
+          headSpeechMs = head.speechFrames * 1000 ~/ head.sampleRate;
+          VoiceLog.instance.note('first part made', {'ms': watch.elapsedMilliseconds, 'speechMs': headSpeechMs});
         }
         final r = await makeSentence(
           service: service,
@@ -890,6 +931,19 @@ class PlaybackScheduler {
         if (!await _queue(gen, i, r, said.changed ? _onPage(timings, said) : timings)) return;
         final took = watch.elapsedMilliseconds;
         _lastMade = (ms: took, speechMs: r.speechFrames * 1000 ~/ r.sampleRate, urgent: urgent);
+        if (VoiceLog.instance.on) {
+          VoiceLog.instance.note('made', {
+            'chars': text.length,
+            'script': scriptOf(text),
+            'ms': took,
+            'speechMs': headSpeechMs + r.speechFrames * 1000 ~/ r.sampleRate,
+            'speed': settings.speedScale,
+            'voice': narrator ?? '',
+            if (quoted != null) 'quotesVoice': quoted,
+            if (cut > 0) 'inTwo': true,
+            if (!urgent) 'early': true,
+          });
+        }
         if (text.length >= 20) {
           final per = took / text.length;
           // The slower of what was learnt and this one leads, so a slow
@@ -907,6 +961,12 @@ class PlaybackScheduler {
           _next = i + 1;
           continue;
         }
+        VoiceLog.instance.note('error', {
+          'code': e.code,
+          'message': voiceLogError(e.message),
+          'voice': narrator ?? '',
+          'script': scriptOf(text),
+        });
         // No answer from the voice in 30 s: asked again, it is 30 s more of
         // silence each time (a voice the engine lists but cannot speak, as
         // a Bengali voice never downloaded). Reading stops at once, saying so.
@@ -939,6 +999,12 @@ class PlaybackScheduler {
         }
       } on Object catch (e) {
         if (gen != _gen) return;
+        VoiceLog.instance.note('error', {
+          'code': e.runtimeType.toString(),
+          'message': voiceLogError(e),
+          'voice': narrator ?? '',
+          'script': scriptOf(text),
+        });
         // A natural voice that cannot speak (a broken download, too little
         // memory, its worker gone): the same sentence again in the phone's
         // voice, not skipped.
@@ -1041,6 +1107,8 @@ class PlaybackScheduler {
           // Ran dry: synthesis is behind. Say so instead of looking frozen.
           state.value = PlayState.loading;
           final m = _lastMade;
+          _dryAt = DateTime.now();
+          VoiceLog.instance.note('ran dry', {if (m != null) 'lastMadeMs': m.ms, if (m != null) 'lastSpeechMs': m.speechMs});
           if (m != null) {
             debugPrint('TomeVoice: the voice ran dry; the last sentence took ${m.ms} ms to make '
                 '${m.speechMs} ms of speech${m.urgent ? '' : ' (low priority)'}');
@@ -1061,7 +1129,10 @@ class PlaybackScheduler {
       // Drop what has been played, keep the current chunk.
       if (k > 0) _chunks.removeRange(0, k);
 
-      if (state.value == PlayState.loading) state.value = PlayState.playing;
+      if (state.value == PlayState.loading) {
+        state.value = PlayState.playing;
+        _heard();
+      }
       if (unit.value != c.unit) unit.value = c.unit;
 
       final rel = pos - c.start;
@@ -1088,6 +1159,21 @@ class PlaybackScheduler {
     }
   }
 
+  /// The voice is heard (seen at the tick after the player moved on): for
+  /// the voice log, how long after it was asked for, or how long it was dry.
+  void _heard() {
+    final now = DateTime.now();
+    final asked = _askedAt;
+    final dry = _dryAt;
+    _askedAt = null;
+    _dryAt = null;
+    if (asked != null) {
+      VoiceLog.instance.note('sound', {'after': _asked, 'ms': now.difference(asked).inMilliseconds});
+    } else if (dry != null) {
+      VoiceLog.instance.note('gap', {'ms': now.difference(dry).inMilliseconds});
+    }
+  }
+
   /// Whether the head has stood still at [pos] for [_stallAfter] while
   /// there is audio queued past it.
   bool _stuck(int pos, Duration every) {
@@ -1104,6 +1190,7 @@ class PlaybackScheduler {
   /// again from its start, once; if it stops again, reading ends and says so.
   Future<void> _stalled(int gen) async {
     if (gen != _gen) return;
+    VoiceLog.instance.note('stall', {'restarted': _restarted});
     if (_stale) {
       // What is queued is the old way: made again, not queued again.
       await play(unit.value);
@@ -1126,6 +1213,7 @@ class PlaybackScheduler {
     // (a voice that would not speak) is not read on into the next chapter,
     // which left the media card saying Playing over a stopped reader.
     _reachedEnd = error.value == null;
+    VoiceLog.instance.note(error.value == null ? 'end' : 'stopped on an error');
     state.value = PlayState.idle;
     word.value = WordMark.none;
     level.value = 0;

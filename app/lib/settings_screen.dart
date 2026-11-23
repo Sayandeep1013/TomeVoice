@@ -40,6 +40,7 @@ import 'theme.dart';
 import 'ui.dart';
 import 'updates.dart';
 import 'update_flow.dart';
+import 'voice_log_sheet.dart';
 import 'voices.dart';
 import 'wallpaper_colours.dart';
 import 'store_build.dart';
@@ -1651,6 +1652,12 @@ class _AboutScreenState extends State<AboutScreen> {
                             ? 'See every word it would say, then send it yourself by email'
                             : 'See every word it would say, then send it yourself on GitHub',
                         onTap: () => unawaited(showProblemReport(context)),
+                      ),
+                      _Link(
+                        icon: Icons.graphic_eq_rounded,
+                        title: 'Voice log',
+                        subtitle: 'For a voice that lags or goes wrong: notes what it does, for you to share',
+                        onTap: () => unawaited(showVoiceLog(context)),
                       ),
                       _Link(
                         icon: Icons.gavel_rounded,

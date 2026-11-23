@@ -475,6 +475,18 @@ class SpeechService {
     }
   }
 
+  /// What makes this phone quick or slow to speak, for the voice log: its
+  /// memory (MB, and free now), cores, CPU kinds, whether the app runs in
+  /// 64 bits, battery saver, and the version of [engine], the speech engine
+  /// in use. Empty where the platform cannot say.
+  Future<Map<String, Object?>> phoneDetails({String? engine}) async {
+    try {
+      return await _channel.invokeMapMethod<String, Object?>('phoneDetails', {'engine': engine}) ?? const {};
+    } on Object {
+      return const {};
+    }
+  }
+
   Future<void> _quiet(String method, [Object? args]) async {
     try {
       await _channel.invokeMethod<void>(method, args);
