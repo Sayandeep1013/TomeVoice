@@ -89,7 +89,8 @@ void main() {
     await tester.tap(find.text('Anthropic (Claude)'));
     await tester.pumpAndSettle();
     expect(find.text('Find a provider'), findsNothing, reason: 'the list closed');
-    expect(find.text('Anthropic (Claude)'), findsOneWidget, reason: 'the provider chosen, in its field');
+    expect(find.text(AiProvider.anthropic.note), findsOneWidget, reason: 'the provider chosen: its note under its field');
+    expect(find.text('Anthropic (Claude)'), findsNWidgets(2), reason: "in its field, and offered as the key's name");
   });
 
   testWidgets('nothing is sent before the reader agrees: asked once, before the first key', (tester) async {
