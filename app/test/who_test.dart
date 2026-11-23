@@ -4,6 +4,7 @@
 // the web (may spoil). Offered with or without a key.
 
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -402,6 +403,43 @@ void main() {
       await tester.tap(find.text('Search the web (may spoil)'));
       await tester.pumpAndSettle();
       expect(opened, [webSearchUrl('Six Finger', 'Shadow Slave')]);
+    });
+
+    testWidgets('with a memory that has nothing on the word, the sheet opens: the look-up carries no callback',
+        (tester) async {
+      final dir = Directory.systemTemp.createTempSync('tv_who_mem');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final path = MemoryDb.pathIn(dir.path);
+      MemoryDb.open(path).close();
+      // A callback holding what no isolate may be sent (the reader's own
+      // callbacks hold its screen): the look-up used to carry it, and failed.
+      final port = ReceivePort();
+      addTearDown(port.close);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showNameCard(
+                context,
+                memoryPath: path,
+                word: 'answer',
+                sentence: 'Mr. Bennet made no answer.',
+                line: null,
+                searchTitle: null,
+                onAsk: (q) => port.sendPort.send(q),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      for (var i = 0; i < 40 && find.text('Who or what is it?').evaluate().isEmpty; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+      expect(find.text('Who or what is it?'), findsOneWidget);
     });
 
     testWidgets('the sentence menu offers it with no key, named by the guessed name', (tester) async {

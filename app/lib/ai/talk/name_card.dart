@@ -66,6 +66,14 @@ FoundCard? cardOf(String path, int id, int? at) {
   }
 }
 
+/// [findCard] off the UI thread's isolate, its closure made here from plain
+/// values. Made inside [showNameCard], it shared that function's captured
+/// values with the sheet's closures (the reader's callbacks, holding its
+/// screen), which cannot be sent to another isolate: the look-up failed and
+/// "Who or what" showed nothing for a book with a memory.
+Future<FoundCard?> _findOff(String path, String word, String sentence, int? line) =>
+    Isolate.run(() => findCard(path, word, sentence, line));
+
 /// [cardOf] off the UI thread's isolate.
 Future<FoundCard?> cardOff(String path, int id, int? at) => Isolate.run(() => cardOf(path, id, at));
 
@@ -92,8 +100,7 @@ Future<void> showNameCard(
   Future<FoundCard?> Function(String phrase)? lookUp,
 }) async {
   final path = memoryPath != null && MemoryDb.existsAt(memoryPath) ? memoryPath : null;
-  final look = lookUp ??
-      (path == null ? null : (String p) => Isolate.run(() => findCard(path, p, sentence, line)));
+  final look = lookUp ?? (path == null ? null : (String p) => _findOff(path, p, sentence, line));
   final guess = guessPhrase(sentence, word);
   var card = look == null ? null : await look(word);
   if (card == null && look != null && guess.text.isNotEmpty && guess.text != bareName(word)) {
