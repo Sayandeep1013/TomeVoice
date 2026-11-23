@@ -47,7 +47,9 @@ void main() {
   );
   final layout = ReadingLayout.build(book);
 
-  const base = PipelineSettings(wordGapMs: 60, sentencePauseMs: 300, paragraphPauseMs: 600);
+  // Pauses as set at every speed: the oracle is the scheduler as it was
+  // before they shrank above 1x (voice_speed_test checks that).
+  const base = PipelineSettings(wordGapMs: 60, sentencePauseMs: 300, paragraphPauseMs: 600, pausesFollowSpeed: false);
   PipelineSettings settingsFor(String text) => base.copyWith(text: text, speedScale: 1.25, pitchSemitones: -2);
   const rules = [SayRule(from: 'Klein', to: 'Kline')];
   Respelled said(Speakable u) => respellUnit(u, rules);

@@ -249,7 +249,6 @@ class ReaderController {
 
   StreamSubscription<Map<String, Object?>>? _events;
   Timer? _persistTimer;
-  Timer? _restartTimer;
 
   /// The phone's audio, followed as the background reading follows it.
   late final _focus = FocusFollower(
@@ -374,7 +373,6 @@ class ReaderController {
     _disposed = true;
     _sleepTick?.cancel();
     _persistTimer?.cancel();
-    _restartTimer?.cancel();
     _sleepTimer?.cancel();
     _focus.dispose();
     _statsTimer?.cancel();
@@ -677,15 +675,10 @@ class ReaderController {
     if (view.mounted) view.changed();
     _updateSession();
     if (!restart) return;
-    // Make the change audible from the current sentence, once the user has
-    // stopped fiddling.
-    _restartTimer?.cancel();
-    _restartTimer = Timer(const Duration(milliseconds: 350), () {
-      final s = player.state.value;
-      if (s == PlayState.playing || s == PlayState.loading) {
-        unawaited(player.play(cursor.value));
-      }
-    });
+    // Made audible from the current sentence once the user has stopped
+    // fiddling (one restart for a run of taps on +), or, paused, when the
+    // reading resumes.
+    player.remake(from: () => cursor.value);
   }
 
   void _onFinished() {
