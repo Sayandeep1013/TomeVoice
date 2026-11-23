@@ -77,6 +77,9 @@ flutter:
     - assets/licenses/third_party.txt
     # The book a new install starts with (public domain; see starter.dart).
     - assets/starter/pride-and-prejudice.epub
+    # The scenes' painted backdrops (tools/scene_art.py; credits in
+    # assets/licenses/third_party.txt).
+    - assets/scenes/forest.webp
     # The natural voices on offer, by language, with each one's licence
     # (tools/voice_catalog.py makes it; see neural_voices.dart).
     - assets/voices/catalog.json
