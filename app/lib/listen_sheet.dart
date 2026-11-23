@@ -200,6 +200,9 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
   final _catalog = VoiceCatalog.instance;
   late SleepChoice _sleep = widget.controller.sleep;
   late int _tab = widget.focus == ListenFocus.read ? 1 : 0;
+
+  /// The full sheet's list, under its tabs.
+  final _scroll = ScrollController();
   bool _fineTune = false;
 
   ListeningPrefs get _prefs => widget.controller.prefs;
@@ -221,6 +224,7 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
   @override
   void dispose() {
     _catalog.removeListener(_refresh);
+    _scroll.dispose();
     super.dispose();
   }
 
@@ -255,12 +259,6 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
             SpeedControl(prefs: _prefs, onChanged: _speedChanged, bookId: widget.controller.bookId),
           ]
         : [
-            ChoiceRow<int>(
-              options: const [(0, 'Listen'), (1, 'Read')],
-              value: _tab,
-              onChanged: (t) => setState(() => _tab = t),
-            ),
-            const SizedBox(height: Gap.xl),
             // A fade-through: one tab's settings fade away, then the other's
             // fade in, drifting from the side of the tab that was tapped.
             AnimatedSwitcher(
@@ -293,15 +291,37 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
           ];
     final list = ListView(
       key: const Key('reader-settings'),
+      controller: speedOnly ? null : _scroll,
       shrinkWrap: speedOnly,
       padding: const EdgeInsets.fromLTRB(Gap.xl, 0, Gap.xl, Gap.xxl),
       children: children,
     );
     // The full sheet keeps one height, so switching between Listen and Read
-    // does not make it jump.
+    // does not make it jump; the two tabs stay put above what scrolls, so
+    // the long Read tab never takes them out of reach.
     return speedOnly
         ? ConstrainedBox(constraints: BoxConstraints(maxHeight: height * 0.45), child: list)
-        : SizedBox(height: height * 0.8, child: list);
+        : SizedBox(
+            height: height * 0.8,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(Gap.xl, 0, Gap.xl, Gap.l),
+                  child: ChoiceRow<int>(
+                    options: const [(0, 'Listen'), (1, 'Read')],
+                    value: _tab,
+                    onChanged: (t) {
+                      setState(() => _tab = t);
+                      // The other tab starts at its top.
+                      if (_scroll.hasClients) _scroll.jumpTo(0);
+                    },
+                  ),
+                ),
+                Expanded(child: list),
+              ],
+            ),
+          );
   }
 
   // ---------------------------------------------------------------- listen

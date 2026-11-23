@@ -112,8 +112,15 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
   /// What natural voices cost, before any is downloaded; "No thanks" keeps
   /// the phone's voices and the app stops offering these.
   Future<void> _askFirst() async {
-    final yes = await _costs(context, title: 'Before you download a voice');
+    final answer = await _costsAnswer(context, title: 'Before you download a voice');
     if (!mounted) return;
+    // Back only closes the notice and the screen: nothing is decided, so
+    // it is asked again next time and the voices row stays.
+    if (answer == null) {
+      Navigator.of(context).maybePop();
+      return;
+    }
+    final yes = answer;
     setState(() => _prefs.naturalVoices = yes);
     _prefs.save();
     if (!yes) Navigator.of(context).maybePop();
@@ -850,7 +857,12 @@ Future<void> _showLicence(BuildContext context, String voice, VoiceLicence licen
 /// What a natural voice costs: true to go ahead. [pack]: a model with many
 /// speakers, whose own costs are said.
 Future<bool> _costs(BuildContext context, {required String title, int? size, NeuralPack? pack}) async =>
-    await showDialog<bool>(
+    await _costsAnswer(context, title: title, size: size, pack: pack) == true;
+
+/// The same notice, null when it was closed with Back or a tap outside
+/// (neither yes nor no).
+Future<bool?> _costsAnswer(BuildContext context, {required String title, int? size, NeuralPack? pack}) =>
+    showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(title),
@@ -912,8 +924,7 @@ Future<bool> _costs(BuildContext context, {required String title, int? size, Neu
           TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(size == null ? 'Show me' : 'Download')),
         ],
       ),
-    ) ==
-    true;
+    );
 
 /// Whether [v] is what [query] asks for: every word of it found in the
 /// voice's name, its language, its accent (said as "british" or as "United

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -49,6 +50,7 @@ Future<JournalEntry?> openJournal(
   String? language,
   Future<VoidCallback?> Function()? hold,
   List<JournalChapter>? chapters,
+  EdgeInsets? snackMargin,
 }) async {
   final kept = await Navigator.of(context).push<JournalEntry>(MaterialPageRoute(
     builder: (_) => JournalPage(
@@ -61,7 +63,7 @@ Future<JournalEntry?> openJournal(
         chapters: chapters),
   ));
   if (kept != null && context.mounted) {
-    showSnack(context, entry == null ? 'In your journal, ${kept.stamp.label}.' : 'Changed.');
+    showSnack(context, entry == null ? 'In your journal, ${kept.stamp.label}.' : 'Changed.', margin: snackMargin);
   }
   return kept;
 }
@@ -204,7 +206,17 @@ class _JournalPageState extends State<JournalPage> {
         }
       }
     }
+    _opened = _what;
   }
+
+  /// What would be kept, as text: compared on leaving, so an entry opened
+  /// and closed again without a change is not asked about.
+  String get _what => jsonEncode({
+        'blank': _blank,
+        'page': _page.text.trim(),
+        'answers': [for (final a in _answers) if (!a.isEmpty) a.toJson()],
+      });
+  late final String _opened;
 
   @override
   void dispose() {
@@ -332,18 +344,28 @@ class _JournalPageState extends State<JournalPage> {
 
   /// Leaving with words written and not kept: asked first.
   Future<void> _leave() async {
-    if (_empty) {
+    final old = widget.entry;
+    if (_empty || (old != null && _picked == null && _what == _opened)) {
       _kept = true;
       Navigator.of(context).pop();
       return;
     }
-    final keep = await confirm(
-      context,
-      title: 'Keep what you wrote?',
-      body: 'It goes in your journal, stamped with where the story is.',
-      action: 'Keep',
+    // Three answers: keep it, throw it away, or (Back, a tap outside)
+    // stay and write on.
+    final keep = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(old == null ? 'Keep what you wrote?' : 'Keep your changes?'),
+        content: Text(old == null
+            ? 'Keep puts it in your journal, stamped with where the story is. Throw away deletes these words.'
+            : 'Keep saves the entry as it is now. Throw away leaves it as it was before you opened it.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Throw away')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Keep')),
+        ],
+      ),
     );
-    if (!mounted) return;
+    if (!mounted || keep == null) return;
     if (keep) {
       await _done();
     } else {

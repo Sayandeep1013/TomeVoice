@@ -1402,6 +1402,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       bookTitle: _book.metadata.title,
       stampNow: stamp ?? _stampNow,
       language: _reader.language,
+      // Above the player, not over its Play button.
+      snackMargin: _snackMargin,
       // Speaking into it: the book waits, and reads on from where it was.
       hold: () async {
         if (!_player.isPlaying) return null;
@@ -3077,7 +3079,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         // Built again on a web novel's chapters joined on, as the page is.
         ListenableBuilder(
           listenable: Listenable.merge([widget.layouts]),
-          builder: (_, __) => NowPlayingScreen(
+          // Its context is inside the tint, so the sheets opened from here
+          // take the book's colour, as they do from the reader.
+          builder: (tinted, __) => NowPlayingScreen(
             key: key,
             title: _book.metadata.title,
             cover: _cover,
@@ -3093,9 +3097,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             onPrevChapter: () => _reader.goChapter(-1),
             onNextChapter: () => _reader.goChapter(1),
             moreAfter: widget.onReachedEnd != null,
-            onSpeed: () => showListenSheet(ctx, _listenFor(autoScroll: false), focus: ListenFocus.speed),
-            onVoice: () => showListenSheet(ctx, _listenFor(autoScroll: false)),
-            onSleep: () => showListenSheet(ctx, _listenFor(autoScroll: false)),
+            onSpeed: () => showListenSheet(tinted, _listenFor(autoScroll: false), focus: ListenFocus.speed),
+            onVoice: () => showListenSheet(tinted, _listenFor(autoScroll: false)),
+            onSleep: () => showListenSheet(tinted, _listenFor(autoScroll: false)),
             onSave: () => _save(MarkKind.quote),
             onHold: (unit, word) => unawaited(_onLongPress(unit, word)),
           ),

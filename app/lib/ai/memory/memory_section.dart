@@ -7,7 +7,7 @@ import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor;
 import '../../theme.dart';
 import '../../ui.dart';
 import '../ai_keys.dart';
-import '../ai_screen.dart' show wakeTime;
+import '../ai_screen.dart' show AiScreen, wakeTime;
 import '../../backup_flow.dart' show sizeLabel;
 import '../../download_queue.dart';
 import '../../library_store.dart' show LibraryEntry;
@@ -736,7 +736,8 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              ScreenTopBar(title: 'Memory', onBack: () => Navigator.of(context).maybePop()),
+              // Named as the button that opens it ("Book memories" in AI chat).
+              ScreenTopBar(title: 'Book memories', onBack: () => Navigator.of(context).maybePop()),
               if (AiRing.instance.hasKeys)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.m),
@@ -759,8 +760,20 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
                             body: AiRing.instance.hasKeys
                                 ? 'Tap New memory and pick a book, or tap Memory on a book\'s page: the AI reads it '
                                     'once, chapter by chapter, and remembers who is who and what happened.'
-                                : 'Add a key in AI chat > settings first. Then, from a book\'s page, the AI reads it once and remembers '
+                                : 'Add a key in AI settings first. Then, from a book\'s page, the AI reads it once and remembers '
                                     'who is who and what happened.',
+                            // The same way on as AI chat's own empty page.
+                            action: AiRing.instance.hasKeys
+                                ? null
+                                : FilledButton.icon(
+                                    onPressed: () async {
+                                      await Navigator.of(context)
+                                          .push(MaterialPageRoute<void>(builder: (_) => const AiScreen()));
+                                      if (mounted) setState(() {});
+                                    },
+                                    icon: const Icon(Icons.settings_outlined),
+                                    label: const Text('Open AI settings'),
+                                  ),
                           )
                         : ListView(
                             padding: EdgeInsets.fromLTRB(
