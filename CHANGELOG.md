@@ -5,21 +5,28 @@ Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoi
 
 ## 2.6.3 (2026-11-24)
 
-Painted scenes and four new ones, an app that moves like it is alive, twelve more AI providers, and the name being looked up lit in its sentence.
+Painted scenes and two new ones, smooth motion you can turn off, search in Settings and in the provider list, twelve more AI providers, and the name being looked up lit in its sentence.
 
 **Updating** keeps your library, your keys, every book's memory and your journal.
 
-#### Scenes: paintings, and four new ones
-- **Every scene is now a real picture**, darkened for reading over: Dungeon (a real fortress dungeon), Enchanted forest (Asher Durand's *In the Woods*), Starship (the space station's Destiny lab at night). Free to use; credited under About, licences.
-- **Four new scenes:** **Gothic** (a candlelit church painted in 1636), **Silver witch** (Grimshaw's *A Moonlit Lane*), **Obsidian** (glowing cracks in black lava) and **Space · solar** (the sun's edge with a prominence). Each has its own colours, lettering and panels.
-- **Every scene moves:** a light runs down the sides now and then, as the starship's neon does. In the forest, vines grow in from the top corners as a screen opens, leaves budding as they go. Candles flicker and coloured window light breathes in Gothic; mist drifts and silver falls in Silver witch; cracks glow and violet embers rise in Obsidian; the sun swells and flares in Space · solar.
-- It all stands still with animations removed on the phone, or with battery saver on.
+#### Scenes: paintings, and two new ones
+- **Every scene is now a real picture**, darkened for reading over: Dungeon (a real fortress dungeon) and Enchanted forest (Asher Durand's *In the Woods*). Free to use; credited under About, licences.
+- **Two new scenes:** **Silver witch** (Grimshaw's *A Moonlit Lane*) and **Space · solar** (the sun's edge with a prominence). Each has its own colours, lettering and panels.
+- **Starship is now Space · solar:** the same hull panels, in gold. If you had Starship on, you have Space · solar.
+- **Each scene moves in its own way:** in the forest, vines grow in from the top corners as a screen opens, leaves budding as they go, while fireflies drift; in the dungeon, torches flicker and water drips down the stone; in Silver witch, mist drifts, silver falls and a ring of runes draws itself; in Space · solar, the sun swells and flares and a small planet crosses it.
+- It all stands still with animations off, or with battery saver on.
 
 #### Motion
-- **Things give under your finger:** buttons, pills, book covers and rows squash a little and spring back with a wobble.
-- Lists and cards **pop in** on a spring; screens **settle** with a little bounce; the menu's rows come in one after another as it opens; sheet titles pop in.
-- The choice highlight **slides on a stretchy spring**; a choice's check **pops**; play and pause **spin into each other**; the Now Playing cover **stands up as the voice starts** and sinks back on pause; an empty screen's picture **floats**.
+- **Smooth, never bouncy:** everything eases out, quick to start and soft to stop, without springing past where it lands.
+- **Animations switch:** Settings, Appearance, **Animations**. Off, everything changes at once and the scenes stand still, as with the phone's own "remove animations".
+- Buttons, pills and rows **give a little** under your finger and ease back. Book covers stay as they are.
+- Lists and cards **ease in**; the menu's rows come in one after another as it opens; switching category slides smoothly.
+- The choice highlight **slides** to the new choice; play and pause **turn into each other**; the Now Playing cover **rises as the voice starts** and sinks back on pause; an empty screen's picture **floats**.
 - Kept light for slower phones: the moving parts draw about 30 pictures a second and only while they can be seen.
+
+#### Finding things
+- **Find a setting:** a search at the top of Settings. Type a few words, tap a match and the list goes to it.
+- **Find a provider:** the provider list (Settings, AI, Add a key) has its own search, by name or by what it offers ("free", "Claude"). Another service is always at the end.
 
 #### AI: twelve more providers
 - **Anthropic (Claude), DeepSeek, Mistral, xAI (Grok), Z.ai (GLM, with a free model), Alibaba Cloud (Qwen), Together AI, Fireworks AI, Cerebras, Moonshot (Kimi), Hugging Face and NVIDIA**, each in Settings, AI, Add a key, with a likely model chosen for building and for talking once the key is checked.

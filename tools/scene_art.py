@@ -52,25 +52,6 @@ SCENES = {
         'licences': {'CC BY 2.0'},
         'across': 0.5, 'brightness': 0.5, 'contrast': 1.15, 'colour': 0.75, 'tint': (1.0, 0.86, 0.74),
     },
-    'starship': {
-        'file': "ISS-47_The_International_Space_Station's_Destiny_Laboratory_at_'night'.jpg",
-        'credit': 'Image: NASA (ISS Expedition 47). Public domain. Cropped and colour-graded.',
-        'licences': {'Public domain'},
-        'across': 0.5, 'brightness': 0.9, 'contrast': 1.1, 'colour': 1.0, 'tint': (0.75, 0.95, 1.1),
-    },
-    'obsidian': {
-        'file': "Kīlauea_summit_eruption_fissures_within_Halema'uma'u_crater_lava_lake_(96756).jpg",
-        'credit': 'Image: USGS Hawaiian Volcano Observatory (2021). Public domain. Cropped and colour-graded.',
-        'licences': {'Public domain'},
-        'across': 0.15, 'brightness': 0.62, 'contrast': 1.25, 'colour': 0.8, 'tint': (0.92, 0.74, 1.04),
-    },
-    'gothic': {
-        'file': 'Een_kerkinterieur_bij_kaarslicht_Rijksmuseum_SK-A-289.jpeg',
-        'credit': 'Pieter Neefs the Elder, "Church interior by candlelight" (1636), Rijksmuseum. '
-                  'Public domain. Cropped and colour-graded.',
-        'licences': {'Public domain', 'CC0'},
-        'across': 0.5, 'brightness': 0.8, 'contrast': 1.1, 'colour': 0.85, 'tint': (1.0, 0.9, 0.8),
-    },
     'solar': {
         'file': 'A_burst_of_solar_material_leaps_off_the_left_side_of_the_sun_in_what' + chr(0x2019)
                 + 's_known_as_a_prominence_eruption.jpg',

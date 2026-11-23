@@ -820,23 +820,44 @@ class _KeySheetState extends State<KeySheet> {
   }
 }
 
-/// The providers to choose from, each with its note. Every row keeps the
-/// same mark slot before its name, filled for the chosen one.
-class _ProviderPicker extends StatelessWidget {
+/// The providers to choose from, each with its note, found by a search (by
+/// name or by what its note says: "free", "Claude"). Every row keeps the
+/// same mark slot before its name, filled for the chosen one. "Another
+/// service" is always there, last.
+class _ProviderPicker extends StatefulWidget {
   const _ProviderPicker({required this.chosen});
 
   final AiProvider chosen;
 
   @override
-  Widget build(BuildContext context) => SafeArea(
+  State<_ProviderPicker> createState() => _ProviderPickerState();
+}
+
+class _ProviderPickerState extends State<_ProviderPicker> {
+  String _q = '';
+
+  AiProvider get chosen => widget.chosen;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = _q.trim().toLowerCase();
+    final shown = [
+      for (final p in AiProvider.values)
+        if (q.isEmpty || p == AiProvider.custom || '${p.label} ${p.note}'.toLowerCase().contains(q)) p,
+    ];
+    return SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.only(bottom: Gap.l),
+          padding: EdgeInsets.only(bottom: Gap.l + MediaQuery.viewInsetsOf(context).bottom),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const SheetHeader('Provider'),
-              for (final p in AiProvider.values)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(Gap.xl, 0, Gap.xl, Gap.s),
+                child: SearchField(hint: 'Find a provider', onChanged: (v) => setState(() => _q = v)),
+              ),
+              for (final p in shown)
                 InkWell(
                   onTap: () => Navigator.of(context).pop(p),
                   child: Padding(
@@ -880,6 +901,7 @@ class _ProviderPicker extends StatelessWidget {
           ),
         ),
       );
+  }
 }
 
 /// A likely model for [job] among [models]: Mercury's own; for Gemini a

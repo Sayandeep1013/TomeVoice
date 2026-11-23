@@ -58,8 +58,8 @@ class BrandPainter extends CustomPainter {
     canvas.save();
     canvas.scale(k);
     const box = Rect.fromLTWH(0, 0, 512, 512);
-    final corner = scene?.kin == Scene.starship ? 40.0 : 112.0;
-    final shape = scene?.kin == Scene.starship ? _cut(box, 92) : (Path()..addRRect(RRect.fromRectAndRadius(box, Radius.circular(corner))));
+    final corner = scene?.kin == Scene.solar ? 40.0 : 112.0;
+    final shape = scene?.kin == Scene.solar ? _cut(box, 92) : (Path()..addRRect(RRect.fromRectAndRadius(box, Radius.circular(corner))));
     canvas.drawPath(
       shape,
       Paint()
@@ -117,7 +117,7 @@ class BrandPainter extends CustomPainter {
     canvas.restore();
   }
 
-  /// A starship's tile: a square with two corners cut.
+  /// The solar scene's tile, a hull plate: a square with two corners cut.
   static Path _cut(Rect r, double c) => Path()
     ..moveTo(r.left + c, r.top)
     ..lineTo(r.right, r.top)

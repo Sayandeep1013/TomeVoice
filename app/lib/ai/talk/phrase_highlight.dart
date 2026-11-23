@@ -8,7 +8,7 @@ import 'phrase.dart';
 /// The sentence a name was held in, with the words being looked up lit as
 /// with a marker: what "Who or what is it?" will ask about, seen in its
 /// place ("Six Finger", not "Finger"). As words are added or dropped the
-/// mark stretches to them with a little spring. A tap on a word
+/// mark eases out to them. A tap on a word
 /// ([onTapWord]) takes the mark out to that word.
 ///
 /// A long sentence is shown in part: the words round the mark, with "…".
@@ -151,7 +151,7 @@ class _PhraseInSentenceState extends State<PhraseInSentence> with SingleTickerPr
 
 /// The mark: rounded boxes behind the words, with a marker's stroke under
 /// them, moving from where it was ([from]) to where it is ([to]) as [t]
-/// runs, overshooting a little and settling.
+/// runs, easing to a stop.
 class _MarkPainter extends CustomPainter {
   _MarkPainter({
     required this.text,
@@ -182,7 +182,7 @@ class _MarkPainter extends CustomPainter {
     final target = boxes(to);
     final start = from == null ? const <Rect>[] : boxes(from!);
     p.dispose();
-    final k = Curves.easeOutBack.transform(t.value);
+    final k = Curves.easeOutCubic.transform(t.value);
     final paint = Paint()..color = fill;
     final line = Paint()
       ..color = edge

@@ -2129,6 +2129,55 @@ void main() {
       await finish(tester);
     });
 
+    testWidgets('a setting is found by its words; a tap goes to it', (tester) async {
+      phone(tester);
+      await tester.pumpWidget(MaterialApp(home: SettingsScreen(store: LibraryStore(_tmp))));
+      await settleIo(tester);
+      expect(find.text('Find a setting'), findsOneWidget);
+      final field = find.byType(TextField).first;
+      Future<void> type(String q) async {
+        await tester.enterText(field, q);
+        // The list built whole, then read for the words.
+        for (var i = 0; i < 3; i++) {
+          await tester.pump();
+        }
+      }
+
+      await type('zzqq');
+      expect(find.text('No setting says "zzqq".'), findsOneWidget);
+
+      // A setting far down the list, found by part of its name.
+      await type('about tome');
+      expect(find.text('About TomeVoice'), findsOneWidget, reason: 'the match, the row itself out of view');
+      final list = find.byType(Scrollable).first;
+      final before = tester.state<ScrollableState>(list).position.pixels;
+      await tester.tap(find.text('About TomeVoice'));
+      for (var i = 0; i < 3; i++) {
+        await tester.pump();
+      }
+      await tester.pump(const Duration(seconds: 1));
+      expect(tester.state<ScrollableState>(list).position.pixels, greaterThan(before + 300), reason: 'scrolled down to it');
+      expect(find.text('About TomeVoice'), findsOneWidget, reason: 'the row, now in view; the matches folded away');
+      await finish(tester);
+    });
+
+    testWidgets('animations can be turned off, and the choice is kept', (tester) async {
+      phone(tester);
+      await tester.pumpWidget(MaterialApp(home: SettingsScreen(store: LibraryStore(_tmp))));
+      await settleIo(tester);
+      final list = find.byType(Scrollable).first;
+      await tester.scrollUntilVisible(find.text('Animations'), 200, scrollable: list);
+      await tester.pumpAndSettle();
+      expect(ListeningPrefs.memory.animations, isTrue);
+      await tester.tap(find.text('Animations'));
+      await tester.pumpAndSettle();
+      expect(ListeningPrefs.memory.animations, isFalse);
+      expect(ListeningPrefs.fromJson(ListeningPrefs.memory.toJson()).animations, isFalse);
+      expect(ListeningPrefs.fromJson(ListeningPrefs().toJson()).animations, isTrue);
+      ListeningPrefs.memory.animations = true;
+      await finish(tester);
+    });
+
     testWidgets('a colour theme can be picked; Black and Paper fix the brightness', (tester) async {
       phone(tester);
       await tester.pumpWidget(MaterialApp(home: SettingsScreen(store: LibraryStore(_tmp))));

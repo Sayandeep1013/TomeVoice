@@ -125,12 +125,6 @@ for TomeVoice (tools/scene_art.py):
 - Dungeon: "The Dungeon at Castillo de San Cristobal" by Eric Pancer
   (vxla), https://www.flickr.com/photos/vxla/5299369390/ , licensed under
   CC BY 2.0 (https://creativecommons.org/licenses/by/2.0/).
-- Starship: NASA, the Destiny laboratory of the International Space
-  Station at night (Expedition 47). Public domain.
-- Gothic: Pieter Neefs the Elder, "Church interior by candlelight" (1636),
-  Rijksmuseum, SK-A-289. Public domain.
 - Silver witch: John Atkinson Grimshaw, "A Moonlit Lane" (1874). Public
   domain.
-- Obsidian: USGS Hawaiian Volcano Observatory, eruption fissures in
-  Halema'uma'u crater, Kilauea (2021). Public domain.
 - Space, solar: NASA/SDO/AIA, a prominence eruption (2013). Public domain.

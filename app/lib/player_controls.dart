@@ -90,9 +90,9 @@ class PlayButton extends StatelessWidget {
                           transitionBuilder: (child, a) => FadeTransition(
                             opacity: a.drive(CurveTween(curve: const Interval(0, 0.45))),
                             child: RotationTransition(
-                              turns: a.drive(Tween(begin: -0.18, end: 0.0).chain(CurveTween(curve: Motion.pop))),
+                              turns: a.drive(Tween(begin: -0.12, end: 0.0).chain(CurveTween(curve: Motion.pop))),
                               child: ScaleTransition(
-                                scale: a.drive(Tween(begin: 0.35, end: 1.0).chain(CurveTween(curve: Motion.pop))),
+                                scale: a.drive(Tween(begin: 0.6, end: 1.0).chain(CurveTween(curve: Motion.pop))),
                                 child: child,
                               ),
                             ),

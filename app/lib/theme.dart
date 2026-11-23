@@ -217,19 +217,16 @@ class Skin {
 
   /// A screen's or a sheet's own name ("Library", "Settings"), and the
   /// wordmark: [title], but in a scene its place's lettering (a gothic
-  /// hand in the dungeon, an uncial in the forest, a ship's display face).
+  /// hand in the dungeon, an uncial in the forest, carved capitals by the sun).
   /// Never a book's words.
   static TextStyle heading(BuildContext c, {double size = 26, Color? color, FontWeight? weight}) {
     final scene = sceneOf(c);
     if (scene == null) return title(c, size: size, color: color, weight: weight);
     final (family, scale, track, w) = switch (scene) {
-      Scene.dungeon => ('PirataOne', 1.12, 0.01, FontWeight.w400),
       Scene.forest => ('UncialAntiqua', 0.92, 0.0, FontWeight.w400),
-      Scene.starship => ('Orbitron', 0.8, 0.06, FontWeight.w600),
-      Scene.gothic => ('GrenzeGotisch', 1.05, 0.01, FontWeight.w400),
       Scene.silverWitch => ('Almendra', 1.0, 0.01, FontWeight.w400),
-      Scene.obsidian => ('Tektur', 0.88, 0.04, FontWeight.w400),
       Scene.solar => ('Cinzel', 0.9, 0.05, FontWeight.w400),
+      Scene.dungeon => ('PirataOne', 1.12, 0.01, FontWeight.w400),
     };
     final s = size * scale;
     return TextStyle(
@@ -243,8 +240,8 @@ class Skin {
       shadows: [
         // The place's light on the letters.
         Shadow(
-            color: accentOf(c).withValues(alpha: scene.kin == Scene.starship ? 0.55 : 0.35),
-            blurRadius: scene.kin == Scene.starship ? 10 : 14),
+            color: accentOf(c).withValues(alpha: scene.kin == Scene.solar ? 0.55 : 0.35),
+            blurRadius: scene.kin == Scene.solar ? 10 : 14),
       ],
     );
   }
@@ -940,37 +937,6 @@ class Palette {
     scene: Scene.forest,
   ));
 
-  static final starship = readable(const Palette(
-    id: 'scene-starship',
-    label: 'Starship',
-    day: [Color(0xFF07101E), Color(0xFF060D19), Color(0xFF050B16), Color(0xFF03060D)],
-    night: [Color(0xFF07101E), Color(0xFF060D19), Color(0xFF050B16), Color(0xFF03060D)],
-    accent: Color(0xFF3FD8E8),
-    accentSoft: Color(0xFF7FE8F2),
-    accentDeep: Color(0xFF137A86),
-    onAccent: Color(0xFF031216),
-    nightCapsule: Color(0xF20C1828),
-    nightSheet: Color(0xFF040912),
-    only: Brightness.dark,
-    scene: Scene.starship,
-  ));
-
-  static final gothic = readable(const Palette(
-    id: 'scene-gothic',
-    label: 'Gothic',
-    day: [Color(0xFF140A0E), Color(0xFF12090C), Color(0xFF0E070A), Color(0xFF080405)],
-    night: [Color(0xFF140A0E), Color(0xFF12090C), Color(0xFF0E070A), Color(0xFF080405)],
-    // Candlelight on stone.
-    accent: Color(0xFFE0B050),
-    accentSoft: Color(0xFFF0CC80),
-    accentDeep: Color(0xFF815F11),
-    onAccent: Color(0xFF1A0E06),
-    nightCapsule: Color(0xF2241218),
-    nightSheet: Color(0xFF0E0609),
-    only: Brightness.dark,
-    scene: Scene.gothic,
-  ));
-
   static final silverWitch = readable(const Palette(
     id: 'scene-silver-witch',
     label: 'Silver witch',
@@ -985,22 +951,6 @@ class Palette {
     nightSheet: Color(0xFF070B14),
     only: Brightness.dark,
     scene: Scene.silverWitch,
-  ));
-
-  static final obsidian = readable(const Palette(
-    id: 'scene-obsidian',
-    label: 'Obsidian',
-    day: [Color(0xFF0C0812), Color(0xFF0A0710), Color(0xFF08060C), Color(0xFF040306)],
-    night: [Color(0xFF0C0812), Color(0xFF0A0710), Color(0xFF08060C), Color(0xFF040306)],
-    // Violet fire in black glass.
-    accent: Color(0xFFB46CFF),
-    accentSoft: Color(0xFFCE9CFF),
-    accentDeep: Color(0xFF5E2A9A),
-    onAccent: Color(0xFF12061E),
-    nightCapsule: Color(0xF2180F24),
-    nightSheet: Color(0xFF07040B),
-    only: Brightness.dark,
-    scene: Scene.obsidian,
   ));
 
   static final solar = readable(const Palette(
@@ -1019,11 +969,22 @@ class Palette {
     scene: Scene.solar,
   ));
 
-  static final scenes = [dungeon, forestScene, starship, gothic, silverWitch, obsidian, solar];
+  static final scenes = [forestScene, silverWitch, solar, dungeon];
 
   static final all = [forest, lavender, ocean, black, paper, ...designer, ...scenes];
 
-  static Palette byId(String? id) => all.where((p) => p.id == id).firstOrNull ?? forest;
+  static Palette byId(String? id) => all.where((p) => p.id == idNow(id)).firstOrNull ?? forest;
+
+  /// [id] as it is now: a scene taken away gives the one its readers have
+  /// instead.
+  static String? idNow(String? id) => _retired[id] ?? id;
+
+  /// Scenes taken away (2.6.3), and the one each reader of them now has.
+  static const _retired = {
+    'scene-starship': 'scene-solar',
+    'scene-obsidian': 'scene-solar',
+    'scene-gothic': 'scene-dungeon',
+  };
 
   /// This palette with its accent taken from [seed], a book cover's colour:
   /// the same grounds, and an accent of the seed's hue at the tones the
@@ -1138,10 +1099,10 @@ class Radii {
   static const double pill = 999;
 }
 
-/// The durations and curves the interface moves with. Things that arrive
-/// settle with a little spring ([arrive]); things pressed give like jelly
-/// (motion.dart [Jelly]); a long move eases. With animations removed on the
-/// phone, none of it moves.
+/// The durations and curves the interface moves with: everything eases out,
+/// quick to start and soft to stop, never bouncing past where it lands.
+/// With animations off (Settings, or the phone's own setting), none of it
+/// moves.
 class Motion {
   const Motion._();
 
@@ -1165,12 +1126,12 @@ class Motion {
   /// Arriving and settling.
   static const Curve out = Curves.easeOutCubic;
 
-  /// Arriving with a little spring: past where it lands by a few percent,
-  /// and back (a screen settling, a card coming in, a mark stretching).
-  static const Curve arrive = SpringCurve(damping: 0.72, cycles: 1.3);
+  /// Arriving: quick at first, easing gently to a stop, never past it (a
+  /// screen settling, a card coming in, a mark stretching).
+  static const Curve arrive = Curves.easeOutCubic;
 
-  /// A livelier spring, for small things that pop in (a count, a check).
-  static const Curve pop = SpringCurve(damping: 0.5, cycles: 1.6);
+  /// Small things coming in (a check, an icon): a little quicker to settle.
+  static const Curve pop = Curves.easeOutQuart;
 
   /// Moving from one place to another.
   static const Curve emphasized = Curves.easeInOutCubicEmphasized;
@@ -1203,8 +1164,7 @@ class CalmPageTransitionsBuilder extends PageTransitionsBuilder {
   static const _arrive = Interval(0.3, 1, curve: Curves.easeOutCubic);
   // Leaving: gone in the first 30%, so the screen below can come back.
   static const _leave = Interval(0.7, 1);
-  // The screen settles with a little spring: a touch past full size, and
-  // back (its fade eases: an opacity cannot go past 1).
+  // The screen grows the last little way to full size as it fades in.
   static final _arriveScale =
       Tween<double>(begin: 0.94, end: 1).chain(CurveTween(curve: const Interval(0.3, 1, curve: Motion.arrive)));
   static final _leaveScale = Tween<double>(begin: 0.96, end: 1).chain(CurveTween(curve: _leave));

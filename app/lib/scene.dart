@@ -11,7 +11,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'speech_service.dart';
 
 /// Scene themes: a place, not a colour. Each draws its own backdrop behind
-/// every screen (stone and torches, a forest, a starship's hull), frames the
+/// every screen (stone and torches, a forest, the sun), frames the
 /// covers in its material, and lays the player, the settings and the cards on
 /// panels of it. The page that is read stays plain; text never sits on the
 /// art itself, only on the dark of it or on a panel.
@@ -20,15 +20,13 @@ import 'speech_service.dart';
 /// is drawn once at the screen's size into an image and that image is what
 /// every frame shows, so a list scrolls over it as over a plain colour.
 enum Scene {
-  dungeon('Dungeon', 'Torchlit stone, rust and bones'),
   forest('Enchanted forest', 'Vines, moss and fireflies'),
-  starship('Starship', 'Hull plates and neon'),
-  // Made of one of the three above (its [kin]: its panels, buttons and
-  // frames), in colours of its own ([hue]), over a painting of its own.
-  gothic('Gothic', 'Vaults, candles and stained glass', kin: Scene.dungeon, hue: 350, saturation: 0.8),
+  // Made of another scene (its [kin]: its panels, buttons and frames), in
+  // colours of its own ([hue]), over a painting of its own.
   silverWitch('Silver witch', 'Moonlight, mist and silver', kin: Scene.forest, hue: 215, saturation: 0.32),
-  obsidian('Obsidian', 'Black glass and violet fire', kin: Scene.starship, hue: 272, saturation: 0.95),
-  solar('Space · solar', 'The sun, gold and the dark', kin: Scene.starship, hue: 38, saturation: 1.1);
+  // Its own panels (a hull's plates, cut at two corners), turned to gold.
+  solar('Space · solar', 'The sun, gold and the dark', hue: 38, saturation: 1.1),
+  dungeon('Dungeon', 'Torchlit stone, rust and bones');
 
   const Scene(this.label, this.note, {Scene? kin, this.hue, this.saturation = 1}) : _kin = kin;
 
@@ -39,7 +37,8 @@ enum Scene {
 
   final Scene? _kin;
 
-  /// Whose panels, buttons and frames it has: one of the first three.
+  /// Whose panels, buttons and frames it has: the forest's, the dungeon's or
+  /// the solar scene's own hull.
   Scene get kin => _kin ?? this;
 
   /// The hue its kin's colours are turned to (null: its kin's own), and
@@ -47,20 +46,20 @@ enum Scene {
   final double? hue;
   final double saturation;
 
-  /// Its corners: worn stone and wood are rounded, a starship's are sharp.
+  /// Its corners: worn stone and wood are rounded, a hull's (the solar scene's) are sharp.
   double get radius => switch (kin) {
         Scene.dungeon => 12,
         Scene.forest => 16,
         _ => 2,
       };
 
-  /// How far a starship's panels and buttons are cut at two corners.
+  /// How far a hull's panels and buttons are cut at two corners.
   static const cut = 10.0;
 
   /// A panel's corners: never rounder than the scene's own, so a pill-round
   /// bar becomes worn stone, not a pill.
   BorderRadius corners(BorderRadius? asked) {
-    if (kin == Scene.starship) return BorderRadius.circular(radius);
+    if (kin == Scene.solar) return BorderRadius.circular(radius);
     if (asked == null) return BorderRadius.circular(radius);
     final r = math.min(asked.topLeft.x, radius + 6);
     return BorderRadius.circular(r);
@@ -119,15 +118,7 @@ ui.Image? sceneBackdrop(Scene scene, Size size, double dpr) {
 // the forest's trees and vines looked stiff up close; a painting does not.
 
 /// Scenes with a painted backdrop.
-const _withArt = {
-  Scene.forest,
-  Scene.dungeon,
-  Scene.starship,
-  Scene.gothic,
-  Scene.silverWitch,
-  Scene.obsidian,
-  Scene.solar,
-};
+const _withArt = {Scene.forest, Scene.silverWitch, Scene.solar, Scene.dungeon};
 
 /// Whether painted backdrops are loaded (off under `flutter test`, which
 /// keeps to the drawn ones).
@@ -275,8 +266,6 @@ void paintBackdrop(Canvas canvas, Size size, Scene scene) {
       _Dungeon(canvas, size).paint();
     case Scene.forest:
       _Forest(canvas, size).paint();
-    case Scene.starship:
-      _Starship(canvas, size).paint();
     default:
       // A scene made from a painting, while it loads: its dark, in shadow.
       canvas.drawRect(Offset.zero & size, _fill(_k(scene, const Color(0xFF0A1424))));
@@ -999,125 +988,11 @@ void _curl(Canvas c, Offset at, double size, double side, {Scene? scene}) {
 }
 
 // ---------------------------------------------------------------------------
-// Starship.
+// A ship's hull (the solar scene's panels and frames).
 
 const _neon = Color(0xFF3FE0F0);
 
-class _Starship {
-  _Starship(this.c, this.s);
 
-  final Canvas c;
-  final Size s;
-  final r = math.Random(5);
-
-  double get w => s.width;
-  double get h => s.height;
-
-  void paint() {
-    c.drawRect(Offset.zero & s, _fill(const Color(0xFF03060D)));
-    _plates();
-    _porthole(Offset(w + 4, h * 0.34), 74);
-    _vignette(c, s, edge: 0.78);
-    _strips();
-    for (final (corner, dx, dy) in [
-      (const Offset(8, 8), 1.0, 1.0),
-      (Offset(w - 8, 8), -1.0, 1.0),
-      (Offset(8, h - 8), 1.0, -1.0),
-      (Offset(w - 8, h - 8), -1.0, -1.0),
-    ]) {
-      bracket(c, corner, 26, dx, dy, _neon);
-    }
-    _grain(c, s, r, dark: 0.18, light: 0.03, per: 22);
-  }
-
-  void _plates() {
-    var y = 0.0;
-    while (y < h) {
-      final ph = 70 + r.nextDouble() * 80;
-      var x = 0.0;
-      while (x < w) {
-        final pw = 64 + r.nextDouble() * 70;
-        _plate(Rect.fromLTWH(x, y, math.min(pw, w - x + 1), ph));
-        x += pw;
-      }
-      y += ph;
-    }
-  }
-
-  void _plate(Rect rect) {
-    final inner = rect.deflate(1);
-    final base = Color.lerp(const Color(0xFF0B1424), const Color(0xFF070E1A), r.nextDouble())!;
-    c.drawRect(
-      inner,
-      Paint()..shader = ui.Gradient.linear(inner.topLeft, inner.bottomRight, [Color.lerp(base, Colors.white, 0.04)!, base]),
-    );
-    c.drawLine(inner.topLeft, inner.topRight, _stroke(const Color(0xFF1C2C46).withValues(alpha: 0.7), 1)..strokeCap = StrokeCap.butt);
-    c.drawLine(inner.topLeft, inner.bottomLeft, _stroke(const Color(0xFF1C2C46).withValues(alpha: 0.5), 1)..strokeCap = StrokeCap.butt);
-    c.drawLine(inner.bottomLeft, inner.bottomRight, _stroke(Colors.black, 1.4)..strokeCap = StrokeCap.butt);
-    for (final p in [inner.topLeft + const Offset(5, 5), inner.topRight + const Offset(-5, 5), inner.bottomLeft + const Offset(5, -5), inner.bottomRight + const Offset(-5, -5)]) {
-      c.drawCircle(p, 1.3, _fill(const Color(0xFF24344E)));
-    }
-    final roll = r.nextDouble();
-    if (roll < 0.18) {
-      // Vent slats.
-      for (var i = 0; i < 6; i++) {
-        final yy = inner.top + 14 + i * 6.0;
-        if (yy > inner.bottom - 10) break;
-        c.drawLine(Offset(inner.left + 12, yy), Offset(inner.right - 12, yy), _stroke(Colors.black.withValues(alpha: 0.7), 2)..strokeCap = StrokeCap.butt);
-      }
-    } else if (roll < 0.3) {
-      // A row of status lights.
-      for (var i = 0; i < 4; i++) {
-        final color = [const Color(0xFF39FF88), const Color(0xFFFFB13A), _neon, const Color(0xFFFF4A6A)][r.nextInt(4)];
-        final p = Offset(inner.left + 12 + i * 9.0, inner.bottom - 12);
-        _light(c, p, 6, color.withValues(alpha: 0.5));
-        c.drawCircle(p, 1.4, _fill(color));
-      }
-    }
-  }
-
-  void _porthole(Offset centre, double radius) {
-    c.drawCircle(centre, radius + 10, Paint()..shader = ui.Gradient.radial(centre, radius + 10, const [Color(0xFF2A3A52), Color(0xFF0C1422)], const [0.85, 1]));
-    c.drawCircle(centre, radius + 10, _stroke(Colors.black, 2));
-    c.save();
-    c.clipPath(Path()..addOval(Rect.fromCircle(center: centre, radius: radius)));
-    c.drawCircle(centre, radius, _fill(const Color(0xFF02030A)));
-    for (var i = 0; i < 70; i++) {
-      final p = centre + Offset((r.nextDouble() - 0.5) * radius * 2, (r.nextDouble() - 0.5) * radius * 2);
-      c.drawCircle(p, r.nextDouble() * 0.9 + 0.2, _fill(Colors.white.withValues(alpha: 0.4 + r.nextDouble() * 0.6)));
-    }
-    final planet = centre + Offset(-radius * 0.35, radius * 0.3);
-    c.drawCircle(planet, radius * 0.46,
-        Paint()..shader = ui.Gradient.radial(planet - Offset(radius * 0.15, radius * 0.15), radius * 0.6, const [Color(0xFFFFCF8A), Color(0xFFD0622D), Color(0xFF3A1208)], const [0, 0.5, 1]));
-    c.drawOval(Rect.fromCenter(center: planet, width: radius * 1.5, height: radius * 0.28), _stroke(const Color(0xFFFFD9A0).withValues(alpha: 0.5), 1.4));
-    // The glass.
-    c.drawArc(Rect.fromCircle(center: centre, radius: radius * 0.8), math.pi * 1.1, math.pi * 0.4, false,
-        _stroke(Colors.white.withValues(alpha: 0.12), 3));
-    c.restore();
-    for (var i = 0; i < 12; i++) {
-      final a = i / 12 * math.pi * 2;
-      c.drawCircle(centre + Offset(math.cos(a), math.sin(a)) * (radius + 5), 1.6, _fill(const Color(0xFF4A5A74)));
-    }
-  }
-
-  void _strips() {
-    for (final x in [5.0, w - 5]) {
-      final a = Offset(x, h * 0.14);
-      final b = Offset(x, h * 0.86);
-      c.drawLine(a, b, _glow(_neon.withValues(alpha: 0.55), 6)..strokeWidth = 5);
-      c.drawLine(a, b, _stroke(const Color(0xFF9FF6FF), 1.4));
-    }
-    const magenta = Color(0xFFFF3FD0);
-    for (var i = 0; i < 3; i++) {
-      final a = Offset(w * (0.2 + i * 0.22), h - 26);
-      final b = a + const Offset(40, 0);
-      c.drawLine(a, b, _glow(magenta.withValues(alpha: 0.5), 5)..strokeWidth = 4);
-      c.drawLine(a, b, _stroke(const Color(0xFFFFA8EC), 1.2));
-    }
-  }
-}
-
-/// A glowing L at [corner], arms [len] long, pointing along [dx] and [dy].
 void bracket(Canvas c, Offset corner, double len, double dx, double dy, Color color, {double width = 2}) {
   final path = Path()
     ..moveTo(corner.dx + len * dx, corner.dy)
@@ -1269,10 +1144,10 @@ class _ScenePanelPainter extends BoxPainter {
   }
 }
 
-/// The outline of a panel at [rect]: [corners] rounded, but a starship's
+/// The outline of a panel at [rect]: [corners] rounded, but a hull's
 /// cut off at its top left and bottom right, as a ship's hatches are.
 Path panelPath(Rect rect, Scene scene, BorderRadius corners) {
-  if (scene.kin != Scene.starship) return Path()..addRRect(corners.toRRect(rect));
+  if (scene.kin != Scene.solar) return Path()..addRRect(corners.toRRect(rect));
   return cutPath(rect, math.min(Scene.cut, math.min(rect.width, rect.height) * 0.3));
 }
 
@@ -1290,7 +1165,7 @@ Path cutPath(Rect r, double k) => Path()
 void paintPanel(Canvas c, Rect rect, Scene scene, BorderRadius corners, {bool lit = false, List<BoxShadow>? shadow}) {
   final rr = corners.toRRect(rect);
   for (final s in shadow ?? const <BoxShadow>[]) {
-    if (scene.kin == Scene.starship) {
+    if (scene.kin == Scene.solar) {
       c.drawPath(panelPath(rect.shift(s.offset).inflate(s.spreadRadius), scene, corners), s.toPaint());
     } else {
       c.drawRRect(rr.shift(s.offset).inflate(s.spreadRadius), s.toPaint());
@@ -1447,8 +1322,8 @@ class SceneButton extends Decoration {
   final Color fill;
   final BorderRadius radius;
 
-  /// The shape a button takes in [scene] at [radius]: a starship's is cut.
-  static ShapeBorder shape(Scene scene, BorderRadius radius) => scene.kin == Scene.starship
+  /// The shape a button takes in [scene] at [radius]: a hull's is cut.
+  static ShapeBorder shape(Scene scene, BorderRadius radius) => scene.kin == Scene.solar
       ? const BeveledRectangleBorder(borderRadius: BorderRadius.only(topLeft: Radius.circular(8), bottomRight: Radius.circular(8)))
       : RoundedRectangleBorder(borderRadius: radius);
 
@@ -1477,7 +1352,7 @@ class _SceneButtonPainter extends BoxPainter {
 
 /// A button of [scene]'s material at [rect].
 void paintButton(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius radius) {
-  final path = scene.kin == Scene.starship
+  final path = scene.kin == Scene.solar
       ? cutPath(rect, math.min(8.0, rect.shortestSide * 0.3))
       : (Path()..addRRect(radius.toRRect(rect)));
   final bright = fill.computeLuminance() > 0.12;
@@ -1704,14 +1579,8 @@ class LifePainter extends CustomPainter {
         _dungeonLife(canvas, s, t);
       case Scene.forest:
         _forestLife(canvas, s, t);
-      case Scene.starship:
-        _starshipLife(canvas, s, t);
-      case Scene.gothic:
-        _gothicLife(canvas, s, t);
       case Scene.silverWitch:
         _silverWitchLife(canvas, s, t);
-      case Scene.obsidian:
-        _obsidianLife(canvas, s, t);
       case Scene.solar:
         _solarLife(canvas, s, t);
     }
@@ -1877,7 +1746,7 @@ void _vine(Canvas c, Size s, double t, {required bool left}) {
   for (var i = 3; i < n; i += 4) {
     final age = (upto - i) / 6;
     if (age <= 0) continue;
-    final size = 11 * Curves.easeOutBack.transform(age.clamp(0.0, 1.0));
+    final size = 11 * Curves.easeOutCubic.transform(age.clamp(0.0, 1.0));
     final side = (i ~/ 4).isEven ? 1.0 : -1.0;
     final a = pts[i];
     final along = pts[math.min(n, i + 1)] - a;
@@ -1896,8 +1765,7 @@ void _vine(Canvas c, Size s, double t, {required bool left}) {
     c.drawLine(Offset.zero, Offset(size * 0.8, 0), vein);
     c.restore();
   }
-  // Grown: a light runs down it every few seconds, like the starship's
-  // neon, a soft gold-green.
+  // Grown: a light runs down it every few seconds, a soft gold-green.
   if (grown >= 1) {
     final run = ((t - 5.5) * 0.16 + (left ? 0 : 0.5)) % 1.3;
     if (run < 1) {
@@ -1944,32 +1812,6 @@ void _drips(Canvas c, Size s, double t) {
   }
 }
 
-/// Gothic: now and then a bat crosses high under the vault, wings beating,
-/// on a dipping path.
-void _bats(Canvas c, Size s, double t) {
-  for (var i = 0; i < 2; i++) {
-    const cycle = 13.0;
-    final k = ((t + i * 6.5) % cycle) / cycle;
-    if (k > 0.45) continue;
-    final f = k / 0.45;
-    final leftward = i.isOdd;
-    final x = leftward ? s.width * (1.1 - 1.2 * f) : s.width * (-0.1 + 1.2 * f);
-    final y = s.height * (0.12 + i * 0.07) + math.sin(f * math.pi * 3) * 14;
-    final beat = math.sin(t * 18 + i);
-    const span = 13.0;
-    final wing = Path()
-      ..moveTo(x, y)
-      ..quadraticBezierTo(x - span * 0.5, y - 7 * beat - 3, x - span, y - 2 * beat)
-      ..quadraticBezierTo(x - span * 0.6, y + 1, x - span * 0.3, y + 3)
-      ..lineTo(x, y + 2)
-      ..lineTo(x + span * 0.3, y + 3)
-      ..quadraticBezierTo(x + span * 0.6, y + 1, x + span, y - 2 * beat)
-      ..quadraticBezierTo(x + span * 0.5, y - 7 * beat - 3, x, y)
-      ..close();
-    c.drawPath(wing, _fill(const Color(0xFF07040A).withValues(alpha: 0.85)));
-  }
-}
-
 /// Silver witch: a ring of runes drawing itself low on the screen, its
 /// line running round as if by an unseen hand, glowing, then fading, then
 /// again.
@@ -2005,36 +1847,6 @@ void _sigil(Canvas c, Size s, double t) {
   }
 }
 
-/// Obsidian: a crack spreading through the black glass, its fresh end
-/// glowing hottest, then cooling and closing, somewhere new each time.
-void _spreadingCrack(Canvas c, Size s, double t, Color violet) {
-  const cycle = 9.0;
-  final round = (t / cycle).floor();
-  final k = (t % cycle) / cycle;
-  final r = math.Random(round * 31 + 5);
-  final left = round.isEven;
-  final from = Offset(left ? 0 : s.width, s.height * (0.2 + r.nextDouble() * 0.6));
-  final pts = <Offset>[from];
-  for (var i = 0; i < 9; i++) {
-    final last = pts.last;
-    pts.add(last + Offset((left ? 1 : -1) * (14 + r.nextDouble() * 16), (r.nextDouble() - 0.4) * 22));
-  }
-  final grown = Curves.easeOut.transform((k / 0.5).clamp(0.0, 1.0)) * (pts.length - 1);
-  final cool = k < 0.6 ? 1.0 : 1 - (k - 0.6) / 0.4;
-  final path = Path()..moveTo(from.dx, from.dy);
-  final whole = grown.floor();
-  for (var i = 1; i <= whole; i++) {
-    path.lineTo(pts[i].dx, pts[i].dy);
-  }
-  final tip = whole < pts.length - 1 ? Offset.lerp(pts[whole], pts[whole + 1], grown - whole)! : pts.last;
-  path.lineTo(tip.dx, tip.dy);
-  c.drawPath(path, _glow(violet.withValues(alpha: 0.4 * cool), 4)
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = 3);
-  c.drawPath(path, _stroke(const Color(0xFFF2DCFF).withValues(alpha: 0.6 * cool), 1));
-  if (k < 0.55) _light(c, tip, 12, const Color(0xFFFF9AF0).withValues(alpha: 0.5));
-}
-
 /// Space, solar: a small planet on its slow way across the face of the
 /// sun, dark against it, its orbit a faint line.
 void _transit(Canvas c, Size s, double t) {
@@ -2047,54 +1859,6 @@ void _transit(Canvas c, Size s, double t) {
   final front = math.sin(a) > 0;
   _light(c, p, 10, const Color(0xFFFFB040).withValues(alpha: front ? 0.18 : 0.08));
   c.drawCircle(p, 4.5, _fill(front ? const Color(0xFF120A04) : const Color(0xFF6A4A2A)));
-}
-
-/// Gothic: two candles low in the corners, their light breathing on the
-/// stone; coloured light from high windows, slowly brightening and dimming;
-/// dust turning in it; a gold glint running down the sides.
-void _gothicLife(Canvas c, Size s, double t) {
-  const shafts = [Color(0xFFC0303C), Color(0xFF3A5AC0), Color(0xFFE0B040)];
-  for (var i = 0; i < 3; i++) {
-    final a = 0.035 + 0.025 * math.sin(t * 0.35 + i * 2.1);
-    final x = s.width * (0.2 + i * 0.3);
-    final shaft = Path()
-      ..moveTo(x - 18, 0)
-      ..lineTo(x + 18, 0)
-      ..lineTo(x + 120, s.height * 0.7)
-      ..lineTo(x + 40, s.height * 0.7)
-      ..close();
-    c.drawPath(
-        shaft,
-        Paint()
-          ..shader = ui.Gradient.linear(
-              Offset(x, 0), Offset(x + 80, s.height * 0.7), [shafts[i].withValues(alpha: a), shafts[i].withValues(alpha: 0)]));
-  }
-  for (var d = 0; d < 14; d++) {
-    final x = (d * 83.0 + t * (3 + d % 3)) % s.width;
-    final y = (d * 137.0 % (s.height * 0.7)) + math.sin(t * 0.5 + d) * 12;
-    c.drawCircle(Offset(x, y), 0.9, _fill(const Color(0xFFFFE8C8).withValues(alpha: 0.12 + 0.08 * math.sin(t + d))));
-  }
-  for (var i = 0; i < 2; i++) {
-    final at = Offset(i == 0 ? 26 : s.width - 26, s.height - 64);
-    final f = _flicker(t, i * 2.7).clamp(0.0, 1.0);
-    _light(c, at + const Offset(0, -10), 90 + f * 30, const Color(0xFFFFA040).withValues(alpha: 0.07 + f * 0.06), mid: 0.3);
-    final tall = 1 + f * 0.35;
-    final sway = math.sin(t * 5 + i) * 1.5;
-    c.drawRect(Rect.fromCenter(center: at + const Offset(0, 14), width: 9, height: 26), _fill(const Color(0xFFE8DCC0)));
-    final flame = Path()
-      ..moveTo(at.dx + sway, at.dy - 16 * tall)
-      ..quadraticBezierTo(at.dx + 5, at.dy - 4, at.dx, at.dy)
-      ..quadraticBezierTo(at.dx - 5, at.dy - 4, at.dx + sway, at.dy - 16 * tall)
-      ..close();
-    _light(c, at + const Offset(0, -8), 12, const Color(0xFFFFB060).withValues(alpha: 0.6));
-    c.drawPath(flame, _fill(const Color(0xFFFFD27A)));
-  }
-  if (_art.containsKey(Scene.gothic)) {
-    final f = _flicker(t, 0.6).clamp(0.0, 1.0);
-    _light(c, Offset(s.width * 0.5, s.height * 0.475), 70 + f * 26,
-        const Color(0xFFFFB050).withValues(alpha: 0.10 + f * 0.08), mid: 0.3);
-  }
-  _bats(c, s, t);
 }
 
 /// Silver witch: the moon's light breathing high up, mist drifting across,
@@ -2124,33 +1888,6 @@ void _silverWitchLife(Canvas c, Size s, double t) {
   _sigil(c, s, t);
 }
 
-/// Obsidian: cracks in the black glass glowing violet from within, pulsing
-/// out of step; violet embers rising; violet light running down the sides.
-void _obsidianLife(Canvas c, Size s, double t) {
-  const violet = Color(0xFFB45CFF);
-  final r = math.Random(7);
-  for (var i = 0; i < 5; i++) {
-    final left = i.isEven;
-    final from = Offset(left ? 0 : s.width, s.height * (0.12 + i * 0.17));
-    final to = from + Offset((left ? 1 : -1) * (40 + r.nextDouble() * 50), 30 + r.nextDouble() * 40);
-    final crack = _jagged(r, from, to, steps: 6, wobble: 5);
-    final g = 0.35 + 0.35 * math.sin(t * (0.8 + i * 0.13) + i * 1.9);
-    c.drawPath(crack, _glow(violet.withValues(alpha: 0.35 * g), 4)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3);
-    c.drawPath(crack, _stroke(const Color(0xFFE6C8FF).withValues(alpha: 0.5 * g), 1));
-  }
-  for (var e = 0; e < 12; e++) {
-    const life = 5.0;
-    final age = ((t + e * 0.83) % life) / life;
-    final x = (e * 89.0 % s.width) + math.sin(t + e) * 10;
-    final y = s.height - age * s.height * 0.6;
-    final a = (1 - age) * math.min(1.0, age * 8);
-    _light(c, Offset(x, y), 5, violet.withValues(alpha: 0.5 * a));
-  }
-  _spreadingCrack(c, s, t, violet);
-}
-
 /// Space, solar: the sun's glow swelling and easing, now and then a flare
 /// lifting off it; gold dust drifting; gold light running down the sides.
 void _solarLife(Canvas c, Size s, double t) {
@@ -2175,57 +1912,6 @@ void _solarLife(Canvas c, Size s, double t) {
     c.drawCircle(Offset(x, y), 0.8 + (d % 3) * 0.3, _fill(const Color(0xFFFFE0A0).withValues(alpha: 0.10 + 0.1 * math.sin(t + d))));
   }
   _transit(c, s, t);
-}
-
-void _starshipLife(Canvas c, Size s, double t) {
-  // Light running along the neon strips at the sides.
-  for (var i = 0; i < 2; i++) {
-    final x = i == 0 ? 5.0 : s.width - 5;
-    final top = s.height * 0.14;
-    final len = s.height * 0.72;
-    final at = ((t * 0.22 + i * 0.5) % 1) * len + top;
-    c.drawLine(Offset(x, math.max(top, at - 60)), Offset(x, at),
-        Paint()
-          ..shader = ui.Gradient.linear(Offset(x, at - 60), Offset(x, at), [_neon.withValues(alpha: 0), Colors.white.withValues(alpha: 0.9)])
-          ..strokeWidth = 2.4);
-    _light(c, Offset(x, at), 14, _neon.withValues(alpha: 0.6));
-  }
-  // A scan going down the screen now and then.
-  final scan = (t % 9) / 9;
-  if (scan < 0.6) {
-    final y = scan / 0.6 * s.height;
-    c.drawRect(
-      Rect.fromLTRB(0, y - 40, s.width, y),
-      Paint()
-        ..shader = ui.Gradient.linear(Offset(0, y - 40), Offset(0, y), [_neon.withValues(alpha: 0), _neon.withValues(alpha: 0.06)]),
-    );
-    c.drawLine(Offset(0, y), Offset(s.width, y), _stroke(_neon.withValues(alpha: 0.18), 1)..strokeCap = StrokeCap.butt);
-  }
-  // The magenta strips at the foot breathing.
-  const magenta = Color(0xFFFF3FD0);
-  for (var i = 0; i < 3; i++) {
-    final a = Offset(s.width * (0.2 + i * 0.22) + 20, s.height - 26);
-    _light(c, a, 30, magenta.withValues(alpha: 0.12 + 0.1 * math.sin(t * 1.4 + i * 1.9)));
-  }
-  // Stars twinkling in the porthole.
-  final centre = Offset(s.width + 4, s.height * 0.34);
-  c.save();
-  c.clipPath(Path()..addOval(Rect.fromCircle(center: centre, radius: 74)));
-  for (var i = 0; i < 9; i++) {
-    final p = centre + Offset(-70 + (i * 37 % 60), -60 + (i * 53 % 120));
-    final a = 0.5 + 0.5 * math.sin(t * (1.5 + i % 3) + i * 2.4);
-    _light(c, p, 4, Colors.white.withValues(alpha: 0.6 * a));
-  }
-  c.restore();
-  // Status lights blinking on a panel low on the left.
-  for (var i = 0; i < 4; i++) {
-    final on = math.sin(t * (2 + i * 0.7) + i * 1.3) > 0.2;
-    if (!on) continue;
-    final color = [const Color(0xFF39FF88), const Color(0xFFFFB13A), _neon, const Color(0xFFFF4A6A)][i];
-    final p = Offset(22 + i * 9.0, s.height * 0.9);
-    _light(c, p, 6, color.withValues(alpha: 0.6));
-    c.drawCircle(p, 1.4, _fill(color));
-  }
 }
 
 /// What an empty screen shows in [scene], [size] across.
@@ -2449,7 +2135,7 @@ class _OrnamentPainter extends CustomPainter {
 }
 
 /// A rule between groups: a line of runes in the dungeon, a vine in the
-/// forest, a neon rule on the starship.
+/// forest, a neon rule on the hull.
 class SceneDivider extends StatelessWidget {
   const SceneDivider(this.scene, {super.key});
 
