@@ -950,7 +950,8 @@ class _Forest {
 }
 
 /// A leaf at [at], [size] long, leaning by [angle].
-void leafAt(Canvas c, Offset at, double size, double angle, math.Random r) {
+void leafAt(Canvas c, Offset at, double size, double angle, math.Random r, {Scene? scene}) {
+  Color k(Color x) => scene == null ? x : _k(scene, x);
   c.save();
   c.translate(at.dx, at.dy);
   c.rotate(angle + (r.nextDouble() - 0.5) * 0.5);
@@ -963,11 +964,11 @@ void leafAt(Canvas c, Offset at, double size, double angle, math.Random r) {
     leaf,
     Paint()
       ..shader = ui.Gradient.linear(Offset.zero, Offset(size, 0), [
-        Color.lerp(const Color(0xFF3F8A42), const Color(0xFF2A6A30), r.nextDouble())!,
-        const Color(0xFF173F1E),
+        k(Color.lerp(const Color(0xFF3F8A42), const Color(0xFF2A6A30), r.nextDouble())!),
+        k(const Color(0xFF173F1E)),
       ]),
   );
-  c.drawLine(Offset.zero, Offset(size * 0.85, 0), _stroke(const Color(0xFF0E2A12).withValues(alpha: 0.8), 0.6));
+  c.drawLine(Offset.zero, Offset(size * 0.85, 0), _stroke(k(const Color(0xFF0E2A12)).withValues(alpha: 0.8), 0.6));
   c.restore();
 }
 
@@ -988,13 +989,13 @@ void vineEdge(Canvas c, Offset top, double length, math.Random r, {required doub
 }
 
 /// A tendril's spiral.
-void _curl(Canvas c, Offset at, double size, double side) {
+void _curl(Canvas c, Offset at, double size, double side, {Scene? scene}) {
   final path = Path()..moveTo(at.dx, at.dy);
   for (var t = 0.0; t < math.pi * 3; t += 0.25) {
     final rad = size * (1 - t / (math.pi * 3.4));
     path.lineTo(at.dx + side * (size - math.cos(t) * rad), at.dy - math.sin(t) * rad);
   }
-  c.drawPath(path, _stroke(const Color(0xFF2E5A2E), 1));
+  c.drawPath(path, _stroke(scene == null ? const Color(0xFF2E5A2E) : _k(scene, const Color(0xFF2E5A2E)), 1));
 }
 
 // ---------------------------------------------------------------------------
@@ -1189,7 +1190,7 @@ void paintCoverFrame(Canvas c, Rect rect, Scene scene, double radius) {
         for (var i = 0; i < 4; i++) {
           final m = path.computeMetrics().first;
           final tg = m.getTangentForOffset(m.length * (0.15 + i * 0.22))!;
-          leafAt(c, tg.position, math.max(4, k * 0.9), (i.isEven ? -0.6 : 0.6) + (sx > 0 ? 0 : math.pi), r);
+          leafAt(c, tg.position, math.max(4, k * 0.9), (i.isEven ? -0.6 : 0.6) + (sx > 0 ? 0 : math.pi), r, scene: scene);
         }
       }
     default:
@@ -1382,9 +1383,9 @@ void paintPanel(Canvas c, Rect rect, Scene scene, BorderRadius corners, {bool li
           final m = path.computeMetrics().first;
           for (var i = 0; i < 3; i++) {
             final tg = m.getTangentForOffset(m.length * (0.2 + i * 0.3))!;
-            leafAt(c, tg.position, 7, (i.isEven ? -0.7 : 0.7) + (sx > 0 ? 0 : math.pi), r);
+            leafAt(c, tg.position, 7, (i.isEven ? -0.7 : 0.7) + (sx > 0 ? 0 : math.pi), r, scene: scene);
           }
-          _curl(c, corner + Offset(sx * k * 1.6, sy * 1), 4, sx);
+          _curl(c, corner + Offset(sx * k * 1.6, sy * 1), 4, sx, scene: scene);
         }
       }
     default:
@@ -2274,7 +2275,7 @@ class _OrnamentPainter extends CustomPainter {
         final m = Offset(s.width / 2, s.height / 2);
         for (var i = 0; i < 14; i++) {
           final a = i / 14 * math.pi * 2;
-          leafAt(c, m + Offset(math.cos(a), math.sin(a)) * s.width * 0.3, s.width * 0.16, a + math.pi / 2, r);
+          leafAt(c, m + Offset(math.cos(a), math.sin(a)) * s.width * 0.3, s.width * 0.16, a + math.pi / 2, r, scene: scene);
         }
         _light(c, m, s.width * 0.2, _k(scene, const Color(0xFFE6FF6A)).withValues(alpha: 0.6));
         c.drawCircle(m, 2.4, _fill(_k(scene, const Color(0xFFFFF6B0))));
@@ -2380,7 +2381,7 @@ class _DividerPainter extends CustomPainter {
         }
         c.drawPath(path, _stroke(_k(scene, const Color(0xFF2E5A2E)), 1.4));
         for (var x = 16.0; x < s.width; x += 34) {
-          leafAt(c, Offset(x, y + math.sin(x / 14) * 2), 7, (x ~/ 34).isEven ? -0.6 : 0.6, r);
+          leafAt(c, Offset(x, y + math.sin(x / 14) * 2), 7, (x ~/ 34).isEven ? -0.6 : 0.6, r, scene: scene);
         }
       default:
         c.drawLine(Offset(0, y), Offset(s.width, y), _glow(_k(scene, _neon).withValues(alpha: 0.35), 3)..strokeWidth = 2);
