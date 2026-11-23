@@ -1,11 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
-/// The one way TomeVoice talks to a model: the OpenAI chat format, which
+import 'ai_anthropic.dart';
+
+/// How TomeVoice talks to a model: the OpenAI chat format, which nearly
 /// every provider it offers speaks (Gemini through its OpenAI-compatible
-/// endpoint, Inception, OpenRouter, Groq, OpenAI, and any other the reader
-/// names). Straight from the phone to the provider, with the reader's own
+/// endpoint, Inception, OpenRouter, Groq, OpenAI, DeepSeek, Mistral and the
+/// rest, and any other the reader names), each one's differences in its
+/// [AiStyle]; Claude in Anthropic's own Messages API (ai_anthropic.dart). Straight from the phone to the provider, with the reader's own
 /// key: there is no TomeVoice server between.
 ///
 /// dart:io only (no platform channel), so it works the same in a
@@ -13,7 +17,10 @@ import 'dart:io';
 
 /// Where a call goes: a provider's base URL, a key and a model.
 class AiEndpoint {
-  const AiEndpoint({required this.baseUrl, required this.key, required this.model});
+  const AiEndpoint({required this.baseUrl, required this.key, required this.model, this.style = AiStyle.plain});
+
+  /// How the provider differs from the plain OpenAI format.
+  final AiStyle style;
 
   /// The base the OpenAI paths hang from, without a trailing slash:
   /// `https://api.inceptionlabs.ai/v1`.
@@ -25,6 +32,46 @@ class AiEndpoint {
     final base = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
     return Uri.parse('$base/$p');
   }
+}
+
+/// How a provider differs from the plain OpenAI format (each one's, in
+/// [AiProvider]): what it refuses, what it lacks, what it needs back.
+class AiStyle {
+  const AiStyle({
+    this.temperature = true,
+    this.jsonObject = true,
+    this.models = const [],
+    this.embedBatch = 64,
+    this.reasoning = false,
+    this.noThinkingForJson = false,
+    this.anthropic = false,
+  });
+
+  static const plain = AiStyle();
+
+  /// It takes a temperature (Claude's newest and Kimi's 400 on one).
+  final bool temperature;
+
+  /// It takes `response_format: json_object` (Claude's does not: the
+  /// prompt asks for JSON, which the notes' prompt does anyway).
+  final bool jsonObject;
+
+  /// Its models, where it has no `/models` to list them.
+  final List<String> models;
+
+  /// The most texts one embeddings call may carry.
+  final int embedBatch;
+
+  /// Its thinking (`reasoning_content`) must be sent back with a reply's
+  /// tool calls (DeepSeek's and Kimi's 400 on a tool loop otherwise).
+  final bool reasoning;
+
+  /// Thinking turned off for JSON calls (DeepSeek's: the notes come faster
+  /// and cost less without it).
+  final bool noThinkingForJson;
+
+  /// Spoken to in its own format (Anthropic's Messages API), not OpenAI's.
+  final bool anthropic;
 }
 
 /// Why a call failed, as the key ring needs to know it.
@@ -121,9 +168,26 @@ class AiUsage {
 }
 
 class AiReply {
-  const AiReply({required this.text, this.toolCalls = const [], this.usage = const AiUsage(), this.finish});
+  const AiReply({
+    required this.text,
+    this.toolCalls = const [],
+    this.usage = const AiUsage(),
+    this.finish,
+    this.reasoning = '',
+    this.keepReasoning = false,
+    this.raw,
+  });
 
   final String text;
+
+  /// The model's thinking, when it said it (`reasoning_content`), and
+  /// whether its provider needs it back ([AiStyle.reasoning]).
+  final String reasoning;
+  final bool keepReasoning;
+
+  /// The reply as its provider sent it, to send back as it was where the
+  /// provider needs that (Claude's content blocks).
+  final Object? raw;
   final List<AiToolCall> toolCalls;
   final AiUsage usage;
 
@@ -135,6 +199,8 @@ class AiReply {
         'role': 'assistant',
         'content': text.isEmpty ? null : text,
         if (toolCalls.isNotEmpty) 'tool_calls': [for (final c in toolCalls) c.toJson()],
+        if (keepReasoning && reasoning.isNotEmpty) 'reasoning_content': reasoning,
+        if (raw != null) 'raw': raw,
       };
 }
 
@@ -169,13 +235,22 @@ class AiClient {
     void Function(String piece)? onText,
     bool Function()? stopped,
   }) async {
+    final style = to.style;
+    if (style.anthropic) {
+      return anthropicChat(_http, timeout, to, messages,
+          tools: tools, maxTokens: maxTokens, onText: onText, stopped: stopped);
+    }
     final body = <String, Object?>{
       'model': to.model,
-      'messages': messages,
+      // The Messages API's own copy of a reply goes no further.
+      'messages': [
+        for (final m in messages) m.containsKey('raw') ? (Map.of(m)..remove('raw')) : m,
+      ],
       if (tools.isNotEmpty) 'tools': [for (final t in tools) t.toJson()],
-      if (json) 'response_format': {'type': 'json_object'},
+      if (json && style.jsonObject) 'response_format': {'type': 'json_object'},
+      if (json && style.noThinkingForJson) 'thinking': {'type': 'disabled'},
       if (maxTokens != null) 'max_tokens': maxTokens,
-      if (temperature != null) 'temperature': temperature,
+      if (temperature != null && style.temperature) 'temperature': temperature,
       if (onText != null) 'stream': true,
     };
     final res = await _send(to, 'chat/completions', body);
@@ -187,13 +262,21 @@ class AiClient {
       } on FormatException {
         throw AiError(AiFailure.server, 'The provider sent back something that is not JSON', status: res.statusCode);
       }
-      return parseChatReply(v, sent: messages);
+      return parseChatReply(v, sent: messages, keepReasoning: style.reasoning);
     }
-    return _stream(res, messages, onText, stopped);
+    return _stream(res, messages, onText, stopped, keepReasoning: style.reasoning);
   }
 
   /// The models a key may use, by id, as the provider lists them.
   Future<List<String>> models(AiEndpoint to) async {
+    if (to.style.anthropic) return anthropicModels(_http, timeout, to);
+    // A provider with no list: its known models, once a call shows the key
+    // works.
+    if (to.style.models.isNotEmpty) {
+      await chat(AiEndpoint(baseUrl: to.baseUrl, key: to.key, model: to.style.models.first, style: to.style),
+          [aiMessage('user', 'Say OK.')], maxTokens: 300);
+      return [...to.style.models];
+    }
     final res = await _send(to, 'models', null);
     final v = jsonDecode(await _read(res));
     final data = v is Map ? v['data'] : null;
@@ -207,6 +290,13 @@ class AiClient {
 
   /// Vectors for [texts], for meaning search; only some providers have it.
   Future<List<List<double>>> embed(AiEndpoint to, List<String> texts) async {
+    // A provider that takes fewer texts a call than were asked: in turns.
+    final most = to.style.embedBatch;
+    if (texts.length > most) {
+      return [
+        for (var i = 0; i < texts.length; i += most) ...await embed(to, texts.sublist(i, math.min(texts.length, i + most))),
+      ];
+    }
     final res = await _send(to, 'embeddings', {'model': to.model, 'input': texts});
     final v = jsonDecode(await _read(res));
     final data = v is Map ? v['data'] : null;
@@ -273,8 +363,9 @@ class AiClient {
   /// Stop, or closed Talk): the connection is let go at once, so the
   /// provider stops writing, and stops billing, the rest.
   Future<AiReply> _stream(HttpClientResponse res, List<Map<String, Object?>> sent, void Function(String) onText,
-      bool Function()? stopped) async {
+      bool Function()? stopped, {bool keepReasoning = false}) async {
     final text = StringBuffer();
+    final thinking = StringBuffer();
     final calls = <int, ({String id, String name, StringBuffer args})>{};
     String? finish;
     AiUsage? usage;
@@ -300,6 +391,8 @@ class AiClient {
         finish = c['finish_reason'] as String? ?? finish;
         final delta = c['delta'];
         if (delta is! Map) continue;
+        final thought = delta['reasoning_content'];
+        if (thought is String) thinking.write(thought);
         final piece = delta['content'];
         if (piece is String && piece.isNotEmpty) {
           text.write(piece);
@@ -337,12 +430,14 @@ class AiClient {
       ],
       usage: usage ?? guessUsage(sent, whole),
       finish: finish,
+      reasoning: thinking.toString(),
+      keepReasoning: keepReasoning,
     );
   }
 }
 
 /// A non-streamed chat reply, read.
-AiReply parseChatReply(Object? v, {required List<Map<String, Object?>> sent}) {
+AiReply parseChatReply(Object? v, {required List<Map<String, Object?>> sent, bool keepReasoning = false}) {
   if (v is! Map) throw const AiError(AiFailure.server, 'The provider sent back no reply');
   if (v['error'] != null) throw errorFromResponse(500, jsonEncode(v));
   final choices = v['choices'];
@@ -368,11 +463,14 @@ AiReply parseChatReply(Object? v, {required List<Map<String, Object?>> sent}) {
         ),
   ];
   final u = v['usage'];
+  final thought = m['reasoning_content'];
   return AiReply(
     text: text,
     toolCalls: calls,
     usage: u is Map ? _usage(u) : guessUsage(sent, text),
     finish: c['finish_reason'] as String?,
+    reasoning: thought is String ? thought : '',
+    keepReasoning: keepReasoning,
   );
 }
 
