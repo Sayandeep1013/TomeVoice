@@ -114,7 +114,7 @@ Future<void> showNameCard(
         if (!opened && context.mounted) showSnack(context, 'No browser on this phone could open the search.');
         return;
     }
-    if (card == null) return;
+    if (card == null || !context.mounted) return;
   }
   final shown = card;
   await showModalBottomSheet<void>(

@@ -17,6 +17,7 @@ import 'package:tomevoice_spike/ai/talk/answer_pack.dart';
 import 'package:tomevoice_spike/ai/talk/name_card.dart';
 import 'package:tomevoice_spike/ai/talk/phrase.dart';
 import 'package:tomevoice_spike/ai/talk/who_sheet.dart';
+import 'package:tomevoice_spike/library_store.dart' show specimenBook;
 import 'package:tomevoice_spike/marks.dart';
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/reader_screen.dart';
