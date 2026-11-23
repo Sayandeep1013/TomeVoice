@@ -1743,9 +1743,16 @@ void _forestLife(Canvas c, Size s, double t) {
     _light(c, p, 7 + glow * 7, const Color(0xFFE6FF6A).withValues(alpha: 0.5 * a));
     c.drawCircle(p, 1.2, _fill(const Color(0xFFFFF6B0).withValues(alpha: a)));
   }
-  // The glowing mushrooms breathing.
-  final m = Offset(s.width - 46, s.height - 34);
-  _light(c, m, 40 + 8 * math.sin(t * 1.3), const Color(0xFF5AF0D0).withValues(alpha: 0.10 + 0.06 * math.sin(t * 1.3)));
+  if (_art.containsKey(Scene.forest)) {
+    // Over the painting: vines growing in from the top corners as the
+    // screen opens, light running down them like sap, then swaying.
+    _vine(c, s, t, left: true);
+    _vine(c, s, t - 1.1, left: false);
+  } else {
+    // The drawn forest's glowing mushrooms breathing.
+    final m = Offset(s.width - 46, s.height - 34);
+    _light(c, m, 40 + 8 * math.sin(t * 1.3), const Color(0xFF5AF0D0).withValues(alpha: 0.10 + 0.06 * math.sin(t * 1.3)));
+  }
   // Two leaves falling, turning as they go.
   for (var i = 0; i < 2; i++) {
     const fall = 14.0;
@@ -1757,6 +1764,74 @@ void _forestLife(Canvas c, Size s, double t) {
     c.scale(1, 0.55 + 0.45 * math.cos(t * 1.6 + i).abs());
     leafAt(c, Offset.zero, 13, t * 0.8 + i, math.Random(i + 3));
     c.restore();
+  }
+}
+
+/// A vine from the top of the screen down one side ([left] or right),
+/// [t] seconds after the screen opened: it grows for the first few seconds
+/// (leaves budding as its tip passes, growing to full size), then a glow
+/// runs down it now and then while its tip sways. Plain fills only: no
+/// gradient made per frame.
+void _vine(Canvas c, Size s, double t, {required bool left}) {
+  if (t <= 0) return;
+  final grown = Curves.easeOutCubic.transform((t / 5.5).clamp(0.0, 1.0));
+  final dir = left ? 1.0 : -1.0;
+  final x0 = left ? 0.0 : s.width;
+  final len = s.height * (left ? 0.58 : 0.42);
+  const n = 56;
+  final pts = <Offset>[];
+  for (var i = 0; i <= n; i++) {
+    final f = i / n;
+    final sway = math.sin(t * 0.8 + f * 2.6) * 5 * f * f;
+    final x = x0 + dir * (8 + 15 * math.sin(f * 5.4 + (left ? 0 : 1.9)) * (0.35 + f * 0.65) + 6 * f + sway);
+    pts.add(Offset(x, -4 + f * len));
+  }
+  final upto = grown * n;
+  final whole = upto.floor();
+  // The stem: thick at its root, thin at its tip.
+  for (var i = 0; i < whole && i < n; i++) {
+    final w = 4.2 - 3.0 * i / n;
+    c.drawLine(pts[i], pts[i + 1], _stroke(const Color(0xFF16351A).withValues(alpha: 0.92), w));
+    c.drawLine(pts[i], pts[i + 1], _stroke(const Color(0xFF3E7A3A).withValues(alpha: 0.55), w * 0.45));
+  }
+  if (whole < n) {
+    final tip = Offset.lerp(pts[whole], pts[whole + 1], upto - whole)!;
+    c.drawLine(pts[whole], tip, _stroke(const Color(0xFF16351A), 1.4));
+  }
+  // Leaves, in pairs of sides, each growing to size after the tip passes.
+  final leaf = Paint()..color = const Color(0xFF2F6B32).withValues(alpha: 0.95);
+  final vein = _stroke(const Color(0xFF0E2A12).withValues(alpha: 0.7), 0.6);
+  for (var i = 3; i < n; i += 4) {
+    final age = (upto - i) / 6;
+    if (age <= 0) continue;
+    final size = 11 * Curves.easeOutBack.transform(age.clamp(0.0, 1.0));
+    final side = (i ~/ 4).isEven ? 1.0 : -1.0;
+    final a = pts[i];
+    final along = pts[math.min(n, i + 1)] - a;
+    final angle = math.atan2(along.dy, along.dx) + side * 1.0 + math.sin(t * 1.1 + i) * 0.12;
+    c.save();
+    c.translate(a.dx, a.dy);
+    c.rotate(angle);
+    c.drawPath(
+      Path()
+        ..moveTo(0, 0)
+        ..quadraticBezierTo(size * 0.55, -size * 0.45, size, 0)
+        ..quadraticBezierTo(size * 0.55, size * 0.45, 0, 0)
+        ..close(),
+      leaf,
+    );
+    c.drawLine(Offset.zero, Offset(size * 0.8, 0), vein);
+    c.restore();
+  }
+  // Grown: a light runs down it every few seconds, like the starship's
+  // neon, a soft gold-green.
+  if (grown >= 1) {
+    final run = ((t - 5.5) * 0.16 + (left ? 0 : 0.5)) % 1.3;
+    if (run < 1) {
+      final at = pts[(run * n).floor().clamp(0, n)];
+      _light(c, at, 16, const Color(0xFFE8FF8A).withValues(alpha: 0.42));
+      c.drawCircle(at, 1.6, _fill(const Color(0xFFFFFBD0).withValues(alpha: 0.9)));
+    }
   }
 }
 
