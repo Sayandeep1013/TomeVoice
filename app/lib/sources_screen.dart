@@ -195,7 +195,8 @@ class _SourcesScreenState extends State<SourcesScreen> {
     final ok = await confirm(
       context,
       title: p == null ? 'Clear site cookies?' : 'Clear ${p.name}\'s cookies?',
-      body: 'Sites forget you were here: any sign-in ends, and a site with a browser check may ask for it again.',
+      body: 'Sites forget you were here: any sign-in ends, and a site with a browser check may ask for it again. '
+          'Your novels, their downloaded chapters and your sources stay.',
       action: 'Clear',
     );
     if (!ok) return;

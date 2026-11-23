@@ -283,7 +283,7 @@ const aiGuideCards = <GuideCard>[
     [
       (Icons.menu_book_rounded, "On a book's page, open Memory and press Build memory."),
       (Icons.schedule_rounded, 'A long book takes hours on a free key. It goes on in the background, and with TomeVoice closed if you allow it in AI settings.'),
-      (Icons.download_rounded, 'A web novel fetches its missing chapters first. Once the memory has read them, Free the space deletes them again.'),
+      (Icons.download_rounded, 'A web novel fetches its missing chapters first. Once the memory has read them, Free up space deletes those chapter files; the memory itself stays.'),
     ],
   ),
   GuideCard(

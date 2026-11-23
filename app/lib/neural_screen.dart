@@ -222,8 +222,8 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
     final ok = await confirm(
       context,
       title: 'Remove all natural voices?',
-      body: 'Every natural voice is deleted from the phone. Books that used one are read in the '
-          'phone\'s own voice again.',
+      body: 'Every natural voice is deleted from the phone, freeing its space. Books that used one are read in '
+          'the phone\'s own voice again. Your books and places stay, and any voice can be downloaded again.',
       action: 'Remove all',
     );
     if (!ok) return;

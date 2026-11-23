@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'ai/memory/memory_db.dart' show MemoryDb;
 import 'book_card.dart';
 import 'library_store.dart';
-import 'marks.dart';
 import 'speech_service.dart';
 import 'theme.dart';
 import 'ui.dart';
@@ -85,22 +85,37 @@ Future<bool> moveBook(BuildContext context, LibraryStore store, LibraryEntry ent
 
 /// Ask, then remove [entry]. True if it was removed.
 Future<bool> removeBook(BuildContext context, LibraryStore store, LibraryEntry entry) async {
-  // A secret book takes what was saved from it along (LibraryStore.remove).
-  final saved = store.isSecret(entry.id) && MarkStore.instance.forBook(entry.id).isNotEmpty;
+  // A secret book takes what was saved from it, and its journal, along
+  // (LibraryStore.remove); its folder goes in every case, with the
+  // downloaded chapters and the book's memory in it.
+  final secret = store.isSecret(entry.id);
+  final memory = MemoryDb.existsIn(store.bookDir(entry.id));
+  final gone = [
+    'its reading place',
+    if (entry.isWeb) 'its downloaded chapters',
+    if (memory) 'its book memory (the AI\'s notes and cast)',
+    if (secret) 'its journal and everything saved from it',
+  ];
+  final stays = secret
+      ? ''
+      : ' Your journal and the quotes you saved from it stay.';
+  final source = entry.isWeb
+      ? ' You can add it again from the site.'
+      : ' The original file on your phone is not touched.';
   final ok = await confirm(
     context,
     title: 'Remove this book?',
-    body: saved
-        ? '"${entry.title}" is deleted from TomeVoice with its reading place and, as it is on a secret '
-            'shelf, everything saved from it. The original file on your phone is not touched.'
-        : '"${entry.title}" is deleted from TomeVoice with its reading place. '
-            'The original file on your phone is not touched.',
+    body: '"${entry.title}" is deleted from TomeVoice, with ${_listed(gone)}.$stays$source',
     action: 'Remove',
   );
   if (!ok) return false;
   await store.remove(entry.id);
   return true;
 }
+
+/// "a, b and c".
+String _listed(List<String> items) =>
+    items.length == 1 ? items.first : '${items.sublist(0, items.length - 1).join(', ')} and ${items.last}';
 
 /// Pick how a book's cover looks. Each choice shows itself on this book.
 Future<void> changeCover(BuildContext context, LibraryStore store, LibraryEntry e) async {

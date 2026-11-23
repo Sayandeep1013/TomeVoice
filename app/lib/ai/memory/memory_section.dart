@@ -214,7 +214,9 @@ class _BookMemorySectionState extends State<BookMemorySection> {
   Future<void> _forget() async {
     final sure = await confirm(context,
         title: 'Forget what it remembers?',
-        body: 'The notes, the cast and the word index of this book are deleted. Your journal stays.',
+        body: "This book's memory is deleted: its chapter notes, cast, graph, threads, theories and word index. "
+            'The book, its downloaded chapters, your place, your journal and your AI chats stay. '
+            'Building it again costs the calls again.',
         action: 'Forget');
     if (sure) await _service.forget(widget.bookId);
   }
@@ -809,7 +811,7 @@ class _SeriesCard extends StatelessWidget {
 
 /// A web novel's chapters, for its memory: how many are on the phone and
 /// the space they take; Download all, its progress and failures (Try
-/// again); and, once the memory has read them, Free the space (the memory
+/// again); and, once the memory has read them, Free up space (the memory
 /// keeps its own copy of their words, and a chapter is fetched again when
 /// it is opened to read). Nothing for a book that is not a web novel.
 class _ChaptersBlock extends StatefulWidget {
@@ -876,13 +878,17 @@ class _ChaptersBlockState extends State<_ChaptersBlock> {
   Future<void> _free() async {
     final c = _c;
     if (c == null) return;
+    final read = math.min(c.onPhone, c.noted);
     final sure = await confirm(
       context,
-      title: 'Free the space?',
-      body: 'The chapters the memory has already read are taken off the phone. The memory keeps its own copy of '
-          "their words, so Talk, search and Who's who go on working, and any chapter you open to read is "
-          'fetched again from the site. Chapters it has not read yet stay.',
-      action: 'Free the space',
+      title: 'Free up space?',
+      body: 'Deletes only the downloaded chapter files the memory has already read '
+          '(${read == 1 ? 'one chapter' : 'about $read chapters'}). '
+          'The memory you built is not touched: its notes, cast, graph and its own copy of the words stay, '
+          "so Talk, search and Who's who go on working. Your place and journal stay too.\n\n"
+          'A chapter you open to read is downloaded again from the site. Chapters the memory has not read yet '
+          'stay on the phone.',
+      action: 'Free up space',
     );
     if (!sure) return;
     setState(() => _busy = true);
@@ -890,7 +896,10 @@ class _ChaptersBlockState extends State<_ChaptersBlock> {
     if (!mounted) return;
     setState(() => _busy = false);
     showSnack(
-        context, r.chapters == 0 ? 'Nothing to free yet.' : 'Freed ${sizeLabel(r.bytes)}: ${r.chapters} chapters.');
+        context,
+        r.chapters == 0
+            ? 'Nothing to free yet.'
+            : 'Freed ${sizeLabel(r.bytes)}: ${r.chapters} chapter files. The memory is as it was.');
     await _load();
   }
 
@@ -940,10 +949,18 @@ class _ChaptersBlockState extends State<_ChaptersBlock> {
                 OutlinedButton.icon(
                   onPressed: _busy ? null : () => unawaited(_free()),
                   icon: const Icon(Icons.cleaning_services_outlined, size: 18),
-                  label: const Text('Free the space'),
+                  label: const Text('Free up space'),
                 ),
             ],
           ),
+          if (readOnPhone > 0 && c.bytes > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: Gap.s),
+              child: Text(
+                'Free up space deletes the chapter files the memory has read. The memory itself stays.',
+                style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
+              ),
+            ),
         ],
       ),
     );
