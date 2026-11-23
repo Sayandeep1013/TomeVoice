@@ -645,7 +645,11 @@ class MemoryService {
   /// run a book at a time: those asking meanwhile wait for it. (The Build
   /// sheet counts and finds where "the next ten" end at once; two runs on a
   /// memory not yet made both made its tables, and one failed.)
-  Future<void> index(String id) => _indexRuns[id] ??= _index(id).whenComplete(() => _indexRuns.remove(id));
+  // The cleanup returns nothing: given back, the removed future (this one)
+  // would be waited for by itself, and never end.
+  Future<void> index(String id) => _indexRuns[id] ??= _index(id).whenComplete(() {
+        _indexRuns.remove(id);
+      });
 
   final _indexRuns = <String, Future<void>>{};
 
