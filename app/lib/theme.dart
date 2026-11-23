@@ -222,10 +222,10 @@ class Skin {
   static TextStyle heading(BuildContext c, {double size = 26, Color? color, FontWeight? weight}) {
     final scene = sceneOf(c);
     if (scene == null) return title(c, size: size, color: color, weight: weight);
-    final (family, scale, track, w) = switch (scene) {
+    final (family, scale, track, w) = switch (scene.kin) {
       Scene.dungeon => ('PirataOne', 1.12, 0.01, FontWeight.w400),
       Scene.forest => ('UncialAntiqua', 0.92, 0.0, FontWeight.w400),
-      Scene.starship => ('Orbitron', 0.8, 0.06, FontWeight.w600),
+      _ => ('Orbitron', 0.8, 0.06, FontWeight.w600),
     };
     final s = size * scale;
     return TextStyle(
@@ -238,7 +238,9 @@ class Skin {
       color: color ?? inkOn(c),
       shadows: [
         // The place's light on the letters.
-        Shadow(color: accentOf(c).withValues(alpha: scene == Scene.starship ? 0.55 : 0.35), blurRadius: scene == Scene.starship ? 10 : 14),
+        Shadow(
+            color: accentOf(c).withValues(alpha: scene.kin == Scene.starship ? 0.55 : 0.35),
+            blurRadius: scene.kin == Scene.starship ? 10 : 14),
       ],
     );
   }
@@ -949,7 +951,71 @@ class Palette {
     scene: Scene.starship,
   ));
 
-  static final scenes = [dungeon, forestScene, starship];
+  static final gothic = readable(const Palette(
+    id: 'scene-gothic',
+    label: 'Gothic',
+    day: [Color(0xFF140A0E), Color(0xFF12090C), Color(0xFF0E070A), Color(0xFF080405)],
+    night: [Color(0xFF140A0E), Color(0xFF12090C), Color(0xFF0E070A), Color(0xFF080405)],
+    // Candlelight on stone.
+    accent: Color(0xFFE0B050),
+    accentSoft: Color(0xFFF0CC80),
+    accentDeep: Color(0xFF8A5A18),
+    onAccent: Color(0xFF1A0E06),
+    nightCapsule: Color(0xF2241218),
+    nightSheet: Color(0xFF0E0609),
+    only: Brightness.dark,
+    scene: Scene.gothic,
+  ));
+
+  static final silverWitch = readable(const Palette(
+    id: 'scene-silver-witch',
+    label: 'Silver witch',
+    day: [Color(0xFF0C1220), Color(0xFF0A0F1B), Color(0xFF080C16), Color(0xFF04070D)],
+    night: [Color(0xFF0C1220), Color(0xFF0A0F1B), Color(0xFF080C16), Color(0xFF04070D)],
+    // Moonlit silver.
+    accent: Color(0xFFB8C8E8),
+    accentSoft: Color(0xFFD6E0F4),
+    accentDeep: Color(0xFF5A6E96),
+    onAccent: Color(0xFF0A0F1B),
+    nightCapsule: Color(0xF2161E30),
+    nightSheet: Color(0xFF070B14),
+    only: Brightness.dark,
+    scene: Scene.silverWitch,
+  ));
+
+  static final obsidian = readable(const Palette(
+    id: 'scene-obsidian',
+    label: 'Obsidian',
+    day: [Color(0xFF0C0812), Color(0xFF0A0710), Color(0xFF08060C), Color(0xFF040306)],
+    night: [Color(0xFF0C0812), Color(0xFF0A0710), Color(0xFF08060C), Color(0xFF040306)],
+    // Violet fire in black glass.
+    accent: Color(0xFFB46CFF),
+    accentSoft: Color(0xFFCE9CFF),
+    accentDeep: Color(0xFF5E2A9A),
+    onAccent: Color(0xFF12061E),
+    nightCapsule: Color(0xF2180F24),
+    nightSheet: Color(0xFF07040B),
+    only: Brightness.dark,
+    scene: Scene.obsidian,
+  ));
+
+  static final solar = readable(const Palette(
+    id: 'scene-solar',
+    label: 'Space · solar',
+    day: [Color(0xFF100B06), Color(0xFF0D0905), Color(0xFF0A0704), Color(0xFF050302)],
+    night: [Color(0xFF100B06), Color(0xFF0D0905), Color(0xFF0A0704), Color(0xFF050302)],
+    // The sun's gold.
+    accent: Color(0xFFFFB238),
+    accentSoft: Color(0xFFFFCA70),
+    accentDeep: Color(0xFFA86A10),
+    onAccent: Color(0xFF1A1004),
+    nightCapsule: Color(0xF2201608),
+    nightSheet: Color(0xFF080503),
+    only: Brightness.dark,
+    scene: Scene.solar,
+  ));
+
+  static final scenes = [dungeon, forestScene, starship, gothic, silverWitch, obsidian, solar];
 
   static final all = [forest, lavender, ocean, black, paper, ...designer, ...scenes];
 

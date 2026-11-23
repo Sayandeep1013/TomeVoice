@@ -58,8 +58,8 @@ class BrandPainter extends CustomPainter {
     canvas.save();
     canvas.scale(k);
     const box = Rect.fromLTWH(0, 0, 512, 512);
-    final corner = scene == Scene.starship ? 40.0 : 112.0;
-    final shape = scene == Scene.starship ? _cut(box, 92) : (Path()..addRRect(RRect.fromRectAndRadius(box, Radius.circular(corner))));
+    final corner = scene?.kin == Scene.starship ? 40.0 : 112.0;
+    final shape = scene?.kin == Scene.starship ? _cut(box, 92) : (Path()..addRRect(RRect.fromRectAndRadius(box, Radius.circular(corner))));
     canvas.drawPath(
       shape,
       Paint()
@@ -129,7 +129,7 @@ class BrandPainter extends CustomPainter {
 
   /// The scene's rim round the tile.
   void _edge(Canvas c, Rect box, Path shape) {
-    switch (scene) {
+    switch (scene?.kin) {
       case null:
         return;
       case Scene.dungeon:
@@ -140,11 +140,11 @@ class BrandPainter extends CustomPainter {
             ..style = PaintingStyle.stroke
             ..strokeWidth = 30
             ..shader = ui.Gradient.linear(box.topLeft, box.bottomRight,
-                const [Color(0xFF3A1D0E), Color(0xFF8A4A24), Color(0xFF4A2412), Color(0xFF7A3E1C)], const [0, 0.35, 0.65, 1]),
+                [sceneInk(scene!, const Color(0xFF3A1D0E)), sceneInk(scene!, const Color(0xFF8A4A24)), sceneInk(scene!, const Color(0xFF4A2412)), sceneInk(scene!, const Color(0xFF7A3E1C))], const [0, 0.35, 0.65, 1]),
         );
         for (final p in const [Offset(58, 58), Offset(454, 58), Offset(58, 454), Offset(454, 454)]) {
           c.drawCircle(p, 14,
-              Paint()..shader = ui.Gradient.radial(p - const Offset(4, 4), 16, const [Color(0xFFD08A4C), Color(0xFF6A3416), Color(0xFF140804)], const [0, 0.45, 1]));
+              Paint()..shader = ui.Gradient.radial(p - const Offset(4, 4), 16, [sceneInk(scene!, const Color(0xFFD08A4C)), sceneInk(scene!, const Color(0xFF6A3416)), sceneInk(scene!, const Color(0xFF140804))], const [0, 0.45, 1]));
         }
       case Scene.forest:
         // Bark and moss.
@@ -154,16 +154,16 @@ class BrandPainter extends CustomPainter {
             ..style = PaintingStyle.stroke
             ..strokeWidth = 26
             ..shader = ui.Gradient.linear(box.topLeft, box.bottomRight,
-                const [Color(0xFF5E3B1F), Color(0xFF2E5A2E), Color(0xFF3A2414), Color(0xFF3F8A42)], const [0, 0.4, 0.7, 1]),
+                [sceneInk(scene!, const Color(0xFF5E3B1F)), sceneInk(scene!, const Color(0xFF2E5A2E)), sceneInk(scene!, const Color(0xFF3A2414)), sceneInk(scene!, const Color(0xFF3F8A42))], const [0, 0.4, 0.7, 1]),
         );
-      case Scene.starship:
+      default:
         // A neon line inside the hull.
         c.drawPath(
           shape,
           Paint()
             ..style = PaintingStyle.stroke
             ..strokeWidth = 22
-            ..color = const Color(0xFF3FE0F0).withValues(alpha: 0.35)
+            ..color = sceneInk(scene!, const Color(0xFF3FE0F0)).withValues(alpha: 0.35)
             ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
         );
         c.drawPath(
@@ -171,7 +171,7 @@ class BrandPainter extends CustomPainter {
           Paint()
             ..style = PaintingStyle.stroke
             ..strokeWidth = 8
-            ..color = const Color(0xFF9FF6FF),
+            ..color = sceneInk(scene!, const Color(0xFF9FF6FF)),
         );
     }
   }
