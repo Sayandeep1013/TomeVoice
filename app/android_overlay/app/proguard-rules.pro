@@ -1,6 +1,10 @@
-# Release builds are shrunk by R8. PdfBox loads fonts, glyph lists and filters
-# by name, so keep it whole rather than chase reflection one class at a time.
--keep class com.tom_roush.** { *; }
+# Release builds are shrunk by R8. PdfBox-Android 2.0.27 is no longer kept
+# whole (it was 82% of what R8 had to keep, the Play "DEX optimisation"
+# score's main cost): it reads fonts, glyph lists, CMaps and AFM files by
+# path, not by class name, and ships its own rules for the two places it
+# uses reflection (SecurityHandler constructors, documentinterchange),
+# which R8 applies (seen in configuration.txt). PdfText.kt catches
+# InvalidPasswordException by type for the same reason.
 -dontwarn com.tom_roush.**
 # Optional PdfBox codecs that are not on the classpath.
 -dontwarn com.gemalto.jp2.**
