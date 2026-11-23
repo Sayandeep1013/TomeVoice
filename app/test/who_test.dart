@@ -182,7 +182,7 @@ void main() {
     testWidgets('without the AI: a web search only, and a line on what a key would add', (tester) async {
       await open(tester, guessPhrase('Six Finger walked in.', 'Six'))();
       expect(find.text('Who or what is it?'), findsOneWidget);
-      expect(find.text('This book has no memory to look in'), findsOneWidget);
+      expect(find.text('This book has no memory to look in'.toUpperCase()), findsOneWidget);
       expect(find.widgetWithText(TextField, 'Six Finger'), findsOneWidget);
       expect(find.text('Search the web (may spoil)'), findsOneWidget);
       expect(find.text('Ask the AI (no spoilers)'), findsNothing);
@@ -270,7 +270,7 @@ void main() {
       ));
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
-      expect(find.text("The book's memory has nothing on it yet"), findsOneWidget);
+      expect(find.text("The book's memory has nothing on it yet".toUpperCase()), findsOneWidget);
       expect(find.textContaining('Open its card'), findsNothing);
 
       await tester.tap(find.byTooltip('Add the word after'));
@@ -352,7 +352,7 @@ void main() {
         opened.add(u);
         return true;
       });
-      expect(find.text('This book has no memory to look in'), findsOneWidget);
+      expect(find.text('This book has no memory to look in'.toUpperCase()), findsOneWidget);
       expect(find.text('Ask the AI (no spoilers)'), findsNothing);
       await tester.tap(find.text('Search the web (may spoil)'));
       await tester.pumpAndSettle();
