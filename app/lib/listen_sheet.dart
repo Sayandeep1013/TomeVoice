@@ -802,6 +802,13 @@ class _ReaderSettingsSheetState extends State<_ReaderSettingsSheet> {
             (v) => _s.copyWith(sentencePauseMs: v.round())),
         row('Pause between paragraphs', _s.paragraphPauseMs.toDouble(), 0, 3000, ' ms',
             (v) => _s.copyWith(paragraphPauseMs: v.round())),
+        SwitchRow(
+          title: 'Shorter pauses when faster',
+          subtitle: 'Above 1×, these pauses shrink with the speed, so 2× has no slow gaps. Off: always as set here.',
+          value: _s.pausesFollowSpeed,
+          padding: EdgeInsets.zero,
+          onChanged: (v) => _set(_s.copyWith(pausesFollowSpeed: v), restart: true),
+        ),
         row('Volume', _s.volume, 0, 1, '', (v) => _s.copyWith(volume: v), decimals: 2),
         SwitchRow(
           title: 'Even out loudness',

@@ -973,7 +973,8 @@ class BackgroundReading {
           case 'speed':
             _prefs.setSpeed(nextSpeed(_speed), book: bookId);
             _prefs.save();
-            if (playing) unawaited(player.play(unit));
+            // Pressed three times running, made again once, at the last.
+            player.remake();
             _updateCard();
           case 'save':
             unawaited(_saveLine());

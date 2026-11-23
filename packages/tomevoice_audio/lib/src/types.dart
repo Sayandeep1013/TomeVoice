@@ -159,6 +159,7 @@ class PipelineSettings {
     this.pitchSemitones = 0.0,
     this.text = '',
     this.levelGainDb,
+    this.pausesFollowSpeed = true,
   });
 
   /// Silence inserted at every word boundary. The headline feature.
@@ -205,6 +206,12 @@ class PipelineSettings {
   /// Null measures this buffer alone.
   final double? levelGainDb;
 
+  /// The silences put in (word gap, punctuation, sentence and paragraph
+  /// pauses) grow shorter as the speed goes above 1x, as the voice's own do:
+  /// by the square root of the speed, so they are still heard at 3x. Applied
+  /// by the reader where it makes each sentence, not by the pipeline.
+  final bool pausesFollowSpeed;
+
   PipelineSettings copyWith({
     int? wordGapMs,
     double? speedScale,
@@ -219,6 +226,7 @@ class PipelineSettings {
     String? text,
     bool? trimEdges,
     double? levelGainDb,
+    bool? pausesFollowSpeed,
   }) =>
       PipelineSettings(
         wordGapMs: wordGapMs ?? this.wordGapMs,
@@ -236,5 +244,6 @@ class PipelineSettings {
         pitchSemitones: pitchSemitones ?? this.pitchSemitones,
         text: text ?? this.text,
         levelGainDb: levelGainDb ?? this.levelGainDb,
+        pausesFollowSpeed: pausesFollowSpeed ?? this.pausesFollowSpeed,
       );
 }

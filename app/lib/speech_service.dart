@@ -195,7 +195,16 @@ class SpeechService {
 
   Future<void> pausePlayback() => _quiet('playerPause');
   Future<void> resumePlayback() => _quiet('playerResume');
-  Future<void> stopPlayback() => _quiet('playerStop');
+  Future<void> stopPlayback() {
+    streamStops++;
+    return _quiet('playerStop');
+  }
+
+  /// Counted up by every [stopPlayback]: whoever played into the stream
+  /// since a reading last started its own (a voice sample, another book)
+  /// ended that reading's stream, and a paused reading can tell
+  /// (PlaybackScheduler.resume).
+  static int streamStops = 0;
 
   /// The player's volume, 0 to 1, on top of the phone's (the sleep fade).
   Future<void> setVolume(double volume) => _quiet('playerVolume', {'volume': volume});
@@ -928,7 +937,7 @@ Future<void> speakSample({
   );
   final r = await renderInBackground(
     native: native,
-    settings: settings.copyWith(speedScale: 1.0, sentencePauseMs: 0, text: text),
+    settings: pausesAtSpeed(settings).copyWith(speedScale: 1.0, sentencePauseMs: 0, text: text),
     pauseAfterMs: 0,
   );
   await svc.stopPlayback();
