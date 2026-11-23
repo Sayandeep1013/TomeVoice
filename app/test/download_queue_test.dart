@@ -314,7 +314,9 @@ void main() {
     final said = [for (final m in service.shown) '${m.title} ${m.text}'];
     expect(said.any((s) => s.contains('Novel shown') && s.contains('Chapter')), isTrue, reason: 'an open one is named');
     expect(said.where((s) => s.contains('Hush')), isEmpty);
-    // Nothing left to download: the service goes.
+    // Nothing left to download: the service goes (a moment after the queue
+    // empties, so waited for: checked at once, this failed now and then).
+    await until(() => service.stops >= 1);
     expect(service.stops, greaterThanOrEqualTo(1));
   });
 
