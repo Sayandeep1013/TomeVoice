@@ -95,7 +95,7 @@ void main() {
     expect(sound.n('ms'), isNotNull);
     final made = log.events.where((e) => e.kind == 'made').toList();
     expect(made.first.s('script'), 'Latin');
-    expect(made.first.n('chars'), greaterThan(10));
+    expect(made.map((e) => e.n('chars')), anyElement(greaterThan(20)), reason: 'the heading, then sentences');
     expect(made.first.n('speechMs'), greaterThan(0));
     expect(made.first.n('speed'), 1.0);
     expect(kinds, containsAll(['pause', 'stop']));
