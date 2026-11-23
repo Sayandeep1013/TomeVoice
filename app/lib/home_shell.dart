@@ -214,6 +214,9 @@ class HomeShell extends StatefulWidget {
 
 enum _Place { library, browse, updates, history }
 
+/// How often a moving place (reading) redraws the home-screen widgets.
+const widgetsPlaceEvery = Duration(seconds: 45);
+
 class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
   Timer? _followTimer;
   Timer? _widgetTimer;
@@ -226,11 +229,31 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
   /// if Android's installer was backed out of.
   String? _offered;
 
+  /// When the widgets were last redrawn from here.
+  DateTime? _widgetsDrawn;
+
   /// The widgets show the library and the streak: redraw them a moment after
-  /// a change (places are saved often while reading).
+  /// a change.
   void _scheduleWidgets() {
     _widgetTimer?.cancel();
-    _widgetTimer = Timer(const Duration(seconds: 3), () => unawaited(const SpeechService().refreshWidgets()));
+    _widgetTimer = Timer(const Duration(seconds: 3), _drawWidgets);
+  }
+
+  /// A place moved: while reading that is about once a sentence, and the
+  /// widget's progress moves by a hair, so at most every
+  /// [widgetsPlaceEvery]. Play, pause and a new book redraw them at once
+  /// from the reading service.
+  void _schedulePlaceWidgets() {
+    if (_widgetTimer?.isActive ?? false) return;
+    final drawn = _widgetsDrawn;
+    final since = drawn == null ? widgetsPlaceEvery : DateTime.now().difference(drawn);
+    final wait = since >= widgetsPlaceEvery ? const Duration(seconds: 3) : widgetsPlaceEvery - since;
+    _widgetTimer = Timer(wait, _drawWidgets);
+  }
+
+  void _drawWidgets() {
+    _widgetsDrawn = DateTime.now();
+    unawaited(const SpeechService().refreshWidgets());
   }
 
   /// A widget was tapped: open its book (and play it), or Stats.
@@ -287,7 +310,7 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
     _store?.changes.removeListener(_scheduleFollow);
     _store?.placeChanges.removeListener(_scheduleFollow);
     _store?.changes.removeListener(_scheduleWidgets);
-    _store?.placeChanges.removeListener(_scheduleWidgets);
+    _store?.placeChanges.removeListener(_schedulePlaceWidgets);
     _store?.placeChanges.removeListener(_scheduleSync);
     super.dispose();
   }
@@ -362,7 +385,7 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
       store.changes.addListener(_scheduleFollow);
       store.placeChanges.addListener(_scheduleFollow);
       store.changes.addListener(_scheduleWidgets);
-      store.placeChanges.addListener(_scheduleWidgets);
+      store.placeChanges.addListener(_schedulePlaceWidgets);
       // A widget may have opened the app.
       unawaited(_fromWidget());
       _widgetEvents = SpeechService.events.where((e) => e['type'] == 'widgetLaunch').listen((_) => _fromWidget());

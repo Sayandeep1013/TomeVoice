@@ -7,7 +7,7 @@ import 'dart:math' as math;
 
 import 'package:archive/archive_io.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart' show AssetBundle, PlatformException, rootBundle;
+import 'package:flutter/services.dart' show AssetBundle, MethodChannel, PlatformException, rootBundle;
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
 import 'keep_alive.dart';
@@ -584,6 +584,28 @@ class NeuralVoices extends ChangeNotifier {
     return _speeds[key] = s;
   }
 
+  /// The model whose speed is being measured ([NeuralVoice.modelId]), if
+  /// any. Kept here, not on the screen: the test after a download runs on
+  /// when the screen is left (Kokoro is offered for reading only once it
+  /// has been measured).
+  String? testing;
+
+  /// Measure [v] on this phone and keep the speed; null if a test is
+  /// already running. Throws what the engine threw.
+  Future<double?> testSpeed(NeuralVoice v) async {
+    if (testing != null) return null;
+    testing = v.modelId;
+    notifyListeners();
+    try {
+      final r = await NeuralEngine.instance.measure(v, Directory.systemTemp.path);
+      await rememberSpeed(v, r);
+      return r;
+    } finally {
+      testing = null;
+      notifyListeners();
+    }
+  }
+
   Future<void> rememberSpeed(NeuralVoice v, double speed) async {
     _speeds[v.modelId] = speed;
     notifyListeners();
@@ -635,12 +657,21 @@ class NeuralVoices extends ChangeNotifier {
     _cancelled.remove(key);
     downloading[key] = 0;
     notifyListeners();
+    final part = File('${dir.path}/$key$_partial');
+    // Room for the archive, the unpacked tar and the voice (about three
+    // times the download at the peak), asked before a byte is fetched.
+    final free = await freeBytes();
+    final came = await part.exists() ? await part.length() : 0;
+    if (free >= 0 && v.bytes > 0 && free < spaceForVoice(v.bytes) - came) {
+      downloading.remove(key);
+      notifyListeners();
+      throw const NoSpaceForVoice();
+    }
     // Made elsewhere: a closure here that held this object would be carried
     // into the unpacking isolate below, which cannot take it.
     final keep = _keepJob(v);
     if (keepVoiceDownloadsAlive) LongJobs.instance.begin(keep);
     var shown = -1;
-    final part = File('${dir.path}/$key$_partial');
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 20);
     _clients[key] = client;
     var keepPart = true;
@@ -651,9 +682,12 @@ class NeuralVoices extends ChangeNotifier {
         final req = await client.getUrl(source ?? Uri.parse(v.url));
         if (have > 0) req.headers.set(HttpHeaders.rangeHeader, 'bytes=$have-');
         final res = await req.close();
-        // The part on the phone is the whole file, or not this one: start over.
         if (res.statusCode == HttpStatus.requestedRangeNotSatisfiable && attempt == 0) {
           await res.drain<void>();
+          // The whole file is here already (the app was stopped while it
+          // unpacked): unpacked now, not fetched again.
+          if (v.bytes > 0 && have == v.bytes) break;
+          // Not this one: start over.
           await part.delete();
           continue;
         }
@@ -686,6 +720,8 @@ class NeuralVoices extends ChangeNotifier {
         if (total > 0 && got != total) throw const HttpException('The download was cut short');
         break;
       }
+      downloading[key] = 0.9;
+      notifyListeners();
       // Unpacking a few hundred files takes a moment: off the screen's isolate.
       // Only plain values go across: a closure that held this object (and
       // so the screens listening to it) cannot be sent to another isolate.
@@ -694,13 +730,20 @@ class NeuralVoices extends ChangeNotifier {
       final model = v.modelFile;
       final shared = v.pack != null;
       // A broken archive is not worth resuming: it starts over next time.
-      keepPart = false;
-      await Isolate.run(() => _unpack(from, into, model, shared: shared));
+      // A phone that filled up while unpacking keeps it, to unpack once
+      // there is room.
+      try {
+        await Isolate.run(() => _unpack(from, into, model, shared: shared));
+      } on Object catch (e) {
+        if (isNoSpace(e)) throw const NoSpaceForVoice();
+        keepPart = false;
+        rethrow;
+      }
       _here = null;
       _speeds.remove(key);
       downloading.remove(key);
       notifyListeners();
-    } on Object {
+    } on Object catch (e) {
       // Called off: whatever the closed connection threw, it is that.
       final cancelled = _cancelled.remove(key);
       if (cancelled) keepPart = false;
@@ -712,6 +755,8 @@ class NeuralVoices extends ChangeNotifier {
       }
       notifyListeners();
       if (cancelled) throw const DownloadCancelled();
+      // The phone filled up: what came is kept, to carry on once there is room.
+      if (e is! NoSpaceForVoice && isNoSpace(e)) throw const NoSpaceForVoice();
       rethrow;
     } finally {
       LongJobs.instance.end(keep.key, job: keep);
@@ -720,6 +765,16 @@ class NeuralVoices extends ChangeNotifier {
       if (!keepPart && await part.exists()) await part.delete();
     }
   }
+
+  /// Bytes free on the phone where voices go; -1 if unknown. Replaced in tests.
+  @visibleForTesting
+  static Future<int> Function() freeBytes = () async {
+    try {
+      return (await const MethodChannel('tomevoice/export').invokeMethod<num>('space'))?.toInt() ?? -1;
+    } on Object {
+      return -1;
+    }
+  };
 
   /// [v]'s download as the keep-alive shows it; its Stop calls it off.
   KeepAliveJob _keepJob(NeuralVoice v) =>
@@ -784,6 +839,23 @@ class NeuralVoices extends ChangeNotifier {
 /// A download called off from the screen.
 class DownloadCancelled implements Exception {
   const DownloadCancelled();
+}
+
+/// The phone has not the room a voice needs, before it is fetched or while
+/// it is unpacked (a fetched archive is kept for then).
+class NoSpaceForVoice implements Exception {
+  const NoSpaceForVoice();
+}
+
+/// About what downloading and unpacking a voice of [bytes] needs free: the
+/// archive, the tar unpacked from it, and the voice's files.
+int spaceForVoice(int bytes) => bytes * 3 + 50 * 1024 * 1024;
+
+/// Whether [e] is the disk being full (ENOSPC).
+bool isNoSpace(Object e) {
+  if (e is FileSystemException && e.osError?.errorCode == 28) return true;
+  final text = e.toString();
+  return text.contains('No space left') || text.contains('ENOSPC');
 }
 
 /// Unpack the archive at [archive] into [into], dropping its top folder.
