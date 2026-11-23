@@ -195,7 +195,7 @@ class _ReaderSkeleton extends StatelessWidget {
     final faint = Skin.inkFaintOn(context).withValues(alpha: 0.18);
     return Scaffold(
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: SafeArea(
           // Two less each way round the back button: its target is 48 dp,
           // its circle 44, and the circle stays where it was.

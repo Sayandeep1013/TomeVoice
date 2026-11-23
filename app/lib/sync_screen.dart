@@ -162,7 +162,7 @@ class _SyncScreenState extends State<SyncScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
         body: DecoratedBox(
-          decoration: BoxDecoration(gradient: Skin.ground(context)),
+          decoration: Skin.groundDecoration(context),
           child: SafeArea(
             bottom: false,
             child: Column(

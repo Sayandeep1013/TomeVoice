@@ -106,7 +106,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
     final idx = _index;
     return Scaffold(
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: SafeArea(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,

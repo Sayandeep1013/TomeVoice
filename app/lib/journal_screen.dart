@@ -160,7 +160,7 @@ class _JournalScreenState extends State<JournalScreen> {
               label: const Text('Write'),
             ),
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: SafeArea(
           bottom: false,
           child: Column(
@@ -394,7 +394,7 @@ class _BookJournalScreenState extends State<BookJournalScreen> {
         label: const Text('Write'),
       ),
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: SafeArea(
           bottom: false,
           child: Column(

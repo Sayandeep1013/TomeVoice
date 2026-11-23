@@ -7,6 +7,7 @@ import 'package:material_color_utilities/material_color_utilities.dart' show Hct
 
 import 'contrast.dart';
 import 'own_fonts.dart' show OwnFonts;
+import 'scene.dart';
 import 'slider_shapes.dart';
 
 /// The visual language, in one place.
@@ -133,6 +134,25 @@ class Skin {
       colors: b == Brightness.dark ? pal.night : pal.day,
       stops: b == Brightness.dark ? const [0.0, 0.30, 0.72, 1.0] : const [0.0, 0.28, 0.72, 1.0],
     );
+  }
+
+  /// The scene where [c] is, when the theme is a scene theme (scene.dart).
+  static Scene? sceneOf(BuildContext c) => paletteOf(c).scene;
+
+  /// What a screen is drawn on: the diagonal wash, or a scene's backdrop.
+  static Decoration groundDecoration(BuildContext c) {
+    final scene = sceneOf(c);
+    final wash = ground(c);
+    return scene == null ? BoxDecoration(gradient: wash) : SceneGround(scene, wash);
+  }
+
+  /// A panel (a settings group, the player, the dock): [plain] in a colour
+  /// theme, the scene's own material in a scene, with [plain]'s corners and
+  /// shadow. [lit] for the player and the dock.
+  static Decoration panel(BuildContext c, BoxDecoration plain, {bool lit = false}) {
+    final scene = sceneOf(c);
+    if (scene == null) return plain;
+    return ScenePanel(scene, radius: plain.borderRadius?.resolve(TextDirection.ltr), shadow: plain.boxShadow, lit: lit);
   }
 
   /// The colour at the foot of the ground: the navigation bar sits on it, so
@@ -587,6 +607,7 @@ class Palette {
     this.nightInkFaint = Skin.nightInkFaint,
     this.dayDanger = Skin.danger,
     this.nightDanger = Skin.nightDanger,
+    this.scene,
   });
 
   final String id;
@@ -631,6 +652,10 @@ class Palette {
   /// The warning red by day and by night.
   final Color dayDanger;
   final Color nightDanger;
+
+  /// A scene theme's place (scene.dart): its art behind every screen, its
+  /// frames and panels. Null for a colour theme.
+  final Scene? scene;
 
   Color inkFor(Brightness b) => b == Brightness.dark ? nightInk : dayInk;
   Color inkSoftFor(Brightness b) => b == Brightness.dark ? nightInkSoft : dayInkSoft;
@@ -847,7 +872,56 @@ class Palette {
     'maple': 'Autumn leaves and cinnamon',
   };
 
-  static final all = [forest, lavender, ocean, black, paper, ...designer];
+  /// Scene themes: a place drawn behind every screen (scene.dart), each
+  /// dark only, its type fitted by [readable] like the rest.
+  static final dungeon = readable(const Palette(
+    id: 'scene-dungeon',
+    label: 'Dungeon',
+    day: [Color(0xFF130E0B), Color(0xFF17110D), Color(0xFF140E0A), Color(0xFF0C0806)],
+    night: [Color(0xFF130E0B), Color(0xFF17110D), Color(0xFF140E0A), Color(0xFF0C0806)],
+    accent: Color(0xFFE8782A),
+    accentSoft: Color(0xFFF29A55),
+    accentDeep: Color(0xFFA04A12),
+    onAccent: Color(0xFF1A0E06),
+    nightCapsule: Color(0xF2221A15),
+    nightSheet: Color(0xFF100B08),
+    only: Brightness.dark,
+    scene: Scene.dungeon,
+  ));
+
+  static final forestScene = readable(const Palette(
+    id: 'scene-forest',
+    label: 'Enchanted forest',
+    day: [Color(0xFF0C2216), Color(0xFF0A1B11), Color(0xFF08160E), Color(0xFF050D08)],
+    night: [Color(0xFF0C2216), Color(0xFF0A1B11), Color(0xFF08160E), Color(0xFF050D08)],
+    accent: Color(0xFFC9D65A),
+    accentSoft: Color(0xFFDCE68A),
+    accentDeep: Color(0xFF6E7A1E),
+    onAccent: Color(0xFF10160A),
+    nightCapsule: Color(0xF2142A1B),
+    nightSheet: Color(0xFF07120B),
+    only: Brightness.dark,
+    scene: Scene.forest,
+  ));
+
+  static final starship = readable(const Palette(
+    id: 'scene-starship',
+    label: 'Starship',
+    day: [Color(0xFF07101E), Color(0xFF060D19), Color(0xFF050B16), Color(0xFF03060D)],
+    night: [Color(0xFF07101E), Color(0xFF060D19), Color(0xFF050B16), Color(0xFF03060D)],
+    accent: Color(0xFF3FD8E8),
+    accentSoft: Color(0xFF7FE8F2),
+    accentDeep: Color(0xFF137A86),
+    onAccent: Color(0xFF031216),
+    nightCapsule: Color(0xF20C1828),
+    nightSheet: Color(0xFF040912),
+    only: Brightness.dark,
+    scene: Scene.starship,
+  ));
+
+  static final scenes = [dungeon, forestScene, starship];
+
+  static final all = [forest, lavender, ocean, black, paper, ...designer, ...scenes];
 
   static Palette byId(String? id) => all.where((p) => p.id == id).firstOrNull ?? forest;
 
@@ -920,6 +994,7 @@ class Palette {
         nightInkFaint: nightInkFaint ?? this.nightInkFaint,
         dayDanger: dayDanger ?? this.dayDanger,
         nightDanger: nightDanger ?? this.nightDanger,
+        scene: scene,
       );
 
   /// The brightness this palette is shown in, given the reader's choice.
@@ -1059,7 +1134,7 @@ class CalmPageTransitionsBuilder extends PageTransitionsBuilder {
       // While this screen has faded for one above it, the ground shows
       // instead of black.
       child: DecoratedBox(
-        decoration: below.value < 1 ? BoxDecoration(gradient: Skin.ground(context)) : const BoxDecoration(),
+        decoration: below.value < 1 ? Skin.groundDecoration(context) : const BoxDecoration(),
         child: FadeTransition(
           opacity: below,
           child: FadeTransition(

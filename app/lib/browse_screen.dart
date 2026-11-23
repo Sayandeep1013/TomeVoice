@@ -182,7 +182,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
   Widget build(BuildContext context) {
     final searching = _query.isNotEmpty;
     return DecoratedBox(
-      decoration: BoxDecoration(gradient: Skin.ground(context)),
+      decoration: Skin.groundDecoration(context),
       child: SafeArea(
         bottom: false,
         child: Column(
@@ -650,7 +650,7 @@ class _SourceScreenState extends State<SourceScreen> {
     final landscape = MediaQuery.orientationOf(context) == Orientation.landscape;
     return Scaffold(
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: SafeArea(
           bottom: false,
           child: Column(

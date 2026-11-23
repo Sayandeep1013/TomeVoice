@@ -329,7 +329,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final guard = books?.values.where((b) => b.line != null).toList() ?? const [];
     return Scaffold(
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: SafeArea(
           bottom: false,
           child: Column(

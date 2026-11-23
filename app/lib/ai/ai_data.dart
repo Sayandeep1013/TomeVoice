@@ -140,7 +140,7 @@ class AiLogScreen extends StatelessWidget {
     final bottom = MediaQuery.viewPaddingOf(context).bottom;
     return Scaffold(
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: SafeArea(
           bottom: false,
           child: ListenableBuilder(

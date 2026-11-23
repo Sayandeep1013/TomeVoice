@@ -222,7 +222,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
     Widget arrive(Widget child) => Entrance(index: row++, since: _loadedAt, child: child);
     return Scaffold(
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: SafeArea(
           bottom: false,
           child: Column(

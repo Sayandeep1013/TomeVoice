@@ -598,7 +598,7 @@ class BookMemoryScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
         body: DecoratedBox(
-          decoration: BoxDecoration(gradient: Skin.ground(context)),
+          decoration: Skin.groundDecoration(context),
           child: SafeArea(
             bottom: false,
             child: Column(
@@ -804,7 +804,7 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
     ];
     return Scaffold(
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: SafeArea(
           bottom: false,
           child: Column(

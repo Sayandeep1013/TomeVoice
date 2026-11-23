@@ -163,10 +163,14 @@ class ReaderPlayerBar extends StatelessWidget {
       margin: const EdgeInsets.fromLTRB(Gap.m, 0, Gap.m, Gap.s),
       // The top's room is the handle's (see below).
       padding: const EdgeInsets.fromLTRB(Gap.s, 0, Gap.s, Gap.xs),
-      decoration: BoxDecoration(
-        color: Color.lerp(Skin.darkOn(context), Skin.accentOf(context), 0.16),
-        borderRadius: BorderRadius.circular(Radii.card + 4),
-        boxShadow: Skin.lift(context),
+      decoration: Skin.panel(
+        context,
+        BoxDecoration(
+          color: Color.lerp(Skin.darkOn(context), Skin.accentOf(context), 0.16),
+          borderRadius: BorderRadius.circular(Radii.card + 4),
+          boxShadow: Skin.lift(context),
+        ),
+        lit: true,
       ),
       child: ValueListenableBuilder<int>(
         valueListenable: cursor,
@@ -330,10 +334,15 @@ class ReaderPlayerBar extends StatelessWidget {
       // The top's room is the handle's: part of what a tap opens Now
       // Playing from (see _opener).
       padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
-      decoration: BoxDecoration(
-        color: Skin.darkOn(context),
-        borderRadius: BorderRadius.circular(Radii.card + 4),
-        boxShadow: Skin.lift(context),
+      // In a scene theme, a piece of its stone, wood or hull of its own.
+      decoration: Skin.panel(
+        context,
+        BoxDecoration(
+          color: Skin.darkOn(context),
+          borderRadius: BorderRadius.circular(Radii.card + 4),
+          boxShadow: Skin.lift(context),
+        ),
+        lit: true,
       ),
       child: ListenableBuilder(
         listenable: Listenable.merge([cursor, looking, viewChapter]),

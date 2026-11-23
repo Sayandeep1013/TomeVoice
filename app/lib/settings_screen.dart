@@ -28,6 +28,7 @@ import 'prefs.dart';
 import 'problem_report.dart';
 import 'relayout.dart';
 import 'rules_screen.dart';
+import 'scene.dart';
 import 'sources/source_engine.dart';
 import 'secret_shelf.dart';
 import 'sources_screen.dart';
@@ -329,7 +330,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   Widget _body(BuildContext context, LibraryIndex? idx, SpeechPreset? active) {
     return Scaffold(
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: SafeArea(
           bottom: false,
           child: Column(
@@ -783,7 +784,7 @@ class _PaletteSwatches extends StatelessWidget {
     final dark = Skin.isDark(context);
     final themes = [
       for (final p in Palette.all)
-        if (!Palette.designer.contains(p)) (p, p.id, p.label),
+        if (!Palette.designer.contains(p) && p.scene == null) (p, p.id, p.label),
       if (wallpaper != null) (wallpaper!, 'wallpaper', 'Wallpaper'),
       (own, 'own', 'Your own'),
     ];
@@ -902,7 +903,7 @@ class _DesignerRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = Skin.isDark(context);
-    final on = Palette.designer.where((p) => p.id == selected).firstOrNull;
+    final on = [...Palette.scenes, ...Palette.designer].where((p) => p.id == selected).firstOrNull;
     return Semantics(
       button: true,
       label: on == null ? 'Designer themes' : 'Designer themes, ${on.label} is on',
@@ -932,8 +933,8 @@ class _DesignerRow extends StatelessWidget {
                           const SizedBox(height: 2),
                           Text(
                             on == null
-                                ? '${Palette.designer.length} more, each a reading place or a material. '
-                                    'Tap to see them.'
+                                ? '${Palette.scenes.length} scenes (a dungeon, a forest, a starship) and '
+                                    '${Palette.designer.length} more colours. Tap to see them.'
                                 : '${on.label} is on. Tap to see the others.',
                             style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
                           ),
@@ -944,6 +945,19 @@ class _DesignerRow extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: Gap.m),
+                // The scenes, each a glimpse of its place.
+                Padding(
+                  padding: const EdgeInsets.only(right: Gap.s),
+                  child: Row(
+                    children: [
+                      for (final (i, p) in Palette.scenes.indexed) ...[
+                        if (i > 0) const SizedBox(width: Gap.xs),
+                        Expanded(child: _sceneChip(context, p, p.id == selected)),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: Gap.xs),
                 Padding(
                   padding: const EdgeInsets.only(right: Gap.s),
                   child: Row(
@@ -962,6 +976,17 @@ class _DesignerRow extends StatelessWidget {
       ),
     );
   }
+
+  /// A scene's backdrop, small.
+  Widget _sceneChip(BuildContext context, Palette p, bool on) => Container(
+        height: 40,
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(Radii.chip / 1.5),
+          border: Border.all(color: on ? p.accent : Skin.outlineOn(context), width: on ? 2 : 1),
+        ),
+        child: ScenePreview(p.scene!),
+      );
 
   /// One theme's ground with its accent, small.
   Widget _chip(BuildContext context, Palette p, bool dark, bool on) {
@@ -1010,6 +1035,31 @@ class _DesignerSheet extends StatelessWidget {
               padding: EdgeInsets.fromLTRB(
                   Gap.l, 0, Gap.l, Gap.xl + MediaQuery.viewPaddingOf(context).bottom),
               children: [
+                // Scenes first: a place drawn behind every screen.
+                const Padding(
+                  padding: EdgeInsets.only(left: Gap.xs, bottom: Gap.s),
+                  child: Eyebrow('Scenes'),
+                ),
+                for (var row = 0; row * 2 < Palette.scenes.length; row++) ...[
+                  if (row > 0) const SizedBox(height: Gap.l),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (var i = 0; i < 2; i++) ...[
+                        if (i > 0) const SizedBox(width: Gap.m),
+                        Expanded(
+                          child: row * 2 + i < Palette.scenes.length
+                              ? _scenePreview(context, Palette.scenes[row * 2 + i])
+                              : const SizedBox.shrink(),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(Gap.xs, Gap.xl, 0, Gap.s),
+                  child: Eyebrow('Colours'),
+                ),
                 for (var row = 0; row * 2 < themes.length; row++) ...[
                   if (row > 0) const SizedBox(height: Gap.l),
                   Row(
@@ -1030,6 +1080,109 @@ class _DesignerSheet extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// A scene as it would look: a glimpse of its backdrop, a cover in its
+  /// frame and the player on its panel; its name and what it is made of.
+  Widget _scenePreview(BuildContext context, Palette p) {
+    final scene = p.scene!;
+    final on = p.id == selected;
+    return Semantics(
+      button: true,
+      selected: on,
+      label: '${p.label} scene',
+      excludeSemantics: true,
+      child: GestureDetector(
+        onTap: () => Navigator.of(context).pop(p.id),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              height: 190,
+              clipBehavior: Clip.antiAlias,
+              foregroundDecoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(Radii.row),
+                border: Border.all(color: on ? p.accent : Skin.outlineOn(context), width: on ? 2.5 : 1),
+              ),
+              decoration: BoxDecoration(borderRadius: BorderRadius.circular(Radii.row), color: p.night.last),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  ScenePreview(scene),
+                  // A book in the scene's frame.
+                  Positioned(
+                    left: Gap.m,
+                    top: Gap.xl,
+                    width: 44,
+                    height: 66,
+                    child: CustomPaint(
+                      foregroundPainter: CoverFramePainter(scene, 4),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(4),
+                          gradient: const LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Color(0xFF2A4232), Color(0xFF0A120D)],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // The player, on its panel.
+                  Positioned(
+                    left: Gap.s,
+                    right: Gap.s,
+                    bottom: Gap.s,
+                    height: 34,
+                    child: DecoratedBox(
+                      decoration: ScenePanel(scene, radius: BorderRadius.circular(17), lit: true),
+                      child: Row(
+                        children: [
+                          const SizedBox(width: Gap.m),
+                          Expanded(
+                            child: FractionallySizedBox(
+                              alignment: Alignment.centerLeft,
+                              widthFactor: 0.7,
+                              child: Container(
+                                height: 4,
+                                decoration: BoxDecoration(
+                                  color: p.nightInk.withValues(alpha: 0.6),
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
+                            ),
+                          ),
+                          Container(
+                            width: 22,
+                            height: 22,
+                            decoration: BoxDecoration(color: p.accent, shape: BoxShape.circle),
+                            child: Icon(on ? Icons.check_rounded : Icons.play_arrow_rounded, size: 15, color: p.onAccent),
+                          ),
+                          const SizedBox(width: Gap.s),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: Gap.s),
+            Text(
+              p.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Skin.ui(size: 14.5, weight: on ? FontWeight.w700 : FontWeight.w600, color: Skin.inkOn(context)),
+            ),
+            Text(
+              on ? 'On now · always dark' : '${scene.note} · always dark',
+              maxLines: 2,
+              style: Skin.ui(size: 12.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1206,10 +1359,14 @@ class _Group extends StatelessWidget {
             ),
             Container(
               padding: const EdgeInsets.all(Gap.l + 2),
-              decoration: BoxDecoration(
-                color: Skin.capsuleOn(context),
-                borderRadius: BorderRadius.circular(Radii.card),
-                border: Border.all(color: Skin.outlineOn(context)),
+              // A scene theme's stone tablet, wood or hull plate.
+              decoration: Skin.panel(
+                context,
+                BoxDecoration(
+                  color: Skin.capsuleOn(context),
+                  borderRadius: BorderRadius.circular(Radii.card),
+                  border: Border.all(color: Skin.outlineOn(context)),
+                ),
               ),
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: children),
             ),
@@ -1424,7 +1581,7 @@ class _AboutScreenState extends State<AboutScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
         body: DecoratedBox(
-          decoration: BoxDecoration(gradient: Skin.ground(context)),
+          decoration: Skin.groundDecoration(context),
           child: SafeArea(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
