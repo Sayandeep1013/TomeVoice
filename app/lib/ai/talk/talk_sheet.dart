@@ -217,9 +217,13 @@ class _TalkSheetState extends State<TalkSheet> {
         .replaceAll(RegExp(r'[ \t]{2,}'), ' ')
         .replaceAllMapped(RegExp(r'\s+([.,;:!?])'), (m) => m.group(1)!)
         .trim();
+    // An answer cut short (Talk closed while it came) is not kept as if it
+    // were whole; nor is the question it was to.
+    bool unfinished(int i) => i < _turns.length && !_turns[i].mine && !_turns[i].done;
     final lines = [
-      for (final t in _turns)
-        if (t.text.trim().isNotEmpty && t.error == null && !t.hidden) TalkLine(mine: t.mine, text: t.mine ? t.text.trim() : kept(t)),
+      for (final (i, t) in _turns.indexed)
+        if (t.text.trim().isNotEmpty && t.error == null && !t.hidden && !unfinished(t.mine ? i + 1 : i))
+          TalkLine(mine: t.mine, text: t.mine ? t.text.trim() : kept(t)),
     ];
     if (!lines.any((l) => !l.mine)) return;
     await _journal.put(JournalEntry(
@@ -287,6 +291,8 @@ class _TalkSheetState extends State<TalkSheet> {
         passage: widget.passage(),
         journal: (ListeningPrefs.loaded?.aiUseJournal ?? true) ? journalFor(q, _journalLines(line)) : const [],
         theory: theory,
+        // Closed while it answers: the reply is let go, not paid to the end.
+        stopped: () => !mounted,
         onText: (piece) {
           if (!mounted) return;
           setState(() {
@@ -309,7 +315,10 @@ class _TalkSheetState extends State<TalkSheet> {
       if (_prefs.aiSpeak && !answer.held) _say(a.text);
     } on AiResting catch (e) {
       if (!mounted) return;
-      setState(() => answer.error = e.until != null
+      setState(() => answer.error = e.until != null && e.unreachable
+          ? 'The AI ${e.last!.slow ? 'took too long to answer' : 'could not be reached'}. Is the phone online? '
+              'Ask again in a moment.'
+          : e.until != null
           ? 'Every key has used its quota for now. Ask again at ${wakeTime(e.until!)}.'
           : e.last == null
               ? 'No key can talk yet: give one a model for Talking, in AI settings.'

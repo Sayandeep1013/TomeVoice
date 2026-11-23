@@ -882,5 +882,79 @@ void main() {
       expect(s.until!.difference(DateTime.now()).inMinutes, closeTo(60, 2));
       expect(s.noted, 0);
     });
+
+    test('built with its first key only, unless the reader lets the next take over', () async {
+      final path = await book(2);
+      await AiRing.instance.put(AiKey(
+        id: 'paid',
+        provider: AiProvider.inception,
+        label: 'Paid',
+        baseUrl: 'http://127.0.0.1:${server.port}/v1',
+        secret: 'p',
+        models: const {AiJob.builder: 'mercury-3'},
+      ));
+      final keys = <String>[];
+      answer = (req, body) async {
+        final k = req.headers.value('authorization') ?? '';
+        keys.add(k);
+        if (k == 'Bearer s') {
+          req.response.statusCode = 429;
+          req.response.headers.set('retry-after', '600');
+          req.response.write('{"error":{"message":"quota"}}');
+          await req.response.close();
+          return;
+        }
+        await reply(req, 200, chat(notesFor(body)));
+      };
+      final b = MemoryBuilder(path: path, router: AiRouter(pause: Duration.zero), limits: (tokens: 40000, chapters: 8));
+      final s = await b.run();
+      expect(s.phase, BuildPhase.resting);
+      expect(s.error, 'has reached its limit for now');
+      expect(keys, ['Bearer s'], reason: 'the paid key was never sent anything');
+      // "Let the next key take over" (or "Go on with Paid").
+      final m = MemoryDb.open(path)..setMeta(buildKeysMeta, 'only:paid');
+      m.close();
+      expect((await b.run()).phase, BuildPhase.done);
+      expect(keys.last, 'Bearer p');
+    });
+
+    test('a reply with the first chapters only: those kept, the rest asked again, not all of it', () async {
+      final path = await book(4);
+      var calls = 0;
+      answer = (req, body) {
+        calls++;
+        if (calls == 1) {
+          // Notes for chapters 0 and 1 of the four sent; 2 and 3 missing.
+          final all = jsonDecode(notesFor(body)) as Map;
+          return reply(req, 200, chat(jsonEncode({'chapters': (all['chapters'] as List).take(2).toList()})));
+        }
+        return reply(req, 200, chat(notesFor(body)));
+      };
+      final b = MemoryBuilder(path: path, router: AiRouter(pause: Duration.zero), limits: (tokens: 40000, chapters: 8));
+      final s = await b.run();
+      expect((s.phase, s.noted), (BuildPhase.done, 4));
+      expect(sent.length, 2, reason: 'one call for the two that did not come');
+      final second = ((sent[1]['messages'] as List).last as Map)['content'] as String;
+      expect(second, isNot(contains('### ch: 0')));
+      expect(second, contains('### ch: 2'));
+    });
+
+    test('a theory is held up to the story once a span, not after every batch', () async {
+      final path = await book(30);
+      addTheory(path, 'Mira is walking home.', 0);
+      answer = (req, body) {
+        final system = ((body['messages'] as List).first as Map)['content'] as String;
+        final prompt = ((body['messages'] as List).last as Map)['content'] as String;
+        if (system.contains('story so far')) return reply(req, 200, chat('Mira walks on.'));
+        if (prompt.contains('stated these theories')) return reply(req, 200, chat('{"verdicts": []}'));
+        return reply(req, 200, chat(notesFor(body)));
+      };
+      final b = MemoryBuilder(path: path, router: AiRouter(pause: Duration.zero), limits: (tokens: 400000, chapters: 2));
+      expect((await b.run()).phase, BuildPhase.done);
+      final checks = sent.where((b) => (((b['messages'] as List).last as Map)['content'] as String).contains('stated these theories'));
+      // 15 batches; one check with the first 25 chapters' account. The 5
+      // after are too few to be worth a call of their own.
+      expect(checks.length, 1);
+    });
   });
 }

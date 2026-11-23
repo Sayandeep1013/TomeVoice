@@ -219,6 +219,24 @@ class _BookMemorySectionState extends State<BookMemorySection> {
     if (sure) await _service.forget(widget.bookId);
   }
 
+  /// The key the reader may go on with while the one key the build keeps
+  /// to is resting (or turned it down): the next of the Building list that
+  /// can take it now. Null when the build may use any key, or none can.
+  AiKey? _nextKey(BookMemoryState s) {
+    final phase = s.build.phase;
+    if (phase != BuildPhase.resting && phase != BuildPhase.failed) return null;
+    final order = AiRing.instance.forJob(AiJob.builder);
+    final kept = keptKey(s.buildKeys, order);
+    if (kept == null) return null;
+    final now = DateTime.now();
+    final after = order.indexWhere((k) => k.id == kept.id);
+    for (final k in [...order.skip(after + 1), ...order.take(math.max(0, after))]) {
+      final st = AiRing.instance.stateOf(k.id);
+      if (st.refused == null && !st.restingAt(now)) return k;
+    }
+    return null;
+  }
+
   String _line(BookMemoryState s) {
     final b = s.build;
     final ix = s.indexing;
@@ -227,7 +245,11 @@ class _BookMemorySectionState extends State<BookMemorySection> {
       case BuildPhase.running:
         return 'Building · ${s.noted} of ${s.indexed} chapters';
       case BuildPhase.resting:
-        return 'Waiting: every key has used its quota for now. Goes on at ${wakeTime(b.until!)}.';
+        final kept = keptKey(s.buildKeys, AiRing.instance.forJob(AiJob.builder));
+        final at = wakeTime(b.until!);
+        if (kept == null) return 'Waiting: every key has used its quota for now. Goes on at $at.';
+        return 'Waiting: ${kept.label} ${b.error ?? 'has reached its limit for now'}. It goes on by itself at $at, '
+            'with ${kept.label} only.';
       case BuildPhase.failed:
         return 'Stopped: ${b.error ?? 'no key could build it'}';
       case BuildPhase.paused:
@@ -414,8 +436,18 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                         icon: const Icon(Icons.auto_awesome_rounded, size: 18),
                         label: Text(s.noted == 0 ? 'Build memory' : 'Go on building'),
                       ),
+                    if (_nextKey(s) case final next?)
+                      FilledButton.tonal(
+                        onPressed: () => unawaited(_service.goOnWith(widget.bookId, next)),
+                        child: Text('Go on with ${next.label}'),
+                      ),
                   ],
                 ),
+                if (_nextKey(s) case final next?)
+                  Padding(
+                    padding: const EdgeInsets.only(top: Gap.xs),
+                    child: Text('${next.label} then builds it, and only ${next.label}.', style: Skin.meta(context)),
+                  ),
               ],
               if (s.skipped > 0)
                 Padding(

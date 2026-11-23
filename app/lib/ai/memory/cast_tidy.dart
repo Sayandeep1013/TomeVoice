@@ -164,8 +164,9 @@ void markCastTidied(String path) {
 
 /// The cast tidied by the AI, in one call: how many changes it made.
 /// Throws [AiResting] when no key can take it; a reply not understood
-/// changes nothing (and is not asked again until more is noted).
-Future<int> tidyCast(String path, AiRouter router) async {
+/// changes nothing (and is not asked again until more is noted). [only]:
+/// the keys the book's build keeps to.
+Future<int> tidyCast(String path, AiRouter router, {Set<String>? only}) async {
   final brief = await Isolate.run(() => castBrief(path));
   if (brief.ids.length < 2) {
     // Nothing to join: marked done, or the builder would find it due again
@@ -176,7 +177,7 @@ Future<int> tidyCast(String path, AiRouter router) async {
   final reply = await router.chat(AiJob.builder, [
     aiMessage('system', castTidyInstructions),
     aiMessage('user', brief.text),
-  ], json: true, temperature: 0.1);
+  ], json: true, temperature: 0.1, only: only);
   final Map<String, Object?> json;
   try {
     json = jsonObjectIn(reply.text);

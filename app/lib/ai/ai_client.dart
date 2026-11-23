@@ -48,10 +48,16 @@ enum AiFailure {
 }
 
 class AiError implements Exception {
-  const AiError(this.kind, this.message, {this.retryAfter, this.status});
+  const AiError(this.kind, this.message, {this.retryAfter, this.status, this.slow = false});
 
   final AiFailure kind;
   final String message;
+
+  /// Given up on as too slow (no answer, or the answer stopped coming, for
+  /// [AiClient.timeout]): the provider may well have done the work, and
+  /// sending the same long prompt again, or to another key, pays for it
+  /// twice. A smaller request is the cure.
+  final bool slow;
 
   /// How long the key should rest, when the provider said or it can be told
   /// (a quota reset at the day's end).
@@ -161,6 +167,7 @@ class AiClient {
     int? maxTokens,
     double? temperature,
     void Function(String piece)? onText,
+    bool Function()? stopped,
   }) async {
     final body = <String, Object?>{
       'model': to.model,
@@ -182,7 +189,7 @@ class AiClient {
       }
       return parseChatReply(v, sent: messages);
     }
-    return _stream(res, messages, onText);
+    return _stream(res, messages, onText, stopped);
   }
 
   /// The models a key may use, by id, as the provider lists them.
@@ -232,7 +239,7 @@ class AiClient {
     } on TimeoutException {
       // Given up on: the connection is closed, not left to run on.
       req?.abort();
-      throw const AiError(AiFailure.server, 'The provider took too long to answer');
+      throw const AiError(AiFailure.server, 'The provider took too long to answer', slow: true);
     } on SocketException catch (e) {
       throw AiError(AiFailure.network, e.message);
     } on HandshakeException catch (e) {
@@ -250,7 +257,7 @@ class AiClient {
     try {
       return await res.transform(utf8.decoder).join().timeout(timeout);
     } on TimeoutException {
-      throw const AiError(AiFailure.server, 'The answer stopped coming');
+      throw const AiError(AiFailure.server, 'The answer stopped coming', slow: true);
     } on SocketException catch (e) {
       throw AiError(AiFailure.network, e.message);
     } on HandshakeException catch (e) {
@@ -262,13 +269,18 @@ class AiClient {
     }
   }
 
-  Future<AiReply> _stream(HttpClientResponse res, List<Map<String, Object?>> sent, void Function(String) onText) async {
+  /// A streamed reply read as it comes. [stopped] true (the reader pressed
+  /// Stop, or closed Talk): the connection is let go at once, so the
+  /// provider stops writing, and stops billing, the rest.
+  Future<AiReply> _stream(HttpClientResponse res, List<Map<String, Object?>> sent, void Function(String) onText,
+      bool Function()? stopped) async {
     final text = StringBuffer();
     final calls = <int, ({String id, String name, StringBuffer args})>{};
     String? finish;
     AiUsage? usage;
     try {
       await for (final line in res.transform(utf8.decoder).transform(const LineSplitter()).timeout(timeout)) {
+        if (stopped != null && stopped()) break;
         if (!line.startsWith('data:')) continue;
         final data = line.substring(5).trim();
         if (data == '[DONE]') break;
@@ -309,7 +321,7 @@ class AiClient {
         }
       }
     } on TimeoutException {
-      throw const AiError(AiFailure.server, 'The answer stopped coming');
+      throw const AiError(AiFailure.server, 'The answer stopped coming', slow: true);
     } on SocketException catch (e) {
       throw AiError(AiFailure.network, e.message);
     } on HandshakeException catch (e) {

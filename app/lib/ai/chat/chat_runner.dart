@@ -45,7 +45,10 @@ class ChatRunner {
     try {
       await engine.answer(p, onChange: _bump);
     } on AiResting catch (e) {
-      reply.error = e.until != null
+      reply.error = e.until != null && e.unreachable
+          ? 'The AI ${e.last!.slow ? 'took too long to answer' : 'could not be reached'}. Is the phone online? '
+              'Ask again in a moment.'
+          : e.until != null
           ? 'Every key has used its quota for now. Ask again at ${wakeTime(e.until!)}.'
           : e.last == null
               ? 'No key can talk yet: give one a model for Talking, in AI settings.'

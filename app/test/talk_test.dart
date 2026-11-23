@@ -133,6 +133,30 @@ void main() {
       expect(items.where((i) => i.section == 'Latest chapters').map((i) => i.place!.chapter), [0, 1]);
     });
 
+    test('the story so far: the 250-chapter accounts, then only the 25-chapter ones they do not cover yet', () {
+      final path = _memory(tmp);
+      final m = MemoryDb.open(path);
+      void arc(int level, int from, int to, String s) =>
+          m.db.execute('INSERT INTO arcs(level, from_ch, to_ch, summary) VALUES (?, ?, ?, ?)', [level, from, to, s]);
+      arc(3, -1, -1, 'Book one.');
+      for (var from = 0; from < 275; from += 25) {
+        arc(1, from, from + 24, 'Arc $from.');
+      }
+      arc(2, 0, 249, 'The first 250.');
+      final at300 = [for (final r in storySoFar(m, 300)) '${r['summary']}'];
+      expect(at300, ['Book one.', 'The first 250.', 'Arc 250.']);
+      // Before the second level is made, the first level carries it.
+      expect([for (final r in storySoFar(m, 60)) '${r['summary']}'], ['Book one.', 'Arc 0.', 'Arc 25.']);
+      // Over the limit: the latest kept.
+      expect([for (final r in storySoFar(m, 300, maxChars: 20)) '${r['summary']}'], ['Book one.', 'Arc 250.']);
+      m.close();
+      final pack = buildPack(PackInput(path: path, question: 'What happened?', here: 300))
+          .where((i) => i.section == 'The story so far')
+          .map((i) => i.text);
+      expect(pack.where((t) => t.contains('Arc 0.')), isEmpty);
+      expect(pack.where((t) => t.contains('The first 250.')).length, 1);
+    });
+
     test('with the guard off, all it remembers: awakened, and the Weaver answered', () {
       final path = _memory(tmp);
       final text = buildPack(PackInput(path: path, question: 'Who is Sunny and what is the Weaver?', here: 4))
