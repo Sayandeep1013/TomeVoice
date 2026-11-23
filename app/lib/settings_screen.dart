@@ -428,7 +428,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                   key: _list,
                   // While finding, every row is kept built, so its words can
                   // be read and it can be scrolled to.
-                  cacheExtent: _find.trim().isEmpty ? null : 100000,
+                  scrollCacheExtent: _find.trim().isEmpty ? null : const ScrollCacheExtent.pixels(100000),
                   // Closer to the screen's edges than other pages: the
                   // cards line up with the back button and the rows inside
                   // them get the room.
