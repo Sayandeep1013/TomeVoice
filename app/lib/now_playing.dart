@@ -165,7 +165,17 @@ class NowPlayingScreen extends StatelessWidget {
 
   Widget _art(BuildContext context) => Padding(
         padding: const EdgeInsets.all(Gap.l),
-        child: AspectRatio(
+        // Reading, the cover stands full size; paused, it sinks back a
+        // little; each change on a spring.
+        child: ValueListenableBuilder<PlayState>(
+          valueListenable: player.state,
+          builder: (context, state, child) => AnimatedScale(
+            scale: state == PlayState.paused || state == PlayState.idle ? 0.92 : 1,
+            duration: Motion.of(context, const Duration(milliseconds: 620)),
+            curve: Motion.arrive,
+            child: child,
+          ),
+          child: RepaintBoundary(child: AspectRatio(
           aspectRatio: 2 / 3,
           child: DecoratedBox(
             decoration: BoxDecoration(
@@ -187,6 +197,8 @@ class NowPlayingScreen extends StatelessWidget {
             ),
           ),
         ),
+        ),
+      ),
       );
 
   /// In a scene theme, the words and controls on a piece of its stone,

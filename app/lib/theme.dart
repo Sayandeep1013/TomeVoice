@@ -6,6 +6,7 @@ import 'package:flutter/services.dart' show PredictiveBackEvent;
 import 'package:material_color_utilities/material_color_utilities.dart' show Hct;
 
 import 'contrast.dart';
+import 'motion.dart';
 import 'own_fonts.dart' show OwnFonts;
 import 'scene.dart';
 import 'slider_shapes.dart';
@@ -216,15 +217,16 @@ class Skin {
 
   /// A screen's or a sheet's own name ("Library", "Settings"), and the
   /// wordmark: [title], but in a scene its place's lettering (a gothic
-  /// hand in the dungeon, an uncial in the forest, a ship's display face).
+  /// hand in the dungeon, an uncial in the forest, carved capitals by the sun).
   /// Never a book's words.
   static TextStyle heading(BuildContext c, {double size = 26, Color? color, FontWeight? weight}) {
     final scene = sceneOf(c);
     if (scene == null) return title(c, size: size, color: color, weight: weight);
     final (family, scale, track, w) = switch (scene) {
-      Scene.dungeon => ('PirataOne', 1.12, 0.01, FontWeight.w400),
       Scene.forest => ('UncialAntiqua', 0.92, 0.0, FontWeight.w400),
-      Scene.starship => ('Orbitron', 0.8, 0.06, FontWeight.w600),
+      Scene.silverWitch => ('Almendra', 1.0, 0.01, FontWeight.w400),
+      Scene.solar => ('Cinzel', 0.9, 0.05, FontWeight.w400),
+      Scene.dungeon => ('PirataOne', 1.12, 0.01, FontWeight.w400),
     };
     final s = size * scale;
     return TextStyle(
@@ -237,7 +239,9 @@ class Skin {
       color: color ?? inkOn(c),
       shadows: [
         // The place's light on the letters.
-        Shadow(color: accentOf(c).withValues(alpha: scene == Scene.starship ? 0.55 : 0.35), blurRadius: scene == Scene.starship ? 10 : 14),
+        Shadow(
+            color: accentOf(c).withValues(alpha: scene.kin == Scene.solar ? 0.55 : 0.35),
+            blurRadius: scene.kin == Scene.solar ? 10 : 14),
       ],
     );
   }
@@ -933,26 +937,54 @@ class Palette {
     scene: Scene.forest,
   ));
 
-  static final starship = readable(const Palette(
-    id: 'scene-starship',
-    label: 'Starship',
-    day: [Color(0xFF07101E), Color(0xFF060D19), Color(0xFF050B16), Color(0xFF03060D)],
-    night: [Color(0xFF07101E), Color(0xFF060D19), Color(0xFF050B16), Color(0xFF03060D)],
-    accent: Color(0xFF3FD8E8),
-    accentSoft: Color(0xFF7FE8F2),
-    accentDeep: Color(0xFF137A86),
-    onAccent: Color(0xFF031216),
-    nightCapsule: Color(0xF20C1828),
-    nightSheet: Color(0xFF040912),
+  static final silverWitch = readable(const Palette(
+    id: 'scene-silver-witch',
+    label: 'Silver witch',
+    day: [Color(0xFF0C1220), Color(0xFF0A0F1B), Color(0xFF080C16), Color(0xFF04070D)],
+    night: [Color(0xFF0C1220), Color(0xFF0A0F1B), Color(0xFF080C16), Color(0xFF04070D)],
+    // Moonlit silver.
+    accent: Color(0xFFB8C8E8),
+    accentSoft: Color(0xFFD6E0F4),
+    accentDeep: Color(0xFF5A6E96),
+    onAccent: Color(0xFF0A0F1B),
+    nightCapsule: Color(0xF2161E30),
+    nightSheet: Color(0xFF070B14),
     only: Brightness.dark,
-    scene: Scene.starship,
+    scene: Scene.silverWitch,
   ));
 
-  static final scenes = [dungeon, forestScene, starship];
+  static final solar = readable(const Palette(
+    id: 'scene-solar',
+    label: 'Space · solar',
+    day: [Color(0xFF100B06), Color(0xFF0D0905), Color(0xFF0A0704), Color(0xFF050302)],
+    night: [Color(0xFF100B06), Color(0xFF0D0905), Color(0xFF0A0704), Color(0xFF050302)],
+    // The sun's gold.
+    accent: Color(0xFFFFB238),
+    accentSoft: Color(0xFFFFCA70),
+    accentDeep: Color(0xFFA86A10),
+    onAccent: Color(0xFF1A1004),
+    nightCapsule: Color(0xF2201608),
+    nightSheet: Color(0xFF080503),
+    only: Brightness.dark,
+    scene: Scene.solar,
+  ));
+
+  static final scenes = [forestScene, silverWitch, solar, dungeon];
 
   static final all = [forest, lavender, ocean, black, paper, ...designer, ...scenes];
 
-  static Palette byId(String? id) => all.where((p) => p.id == id).firstOrNull ?? forest;
+  static Palette byId(String? id) => all.where((p) => p.id == idNow(id)).firstOrNull ?? forest;
+
+  /// [id] as it is now: a scene taken away gives the one its readers have
+  /// instead.
+  static String? idNow(String? id) => _retired[id] ?? id;
+
+  /// Scenes taken away (2.6.3), and the one each reader of them now has.
+  static const _retired = {
+    'scene-starship': 'scene-solar',
+    'scene-obsidian': 'scene-solar',
+    'scene-gothic': 'scene-dungeon',
+  };
 
   /// This palette with its accent taken from [seed], a book cover's colour:
   /// the same grounds, and an accent of the seed's hue at the tones the
@@ -1067,8 +1099,10 @@ class Radii {
   static const double pill = 999;
 }
 
-/// The only durations and curves the interface moves with: quick, calm and
-/// never bouncy. Things settle (ease out) rather than spring.
+/// The durations and curves the interface moves with: everything eases out,
+/// quick to start and soft to stop, never bouncing past where it lands.
+/// With animations off (Settings, or the phone's own setting), none of it
+/// moves.
 class Motion {
   const Motion._();
 
@@ -1091,6 +1125,13 @@ class Motion {
 
   /// Arriving and settling.
   static const Curve out = Curves.easeOutCubic;
+
+  /// Arriving: quick at first, easing gently to a stop, never past it (a
+  /// screen settling, a card coming in, a mark stretching).
+  static const Curve arrive = Curves.easeOutCubic;
+
+  /// Small things coming in (a check, an icon): a little quicker to settle.
+  static const Curve pop = Curves.easeOutQuart;
 
   /// Moving from one place to another.
   static const Curve emphasized = Curves.easeInOutCubicEmphasized;
@@ -1123,7 +1164,9 @@ class CalmPageTransitionsBuilder extends PageTransitionsBuilder {
   static const _arrive = Interval(0.3, 1, curve: Curves.easeOutCubic);
   // Leaving: gone in the first 30%, so the screen below can come back.
   static const _leave = Interval(0.7, 1);
-  static final _arriveScale = Tween<double>(begin: 0.96, end: 1).chain(CurveTween(curve: _arrive));
+  // The screen grows the last little way to full size as it fades in.
+  static final _arriveScale =
+      Tween<double>(begin: 0.94, end: 1).chain(CurveTween(curve: const Interval(0.3, 1, curve: Motion.arrive)));
   static final _leaveScale = Tween<double>(begin: 0.96, end: 1).chain(CurveTween(curve: _leave));
   static final _gestureScale = Tween<double>(begin: 0.9, end: 1);
   // The screen below, while another arrives on top / leaves it.
@@ -1300,12 +1343,7 @@ class _CapsuleState extends State<Capsule> {
         ),
       );
       if (widget.onTap == null) return capsule;
-      return AnimatedScale(
-        scale: _down ? 0.96 : 1,
-        duration: Motion.of(context, Motion.quick),
-        curve: Motion.out,
-        child: capsule,
-      );
+      return Jelly(pressed: _down, child: capsule);
     }
     final body = Container(
       padding: widget.padding,
@@ -1332,12 +1370,7 @@ class _CapsuleState extends State<Capsule> {
             ),
     );
     if (widget.onTap == null) return capsule;
-    return AnimatedScale(
-      scale: _down ? 0.96 : 1,
-      duration: Motion.of(context, Motion.quick),
-      curve: Motion.out,
-      child: capsule,
-    );
+    return Jelly(pressed: _down, child: capsule);
   }
 }
 

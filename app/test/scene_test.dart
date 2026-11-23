@@ -1,5 +1,5 @@
-// Scene themes (scene.dart): a dungeon, a forest and a starship drawn behind
-// every screen. Picked in Settings and kept; each main screen builds in each
+// Scene themes (scene.dart): a place drawn behind every screen (a dungeon,
+// a forest, the sun and the rest, however many there are). Picked in Settings and kept; each main screen builds in each
 // scene on a narrow and a wide phone with nothing overflowing; the page of a
 // book never has the art behind its words; and with no scene picked the app
 // draws exactly what it drew before.
@@ -94,6 +94,16 @@ void main() {
       );
 
   group('picked and kept', () {
+    test('a scene taken away (2.6.3) opens as the one kept in its place', () {
+      expect(Palette.byId('scene-starship').id, 'scene-solar');
+      expect(Palette.byId('scene-obsidian').id, 'scene-solar');
+      expect(Palette.byId('scene-gothic').id, 'scene-dungeon');
+      expect(Palette.idNow('scene-silver-witch'), 'scene-silver-witch');
+      final prefs = ListeningPrefs()..paletteId = 'scene-gothic';
+      expect(chosenPaletteId(prefs), 'scene-dungeon', reason: 'shown chosen in Settings');
+      expect(chosenPalette(prefs).scene, Scene.dungeon);
+    });
+
     test('each scene is a dark-only theme of its own, found by its id, its book colour keeping the scene', () {
       expect(Palette.scenes.map((p) => p.scene), Scene.values);
       for (final p in Palette.scenes) {
@@ -125,18 +135,25 @@ void main() {
       await settleIo(tester);
       final list = find.byType(Scrollable).first;
       await tester.scrollUntilVisible(find.text('Designer themes'), 300, scrollable: list);
-      expect(find.textContaining('3 scenes'), findsOneWidget);
-      expect(find.byType(ScenePreview), findsNWidgets(3), reason: 'a glimpse of each in the row');
+      expect(find.textContaining('${Scene.values.length} scenes'), findsOneWidget);
+      expect(find.byType(ScenePreview), findsNWidgets(Scene.values.length), reason: 'a glimpse of each in the row');
       // The colour row has no scenes in it.
       for (final p in Palette.scenes) {
         expect(find.text(p.label), findsNothing, reason: p.label);
       }
       await tester.tap(find.text('Designer themes'));
       await tester.pumpAndSettle();
+      // At the top: the scenes, the first ones in view.
       expect(find.text('SCENES'), findsOneWidget);
+      expect(find.text('Enchanted forest'), findsOneWidget);
+      expect(find.text('Silver witch'), findsOneWidget);
+      // The colours come after all the scenes: scrolled down to, then back
+      // up to the last scene.
+      final sheet = find.byType(Scrollable).last;
+      await tester.scrollUntilVisible(find.text('COLOURS'), 300, scrollable: sheet);
       expect(find.text('COLOURS'), findsOneWidget);
-      expect(find.text('Dungeon'), findsOneWidget);
-      expect(find.text('Starship'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Dungeon'), -300, scrollable: sheet);
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Dungeon'));
       await tester.pumpAndSettle();
       expect(ListeningPrefs.memory.paletteId, 'scene-dungeon');
@@ -189,17 +206,17 @@ void main() {
       expect(Palette.forest.withTint(0xFF3366AA).accent, isNot(Palette.forest.accent));
     });
 
-    test("a starship's panels are cut at two corners; the others' are round", () {
+    test("the solar scene's panels are cut at two corners, as a hull's; the others' are round", () {
       const rect = Rect.fromLTWH(0, 0, 200, 100);
-      final ship = panelPath(rect, Scene.starship, BorderRadius.circular(2));
+      final ship = panelPath(rect, Scene.solar, BorderRadius.circular(2));
       expect(ship.contains(const Offset(1, 1)), isFalse, reason: 'the top left is cut away');
       expect(ship.contains(const Offset(198, 2)), isTrue, reason: 'the top right is square');
       final stone = panelPath(rect, Scene.dungeon, BorderRadius.circular(12));
       expect(stone.contains(const Offset(100, 50)), isTrue);
     });
 
-    test("a scene's corners: the starship's sharp, the others rounded but never a pill", () {
-      expect(Scene.starship.corners(BorderRadius.circular(999)).topLeft.x, 2);
+    test("a scene's corners: the solar scene's sharp, the others rounded but never a pill", () {
+      expect(Scene.solar.corners(BorderRadius.circular(999)).topLeft.x, 2);
       expect(Scene.dungeon.corners(BorderRadius.circular(999)).topLeft.x, lessThanOrEqualTo(18));
       expect(Scene.dungeon.corners(BorderRadius.circular(999)).topLeft.x, greaterThan(6));
       expect(Scene.forest.corners(BorderRadius.circular(8)).topLeft.x, 8);

@@ -4,7 +4,7 @@ description: >-
   HTML, Markdown and text, and reads them aloud with the owned audio pipeline.
   See docs/README.md.
 publish_to: none
-version: 2.6.2+44
+version: 2.6.3+45
 
 environment:
   sdk: ^3.5.0
@@ -66,7 +66,8 @@ flutter:
     - assets/fonts/OFL-Caveat.txt
     - assets/fonts/OFL-PirataOne.txt
     - assets/fonts/OFL-UncialAntiqua.txt
-    - assets/fonts/OFL-Orbitron.txt
+    - assets/fonts/OFL-Almendra.txt
+    - assets/fonts/OFL-Cinzel.txt
     # The libraries LNReader source plugins use, and TomeVoice's host for
     # them (tools/lnreader_libs builds the first).
     - assets/js/lnreader_libs.js
@@ -80,6 +81,9 @@ flutter:
     # The scenes' painted backdrops (tools/scene_art.py; credits in
     # assets/licenses/third_party.txt).
     - assets/scenes/forest.webp
+    - assets/scenes/dungeon.webp
+    - assets/scenes/silverWitch.webp
+    - assets/scenes/solar.webp
     # The natural voices on offer, by language, with each one's licence
     # (tools/voice_catalog.py makes it; see neural_voices.dart).
     - assets/voices/catalog.json
@@ -118,13 +122,19 @@ flutter:
       fonts:
         - asset: assets/fonts/Caveat-Variable.ttf
     # The scene themes' lettering for screen names (theme.dart Skin.heading):
-    # the dungeon's, the enchanted forest's and the starship's.
+    # the dungeon's and the enchanted forest's.
     - family: PirataOne
       fonts:
         - asset: assets/fonts/PirataOne-Regular.ttf
     - family: UncialAntiqua
       fonts:
         - asset: assets/fonts/UncialAntiqua-Regular.ttf
-    - family: Orbitron
+    # The Silver witch's grimoire hand (left whole: its name is reserved)
+    # and Space · solar's inscription capitals (cut to one weight and the
+    # Latin letters).
+    - family: Almendra
       fonts:
-        - asset: assets/fonts/Orbitron-Variable.ttf
+        - asset: assets/fonts/Almendra-Regular.ttf
+    - family: Cinzel
+      fonts:
+        - asset: assets/fonts/Cinzel-SemiBold.ttf

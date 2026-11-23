@@ -3,6 +3,38 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## 2.6.3 (2026-11-24)
+
+Painted scenes and two new ones, smooth motion you can turn off, search in Settings and in the provider list, twelve more AI providers, and the name being looked up lit in its sentence.
+
+**Updating** keeps your library, your keys, every book's memory and your journal.
+
+#### Scenes: paintings, and two new ones
+- **Every scene is now a real picture**, darkened for reading over: Dungeon (a real fortress dungeon) and Enchanted forest (Asher Durand's *In the Woods*). Free to use; credited under About, licences.
+- **Two new scenes:** **Silver witch** (Grimshaw's *A Moonlit Lane*) and **Space · solar** (the sun's edge with a prominence). Each has its own colours, lettering and panels.
+- **Starship is now Space · solar:** the same hull panels, in gold. If you had Starship on, you have Space · solar.
+- **Each scene moves in its own way:** in the forest, vines grow in from the top corners as a screen opens, leaves budding as they go, while fireflies drift; in the dungeon, torches flicker and water drips down the stone; in Silver witch, mist drifts, silver falls and a ring of runes draws itself; in Space · solar, the sun swells and flares and a small planet crosses it.
+- It all stands still with animations off, or with battery saver on.
+
+#### Motion
+- **Smooth, never bouncy:** everything eases out, quick to start and soft to stop, without springing past where it lands.
+- **Animations switch:** Settings, Appearance, **Animations**. Off, everything changes at once and the scenes stand still, as with the phone's own "remove animations".
+- Buttons, pills and rows **give a little** under your finger and ease back. Book covers stay as they are.
+- Lists and cards **ease in**; the menu's rows come in one after another as it opens; switching category slides smoothly.
+- The choice highlight **slides** to the new choice; play and pause **turn into each other**; the Now Playing cover **rises as the voice starts** and sinks back on pause; an empty screen's picture **floats**.
+- Kept light for slower phones: the moving parts draw about 30 pictures a second and only while they can be seen.
+
+#### Finding things
+- **Find a setting:** a search at the top of Settings. Type the start of a word or two ("back up", "sync"), tap a match and the list goes to it.
+- **Find a provider:** the provider list (AI chat, AI settings, Add a key) has its own search, by name or by what it offers ("free", "Claude"). Another service is always at the end.
+
+#### AI: twelve more providers
+- **Anthropic (Claude), DeepSeek, Mistral, xAI (Grok), Z.ai (GLM, with a free model), Alibaba Cloud (Qwen), Together AI, Fireworks AI, Cerebras, Moonshot (Kimi), Hugging Face and NVIDIA**, each in AI settings, Add a key, with a likely model chosen for building and for talking once the key is checked.
+- Each provider's quirks are handled for you (some refuse a temperature, Claude has its own format, DeepSeek's thinking must be sent back on tool calls, some list no models, some take fewer texts at a time for meaning search).
+
+#### Reading
+- **Who or what:** the sentence is shown with the words being looked up **lit** ("Six Finger", not "Finger"), in the menu and in the look-up sheet. Add or drop a word and the mark stretches to it; tap a word in the sentence to take it in.
+
 ## 2.6.2 (2026-11-24)
 
 Choose how far a book's memory goes, a painted forest, and smoother natural voices on slower phones.

@@ -17,6 +17,7 @@ import io
 import json
 import os
 import sys
+import urllib.parse
 import urllib.request
 
 from PIL import Image, ImageEnhance, ImageFilter
@@ -43,6 +44,27 @@ SCENES = {
         # Multiplied into each channel: a cool, mossy green.
         'tint': (0.86, 1.0, 0.9),
     },
+    'dungeon': {
+        'file': 'The_Dungeon_at_Castillo_de_San_Cristóbal.jpg',
+        'credit': '"The Dungeon at Castillo de San Cristóbal" by Eric Pancer (vxla), '
+                  'https://www.flickr.com/photos/vxla/5299369390/, CC BY 2.0 '
+                  '(https://creativecommons.org/licenses/by/2.0/). Cropped and colour-graded.',
+        'licences': {'CC BY 2.0'},
+        'across': 0.5, 'brightness': 0.5, 'contrast': 1.15, 'colour': 0.75, 'tint': (1.0, 0.86, 0.74),
+    },
+    'solar': {
+        'file': 'A_burst_of_solar_material_leaps_off_the_left_side_of_the_sun_in_what' + chr(0x2019)
+                + 's_known_as_a_prominence_eruption.jpg',
+        'credit': 'Image: NASA/SDO/AIA (2013). Public domain. Cropped and colour-graded.',
+        'licences': {'Public domain'},
+        'across': 0.0, 'brightness': 0.6, 'contrast': 1.15, 'colour': 1.0, 'tint': (1.0, 0.86, 0.6),
+    },
+    'silverWitch': {
+        'file': 'John_Atkinson_Grimshaw_-_A_moonlit_lane.jpg',
+        'credit': 'John Atkinson Grimshaw, "A Moonlit Lane" (1874). Public domain. Cropped and colour-graded.',
+        'licences': {'Public domain'},
+        'across': 0.25, 'trim': 0.01, 'brightness': 0.68, 'contrast': 1.12, 'colour': 0.3, 'tint': (0.82, 0.92, 1.1),
+    },
 }
 
 
@@ -53,6 +75,8 @@ def fetch_json(url):
 
 
 def fetch_bytes(url):
+    # The file's address can hold characters a URL may not (a curly '...').
+    url = urllib.parse.quote(url, safe=':/?&=%')
     req = urllib.request.Request(url, headers={'User-Agent': UA})
     with urllib.request.urlopen(req, timeout=300) as r:
         return r.read()
@@ -60,7 +84,8 @@ def fetch_bytes(url):
 
 def source(spec):
     api = ('https://commons.wikimedia.org/w/api.php?action=query&format=json&prop=imageinfo'
-           '&iiprop=url|size|extmetadata&iiextmetadatafilter=LicenseShortName&titles=File:' + spec['file'])
+           '&iiprop=url|size|extmetadata&iiextmetadatafilter=LicenseShortName&titles='
+           + urllib.parse.quote('File:' + spec['file']))
     page = next(iter(fetch_json(api)['query']['pages'].values()))
     info = page['imageinfo'][0]
     licence = info.get('extmetadata', {}).get('LicenseShortName', {}).get('value', '')
@@ -96,6 +121,8 @@ def grade(img, spec):
 
 
 def main(names):
+    # File names with accents print on any console.
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     os.makedirs(OUT, exist_ok=True)
     for name in names:
         spec = SCENES[name]

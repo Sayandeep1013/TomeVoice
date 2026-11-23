@@ -5,7 +5,7 @@ import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show PlatformException;
-import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
+import 'package:flutter/rendering.dart' show RenderRepaintBoundary, ScrollCacheExtent;
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
 import 'app_update.dart';
@@ -109,6 +109,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   void dispose() {
     _fade.dispose();
     _before?.dispose();
+    _findText.dispose();
     _sampleTimer?.cancel();
     ListeningPrefs.revision.removeListener(_rebuild);
     WallpaperColours.current.removeListener(_rebuild);
@@ -133,6 +134,91 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   void _change(void Function() f) {
     setState(f);
     _prefs.save();
+  }
+
+  // Finding a setting: what is typed, the settings list (whose words are
+  // read for it), and what matched, each with its section and where it is.
+  String _find = '';
+  bool _showFound = false;
+  final _findText = TextEditingController();
+  final _list = GlobalKey();
+  List<({String text, String group, Element at})> _found = const [];
+
+  void _onFind(String q) {
+    setState(() {
+      _find = q;
+      _showFound = q.trim().isNotEmpty;
+    });
+    // Every row built first (the list keeps them all while finding), then
+    // read.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _collect());
+  }
+
+  /// The words of every setting on the screen that hold what was typed,
+  /// each once, with the section it is in: read from the settings as they
+  /// stand, so a new one is found without being listed anywhere.
+  void _collect() {
+    if (!mounted) return;
+    final q = _find.trim().toLowerCase();
+    final root = _list.currentContext as Element?;
+    if (root == null || q.isEmpty) {
+      setState(() => _found = const []);
+      return;
+    }
+    final out = <({String text, String group, Element at})>[];
+    final seen = <String>{};
+    void visit(Element e, String group) {
+      final w = e.widget;
+      if (w is _Found || w is SearchField) return;
+      final g = w is _Group ? w.title : group;
+      final text = w is Text ? (w.data ?? w.textSpan?.toPlainText()) : null;
+      if (text != null && g.isNotEmpty) {
+        final t = text.trim();
+        if (t.length < 140 && wordsMatch(t, q) && seen.add('$g/$t')) out.add((text: t, group: g, at: e));
+      }
+      e.visitChildren((c) => visit(c, g));
+    }
+
+    root.visitChildren((c) => visit(c, ''));
+    // Short ones (a setting's name) before long ones (its explanation).
+    out.sort((a, b) => a.text.length.compareTo(b.text.length));
+    setState(() => _found = out.take(40).toList());
+  }
+
+  /// A match tapped: the list scrolled to it, the matches folded away (the
+  /// words stay, so the list keeps its rows and the place holds).
+  void _goTo(({String text, String group, Element at}) f) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() => _showFound = false);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final at = f.at.mounted ? f.at : _locate(f.text);
+      if (at == null) return;
+      unawaited(Scrollable.ensureVisible(at,
+          alignment: 0.2, duration: Motion.of(context, Motion.page), curve: Motion.out));
+    });
+  }
+
+  /// The words [text] where they stand in the list now.
+  Element? _locate(String text) {
+    Element? hit;
+    void visit(Element e) {
+      if (hit != null || e.widget is _Found) return;
+      final w = e.widget;
+      if (w is Text && (w.data ?? w.textSpan?.toPlainText())?.trim() == text) {
+        hit = e;
+        return;
+      }
+      e.visitChildren(visit);
+    }
+
+    (_list.currentContext as Element?)?.visitChildren(visit);
+    return hit;
+  }
+
+  void _clearFind() {
+    _findText.clear();
+    _onFind('');
   }
 
   /// A change of palette or of light and dark, cross-faded.
@@ -339,12 +425,35 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
               ScreenTopBar(title: 'Settings', onBack: () => Navigator.of(context).maybePop()),
               Expanded(
                 child: ListView(
+                  key: _list,
+                  // While finding, every row is kept built, so its words can
+                  // be read and it can be scrolled to.
+                  scrollCacheExtent: _find.trim().isEmpty ? null : const ScrollCacheExtent.pixels(100000),
                   // Closer to the screen's edges than other pages: the
                   // cards line up with the back button and the rows inside
                   // them get the room.
                   padding: EdgeInsets.fromLTRB(
                       Gap.m, 0, Gap.m, Gap.xxl + MediaQuery.viewPaddingOf(context).bottom),
                   children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(Gap.xs, Gap.xs, Gap.xs, 0),
+                      child: SearchField(
+                        hint: 'Find a setting',
+                        controller: _findText,
+                        onChanged: _onFind,
+                        onClear: _find.isEmpty ? null : _clearFind,
+                      ),
+                    ),
+                    // Always this one place in the list (empty when nothing is
+                    // being found), so the rows after it keep theirs.
+                    if (_showFound)
+                      _Found(
+                        found: _found,
+                        query: _find.trim(),
+                        onPick: _goTo,
+                      )
+                    else
+                      const SizedBox.shrink(),
                     _Group(
                       title: 'Appearance',
                       children: [
@@ -399,6 +508,18 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                             _alwaysSaid(chosenPalette(_prefs)),
                             style: Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
                           ),
+                        const SizedBox(height: Gap.l),
+                        SwitchRow(
+                          title: 'Animations',
+                          subtitle: !_prefs.animations
+                              ? 'Off: everything changes at once and the scenes stand still'
+                              : WidgetsBinding.instance.platformDispatcher.accessibilityFeatures.disableAnimations
+                                  ? 'Off on this phone: its own setting removes animations'
+                                  : 'Screens, sheets and presses move, and the scenes come alive',
+                          value: _prefs.animations,
+                          padding: EdgeInsets.zero,
+                          onChanged: (v) => _change(() => _prefs.animations = v),
+                        ),
                       ],
                     ),
                     _Group(
@@ -935,7 +1056,7 @@ class _DesignerRow extends StatelessWidget {
                           const SizedBox(height: 2),
                           Text(
                             on == null
-                                ? '${Palette.scenes.length} scenes (a dungeon, a forest, a starship) and '
+                                ? '${Palette.scenes.length} scenes (from a dungeon to the sun) and '
                                     '${Palette.designer.length} more colours. Tap to see them.'
                                 : '${on.label} is on. Tap to see the others.',
                             style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
@@ -1680,6 +1801,60 @@ class _AboutScreenState extends State<AboutScreen> {
               ],
             ),
           ),
+        ),
+      );
+}
+
+/// What a setting search found: each match's words and the section it is
+/// in, a tap scrolling to it; or that nothing matched.
+class _Found extends StatelessWidget {
+  const _Found({required this.found, required this.query, required this.onPick});
+
+  final List<({String text, String group, Element at})> found;
+  final String query;
+  final ValueChanged<({String text, String group, Element at})> onPick;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(top: Gap.s),
+        child: Material(
+          color: Skin.capsuleOn(context),
+          borderRadius: BorderRadius.circular(Radii.row + 4),
+          clipBehavior: Clip.antiAlias,
+          child: found.isEmpty
+              ? Padding(
+                  padding: const EdgeInsets.all(Gap.l),
+                  child: Text('No setting says "$query".', style: Skin.meta(context)),
+                )
+              : Column(
+                  children: [
+                    for (final f in found)
+                      InkWell(
+                        onTap: () => onPick(f),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: Gap.l, vertical: 12),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(f.text,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: Skin.ui(size: 15, weight: FontWeight.w500, color: Skin.inkOn(context))),
+                                    const SizedBox(height: 2),
+                                    Text(f.group.toUpperCase(), style: Skin.meta(context, size: 11)),
+                                  ],
+                                ),
+                              ),
+                              Icon(Icons.arrow_forward_rounded, size: 18, color: Skin.inkSoftOn(context)),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
         ),
       );
 }

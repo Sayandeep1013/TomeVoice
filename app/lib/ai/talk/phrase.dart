@@ -4,6 +4,8 @@
 /// a word at a time within the sentence.
 library;
 
+import 'dart:math' as math;
+
 /// A word of a sentence and where it sits there.
 typedef PhraseWord = ({int start, int end, String text});
 
@@ -95,6 +97,13 @@ class PhraseSpan {
   PhraseSpan addAfter() => canAddAfter ? PhraseSpan(sentence, words, from, to + 1) : this;
   PhraseSpan dropFirst() => canDropFirst ? PhraseSpan(sentence, words, from + 1, to) : this;
   PhraseSpan dropLast() => canDropLast ? PhraseSpan(sentence, words, from, to - 1) : this;
+
+  /// Out to word [i] (a word tapped in the sentence): the words between
+  /// join; a word already inside changes nothing.
+  PhraseSpan extendTo(int i) {
+    if (!_inSentence || i < 0 || i >= words.length || (i >= from && i <= to)) return this;
+    return PhraseSpan(sentence, words, math.min(from, i), math.max(to, i));
+  }
 }
 
 /// [s] without the quotes, brackets and stops round it, nor a closing "'s";

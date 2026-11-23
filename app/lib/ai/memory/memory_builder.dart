@@ -80,7 +80,16 @@ class BuildEstimate {
 /// gets a batch of more than a third of it (one batch could pass it).
 ({int tokens, int chapters}) batchSizeFor(AiKey? key) {
   final size = switch (key?.provider) {
-    AiProvider.gemini || AiProvider.inception => (tokens: 40000, chapters: 8),
+    // Long contexts (a million tokens, or near it), cheap to fill.
+    AiProvider.gemini ||
+    AiProvider.inception ||
+    AiProvider.anthropic ||
+    AiProvider.deepseek ||
+    AiProvider.qwen ||
+    AiProvider.xai ||
+    AiProvider.zai ||
+    AiProvider.moonshot =>
+      (tokens: 40000, chapters: 8),
     _ => (tokens: 12000, chapters: 2),
   };
   final cap = key?.dailyCap;

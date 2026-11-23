@@ -672,7 +672,14 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
 
   /// The drawer: on the shell, its place is lit; on a screen it opened
   /// ([current], that screen's row), that screen's row is.
+  /// When the drawer was last built (it is built as it opens): its rows
+  /// come in one after another from then.
+  DateTime _drawerAt = DateTime.now();
+  int _drawerRow = 0;
+
   Widget _drawer(BuildContext context, {String? current}) {
+    _drawerAt = DateTime.now();
+    _drawerRow = 0;
     bool on(_Place p) => current == null && _place == p;
     final scene = Skin.sceneOf(context);
     final list = SafeArea(
@@ -771,7 +778,11 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
 
   Widget _item(BuildContext context, IconData icon, IconData selectedIcon, String label,
           {bool selected = false, required VoidCallback onTap}) =>
-      Padding(
+      Entrance(
+        index: _drawerRow++,
+        since: _drawerAt,
+        always: true,
+        child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: Gap.m, vertical: 2),
         child: Material(
           color: selected ? Skin.amber.withValues(alpha: 0.16) : Colors.transparent,
@@ -796,5 +807,6 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
             ),
           ),
         ),
+      ),
       );
 }

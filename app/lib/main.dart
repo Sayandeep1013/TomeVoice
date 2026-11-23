@@ -108,7 +108,8 @@ void _registerFontLicences() {
       ('Caveat', 'Caveat'),
       ('Pirata One', 'PirataOne'),
       ('Uncial Antiqua', 'UncialAntiqua'),
-      ('Orbitron', 'Orbitron'),
+      ('Almendra', 'Almendra'),
+      ('Cinzel', 'Cinzel'),
     ]) {
       yield LicenseEntryWithLineBreaks(
         [family],
@@ -167,6 +168,9 @@ class SpikeApp extends StatelessWidget {
           // Status bar icons dark on the light ground, light on the dark one.
           // Every field is set: one left out falls back to Android's default,
           // which for the divider is the separator line above the home bar.
+          // Animations off in Settings: every screen told so, as by the
+          // phone's own "remove animations" (Motion.reduced, the scenes' life,
+          // Flutter's own transitions all follow it).
           builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
             value: Skin.isDark(context)
                 ? const SystemUiOverlayStyle(
@@ -187,7 +191,14 @@ class SpikeApp extends StatelessWidget {
                     systemNavigationBarContrastEnforced: false,
                     systemStatusBarContrastEnforced: false,
                   ),
-            child: child!,
+            // Always this one MediaQuery (only its value changing), so that
+            // turning animations off or on keeps every open screen as it is.
+            child: MediaQuery(
+              data: MediaQuery.of(context).copyWith(
+                  disableAnimations:
+                      MediaQuery.of(context).disableAnimations || !(ListeningPrefs.loaded?.animations ?? true)),
+              child: child!,
+            ),
           ),
           home: const _ModeGate(),
         );

@@ -1,0 +1,256 @@
+import 'dart:async';
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
+
+import 'theme.dart' show Motion;
+
+/// The give of something pressed: it settles a little under the finger (a
+/// touch wider, a touch shorter) and, let go, eases back to its shape, with
+/// no bounce. It only ticks while it moves; at rest it costs nothing. With
+/// animations off it stays still.
+///
+/// Either told whether it is down ([pressed], from the InkWell inside it),
+/// or listening to the finger itself ([Jelly.listen]): a press that turns
+/// into a scroll lets go at once, so a list does not wobble as it moves.
+class Jelly extends StatefulWidget {
+  const Jelly({super.key, required this.pressed, required this.child, this.strength = 1})
+      : _listens = false;
+
+  /// Listens to the finger on [child] itself (no InkWell to ask).
+  const Jelly.listen({super.key, required this.child, this.strength = 1})
+      : pressed = false,
+        _listens = true;
+
+  final bool pressed;
+  final Widget child;
+
+  /// How much it gives: 1 for a button, less for a wide row (a whole row
+  /// squashing as much as a button looks like it broke).
+  final double strength;
+
+  final bool _listens;
+
+  @override
+  State<Jelly> createState() => _JellyState();
+}
+
+class _JellyState extends State<Jelly> with SingleTickerProviderStateMixin {
+  /// How far down it is: 1 pressed, 0 at rest.
+  late final _p = AnimationController(vsync: this);
+  Offset? _from;
+  bool _down = false;
+
+  @override
+  void didUpdateWidget(Jelly old) {
+    super.didUpdateWidget(old);
+    if (!widget._listens && old.pressed != widget.pressed) _set(widget.pressed);
+  }
+
+  void _set(bool down) {
+    if (down == _down) return;
+    _down = down;
+    if (Motion.reduced(context)) {
+      _p.value = 0;
+      return;
+    }
+    if (down) {
+      _p.animateTo(1, duration: const Duration(milliseconds: 90), curve: Curves.easeOutCubic);
+    } else {
+      _p.animateTo(0, duration: const Duration(milliseconds: 240), curve: Curves.easeOutCubic);
+    }
+  }
+
+  @override
+  void dispose() {
+    _p.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final k = 0.05 * widget.strength;
+    Widget body = AnimatedBuilder(
+      animation: _p,
+      builder: (context, child) {
+        final p = _p.value;
+        if (p.abs() < 0.001) return child!;
+        // Down: a touch wider and shorter.
+        return Transform(
+          alignment: Alignment.center,
+          transform: Matrix4.diagonal3Values(1 + k * 0.35 * p, 1 - k * p, 1),
+          child: child,
+        );
+      },
+      child: widget.child,
+    );
+    if (!widget._listens) return body;
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (e) {
+        _from = e.position;
+        _set(true);
+      },
+      onPointerMove: (e) {
+        // Turned into a scroll or a drag: let go now.
+        final from = _from;
+        if (from != null && (e.position - from).distance > 12) {
+          _from = null;
+          _set(false);
+        }
+      },
+      onPointerUp: (_) => _set(false),
+      onPointerCancel: (_) => _set(false),
+      child: body,
+    );
+  }
+}
+
+/// [child] arriving once, the first time it is built: from a little smaller
+/// and below, easing into place as it fades in.
+class PopIn extends StatefulWidget {
+  const PopIn({super.key, required this.child, this.delay = Duration.zero});
+
+  final Widget child;
+  final Duration delay;
+
+  @override
+  State<PopIn> createState() => _PopInState();
+}
+
+class _PopInState extends State<PopIn> with SingleTickerProviderStateMixin {
+  late final _t = AnimationController(vsync: this, duration: const Duration(milliseconds: 460) + widget.delay);
+  late final _fade = CurvedAnimation(
+      parent: _t, curve: Interval(_lead, math.min(1, _lead + 0.45), curve: Curves.easeOutCubic));
+  late final _pop = CurvedAnimation(parent: _t, curve: Interval(_lead, 1, curve: Motion.pop));
+  double get _lead => widget.delay.inMilliseconds / (460 + widget.delay.inMilliseconds);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_t.isAnimating || _t.isCompleted) return;
+    if (Motion.reduced(context)) {
+      _t.value = 1;
+    } else {
+      _t.forward();
+    }
+  }
+
+  @override
+  void dispose() {
+    _fade.dispose();
+    _pop.dispose();
+    _t.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => FadeTransition(
+        opacity: _fade,
+        child: AnimatedBuilder(
+          animation: _pop,
+          child: widget.child,
+          builder: (context, child) {
+            final v = _pop.value;
+            return Transform(
+              alignment: Alignment.centerLeft,
+              transform: Matrix4.translationValues(0, 8 * (1 - v), 0)..scaleByDouble(0.96 + 0.04 * v, 0.96 + 0.04 * v, 1, 1),
+              child: child,
+            );
+          },
+        ),
+      );
+}
+
+/// [child] floating: rising and sinking a few pixels and leaning a hair, on
+/// a slow breath (an empty screen's picture). About 30 pictures a second,
+/// only while it can be seen; still with animations removed.
+class Bob extends StatefulWidget {
+  const Bob({super.key, required this.child, this.height = 5});
+
+  final Widget child;
+  final double height;
+
+  @override
+  State<Bob> createState() => _BobState();
+}
+
+class _BobState extends State<Bob> with WidgetsBindingObserver {
+  final _time = ValueNotifier<double>(0);
+  final _clock = Stopwatch();
+  Timer? _timer;
+  int? _frame;
+  bool _on = true;
+
+  bool get _visible {
+    final app = WidgetsBinding.instance.lifecycleState;
+    return _on && (app == null || app == AppLifecycleState.resumed);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _on = !Motion.reduced(context) && TickerMode.valuesOf(context).enabled && (ModalRoute.isCurrentOf(context) ?? true);
+    _sync();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) => _sync();
+
+  void _sync() {
+    if (!mounted) return;
+    if (!_visible) {
+      _timer?.cancel();
+      _timer = null;
+      if (_frame != null) SchedulerBinding.instance.cancelFrameCallbackWithId(_frame!);
+      _frame = null;
+      _clock.stop();
+    } else if (_timer == null && _frame == null) {
+      _clock.start();
+      _next();
+    }
+  }
+
+  void _next() {
+    _timer = Timer(const Duration(milliseconds: 26), () {
+      _timer = null;
+      if (!mounted || !_visible) return;
+      _frame = SchedulerBinding.instance.scheduleFrameCallback((_) {
+        _frame = null;
+        if (!mounted || !_visible) return;
+        _time.value = _clock.elapsedMicroseconds / 1e6;
+        _next();
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _timer?.cancel();
+    if (_frame != null) SchedulerBinding.instance.cancelFrameCallbackWithId(_frame!);
+    _time.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => RepaintBoundary(
+        child: ValueListenableBuilder<double>(
+          valueListenable: _time,
+          child: widget.child,
+          builder: (context, t, child) => Transform(
+            alignment: Alignment.center,
+            transform: Matrix4.translationValues(0, -widget.height * math.sin(t * 1.6), 0)
+              ..rotateZ(0.025 * math.sin(t * 0.8)),
+            child: child,
+          ),
+        ),
+      );
+}

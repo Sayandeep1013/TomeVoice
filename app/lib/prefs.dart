@@ -88,6 +88,7 @@ class ListeningPrefs {
     this.aiBackgroundCharging = false,
     this.sort = LibrarySort.recent,
     this.bookColours = true,
+    this.animations = true,
     this.naturalVoices,
     this.exportFolder,
     this.backupEvery = 'off',
@@ -445,6 +446,11 @@ class ListeningPrefs {
   /// colour of the book being read, instead of the palette's accent.
   bool bookColours;
 
+  /// Things moving as they change (screens, sheets, presses, the scenes'
+  /// life); off: every change at once, as with the phone's own "remove
+  /// animations".
+  bool animations;
+
   /// Natural voices: null until the reader has been asked, then whether
   /// they want them offered. Declined, the app never suggests them.
   bool? naturalVoices;
@@ -628,6 +634,7 @@ class ListeningPrefs {
         'aiBackgroundCharging': aiBackgroundCharging,
         'sort': sort.name,
         'bookColours': bookColours,
+        if (!animations) 'animations': false,
         if (naturalVoices != null) 'naturalVoices': naturalVoices,
         if (exportFolder != null) 'exportFolder': exportFolder!.toJson(),
         if (backupEvery != 'off') 'backupEvery': backupEvery,
@@ -755,6 +762,7 @@ class ListeningPrefs {
         sort: LibrarySort.values.where((m) => m.name == json['sort']).firstOrNull ??
             LibrarySort.recent,
         bookColours: json['bookColours'] != false,
+        animations: json['animations'] != false,
         naturalVoices: json['naturalVoices'] as bool?,
         exportFolder: PickedFolder.fromJson(json['exportFolder']),
         backupEvery: json['backupEvery'] as String? ?? 'off',

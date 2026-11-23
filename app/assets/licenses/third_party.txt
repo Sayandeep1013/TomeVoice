@@ -117,8 +117,14 @@ GNU GPL 3.0, uses it as the LGPL allows; its source, and TomeVoice's, are
 public. The licence: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt
 
 ------------------------------------------------------------------------
-Scene art (the Enchanted forest theme's backdrop)
-Asher B. Durand, "In the Woods" (1855), oil on canvas. The Metropolitan
-Museum of Art, Open Access: public domain (CC0 1.0).
-https://www.metmuseum.org/art/collection/search/10790
-Cropped and colour-graded for TomeVoice (tools/scene_art.py).
+Scene art (the scene themes' backdrops), each cropped and colour-graded
+for TomeVoice (tools/scene_art.py):
+- Enchanted forest: Asher B. Durand, "In the Woods" (1855). The
+  Metropolitan Museum of Art, Open Access: public domain (CC0 1.0).
+  https://www.metmuseum.org/art/collection/search/10790
+- Dungeon: "The Dungeon at Castillo de San Cristobal" by Eric Pancer
+  (vxla), https://www.flickr.com/photos/vxla/5299369390/ , licensed under
+  CC BY 2.0 (https://creativecommons.org/licenses/by/2.0/).
+- Silver witch: John Atkinson Grimshaw, "A Moonlit Lane" (1874). Public
+  domain.
+- Space, solar: NASA/SDO/AIA, a prominence eruption (2013). Public domain.

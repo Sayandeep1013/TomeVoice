@@ -7,6 +7,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tomevoice_spike/ai/ai_anthropic.dart';
 import 'package:tomevoice_spike/ai/ai_client.dart';
 import 'package:tomevoice_spike/ai/ai_keys.dart';
 import 'package:tomevoice_spike/ai/ai_router.dart';
@@ -177,6 +178,135 @@ void main() {
         client.chat(gone, [aiMessage('user', 'Hi')]),
         throwsA(isA<AiError>().having((e) => e.kind, 'kind', AiFailure.network)),
       );
+    });
+  });
+
+  group("providers' differences", () {
+    test('DeepSeek: thinking off for JSON, its thinking sent back with tool calls', () async {
+      provider.answer = (req, key, body) => reply(req, 200, {
+            'choices': [
+              {
+                'message': {
+                  'role': 'assistant',
+                  'content': '',
+                  'reasoning_content': 'Let me look.',
+                  'tool_calls': [
+                    {
+                      'id': 'c1',
+                      'type': 'function',
+                      'function': {'name': 'search', 'arguments': '{"q":"Mira"}'},
+                    },
+                  ],
+                },
+                'finish_reason': 'tool_calls',
+              },
+            ],
+          });
+      final deep = AiEndpoint(baseUrl: provider.url, key: 'k', model: 'deepseek-flash', style: AiProvider.deepseek.style);
+      await client.chat(deep, [aiMessage('user', 'Reply in JSON.')], json: true, temperature: 0.2);
+      expect(provider.requests.last.body['thinking'], {'type': 'disabled'});
+      expect(provider.requests.last.body['temperature'], 0.2);
+      final r = await client.chat(deep, [aiMessage('user', 'Who is Mira?')]);
+      expect(r.asMessage['reasoning_content'], 'Let me look.');
+      expect(provider.requests.last.body.containsKey('thinking'), isFalse);
+      // Elsewhere the thinking is not sent back.
+      final plain = await client.chat(at('k'), [aiMessage('user', 'Who is Mira?')]);
+      expect(plain.asMessage.containsKey('reasoning_content'), isFalse);
+    });
+
+    test('Kimi: no temperature; a provider with no model list: its own, once a call shows the key works', () async {
+      provider.answer = (req, key, body) => reply(req, 200, said('OK'));
+      final kimi = AiEndpoint(baseUrl: provider.url, key: 'k', model: 'kimi-k3', style: AiProvider.moonshot.style);
+      await client.chat(kimi, [aiMessage('user', 'Hi')], temperature: 0.1);
+      expect(provider.requests.last.body.containsKey('temperature'), isFalse);
+      final glm = AiEndpoint(baseUrl: provider.url, key: 'k', model: '', style: AiProvider.zai.style);
+      expect(await client.models(glm), ['glm-4.7-flash', 'glm-5.3-flash', 'glm-5.3']);
+      expect(provider.requests.last.path, '/v1/chat/completions');
+    });
+
+    test('embeddings in batches as small as the provider takes', () async {
+      provider.answer = (req, key, body) => reply(req, 200, {
+            'data': [
+              for (final _ in body['input']! as List) {'embedding': [1.0, 0.0]},
+            ],
+          });
+      final qwen = AiEndpoint(baseUrl: provider.url, key: 'k', model: 'text-embedding-v4', style: AiProvider.qwen.style);
+      final v = await client.embed(qwen, [for (var i = 0; i < 25; i++) 'text $i']);
+      expect(v.length, 25);
+      expect([for (final r in provider.requests) (r.body['input']! as List).length], [10, 10, 5]);
+    });
+
+    test("Claude: in Anthropic's own format, tool calls and answers turned both ways", () async {
+      final t = anthropicTurns([
+        aiMessage('system', 'You are kind.'),
+        aiMessage('user', 'Who is Mira?'),
+        {
+          'role': 'assistant',
+          'content': null,
+          'tool_calls': [
+            {
+              'id': 't1',
+              'type': 'function',
+              'function': {'name': 'search', 'arguments': '{"q":"Mira"}'},
+            },
+            {
+              'id': 't2',
+              'type': 'function',
+              'function': {'name': 'card', 'arguments': '{"id":1}'},
+            },
+          ],
+        },
+        aiToolAnswer('t1', 'found'),
+        aiToolAnswer('t2', 'a card'),
+      ]);
+      expect(t.system, 'You are kind.');
+      expect(t.turns.map((m) => m['role']), ['user', 'assistant', 'user']);
+      expect((t.turns[1]['content']! as List).map((b) => (b as Map)['type']), ['tool_use', 'tool_use']);
+      expect(((t.turns[1]['content']! as List).first as Map)['input'], {'q': 'Mira'});
+      // Both answers in one user turn.
+      expect((t.turns[2]['content']! as List).map((b) => (b as Map)['tool_use_id']), ['t1', 't2']);
+
+      final r = anthropicReply({
+        'content': [
+          {'type': 'thinking', 'thinking': '', 'signature': 's'},
+          {'type': 'text', 'text': 'Let me look. '},
+          {'type': 'tool_use', 'id': 't9', 'name': 'search', 'input': {'q': 'Sunny'}},
+        ],
+        'stop_reason': 'tool_use',
+        'usage': {'input_tokens': 20, 'output_tokens': 5},
+      }, sent: const []);
+      expect(r.text, 'Let me look. ');
+      expect(r.finish, 'tool_calls');
+      expect(r.toolCalls.single.args, {'q': 'Sunny'});
+      expect(r.usage.input, 20);
+      // Its blocks go back as they came, thinking and all.
+      final back = anthropicTurns([aiMessage('user', 'Hi'), r.asMessage]);
+      expect((back.turns[1]['content']! as List).first, {'type': 'thinking', 'thinking': '', 'signature': 's'});
+      expect(
+        () => anthropicReply({'content': const [], 'stop_reason': 'refusal'}, sent: const []),
+        throwsA(isA<AiError>()),
+      );
+    });
+
+    test("Claude's endpoint: its key header, no temperature, the answer given room for thinking", () async {
+      provider.answer = (req, key, body) => reply(req, 200, {
+            'content': [
+              {'type': 'text', 'text': 'Hello.'},
+            ],
+            'stop_reason': 'end_turn',
+            'usage': {'input_tokens': 3, 'output_tokens': 2},
+          });
+      final claude =
+          AiEndpoint(baseUrl: provider.url, key: 'sk-ant-x', model: 'claude-haiku-5-5', style: AiProvider.anthropic.style);
+      final r = await client.chat(claude, [aiMessage('system', 'Be brief.'), aiMessage('user', 'Hi')],
+          json: true, temperature: 0.2, maxTokens: 60);
+      expect(r.text, 'Hello.');
+      final sent = provider.requests.single;
+      expect(sent.path, '/v1/messages');
+      expect(sent.body['system'], 'Be brief.');
+      expect(sent.body.containsKey('temperature'), isFalse);
+      expect(sent.body.containsKey('response_format'), isFalse);
+      expect(sent.body['max_tokens'], 4096);
     });
   });
 

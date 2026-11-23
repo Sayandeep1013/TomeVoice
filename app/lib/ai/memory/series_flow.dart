@@ -513,10 +513,18 @@ class _KeyChoice extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  chosen ? Icons.check_circle_rounded : Icons.circle_outlined,
-                  size: 22,
-                  color: chosen ? Skin.accentInkOf(context) : Skin.inkSoftOn(context),
+                AnimatedSwitcher(
+                  duration: Motion.of(context, const Duration(milliseconds: 360)),
+                  transitionBuilder: (child, a) => ScaleTransition(
+                    scale: a.drive(Tween(begin: 0.4, end: 1.0).chain(CurveTween(curve: Motion.pop))),
+                    child: child,
+                  ),
+                  child: Icon(
+                    chosen ? Icons.check_circle_rounded : Icons.circle_outlined,
+                    key: ValueKey(chosen),
+                    size: 22,
+                    color: chosen ? Skin.accentInkOf(context) : Skin.inkSoftOn(context),
+                  ),
                 ),
                 const SizedBox(width: Gap.m),
                 Expanded(

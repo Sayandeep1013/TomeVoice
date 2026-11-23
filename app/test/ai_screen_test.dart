@@ -70,6 +70,29 @@ void main() {
     expect(find.text('gemini-flash'), findsOneWidget);
   });
 
+  testWidgets('the provider list is searched by name or by what its note says', (tester) async {
+    await pump(tester);
+    await tester.tap(find.textContaining(RegExp('^Add (a|another) key')));
+    await tester.pumpAndSettle();
+    if (find.text('I agree').evaluate().isNotEmpty) {
+      await tester.tap(find.text('I agree'));
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(find.byIcon(Icons.unfold_more_rounded));
+    await tester.pumpAndSettle();
+    expect(find.text('Groq'), findsOneWidget);
+    await tester.enterText(find.widgetWithText(TextField, 'Find a provider'), 'claude');
+    await tester.pumpAndSettle();
+    expect(find.text('Anthropic (Claude)'), findsOneWidget);
+    expect(find.text('Groq'), findsNothing);
+    expect(find.text('Another service'), findsOneWidget, reason: 'always offered, last');
+    await tester.tap(find.text('Anthropic (Claude)'));
+    await tester.pumpAndSettle();
+    expect(find.text('Find a provider'), findsNothing, reason: 'the list closed');
+    expect(find.text(AiProvider.anthropic.note), findsOneWidget, reason: 'the provider chosen: its note under its field');
+    expect(find.text('Anthropic (Claude)'), findsNWidgets(2), reason: "in its field, and offered as the key's name");
+  });
+
   testWidgets('nothing is sent before the reader agrees: asked once, before the first key', (tester) async {
     await pump(tester);
     await tester.tap(find.text('Add a key'));

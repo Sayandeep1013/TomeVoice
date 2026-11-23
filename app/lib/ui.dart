@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show BoxHitTestResult, RenderProxyBox;
 
 import 'scene.dart';
+import 'motion.dart';
 import 'theme.dart';
 
 /// The shared pieces every screen is built from. Each exists once, so a
@@ -256,7 +257,9 @@ class _ChoiceRowState<T> extends State<ChoiceRow<T>> {
           if (options.isNotEmpty)
             AnimatedPositioned(
               duration: duration,
-              curve: Motion.emphasized,
+              // It slides with a spring: a little past the chosen segment,
+              // stretching, and back.
+              curve: Motion.arrive,
               left: left,
               width: spans[at],
               top: 0,
@@ -440,7 +443,9 @@ class SettingRow extends StatelessWidget {
   final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) => InkWell(
+  Widget build(BuildContext context) => Jelly.listen(
+        strength: onTap == null ? 0 : 0.22,
+        child: InkWell(
         onTap: onTap,
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 56),
@@ -480,6 +485,7 @@ class SettingRow extends StatelessWidget {
             ),
           ),
         ),
+      ),
       );
 }
 
@@ -501,7 +507,9 @@ class SwitchRow extends StatelessWidget {
   final EdgeInsets padding;
 
   @override
-  Widget build(BuildContext context) => InkWell(
+  Widget build(BuildContext context) => Jelly.listen(
+        strength: 0.22,
+        child: InkWell(
         onTap: () => onChanged(!value),
         child: Padding(
           padding: padding,
@@ -523,10 +531,23 @@ class SwitchRow extends StatelessWidget {
             ],
           ),
         ),
+      ),
       );
 }
 
 /// The one search field.
+/// Whether [text] is found by [query]: each word typed starts a word of the
+/// text ("back up" finds "Back up library", "ai" finds "AI settings" but not
+/// "Daily"). A query of no words (only marks) is looked for as it is.
+bool wordsMatch(String text, String query) {
+  final split = RegExp(r'[^\p{L}\p{N}]+', unicode: true);
+  final q = query.trim().toLowerCase();
+  final asked = q.split(split).where((w) => w.isNotEmpty).toList();
+  if (asked.isEmpty) return q.isNotEmpty && text.toLowerCase().contains(q);
+  final has = text.toLowerCase().split(split);
+  return asked.every((w) => has.any((h) => h.startsWith(w)));
+}
+
 class SearchField extends StatelessWidget {
   const SearchField({
     super.key,
@@ -587,10 +608,11 @@ class EmptyState extends StatelessWidget {
           children: [
             // A scene theme's own picture (a candle on a skull, glowing
             // mushrooms, a ringed planet) in place of the icon.
-            if (Skin.sceneOf(context) case final scene?)
-              SceneEmptyArt(scene)
-            else
-              Icon(icon, size: 40, color: Skin.accentInkOf(context).withValues(alpha: 0.85)),
+            Bob(
+              child: Skin.sceneOf(context) != null
+                  ? SceneEmptyArt(Skin.sceneOf(context)!)
+                  : Icon(icon, size: 40, color: Skin.accentInkOf(context).withValues(alpha: 0.85)),
+            ),
             const SizedBox(height: Gap.l),
             Text(title, textAlign: TextAlign.center, style: Skin.heading(context, size: 24)),
             const SizedBox(height: Gap.s),
@@ -626,7 +648,9 @@ class SheetAction extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = danger ? Skin.dangerOn(context) : Skin.inkOn(context);
-    return InkWell(
+    return Jelly.listen(
+      strength: 0.22,
+      child: InkWell(
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: Gap.xl, vertical: 14),
@@ -648,6 +672,7 @@ class SheetAction extends StatelessWidget {
           ],
         ),
       ),
+    ),
     );
   }
 }
@@ -669,8 +694,10 @@ class SheetHeader extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title,
-                      maxLines: 2, overflow: TextOverflow.ellipsis, style: Skin.heading(context, size: 24)),
+                  PopIn(
+                    child: Text(title,
+                        maxLines: 2, overflow: TextOverflow.ellipsis, style: Skin.heading(context, size: 24)),
+                  ),
                   if (subtitle != null) ...[
                     const SizedBox(height: Gap.xs),
                     Text(subtitle!.toUpperCase(), style: Skin.meta(context)),
@@ -1147,7 +1174,11 @@ class _Reveal extends AnimatedWidget {
 /// a beat after the one before. A row built later (scrolled to, or rebuilt)
 /// is simply there: lists do not animate while you scroll them.
 class Entrance extends StatefulWidget {
-  const Entrance({super.key, required this.index, required this.since, required this.child});
+  const Entrance({super.key, required this.index, required this.since, required this.child, this.always = false});
+
+  /// It comes in whenever it is first built, however long after [since]
+  /// (the menu's rows, built as it opens).
+  final bool always;
 
   /// The row's place in the list.
   final int index;
@@ -1167,19 +1198,24 @@ class Entrance extends StatefulWidget {
 class _EntranceState extends State<Entrance> with SingleTickerProviderStateMixin {
   AnimationController? _controller;
   CurvedAnimation? _curve;
+  CurvedAnimation? _spring;
   Animation<double> get _t => _curve ?? kAlwaysCompleteAnimation;
+
+  /// The rise and the size, on a spring: a touch past, and back.
+  Animation<double> get _s => _spring ?? kAlwaysCompleteAnimation;
 
   @override
   void initState() {
     super.initState();
     final since = widget.since;
-    if (since == null || DateTime.now().difference(since) > Entrance.window) return;
+    if (!widget.always && (since == null || DateTime.now().difference(since) > Entrance.window)) return;
     // At most eight beats, so a long list does not keep the last rows waiting.
     final delay = 35.0 * widget.index.clamp(0, 8);
-    final total = delay + Motion.page.inMilliseconds;
+    final total = delay + Motion.page.inMilliseconds + 120;
     final controller = AnimationController(vsync: this, duration: Duration(milliseconds: total.round()));
     _controller = controller;
     _curve = CurvedAnimation(parent: controller, curve: Interval(delay / total, 1, curve: Motion.out));
+    _spring = CurvedAnimation(parent: controller, curve: Interval(delay / total, 1, curve: Motion.arrive));
   }
 
   @override
@@ -1197,6 +1233,7 @@ class _EntranceState extends State<Entrance> with SingleTickerProviderStateMixin
   @override
   void dispose() {
     _curve?.dispose();
+    _spring?.dispose();
     _controller?.dispose();
     super.dispose();
   }
@@ -1208,9 +1245,16 @@ class _EntranceState extends State<Entrance> with SingleTickerProviderStateMixin
     return FadeTransition(
       opacity: _t,
       child: AnimatedBuilder(
-        animation: _t,
+        animation: _s,
         child: widget.child,
-        builder: (context, child) => Transform.translate(offset: Offset(0, 14 * (1 - _t.value)), child: child),
+        builder: (context, child) {
+          final v = _s.value;
+          return Transform(
+            alignment: Alignment.bottomCenter,
+            transform: Matrix4.translationValues(0, 18 * (1 - v), 0)..scaleByDouble(0.96 + 0.04 * v, 0.96 + 0.04 * v, 1, 1),
+            child: child,
+          );
+        },
       ),
     );
   }

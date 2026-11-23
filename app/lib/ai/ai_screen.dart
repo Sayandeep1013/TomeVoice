@@ -565,7 +565,8 @@ class _KeySheetState extends State<KeySheet> {
     });
   }
 
-  AiEndpoint get _endpoint => AiEndpoint(baseUrl: _base.text.trim(), key: _secret.text.trim(), model: '');
+  AiEndpoint get _endpoint =>
+      AiEndpoint(baseUrl: _base.text.trim(), key: _secret.text.trim(), model: '', style: _provider.style);
 
   /// Asks the provider which models the key may use, and fills the jobs it
   /// has none for yet with a likely one.
@@ -592,8 +593,8 @@ class _KeySheetState extends State<KeySheet> {
       // What Talk and the Builder need of the model: tools, and JSON.
       final model = _models[AiJob.talker]!.text.trim();
       if (model.isNotEmpty) {
-        final can = await probeModel(
-            _client, AiEndpoint(baseUrl: _base.text.trim(), key: _secret.text.trim(), model: model));
+        final can = await probeModel(_client,
+            AiEndpoint(baseUrl: _base.text.trim(), key: _secret.text.trim(), model: model, style: _provider.style));
         if (mounted) setState(() => _checkNote = '${_checkNote ?? ''}\n$can');
       }
     } on AiError catch (e) {
@@ -819,23 +820,44 @@ class _KeySheetState extends State<KeySheet> {
   }
 }
 
-/// The providers to choose from, each with its note. Every row keeps the
-/// same mark slot before its name, filled for the chosen one.
-class _ProviderPicker extends StatelessWidget {
+/// The providers to choose from, each with its note, found by a search (by
+/// name or by what its note says: "free", "Claude"). Every row keeps the
+/// same mark slot before its name, filled for the chosen one. "Another
+/// service" is always there, last.
+class _ProviderPicker extends StatefulWidget {
   const _ProviderPicker({required this.chosen});
 
   final AiProvider chosen;
 
   @override
-  Widget build(BuildContext context) => SafeArea(
+  State<_ProviderPicker> createState() => _ProviderPickerState();
+}
+
+class _ProviderPickerState extends State<_ProviderPicker> {
+  String _q = '';
+
+  AiProvider get chosen => widget.chosen;
+
+  @override
+  Widget build(BuildContext context) {
+    final q = _q.trim();
+    final shown = [
+      for (final p in AiProvider.values)
+        if (q.isEmpty || p == AiProvider.custom || wordsMatch('${p.label} ${p.note}', q)) p,
+    ];
+    return SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.only(bottom: Gap.l),
+          padding: EdgeInsets.only(bottom: Gap.l + MediaQuery.viewInsetsOf(context).bottom),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const SheetHeader('Provider'),
-              for (final p in AiProvider.values)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(Gap.xl, 0, Gap.xl, Gap.s),
+                child: SearchField(hint: 'Find a provider', onChanged: (v) => setState(() => _q = v)),
+              ),
+              for (final p in shown)
                 InkWell(
                   onTap: () => Navigator.of(context).pop(p),
                   child: Padding(
@@ -879,6 +901,7 @@ class _ProviderPicker extends StatelessWidget {
           ),
         ),
       );
+  }
 }
 
 /// A likely model for [job] among [models]: Mercury's own; for Gemini a
@@ -913,6 +936,33 @@ String? suggestModel(AiProvider provider, AiJob job, List<String> models) {
           ? best((m) => has(m, ['deepseek', 'flash']) && chat(m)) ?? best((m) => has(m, ['deepseek']) && chat(m))
           : best((m) => has(m, ['deepseek']) && !has(m, ['flash']) && chat(m))
               ?? best((m) => has(m, ['deepseek']) && chat(m));
+    // Claude: Haiku to build (cheap, for a book's many chapters), Opus to
+    // talk.
+    case AiProvider.anthropic:
+      return job == AiJob.builder
+          ? (models.contains('claude-haiku-5-5') ? 'claude-haiku-5-5' : best((m) => has(m, ['haiku'])))
+          : (models.contains('claude-opus-5-5') ? 'claude-opus-5-5' : best((m) => has(m, ['opus'])));
+    case AiProvider.deepseek:
+      return job == AiJob.builder ? best((m) => has(m, ['flash']) && chat(m)) : best((m) => has(m, ['pro']) && chat(m));
+    case AiProvider.mistral:
+      return job == AiJob.builder
+          ? best((m) => has(m, ['small', 'latest'])) ?? best((m) => has(m, ['small']) && chat(m))
+          : best((m) => has(m, ['large']) && chat(m)) ?? best((m) => has(m, ['medium']) && chat(m));
+    case AiProvider.xai:
+      return job == AiJob.builder
+          ? best((m) => has(m, ['non-reasoning']) && chat(m)) ?? best((m) => has(m, ['grok']) && chat(m))
+          : best((m) => has(m, ['grok']) && !has(m, ['build']) && !has(m, ['non-reasoning']) && chat(m));
+    case AiProvider.zai || AiProvider.together || AiProvider.fireworks || AiProvider.huggingface || AiProvider.nvidia:
+      return job == AiJob.builder
+          ? best((m) => has(m, ['flash']) && chat(m))
+          : best((m) => (has(m, ['pro']) || has(m, ['glm-5'])) && !has(m, ['flash']) && chat(m)) ??
+              best((m) => !has(m, ['flash']) && chat(m));
+    case AiProvider.qwen:
+      return job == AiJob.builder ? best((m) => has(m, ['flash'])) : best((m) => has(m, ['max'])) ?? best((m) => has(m, ['plus']));
+    case AiProvider.cerebras:
+      return job == AiJob.builder ? best((m) => has(m, ['qwen'])) : best((m) => has(m, ['gpt-oss'])) ?? best(chat);
+    case AiProvider.moonshot:
+      return best((m) => has(m, ['k3', 'pro'])) ?? best((m) => has(m, ['kimi']));
     default:
       return null;
   }
@@ -985,14 +1035,14 @@ Future<String> probeModel(AiClient client, AiEndpoint to) async {
   bool? tools, json;
   try {
     final r = await client.chat(to, [aiMessage('user', 'Call the tool ping with the word "hello". Do nothing else.')],
-        tools: const [ping], maxTokens: 60);
+        tools: const [ping], maxTokens: 400);
     tools = r.toolCalls.any((c) => c.name == 'ping');
   } on Object {
     tools = false;
   }
   try {
     final r = await client.chat(to, [aiMessage('user', 'Reply with the JSON object {"ok": true} and nothing else.')],
-        json: true, maxTokens: 30);
+        json: true, maxTokens: 400);
     final t = r.text.trim().replaceAll(RegExp(r'^```(json)?|```$'), '').trim();
     json = jsonDecode(t) is Map;
   } on Object {

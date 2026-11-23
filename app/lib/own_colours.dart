@@ -193,4 +193,4 @@ Palette chosenPalette(ListeningPrefs? prefs) => switch (prefs?.paletteId) {
 /// The theme Settings shows as chosen: Forest for the wallpaper's on a
 /// phone that has no wallpaper colours.
 String chosenPaletteId(ListeningPrefs prefs) =>
-    prefs.paletteId == 'wallpaper' && WallpaperColours.palette == null ? 'forest' : prefs.paletteId;
+    prefs.paletteId == 'wallpaper' && WallpaperColours.palette == null ? 'forest' : Palette.idNow(prefs.paletteId)!;

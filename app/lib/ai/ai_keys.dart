@@ -23,13 +23,59 @@ enum AiProvider {
   openai('OpenAI', 'https://api.openai.com/v1', note: 'Paid by use.', embeds: true),
   agentrouter('AgentRouter', 'https://agentrouter.org/v1',
       note: 'A relay to many models (Claude, GPT, DeepSeek and others), with credit when you sign up. Your text '
-          'passes through it on its way to the model.'),
+          'passes through it on its way to the model.',
+      style: AiStyle(reasoning: true)),
   milionseek('100milionseek', 'https://100milionseek.top/v1',
       note: 'DeepSeek models, free for now, through a relay run by people not named on its site: your text '
-          'passes through it. Its keys start with hms-.'),
+          'passes through it. Its keys start with hms-.',
+      style: AiStyle(reasoning: true)),
+  anthropic('Anthropic (Claude)', 'https://api.anthropic.com/v1',
+      note: 'Claude models, paid by use. Make the key for one workspace. Its keys start with sk-ant-.',
+      style: AiStyle(anthropic: true, temperature: false, jsonObject: false)),
+  deepseek('DeepSeek', 'https://api.deepseek.com',
+      note: "DeepSeek's own models: cheap, with a context of a million tokens. Paid by use; DeepSeek handles "
+          'data in China.',
+      style: AiStyle(reasoning: true, noThinkingForJson: true)),
+  mistral('Mistral', 'https://api.mistral.ai/v1',
+      note: 'A free tier to try it. Mistral may use free-tier requests to improve its models unless you turn '
+          'that off.',
+      embeds: true),
+  xai('xAI (Grok)', 'https://api.x.ai/v1', note: 'Grok models, paid by use. Its keys start with xai-.'),
+  zai('Z.ai (GLM)', 'https://api.z.ai/api/paas/v4',
+      note: 'GLM models. GLM-4.7-Flash is free to use.',
+      style: AiStyle(models: ['glm-4.7-flash', 'glm-5.3-flash', 'glm-5.3'])),
+  qwen('Alibaba Cloud (Qwen)', 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+      note: "Qwen models, with a free allowance on each model for a new account's first 90 days. Use a key "
+          'from the Singapore region.',
+      embeds: true,
+      style: AiStyle(
+        models: ['qwen3.8-flash', 'qwen3.7-plus', 'qwen4-max', 'text-embedding-v4'],
+        embedBatch: 10,
+      )),
+  together('Together AI', 'https://api.together.ai/v1', note: 'Many open models, paid by use (from \$5).'),
+  fireworks('Fireworks AI', 'https://api.fireworks.ai/inference/v1',
+      note: 'Many open models, paid by use. It does not keep your text.',
+      embeds: true,
+      style: AiStyle(models: [
+        'accounts/fireworks/models/glm-5p3-flash',
+        'accounts/fireworks/models/deepseek-v4p1-flash',
+        'accounts/fireworks/models/glm-5p3',
+        'fireworks/qwen3-embedding-8b',
+      ])),
+  cerebras('Cerebras', 'https://api.cerebras.ai/v1',
+      note: 'Very fast open models, with a one-time trial credit. Its keys start with csk-.'),
+  moonshot('Moonshot (Kimi)', 'https://api.moonshot.ai/v1',
+      note: 'Kimi models, paid by use (from \$1).',
+      style: AiStyle(temperature: false, reasoning: true)),
+  huggingface('Hugging Face', 'https://router.huggingface.co/v1',
+      note: 'One token for many open models, paid by use. Your text passes through Hugging Face and the '
+          "model's provider on its way."),
+  nvidia('NVIDIA', 'https://integrate.api.nvidia.com/v1',
+      note: "Many models free to try, without a card, at a slow rate. NVIDIA's terms make the free tier for "
+          'trying models out. Its keys start with nvapi-.'),
   custom('Another service', '', note: 'Any service that speaks the OpenAI chat format: give its address.');
 
-  const AiProvider(this.label, this.baseUrl, {required this.note, this.embeds = false});
+  const AiProvider(this.label, this.baseUrl, {required this.note, this.embeds = false, this.style = AiStyle.plain});
 
   final String label;
   final String baseUrl;
@@ -37,6 +83,9 @@ enum AiProvider {
 
   /// Whether it has an embeddings endpoint, for meaning search.
   final bool embeds;
+
+  /// How it differs from the plain OpenAI format.
+  final AiStyle style;
 
   static AiProvider byName(String? name) => values.firstWhere((p) => p.name == name, orElse: () => custom);
 }
@@ -88,7 +137,8 @@ class AiKey {
   /// Reached (or about to be, by the next call), it rests until midnight.
   final int? dailyCap;
 
-  AiEndpoint endpoint(AiJob job) => AiEndpoint(baseUrl: baseUrl, key: secret, model: models[job] ?? '');
+  AiEndpoint endpoint(AiJob job) =>
+      AiEndpoint(baseUrl: baseUrl, key: secret, model: models[job] ?? '', style: provider.style);
 
   /// The secret shown: its last four characters.
   String get masked => secret.length <= 4 ? '••••' : '••••${secret.substring(secret.length - 4)}';
