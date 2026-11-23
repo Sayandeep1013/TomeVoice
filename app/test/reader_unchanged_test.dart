@@ -1222,7 +1222,10 @@ void main() {
     Future<Offset> secondPage(WidgetTester tester) async {
       await tester.drag(find.byType(PdfPagesView), const Offset(0, -350));
       await tester.pumpAndSettle();
-      final second = tester.getRect(find.byType(InteractiveViewer).at(1));
+      // Each page, by the widget that zooms it (its zoom viewer is there
+      // only while zoomed in).
+      final pages = find.byWidgetPredicate((w) => w.runtimeType.toString() == '_ZoomPage');
+      final second = tester.getRect(pages.at(1));
       return Offset(second.center.dx, second.top + 60);
     }
 
