@@ -1979,7 +1979,7 @@ void _sigil(Canvas c, Size s, double t) {
   if (k > 0.8) return;
   final drawn = Curves.easeInOut.transform((k / 0.45).clamp(0.0, 1.0));
   final fade = k < 0.6 ? 1.0 : 1 - (k - 0.6) / 0.2;
-  final centre = Offset(s.width * 0.5, s.height * 0.86);
+  final centre = Offset(s.width * 0.5, s.height * 0.72);
   final r = s.width * 0.3;
   const color = Color(0xFFD8E4FF);
   final glow = _glow(color.withValues(alpha: 0.35 * fade), 4)
