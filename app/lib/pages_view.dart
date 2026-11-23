@@ -1105,6 +1105,9 @@ class _ZoomPageState extends State<_ZoomPage> with SingleTickerProviderStateMixi
 
   @override
   Widget build(BuildContext context) => Listener(
+        // The whole page takes a finger, its blank parts too, as it did
+        // when the zoom viewer (opaque) was always round it.
+        behavior: HitTestBehavior.opaque,
         onPointerDown: _down,
         onPointerMove: _move,
         onPointerUp: _up,
@@ -1114,6 +1117,7 @@ class _ZoomPageState extends State<_ZoomPage> with SingleTickerProviderStateMixi
           _tapAt = null;
         },
         child: RawGestureDetector(
+          behavior: HitTestBehavior.opaque,
           excludeFromSemantics: true,
           gestures: {
             _Pinch: GestureRecognizerFactoryWithHandlers<_Pinch>(
