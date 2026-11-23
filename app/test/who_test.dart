@@ -59,6 +59,18 @@ FoundCard _card(String name) => (name: name, items: [PackItem('Card: $name', '$n
 
 void main() {
   group('the name a held word is part of', () {
+    test('a lone small word held by chance is not asked about; a name, or any longer guess, is', () {
+      for (final w in ['of', 'the', 'The', 'and', 'was', 'him', 'into', 'very']) {
+        expect(namesSomething(w), isFalse, reason: w);
+      }
+      for (final w in ['Nine', 'the Nine', 'six', 'castles', 'six finger', 'Victor']) {
+        expect(namesSomething(w), isTrue, reason: w);
+      }
+      // Held on "the" in "the Nine", the guess is the name, so it is offered.
+      expect(namesSomething(_guess('Then the Nine came down.', 'Nine')), isTrue);
+      expect(namesSomething(''), isFalse);
+    });
+
     test('capitalised words next to it join it', () {
       expect(_guess('Six Finger walked into the hall.', 'Finger'), 'Six Finger');
       expect(_guess('Six Finger walked into the hall.', 'Six'), 'Six Finger');

@@ -64,7 +64,7 @@ Future<String?> showSentenceActions(
                     detail: 'What it means here, from what the AI remembers of the book',
                     onTap: () => Navigator.pop(ctx, 'explain'),
                   ),
-                if (word.isNotEmpty)
+                if (word.isNotEmpty && namesSomething(guessPhrase(sentence, word).text))
                   SheetAction(
                     icon: Icons.person_search_rounded,
                     label: 'Who or what is "${guessPhrase(sentence, word).text}"?',

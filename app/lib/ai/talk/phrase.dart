@@ -27,6 +27,22 @@ const _starters = {
   'yes', 'yesterday', 'yet', 'you', 'your', 'we', 'well', 'with', 'without',
 };
 
+/// Small words that never name anyone or anything on their own.
+const _plain = {
+  'am', 'are', 'be', 'been', 'being', 'did', 'do', 'does', 'had', 'has', 'have', 'him', 'is', 'me', 'them',
+  'us', 'was', 'were', 'about', 'into', 'out', 'up', 'than', 'very', 'over', 'under', 'upon', 'off',
+};
+
+/// Whether "Who or what is [phrase]?" is worth asking: not for a lone small
+/// word like "of", "the" or "was" (held by chance on the way to a name).
+bool namesSomething(String phrase) {
+  final words = phraseWords(phrase);
+  if (words.isEmpty) return false;
+  if (words.length > 1) return true;
+  final w = words.single.text.toLowerCase();
+  return !_starters.contains(w) && !_inside.contains(w) && !_plain.contains(w);
+}
+
 /// Titles written with a full stop that still run on into the name.
 const _titles = {'mr', 'mrs', 'ms', 'dr', 'st', 'prof', 'sr', 'jr', 'mt'};
 
