@@ -139,8 +139,17 @@ class _PdfPagesViewState extends State<PdfPagesView> {
   final _scroll = ItemScrollController();
   final _positions = ItemPositionsListener.create();
 
-  /// Each page drawn, by page, width and whether cut.
-  final _renders = <String, Future<ShownPage>>{};
+  /// Each page drawn or waiting to be, by page, width and whether cut.
+  final _renders = <String, _Draw>{};
+
+  /// Drawings being made now; at most [_drawing] at once (see [_pump]).
+  int _inFlight = 0;
+  static const _drawing = 2;
+
+  /// Counts up as pages are asked for: the newest asked is drawn first.
+  int _asked = 0;
+  bool _pumpDue = false;
+  bool _gone = false;
   int _pageCount = 0;
   List<double> _aspects = const [];
   int _current = 0;
@@ -188,6 +197,9 @@ class _PdfPagesViewState extends State<PdfPagesView> {
     widget.cursor.removeListener(_onCursor);
     widget.detached.removeListener(_onDetached);
     ListeningPrefs.revision.removeListener(_onPrefs);
+    // Pages not begun are not drawn for a book that has gone.
+    _gone = true;
+    _renders.removeWhere((_, d) => !d.started);
     _turner.dispose();
     _unzoom.dispose();
     super.dispose();
@@ -246,22 +258,92 @@ class _PdfPagesViewState extends State<PdfPagesView> {
   Future<Rect?> _printOf(int index) =>
       _prints.putIfAbsent(index, () async => (await _svc.pdfPrint(widget.path, [index])).single);
 
+  /// The drawing of page [index] at [px] wide, as the plan has it now: the
+  /// one asked for before, or a new one waiting its turn.
+  String _keyOf(int index, int px) => '$index@$px${_plan == null ? '' : ' cut'}';
+
   /// Page [index] drawn [px] wide: cut as the plan has it once its print is
-  /// found, else whole.
-  Future<ShownPage> _render(int index, int px) {
-    final plan = _plan;
-    return _renders.putIfAbsent('$index@$px${plan == null ? '' : ' cut'}', () async {
-      final aspect = index < _aspects.length ? _aspects[index] : 0.0;
-      Rect? crop;
-      if (plan != null && plan.fits(aspect)) {
-        try {
-          crop = plan.cropFor(index, await _printOf(index), aspect);
-        } on Object {
-          // Its print not found: the page shows whole.
+  /// found, else whole. Asked for by a page on screen ([_PageImage], which
+  /// lets it go as it leaves) or [keep]: drawn even with no page showing it
+  /// (a leaf drawn ahead).
+  ///
+  /// Pages are drawn [_drawing] at a time, the newest asked first: after a
+  /// fling the page landed on comes next, not after every page passed, and
+  /// a page passed (let go before it began) is not drawn at all. A drawing
+  /// that failed is forgotten, so the page asks again (see [_PageImage]).
+  _Draw _want(int index, int px, {bool keep = false}) {
+    final key = _keyOf(index, px);
+    final draw = _renders.putIfAbsent(key, () {
+      final plan = _plan;
+      return _Draw(key, () async {
+        final aspect = index < _aspects.length ? _aspects[index] : 0.0;
+        Rect? crop;
+        if (plan != null && plan.fits(aspect)) {
+          try {
+            crop = plan.cropFor(index, await _printOf(index), aspect);
+          } on Object {
+            // Its print not found: the page shows whole.
+          }
         }
-      }
-      return ShownPage(await _svc.pdfRender(widget.path, index, px, crop: crop), crop: crop);
+        return ShownPage(await _svc.pdfRender(widget.path, index, px, crop: crop), crop: crop);
+      });
     });
+    if (keep) {
+      draw.keep = true;
+    } else {
+      draw.holders++;
+    }
+    if (!draw.started) draw.asked = ++_asked;
+    _schedulePump();
+    return draw;
+  }
+
+  /// A page on screen no longer shows [draw]; not begun and wanted by no
+  /// other, it is not drawn.
+  void _letGo(_Draw draw) {
+    draw.holders--;
+    if (draw.holders <= 0 && !draw.keep && !draw.started && _renders[draw.key] == draw) {
+      _renders.remove(draw.key);
+    }
+  }
+
+  /// The pump after this frame's pages have all asked, so the newest of
+  /// them is the one drawn first.
+  void _schedulePump() {
+    if (_pumpDue) return;
+    _pumpDue = true;
+    scheduleMicrotask(() {
+      _pumpDue = false;
+      _pump();
+    });
+  }
+
+  void _pump() {
+    while (!_gone && _inFlight < _drawing) {
+      _Draw? next;
+      for (final d in _renders.values) {
+        if (d.started || (d.holders <= 0 && !d.keep)) continue;
+        if (next == null || d.asked > next.asked) next = d;
+      }
+      final draw = next;
+      if (draw == null) return;
+      draw.started = true;
+      _inFlight++;
+      unawaited(() async {
+        try {
+          final shown = await draw.make();
+          draw.shown = shown;
+          draw.done.complete(shown);
+        } on Object catch (e) {
+          // Forgotten, so it is drawn again when asked.
+          if (_renders[draw.key] == draw) _renders.remove(draw.key);
+          draw.done.completeError(e);
+        } finally {
+          _inFlight--;
+          _pump();
+        }
+      }());
+    }
   }
 
   /// Pixels across for a page [width] wide here, rounded up so a small
@@ -275,7 +357,7 @@ class _PdfPagesViewState extends State<PdfPagesView> {
     final px = _px(context, width);
     for (var side = 0; side < _per; side++) {
       final page = item * _per + side;
-      if (page < pages) _render(page, px).ignore();
+      if (page < pages) _want(page, px, keep: true);
     }
   }
 
@@ -597,23 +679,27 @@ class _PdfPagesViewState extends State<PdfPagesView> {
 
   /// Page [index] rendered for a width of [width], fading in over its number.
   /// A page shown whole in a cut page's leaf sits in the middle of it.
-  Widget _image(BuildContext context, int index, double width) => FutureBuilder<ShownPage>(
-        future: _render(index, _px(context, width)),
-        builder: (context, snap) {
-          final shown = snap.data;
-          final number = Center(
-            child: Text('${index + 1}', style: Skin.meta(context, color: Skin.inkFaint, size: 11)),
-          );
-          if (shown == null) return number;
-          return Image.file(
-            File(shown.file),
-            fit: BoxFit.contain,
-            gaplessPlayback: true,
-            filterQuality: FilterQuality.medium,
-            frameBuilder: fadeInOver(number),
-          );
-        },
-      );
+  Widget _image(BuildContext context, int index, double width) {
+    final px = _px(context, width);
+    return _PageImage(
+      id: _keyOf(index, px),
+      want: () => _want(index, px),
+      letGo: _letGo,
+      builder: (context, shown) {
+        final number = Center(
+          child: Text('${index + 1}', style: Skin.meta(context, color: Skin.inkFaint, size: 11)),
+        );
+        if (shown == null) return number;
+        return Image.file(
+          File(shown.file),
+          fit: BoxFit.contain,
+          gaplessPlayback: true,
+          filterQuality: FilterQuality.medium,
+          frameBuilder: fadeInOver(number),
+        );
+      },
+    );
+  }
 
   Widget _page(BuildContext context, int index, double aspect) {
     final current = index == _current;
@@ -626,7 +712,7 @@ class _PdfPagesViewState extends State<PdfPagesView> {
       padding: const EdgeInsets.only(bottom: 12),
       child: LayoutBuilder(
         builder: (context, c) {
-          final drawn = _render(index, _px(context, c.maxWidth));
+          final px = _px(context, c.maxWidth);
           // Press and hold offers what to do at the page: a tap (to stop a
           // fling) must not move the voice. A screen reader's double tap
           // reads from the page, as its label says.
@@ -660,10 +746,11 @@ class _PdfPagesViewState extends State<PdfPagesView> {
                     onZoom: _onZoom,
                     // A tap on the scrolling pages does nothing else.
                     quiet: (_, __) => true,
-                    child: _ink(FutureBuilder<ShownPage>(
-                      future: drawn,
-                      builder: (context, snap) {
-                        final shown = snap.data;
+                    child: _ink(_PageImage(
+                      id: _keyOf(index, px),
+                      want: () => _want(index, px),
+                      letGo: _letGo,
+                      builder: (context, shown) {
                         final number = Center(
                           child: Text('${index + 1}', style: Skin.meta(context, color: Skin.inkFaint, size: 11)),
                         );
@@ -688,6 +775,107 @@ class _PdfPagesViewState extends State<PdfPagesView> {
       ),
     );
   }
+}
+
+/// One page's drawing at one width, waiting its turn, being made, or made
+/// (see _PdfPagesViewState._want).
+class _Draw {
+  _Draw(this.key, this.make) {
+    // Failed with nobody left to show it: not an error of the app's.
+    done.future.ignore();
+  }
+
+  final String key;
+  final Future<ShownPage> Function() make;
+  final done = Completer<ShownPage>();
+
+  /// Made: shown at once by a page built again (scrolled back to).
+  ShownPage? shown;
+
+  /// Pages on screen showing it; drawn even with none when [keep].
+  int holders = 0;
+  bool keep = false;
+  bool started = false;
+
+  /// When it was last asked for: the newest asked is drawn first.
+  int asked = 0;
+}
+
+/// A page's drawing, asked for while this is on screen and let go as it
+/// leaves; its number shows until it is made. One that fails is asked for
+/// again a few times, a little later each time (a page drawn when memory
+/// was short draws once there is room), instead of staying a number.
+class _PageImage extends StatefulWidget {
+  const _PageImage({required this.id, required this.want, required this.letGo, required this.builder});
+
+  /// Which drawing (page, width, cut): another asks again.
+  final String id;
+  final _Draw Function() want;
+  final void Function(_Draw draw) letGo;
+  final Widget Function(BuildContext context, ShownPage? shown) builder;
+
+  @override
+  State<_PageImage> createState() => _PageImageState();
+}
+
+class _PageImageState extends State<_PageImage> {
+  static const _tries = 3;
+
+  _Draw? _draw;
+  ShownPage? _shown;
+  int _failed = 0;
+  Timer? _again;
+
+  @override
+  void initState() {
+    super.initState();
+    _ask();
+  }
+
+  void _ask() {
+    final draw = widget.want();
+    _draw = draw;
+    final made = draw.shown;
+    if (made != null) {
+      _shown = made;
+      return;
+    }
+    draw.done.future.then((shown) {
+      if (mounted && _draw == draw) setState(() => _shown = shown);
+    }, onError: (Object _) {
+      if (!mounted || _draw != draw) return;
+      widget.letGo(draw);
+      _draw = null;
+      if (_failed >= _tries) return;
+      _failed++;
+      _again = Timer(Duration(milliseconds: 800 * _failed), () {
+        if (mounted) setState(_ask);
+      });
+    });
+  }
+
+  @override
+  void didUpdateWidget(_PageImage old) {
+    super.didUpdateWidget(old);
+    if (old.id == widget.id) return;
+    // Another width or cut: the one shown stays until the new one is made.
+    _again?.cancel();
+    final draw = _draw;
+    if (draw != null) old.letGo(draw);
+    _failed = 0;
+    _ask();
+  }
+
+  @override
+  void dispose() {
+    _again?.cancel();
+    final draw = _draw;
+    if (draw != null) widget.letGo(draw);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context, _shown);
 }
 
 /// One page, zoomed by a pinch or by two taps, and moved under a finger

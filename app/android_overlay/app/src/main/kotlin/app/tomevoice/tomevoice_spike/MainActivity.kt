@@ -242,7 +242,7 @@ class MainActivity : FlutterActivity() {
                     val path = call.argument<String>("path").orEmpty()
                     pages.execute {
                         try {
-                            val info = PdfPages.info(path)
+                            val info = PdfPages.info(path, cacheDir)
                             main.post { result.success(info) }
                         } catch (e: Throwable) {
                             main.post { result.error("PDF_PAGES", e.message ?: "Cannot show pages", null) }
