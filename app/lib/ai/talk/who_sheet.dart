@@ -75,6 +75,7 @@ class _WhoSheetState extends State<WhoSheet> {
   @override
   void initState() {
     super.initState();
+    _lastText = _field.text;
     _field.addListener(_changed);
   }
 
@@ -85,7 +86,8 @@ class _WhoSheetState extends State<WhoSheet> {
     super.dispose();
   }
 
-  late String _lastText = _field.text;
+  /// The words when last looked at (set as the sheet opens).
+  late String _lastText;
 
   void _changed() {
     // The cursor moving is no change of words.
