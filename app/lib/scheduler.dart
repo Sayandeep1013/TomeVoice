@@ -110,6 +110,7 @@ class PlaybackScheduler {
     this.dialogueVoiceOf,
     this.pitchOf,
     this.quoteOpenAt,
+    this.quickStart = true,
     this.fallbackVoiceOf,
     this.speakers,
     this.narration,
@@ -142,6 +143,10 @@ class PlaybackScheduler {
   /// Whether a quotation is open where unit i begins (said on from an
   /// earlier sentence of its paragraph), when that can be told.
   final bool Function(int index)? quoteOpenAt;
+
+  /// A start in a natural voice makes the first clause of its first
+  /// sentence alone, so the voice is heard sooner (see [firstClauseEnd]).
+  final bool quickStart;
 
   /// The phone's own voice for the book's language: what reads on when a
   /// natural voice fails (docs/04 section 4.9), rather than sentences being
@@ -785,11 +790,11 @@ class PlaybackScheduler {
         // heard until it is all made (seconds, for a long one with a slow
         // voice). Its first clause is made and queued alone, then the rest.
         final plain = quoted == null || (open != true && !text.contains(_quoteMark));
-        final cut = _chunks.isEmpty && plain && isNeural(narrator) ? firstClauseEnd(text) : -1;
+        final cut = quickStart && _chunks.isEmpty && plain && isNeural(narrator) ? firstClauseEnd(text) : -1;
         if (cut > 0) {
           final head = await makeSentence(
             service: service,
-            text: text.substring(0, cut),
+            text: text.substring(0, cut).trimRight(),
             settings: settings,
             engineId: engineIdOf(),
             narrator: narrator,
@@ -1064,8 +1069,14 @@ class PlaybackScheduler {
 /// Where the first clause of [text] ends (just after its comma, semicolon,
 /// colon or dash), for a first sentence made in two parts; -1 when the
 /// sentence is short, or has no such mark with enough on both sides.
+///
+/// A sentence long enough for a natural voice to make in pieces
+/// ([clausePieces]) is cut where its first piece ends, so the head is that
+/// piece.
 int firstClauseEnd(String text, {int minHead = 30, int minTail = 25, int minLength = 70}) {
   if (text.length < minLength) return -1;
+  final pieces = clausePieces(text);
+  if (pieces.length > 1) return pieces[1].start;
   for (var i = minHead; i < text.length - minTail; i++) {
     final c = text.codeUnitAt(i);
     // , ; : and the en and em dashes.

@@ -739,6 +739,8 @@ class NeuralVoices extends ChangeNotifier {
         keepPart = false;
         rethrow;
       }
+      // Unpacked: the archive is not kept.
+      keepPart = false;
       _here = null;
       _speeds.remove(key);
       downloading.remove(key);
