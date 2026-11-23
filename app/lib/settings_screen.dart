@@ -5,7 +5,7 @@ import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show PlatformException;
-import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
+import 'package:flutter/rendering.dart' show RenderRepaintBoundary, ScrollCacheExtent;
 import 'package:tomevoice_audio/tomevoice_audio.dart';
 
 import 'app_update.dart';
