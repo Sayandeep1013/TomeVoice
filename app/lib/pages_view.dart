@@ -267,15 +267,16 @@ class _PdfPagesViewState extends State<PdfPagesView> {
   /// lets it go as it leaves) or [keep]: drawn even with no page showing it
   /// (a leaf drawn ahead).
   ///
-  /// Pages are drawn [_drawing] at a time, the newest asked first: after a
-  /// fling the page landed on comes next, not after every page passed, and
-  /// a page passed (let go before it began) is not drawn at all. A drawing
+  /// Pages are drawn [_drawing] at a time: those on screen first, then the
+  /// nearest, the newest asked first among equals. After a fling the page
+  /// landed on comes next, not after every page passed, and a page passed
+  /// (let go before it began) is not drawn at all. A drawing
   /// that failed is forgotten, so the page asks again (see [_PageImage]).
   _Draw _want(int index, int px, {bool keep = false}) {
     final key = _keyOf(index, px);
     final draw = _renders.putIfAbsent(key, () {
       final plan = _plan;
-      return _Draw(key, () async {
+      return _Draw(key, index, () async {
         final aspect = index < _aspects.length ? _aspects[index] : 0.0;
         Rect? crop;
         if (plan != null && plan.fits(aspect)) {
@@ -318,12 +319,35 @@ class _PdfPagesViewState extends State<PdfPagesView> {
     });
   }
 
+  /// How far page [index] is from the pages on screen, scrolled (0: on
+  /// it). The list builds two screens either side ahead of time, and those
+  /// wait for the ones being looked at. Turned as a book, only the leaves
+  /// shown and the next are asked for: all 0.
+  int _offScreen(int index) {
+    if (widget.turn != null || !_scroll.isAttached) return 0;
+    int? lo, hi;
+    for (final p in _positions.itemPositions.value) {
+      if (p.itemTrailingEdge <= 0 || p.itemLeadingEdge >= 1) continue;
+      if (lo == null || p.index < lo) lo = p.index;
+      if (hi == null || p.index > hi) hi = p.index;
+    }
+    if (lo == null || hi == null) return 0;
+    if (index < lo) return lo - index;
+    if (index > hi) return index - hi;
+    return 0;
+  }
+
   void _pump() {
     while (!_gone && _inFlight < _drawing) {
       _Draw? next;
+      var nextOff = 0;
       for (final d in _renders.values) {
         if (d.started || (d.holders <= 0 && !d.keep)) continue;
-        if (next == null || d.asked > next.asked) next = d;
+        final off = _offScreen(d.index);
+        if (next == null || off < nextOff || (off == nextOff && d.asked > next.asked)) {
+          next = d;
+          nextOff = off;
+        }
       }
       final draw = next;
       if (draw == null) return;
@@ -780,12 +804,13 @@ class _PdfPagesViewState extends State<PdfPagesView> {
 /// One page's drawing at one width, waiting its turn, being made, or made
 /// (see _PdfPagesViewState._want).
 class _Draw {
-  _Draw(this.key, this.make) {
+  _Draw(this.key, this.index, this.make) {
     // Failed with nobody left to show it: not an error of the app's.
     done.future.ignore();
   }
 
   final String key;
+  final int index;
   final Future<ShownPage> Function() make;
   final done = Completer<ShownPage>();
 

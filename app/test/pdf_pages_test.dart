@@ -229,7 +229,7 @@ void main() {
   });
 
   testWidgets(
-      'scrolled, pages are drawn two at a time, the newest asked first: after a long scroll the pages on screen '
+      'scrolled, pages are drawn two at a time, those on screen first: after a long scroll the pages landed on '
       'come next, those passed are not drawn, and one that failed is drawn again', (tester) async {
     // A long scan whose pages take as long as the test says.
     final waiting = <({int page, Completer<String> done})>[];
