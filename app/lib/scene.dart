@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -437,7 +436,7 @@ class _Dungeon {
   void _chain(Offset top, double length) {
     final link = Paint()
       ..shader = ui.Gradient.linear(top - const Offset(5, 0), top + const Offset(5, 0),
-          const [Color(0xFF1E100A), Color(0xFF8A4A24), Color(0xFF1E100A)])
+          const [Color(0xFF1E100A), Color(0xFF8A4A24), Color(0xFF1E100A)], const [0, 0.5, 1])
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.6;
     var y = top.dy;
@@ -495,7 +494,7 @@ class _Dungeon {
   void _bones(Offset at) {
     void bone(Offset a, Offset b) {
       final paint = Paint()
-        ..shader = ui.Gradient.linear(a, b, const [Color(0xFFBFAE88), Color(0xFF8F7D5C), Color(0xFF5A4C38)])
+        ..shader = ui.Gradient.linear(a, b, const [Color(0xFFBFAE88), Color(0xFF8F7D5C), Color(0xFF5A4C38)], const [0, 0.5, 1])
         ..strokeWidth = 4.5
         ..strokeCap = StrokeCap.round;
       c.drawLine(a, b, paint);
@@ -549,7 +548,7 @@ class _Dungeon {
     c.translate(cup.dx, cup.dy);
     c.rotate(0.18 * toCentre);
     c.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(-3.5, -4, 7, 40), const Radius.circular(2)),
-        Paint()..shader = ui.Gradient.linear(const Offset(-4, 0), const Offset(4, 0), const [Color(0xFF2A160A), Color(0xFF5A341A), Color(0xFF24120A)]));
+        Paint()..shader = ui.Gradient.linear(const Offset(-4, 0), const Offset(4, 0), const [Color(0xFF2A160A), Color(0xFF5A341A), Color(0xFF24120A)], const [0, 0.5, 1]));
     c.drawPath(
       Path()
         ..moveTo(-8, -10)
@@ -1014,7 +1013,7 @@ void paintCoverFrame(Canvas c, Rect rect, Scene scene, double radius) {
       c.drawRRect(
         rr,
         Paint()
-          ..shader = ui.Gradient.linear(rect.topLeft, rect.bottomRight, const [Color(0xFF5E3B1F), Color(0xFF3A2414), Color(0xFF6A4424), Color(0xFF2E1C10)])
+          ..shader = ui.Gradient.linear(rect.topLeft, rect.bottomRight, const [Color(0xFF5E3B1F), Color(0xFF3A2414), Color(0xFF6A4424), Color(0xFF2E1C10)], const [0, 0.35, 0.65, 1])
           ..style = PaintingStyle.stroke
           ..strokeWidth = t,
       );
@@ -1339,7 +1338,7 @@ class _OrnamentPainter extends CustomPainter {
         // A rotting hand reaching up from the rubble, by a candle stub.
         final base = Offset(s.width * 0.42, s.height);
         final hand = Paint()
-          ..shader = ui.Gradient.linear(base, base - Offset(0, s.height * 0.8), const [Color(0xFF2A3420), Color(0xFF5A6A40), Color(0xFF7A8058)]);
+          ..shader = ui.Gradient.linear(base, base - Offset(0, s.height * 0.8), const [Color(0xFF2A3420), Color(0xFF5A6A40), Color(0xFF7A8058)], const [0, 0.5, 1]);
         c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(base.dx - 9, base.dy - s.height * 0.45, 18, s.height * 0.45), const Radius.circular(6)), hand);
         final palm = base - Offset(0, s.height * 0.5);
         c.drawOval(Rect.fromCenter(center: palm, width: 30, height: 26), hand);
