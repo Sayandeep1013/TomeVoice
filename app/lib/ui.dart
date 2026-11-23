@@ -1203,7 +1203,7 @@ class _EntranceState extends State<Entrance> with SingleTickerProviderStateMixin
     final controller = AnimationController(vsync: this, duration: Duration(milliseconds: total.round()));
     _controller = controller;
     _curve = CurvedAnimation(parent: controller, curve: Interval(delay / total, 1, curve: Motion.out));
-    _spring = CurvedAnimation(parent: controller, curve: Interval(delay / total, 1, curve: Motion.pop));
+    _spring = CurvedAnimation(parent: controller, curve: Interval(delay / total, 1, curve: Motion.arrive));
   }
 
   @override
@@ -1239,7 +1239,7 @@ class _EntranceState extends State<Entrance> with SingleTickerProviderStateMixin
           final v = _s.value;
           return Transform(
             alignment: Alignment.bottomCenter,
-            transform: Matrix4.translationValues(0, 26 * (1 - v), 0)..scaleByDouble(0.92 + 0.08 * v, 0.92 + 0.08 * v, 1, 1),
+            transform: Matrix4.translationValues(0, 18 * (1 - v), 0)..scaleByDouble(0.96 + 0.04 * v, 0.96 + 0.04 * v, 1, 1),
             child: child,
           );
         },

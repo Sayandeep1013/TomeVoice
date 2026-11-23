@@ -526,7 +526,10 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
         if (mounted && shown != _page) setState(() => _page = shown);
       });
     } else {
-      unawaited(_pages.animateToPage(page, duration: Motion.page, curve: Motion.emphasized));
+      // Off at once and easing to a stop: a tapped shelf moves the moment
+      // the pill is touched (the emphasized curve's slow start felt like a
+      // lag).
+      unawaited(_pages.animateToPage(page, duration: const Duration(milliseconds: 360), curve: Curves.easeOutCubic));
     }
   }
 

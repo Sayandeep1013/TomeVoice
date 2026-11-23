@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import 'book_tint.dart';
 import 'library_store.dart';
-import 'motion.dart';
 import 'prefs.dart';
 import 'scene.dart';
 import 'stats.dart' show dayStartsAtHour;
@@ -296,9 +295,7 @@ class BookRow extends StatelessWidget {
     final radius = BorderRadius.circular(Radii.row + 4);
     final duration = Motion.of(context, Motion.quick);
     // The fill eases between plain and chosen with the border below.
-    return Jelly.listen(
-      strength: 0.3,
-      child: TweenAnimationBuilder<Color?>(
+    return TweenAnimationBuilder<Color?>(
       tween: ColorTween(end: selected ? Skin.accentOf(context).withValues(alpha: 0.14) : Skin.capsuleOn(context)),
       duration: duration,
       curve: Motion.out,
@@ -407,7 +404,6 @@ class BookRow extends StatelessWidget {
           ),
         ),
       ),
-      ),
     );
   }
 }
@@ -442,9 +438,7 @@ class BookTile extends StatelessWidget {
     ];
     const white = Colors.white;
     final radius = BorderRadius.circular(Radii.row - 4);
-    return Jelly.listen(
-      strength: 0.9,
-      child: Semantics(
+    return Semantics(
       button: true,
       selected: selected,
       label: e.title,
@@ -565,7 +559,6 @@ class BookTile extends StatelessWidget {
             );
           },
         ),
-      ),
       ),
     );
   }
