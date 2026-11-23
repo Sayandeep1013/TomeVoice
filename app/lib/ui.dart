@@ -257,7 +257,9 @@ class _ChoiceRowState<T> extends State<ChoiceRow<T>> {
           if (options.isNotEmpty)
             AnimatedPositioned(
               duration: duration,
-              curve: Motion.emphasized,
+              // It slides with a spring: a little past the chosen segment,
+              // stretching, and back.
+              curve: Motion.arrive,
               left: left,
               width: spans[at],
               top: 0,
@@ -594,10 +596,11 @@ class EmptyState extends StatelessWidget {
           children: [
             // A scene theme's own picture (a candle on a skull, glowing
             // mushrooms, a ringed planet) in place of the icon.
-            if (Skin.sceneOf(context) case final scene?)
-              SceneEmptyArt(scene)
-            else
-              Icon(icon, size: 40, color: Skin.accentInkOf(context).withValues(alpha: 0.85)),
+            Bob(
+              child: Skin.sceneOf(context) != null
+                  ? SceneEmptyArt(Skin.sceneOf(context)!)
+                  : Icon(icon, size: 40, color: Skin.accentInkOf(context).withValues(alpha: 0.85)),
+            ),
             const SizedBox(height: Gap.l),
             Text(title, textAlign: TextAlign.center, style: Skin.heading(context, size: 24)),
             const SizedBox(height: Gap.s),
@@ -679,8 +682,10 @@ class SheetHeader extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title,
-                      maxLines: 2, overflow: TextOverflow.ellipsis, style: Skin.heading(context, size: 24)),
+                  PopIn(
+                    child: Text(title,
+                        maxLines: 2, overflow: TextOverflow.ellipsis, style: Skin.heading(context, size: 24)),
+                  ),
                   if (subtitle != null) ...[
                     const SizedBox(height: Gap.xs),
                     Text(subtitle!.toUpperCase(), style: Skin.meta(context)),

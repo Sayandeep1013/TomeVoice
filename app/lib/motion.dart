@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
+import 'package:flutter/scheduler.dart';
 
 import 'theme.dart' show Motion;
 
@@ -129,4 +131,152 @@ class SpringCurve extends Curve {
     final wd = w * math.sqrt(1 - z * z);
     return 1 - math.exp(-z * w * t) * (math.cos(wd * t) + z * w / wd * math.sin(wd * t));
   }
+}
+
+/// [child] arriving once, the first time it is built: from a little smaller
+/// and below, popping a touch past its size and settling, as it fades in.
+class PopIn extends StatefulWidget {
+  const PopIn({super.key, required this.child, this.delay = Duration.zero});
+
+  final Widget child;
+  final Duration delay;
+
+  @override
+  State<PopIn> createState() => _PopInState();
+}
+
+class _PopInState extends State<PopIn> with SingleTickerProviderStateMixin {
+  late final _t = AnimationController(vsync: this, duration: const Duration(milliseconds: 460) + widget.delay);
+  late final _fade = CurvedAnimation(
+      parent: _t, curve: Interval(_lead, math.min(1, _lead + 0.45), curve: Curves.easeOutCubic));
+  late final _pop = CurvedAnimation(parent: _t, curve: Interval(_lead, 1, curve: Motion.pop));
+  double get _lead => widget.delay.inMilliseconds / (460 + widget.delay.inMilliseconds);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_t.isAnimating || _t.isCompleted) return;
+    if (Motion.reduced(context)) {
+      _t.value = 1;
+    } else {
+      _t.forward();
+    }
+  }
+
+  @override
+  void dispose() {
+    _fade.dispose();
+    _pop.dispose();
+    _t.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => FadeTransition(
+        opacity: _fade,
+        child: AnimatedBuilder(
+          animation: _pop,
+          child: widget.child,
+          builder: (context, child) {
+            final v = _pop.value;
+            return Transform(
+              alignment: Alignment.centerLeft,
+              transform: Matrix4.translationValues(0, 10 * (1 - v), 0)..scaleByDouble(0.9 + 0.1 * v, 0.9 + 0.1 * v, 1, 1),
+              child: child,
+            );
+          },
+        ),
+      );
+}
+
+/// [child] floating: rising and sinking a few pixels and leaning a hair, on
+/// a slow breath (an empty screen's picture). About 30 pictures a second,
+/// only while it can be seen; still with animations removed.
+class Bob extends StatefulWidget {
+  const Bob({super.key, required this.child, this.height = 5});
+
+  final Widget child;
+  final double height;
+
+  @override
+  State<Bob> createState() => _BobState();
+}
+
+class _BobState extends State<Bob> with WidgetsBindingObserver {
+  final _time = ValueNotifier<double>(0);
+  final _clock = Stopwatch();
+  Timer? _timer;
+  int? _frame;
+  bool _on = true;
+
+  bool get _visible {
+    final app = WidgetsBinding.instance.lifecycleState;
+    return _on && (app == null || app == AppLifecycleState.resumed);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _on = !Motion.reduced(context) && TickerMode.valuesOf(context).enabled && (ModalRoute.isCurrentOf(context) ?? true);
+    _sync();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) => _sync();
+
+  void _sync() {
+    if (!mounted) return;
+    if (!_visible) {
+      _timer?.cancel();
+      _timer = null;
+      if (_frame != null) SchedulerBinding.instance.cancelFrameCallbackWithId(_frame!);
+      _frame = null;
+      _clock.stop();
+    } else if (_timer == null && _frame == null) {
+      _clock.start();
+      _next();
+    }
+  }
+
+  void _next() {
+    _timer = Timer(const Duration(milliseconds: 26), () {
+      _timer = null;
+      if (!mounted || !_visible) return;
+      _frame = SchedulerBinding.instance.scheduleFrameCallback((_) {
+        _frame = null;
+        if (!mounted || !_visible) return;
+        _time.value = _clock.elapsedMicroseconds / 1e6;
+        _next();
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _timer?.cancel();
+    if (_frame != null) SchedulerBinding.instance.cancelFrameCallbackWithId(_frame!);
+    _time.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => RepaintBoundary(
+        child: ValueListenableBuilder<double>(
+          valueListenable: _time,
+          child: widget.child,
+          builder: (context, t, child) => Transform(
+            alignment: Alignment.center,
+            transform: Matrix4.translationValues(0, -widget.height * math.sin(t * 1.6), 0)
+              ..rotateZ(0.025 * math.sin(t * 0.8)),
+            child: child,
+          ),
+        ),
+      );
 }
