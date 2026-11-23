@@ -424,8 +424,8 @@ void main() {
     });
 
     test('a key with a small daily limit gets batches of a third of it at most', () {
-      final small = AiKey(
-          id: 'c', provider: AiProvider.gemini, label: 'c', baseUrl: 'u', secret: 's', models: const {}, dailyCap: 30000);
+      const small = AiKey(
+          id: 'c', provider: AiProvider.gemini, label: 'c', baseUrl: 'u', secret: 's', models: {}, dailyCap: 30000);
       expect(batchSizeFor(small).tokens, 10000);
       expect(batchSizeFor(order.first).tokens, 12000);
     });

@@ -721,7 +721,7 @@ class MemoryService {
           until.difference(DateTime.now()) <= shortRest;
       if (kept) {
         _alive[id] = job;
-        keepAlive.update(job.key, text: '${_titles[id] ?? 'A book'} · Waiting for the key until ${wakeTime(until!)}');
+        keepAlive.update(job.key, text: '${_titles[id] ?? 'A book'} · Waiting for the key until ${wakeTime(until)}');
       }
     } finally {
       if (!kept) keepAlive.end(job.key, job: job);

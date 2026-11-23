@@ -505,6 +505,7 @@ class _Said extends TalkEngine {
     List<String> journal = const [],
     void Function(String piece)? onText,
     bool theory = false,
+    bool Function()? stopped,
   }) async =>
       TalkAnswer(text, cites);
 }
