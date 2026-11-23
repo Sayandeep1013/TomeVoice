@@ -3,6 +3,31 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## 2.6.3 (2026-11-24)
+
+Painted scenes and four new ones, an app that moves like it is alive, twelve more AI providers, and the name being looked up lit in its sentence.
+
+**Updating** keeps your library, your keys, every book's memory and your journal.
+
+#### Scenes: paintings, and four new ones
+- **Every scene is now a real picture**, darkened for reading over: Dungeon (a real fortress dungeon), Enchanted forest (Asher Durand's *In the Woods*), Starship (the space station's Destiny lab at night). Free to use; credited under About, licences.
+- **Four new scenes:** **Gothic** (a candlelit church painted in 1636), **Silver witch** (Grimshaw's *A Moonlit Lane*), **Obsidian** (glowing cracks in black lava) and **Space · solar** (the sun's edge with a prominence). Each has its own colours, lettering and panels.
+- **Every scene moves:** a light runs down the sides now and then, as the starship's neon does. In the forest, vines grow in from the top corners as a screen opens, leaves budding as they go. Candles flicker and coloured window light breathes in Gothic; mist drifts and silver falls in Silver witch; cracks glow and violet embers rise in Obsidian; the sun swells and flares in Space · solar.
+- It all stands still with animations removed on the phone, or with battery saver on.
+
+#### Motion
+- **Things give under your finger:** buttons, pills, book covers and rows squash a little and spring back with a wobble.
+- Lists and cards **pop in** on a spring; screens **settle** with a little bounce; the menu's rows come in one after another as it opens; sheet titles pop in.
+- The choice highlight **slides on a stretchy spring**; a choice's check **pops**; play and pause **spin into each other**; the Now Playing cover **stands up as the voice starts** and sinks back on pause; an empty screen's picture **floats**.
+- Kept light for slower phones: the moving parts draw about 30 pictures a second and only while they can be seen.
+
+#### AI: twelve more providers
+- **Anthropic (Claude), DeepSeek, Mistral, xAI (Grok), Z.ai (GLM, with a free model), Alibaba Cloud (Qwen), Together AI, Fireworks AI, Cerebras, Moonshot (Kimi), Hugging Face and NVIDIA**, each in Settings, AI, Add a key, with a likely model chosen for building and for talking once the key is checked.
+- Each provider's quirks are handled for you (some refuse a temperature, Claude has its own format, DeepSeek's thinking must be sent back on tool calls, some list no models, some take fewer texts at a time for meaning search).
+
+#### Reading
+- **Who or what:** the sentence is shown with the words being looked up **lit** ("Six Finger", not "Finger"), in the menu and in the look-up sheet. Add or drop a word and the mark stretches to it; tap a word in the sentence to take it in.
+
 ## 2.6.2 (2026-11-24)
 
 Choose how far a book's memory goes, a painted forest, and smoother natural voices on slower phones.
