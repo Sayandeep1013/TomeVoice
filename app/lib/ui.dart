@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show BoxHitTestResult, RenderProxyBox;
 
 import 'scene.dart';
+import 'motion.dart';
 import 'theme.dart';
 
 /// The shared pieces every screen is built from. Each exists once, so a
@@ -440,7 +441,9 @@ class SettingRow extends StatelessWidget {
   final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) => InkWell(
+  Widget build(BuildContext context) => Jelly.listen(
+        strength: onTap == null ? 0 : 0.22,
+        child: InkWell(
         onTap: onTap,
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 56),
@@ -480,6 +483,7 @@ class SettingRow extends StatelessWidget {
             ),
           ),
         ),
+      ),
       );
 }
 
@@ -501,7 +505,9 @@ class SwitchRow extends StatelessWidget {
   final EdgeInsets padding;
 
   @override
-  Widget build(BuildContext context) => InkWell(
+  Widget build(BuildContext context) => Jelly.listen(
+        strength: 0.22,
+        child: InkWell(
         onTap: () => onChanged(!value),
         child: Padding(
           padding: padding,
@@ -523,6 +529,7 @@ class SwitchRow extends StatelessWidget {
             ],
           ),
         ),
+      ),
       );
 }
 
@@ -626,7 +633,9 @@ class SheetAction extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = danger ? Skin.dangerOn(context) : Skin.inkOn(context);
-    return InkWell(
+    return Jelly.listen(
+      strength: 0.22,
+      child: InkWell(
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: Gap.xl, vertical: 14),
@@ -648,6 +657,7 @@ class SheetAction extends StatelessWidget {
           ],
         ),
       ),
+    ),
     );
   }
 }
@@ -1167,7 +1177,11 @@ class Entrance extends StatefulWidget {
 class _EntranceState extends State<Entrance> with SingleTickerProviderStateMixin {
   AnimationController? _controller;
   CurvedAnimation? _curve;
+  CurvedAnimation? _spring;
   Animation<double> get _t => _curve ?? kAlwaysCompleteAnimation;
+
+  /// The rise and the size, on a spring: a touch past, and back.
+  Animation<double> get _s => _spring ?? kAlwaysCompleteAnimation;
 
   @override
   void initState() {
@@ -1176,10 +1190,11 @@ class _EntranceState extends State<Entrance> with SingleTickerProviderStateMixin
     if (since == null || DateTime.now().difference(since) > Entrance.window) return;
     // At most eight beats, so a long list does not keep the last rows waiting.
     final delay = 35.0 * widget.index.clamp(0, 8);
-    final total = delay + Motion.page.inMilliseconds;
+    final total = delay + Motion.page.inMilliseconds + 120;
     final controller = AnimationController(vsync: this, duration: Duration(milliseconds: total.round()));
     _controller = controller;
     _curve = CurvedAnimation(parent: controller, curve: Interval(delay / total, 1, curve: Motion.out));
+    _spring = CurvedAnimation(parent: controller, curve: Interval(delay / total, 1, curve: Motion.pop));
   }
 
   @override
@@ -1197,6 +1212,7 @@ class _EntranceState extends State<Entrance> with SingleTickerProviderStateMixin
   @override
   void dispose() {
     _curve?.dispose();
+    _spring?.dispose();
     _controller?.dispose();
     super.dispose();
   }
@@ -1208,9 +1224,16 @@ class _EntranceState extends State<Entrance> with SingleTickerProviderStateMixin
     return FadeTransition(
       opacity: _t,
       child: AnimatedBuilder(
-        animation: _t,
+        animation: _s,
         child: widget.child,
-        builder: (context, child) => Transform.translate(offset: Offset(0, 14 * (1 - _t.value)), child: child),
+        builder: (context, child) {
+          final v = _s.value;
+          return Transform(
+            alignment: Alignment.bottomCenter,
+            transform: Matrix4.translationValues(0, 26 * (1 - v), 0)..scaleByDouble(0.92 + 0.08 * v, 0.92 + 0.08 * v, 1, 1),
+            child: child,
+          );
+        },
       ),
     );
   }

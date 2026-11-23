@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 
+import 'motion.dart';
 import 'scheduler.dart';
 import 'slider_shapes.dart';
 import 'theme.dart';
@@ -69,7 +70,9 @@ class PlayButton extends StatelessWidget {
                           )
                         : const SizedBox(width: 60, height: 60),
                   ),
-                  Material(
+                  Jelly.listen(
+                    strength: 1.3,
+                    child: Material(
                     color: onTap == null ? Skin.accentOf(context).withValues(alpha: 0.4) : Skin.accentOf(context),
                     shape: const CircleBorder(),
                     child: InkWell(
@@ -78,14 +81,21 @@ class PlayButton extends StatelessWidget {
                       child: SizedBox(
                         width: 54,
                         height: 54,
-                        // Play and pause turn into each other: a fade and a
-                        // little growth, the press answered at once.
+                        // Play and pause turn into each other: the new one
+                        // spins in from small and pops a touch past its size,
+                        // the old one fades; the press answered at once.
                         child: AnimatedSwitcher(
-                          duration: Motion.of(context, Motion.quick),
-                          switchInCurve: Motion.out,
+                          duration: Motion.of(context, const Duration(milliseconds: 380)),
+                          reverseDuration: Motion.of(context, Motion.quick),
                           transitionBuilder: (child, a) => FadeTransition(
-                            opacity: a,
-                            child: ScaleTransition(scale: Tween(begin: 0.7, end: 1.0).animate(a), child: child),
+                            opacity: a.drive(CurveTween(curve: const Interval(0, 0.45))),
+                            child: RotationTransition(
+                              turns: a.drive(Tween(begin: -0.18, end: 0.0).chain(CurveTween(curve: Motion.pop))),
+                              child: ScaleTransition(
+                                scale: a.drive(Tween(begin: 0.35, end: 1.0).chain(CurveTween(curve: Motion.pop))),
+                                child: child,
+                              ),
+                            ),
                           ),
                           child: Icon(
                             speaking ? Icons.pause_rounded : Icons.play_arrow_rounded,
@@ -96,6 +106,7 @@ class PlayButton extends StatelessWidget {
                         ),
                       ),
                     ),
+                  ),
                   ),
                 ],
               ),

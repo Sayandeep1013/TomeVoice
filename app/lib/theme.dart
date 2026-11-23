@@ -6,6 +6,7 @@ import 'package:flutter/services.dart' show PredictiveBackEvent;
 import 'package:material_color_utilities/material_color_utilities.dart' show Hct;
 
 import 'contrast.dart';
+import 'motion.dart';
 import 'own_fonts.dart' show OwnFonts;
 import 'scene.dart';
 import 'slider_shapes.dart';
@@ -1067,8 +1068,10 @@ class Radii {
   static const double pill = 999;
 }
 
-/// The only durations and curves the interface moves with: quick, calm and
-/// never bouncy. Things settle (ease out) rather than spring.
+/// The durations and curves the interface moves with. Things that arrive
+/// settle with a little spring ([arrive]); things pressed give like jelly
+/// (motion.dart [Jelly]); a long move eases. With animations removed on the
+/// phone, none of it moves.
 class Motion {
   const Motion._();
 
@@ -1091,6 +1094,13 @@ class Motion {
 
   /// Arriving and settling.
   static const Curve out = Curves.easeOutCubic;
+
+  /// Arriving with a little spring: past where it lands by a few percent,
+  /// and back (a screen settling, a card coming in, a mark stretching).
+  static const Curve arrive = SpringCurve(damping: 0.72, cycles: 1.3);
+
+  /// A livelier spring, for small things that pop in (a count, a check).
+  static const Curve pop = SpringCurve(damping: 0.5, cycles: 1.6);
 
   /// Moving from one place to another.
   static const Curve emphasized = Curves.easeInOutCubicEmphasized;
@@ -1123,7 +1133,10 @@ class CalmPageTransitionsBuilder extends PageTransitionsBuilder {
   static const _arrive = Interval(0.3, 1, curve: Curves.easeOutCubic);
   // Leaving: gone in the first 30%, so the screen below can come back.
   static const _leave = Interval(0.7, 1);
-  static final _arriveScale = Tween<double>(begin: 0.96, end: 1).chain(CurveTween(curve: _arrive));
+  // The screen settles with a little spring: a touch past full size, and
+  // back (its fade eases: an opacity cannot go past 1).
+  static final _arriveScale =
+      Tween<double>(begin: 0.94, end: 1).chain(CurveTween(curve: const Interval(0.3, 1, curve: Motion.arrive)));
   static final _leaveScale = Tween<double>(begin: 0.96, end: 1).chain(CurveTween(curve: _leave));
   static final _gestureScale = Tween<double>(begin: 0.9, end: 1);
   // The screen below, while another arrives on top / leaves it.
@@ -1300,12 +1313,7 @@ class _CapsuleState extends State<Capsule> {
         ),
       );
       if (widget.onTap == null) return capsule;
-      return AnimatedScale(
-        scale: _down ? 0.96 : 1,
-        duration: Motion.of(context, Motion.quick),
-        curve: Motion.out,
-        child: capsule,
-      );
+      return Jelly(pressed: _down, child: capsule);
     }
     final body = Container(
       padding: widget.padding,
@@ -1332,12 +1340,7 @@ class _CapsuleState extends State<Capsule> {
             ),
     );
     if (widget.onTap == null) return capsule;
-    return AnimatedScale(
-      scale: _down ? 0.96 : 1,
-      duration: Motion.of(context, Motion.quick),
-      curve: Motion.out,
-      child: capsule,
-    );
+    return Jelly(pressed: _down, child: capsule);
   }
 }
 
