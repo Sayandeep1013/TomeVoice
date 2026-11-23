@@ -543,15 +543,20 @@ class _JournalPageState extends State<JournalPage> {
                 for (final (n, p) in q.picks.indexed) _sticker(context, i, p, ink.tab(n), ink),
               ],
             ),
-            // A word of the reader's own, when none of the picks is it.
+            // A word of the reader's own, when none of the picks is it. It
+            // wraps like the other answers: a longer one, written here,
+            // never runs on along one line out of sight.
             TextField(
               controller: _own[i],
               onChanged: (v) => setState(() {
                 if (v.trim().isNotEmpty) _picks[i] = null;
               }),
+              maxLines: null,
+              keyboardType: TextInputType.text,
+              textInputAction: TextInputAction.next,
               textCapitalization: TextCapitalization.sentences,
               style: handwriting(22, ink.pen),
-              decoration: _onPaper('or something more…', handwriting(20, soft.withValues(alpha: 0.6))),
+              decoration: _onPaper('or in a word of your own…',handwriting(20, soft.withValues(alpha: 0.6))),
             ),
           ] else
             TextField(
@@ -634,6 +639,9 @@ class JournalEntryCard extends StatelessWidget {
     final tone = ink.tone;
     final soft = tone.inkSoft!;
     final feeling = entry.feeling;
+    // A feeling in the reader's own words, longer than a sticker holds,
+    // is written out on a line of its own instead.
+    final longFeeling = feeling != null && feeling.length > 24;
     final shown = entry.isPage ? const <JournalAnswer>[] : [for (final a in entry.answers) if (a.text.trim().isNotEmpty) a];
     // Each entry a box of its own on the paper: where one ends and the
     // next begins is plain, and each is tapped by itself.
@@ -666,7 +674,7 @@ class JournalEntryCard extends StatelessWidget {
                     style: handwriting(18, soft, weight: FontWeight.w600),
                   ),
                 ),
-                if (feeling != null)
+                if (feeling != null && !longFeeling)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
                     decoration: BoxDecoration(color: ink.tab(_pickColour(feeling)), borderRadius: BorderRadius.circular(99)),
@@ -675,6 +683,12 @@ class JournalEntryCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 4),
+            if (feeling != null && longFeeling)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(feeling,
+                    maxLines: 4, overflow: TextOverflow.ellipsis, style: handwriting(21, ink.pen).copyWith(height: 1.2)),
+              ),
             if (entry.isTalk)
               for (final l in entry.talk.take(4))
                 Padding(
@@ -760,7 +774,7 @@ class BookJournalSection extends StatelessWidget {
               ? 'Write how the book makes you feel, as you read'
               : '${entries.length} ${entries.length == 1 ? 'entry' : 'entries'} · '
                   '${latest.isTalk ? 'a talk' : 'thoughts'} ${latest.stamp.label}, ${savedWhen(latest.created)}';
-          final words = latest?.words.replaceAll(RegExp(r'\s*\n\s*'), ' · ').trim() ?? '';
+          final words = latest?.preview ?? '';
           return Material(
             color: Skin.capsuleOn(context),
             borderRadius: BorderRadius.circular(Radii.row + 4),

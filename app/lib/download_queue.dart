@@ -202,7 +202,12 @@ class DownloadQueue {
   /// [chapters] of novel [bookId], to download in this order after what is
   /// already waiting ([first]: before it). Those queued already, or on the
   /// phone, are left out. Returns how many were added.
-  Future<int> add(String bookId, Iterable<ChapterItem> chapters, {bool first = false}) async {
+  ///
+  /// [byReader]: the reader asked for them just now (Download next 5, all,
+  /// a chapter): a pause of theirs from before ends, so what they asked for
+  /// comes, not "Paused" with Resume. The background check, and a novel
+  /// moving to another source, leave the pause alone.
+  Future<int> add(String bookId, Iterable<ChapterItem> chapters, {bool first = false, bool byReader = false}) async {
     final store = _store;
     if (store == null) return 0;
     final info = await store.webNovel(bookId);
@@ -223,6 +228,7 @@ class DownloadQueue {
     } else {
       _jobs.addAll(fresh);
     }
+    if (byReader) _paused = false;
     await _save();
     _kick();
     return fresh.length;
@@ -376,6 +382,14 @@ class DownloadQueue {
   /// waits.
   void _kick() {
     _wake?.cancel();
+    // A pause with nothing left waiting is over: kept, it held back the
+    // next chapters asked for (on any novel), shown as "Paused" with
+    // Resume, their spinners turning, though the reader had paused only
+    // what was there then (or pressed the notification's Stop).
+    if (_paused && !_jobs.any((j) => j.failed == null)) {
+      _paused = false;
+      unawaited(_save());
+    }
     if (_paused || _held || _store == null) {
       _notify();
       return;

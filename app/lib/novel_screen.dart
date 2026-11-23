@@ -473,7 +473,7 @@ class _NovelScreenState extends State<NovelScreen> {
     final e = await _ensureAdded(announce: false);
     if (e == null || !mounted) return;
     wanted = [for (final i in _placesOf(paths, wanted)) if (!_downloaded.contains(i)) i]..sort();
-    final added = await DownloadQueue.instance.add(_id, [for (final i in wanted) _chapters[i]], first: first);
+    final added = await DownloadQueue.instance.add(_id, [for (final i in wanted) _chapters[i]], first: first, byReader: true);
     if (!mounted || wanted.length == 1) return;
     showSnack(
       context,
@@ -1330,10 +1330,18 @@ class _NovelScreenState extends State<NovelScreen> {
                 child: _swap(
                   context,
                   _queued.contains(c.path) && !have
-                      ? const Center(
-                          key: ValueKey('fetching'),
-                          child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-                        )
+                      // Queued while the queue is paused (or held till the
+                      // app is open): waiting, not a spinner turning for ever.
+                      ? DownloadQueue.instance.paused || DownloadQueue.instance.held
+                          ? Tooltip(
+                              key: const ValueKey('queued'),
+                              message: 'Waiting to download (paused)',
+                              child: Icon(Icons.pause_circle_outline_rounded, size: 20, color: Skin.inkFaintOn(context)),
+                            )
+                          : const Center(
+                              key: ValueKey('fetching'),
+                              child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                            )
                       : have
                           ? Tooltip(
                               key: const ValueKey('have'),

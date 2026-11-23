@@ -282,4 +282,25 @@ void main() {
       expect(savedWhen(DateTime.utc(2026, 11, 22, 12), now: now), isNot('today'));
     });
   });
+
+  group('the preview', () {
+    test('each answer on a line of its own, without its question', () {
+      final e = JournalEntry(
+        id: 'a',
+        bookId: 'book',
+        bookTitle: 'Book',
+        created: DateTime.utc(2026, 11, 1),
+        stamp: at(3),
+        answers: const [
+          JournalAnswer(question: 'How am I feeling?', pick: 'Good'),
+          JournalAnswer(question: 'Why?', text: 'The fight.\n\nAnd the twist.'),
+          JournalAnswer(question: 'What stood out?'),
+        ],
+      );
+      expect(e.preview, 'Good\nThe fight.\nAnd the twist.');
+      final page = JournalEntry(
+          id: 'b', bookId: 'book', bookTitle: 'Book', created: DateTime.utc(2026, 11, 2), stamp: at(9), page: ' One.\n\n Two. ');
+      expect(page.preview, 'One.\nTwo.');
+    });
+  });
 }
