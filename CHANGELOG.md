@@ -25,11 +25,11 @@ Painted scenes and two new ones, smooth motion you can turn off, search in Setti
 - Kept light for slower phones: the moving parts draw about 30 pictures a second and only while they can be seen.
 
 #### Finding things
-- **Find a setting:** a search at the top of Settings. Type a few words, tap a match and the list goes to it.
-- **Find a provider:** the provider list (Settings, AI, Add a key) has its own search, by name or by what it offers ("free", "Claude"). Another service is always at the end.
+- **Find a setting:** a search at the top of Settings. Type the start of a word or two ("back up", "sync"), tap a match and the list goes to it.
+- **Find a provider:** the provider list (AI chat, AI settings, Add a key) has its own search, by name or by what it offers ("free", "Claude"). Another service is always at the end.
 
 #### AI: twelve more providers
-- **Anthropic (Claude), DeepSeek, Mistral, xAI (Grok), Z.ai (GLM, with a free model), Alibaba Cloud (Qwen), Together AI, Fireworks AI, Cerebras, Moonshot (Kimi), Hugging Face and NVIDIA**, each in Settings, AI, Add a key, with a likely model chosen for building and for talking once the key is checked.
+- **Anthropic (Claude), DeepSeek, Mistral, xAI (Grok), Z.ai (GLM, with a free model), Alibaba Cloud (Qwen), Together AI, Fireworks AI, Cerebras, Moonshot (Kimi), Hugging Face and NVIDIA**, each in AI settings, Add a key, with a likely model chosen for building and for talking once the key is checked.
 - Each provider's quirks are handled for you (some refuse a temperature, Claude has its own format, DeepSeek's thinking must be sent back on tool calls, some list no models, some take fewer texts at a time for meaning search).
 
 #### Reading

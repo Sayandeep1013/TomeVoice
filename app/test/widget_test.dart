@@ -2129,6 +2129,16 @@ void main() {
       await finish(tester);
     });
 
+    test('a search finds words by their start, not inside other words', () {
+      expect(wordsMatch('Back up library', 'back up'), isTrue);
+      expect(wordsMatch('AI settings', 'ai'), isTrue);
+      expect(wordsMatch('Daily', 'ai'), isFalse);
+      expect(wordsMatch('About TomeVoice', 'About tome'), isTrue);
+      expect(wordsMatch('Anthropic (Claude)', 'claude'), isTrue);
+      expect(wordsMatch('Space · solar', '·'), isTrue, reason: 'a mark alone, looked for as it is');
+      expect(wordsMatch('Anything', '   '), isFalse);
+    });
+
     testWidgets('a setting is found by its words; a tap goes to it', (tester) async {
       phone(tester);
       await tester.pumpWidget(MaterialApp(home: SettingsScreen(store: LibraryStore(_tmp))));

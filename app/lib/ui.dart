@@ -536,6 +536,18 @@ class SwitchRow extends StatelessWidget {
 }
 
 /// The one search field.
+/// Whether [text] is found by [query]: each word typed starts a word of the
+/// text ("back up" finds "Back up library", "ai" finds "AI settings" but not
+/// "Daily"). A query of no words (only marks) is looked for as it is.
+bool wordsMatch(String text, String query) {
+  final split = RegExp(r'[^\p{L}\p{N}]+', unicode: true);
+  final q = query.trim().toLowerCase();
+  final asked = q.split(split).where((w) => w.isNotEmpty).toList();
+  if (asked.isEmpty) return q.isNotEmpty && text.toLowerCase().contains(q);
+  final has = text.toLowerCase().split(split);
+  return asked.every((w) => has.any((h) => h.startsWith(w)));
+}
+
 class SearchField extends StatelessWidget {
   const SearchField({
     super.key,

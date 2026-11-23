@@ -840,10 +840,10 @@ class _ProviderPickerState extends State<_ProviderPicker> {
 
   @override
   Widget build(BuildContext context) {
-    final q = _q.trim().toLowerCase();
+    final q = _q.trim();
     final shown = [
       for (final p in AiProvider.values)
-        if (q.isEmpty || p == AiProvider.custom || '${p.label} ${p.note}'.toLowerCase().contains(q)) p,
+        if (q.isEmpty || p == AiProvider.custom || wordsMatch('${p.label} ${p.note}', q)) p,
     ];
     return SafeArea(
         child: SingleChildScrollView(

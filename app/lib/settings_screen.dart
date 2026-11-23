@@ -174,7 +174,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
       final text = w is Text ? (w.data ?? w.textSpan?.toPlainText()) : null;
       if (text != null && g.isNotEmpty) {
         final t = text.trim();
-        if (t.length < 140 && t.toLowerCase().contains(q) && seen.add('$g/$t')) out.add((text: t, group: g, at: e));
+        if (t.length < 140 && wordsMatch(t, q) && seen.add('$g/$t')) out.add((text: t, group: g, at: e));
       }
       e.visitChildren((c) => visit(c, g));
     }
