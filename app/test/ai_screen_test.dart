@@ -263,6 +263,7 @@ class _Probe extends AiClient {
     int? maxTokens,
     double? temperature,
     void Function(String piece)? onText,
+    bool Function()? stopped,
   }) async {
     if (tools.isNotEmpty) {
       return AiReply(text: '', toolCalls: [if (this.tools) const AiToolCall(id: '1', name: 'ping', arguments: '{}')]);

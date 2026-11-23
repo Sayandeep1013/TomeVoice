@@ -272,7 +272,8 @@ const aiGuideCards = <GuideCard>[
     'TomeVoice talks to an AI with your own key, straight from this phone. There is no TomeVoice server.',
     [
       (Icons.add_rounded, 'Add a key in AI settings, the gear in AI chat: Google Gemini, OpenRouter, Groq, Inception, OpenAI, AgentRouter, 100milionseek or any service like them. Free tiers work.'),
-      (Icons.sync_rounded, 'Add as many keys as you like. When one has used its quota it rests, and the next takes over.'),
+      (Icons.sync_rounded, 'Add as many keys as you like. When one has used its quota it rests. A build uses only its first key unless '
+          'you let the next one take over.'),
       (Icons.lock_outline_rounded, 'Nothing of a book is sent until you add a key, and never a book on a secret shelf.'),
     ],
   ),

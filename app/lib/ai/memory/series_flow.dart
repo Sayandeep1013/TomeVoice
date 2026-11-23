@@ -8,7 +8,7 @@ import '../../ui.dart';
 import '../ai_consent.dart';
 import '../ai_keys.dart';
 import '../ai_screen.dart' show tokenCount;
-import 'memory_builder.dart' show BuildEstimate;
+import 'memory_builder.dart' show BuildEstimate, anyKey, keptKey;
 import 'memory_db.dart';
 import 'memory_service.dart';
 import 'series_store.dart';
@@ -36,8 +36,15 @@ Future<void> startMemory(BuildContext context, String bookId, {MemoryService? se
     if (fetch) await memory.download(bookId, missing);
   }
   if (!context.mounted) return;
-  // Begun before: the reader agreed to it then; it simply goes on.
+  final keys = AiRing.instance.forJob(AiJob.builder);
+  // Begun before: the reader agreed to it then; it goes on. With more than
+  // one key, which of them may build it is asked again (and what is left).
   if (memory.stateOf(bookId).value.noted > 0) {
+    if (keys.length > 1) {
+      final setting = await _confirmBuild(context, memory, queue: [bookId], title: 'Go on building', keys: keys);
+      if (setting == null) return;
+      await memory.setBuildKeys(bookId, setting);
+    }
     unawaited(memory.buildInOrder([bookId]));
     return;
   }
@@ -73,6 +80,35 @@ Future<void> startMemory(BuildContext context, String bookId, {MemoryService? se
   ];
   final queue = [...first, bookId];
   final titles = {for (final e in all) e.id: e.title};
+  final setting = await _confirmBuild(
+    context,
+    memory,
+    queue: queue,
+    title: first.isEmpty ? 'Build the memory' : 'Build the series',
+    keys: keys,
+    before: first.isEmpty
+        ? null
+        : 'First ${_listed([for (final b in first) titles[b] ?? 'an earlier book'])}, which have no memory '
+            'yet, then ${titles[bookId] ?? 'this book'}: each knows the people of the books before it.',
+  );
+  if (setting == null) return;
+  for (final id in queue) {
+    await memory.setBuildKeys(id, setting);
+  }
+  unawaited(memory.buildInOrder(queue));
+}
+
+/// The Build sheet: what building [queue] would take, and, with more than
+/// one key, which keys may do it. The reader's choice ([anyKey], or
+/// `only:<key id>`), or null when the sheet was closed.
+Future<String?> _confirmBuild(
+  BuildContext context,
+  MemoryService memory, {
+  required List<String> queue,
+  required String title,
+  required List<AiKey> keys,
+  String? before,
+}) {
   // The sheet at once; what it would take, counted meanwhile.
   final counting = () async {
     var total = const BuildEstimate(chapters: 0, inputTokens: 0, outputTokens: 0, calls: 0);
@@ -87,32 +123,72 @@ Future<void> startMemory(BuildContext context, String bookId, {MemoryService? se
     }
     return total;
   }();
-  final keys = AiRing.instance.forJob(AiJob.builder);
-  final go = await showModalBottomSheet<bool>(
+  return showModalBottomSheet<String>(
     context: context,
+    isScrollControlled: true,
     sheetAnimationStyle: sheetMotion(context),
     useSafeArea: true,
-    builder: (ctx) => SafeArea(
-      child: Padding(
+    builder: (_) => _BuildSheet(
+      title: title,
+      before: before,
+      counting: counting,
+      keys: keys,
+      setting: memory.stateOf(queue.last).value.buildKeys,
+    ),
+  );
+}
+
+class _BuildSheet extends StatefulWidget {
+  const _BuildSheet({
+    required this.title,
+    required this.counting,
+    required this.keys,
+    this.before,
+    this.setting,
+  });
+
+  final String title;
+  final String? before;
+  final Future<BuildEstimate> counting;
+  final List<AiKey> keys;
+
+  /// How the book was last built ([buildKeysMeta]).
+  final String? setting;
+
+  @override
+  State<_BuildSheet> createState() => _BuildSheetState();
+}
+
+class _BuildSheetState extends State<_BuildSheet> {
+  /// Any key may take over; otherwise only [_first].
+  late bool _any = widget.setting == anyKey;
+
+  /// The one key it keeps to: the key it kept to before, or the first.
+  late final AiKey? _first = keptKey(widget.setting == anyKey ? null : widget.setting, widget.keys);
+
+  @override
+  Widget build(BuildContext context) {
+    final keys = widget.keys;
+    final first = _first;
+    final next = [for (final k in keys) if (k.id != first?.id) k];
+    final soft = Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkSoftOn(context)).copyWith(height: 1.4);
+    return SafeArea(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(Gap.l, 0, Gap.l, Gap.l),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            SheetHeader(
-              first.isEmpty ? 'Build the memory' : 'Build the series',
-              subtitle: 'Each chapter is read once, ever',
-            ),
-            if (first.isNotEmpty) ...[
+            SheetHeader(widget.title, subtitle: 'Each chapter is read once, ever'),
+            if (widget.before != null) ...[
               Text(
-                'First ${_listed([for (final b in first) titles[b] ?? 'an earlier book'])}, which have no memory '
-                'yet, then ${titles[bookId] ?? 'this book'}: each knows the people of the books before it.',
+                widget.before!,
                 style: Skin.ui(size: 14, weight: FontWeight.w500, color: Skin.inkOn(context)).copyWith(height: 1.4),
               ),
               const SizedBox(height: Gap.s),
             ],
             FutureBuilder<BuildEstimate>(
-              future: counting,
+              future: widget.counting,
               builder: (context, snap) {
                 final est = snap.data;
                 return Text(
@@ -122,21 +198,90 @@ Future<void> startMemory(BuildContext context, String bookId, {MemoryService? se
                           ? 'Every chapter on the phone is read already.'
                           : '${est.chapters} ${est.chapters == 1 ? 'chapter' : 'chapters'} to read, in about '
                               '${est.calls} ${est.calls == 1 ? 'call' : 'calls'}: some ${tokenCount(est.tokens)} '
-                              'tokens, with ${keys.map((k) => k.label).join(', then ')}. '
-                              'It goes on with TomeVoice behind other apps or the screen off; when a key has used its '
-                              'quota for now, the next takes over, and when all of them have, it waits for them.',
-                  style: Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkSoftOn(context)).copyWith(height: 1.4),
+                              'tokens. It goes on with TomeVoice behind other apps or the screen off.'
+                              '${keys.length == 1 ? ' When ${keys.single.label} has used its quota for now, it waits for it.' : ''}',
+                  style: soft,
                 );
               },
             ),
+            if (keys.length > 1 && first != null) ...[
+              const SizedBox(height: Gap.m),
+              const Eyebrow('Which key builds it'),
+              const SizedBox(height: Gap.s),
+              _KeyChoice(
+                chosen: !_any,
+                title: 'Only ${first.label}',
+                body: 'If ${first.label} reaches its limit, the build waits, and asks you before any other key is used.',
+                onTap: () => setState(() => _any = false),
+              ),
+              const SizedBox(height: Gap.s),
+              _KeyChoice(
+                chosen: _any,
+                title: 'Let the next key take over',
+                body: 'If ${first.label} reaches its limit, ${next.first.label} carries on'
+                    '${next.length > 1 ? ', then the others in your Building list' : ''}. It may be a paid key.',
+                onTap: () => setState(() => _any = true),
+              ),
+            ],
             const SizedBox(height: Gap.l),
-            FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Build')),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(_any ? anyKey : 'only:${first?.id ?? ''}'),
+              child: const Text('Build'),
+            ),
           ],
         ),
       ),
-    ),
-  );
-  if (go == true) unawaited(memory.buildInOrder(queue));
+    );
+  }
+}
+
+/// One of the Build sheet's two ways with the keys: what it is called, and
+/// in a line what it means.
+class _KeyChoice extends StatelessWidget {
+  const _KeyChoice({required this.chosen, required this.title, required this.body, required this.onTap});
+
+  final bool chosen;
+  final String title;
+  final String body;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        selected: chosen,
+        button: true,
+        child: Material(
+          color: chosen ? Skin.accentOf(context).withValues(alpha: 0.16) : Skin.capsuleOn(context),
+          borderRadius: BorderRadius.circular(Radii.row + 4),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(Radii.row + 4),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(Gap.m, Gap.m, Gap.m, Gap.m),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    chosen ? Icons.check_circle_rounded : Icons.circle_outlined,
+                    size: 22,
+                    color: chosen ? Skin.accentInkOf(context) : Skin.inkSoftOn(context),
+                  ),
+                  const SizedBox(width: Gap.m),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(title, style: Skin.ui(size: 15, weight: FontWeight.w600, color: Skin.inkOn(context))),
+                        const SizedBox(height: 2),
+                        Text(body, style: Skin.meta(context)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
 }
 
 /// A book's Memory menu > Add to a series…: the book just before it,

@@ -240,12 +240,17 @@ class ChatEngine {
       if (last) messages.add(aiMessage('user', 'Answer now, from what you have found.'));
       final AiReply r;
       try {
-        r = await router.chat(AiJob.talker, messages, tools: tools && !last ? offered : const [], onText: !stream ? null : (piece) {
-          if (p.stopped) return;
-          reply.text += piece;
-          if (aiAnswerHeld(reply.text)) reply.held = true;
-          onChange();
-        });
+        r = await router.chat(AiJob.talker, messages,
+            tools: tools && !last ? offered : const [],
+            // Stop lets the reply go at once: the provider stops writing it,
+            // and the chat is free again.
+            stopped: () => p.stopped,
+            onText: !stream ? null : (piece) {
+              if (p.stopped) return;
+              reply.text += piece;
+              if (aiAnswerHeld(reply.text)) reply.held = true;
+              onChange();
+            });
       } on AiResting catch (e) {
         // Turned down with tools: once more without them, for this answer.
         // Only a provider that says it takes no tools is asked without

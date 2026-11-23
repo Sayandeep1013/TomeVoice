@@ -56,6 +56,13 @@ Future<void> memoryBuildMain() async {
   } on Object catch (e) {
     outcome = {'found': 0, 'error': '$e'};
   } finally {
+    // What was used, counted before the engine goes (its two-second timer
+    // would not fire after): the daily limits stay true.
+    try {
+      await AiRing.instance.flush();
+    } on Object {
+      // Only a count.
+    }
     await SourcesBridge.backgroundDone(outcome);
   }
 }
@@ -100,6 +107,7 @@ Future<Map<String, Object?>> runBackgroundBuild({
     noted += s.noted - had;
     if (s.phase == BuildPhase.resting || s.phase == BuildPhase.failed) break;
   }
+  await ring.flush();
   return {'found': 0, 'noted': noted};
 }
 

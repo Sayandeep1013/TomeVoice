@@ -75,12 +75,41 @@ class BuildEstimate {
   int get tokens => inputTokens + outputTokens;
 }
 
-/// How much a call may carry, by the Builder's first key: a long-context
-/// provider takes several chapters at once.
-({int tokens, int chapters}) batchSizeFor(AiKey? key) => switch (key?.provider) {
-      AiProvider.gemini || AiProvider.inception => (tokens: 40000, chapters: 8),
-      _ => (tokens: 12000, chapters: 2),
-    };
+/// How much a call may carry, by the key that builds: a long-context
+/// provider takes several chapters at once. A key with a daily limit never
+/// gets a batch of more than a third of it (one batch could pass it).
+({int tokens, int chapters}) batchSizeFor(AiKey? key) {
+  final size = switch (key?.provider) {
+    AiProvider.gemini || AiProvider.inception => (tokens: 40000, chapters: 8),
+    _ => (tokens: 12000, chapters: 2),
+  };
+  final cap = key?.dailyCap;
+  if (cap == null || cap ~/ 3 >= size.tokens) return size;
+  return (tokens: math.max(2000, cap ~/ 3), chapters: size.chapters);
+}
+
+/// How a book's memory may use the keys, kept with it: [anyKey] lets the
+/// next key in the Building list take over when one reaches its limit;
+/// `only:<key id>` keeps to that key. Not set: the first key of the list,
+/// and only it (a build meant for one key once went on to a paid one).
+const buildKeysMeta = 'build_keys';
+const anyKey = 'any';
+
+/// The keys a build with [setting] may use, of the Builder's [order]: null
+/// when any of them may.
+Set<String>? allowedKeys(String? setting, List<AiKey> order) {
+  if (setting == anyKey || order.isEmpty) return null;
+  return {keptKey(setting, order)!.id};
+}
+
+/// The one key a build with [setting] keeps to, of [order]; null when any
+/// may take over (or there is none). A key it named that has gone: the
+/// first.
+AiKey? keptKey(String? setting, List<AiKey> order) {
+  if (setting == anyKey || order.isEmpty) return null;
+  final id = setting != null && setting.startsWith('only:') ? setting.substring(5) : null;
+  return order.where((k) => k.id == id).firstOrNull ?? order.first;
+}
 
 /// Notes guessed at, a chapter: what the Builder writes back.
 const _outputPerChapter = 1800;
@@ -284,6 +313,59 @@ Future<void> _verdictOff(String p, int id, String status, int at, String why) =>
     Isolate.run(() => keepVerdict(p, id, status, at, why));
 Future<void> _mergeOff(String p, List<ChapterNotes> notes, Map<int, List<MemoryPlace>> places, String? model) =>
     Isolate.run(() => _merge(p, notes, places, model));
+Future<String?> _metaOff(String p, String k) => Isolate.run(() {
+      final m = MemoryDb.open(p);
+      try {
+        return m.meta(k);
+      } finally {
+        m.close();
+      }
+    });
+
+/// The theories are held up to the story once per span of chapters, not
+/// after every batch (which doubled a build's calls): how far they have
+/// been, kept with the memory.
+const _theoriesTo = 'theories_to';
+
+/// The noted chapters from [from] to [to] (null: the last) the theories
+/// have not been held up to yet, at most the last 50. The first time (a
+/// memory from before), from where it is now: what came before was checked
+/// batch by batch then.
+List<int> _unchecked(String path, int from, int? to) {
+  final m = MemoryDb.open(path);
+  try {
+    final last = m.db.select('SELECT max(ch) last FROM chapters WHERE noted = 1').first['last'] as int?;
+    final was = m.meta(_theoriesTo);
+    if (was == null) {
+      m.setMeta(_theoriesTo, '${last ?? -1}');
+      return const [];
+    }
+    final done = int.tryParse(was) ?? -1;
+    final chs = [
+      for (final r in m.db.select(
+        'SELECT ch FROM chapters WHERE noted = 1 AND ch > ? AND ch >= ?${to == null ? '' : ' AND ch <= $to'} ORDER BY ch',
+        [done, from],
+      ))
+        r['ch'] as int,
+    ];
+    return chs.length > 50 ? chs.sublist(chs.length - 50) : chs;
+  } finally {
+    m.close();
+  }
+}
+
+void _checkedTo(String path, int ch) {
+  final m = MemoryDb.open(path);
+  try {
+    final was = int.tryParse(m.meta(_theoriesTo) ?? '') ?? -1;
+    if (ch > was) m.setMeta(_theoriesTo, '$ch');
+  } finally {
+    m.close();
+  }
+}
+
+Future<List<int>> _uncheckedOff(String p, int from, int? to) => Isolate.run(() => _unchecked(p, from, to));
+Future<void> _checkedToOff(String p, int ch) => Isolate.run(() => _checkedTo(p, ch));
 
 /// Builds one book's memory: the chapters in the word index that have no
 /// notes yet, a batch at a time, in reading order (the graph of chapter N
@@ -307,6 +389,10 @@ class MemoryBuilder {
   /// The batch size, when not taken from the Builder's key.
   final ({int tokens, int chapters})? limits;
 
+  /// The keys this book's build may use (null: any), as its memory says
+  /// ([buildKeysMeta]); read as each run starts.
+  Set<String>? _only;
+
   final state = ValueNotifier(const BuildState());
   bool _stop = false;
   bool _running = false;
@@ -316,8 +402,10 @@ class MemoryBuilder {
   /// Paused, and landing the batch on its way.
   bool get stopping => _running && _stop;
 
-  ({int tokens, int chapters}) get _limits =>
-      limits ?? batchSizeFor(router.ring.forJob(AiJob.builder).firstOrNull);
+  ({int tokens, int chapters}) get _limits {
+    final order = router.ring.forJob(AiJob.builder);
+    return limits ?? batchSizeFor(order.where((k) => _only?.contains(k.id) ?? true).firstOrNull ?? order.firstOrNull);
+  }
 
   Future<BuildEstimate> estimate() {
     final l = _limits;
@@ -346,9 +434,18 @@ class MemoryBuilder {
     try {
       await refreshCounts();
       state.value = state.value.copyWith(phase: BuildPhase.running);
-      final l = _limits;
       final p = path, u = upTo;
-      var tokens = l.tokens, most = l.chapters;
+      _only = allowedKeys(await _metaOff(p, buildKeysMeta), router.ring.forJob(AiJob.builder));
+      // Where the theories have been held up to, begun for a memory from
+      // before.
+      await _uncheckedOff(p, 0, null);
+      final l = _limits;
+      // [most] made smaller when a reply was cut off, too slow or short of
+      // chapters stays smaller for the run (it went back up after every
+      // batch, failed again, and half the calls were wasted), a chapter
+      // more after every few that go well.
+      final tokens = l.tokens;
+      var most = l.chapters, good = 0;
       while (!_stop) {
         // The story so far kept up as it goes: a span's summary once its
         // chapters all have notes.
@@ -366,25 +463,39 @@ class MemoryBuilder {
         }
         final batch = await _nextBatchOff(p, u, tokens, most);
         if (batch == null) {
+          // Caught up: the theories held up to the chapters since the
+          // last span, when there are enough of them (or the book is
+          // short), not after every chapter of a followed novel.
+          final tail = await _uncheckedOff(p, 0, null);
+          if (tail.isNotEmpty && (tail.length >= 10 || state.value.total < arcSpan[1]!)) {
+            await _checkTheories(tail);
+          }
           await refreshCounts();
           state.value = state.value.copyWith(phase: BuildPhase.done);
           return state.value;
         }
-        final ok = await _send(batch);
-        if (ok == null) return state.value; // resting or failed
-        if (!ok) {
+        final kept = await _send(batch);
+        if (kept == null) return state.value; // resting or failed
+        if (kept == 0) {
           // Halve the batch and try again; one chapter alone is marked.
+          good = 0;
           if (batch.chapters.length > 1) {
             most = math.max(1, batch.chapters.length ~/ 2);
             continue;
           }
           final ch = batch.chapters.single;
           await _markFailedOff(p, ch, 'The notes could not be made');
+        } else if (kept < batch.chapters.length) {
+          // The first chapters came, the rest did not: those kept, the rest
+          // asked again, as many at a time as came.
+          good = 0;
+          most = math.max(1, kept);
         } else {
-          most = l.chapters;
-          tokens = l.tokens;
-          await _checkTheories(batch.chapters);
-          await _embed();
+          if (most < l.chapters && ++good >= 4) {
+            most++;
+            good = 0;
+          }
+          if (!_stop) await _embed();
         }
         await refreshCounts();
       }
@@ -421,17 +532,16 @@ class MemoryBuilder {
               'what is given.',
         ),
         aiMessage('user', arc.text),
-      ], temperature: 0.3);
+      ], temperature: 0.3, only: _only);
       final text = reply.text.trim();
       final p = path;
       await _keepArcOff(p, arc.level, arc.from, arc.to, text.isEmpty ? '—' : text);
+      // The theories held up to these chapters, as the span's account is
+      // made: once per 25 chapters.
+      if (arc.level == 1 && !_stop) await _checkTheories(await _uncheckedOff(p, arc.from, arc.to));
       return true;
     } on AiResting catch (e) {
-      state.value = state.value.copyWith(
-        phase: e.until == null ? BuildPhase.failed : BuildPhase.resting,
-        until: e.until,
-        error: e.until == null ? (e.last?.message ?? 'No key can build memories') : null,
-      );
+      _rested(e);
       return false;
     }
   }
@@ -439,13 +549,9 @@ class MemoryBuilder {
   /// The cast tidied; false when the work stops (every key resting).
   Future<bool> _tidy() async {
     try {
-      await tidyCast(path, router);
+      await tidyCast(path, router, only: _only);
     } on AiResting catch (e) {
-      state.value = state.value.copyWith(
-        phase: e.until == null ? BuildPhase.failed : BuildPhase.resting,
-        until: e.until,
-        error: e.until == null ? (e.last?.message ?? 'No key can build memories') : null,
-      );
+      _rested(e);
       return false;
     } on Object {
       // A reply not understood, or the memory busy: tried again once more
@@ -482,19 +588,23 @@ class MemoryBuilder {
   /// they clearly settle get their verdict (kept hidden from the reader
   /// until they reach that chapter). Passed over when no key can do it.
   Future<void> _checkTheories(List<int> chapters) async {
+    if (chapters.isEmpty) return;
     final p = path;
     final open = await _openTheoriesOff(p);
     final last = chapters.reduce(math.max);
     final due = [for (final t in open) if (t.ch < last) t];
-    if (due.isEmpty) return;
-    final text = await _forCheckOff(p, chapters);
-    if (text.trim().isEmpty) return;
+    final text = due.isEmpty ? '' : await _forCheckOff(p, chapters);
+    if (due.isEmpty || text.trim().isEmpty) {
+      await _checkedToOff(p, last);
+      return;
+    }
     try {
       final reply = await router.chat(
         AiJob.builder,
         [aiMessage('user', theoryCheckPrompt(due, text))],
         json: true,
         temperature: 0.1,
+        only: _only,
       );
       final v = jsonObjectIn(reply.text);
       final ids = {for (final t in due) t.id: t};
@@ -510,47 +620,86 @@ class MemoryBuilder {
         final why = '${r['why'] ?? ''}'.trim();
         await _verdictOff(p, t.id, status, at, why);
       }
+      await _checkedToOff(p, last);
     } on AiResting {
       return;
     } on NotesFormatException {
+      await _checkedToOff(p, last);
       return;
     }
   }
 
-  /// One batch sent and its notes merged: true when kept, false when the
-  /// model's reply could not be used, null when the work stops (every key
-  /// resting, or none able).
-  Future<bool?> _send(_Batch batch) async {
+  /// One batch sent and its notes merged: how many of its chapters were
+  /// kept (all; the first few, when the rest did not come; none, when the
+  /// reply could not be used), or null when the work stops (every key it
+  /// may use resting, or none able).
+  Future<int?> _send(_Batch batch) async {
     final messages = [
       aiMessage('system', builderInstructions),
       aiMessage('user', batch.prompt),
     ];
+    // What it is likely to use: for a key's daily limit, before it is sent.
+    final expect = (batch.chars / 4).ceil() + batch.chapters.length * _outputPerChapter;
     for (var attempt = 0; attempt < 2; attempt++) {
       final AiReply reply;
       try {
-        reply = await router.chat(AiJob.builder, messages, json: true, temperature: 0.2);
+        reply = await router.chat(AiJob.builder, messages,
+            json: true, temperature: 0.2, only: _only, expect: expect, slowToCaller: true);
       } on AiResting catch (e) {
-        state.value = state.value.copyWith(
-          phase: e.until == null ? BuildPhase.failed : BuildPhase.resting,
-          until: e.until,
-          error: e.until == null ? (e.last?.message ?? 'No key can build memories') : null,
-        );
+        _rested(e);
+        return null;
+      } on AiError catch (e) {
+        if (!e.slow) rethrow;
+        // Too slow (it was sent again in full, on every key, paid each
+        // time): a smaller batch instead; one chapter alone, its key rests
+        // a while and it is asked again.
+        if (batch.chapters.length > 1) return 0;
+        final key = router.tried;
+        if (key == null) rethrow;
+        final until = await router.rested(key, e);
+        state.value = state.value.copyWith(phase: BuildPhase.resting, until: until, error: restWhy(e));
         return null;
       }
+      final most = batch.passages.values.fold<int>(0, (n, p) => math.max(n, p.length));
+      final p = path, places = batch.passages, model = router.lastKey?.models[AiJob.builder];
       try {
         if (reply.finish == 'length') throw const NotesFormatException('The reply was cut off: it was too long.');
-        final most = batch.passages.values.fold<int>(0, (n, p) => math.max(n, p.length));
         final notes = parseChapterNotes(reply.text, batch.chapters, passages: most);
-        final p = path, places = batch.passages, model = router.lastKey?.models[AiJob.builder];
         await _mergeOff(p, notes, places, model);
-        return true;
+        return batch.chapters.length;
       } on NotesFormatException catch (e) {
-        if (reply.finish == 'length') return false;
+        // The first chapters came whole: kept, and only the rest asked
+        // again (one missing chapter threw away seven good ones).
+        final lead = reply.finish == 'length' ? const <int>[] : leadingChapters(reply.text, batch.chapters);
+        if (lead.isNotEmpty) {
+          await _mergeOff(p, parseChapterNotes(reply.text, lead, passages: most), places, model);
+          return lead.length;
+        }
+        if (reply.finish == 'length') return 0;
         messages
           ..add(aiMessage('assistant', reply.text.length > 2000 ? '${reply.text.substring(0, 2000)}…' : reply.text))
           ..add(aiMessage('user', '${e.message} Send the whole JSON object again, as asked, and nothing else.'));
       }
     }
-    return false;
+    return 0;
   }
+
+  /// Every key it may use resting (or none able): the build waits, or
+  /// stops, and says why.
+  void _rested(AiResting e) {
+    state.value = state.value.copyWith(
+      phase: e.until == null ? BuildPhase.failed : BuildPhase.resting,
+      until: e.until,
+      error: e.until == null ? (e.last?.message ?? 'No key can build memories') : restWhy(e.last),
+    );
+  }
+
+  /// Why a key rests, in words that follow its name on the memory's page
+  /// ("Mercury could not be reached").
+  static String restWhy(AiError? e) => switch (e) {
+        AiError(slow: true) => 'was too slow to answer',
+        AiError(kind: AiFailure.network) => 'could not be reached',
+        AiError(kind: AiFailure.server) => 'is having trouble',
+        _ => 'has reached its limit for now',
+      };
 }

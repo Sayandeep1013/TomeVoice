@@ -155,10 +155,7 @@ List<PackItem> buildPack(PackInput i) {
 
     // The story so far: the arcs, then the latest chapters.
     final here = math.min(i.here ?? at, at);
-    for (final r in m.db.select(
-      'SELECT level, from_ch, to_ch, summary FROM arcs WHERE to_ch <= ? ORDER BY level DESC, from_ch',
-      [here],
-    )) {
+    for (final r in storySoFar(m, here)) {
       final from = r['from_ch'] as int, to = r['to_ch'] as int;
       items.add(from < 0
           ? PackItem('The story so far', 'Before this book (the earlier books of the series): ${r['summary']}')
@@ -224,12 +221,55 @@ List<PackItem> buildPack(PackInput i) {
   }
 }
 
+/// How much of the story so far goes with a question, in characters
+/// (about 9,000 tokens): the rest is a look-up away (chapter_notes).
+const storyChars = 36000;
+
+/// The summaries of the story so far that go with a question asked at
+/// chapter [here]: before this book (a series), the 250-chapter accounts,
+/// and the 25-chapter ones only for the tail no 250-chapter account covers
+/// yet. Every one of both levels went before: near the end of a 3,000
+/// chapter novel some 40,000 tokens with each question, four times over
+/// when the chat looked things up. Over [storyChars], the latest are kept.
+/// In the story's order.
+List<Map<String, Object?>> storySoFar(MemoryDb m, int here, {int maxChars = storyChars}) {
+  final rows = [
+    for (final r in m.db.select(
+      'SELECT level, from_ch, to_ch, summary FROM arcs WHERE to_ch <= ? ORDER BY level DESC, from_ch',
+      [here],
+    ))
+      r,
+  ];
+  var covered = -1;
+  for (final r in rows) {
+    if (r['level'] == 2 && (r['to_ch'] as int) > covered) covered = r['to_ch'] as int;
+  }
+  final before = [for (final r in rows) if ((r['from_ch'] as int) < 0) r];
+  final story = [
+    for (final r in rows)
+      if ((r['from_ch'] as int) >= 0 && (r['level'] == 2 || (r['level'] == 1 && (r['from_ch'] as int) > covered))) r,
+  ]..sort((a, b) => (a['from_ch'] as int).compareTo(b['from_ch'] as int));
+  // The latest first, while they fit; then put back in order.
+  var room = maxChars - before.fold<int>(0, (n, r) => n + '${r['summary']}'.length);
+  final kept = <Map<String, Object?>>[];
+  for (final r in story.reversed) {
+    final size = '${r['summary']}'.length;
+    if (kept.isNotEmpty && size > room) break;
+    kept.add(r);
+    room -= size;
+  }
+  return [...before, ...kept.reversed];
+}
+
 List<int> _byMentions(MemoryDb m, Set<int> ids) => ids.isEmpty
     ? const []
     : [
         for (final r in m.db.select('SELECT id FROM entities WHERE id IN (${ids.join(',')}) ORDER BY mentions DESC'))
           r['id'] as int,
       ];
+
+/// The most facts a card carries into a question.
+const cardFacts = 24;
 
 /// Entity [id]'s card as it stands at chapter [at]: who or what, its names,
 /// how it stands, its relations, its key events in order, a line it said.
@@ -252,11 +292,13 @@ List<PackItem> cardItems(MemoryDb m, int id, int at) {
       place: first == null || first < 0 ? null : MemoryPlace(chapter: first, section: first),
     ),
   ];
+  // How it stands: the latest facts, as many as matter (a main character
+  // of a long novel may carry hundreds), in the order they came.
   for (final f in m.db.select(
     'SELECT attr, value, from_ch ch, sec, blk, sen FROM facts WHERE entity = ? AND from_ch <= ? '
-    "AND (until_ch IS NULL OR until_ch > ?) AND attr != 'description' ORDER BY from_ch",
+    "AND (until_ch IS NULL OR until_ch > ?) AND attr != 'description' ORDER BY from_ch DESC, id DESC LIMIT $cardFacts",
     [id, at, at],
-  )) {
+  ).reversed) {
     out.add(PackItem(head, '${f['attr']}: ${f['value']} (from ${chapterLabel(f['ch'] as int)})', place: _place(f)));
   }
   for (final r in m.db.select(

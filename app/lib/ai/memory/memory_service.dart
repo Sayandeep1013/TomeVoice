@@ -14,6 +14,7 @@ import '../../sources/bridge.dart' show SourcesBridge;
 import '../../sources/models.dart' show ChapterItem;
 import '../ai_keys.dart';
 import '../ai_router.dart';
+import '../ai_screen.dart' show wakeTime;
 import 'memory_builder.dart';
 import 'memory_db.dart';
 import 'series.dart';
@@ -37,7 +38,12 @@ class BookMemoryState {
     this.bytes = 0,
     this.begun = false,
     this.private = false,
+    this.buildKeys,
   });
+
+  /// Which keys build it, as the reader chose ([buildKeysMeta]): any in
+  /// turn, or one only (null: the first only).
+  final String? buildKeys;
 
   /// The reader asked for it to be built: kept up from then on.
   final bool begun;
@@ -85,6 +91,8 @@ class BookMemoryState {
     int? bytes,
     bool? begun,
     bool? private,
+    String? buildKeys,
+    bool clearBuildKeys = false,
   }) =>
       BookMemoryState(
         exists: exists ?? this.exists,
@@ -100,6 +108,7 @@ class BookMemoryState {
         bytes: bytes ?? this.bytes,
         begun: begun ?? this.begun,
         private: private ?? this.private,
+        buildKeys: clearBuildKeys ? null : (buildKeys ?? this.buildKeys),
       );
 }
 
@@ -114,6 +123,7 @@ typedef _Read = ({
   int bytes,
   bool begun,
   bool private,
+  String? buildKeys,
 });
 
 _Read _read(String path) {
@@ -135,6 +145,7 @@ _Read _read(String path) {
       bytes: m.bytes,
       begun: m.meta('begun') == '1',
       private: m.meta('private') == '1',
+      buildKeys: m.meta(buildKeysMeta),
     );
   } finally {
     m.close();
@@ -433,6 +444,7 @@ class MemoryService {
       t.cancel();
     }
     _wakes.clear();
+    _alive.clear();
     for (final b in _builders.values) {
       b.pause();
     }
@@ -554,7 +566,24 @@ class MemoryService {
       bytes: r.bytes,
       begun: r.begun,
       private: r.private,
+      buildKeys: r.buildKeys,
+      clearBuildKeys: r.buildKeys == null,
     );
+  }
+
+  /// Which keys build [id]'s memory, kept with it so the build with the app
+  /// closed keeps to them too: [anyKey], or `only:<key id>`.
+  Future<void> setBuildKeys(String id, String setting) async {
+    // Made, when it was not yet (its word index comes next anyway).
+    await _setMetaOff(_path(id), buildKeysMeta, setting);
+    _n(id).value = _n(id).value.copyWith(buildKeys: setting);
+  }
+
+  /// "Go on with <key>": the build of [id], waiting for the one key it kept
+  /// to, goes on with [key] instead (and only it), at once.
+  Future<void> goOnWith(String id, AiKey key) async {
+    await setBuildKeys(id, 'only:${key.id}');
+    await build(id, hint: false);
   }
 
   /// The word index of [id] brought up to date (free, on the phone).
@@ -660,8 +689,9 @@ class MemoryService {
     // running and do nothing.
     await _landed(id);
     // Begun as the work starts, while the reader is (most often) in the
-    // app: Android may not let the service start from the background.
-    final job = KeepAliveJob(
+    // app: Android may not let the service start from the background. One
+    // kept through a short rest goes on as it was.
+    final job = _alive.remove(id) ?? KeepAliveJob(
       key: _keyOf(id),
       kind: KeepAliveKind.memory,
       text: _titles[id] ?? '',
@@ -676,11 +706,39 @@ class MemoryService {
       return;
     }
     keepAlive.begin(job, hint: hint);
+    var kept = false;
     try {
       await _build(id);
+      // Resting a short while (a key's per-minute limit, a dropped signal):
+      // the work and its notification are kept, so the wake lock holds and
+      // the wake-up comes with the screen off. It used to be let go at each
+      // rest: with one free key, the first rest of the night was the last.
+      final s = _n(id).value.build;
+      final until = s.until;
+      kept = s.phase == BuildPhase.resting &&
+          until != null &&
+          _wakes.containsKey(id) &&
+          until.difference(DateTime.now()) <= shortRest;
+      if (kept) {
+        _alive[id] = job;
+        keepAlive.update(job.key, text: '${_titles[id] ?? 'A book'} · Waiting for the key until ${wakeTime(until)}');
+      }
     } finally {
-      keepAlive.end(job.key, job: job);
+      if (!kept) keepAlive.end(job.key, job: job);
     }
+  }
+
+  /// The longest rest a build waits through with its notification kept.
+  static const shortRest = Duration(minutes: 15);
+
+  /// Builds waiting through a short rest, with their keep-alive job.
+  final _alive = <String, KeepAliveJob>{};
+
+  /// A build that was waiting through a short rest, its keep-alive let go
+  /// (paused, forgotten, or another book's turn).
+  void _letGo(String id) {
+    final job = _alive.remove(id);
+    if (job != null) keepAlive.end(job.key, job: job);
   }
 
   Future<void> _build(String id) async {
@@ -799,6 +857,7 @@ class MemoryService {
   /// or built with the app closed, neither) until the reader goes on.
   void pause(String id) {
     _wakes.remove(id)?.cancel();
+    _letGo(id);
     _builders[id]?.pause();
     _paused.add(id);
     final store = _store;
@@ -939,6 +998,7 @@ class MemoryService {
     // Its building stops (not by pause(), which would write "paused" into
     // the file as it moves); the memory goes as it stood, paused or not.
     _wakes.remove(from)?.cancel();
+    _letGo(from);
     _builders[from]?.pause();
     // A batch on its way writes to the file: let it land first.
     final b = _builders.remove(from);

@@ -97,7 +97,8 @@ class _AiScreenState extends State<AiScreen> {
                               'provider: there is no TomeVoice server. Nothing from your books is sent until '
                               'you add a key.'
                           : 'Your keys, straight from this phone to each provider. When one has used up its '
-                              'quota it rests, and the next takes over.',
+                              'quota it rests. A memory is built with its first key only, unless you let the '
+                              'next take over.',
                     ),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: Gap.page - Gap.s),
@@ -777,7 +778,7 @@ class _KeySheetState extends State<KeySheet> {
                   decoration: const InputDecoration(
                     labelText: 'Daily limit, in tokens (optional)',
                     hintText: '2M, 500k, or empty for none',
-                    helperText: 'Reached, the key rests until midnight and the next one takes over.',
+                    helperText: 'Reached, the key rests until midnight. Checked before each call, so it is never passed.',
                     helperMaxLines: 2,
                   ),
                 ),
