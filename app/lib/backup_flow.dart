@@ -161,7 +161,7 @@ Future<void> runRestore(BuildContext context, LibraryStore store) async {
           SheetAction(
             icon: Icons.swap_horiz_rounded,
             label: 'Replace my library',
-            detail: 'Your library and settings now are removed, and the backup takes their place',
+            detail: "Your books, places and settings become the backup's. Books it doesn't have are removed",
             danger: true,
             onTap: () => Navigator.pop(ctx, 'replace'),
           ),
@@ -175,16 +175,20 @@ Future<void> runRestore(BuildContext context, LibraryStore store) async {
     await staged.discard();
     return;
   }
-  if (how == 'replace' &&
-      !await confirm(
-        context,
-        title: 'Replace your library?',
-        body: 'The books, places and settings on this phone are removed and the backup\'s take their place. '
-            'This cannot be undone.',
-        action: 'Replace',
-      )) {
-    await staged.discard();
-    return;
+  if (how == 'replace') {
+    // Said in full: what goes, and what a backup without it keeps here.
+    final p = await replacePreview(store.root, staged);
+    if (!context.mounted) return;
+    final warning = replaceWarning(made: made, gone: p.gone, secretKept: p.secretKept, chaptersKept: p.chaptersKept);
+    if (!await confirm(
+      context,
+      title: 'Replace your library?',
+      body: '$warning\n\nThis cannot be undone.',
+      action: 'Replace',
+    )) {
+      await staged.discard();
+      return;
+    }
   }
   if (!context.mounted) return;
   final adding = how != 'replace';
@@ -212,8 +216,7 @@ Future<void> runRestore(BuildContext context, LibraryStore store) async {
     if (adding) {
       said = addSummary(await addToLibrary(store.root, staged, settings: how == 'add+settings'));
     } else {
-      await replaceLibrary(store.root, staged);
-      said = 'Your library is the backup made $made.';
+      said = replaceSummary(made, await replaceLibrary(store.root, staged));
     }
   } on Object catch (e) {
     try {

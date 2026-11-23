@@ -360,7 +360,9 @@ Future<({int sent, int taken})> syncKosync(
       var moved = false;
       if (remote != null &&
           remote.deviceId != device &&
-          remote.timestamp * 1000 > opened.millisecondsSinceEpoch &&
+          // Later than the place last moved here, not than the book was last
+          // opened: opened and left, it took nothing newer in.
+          remote.timestamp * 1000 > (e.movedAt ?? opened).millisecondsSinceEpoch &&
           remote.timestamp != mine['taken']) {
         final l = await book();
         final page = e.source == SourceKind.pdf ? int.tryParse(remote.progress) : null;

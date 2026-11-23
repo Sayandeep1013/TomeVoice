@@ -84,27 +84,36 @@ Future<OpenLibrary> openLibrary() async {
 }
 
 Future<OpenLibrary> _open(String dir) async {
+  // How long each step took, for the log (see _StartTimes).
+  final took = _StartTimes();
   // A restore the app stopped in the middle of is finished or undone first,
   // before any store reads the library half swapped.
-  await clearStaleRestore(Directory(dir));
-  final prefs = await ListeningPrefs.load(dir);
+  await took('restore check', clearStaleRestore(Directory(dir)));
+  final prefs = await took('settings', ListeningPrefs.load(dir));
   // The Play build lists more natural voices only when asked to.
   NeuralCatalog.wide = prefs.moreVoices;
   // The reader's own font, if it is the page's, before a book opens.
-  if (prefs.bookFont == BookFont.own) await OwnFonts.use(dir, prefs.ownFont);
-  // Sources ask as the phone's own browser does (see Net.userAgent).
-  final agent = await const SpeechService().webUserAgent();
-  if (agent != null && agent.isNotEmpty) Net.userAgent = agent;
+  if (prefs.bookFont == BookFont.own) await took('own font', OwnFonts.use(dir, prefs.ownFont));
   // Sources live in internal storage, moved there once from the library's
   // folder (which other apps can read on Android 8 to 10).
-  final internal = await SourcesBridge.sourcesRoot();
+  final internal = await took('sources folder', SourcesBridge.sourcesRoot());
   // So do the passwords (Secrets), moved the first time they are read.
   if (internal != null) Secrets.home = Directory(internal);
-  final sources = await SourceStore.open(Directory(internal ?? dir), legacyRoot: Directory(dir));
-  await Net.instance.attach(sources.dir);
+  final sources = await took('sources', SourceStore.open(Directory(internal ?? dir), legacyRoot: Directory(dir)));
+  // Sources ask as the phone's own browser does (see Net.userAgent): with
+  // the agent kept last run, the web view asked again once the shelf is up.
+  // Asked first, it held the start up (the web view loads on the main
+  // thread, a few hundred ms on a cold start).
+  final saved = await sources.savedUserAgent();
+  if (saved != null) {
+    Net.userAgent = saved;
+    unawaited(Future<void>.delayed(const Duration(seconds: 3), () => _askUserAgent(sources)));
+  } else {
+    // The first run: none kept yet, so asked now.
+    await took('web view agent', _askUserAgent(sources));
+  }
+  await took('cookies', Net.instance.attach(sources.dir));
   SourceEngine.instance.attach(sources);
-  // The check made with the app closed asks with the same agent.
-  if (agent != null && agent.isNotEmpty) unawaited(sources.saveUserAgent(agent));
   final store = LibraryStore(Directory(dir));
   _settleWhenLeft(store);
   // What the error log must never write, whatever an error says: every
@@ -120,19 +129,28 @@ Future<OpenLibrary> _open(String dir) async {
   keepOutOfLog();
   // Long jobs (downloads, memories) kept going in the background, and what
   // the last run left going, to pick up (keep_alive.dart).
-  await LongJobs.instance.attach(Directory(dir));
+  await took('long jobs', LongJobs.instance.attach(Directory(dir)));
   // Chapters left downloading when the app last closed carry on.
   unawaited(DownloadQueue.instance.attach(store));
-  await TintCache.instance.attach(Directory(dir));
-  await ReadingRules.instance.attach(Directory(dir));
-  await MarkStore.instance.attach(Directory(dir));
-  await JournalStore.instance.attach(Directory(dir));
-  // AI chat's conversations, and what it keeps about the reader.
-  await ChatStore.instance.attach(Directory(dir));
-  // Books whose memories are read together, as a series.
-  await SeriesStore.instance.attach(Directory(dir));
-  // The reader's AI keys (kept with the catalogue passwords) and their use.
-  await AiRing.instance.attach(Directory(dir));
+  // Each reads its own file, and none needs another: read together, not one
+  // after another.
+  await took(
+    'stores',
+    Future.wait([
+      TintCache.instance.attach(Directory(dir)),
+      ReadingRules.instance.attach(Directory(dir)),
+      MarkStore.instance.attach(Directory(dir)),
+      JournalStore.instance.attach(Directory(dir)),
+      // Books whose memories are read together, as a series.
+      SeriesStore.instance.attach(Directory(dir)),
+      // The reader's AI keys (kept with the catalogue passwords) and their use.
+      AiRing.instance.attach(Directory(dir)),
+      StatsStore.instance.attach(Directory(dir)),
+    ]),
+  );
+  // AI chat's conversations, and what it keeps about the reader: read in
+  // after, not waited for (every chat is read whole; the shelf needs none).
+  unawaited(ChatStore.instance.attach(Directory(dir)));
   MemoryService.instance.attach(store);
   // A memory that was being built when the app last closed goes on, once
   // TomeVoice is in front (not for a book read from outside it).
@@ -140,13 +158,52 @@ Future<OpenLibrary> _open(String dir) async {
   // Memories built with the app closed, while the AI has a key.
   unawaited(MemoryBackground.apply(prefs));
   AiRing.instance.addListener(() => unawaited(MemoryBackground.apply(ListeningPrefs.loaded ?? prefs)));
-  await StatsStore.instance.attach(Directory(dir));
   NeuralVoices.instance.attach(Directory(dir));
   // One check for the whole engine (the shelves', the Updates page's, and
   // the closed-app check's worker's, see checkInApp), which queues the new
   // chapters of novels that download them by themselves.
   final updates = Updates(store, auto: AutoDownloads());
+  took.done();
   return (dir: dir, store: store, sources: sources, updates: updates);
+}
+
+/// The phone's web view agent, for the sources to ask with, kept for the
+/// next run and for the check made with the app closed.
+Future<void> _askUserAgent(SourceStore sources) async {
+  try {
+    final agent = await const SpeechService().webUserAgent();
+    if (agent == null || agent.isEmpty) return;
+    Net.userAgent = agent;
+    await sources.saveUserAgent(agent);
+  } on Object {
+    // The one kept, or the built-in one, will do.
+  }
+}
+
+/// How long each step of opening the library took: written to the phone's
+/// log (logcat) at every start, and to the error log when the whole took
+/// longer than [slow], so that a slow start can be told apart.
+class _StartTimes {
+  static const slow = Duration(seconds: 2);
+
+  final _watch = Stopwatch()..start();
+  final _steps = <String>[];
+
+  Future<T> call<T>(String step, Future<T> work) async {
+    final from = _watch.elapsedMilliseconds;
+    try {
+      return await work;
+    } finally {
+      _steps.add('$step ${_watch.elapsedMilliseconds - from} ms');
+    }
+  }
+
+  void done() {
+    final total = _watch.elapsed;
+    final line = 'Opening the library took ${total.inMilliseconds} ms: ${_steps.join(', ')}';
+    debugPrint(line);
+    if (total > slow) ErrorLog.instance.record('Slow start. $line', null);
+  }
 }
 
 /// What the closed-app check's worker asks of this engine when it finds it

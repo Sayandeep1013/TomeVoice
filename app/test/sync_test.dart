@@ -218,6 +218,34 @@ void main() {
       expect(server.requests, isEmpty);
     });
 
+    test('a book opened and left where it was sends the time its place moved, not the opening', () async {
+      final moved = DateTime.now().subtract(const Duration(days: 1));
+      // Taken in from another phone yesterday.
+      await store.saveCursor(book.id, cursorOf(layout.units[5]), 0.2, at: moved);
+      // Opened here today and left at the same sentence.
+      await store.saveCursor(book.id, cursorOf(layout.units[5]), 0.2);
+      var e = (await store.list()).single;
+      expect(e.openedAt!.isAfter(moved), isTrue, reason: 'History still moves');
+      expect(localRecord(e).place!.at.isAtSameMomentAs(moved), isTrue);
+
+      // Read on: now it has moved.
+      await store.saveCursor(book.id, cursorOf(layout.units[8]), 0.3);
+      e = (await store.list()).single;
+      expect(localRecord(e).place!.at.isAfter(moved), isTrue);
+
+      // A further place comes in while the book is open at unit 8, and the
+      // page, not moved, saves as it closes: the further place stays.
+      await store.saveCursor(book.id, cursorOf(layout.units[30]), 0.7, at: DateTime.now());
+      await store.saveCursor(book.id, cursorOf(layout.units[8]), 0.3, from: cursorOf(layout.units[8]));
+      e = (await store.list()).single;
+      expect(e.cursor.sentenceIndex, layout.units[30].sentenceIndex);
+      expect(e.cursor.blockIndex, layout.units[30].blockIndex);
+      // The same, read on from: saved.
+      await store.saveCursor(book.id, cursorOf(layout.units[9]), 0.31);
+      e = (await store.list()).single;
+      expect(e.cursor.sentenceIndex, layout.units[9].sentenceIndex);
+    });
+
     test("a book's place, quotes and time go up, and come back merged with another phone's", () async {
       await turnOn();
       final q1 = await quote(3);

@@ -143,7 +143,16 @@ class ReaderController {
     _syncMarked();
     _events = SpeechService.events.listen(_onPlatformEvent);
     _statsTimer = Timer.periodic(const Duration(seconds: 15), (_) => countTime());
+    _knownPlace = initialCursor;
+    _knownUnit = cursor.value;
   }
+
+  /// The place as this page last knew it saved (the one it opened at, then
+  /// each it saved), and the sentence it was at: not moved from it, the page
+  /// does not save it over a place another phone sent meanwhile (see
+  /// LibraryStore.saveCursor's from).
+  ReadingCursor? _knownPlace;
+  int _knownUnit = -1;
 
   /// The chapters read: the page's, with any joined on after them since
   /// (see [widen]).
@@ -964,14 +973,20 @@ class ReaderController {
     // Handed on: the place is the background reading's, further on.
     if (store == null || layout.isEmpty || _handedOn || _placeAway) return;
     final u = cursor.value.clamp(0, layout.units.length - 1);
+    final place = cursorOf(layout.units[u]);
     try {
       await store.saveCursor(
         _book.id,
-        cursorOf(layout.units[u]),
+        place,
         view.progressOf?.call(u) ?? progressFraction(layout.units, u),
         where: layout.chapterTitle(layout.unitChapter[u]),
         layout: layout,
+        from: u == _knownUnit ? _knownPlace : null,
       );
+      if (u != _knownUnit) {
+        _knownPlace = place;
+        _knownUnit = u;
+      }
     } on Object {
       // Losing a position save is not worth an error on screen.
     }
