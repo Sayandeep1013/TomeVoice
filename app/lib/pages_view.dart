@@ -25,6 +25,10 @@ class PdfPagesController {
 
   /// A page on (1) or back (-1), as by the reader's hand (a key).
   void turn(int delta) => _state?._turn(delta);
+
+  /// Show the page sentence [unit] is on, the place kept: a look around
+  /// (a chapter, a search hit, a bookmark).
+  void show(int unit) => _state?._show(unit);
 }
 
 /// Black print on white paper as [ink] on [paper], and every colour between
@@ -85,6 +89,7 @@ class PdfPagesView extends StatefulWidget {
     this.onTurned,
     this.onTap,
     this.inset = EdgeInsets.zero,
+    this.startUnit,
   });
 
   final String path;
@@ -125,6 +130,10 @@ class PdfPagesView extends StatefulWidget {
   /// ends so the first page and the last are not under them.
   final EdgeInsets inset;
 
+  /// Shown first instead of the voice's page: something picked to look at
+  /// as the reader opened (a chapter from the book's page, a mark).
+  final int? startUnit;
+
   @override
   State<PdfPagesView> createState() => _PdfPagesViewState();
 }
@@ -154,6 +163,11 @@ class _PdfPagesViewState extends State<PdfPagesView> {
   List<double> _aspects = const [];
   int _current = 0;
   bool _programmatic = false;
+
+  /// The page shown first, fixed once the pages are known; and a sentence
+  /// asked to be shown before they were.
+  int? _start;
+  int? _showWhenOpen;
 
   /// Crop margins, as the reader's settings have it.
   static bool get _cropSetting => (ListeningPrefs.loaded ?? ListeningPrefs.memory).pdfCrop;
@@ -418,7 +432,16 @@ class _PdfPagesViewState extends State<PdfPagesView> {
   }
 
   final _curl = CurlController();
-  late final _turner = PageController(initialPage: _current ~/ _per);
+  late final _turner = PageController(initialPage: (_start ?? _current) ~/ _per);
+
+  void _show(int unit) {
+    // Not open yet: shown first once it is.
+    if (_pageCount == 0) {
+      _showWhenOpen = unit;
+      return;
+    }
+    _reveal(_pageOf(unit), force: true);
+  }
 
   /// The pages were turned by a finger since they last settled.
   bool _hand = false;
@@ -542,6 +565,8 @@ class _PdfPagesViewState extends State<PdfPagesView> {
           _pageCount = info.pages;
           _aspects = info.aspects;
           _current = _pageOf(widget.cursor.value);
+          final look = _showWhenOpen ?? widget.startUnit;
+          _start ??= look == null || look < 0 ? _current : _pageOf(look);
           // Cut or whole again, the pages fade into their new shape.
           if (widget.turn != null) return FadeIn(trigger: _plan, child: _book(context, info.pages, info.aspects));
           // The pages fade in over the spinner's place, rather than cut in.
@@ -558,7 +583,7 @@ class _PdfPagesViewState extends State<PdfPagesView> {
                 itemCount: info.pages,
                 itemScrollController: _scroll,
                 itemPositionsListener: _positions,
-                initialScrollIndex: _current,
+                initialScrollIndex: _start ?? _current,
                 // A page zoomed in takes the finger: it moves under it.
                 physics: _zoomed.isEmpty ? null : const NeverScrollableScrollPhysics(),
                 padding: EdgeInsets.fromLTRB(12, 4 + widget.inset.top, 12, 120 + widget.inset.bottom),
@@ -583,7 +608,7 @@ class _PdfPagesViewState extends State<PdfPagesView> {
             w = h * aspect * per;
           }
           final items = (pages + per - 1) ~/ per;
-          final start = _current ~/ per;
+          final start = (_start ?? _current) ~/ per;
           final zoomed = _zoomed.isNotEmpty;
           // The next leaves are drawn while this one is read.
           _warm(context, start + 1, pages, w / per);

@@ -16,6 +16,7 @@ import 'package:tomevoice_spike/marks.dart';
 import 'package:tomevoice_spike/page_crop.dart';
 import 'package:tomevoice_spike/page_curl.dart';
 import 'package:tomevoice_spike/page_tone.dart';
+import 'package:tomevoice_spike/paged_view.dart' show PageTurn;
 import 'package:tomevoice_spike/pages_view.dart';
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/reader_screen.dart';
@@ -88,17 +89,27 @@ void main() {
     }
   });
 
-  Future<void> openPdf(WidgetTester tester, {ThemeData? theme}) async {
+  /// The test book: three pages, a sentence on each.
+  ReadingLayout pdfLayout() => ReadingLayout.build(ingestPdfText(id: 'p', pages: [
+        for (var i = 1; i <= 3; i++) 'Page $i of the book has text enough to be a real page of it, honestly.',
+      ]));
+
+  /// The first sentence on [page] (from 0).
+  int unitOnPage(ReadingLayout l, int page) => l.unitPage.indexWhere((p) => p == page);
+
+  Future<void> openPdf(WidgetTester tester, {ThemeData? theme, int lookAtPage = -1}) async {
     tester.view.physicalSize = const Size(1080, 2340);
     tester.view.devicePixelRatio = 2.75;
     addTearDown(tester.view.reset);
     ListeningPrefs.memory.pdfPages = true;
-    final book = ingestPdfText(id: 'p', pages: [
-      for (var i = 1; i <= 3; i++) 'Page $i of the book has text enough to be a real page of it, honestly.',
-    ]);
+    final layout = pdfLayout();
     await tester.pumpWidget(MaterialApp(
       theme: theme,
-      home: ReaderScreen(layout: ReadingLayout.build(book), sourcePath: '${_tmp.path}/b.pdf'),
+      home: ReaderScreen(
+        layout: layout,
+        sourcePath: '${_tmp.path}/b.pdf',
+        lookAt: lookAtPage < 0 ? null : cursorOf(layout.units[unitOnPage(layout, lookAtPage)]),
+      ),
     ));
     await tester.pumpAndSettle();
   }
@@ -378,6 +389,57 @@ void main() {
         invertedPage(paper: Skin.darkOn(context), ink: Skin.inkOn(context)));
     await finish(tester);
   });
+
+  testWidgets("opened to look at a place (a chapter, a mark), a PDF's real pages open at its page, not the voice's",
+      (tester) async {
+    ListeningPrefs.memory
+      ..pages = true
+      ..pageTurn = 'none';
+    await openPdf(tester, lookAtPage: 2);
+    expect(shown(), '3');
+    await finish(tester);
+
+    // Scrolled, the same: the page looked at is on screen, the first is not.
+    ListeningPrefs.reset();
+    ListeningPrefs.memory.pages = false;
+    await openPdf(tester, lookAtPage: 2);
+    expect(shown(), contains('3'));
+    expect(shown(), isNot(contains('1')));
+    await finish(tester);
+  });
+
+  for (final pages in [false, true]) {
+    testWidgets("asked to show a place while open, a PDF's real pages go to its page (${pages ? 'turned' : 'scrolled'})",
+        (tester) async {
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 2.75;
+      addTearDown(tester.view.reset);
+      final layout = pdfLayout();
+      final control = PdfPagesController();
+      final detached = ValueNotifier(false);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfPagesView(
+            path: '${_tmp.path}/b.pdf',
+            layout: layout,
+            cursor: ValueNotifier(0),
+            detached: detached,
+            onTapPage: (_) {},
+            controller: control,
+            turn: pages ? PageTurn.none : null,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(shown(), startsWith('1'));
+      detached.value = true;
+      control.show(unitOnPage(layout, 2));
+      await tester.pumpAndSettle();
+      expect(shown(), contains('3'));
+      expect(shown(), isNot(contains('1')));
+      await finish(tester);
+    });
+  }
 
   testWidgets("the page keys, a tap at a side and TalkBack turn a PDF's pages as they turn the text's",
       (tester) async {

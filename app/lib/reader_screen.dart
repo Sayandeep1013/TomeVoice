@@ -450,6 +450,17 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }();
   final _scroll = ItemScrollController();
 
+  /// A PDF's real pages open where [_startItem] has the text open: at
+  /// something picked to look at, or the chapter opened from the book's
+  /// page; null, at the voice's place.
+  late final int? _pdfStartUnit = () {
+    if (_l.isEmpty) return null;
+    if (_reader.lookUnit >= 0) return _reader.lookUnit;
+    final view = widget.viewSection;
+    final c = view == null ? -1 : _l.chapters.indexOf(view);
+    return c < 0 ? null : _l.chapterFirstUnit[c];
+  }();
+
   /// Scrolls the page by a distance, for travelling far.
   final _offsets = ScrollOffsetController();
 
@@ -1723,6 +1734,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final u = unit.clamp(0, _l.units.length - 1);
     _detached.value = true;
     _viewChapter.value = _l.chapterOfUnit(u);
+    // A PDF's real pages: the page it is on.
+    if (_showPages) {
+      _pdf.show(u);
+      return;
+    }
     if (_inPages) {
       _paged.showUnit(u, animate: false);
       return;
@@ -2338,6 +2354,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             onTurned: _onPdfPage,
             inset: inset,
             onTap: _tapPdf,
+            startUnit: _pdfStartUnit,
           )),
         ),
       );
