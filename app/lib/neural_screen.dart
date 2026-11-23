@@ -29,8 +29,9 @@ class NeuralVoicesScreen extends StatefulWidget {
 class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
   final _voices = NeuralVoices.instance;
 
-  /// The model being tested ([NeuralVoice.modelId]).
-  String? _testing;
+  /// The model being tested ([NeuralVoice.modelId]): the service's, so a
+  /// test after a download runs on when this screen is left.
+  String? get _testing => _voices.testing;
 
   /// The voice whose sample is playing.
   String? _hearing;
@@ -167,6 +168,16 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
       unawaited(_test(v));
     } on DownloadCancelled {
       if (mounted) showSnack(context, 'Download stopped.');
+    } on NoSpaceForVoice {
+      if (mounted) {
+        showSnack(
+          context,
+          'Not enough free space on the phone. This voice needs about '
+          '${(spaceForVoice(v.bytes) / (1024 * 1024)).round()} MB free while it is set up. '
+          'Free some space and try again: anything already downloaded is kept.',
+          long: true,
+        );
+      }
     } on Object catch (e) {
       debugPrint('Natural voice ${v.modelId}: download failed: $e');
       if (mounted) {
@@ -185,10 +196,9 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
   /// must keep up (Kokoro) is offered for reading only if it does.
   Future<void> _test(NeuralVoice v) async {
     if (_testing != null) return;
-    setState(() => _testing = v.modelId);
     try {
-      final r = await NeuralEngine.instance.measure(v, Directory.systemTemp.path);
-      await _voices.rememberSpeed(v, r);
+      final r = await _voices.testSpeed(v);
+      if (r == null) return;
       VoiceCatalog.instance.neuralChanged();
       final pack = v.pack;
       if (mounted && pack != null && pack.mustKeepUp) {
@@ -203,8 +213,6 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
     } on Object catch (e) {
       debugPrint('Natural voice ${v.modelId}: speed test failed: $e');
       if (mounted) showSnack(context, 'The voice did not work on this phone. Remove it, or try another.', long: true);
-    } finally {
-      if (mounted) setState(() => _testing = null);
     }
   }
 

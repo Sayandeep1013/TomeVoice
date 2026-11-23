@@ -252,6 +252,16 @@ class _ReaderSkeleton extends StatelessWidget {
 
 /// The reading surface.
 ///
+/// What the page holding a reader may ask of the reader open in it (a web
+/// novel's page, which builds a new reader over its chapters now and then).
+class ReaderLink {
+  Future<bool> Function()? _keep;
+
+  /// Save the place being read now (while the voice reads on it is saved
+  /// only every half minute); true if the voice was reading.
+  Future<bool> keepPlace() => _keep?.call() ?? Future<bool>.value(false);
+}
+
 /// Laid out from the reference design (docs/10 ADR-017): a soft gradient
 /// ground, chrome as floating capsules, monospace instrumentation, and the
 /// text itself as the loudest thing on screen. The whole book scrolls as one
@@ -277,7 +287,11 @@ class ReaderScreen extends StatefulWidget {
     this.viewSection,
     this.openContents,
     this.layouts,
+    this.link,
   });
+
+  /// Lets the page holding this reader ask it to save its place.
+  final ReaderLink? link;
 
   final ReadingLayout layout;
 
@@ -488,6 +502,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       lookAt: widget.lookAt,
     );
     widget.layouts?.addListener(_onLayouts);
+    widget.link?._keep = _keepPlace;
     _watched = _voiceElsewhere;
     _watched?.layouts.addListener(_voiceMoved);
     BackgroundReading.current.addListener(_voiceMoved);
@@ -867,8 +882,18 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// [_snackMargin]); a new key each time it opens.
   GlobalKey _nowPlayingKey = GlobalKey();
 
+  /// See [ReaderLink.keepPlace].
+  Future<bool> _keepPlace() async {
+    final playing = _player.isPlaying || _player.state.value == PlayState.loading;
+    await _reader.persist();
+    return playing;
+  }
+
   @override
   void dispose() {
+    // The next reader on the same page may have taken the link already.
+    final link = widget.link;
+    if (link != null && link._keep == _keepPlace) link._keep = null;
     // First: closing the page hands its voice to the background, which
     // would ask this page to be built again.
     _watched?.layouts.removeListener(_voiceMoved);

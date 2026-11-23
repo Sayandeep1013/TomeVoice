@@ -110,6 +110,7 @@ class PlaybackScheduler {
     this.dialogueVoiceOf,
     this.pitchOf,
     this.quoteOpenAt,
+    this.quickStart = true,
     this.fallbackVoiceOf,
     this.speakers,
     this.narration,
@@ -142,6 +143,10 @@ class PlaybackScheduler {
   /// Whether a quotation is open where unit i begins (said on from an
   /// earlier sentence of its paragraph), when that can be told.
   final bool Function(int index)? quoteOpenAt;
+
+  /// A start in a natural voice makes the first clause of its first
+  /// sentence alone, so the voice is heard sooner (see [firstClauseEnd]).
+  final bool quickStart;
 
   /// The phone's own voice for the book's language: what reads on when a
   /// natural voice fails (docs/04 section 4.9), rather than sentences being
@@ -304,8 +309,25 @@ class PlaybackScheduler {
   }
 
   /// Start speaking at [from], discarding anything queued.
-  Future<void> play(int from) async {
+  ///
+  /// With [reuse] (a move with nothing about the voice changed: Next,
+  /// Previous, a sentence tapped), speech already made for [from] and what
+  /// follows it is queued again rather than made afresh, so a skip is
+  /// heard at once (with a natural voice it was seconds of silence). Not
+  /// after a change of speed, voice or pronunciation: that must be made
+  /// again.
+  Future<void> play(int from, {bool reuse = false}) async {
     if (units.isEmpty) return;
+    if (reuse && state.value == PlayState.playing) {
+      final to = from.clamp(0, units.length - 1);
+      final at = _chunks.indexWhere((c) => c.unit == to);
+      if (at >= 0) {
+        error.value = null;
+        _restarted = false;
+        await _rewind(from: at);
+        return;
+      }
+    }
     beforePlay?.call(this);
     final gen = await _reset();
     if (gen != _gen) return;
@@ -571,13 +593,14 @@ class PlaybackScheduler {
 
   /// Back to the start of the sentence being heard, with what is queued
   /// after it. The speech already made is queued again: nothing is made
-  /// afresh, so it starts at once.
-  Future<void> _rewind() async {
+  /// afresh, so it starts at once. With [from], from that chunk instead
+  /// (a skip to a sentence already made, see [play]).
+  Future<void> _rewind({int? from}) async {
     final gen = ++_gen;
     _stopTicker();
     _wake();
     final pos = _position;
-    final keep = [for (final c in _chunks) if (c.end > pos) c];
+    final keep = from != null ? _chunks.sublist(from) : [for (final c in _chunks) if (c.end > pos) c];
     _chunks.clear();
     _fillDone = false;
     // The sentence being made is dropped; the fill makes it again after
@@ -615,6 +638,8 @@ class PlaybackScheduler {
       ];
 
   int get _queuedEnd => _chunks.isEmpty ? 0 : _chunks.last.end;
+
+  static final _quoteMark = RegExp('[“”"«»「」„]');
 
   /// A line with something in it to say: a letter or a digit, in any script.
   static final _sayable = RegExp(r'[\p{L}\p{N}]', unicode: true);
@@ -759,22 +784,48 @@ class PlaybackScheduler {
           if (neuralVoiceFor(v) case final natural?) natural,
       ]);
       try {
+        final settings = settingsFor(text);
+        final open = quoted == null ? null : quoteOpenAt?.call(i);
+        // The first sentence of a start, in a natural voice: nothing is
+        // heard until it is all made (seconds, for a long one with a slow
+        // voice). Its first clause is made and queued alone, then the rest.
+        final plain = quoted == null || (open != true && !text.contains(_quoteMark));
+        final cut = quickStart && _chunks.isEmpty && plain && isNeural(narrator) ? firstClauseEnd(text) : -1;
+        if (cut > 0) {
+          final head = await makeSentence(
+            service: service,
+            text: text.substring(0, cut).trimRight(),
+            settings: settings,
+            engineId: engineIdOf(),
+            narrator: narrator,
+            dialogue: null,
+            pitchOf: pitchOf,
+            pauseAfterMs: () => 0,
+            levelDb: _levelDb,
+            urgent: true,
+            stale: () => gen != _gen,
+          );
+          if (head == null || gen != _gen) return;
+          if (!await _queue(gen, i, head, said.changed ? _onPage(head.timings, said) : head.timings)) return;
+        }
         final r = await makeSentence(
           service: service,
-          text: text,
-          settings: settingsFor(text),
-          open: quoted == null ? null : quoteOpenAt?.call(i),
+          text: cut > 0 ? text.substring(cut) : text,
+          settings: settings,
+          open: cut > 0 ? null : open,
           engineId: engineIdOf(),
           narrator: narrator,
-          dialogue: quoted,
+          dialogue: cut > 0 ? null : quoted,
           pitchOf: pitchOf,
           pauseAfterMs: () => pauseAfter(i),
           levelDb: _levelDb,
-          urgent: urgent,
+          urgent: urgent || cut > 0,
           stale: () => gen != _gen,
         );
         if (r == null || gen != _gen) return;
-        if (!await _queue(gen, i, r, said.changed ? _onPage(r.timings, said) : r.timings)) return;
+        // The rest's words, placed in the whole sentence.
+        final timings = cut > 0 ? shiftTimings(r.timings, cut) : r.timings;
+        if (!await _queue(gen, i, r, said.changed ? _onPage(timings, said) : timings)) return;
         final took = watch.elapsedMilliseconds;
         _lastMade = (ms: took, speechMs: r.speechFrames * 1000 ~/ r.sampleRate, urgent: urgent);
         if (text.length >= 20) {
@@ -1014,6 +1065,43 @@ class PlaybackScheduler {
     if (error.value == null) onFinished?.call();
   }
 }
+
+/// Where the first clause of [text] ends (just after its comma, semicolon,
+/// colon or dash), for a first sentence made in two parts; -1 when the
+/// sentence is short, or has no such mark with enough on both sides.
+///
+/// A sentence long enough for a natural voice to make in pieces
+/// ([clausePieces]) is cut where its first piece ends, so the head is that
+/// piece.
+int firstClauseEnd(String text, {int minHead = 30, int minTail = 25, int minLength = 70}) {
+  if (text.length < minLength) return -1;
+  final pieces = clausePieces(text);
+  if (pieces.length > 1) return pieces[1].start;
+  for (var i = minHead; i < text.length - minTail; i++) {
+    final c = text.codeUnitAt(i);
+    // , ; : and the en and em dashes.
+    if (c == 0x2C || c == 0x3B || c == 0x3A || c == 0x2013 || c == 0x2014) {
+      // Not inside a number ("1,000", "10:30").
+      final next = text.codeUnitAt(i + 1);
+      if (next >= 0x30 && next <= 0x39) continue;
+      return i + 1;
+    }
+  }
+  return -1;
+}
+
+/// [timings] of a part of a sentence that starts [by] characters in, as
+/// places in the whole sentence.
+List<WordTiming> shiftTimings(List<WordTiming> timings, int by) => [
+      for (final t in timings)
+        WordTiming(
+          charStart: t.charStart + by,
+          charEnd: t.charEnd + by,
+          frameStart: t.frameStart,
+          frameEnd: t.frameEnd,
+          source: t.source,
+        ),
+    ];
 
 /// One sentence as reading aloud makes it: said by [narrator] (words in
 /// quotation marks by [dialogue]: the voice the book's cast gives whoever

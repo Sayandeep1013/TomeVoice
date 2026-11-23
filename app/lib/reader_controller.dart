@@ -534,6 +534,8 @@ class ReaderController {
     _sleepTick = null;
     _sleepAt = null;
     _sleepChapter = -1;
+    // A ping's sound ending must not start it again.
+    _focus.forget();
     // Faded out already: paused at once, then back to full volume for Play.
     unawaited(player.pause(now: true).whenComplete(player.endFade));
     if (view.mounted) {
@@ -614,7 +616,8 @@ class ReaderController {
     follow();
     final state = player.state.value;
     if (play || state == PlayState.playing || state == PlayState.loading) {
-      await player.play(next);
+      // A move: speech already made for it is played again, not made again.
+      await player.play(next, reuse: true);
     } else if (state == PlayState.paused) {
       // Its voice stops, so Play reads from here; the card stays up, paused
       // at the new place, whichever buttons moved it (the page's own once

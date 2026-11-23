@@ -26,6 +26,8 @@ import android.widget.RemoteViews
 import org.json.JSONObject
 import java.io.File
 import java.util.Calendar
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
@@ -50,12 +52,39 @@ object Widgets {
     const val EXTRA_PAGE = "app.tomevoice.widget.PAGE"
     private const val PREFS = "widgets"
 
-    /** Redraw every TomeVoice widget (the library or playback changed). */
+    /** One thread draws the faces, off the main one: a face reads the library and draws a picture. */
+    private val drawer = Executors.newSingleThreadExecutor()
+    private val waiting = AtomicBoolean(false)
+
+    /** The books, read once for all the faces of one redraw (on [drawer] only). */
+    private val sameRedraw = ThreadLocal<List<Book>?>()
+
+    /**
+     * Redraw every TomeVoice widget (the library or playback changed). It
+     * returns at once; asks that come while one redraw is still waiting to
+     * start are the same redraw.
+     */
     fun refreshAll(ctx: Context) {
+        val app = ctx.applicationContext
+        if (!waiting.compareAndSet(false, true)) return
+        drawer.execute {
+            waiting.set(false)
+            try {
+                drawAll(app)
+            } catch (e: Exception) {
+                // The faces stay as they were.
+            } finally {
+                sameRedraw.set(null)
+            }
+        }
+    }
+
+    private fun drawAll(ctx: Context) {
         val mgr = AppWidgetManager.getInstance(ctx)
         for (cls in listOf(PlayerWidget::class.java, PlayerStampWidget::class.java, PlayerWidgetWide::class.java, StreakWidget::class.java, StreakWidgetWide::class.java)) {
             val ids = mgr.getAppWidgetIds(ComponentName(ctx, cls))
             if (ids.isEmpty()) continue
+            if (sameRedraw.get() == null) sameRedraw.set(readBooks(ctx))
             val provider = cls.getDeclaredConstructor().newInstance() as BaseWidget
             for (id in ids) provider.draw(ctx, mgr, id)
         }
@@ -94,7 +123,9 @@ object Widgets {
         null
     }
 
-    fun books(ctx: Context): List<Book> {
+    fun books(ctx: Context): List<Book> = sameRedraw.get() ?: readBooks(ctx)
+
+    private fun readBooks(ctx: Context): List<Book> {
         val lib = readJson(File(root(ctx), "library.json")) ?: return emptyList()
         val tintFile = readJson(File(root(ctx), "tints.json"))
         val tints = tintFile?.optJSONObject("books")
@@ -382,21 +413,29 @@ object Widgets {
         return PendingIntent.getActivity(ctx, code, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
 
-    /** [action] sent to the reading service. */
-    fun service(ctx: Context, code: Int, action: String): PendingIntent = PendingIntent.getService(
-        ctx,
-        code,
-        Intent(ctx, ReadAloudService::class.java).setAction(action),
-        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-    )
+    /**
+     * [action] sent to the reading service. As a foreground start: a paused
+     * book's service is out of the foreground, and Android does not let a
+     * plain start reach a background app's service from a widget (the
+     * button did nothing). The service goes foreground first for these
+     * ([ReadAloudService.EXTRA_FROM_WIDGET]).
+     */
+    fun service(ctx: Context, code: Int, action: String): PendingIntent {
+        val i = Intent(ctx, ReadAloudService::class.java)
+            .setAction(action)
+            .putExtra(ReadAloudService.EXTRA_FROM_WIDGET, true)
+        val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        return if (Build.VERSION.SDK_INT >= 26) {
+            PendingIntent.getForegroundService(ctx, code, i, flags)
+        } else {
+            PendingIntent.getService(ctx, code, i, flags)
+        }
+    }
 
-    fun toggle(ctx: Context, code: Int): PendingIntent = PendingIntent.getService(
+    fun toggle(ctx: Context, code: Int): PendingIntent = service(
         ctx,
         code,
-        Intent(ctx, ReadAloudService::class.java).setAction(
-            if (isPlaying()) ReadAloudService.ACTION_PAUSE else ReadAloudService.ACTION_PLAY
-        ),
-        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        if (isPlaying()) ReadAloudService.ACTION_PAUSE else ReadAloudService.ACTION_PLAY,
     )
 }
 
