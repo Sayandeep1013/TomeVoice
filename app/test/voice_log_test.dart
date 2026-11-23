@@ -173,17 +173,24 @@ void main() {
       e('memory low', {}),
     ];
     final s = voiceLogSummary(events).join('\n');
-    expect(s, contains('After Play: the voice was heard in 2.8 s'));
-    expect(s, contains('After a change of speed or voice: the voice was heard in 3.2 s'));
-    expect(s, contains('At 1.0x'));
-    expect(s, contains('At 2.0x'));
+    expect(s, contains('After Play: the voice was heard in 2.8 s as a rule (2 times; slowest 2.8 s)'));
+    expect(s, contains('After a change of speed or voice: the voice was heard in 3.2 s (once)'));
+    expect(s, contains('At ${speedLabel(1)}: a sentence was made in 30% of the time it takes to say'));
+    expect(s, contains('At ${speedLabel(2)}'));
     expect(s, contains('cannot keep up at this speed'));
-    expect(s.split('\n').firstWhere((l) => l.startsWith('At 1.0x')), isNot(contains('cannot keep up')));
+    expect(s.split('\n').firstWhere((l) => l.startsWith('At ${speedLabel(1)}')), isNot(contains('cannot keep up')));
     expect(s, contains('ran dry 2 times'));
     expect(s, contains('1 over a second'));
     expect(s, contains('Bengali sentences were read by: en-in (1)'));
     expect(s, contains('TTS_TIMEOUT'));
-    expect(s, contains('Android asked for memory back 1 times'));
+    expect(s, contains('Android asked for memory back once'));
+  });
+
+  test('speeds are shown as the reader set them', () {
+    final x = String.fromCharCode(0xD7);
+    expect(speedLabel(1), '1$x');
+    expect(speedLabel(1.15), '1.15$x');
+    expect(speedLabel(2.5), '2.5$x');
   });
 
   test("a sentence's alphabet, told from its letters", () {

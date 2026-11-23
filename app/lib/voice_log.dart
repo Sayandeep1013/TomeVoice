@@ -288,6 +288,15 @@ int _median(List<int> xs) {
 
 String _secs(num ms) => '${(ms / 1000).toStringAsFixed(1)} s';
 
+String _times(int n) => n == 1 ? 'once' : '$n times';
+
+/// 1.15 as "1.15×", 2.0 as "2×".
+String speedLabel(num speed) {
+  var s = speed.toStringAsFixed(2);
+  s = s.replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+  return '$s${String.fromCharCode(0xD7)}';
+}
+
 /// What [events] say, in plain words, a line each: how quickly the voice
 /// was heard, whether the phone kept up at each speed, the gaps, the
 /// errors, and which voices read which alphabets.
@@ -304,24 +313,25 @@ List<String> voiceLogSummary(List<VoiceEvent> events) {
     }
     for (final w in byWhat.entries) {
       final xs = w.value;
-      out.add('After ${w.key}: the voice was heard in ${_secs(_median(xs))} as a rule '
-          '(${xs.length} times; slowest ${_secs(xs.reduce((a, b) => a > b ? a : b))}).');
+      out.add(xs.length == 1
+          ? 'After ${w.key}: the voice was heard in ${_secs(xs.single)} (once).'
+          : 'After ${w.key}: the voice was heard in ${_secs(_median(xs))} as a rule '
+              '(${_times(xs.length)}; slowest ${_secs(xs.reduce((a, b) => a > b ? a : b))}).');
     }
   }
   // Keeping up, by speed.
   final made = events.where((e) => e.kind == 'made' && (e.n('ms') ?? 0) > 0 && (e.n('speechMs') ?? 0) > 0).toList();
   if (made.isNotEmpty) {
-    final bySpeed = <String, List<VoiceEvent>>{};
+    final bySpeed = <double, List<VoiceEvent>>{};
     for (final e in made) {
-      final speed = ((e.n('speed') ?? 1) * 4).round() / 4;
-      (bySpeed['${speed}x'] ??= []).add(e);
+      final speed = ((e.n('speed') ?? 1) * 20).round() / 20;
+      (bySpeed[speed] ??= []).add(e);
     }
-    final speeds = bySpeed.keys.toList()..sort((a, b) => double.parse(a.replaceAll('x', '')).compareTo(double.parse(b.replaceAll('x', ''))));
-    for (final s in speeds) {
+    for (final s in bySpeed.keys.toList()..sort()) {
       final list = bySpeed[s]!;
       final slow = list.where((e) => e.n('ms')! > e.n('speechMs')!).length;
       final pace = _median([for (final e in list) (e.n('ms')! * 100 / e.n('speechMs')!).round()]);
-      out.add('At $s: a sentence took $pace% of its own length to make, as a rule; '
+      out.add('At ${speedLabel(s)}: a sentence was made in $pace% of the time it takes to say, as a rule; '
           '$slow of ${list.length} took longer to make than to say'
           '${slow * 3 > list.length ? ' (this phone cannot keep up at this speed)' : ''}.');
     }
@@ -330,7 +340,7 @@ List<String> voiceLogSummary(List<VoiceEvent> events) {
   final gaps = events.where((e) => e.kind == 'gap' && e.n('ms') != null).map((e) => e.n('ms')!.round()).toList();
   if (gaps.isNotEmpty) {
     final long = gaps.where((g) => g >= 1000).length;
-    out.add('The voice ran dry ${gaps.length} times, waiting for the next sentence: '
+    out.add('The voice ran dry ${_times(gaps.length)}, waiting for the next sentence: '
         '${_secs(gaps.fold<int>(0, (a, b) => a + b))} of silence in all, the longest ${_secs(gaps.reduce((a, b) => a > b ? a : b))}'
         '${long > 0 ? '; $long over a second' : ''}.');
   } else if (made.isNotEmpty) {
@@ -339,6 +349,8 @@ List<String> voiceLogSummary(List<VoiceEvent> events) {
   // Which voice read which alphabet.
   final scripts = <String, Map<String, int>>{};
   for (final e in made) {
+    // A line of marks or numbers only ("* * *", "1.") says nothing here.
+    if (e.s('script') == 'none') continue;
     final m = scripts[e.s('script')] ??= {};
     m[e.s('voice')] = (m[e.s('voice')] ?? 0) + 1;
   }
@@ -353,12 +365,12 @@ List<String> voiceLogSummary(List<VoiceEvent> events) {
     errors[key] = (errors[key] ?? 0) + 1;
   }
   for (final e in errors.entries) {
-    out.add('Error${e.value > 1 ? ' ${e.value} times' : ''}: ${e.key}');
+    out.add('Error${e.value > 1 ? ' (${e.value} times)' : ''}: ${e.key}');
   }
   int count(String kind) => events.where((e) => e.kind == kind).length;
-  if (count('fallback') > 0) out.add("A natural voice gave way to the phone's ${count('fallback')} times.");
-  if (count('stall') > 0) out.add('The player stopped moving ${count('stall')} times.');
-  if (count('memory low') > 0) out.add('Android asked for memory back ${count('memory low')} times.');
+  if (count('fallback') > 0) out.add("A natural voice gave way to the phone's ${_times(count('fallback'))}.");
+  if (count('stall') > 0) out.add('The player stopped moving ${_times(count('stall'))}.');
+  if (count('memory low') > 0) out.add('Android asked for memory back ${_times(count('memory low'))}.');
   return out;
 }
 
