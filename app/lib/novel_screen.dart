@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor, SourceKind, cursorOf;
+import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor, SourceKind;
 
 import 'auto_download.dart';
 import 'book_actions.dart';
@@ -62,12 +62,39 @@ class NovelScreen extends StatefulWidget {
   /// The page of a web novel already in the library.
   static Future<void> openEntry(BuildContext context, LibraryStore store, LibraryEntry e) async {
     final info = await store.webNovel(e.id);
-    if (info == null || !context.mounted) return;
+    if (!context.mounted) return;
+    var plugin = info?.plugin;
+    var path = info?.novel.path;
+    if (info == null) {
+      // Its details are not on the phone (a removal or a restore that
+      // stopped part way): its page comes from the site again, through the
+      // source it was added from, if that is still installed. Tapped, it
+      // did nothing at all.
+      path = e.novelPath;
+      try {
+        final installed = await SourceEngine.instance.store.installed();
+        plugin = installed.where((p) => p.id == e.plugin).firstOrNull;
+      } on Object {
+        plugin = null;
+      }
+      if (!context.mounted) return;
+      if (plugin == null || path == null || path.isEmpty) {
+        final remove = await confirm(
+          context,
+          title: 'This novel can’t be opened',
+          body: 'Its chapter list is missing from this phone, and the source it came from isn’t installed. '
+              'Remove "${e.title}" from the library? You can add it again from Browse.',
+          action: 'Remove',
+        );
+        if (remove) await store.remove(e.id);
+        return;
+      }
+    }
     await Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => BookTint(
         bookId: e.id,
         cover: e.shownCover,
-        child: NovelScreen(store: store, plugin: info.plugin, path: info.novel.path, name: e.title),
+        child: NovelScreen(store: store, plugin: plugin!, path: path!, name: e.title),
       ),
     ));
   }
@@ -434,21 +461,20 @@ class _NovelScreenState extends State<NovelScreen> {
 
   /// Find words in the chapters on the phone, and read from the one picked.
   Future<void> _findPassage() async {
-    final layout = await _store.loadLayout(_id);
-    if (!mounted) return;
-    if (layout.isEmpty) {
+    if (_store.downloadedChapters(_id).isEmpty) {
       showSnack(context, 'Download some chapters first: a passage is found in the chapters on the phone.');
       return;
     }
-    await showBookSearch(
+    // Each chapter file searched in turn, off the UI: the whole novel laid
+    // out at once (thousands of chapters) could take seconds and all the
+    // phone's memory.
+    await showPassageFinder(
       context,
-      layout: layout,
-      chapter: 0,
-      wholeBook: true,
-      onPick: (hits, i, _) {
+      find: (query, wholeWords) => _store.findInWebNovel(_id, query, wholeWords: wholeWords),
+      onPick: (p) {
         if (_opening) return;
         _opening = true;
-        unawaited(_openReader(at: cursorOf(layout.units[hits[i].unit])).whenComplete(() => _opening = false));
+        unawaited(_openReader(at: p.at).whenComplete(() => _opening = false));
       },
     );
   }

@@ -287,16 +287,30 @@ class Skin {
   /// so no screen has to restyle a widget by hand.
   static final _themes = <String, ThemeData>{};
 
+  /// How many themes are kept: each book's cover colour makes one, and a
+  /// big library's would all stay in memory (twice, after a switch between
+  /// light and dark). The least lately used goes first.
+  static const _themesKept = 96;
+
   /// The Flutter theme for [p] in [b], built once.
-  static ThemeData themeFor(Palette p, Brightness b) => _themes.putIfAbsent('${p.id}/${b.name}', () {
-        final previous = palette;
-        palette = p;
-        try {
-          return theme(b);
-        } finally {
-          palette = previous;
-        }
-      });
+  static ThemeData themeFor(Palette p, Brightness b) {
+    final key = '${p.id}/${b.name}';
+    final kept = _themes.remove(key);
+    if (kept != null) return _themes[key] = kept;
+    final previous = palette;
+    palette = p;
+    final ThemeData made;
+    try {
+      made = theme(b);
+    } finally {
+      palette = previous;
+    }
+    _themes[key] = made;
+    while (_themes.length > _themesKept) {
+      _themes.remove(_themes.keys.first);
+    }
+    return made;
+  }
 
   static ThemeData theme(Brightness b) {
     final dark = b == Brightness.dark;

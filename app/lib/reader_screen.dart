@@ -1771,11 +1771,14 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   void _onAuto() {
     if (_auto.on != _autoOn) {
       _autoOn = _auto.on;
+      _reader.autoReading = _autoOn;
       if (_autoOn) {
         _autoBegin();
       } else {
         _autoHalt();
         _autoPlace();
+        // Saved every half minute while it moved: now, where it stopped.
+        unawaited(_reader.persist());
       }
       if (mounted) setState(() {});
       return;

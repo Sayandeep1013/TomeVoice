@@ -463,6 +463,7 @@ class NeuralVoices extends ChangeNotifier {
   void attach(Directory root) {
     _dir = Directory('${root.path}/voices');
     _here = null;
+    _bytes = null;
     _speeds.clear();
     // Folders from an earlier format (the fp16 models, which crash the
     // engine) or an unfinished unpacking are not voices: clear them, and a
@@ -697,6 +698,7 @@ class NeuralVoices extends ChangeNotifier {
       keepPart = false;
       await Isolate.run(() => _unpack(from, into, model, shared: shared));
       _here = null;
+      _bytes = null;
       _speeds.remove(key);
       downloading.remove(key);
       notifyListeners();
@@ -706,6 +708,7 @@ class NeuralVoices extends ChangeNotifier {
       if (cancelled) keepPart = false;
       downloading.remove(key);
       _here = null;
+      _bytes = null;
       final f = folder(v);
       if (!installed(v) && !NeuralEngine.instance.readsThrough(f) && await f.exists()) {
         await f.delete(recursive: true);
@@ -728,8 +731,12 @@ class NeuralVoices extends ChangeNotifier {
   /// The whole size from "bytes 100-199/2000"; 0 when it is not said.
   static int _totalOf(String? range) => int.tryParse(range?.split('/').last.trim() ?? '') ?? 0;
 
-  /// Space the natural voices take, in bytes.
-  int get bytesUsed {
+  /// Space the natural voices take, in bytes: counted once and again after
+  /// each change (see [_here]), not on every frame of a download.
+  int get bytesUsed => _bytes ??= _count();
+  int? _bytes;
+
+  int _count() {
     if (!dir.existsSync()) return 0;
     var n = 0;
     for (final f in dir.listSync(recursive: true)) {
@@ -753,6 +760,7 @@ class NeuralVoices extends ChangeNotifier {
       }
     }
     _here = null;
+    _bytes = null;
     _speeds.clear();
     notifyListeners();
   }
@@ -761,6 +769,7 @@ class NeuralVoices extends ChangeNotifier {
     await NeuralEngine.instance.unload(v);
     await _clear(folder(v));
     _here = null;
+    _bytes = null;
     _speeds.remove(v.modelId);
     notifyListeners();
   }

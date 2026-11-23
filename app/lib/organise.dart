@@ -16,9 +16,17 @@ import 'series.dart';
 /// title, so books of a series always stand in their order.
 List<LibraryEntry> sortBooks(Iterable<LibraryEntry> books, LibrarySort sort) {
   final out = [...books];
-  int title(LibraryEntry a, LibraryEntry b) => _cmpStr(foldForSearch(a.title), foldForSearch(b.title));
+  // Each book's keys made once, not at every comparison (a shelf of 500 is
+  // about 4,500 comparisons).
+  final titles = Map<LibraryEntry, String>.identity();
+  final serieses = Map<LibraryEntry, String>.identity();
+  final authors = Map<LibraryEntry, String>.identity();
+  String titleOf(LibraryEntry e) => titles[e] ??= foldForSearch(e.title);
+  String seriesOf(LibraryEntry e) => serieses[e] ??= _seriesKey(e);
+  String authorOf(LibraryEntry e) => authors[e] ??= authorKey(e.authors);
+  int title(LibraryEntry a, LibraryEntry b) => _cmpStr(titleOf(a), titleOf(b));
   int inSeries(LibraryEntry a, LibraryEntry b) {
-    final c = _cmpStr(_seriesKey(a), _seriesKey(b));
+    final c = _cmpStr(seriesOf(a), seriesOf(b));
     if (c != 0) return c;
     return (a.seriesIndex ?? double.infinity).compareTo(b.seriesIndex ?? double.infinity);
   }
@@ -41,7 +49,7 @@ List<LibraryEntry> sortBooks(Iterable<LibraryEntry> books, LibrarySort sort) {
     case LibrarySort.author:
       // By family name; books with no author after those with one.
       out.sort((a, b) {
-        final ka = authorKey(a.authors), kb = authorKey(b.authors);
+        final ka = authorOf(a), kb = authorOf(b);
         if (ka.isEmpty != kb.isEmpty) return ka.isEmpty ? 1 : -1;
         return then(_cmpStr(ka, kb), a, b);
       });
