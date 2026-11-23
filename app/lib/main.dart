@@ -109,6 +109,10 @@ void _registerFontLicences() {
       ('Pirata One', 'PirataOne'),
       ('Uncial Antiqua', 'UncialAntiqua'),
       ('Orbitron', 'Orbitron'),
+      ('Grenze Gotisch', 'GrenzeGotisch'),
+      ('Almendra', 'Almendra'),
+      ('Tektur', 'Tektur'),
+      ('Cinzel', 'Cinzel'),
     ]) {
       yield LicenseEntryWithLineBreaks(
         [family],

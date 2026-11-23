@@ -119,7 +119,15 @@ ui.Image? sceneBackdrop(Scene scene, Size size, double dpr) {
 // the forest's trees and vines looked stiff up close; a painting does not.
 
 /// Scenes with a painted backdrop.
-const _withArt = {Scene.forest};
+const _withArt = {
+  Scene.forest,
+  Scene.dungeon,
+  Scene.starship,
+  Scene.gothic,
+  Scene.silverWitch,
+  Scene.obsidian,
+  Scene.solar,
+};
 
 /// Whether painted backdrops are loaded (off under `flutter test`, which
 /// keeps to the drawn ones).
@@ -1765,6 +1773,24 @@ void _dungeonLife(Canvas c, Size s, double t) {
       c.drawCircle(p, 0.9, _fill(const Color(0xFFFFD08A).withValues(alpha: 0.9 * a)));
     }
   }
+  if (_art.containsKey(Scene.dungeon)) {
+    // Over the photograph: an iron sconce holding each flame, and now and
+    // then an ember's light running down the sides.
+    for (final at in torches) {
+      final toCentre = at.dx < s.width / 2 ? 1.0 : -1.0;
+      final cup = at + Offset(10 * toCentre, 4);
+      c.drawRect(Rect.fromCenter(center: Offset(at.dx, cup.dy + 16), width: 6, height: 34), _fill(const Color(0xFF1A120C)));
+      c.drawPath(
+          Path()
+            ..moveTo(cup.dx - 9, cup.dy - 4)
+            ..lineTo(cup.dx + 9, cup.dy - 4)
+            ..lineTo(cup.dx + 5, cup.dy + 8)
+            ..lineTo(cup.dx - 5, cup.dy + 8)
+            ..close(),
+          _fill(const Color(0xFF2A1C12)));
+    }
+    _edgeRun(c, s, t, const Color(0xFFFF9A3A), every: 7);
+  }
   // Dust turning slowly in the dark, catching what light there is.
   for (var d = 0; d < 18; d++) {
     final x = (d * 97.0 + t * (4 + d % 3)) % (s.width + 40) - 20;
@@ -1942,6 +1968,11 @@ void _gothicLife(Canvas c, Size s, double t) {
     _light(c, at + const Offset(0, -8), 12, const Color(0xFFFFB060).withValues(alpha: 0.6));
     c.drawPath(flame, _fill(const Color(0xFFFFD27A)));
   }
+  if (_art.containsKey(Scene.gothic)) {
+    final f = _flicker(t, 0.6).clamp(0.0, 1.0);
+    _light(c, Offset(s.width * 0.5, s.height * 0.475), 70 + f * 26,
+        const Color(0xFFFFB050).withValues(alpha: 0.10 + f * 0.08), mid: 0.3);
+  }
   _edgeRun(c, s, t, const Color(0xFFE8B850), every: 6);
 }
 
@@ -1949,7 +1980,7 @@ void _gothicLife(Canvas c, Size s, double t) {
 /// silver motes falling and twinkling, a silver light running down the
 /// sides.
 void _silverWitchLife(Canvas c, Size s, double t) {
-  _light(c, Offset(s.width * 0.78, s.height * 0.12), 130 + 14 * math.sin(t * 0.5),
+  _light(c, Offset(s.width * 0.37, s.height * 0.235), 130 + 14 * math.sin(t * 0.5),
       const Color(0xFFDDE8FF).withValues(alpha: 0.10 + 0.04 * math.sin(t * 0.5)), mid: 0.25);
   for (var i = 0; i < 3; i++) {
     final y = s.height * (0.35 + i * 0.22);
@@ -2002,15 +2033,17 @@ void _obsidianLife(Canvas c, Size s, double t) {
 /// Space, solar: the sun's glow swelling and easing, now and then a flare
 /// lifting off it; gold dust drifting; gold light running down the sides.
 void _solarLife(Canvas c, Size s, double t) {
-  final sun = Offset(s.width * 0.5, -s.height * 0.05);
+  final sun = Offset(s.width * 1.02, s.height * 0.48);
   final pulse = 0.5 + 0.5 * math.sin(t * 0.6);
   _light(c, sun, s.width * (0.9 + 0.08 * pulse), const Color(0xFFFFB030).withValues(alpha: 0.12 + 0.06 * pulse), mid: 0.25);
   final flare = (t % 11) / 11;
   if (flare < 0.35) {
     final k = flare / 0.35;
+    // Off the sun's left limb, where the painting's prominence is.
+    final foot = Offset(s.width * 0.2, s.height * 0.36);
     final arc = Path()
-      ..moveTo(sun.dx - 60, sun.dy + s.height * 0.08)
-      ..quadraticBezierTo(sun.dx - 10, sun.dy + s.height * (0.08 + 0.12 * k), sun.dx + 50, sun.dy + s.height * 0.08);
+      ..moveTo(foot.dx, foot.dy - 30)
+      ..quadraticBezierTo(foot.dx - s.width * (0.06 + 0.1 * k), foot.dy - 50 - 40 * k, foot.dx + 6, foot.dy + 34);
     c.drawPath(arc, _glow(const Color(0xFFFF7A20).withValues(alpha: 0.45 * (1 - k)), 6)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 5);

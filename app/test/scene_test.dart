@@ -125,7 +125,7 @@ void main() {
       await settleIo(tester);
       final list = find.byType(Scrollable).first;
       await tester.scrollUntilVisible(find.text('Designer themes'), 300, scrollable: list);
-      expect(find.textContaining('3 scenes'), findsOneWidget);
+      expect(find.textContaining('${Scene.values.length} scenes'), findsOneWidget);
       expect(find.byType(ScenePreview), findsNWidgets(3), reason: 'a glimpse of each in the row');
       // The colour row has no scenes in it.
       for (final p in Palette.scenes) {

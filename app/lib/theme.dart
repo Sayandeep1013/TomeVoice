@@ -222,10 +222,14 @@ class Skin {
   static TextStyle heading(BuildContext c, {double size = 26, Color? color, FontWeight? weight}) {
     final scene = sceneOf(c);
     if (scene == null) return title(c, size: size, color: color, weight: weight);
-    final (family, scale, track, w) = switch (scene.kin) {
+    final (family, scale, track, w) = switch (scene) {
       Scene.dungeon => ('PirataOne', 1.12, 0.01, FontWeight.w400),
       Scene.forest => ('UncialAntiqua', 0.92, 0.0, FontWeight.w400),
-      _ => ('Orbitron', 0.8, 0.06, FontWeight.w600),
+      Scene.starship => ('Orbitron', 0.8, 0.06, FontWeight.w600),
+      Scene.gothic => ('GrenzeGotisch', 1.05, 0.01, FontWeight.w400),
+      Scene.silverWitch => ('Almendra', 1.0, 0.01, FontWeight.w400),
+      Scene.obsidian => ('Tektur', 0.88, 0.04, FontWeight.w400),
+      Scene.solar => ('Cinzel', 0.9, 0.05, FontWeight.w400),
     };
     final s = size * scale;
     return TextStyle(
@@ -959,7 +963,7 @@ class Palette {
     // Candlelight on stone.
     accent: Color(0xFFE0B050),
     accentSoft: Color(0xFFF0CC80),
-    accentDeep: Color(0xFF8A5A18),
+    accentDeep: Color(0xFF815F11),
     onAccent: Color(0xFF1A0E06),
     nightCapsule: Color(0xF2241218),
     nightSheet: Color(0xFF0E0609),

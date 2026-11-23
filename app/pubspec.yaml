@@ -67,6 +67,10 @@ flutter:
     - assets/fonts/OFL-PirataOne.txt
     - assets/fonts/OFL-UncialAntiqua.txt
     - assets/fonts/OFL-Orbitron.txt
+    - assets/fonts/OFL-GrenzeGotisch.txt
+    - assets/fonts/OFL-Almendra.txt
+    - assets/fonts/OFL-Tektur.txt
+    - assets/fonts/OFL-Cinzel.txt
     # The libraries LNReader source plugins use, and TomeVoice's host for
     # them (tools/lnreader_libs builds the first).
     - assets/js/lnreader_libs.js
@@ -80,6 +84,12 @@ flutter:
     # The scenes' painted backdrops (tools/scene_art.py; credits in
     # assets/licenses/third_party.txt).
     - assets/scenes/forest.webp
+    - assets/scenes/dungeon.webp
+    - assets/scenes/starship.webp
+    - assets/scenes/gothic.webp
+    - assets/scenes/silverWitch.webp
+    - assets/scenes/obsidian.webp
+    - assets/scenes/solar.webp
     # The natural voices on offer, by language, with each one's licence
     # (tools/voice_catalog.py makes it; see neural_voices.dart).
     - assets/voices/catalog.json
@@ -128,3 +138,19 @@ flutter:
     - family: Orbitron
       fonts:
         - asset: assets/fonts/Orbitron-Variable.ttf
+    # The newer scenes': Gothic's blackletter, the Silver witch's grimoire
+    # hand, Obsidian's faceted face, Space · solar's inscription capitals.
+    # All but Almendra (whose name is reserved, so it is left whole) cut to
+    # one weight and the Latin letters.
+    - family: GrenzeGotisch
+      fonts:
+        - asset: assets/fonts/GrenzeGotisch-SemiBold.ttf
+    - family: Almendra
+      fonts:
+        - asset: assets/fonts/Almendra-Regular.ttf
+    - family: Tektur
+      fonts:
+        - asset: assets/fonts/Tektur-SemiBold.ttf
+    - family: Cinzel
+      fonts:
+        - asset: assets/fonts/Cinzel-SemiBold.ttf
