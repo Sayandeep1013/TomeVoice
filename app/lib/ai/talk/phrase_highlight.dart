@@ -83,14 +83,16 @@ class _PhraseInSentenceState extends State<PhraseInSentence> with SingleTickerPr
 
   @override
   Widget build(BuildContext context) {
-    final base = widget.style ??
+    // The screen's own text style under it, as Text.rich draws with: the
+    // mark is measured on exactly what is drawn.
+    final base = DefaultTextStyle.of(context).style.merge(widget.style ??
         TextStyle(
           fontFamily: 'Newsreader',
           fontStyle: FontStyle.italic,
           fontSize: 16,
           height: 1.45,
           color: Skin.inkSoftOn(context),
-        );
+        ));
     final shown = _shownOf(widget.span);
     final range = widget.lit ? _rangeOf(widget.span) : null;
     int? local(int? x) => x == null ? null : x - shown.offset;
