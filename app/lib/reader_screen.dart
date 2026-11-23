@@ -1353,7 +1353,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             SheetAction(
               icon: Icons.notes_rounded,
               label: 'Pick a sentence on this page',
-              detail: 'Shown as text: hold a sentence to read from it, keep it, or look a word up',
+              detail: 'Shown as text: hold a sentence to read from it or keep it; hold a name to ask who or what it is',
               onTap: () => Navigator.pop(ctx, 'text'),
             ),
             const SizedBox(height: Gap.s),
