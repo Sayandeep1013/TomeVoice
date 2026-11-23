@@ -1790,7 +1790,7 @@ void _dungeonLife(Canvas c, Size s, double t) {
             ..close(),
           _fill(const Color(0xFF2A1C12)));
     }
-    _edgeRun(c, s, t, const Color(0xFFFF9A3A), every: 7);
+    _drips(c, s, t);
   }
   // Dust turning slowly in the dark, catching what light there is.
   for (var d = 0; d < 18; d++) {
@@ -1908,25 +1908,145 @@ void _vine(Canvas c, Size s, double t, {required bool left}) {
   }
 }
 
-/// A light running down both sides of the screen, as on the starship's
-/// strips: [color], one at a time in turn, every [every] seconds.
-void _edgeRun(Canvas c, Size s, double t, Color color, {double every = 4.5, double inset = 5}) {
-  for (var i = 0; i < 2; i++) {
-    final x = i == 0 ? inset : s.width - inset;
-    final top = s.height * 0.1;
-    final len = s.height * 0.8;
-    final run = ((t / every + i * 0.5) % 1);
-    if (run > 0.8) continue;
-    final at = top + run / 0.8 * len;
-    c.drawLine(
-        Offset(x, math.max(top, at - 70)),
-        Offset(x, at),
-        Paint()
-          ..shader = ui.Gradient.linear(
-              Offset(x, at - 70), Offset(x, at), [color.withValues(alpha: 0), color.withValues(alpha: 0.85)])
-          ..strokeWidth = 2.2);
-    _light(c, Offset(x, at), 16, color.withValues(alpha: 0.5));
+/// Dungeon: water seeping down the stone, a drop at a time: each slides
+/// down its wet streak catching the torchlight, falls, and rings out in a
+/// small ripple below.
+void _drips(Canvas c, Size s, double t) {
+  for (var i = 0; i < 3; i++) {
+    final x = i == 1 ? s.width - 46.0 : (i == 0 ? 52.0 : s.width * 0.62);
+    final top = s.height * (0.08 + i * 0.05);
+    final len = s.height * (0.22 + i * 0.04);
+    // The wet streak, darker and faintly shining.
+    c.drawLine(Offset(x, top), Offset(x, top + len), _stroke(const Color(0xFF0C0806).withValues(alpha: 0.35), 3));
+    c.drawLine(Offset(x - 0.8, top), Offset(x - 0.8, top + len),
+        _stroke(const Color(0xFFFFC890).withValues(alpha: 0.06), 1));
+    const cycle = 7.0;
+    final k = ((t + i * 2.3) % cycle) / cycle;
+    if (k < 0.55) {
+      // Gathering, then sliding down the streak, slow then quick.
+      final slide = Curves.easeInQuad.transform(k / 0.55);
+      final p = Offset(x, top + len * slide);
+      final r = 1.6 + 1.2 * math.min(1.0, k * 6);
+      _light(c, p, 7, const Color(0xFFFFB060).withValues(alpha: 0.25));
+      c.drawCircle(p, r, _fill(const Color(0xFFE8F4FF).withValues(alpha: 0.75)));
+    } else if (k < 0.7) {
+      // Falling free.
+      final f = (k - 0.55) / 0.15;
+      final p = Offset(x, top + len + f * f * s.height * 0.25);
+      c.drawOval(Rect.fromCenter(center: p, width: 2.4, height: 5), _fill(const Color(0xFFE8F4FF).withValues(alpha: 0.7)));
+    } else {
+      // Its ripple on the floor, spreading and fading.
+      final f = (k - 0.7) / 0.3;
+      final at = Offset(x, top + len + s.height * 0.25);
+      c.drawOval(Rect.fromCenter(center: at, width: 6 + 40 * f, height: 2 + 9 * f),
+          _stroke(const Color(0xFFFFD0A0).withValues(alpha: 0.35 * (1 - f)), 1));
+    }
   }
+}
+
+/// Gothic: now and then a bat crosses high under the vault, wings beating,
+/// on a dipping path.
+void _bats(Canvas c, Size s, double t) {
+  for (var i = 0; i < 2; i++) {
+    const cycle = 13.0;
+    final k = ((t + i * 6.5) % cycle) / cycle;
+    if (k > 0.45) continue;
+    final f = k / 0.45;
+    final leftward = i.isOdd;
+    final x = leftward ? s.width * (1.1 - 1.2 * f) : s.width * (-0.1 + 1.2 * f);
+    final y = s.height * (0.12 + i * 0.07) + math.sin(f * math.pi * 3) * 14;
+    final beat = math.sin(t * 18 + i);
+    const span = 13.0;
+    final wing = Path()
+      ..moveTo(x, y)
+      ..quadraticBezierTo(x - span * 0.5, y - 7 * beat - 3, x - span, y - 2 * beat)
+      ..quadraticBezierTo(x - span * 0.6, y + 1, x - span * 0.3, y + 3)
+      ..lineTo(x, y + 2)
+      ..lineTo(x + span * 0.3, y + 3)
+      ..quadraticBezierTo(x + span * 0.6, y + 1, x + span, y - 2 * beat)
+      ..quadraticBezierTo(x + span * 0.5, y - 7 * beat - 3, x, y)
+      ..close();
+    c.drawPath(wing, _fill(const Color(0xFF07040A).withValues(alpha: 0.85)));
+  }
+}
+
+/// Silver witch: a ring of runes drawing itself low on the screen, its
+/// line running round as if by an unseen hand, glowing, then fading, then
+/// again.
+void _sigil(Canvas c, Size s, double t) {
+  const cycle = 14.0;
+  final k = ((t + 2) % cycle) / cycle;
+  if (k > 0.8) return;
+  final drawn = Curves.easeInOut.transform((k / 0.45).clamp(0.0, 1.0));
+  final fade = k < 0.6 ? 1.0 : 1 - (k - 0.6) / 0.2;
+  final centre = Offset(s.width * 0.5, s.height * 0.86);
+  final r = s.width * 0.3;
+  const color = Color(0xFFD8E4FF);
+  final glow = _glow(color.withValues(alpha: 0.35 * fade), 4)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2.5;
+  final line = _stroke(color.withValues(alpha: 0.55 * fade), 1);
+  final oval = Rect.fromCenter(center: centre, width: r * 2, height: r * 0.7);
+  final sweep = math.pi * 2 * drawn;
+  c.drawArc(oval, -math.pi / 2, sweep, false, glow);
+  c.drawArc(oval, -math.pi / 2, sweep, false, line);
+  c.drawArc(oval.deflate(10), math.pi / 2, sweep, false, line);
+  // Runes appearing round it as the line passes them.
+  for (var i = 0; i < 8; i++) {
+    final a = -math.pi / 2 + i * math.pi / 4 + math.pi / 8;
+    if ((a + math.pi / 2) > sweep) continue;
+    final p = Offset(centre.dx + math.cos(a) * (r - 5), centre.dy + math.sin(a) * (r * 0.35 - 2.5));
+    final rune = Path()
+      ..moveTo(p.dx, p.dy - 4)
+      ..lineTo(p.dx, p.dy + 4)
+      ..moveTo(p.dx - 3, p.dy - 2 + (i % 3))
+      ..lineTo(p.dx + 3, p.dy + 1 - (i % 2) * 2);
+    c.drawPath(rune, line);
+  }
+}
+
+/// Obsidian: a crack spreading through the black glass, its fresh end
+/// glowing hottest, then cooling and closing, somewhere new each time.
+void _spreadingCrack(Canvas c, Size s, double t, Color violet) {
+  const cycle = 9.0;
+  final round = (t / cycle).floor();
+  final k = (t % cycle) / cycle;
+  final r = math.Random(round * 31 + 5);
+  final left = round.isEven;
+  final from = Offset(left ? 0 : s.width, s.height * (0.2 + r.nextDouble() * 0.6));
+  final pts = <Offset>[from];
+  for (var i = 0; i < 9; i++) {
+    final last = pts.last;
+    pts.add(last + Offset((left ? 1 : -1) * (14 + r.nextDouble() * 16), (r.nextDouble() - 0.4) * 22));
+  }
+  final grown = Curves.easeOut.transform((k / 0.5).clamp(0.0, 1.0)) * (pts.length - 1);
+  final cool = k < 0.6 ? 1.0 : 1 - (k - 0.6) / 0.4;
+  final path = Path()..moveTo(from.dx, from.dy);
+  final whole = grown.floor();
+  for (var i = 1; i <= whole; i++) {
+    path.lineTo(pts[i].dx, pts[i].dy);
+  }
+  final tip = whole < pts.length - 1 ? Offset.lerp(pts[whole], pts[whole + 1], grown - whole)! : pts.last;
+  path.lineTo(tip.dx, tip.dy);
+  c.drawPath(path, _glow(violet.withValues(alpha: 0.4 * cool), 4)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 3);
+  c.drawPath(path, _stroke(const Color(0xFFF2DCFF).withValues(alpha: 0.6 * cool), 1));
+  if (k < 0.55) _light(c, tip, 12, const Color(0xFFFF9AF0).withValues(alpha: 0.5));
+}
+
+/// Space, solar: a small planet on its slow way across the face of the
+/// sun, dark against it, its orbit a faint line.
+void _transit(Canvas c, Size s, double t) {
+  final sun = Offset(s.width * 1.02, s.height * 0.48);
+  final orbit = Rect.fromCenter(center: sun, width: s.width * 1.5, height: s.height * 0.18);
+  c.drawOval(orbit, _stroke(const Color(0xFFFFD080).withValues(alpha: 0.06), 1));
+  const cycle = 40.0;
+  final a = math.pi * 2 * ((t % cycle) / cycle) + math.pi * 0.85;
+  final p = Offset(sun.dx + math.cos(a) * orbit.width / 2, sun.dy + math.sin(a) * orbit.height / 2);
+  final front = math.sin(a) > 0;
+  _light(c, p, 10, const Color(0xFFFFB040).withValues(alpha: front ? 0.18 : 0.08));
+  c.drawCircle(p, 4.5, _fill(front ? const Color(0xFF120A04) : const Color(0xFF6A4A2A)));
 }
 
 /// Gothic: two candles low in the corners, their light breathing on the
@@ -1974,7 +2094,7 @@ void _gothicLife(Canvas c, Size s, double t) {
     _light(c, Offset(s.width * 0.5, s.height * 0.475), 70 + f * 26,
         const Color(0xFFFFB050).withValues(alpha: 0.10 + f * 0.08), mid: 0.3);
   }
-  _edgeRun(c, s, t, const Color(0xFFE8B850), every: 6);
+  _bats(c, s, t);
 }
 
 /// Silver witch: the moon's light breathing high up, mist drifting across,
@@ -2001,7 +2121,7 @@ void _silverWitchLife(Canvas c, Size s, double t) {
     final tw = 0.5 + 0.5 * math.sin(t * (2 + i % 3) + i);
     c.drawCircle(Offset(x, y), 0.8 + (i % 3) * 0.4, _fill(const Color(0xFFF0F4FF).withValues(alpha: 0.25 + 0.5 * tw)));
   }
-  _edgeRun(c, s, t, const Color(0xFFD8E4FF), every: 5.5);
+  _sigil(c, s, t);
 }
 
 /// Obsidian: cracks in the black glass glowing violet from within, pulsing
@@ -2028,7 +2148,7 @@ void _obsidianLife(Canvas c, Size s, double t) {
     final a = (1 - age) * math.min(1.0, age * 8);
     _light(c, Offset(x, y), 5, violet.withValues(alpha: 0.5 * a));
   }
-  _edgeRun(c, s, t, violet, every: 4);
+  _spreadingCrack(c, s, t, violet);
 }
 
 /// Space, solar: the sun's glow swelling and easing, now and then a flare
@@ -2054,7 +2174,7 @@ void _solarLife(Canvas c, Size s, double t) {
     final y = (d * 151.0 % s.height) + math.sin(t * 0.4 + d) * 10;
     c.drawCircle(Offset(x, y), 0.8 + (d % 3) * 0.3, _fill(const Color(0xFFFFE0A0).withValues(alpha: 0.10 + 0.1 * math.sin(t + d))));
   }
-  _edgeRun(c, s, t, const Color(0xFFFFC040), every: 4.5);
+  _transit(c, s, t);
 }
 
 void _starshipLife(Canvas c, Size s, double t) {
