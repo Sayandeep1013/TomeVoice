@@ -935,7 +935,7 @@ class _DesignerRow extends StatelessWidget {
                           const SizedBox(height: 2),
                           Text(
                             on == null
-                                ? '${Palette.scenes.length} scenes (a dungeon, a forest, a starship) and '
+                                ? '${Palette.scenes.length} scenes (from a dungeon to the sun) and '
                                     '${Palette.designer.length} more colours. Tap to see them.'
                                 : '${on.label} is on. Tap to see the others.',
                             style: Skin.ui(size: 13.5, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),

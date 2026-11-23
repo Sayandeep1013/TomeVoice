@@ -1,5 +1,5 @@
-// Scene themes (scene.dart): a dungeon, a forest and a starship drawn behind
-// every screen. Picked in Settings and kept; each main screen builds in each
+// Scene themes (scene.dart): a place drawn behind every screen (a dungeon,
+// a forest, a starship and the rest, however many there are). Picked in Settings and kept; each main screen builds in each
 // scene on a narrow and a wide phone with nothing overflowing; the page of a
 // book never has the art behind its words; and with no scene picked the app
 // draws exactly what it drew before.
@@ -133,14 +133,17 @@ void main() {
       }
       await tester.tap(find.text('Designer themes'));
       await tester.pumpAndSettle();
+      // At the top: the scenes, the first ones in view.
       expect(find.text('SCENES'), findsOneWidget);
-      // The colours come below the scenes: scrolled to, and back.
-      final sheet = find.byType(Scrollable).last;
-      await tester.scrollUntilVisible(find.text('COLOURS'), 400, scrollable: sheet);
-      expect(find.text('COLOURS'), findsOneWidget);
-      await tester.scrollUntilVisible(find.text('Dungeon'), -400, scrollable: sheet);
       expect(find.text('Dungeon'), findsOneWidget);
       expect(find.text('Starship'), findsOneWidget);
+      // The colours come after all the scenes (seven of them, more than a
+      // screen): scrolled down to, then back up to the first.
+      final sheet = find.byType(Scrollable).last;
+      await tester.scrollUntilVisible(find.text('COLOURS'), 300, scrollable: sheet);
+      expect(find.text('COLOURS'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Dungeon'), -300, scrollable: sheet);
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Dungeon'));
       await tester.pumpAndSettle();
       expect(ListeningPrefs.memory.paletteId, 'scene-dungeon');
