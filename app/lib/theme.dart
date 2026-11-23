@@ -214,6 +214,34 @@ class Skin {
     );
   }
 
+  /// A screen's or a sheet's own name ("Library", "Settings"), and the
+  /// wordmark: [title], but in a scene its place's lettering (a gothic
+  /// hand in the dungeon, an uncial in the forest, a ship's display face).
+  /// Never a book's words.
+  static TextStyle heading(BuildContext c, {double size = 26, Color? color, FontWeight? weight}) {
+    final scene = sceneOf(c);
+    if (scene == null) return title(c, size: size, color: color, weight: weight);
+    final (family, scale, track, w) = switch (scene) {
+      Scene.dungeon => ('PirataOne', 1.12, 0.01, FontWeight.w400),
+      Scene.forest => ('UncialAntiqua', 0.92, 0.0, FontWeight.w400),
+      Scene.starship => ('Orbitron', 0.8, 0.06, FontWeight.w600),
+    };
+    final s = size * scale;
+    return TextStyle(
+      fontFamily: family,
+      fontSize: s,
+      height: 1.15,
+      letterSpacing: s * track,
+      fontWeight: w,
+      fontVariations: [FontVariation('wght', w.value.toDouble())],
+      color: color ?? inkOn(c),
+      shadows: [
+        // The place's light on the letters.
+        Shadow(color: accentOf(c).withValues(alpha: scene == Scene.starship ? 0.55 : 0.35), blurRadius: scene == Scene.starship ? 10 : 14),
+      ],
+    );
+  }
+
   /// Interface text: buttons, rows, settings.
   static TextStyle label(BuildContext c,
           {Color? color, double size = 14, FontWeight? weight}) =>
@@ -930,8 +958,10 @@ class Palette {
   /// the same grounds, and an accent of the seed's hue at the tones the
   /// palettes use, each moved as little as it takes for text on it and it
   /// on the ground to read (see [readable]). A pale seed is given enough
-  /// colour to be an accent.
+  /// colour to be an accent. A scene keeps its own: its light (a torch's
+  /// ember, a mushroom's glow, neon) is part of the place.
   Palette withTint(int seed) {
+    if (scene != null) return this;
     final key = '${id.split('~').first}~${seed.toRadixString(16)}';
     return _tinted[key] ??= () {
       final hct = Hct.fromInt(seed);
@@ -1249,6 +1279,34 @@ class _CapsuleState extends State<Capsule> {
   @override
   Widget build(BuildContext context) {
     final r = widget.radius ?? Skin.capsuleRadius;
+    final scene = Skin.sceneOf(context);
+    if (scene != null) {
+      // In a scene: stone, wood or a ship's hatch, the well over it.
+      final body = Padding(padding: widget.padding, child: widget.child);
+      final capsule = Material(
+        type: MaterialType.transparency,
+        shape: SceneButton.shape(scene, r),
+        clipBehavior: Clip.antiAlias,
+        child: Ink(
+          decoration: SceneButton(scene, widget.color ?? Skin.capsuleOn(context), r),
+          child: widget.onTap == null
+              ? body
+              : InkWell(
+                  onTap: widget.onTap,
+                  onLongPress: widget.onLongPress,
+                  onHighlightChanged: (down) => setState(() => _down = down),
+                  child: body,
+                ),
+        ),
+      );
+      if (widget.onTap == null) return capsule;
+      return AnimatedScale(
+        scale: _down ? 0.96 : 1,
+        duration: Motion.of(context, Motion.quick),
+        curve: Motion.out,
+        child: capsule,
+      );
+    }
     final body = Container(
       padding: widget.padding,
       decoration: BoxDecoration(
@@ -1279,6 +1337,28 @@ class _CapsuleState extends State<Capsule> {
       duration: Motion.of(context, Motion.quick),
       curve: Motion.out,
       child: capsule,
+    );
+  }
+}
+
+/// A screen's ground with [child] on it; in a scene, what moves in the
+/// place (scene.dart [SceneLife]) between the two.
+class Ground extends StatelessWidget {
+  const Ground({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final scene = Skin.sceneOf(context);
+    return DecoratedBox(
+      decoration: Skin.groundDecoration(context),
+      child: scene == null
+          ? child
+          : Stack(
+              fit: StackFit.passthrough,
+              children: [Positioned.fill(child: SceneLife(scene)), child],
+            ),
     );
   }
 }

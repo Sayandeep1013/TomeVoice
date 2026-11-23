@@ -4,7 +4,7 @@ description: >-
   HTML, Markdown and text, and reads them aloud with the owned audio pipeline.
   See docs/README.md.
 publish_to: none
-version: 2.5.0+41
+version: 2.6.0+42
 
 environment:
   sdk: ^3.5.0
@@ -64,7 +64,9 @@ flutter:
     - assets/fonts/OFL-Literata.txt
     - assets/fonts/OFL-Doto.txt
     - assets/fonts/OFL-Caveat.txt
-    - assets/brand/logo.png
+    - assets/fonts/OFL-PirataOne.txt
+    - assets/fonts/OFL-UncialAntiqua.txt
+    - assets/fonts/OFL-Orbitron.txt
     # The libraries LNReader source plugins use, and TomeVoice's host for
     # them (tools/lnreader_libs builds the first).
     - assets/js/lnreader_libs.js
@@ -112,3 +114,14 @@ flutter:
     - family: Caveat
       fonts:
         - asset: assets/fonts/Caveat-Variable.ttf
+    # The scene themes' lettering for screen names (theme.dart Skin.heading):
+    # the dungeon's, the enchanted forest's and the starship's.
+    - family: PirataOne
+      fonts:
+        - asset: assets/fonts/PirataOne-Regular.ttf
+    - family: UncialAntiqua
+      fonts:
+        - asset: assets/fonts/UncialAntiqua-Regular.ttf
+    - family: Orbitron
+      fonts:
+        - asset: assets/fonts/Orbitron-Variable.ttf

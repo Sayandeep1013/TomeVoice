@@ -106,6 +106,9 @@ void _registerFontLicences() {
       ('Literata', 'Literata'),
       ('Doto', 'Doto'),
       ('Caveat', 'Caveat'),
+      ('Pirata One', 'PirataOne'),
+      ('Uncial Antiqua', 'UncialAntiqua'),
+      ('Orbitron', 'Orbitron'),
     ]) {
       yield LicenseEntryWithLineBreaks(
         [family],

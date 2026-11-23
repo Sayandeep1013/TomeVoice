@@ -912,8 +912,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
       },
       child: CompositedTransformTarget(
         link: _groundLink,
-        child: DecoratedBox(
-        decoration: Skin.groundDecoration(context),
+        child: Ground(
         child: SafeArea(
           child: Stack(
             children: [
@@ -1175,7 +1174,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
             alignment: Alignment.centerLeft,
             child: GestureDetector(
               onLongPress: _secretDoor,
-              child: Text('Library', style: Skin.title(context, size: 28, weight: FontWeight.w500)),
+              child: Text('Library', style: Skin.heading(context, size: 28, weight: FontWeight.w500)),
             ),
           ),
         ),

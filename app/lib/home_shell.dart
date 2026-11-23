@@ -689,7 +689,7 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('TomeVoice', style: Skin.title(context, size: 26, weight: FontWeight.w500)),
+                          Text('TomeVoice', style: Skin.heading(context, size: 26, weight: FontWeight.w500)),
                           Text('Any book, read aloud.',
                               style: Skin.title(context, size: 14, italic: true, weight: FontWeight.w400,
                                   color: Skin.inkSoftOn(context))),

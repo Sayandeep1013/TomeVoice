@@ -199,7 +199,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
                     onTap: () => Scaffold.maybeOf(context)?.openDrawer(),
                   ),
                   const SizedBox(width: Gap.m),
-                  Expanded(child: Text('Browse', style: Skin.title(context, size: 28, weight: FontWeight.w500))),
+                  Expanded(child: Text('Browse', style: Skin.heading(context, size: 28, weight: FontWeight.w500))),
                   // How many installed sources have an update waiting.
                   ValueListenableBuilder<Map<String, PluginInfo>>(
                     valueListenable: widget.sources.pending,

@@ -69,7 +69,7 @@ class SectionTitle extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.baseline,
         textBaseline: TextBaseline.alphabetic,
         children: [
-          Expanded(child: Text(text, style: Skin.title(context, size: size))),
+          Expanded(child: Text(text, style: Skin.heading(context, size: size))),
           if (note != null)
             Text(note!.toUpperCase(), style: Skin.meta(context)),
         ],
@@ -592,7 +592,7 @@ class EmptyState extends StatelessWidget {
             else
               Icon(icon, size: 40, color: Skin.accentInkOf(context).withValues(alpha: 0.85)),
             const SizedBox(height: Gap.l),
-            Text(title, textAlign: TextAlign.center, style: Skin.title(context, size: 24)),
+            Text(title, textAlign: TextAlign.center, style: Skin.heading(context, size: 24)),
             const SizedBox(height: Gap.s),
             Text(
               body,
@@ -670,7 +670,7 @@ class SheetHeader extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(title,
-                      maxLines: 2, overflow: TextOverflow.ellipsis, style: Skin.title(context, size: 24)),
+                      maxLines: 2, overflow: TextOverflow.ellipsis, style: Skin.heading(context, size: 24)),
                   if (subtitle != null) ...[
                     const SizedBox(height: Gap.xs),
                     Text(subtitle!.toUpperCase(), style: Skin.meta(context)),
@@ -1351,7 +1351,7 @@ class ScreenTopBar extends StatelessWidget {
               : RoundButton(icon: Icons.arrow_back_rounded, tooltip: 'Back', onTap: onBack),
           const SizedBox(width: Gap.m),
           Expanded(
-            child: Text.rich(titleWithDashes(title, Skin.title(context, size: 26, weight: FontWeight.w500))),
+            child: Text.rich(titleWithDashes(title, Skin.heading(context, size: 26, weight: FontWeight.w500))),
           ),
           ...actions,
         ],

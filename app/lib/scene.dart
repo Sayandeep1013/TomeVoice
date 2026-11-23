@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -31,6 +32,9 @@ enum Scene {
         Scene.forest => 16,
         Scene.starship => 2,
       };
+
+  /// How far a starship's panels and buttons are cut at two corners.
+  static const cut = 10.0;
 
   /// A panel's corners: never rounder than the scene's own, so a pill-round
   /// bar becomes worn stone, not a pill.
@@ -1078,12 +1082,11 @@ class ScenePanel extends Decoration {
   EdgeInsetsGeometry get padding => EdgeInsets.zero;
 
   @override
-  Path getClipPath(Rect rect, TextDirection textDirection) =>
-      Path()..addRRect(scene.corners(radius).toRRect(rect));
+  Path getClipPath(Rect rect, TextDirection textDirection) => panelPath(rect, scene, scene.corners(radius));
 
   @override
   bool hitTest(Size size, Offset position, {TextDirection? textDirection}) =>
-      scene.corners(radius).toRRect(Offset.zero & size).contains(position);
+      panelPath(Offset.zero & size, scene, scene.corners(radius)).contains(position);
 
   @override
   BoxPainter createBoxPainter([VoidCallback? onChanged]) => _ScenePanelPainter(this);
@@ -1109,11 +1112,32 @@ class _ScenePanelPainter extends BoxPainter {
   }
 }
 
+/// The outline of a panel at [rect]: [corners] rounded, but a starship's
+/// cut off at its top left and bottom right, as a ship's hatches are.
+Path panelPath(Rect rect, Scene scene, BorderRadius corners) {
+  if (scene != Scene.starship) return Path()..addRRect(corners.toRRect(rect));
+  return cutPath(rect, math.min(Scene.cut, math.min(rect.width, rect.height) * 0.3));
+}
+
+/// [r] with its top left and bottom right corners cut by [k].
+Path cutPath(Rect r, double k) => Path()
+  ..moveTo(r.left + k, r.top)
+  ..lineTo(r.right, r.top)
+  ..lineTo(r.right, r.bottom - k)
+  ..lineTo(r.right - k, r.bottom)
+  ..lineTo(r.left, r.bottom)
+  ..lineTo(r.left, r.top + k)
+  ..close();
+
 /// A panel of [scene]'s material at [rect].
 void paintPanel(Canvas c, Rect rect, Scene scene, BorderRadius corners, {bool lit = false, List<BoxShadow>? shadow}) {
   final rr = corners.toRRect(rect);
   for (final s in shadow ?? const <BoxShadow>[]) {
-    c.drawRRect(rr.shift(s.offset).inflate(s.spreadRadius), s.toPaint());
+    if (scene == Scene.starship) {
+      c.drawPath(panelPath(rect.shift(s.offset).inflate(s.spreadRadius), scene, corners), s.toPaint());
+    } else {
+      c.drawRRect(rr.shift(s.offset).inflate(s.spreadRadius), s.toPaint());
+    }
   }
   final r = math.Random((rect.width * 31 + rect.height).round());
   switch (scene) {
@@ -1147,6 +1171,25 @@ void paintPanel(Canvas c, Rect rect, Scene scene, BorderRadius corners, {bool li
         ..strokeWidth = 1.4;
       c.drawLine(Offset(rect.left, rect.top + 3.5), Offset(rect.right, rect.top + 3.5), band);
       c.drawLine(Offset(rect.left, rect.bottom - 3.5), Offset(rect.right, rect.bottom - 3.5), band);
+      // Carved: lit along its top edge, sunk along its foot.
+      c.drawLine(Offset(rect.left + 6, rect.top + 1.2), Offset(rect.right - 6, rect.top + 1.2),
+          _stroke(Colors.white.withValues(alpha: 0.09), 1.4));
+      c.drawLine(Offset(rect.left + 4, rect.bottom - 1.2), Offset(rect.right - 4, rect.bottom - 1.2),
+          _stroke(Colors.black.withValues(alpha: 0.6), 2));
+      // Damp creeping up from the foot, moss in a corner.
+      c.drawRect(
+        Rect.fromLTRB(rect.left, rect.bottom - math.min(26.0, rect.height * 0.35), rect.right, rect.bottom),
+        Paint()
+          ..shader = ui.Gradient.linear(Offset(0, rect.bottom - math.min(26.0, rect.height * 0.35)), Offset(0, rect.bottom),
+              [const Color(0xFF14180C).withValues(alpha: 0), const Color(0xFF1A2010).withValues(alpha: 0.45)]),
+      );
+      if (rect.height > 50) {
+        for (var i = 0; i < 9; i++) {
+          final p = Offset(rect.left + 4 + r.nextDouble() * 34, rect.bottom - 2 - r.nextDouble() * 9);
+          c.drawOval(Rect.fromCenter(center: p, width: 3 + r.nextDouble() * 6, height: 1.6 + r.nextDouble() * 2.4),
+              _fill(Color.lerp(const Color(0xFF3A4A20), const Color(0xFF243014), r.nextDouble())!.withValues(alpha: 0.8)));
+        }
+      }
       c.restore();
       c.drawRRect(rr, _stroke(const Color(0xFF3E2E22), 1.2));
       c.drawRRect(rr.deflate(1.2), _stroke(Colors.white.withValues(alpha: 0.04), 1));
@@ -1189,24 +1232,394 @@ void paintPanel(Canvas c, Rect rect, Scene scene, BorderRadius corners, {bool li
         }
       }
     case Scene.starship:
-      c.drawRRect(
-        rr,
+      final hull = panelPath(rect, scene, corners);
+      c.drawPath(
+        hull,
         Paint()
           ..shader = ui.Gradient.linear(rect.topLeft, rect.bottomRight, [
             lit ? const Color(0xFF0C1A2C) : const Color(0xFF0A1424),
             const Color(0xFF060C17),
           ]),
       );
-      c.drawRRect(rr, _stroke(const Color(0xFF1F4A66), 1)..strokeCap = StrokeCap.butt);
-      final len = math.min(16.0, math.min(rect.width, rect.height) * 0.3);
+      // Faint scan lines across it, as on a screen.
+      if (rect.height > 30) {
+        c.save();
+        c.clipPath(hull);
+        final scan = _stroke(_neon.withValues(alpha: 0.035), 1)..strokeCap = StrokeCap.butt;
+        for (var y = rect.top + 3; y < rect.bottom; y += 4) {
+          c.drawLine(Offset(rect.left, y), Offset(rect.right, y), scan);
+        }
+        c.restore();
+      }
+      c.drawPath(hull, _stroke(const Color(0xFF1F4A66), 1)..strokeJoin = StrokeJoin.miter);
+      // Neon along the two cut corners, brackets at the other two.
+      final k = math.min(Scene.cut, math.min(rect.width, rect.height) * 0.3);
+      for (final edge in [
+        Path()
+          ..moveTo(rect.left, rect.top + k + 14)
+          ..lineTo(rect.left, rect.top + k)
+          ..lineTo(rect.left + k, rect.top)
+          ..lineTo(rect.left + k + 14, rect.top),
+        Path()
+          ..moveTo(rect.right, rect.bottom - k - 14)
+          ..lineTo(rect.right, rect.bottom - k)
+          ..lineTo(rect.right - k, rect.bottom)
+          ..lineTo(rect.right - k - 14, rect.bottom),
+      ]) {
+        c.drawPath(edge, _glow(_neon.withValues(alpha: 0.5), 3)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3.4);
+        c.drawPath(edge, _stroke(const Color(0xFF9FF6FF), 1.3)..strokeJoin = StrokeJoin.miter);
+      }
+      final len = math.min(14.0, math.min(rect.width, rect.height) * 0.3);
       for (final (corner, dx, dy) in [
-        (rect.topLeft, 1.0, 1.0),
         (rect.topRight, -1.0, 1.0),
         (rect.bottomLeft, 1.0, -1.0),
-        (rect.bottomRight, -1.0, -1.0),
       ]) {
         bracket(c, corner + Offset(dx * 1, dy * 1), len, dx, dy, _neon, width: 1.4);
       }
+  }
+}
+
+/// A button or a pill in [scene]: [fill] (the colour the plain theme gives
+/// it, an accent for a chosen one) worked into the place's material.
+class SceneButton extends Decoration {
+  const SceneButton(this.scene, this.fill, this.radius);
+
+  final Scene scene;
+  final Color fill;
+  final BorderRadius radius;
+
+  /// The shape a button takes in [scene] at [radius]: a starship's is cut.
+  static ShapeBorder shape(Scene scene, BorderRadius radius) => scene == Scene.starship
+      ? const BeveledRectangleBorder(borderRadius: BorderRadius.only(topLeft: Radius.circular(8), bottomRight: Radius.circular(8)))
+      : RoundedRectangleBorder(borderRadius: radius);
+
+  @override
+  BoxPainter createBoxPainter([VoidCallback? onChanged]) => _SceneButtonPainter(this);
+
+  @override
+  bool operator ==(Object other) => other is SceneButton && other.scene == scene && other.fill == fill && other.radius == radius;
+
+  @override
+  int get hashCode => Object.hash(scene, fill, radius);
+}
+
+class _SceneButtonPainter extends BoxPainter {
+  _SceneButtonPainter(this.d);
+
+  final SceneButton d;
+
+  @override
+  void paint(Canvas canvas, Offset offset, ImageConfiguration configuration) {
+    final size = configuration.size;
+    if (size == null || size.isEmpty) return;
+    paintButton(canvas, offset & size, d.scene, d.fill, d.radius);
+  }
+}
+
+/// A button of [scene]'s material at [rect].
+void paintButton(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius radius) {
+  final path = scene == Scene.starship
+      ? cutPath(rect, math.min(8.0, rect.shortestSide * 0.3))
+      : (Path()..addRRect(radius.toRRect(rect)));
+  final bright = fill.computeLuminance() > 0.12;
+  c.drawPath(
+    path,
+    Paint()
+      ..shader = ui.Gradient.linear(rect.topCenter, rect.bottomCenter, [
+        Color.lerp(fill, Colors.white, bright ? 0.18 : 0.07)!,
+        fill,
+        Color.lerp(fill, Colors.black, bright ? 0.3 : 0.4)!,
+      ], const [
+        0,
+        0.45,
+        1,
+      ]),
+  );
+  c.save();
+  c.clipPath(path);
+  switch (scene) {
+    case Scene.dungeon:
+      // Pitted stone (or glowing coal, lit), lit along the top.
+      final r = math.Random((rect.width * 7 + rect.height).round());
+      for (var i = 0; i < (rect.width * rect.height / 140).clamp(4, 40); i++) {
+        c.drawCircle(Offset(rect.left + r.nextDouble() * rect.width, rect.top + r.nextDouble() * rect.height),
+            0.5 + r.nextDouble() * 1.0, _fill(Colors.black.withValues(alpha: bright ? 0.22 : 0.4)));
+      }
+      c.drawPath(path.shift(const Offset(0, 1.2)), _stroke(Colors.white.withValues(alpha: bright ? 0.25 : 0.08), 1.2));
+    case Scene.forest:
+      // Grain, as in polished wood.
+      final r = math.Random((rect.width * 5 + rect.height).round());
+      for (var i = 0; i < 4; i++) {
+        final y = rect.top + rect.height * (0.2 + i * 0.2) + (r.nextDouble() - 0.5) * 3;
+        c.drawPath(
+          Path()
+            ..moveTo(rect.left, y)
+            ..quadraticBezierTo(rect.center.dx, y + (r.nextDouble() - 0.5) * 6, rect.right, y + (r.nextDouble() - 0.5) * 3),
+          _stroke(Colors.black.withValues(alpha: bright ? 0.1 : 0.22), 0.8),
+        );
+      }
+      c.drawPath(path.shift(const Offset(0, 1)), _stroke(Colors.white.withValues(alpha: bright ? 0.2 : 0.07), 1));
+    case Scene.starship:
+      for (var y = rect.top + 2; y < rect.bottom; y += 3.5) {
+        c.drawLine(Offset(rect.left, y), Offset(rect.right, y), _stroke(Colors.white.withValues(alpha: 0.03), 1)..strokeCap = StrokeCap.butt);
+      }
+  }
+  c.restore();
+  switch (scene) {
+    case Scene.dungeon:
+      c.drawPath(path, _stroke(Colors.black.withValues(alpha: 0.75), 1.4));
+      c.drawPath(path, _stroke((bright ? const Color(0xFFFFC08A) : const Color(0xFF6A3416)).withValues(alpha: bright ? 0.35 : 0.75), 0.9));
+    case Scene.forest:
+      c.drawPath(path, _stroke(const Color(0xFF0A1A0E).withValues(alpha: 0.8), 1.4));
+      c.drawPath(path, _stroke((bright ? const Color(0xFFCFFFF0) : const Color(0xFF3A6A34)).withValues(alpha: bright ? 0.35 : 0.8), 0.9));
+    case Scene.starship:
+      if (bright) {
+        c.drawPath(path, _glow(fill.withValues(alpha: 0.6), 4)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5);
+      }
+      c.drawPath(path, _stroke(bright ? const Color(0xFFCFFBFF) : _neon.withValues(alpha: 0.55), 1)..strokeJoin = StrokeJoin.miter);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Life: what moves in a scene, over its still backdrop.
+
+/// What moves in [scene]: torches that flicker and throw up embers, dust in
+/// their light; fireflies that drift and glow, a leaf falling; neon pulsing
+/// along the hull, a scan going down, stars that twinkle. Drawn on its own
+/// layer about 30 times a second (the screen over it is not drawn again),
+/// only while it shows, and not at all when the phone is set to remove
+/// animations.
+class SceneLife extends StatefulWidget {
+  const SceneLife(this.scene, {super.key});
+
+  final Scene scene;
+
+  @override
+  State<SceneLife> createState() => _SceneLifeState();
+}
+
+/// Whether a scene's life moves: not under `flutter test`, where a screen
+/// that never stops moving would never settle (its painter is tested on its
+/// own).
+@visibleForTesting
+bool sceneLifeMoves = !Platform.environment.containsKey('FLUTTER_TEST');
+
+class _SceneLifeState extends State<SceneLife> with SingleTickerProviderStateMixin {
+  final _time = ValueNotifier<double>(0);
+  late final _ticker = createTicker(_tick);
+  Duration _last = Duration.zero;
+
+  void _tick(Duration t) {
+    // About 30 a second is smooth for flames and fireflies, and half the work.
+    if (t - _last < const Duration(milliseconds: 33)) return;
+    _last = t;
+    _time.value = t.inMicroseconds / 1e6;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final still = !sceneLifeMoves || (MediaQuery.maybeDisableAnimationsOf(context) ?? false);
+    if (still && _ticker.isActive) _ticker.stop();
+    if (!still && !_ticker.isActive) _ticker.start();
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    _time.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) return const SizedBox.shrink();
+    return IgnorePointer(
+      child: ExcludeSemantics(
+        child: RepaintBoundary(
+          child: CustomPaint(painter: LifePainter(widget.scene, _time), size: Size.infinite),
+        ),
+      ),
+    );
+  }
+}
+
+/// [scene]'s life at the time [time] holds (seconds), over a backdrop drawn
+/// for a box of this size.
+class LifePainter extends CustomPainter {
+  LifePainter(this.scene, this.time) : super(repaint: time);
+
+  final Scene scene;
+  final ValueListenable<double> time;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
+    // Placed as the backdrop places its things: on the whole screen's size.
+    final s = _canvasFor(size);
+    final t = time.value;
+    switch (scene) {
+      case Scene.dungeon:
+        _dungeonLife(canvas, s, t);
+      case Scene.forest:
+        _forestLife(canvas, s, t);
+      case Scene.starship:
+        _starshipLife(canvas, s, t);
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(LifePainter old) => old.scene != scene || old.time != time;
+}
+
+/// A soft wobble between 0 and 1 for flames: three sines out of step.
+double _flicker(double t, double seed) =>
+    0.5 + 0.22 * math.sin(t * 9.1 + seed) + 0.16 * math.sin(t * 15.7 + seed * 2.3) + 0.12 * math.sin(t * 4.3 + seed * 0.7);
+
+void _dungeonLife(Canvas c, Size s, double t) {
+  final torches = [Offset(16, s.height * 0.2), Offset(s.width - 16, s.height * 0.46)];
+  for (var i = 0; i < torches.length; i++) {
+    final at = torches[i];
+    final f = _flicker(t, i * 3.1).clamp(0.0, 1.0);
+    final toCentre = at.dx < s.width / 2 ? 1.0 : -1.0;
+    final cup = at + Offset(10 * toCentre, 4);
+    // The light on the wall breathing with the flame.
+    _light(c, cup + const Offset(0, -24), 120 + f * 40, const Color(0xFFFF8A2A).withValues(alpha: 0.07 + f * 0.09), mid: 0.3);
+    // The flame itself, a little taller and leaning as it burns.
+    c.save();
+    c.translate(cup.dx, cup.dy);
+    c.rotate(0.18 * toCentre + math.sin(t * 3.3 + i) * 0.08);
+    final tall = 1.08 + f * 0.3;
+    final sway = math.sin(t * 6.1 + i * 2) * 4;
+    _light(c, Offset(0, -24 * tall), 18 + f * 6, const Color(0xFFFF9A3A).withValues(alpha: 0.5));
+    final flame = Path()
+      ..moveTo(sway, -48 * tall)
+      ..cubicTo(11, -32 * tall, 12, -18, 6.5, -9)
+      ..quadraticBezierTo(0, -5, -6.5, -9)
+      ..cubicTo(-12, -18, -6 + sway * 0.4, -30 * tall, sway, -48 * tall)
+      ..close();
+    c.drawPath(
+      flame,
+      Paint()
+        ..shader = ui.Gradient.linear(Offset(0, -48 * tall), const Offset(0, -6),
+            const [Color(0xFFFF4A10), Color(0xFFFF8A20), Color(0xFFFFD27A)], const [0, 0.55, 1]),
+    );
+    final core = Path()
+      ..moveTo(sway * 0.5, -30 * tall)
+      ..cubicTo(4.5, -22, 4, -15, 0, -11)
+      ..cubicTo(-4, -15, -4.5, -22, sway * 0.5, -30 * tall)
+      ..close();
+    c.drawPath(core, _fill(const Color(0xFFFFF2C4)));
+    c.restore();
+    // Embers rising off it, drifting, dying.
+    for (var e = 0; e < 9; e++) {
+      final seed = i * 17 + e * 7.3;
+      const life = 2.6;
+      final age = ((t + seed * 0.37) % life) / life;
+      final rise = age * 150;
+      final drift = math.sin(t * 1.7 + seed) * 10 * age + toCentre * age * 26;
+      final p = cup + Offset(drift + (seed % 5 - 2) * 2, -40 - rise);
+      final a = (1 - age) * (age < 0.1 ? age * 10 : 1);
+      _light(c, p, 4.5, const Color(0xFFFF7A1A).withValues(alpha: 0.55 * a));
+      c.drawCircle(p, 0.9, _fill(const Color(0xFFFFD08A).withValues(alpha: 0.9 * a)));
+    }
+  }
+  // Dust turning slowly in the dark, catching what light there is.
+  for (var d = 0; d < 18; d++) {
+    final x = (d * 97.0 + t * (4 + d % 3)) % (s.width + 40) - 20;
+    final y = (d * 151.0 % s.height) + math.sin(t * 0.6 + d) * 14;
+    final a = 0.10 + 0.08 * math.sin(t * 0.9 + d * 1.3);
+    c.drawCircle(Offset(x, y), 0.9 + (d % 3) * 0.35, _fill(const Color(0xFFFFE6C0).withValues(alpha: a)));
+  }
+}
+
+void _forestLife(Canvas c, Size s, double t) {
+  // Fireflies on slow loops, each glowing in its own time.
+  for (var i = 0; i < 22; i++) {
+    final edge = i % 3 != 0;
+    final bx = edge ? (i.isEven ? 0.06 + (i * 0.037 % 0.12) : 0.82 + (i * 0.029 % 0.12)) : (i * 0.137 % 1);
+    final by = (i * 0.071 + 0.05) % 0.92;
+    final p = Offset(
+      s.width * bx + math.sin(t * (0.25 + i % 4 * 0.06) + i) * 22,
+      s.height * by + math.cos(t * (0.2 + i % 5 * 0.05) + i * 1.7) * 18,
+    );
+    final glow = 0.5 + 0.5 * math.sin(t * (1.1 + i % 3 * 0.35) + i * 2.1);
+    final a = 0.15 + 0.75 * glow * glow;
+    _light(c, p, 7 + glow * 7, const Color(0xFFE6FF6A).withValues(alpha: 0.5 * a));
+    c.drawCircle(p, 1.2, _fill(const Color(0xFFFFF6B0).withValues(alpha: a)));
+  }
+  // The glowing mushrooms breathing.
+  final m = Offset(s.width - 46, s.height - 34);
+  _light(c, m, 40 + 8 * math.sin(t * 1.3), const Color(0xFF5AF0D0).withValues(alpha: 0.10 + 0.06 * math.sin(t * 1.3)));
+  // Two leaves falling, turning as they go.
+  for (var i = 0; i < 2; i++) {
+    const fall = 14.0;
+    final age = ((t + i * 7) % fall) / fall;
+    final x = s.width * (0.3 + i * 0.4) + math.sin(t * 0.9 + i) * 34;
+    final y = -20 + age * (s.height + 40);
+    c.save();
+    c.translate(x, y);
+    c.scale(1, 0.55 + 0.45 * math.cos(t * 1.6 + i).abs());
+    leafAt(c, Offset.zero, 13, t * 0.8 + i, math.Random(i + 3));
+    c.restore();
+  }
+}
+
+void _starshipLife(Canvas c, Size s, double t) {
+  // Light running along the neon strips at the sides.
+  for (var i = 0; i < 2; i++) {
+    final x = i == 0 ? 5.0 : s.width - 5;
+    final top = s.height * 0.14;
+    final len = s.height * 0.72;
+    final at = ((t * 0.22 + i * 0.5) % 1) * len + top;
+    c.drawLine(Offset(x, math.max(top, at - 60)), Offset(x, at),
+        Paint()
+          ..shader = ui.Gradient.linear(Offset(x, at - 60), Offset(x, at), [_neon.withValues(alpha: 0), Colors.white.withValues(alpha: 0.9)])
+          ..strokeWidth = 2.4);
+    _light(c, Offset(x, at), 14, _neon.withValues(alpha: 0.6));
+  }
+  // A scan going down the screen now and then.
+  final scan = (t % 9) / 9;
+  if (scan < 0.6) {
+    final y = scan / 0.6 * s.height;
+    c.drawRect(
+      Rect.fromLTRB(0, y - 40, s.width, y),
+      Paint()
+        ..shader = ui.Gradient.linear(Offset(0, y - 40), Offset(0, y), [_neon.withValues(alpha: 0), _neon.withValues(alpha: 0.06)]),
+    );
+    c.drawLine(Offset(0, y), Offset(s.width, y), _stroke(_neon.withValues(alpha: 0.18), 1)..strokeCap = StrokeCap.butt);
+  }
+  // The magenta strips at the foot breathing.
+  const magenta = Color(0xFFFF3FD0);
+  for (var i = 0; i < 3; i++) {
+    final a = Offset(s.width * (0.2 + i * 0.22) + 20, s.height - 26);
+    _light(c, a, 30, magenta.withValues(alpha: 0.12 + 0.1 * math.sin(t * 1.4 + i * 1.9)));
+  }
+  // Stars twinkling in the porthole.
+  final centre = Offset(s.width + 4, s.height * 0.34);
+  c.save();
+  c.clipPath(Path()..addOval(Rect.fromCircle(center: centre, radius: 74)));
+  for (var i = 0; i < 9; i++) {
+    final p = centre + Offset(-70 + (i * 37 % 60), -60 + (i * 53 % 120));
+    final a = 0.5 + 0.5 * math.sin(t * (1.5 + i % 3) + i * 2.4);
+    _light(c, p, 4, Colors.white.withValues(alpha: 0.6 * a));
+  }
+  c.restore();
+  // Status lights blinking on a panel low on the left.
+  for (var i = 0; i < 4; i++) {
+    final on = math.sin(t * (2 + i * 0.7) + i * 1.3) > 0.2;
+    if (!on) continue;
+    final color = [const Color(0xFF39FF88), const Color(0xFFFFB13A), _neon, const Color(0xFFFF4A6A)][i];
+    final p = Offset(22 + i * 9.0, s.height * 0.9);
+    _light(c, p, 6, color.withValues(alpha: 0.6));
+    c.drawCircle(p, 1.4, _fill(color));
   }
 }
 

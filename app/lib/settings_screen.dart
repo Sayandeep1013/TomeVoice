@@ -329,8 +329,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
 
   Widget _body(BuildContext context, LibraryIndex? idx, SpeechPreset? active) {
     return Scaffold(
-      body: DecoratedBox(
-        decoration: Skin.groundDecoration(context),
+      body: Ground(
         child: SafeArea(
           bottom: false,
           child: Column(
@@ -373,8 +372,10 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                         const SizedBox(height: Gap.l),
                         SwitchRow(
                           title: 'Colours from book covers',
-                          subtitle: 'Each book takes the colour of its cover, and the app the colour '
-                              'of the book you are reading',
+                          subtitle: chosenPalette(_prefs).scene != null
+                              ? 'Off in a scene: ${chosenPalette(_prefs).label} keeps its own light'
+                              : 'Each book takes the colour of its cover, and the app the colour '
+                                  'of the book you are reading',
                           value: _prefs.bookColours,
                           padding: EdgeInsets.zero,
                           onChanged: (v) => _changeTheme(() => _prefs.bookColours = v),
@@ -1595,7 +1596,7 @@ class _AboutScreenState extends State<AboutScreen> {
                       const SizedBox(height: Gap.l),
                       Text('TomeVoice',
                           textAlign: TextAlign.center,
-                          style: Skin.title(context, size: 38, weight: FontWeight.w500)),
+                          style: Skin.heading(context, size: 38, weight: FontWeight.w500)),
                       Text('Any book, read aloud.',
                           textAlign: TextAlign.center,
                           style: Skin.title(context, size: 18, italic: true, weight: FontWeight.w400,

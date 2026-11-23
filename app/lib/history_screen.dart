@@ -96,7 +96,7 @@ class _HistoryScreenState extends State<HistoryScreen> with WhenShown<HistoryScr
                     onTap: () => Scaffold.maybeOf(context)?.openDrawer(),
                   ),
                   const SizedBox(width: Gap.m),
-                  Text('History', style: Skin.title(context, size: 28, weight: FontWeight.w500)),
+                  Text('History', style: Skin.heading(context, size: 28, weight: FontWeight.w500)),
                 ],
               ),
             ),

@@ -162,6 +162,42 @@ void main() {
       }
     });
 
+    test('each scene\'s buttons and its life draw, the life at any moment of a long while', () {
+      for (final scene in Scene.values) {
+        final recorder = ui.PictureRecorder();
+        final canvas = Canvas(recorder);
+        for (final fill in [const Color(0xF2221A15), Palette.scenes[scene.index].accent]) {
+          paintButton(canvas, const Rect.fromLTWH(0, 0, 44, 44), scene, fill, BorderRadius.circular(999));
+          paintButton(canvas, const Rect.fromLTWH(0, 0, 120, 36), scene, fill, BorderRadius.circular(999));
+        }
+        final time = ValueNotifier<double>(0);
+        final life = LifePainter(scene, time);
+        for (final t in [0.0, 0.5, 3.3, 61.7, 3600.2]) {
+          time.value = t;
+          life.paint(canvas, const Size(412, 892));
+          life.paint(canvas, const Size(360, 780));
+        }
+        recorder.endRecording().dispose();
+        time.dispose();
+      }
+    });
+
+    test('a scene keeps its own light when book colours are on; a plain theme takes the cover\'s', () {
+      for (final p in Palette.scenes) {
+        expect(p.withTint(0xFF3366AA).accent, p.accent, reason: p.label);
+      }
+      expect(Palette.forest.withTint(0xFF3366AA).accent, isNot(Palette.forest.accent));
+    });
+
+    test("a starship's panels are cut at two corners; the others' are round", () {
+      const rect = Rect.fromLTWH(0, 0, 200, 100);
+      final ship = panelPath(rect, Scene.starship, BorderRadius.circular(2));
+      expect(ship.contains(const Offset(1, 1)), isFalse, reason: 'the top left is cut away');
+      expect(ship.contains(const Offset(198, 2)), isTrue, reason: 'the top right is square');
+      final stone = panelPath(rect, Scene.dungeon, BorderRadius.circular(12));
+      expect(stone.contains(const Offset(100, 50)), isTrue);
+    });
+
     test("a scene's corners: the starship's sharp, the others rounded but never a pill", () {
       expect(Scene.starship.corners(BorderRadius.circular(999)).topLeft.x, 2);
       expect(Scene.dungeon.corners(BorderRadius.circular(999)).topLeft.x, lessThanOrEqualTo(18));

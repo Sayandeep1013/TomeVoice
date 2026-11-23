@@ -234,7 +234,7 @@ class _UpdatesScreenState extends State<UpdatesScreen> with WidgetsBindingObserv
                         onTap: () => Scaffold.maybeOf(context)?.openDrawer(),
                       ),
                       const SizedBox(width: Gap.m),
-                      Expanded(child: Text('Updates', style: Skin.title(context, size: 28, weight: FontWeight.w500))),
+                      Expanded(child: Text('Updates', style: Skin.heading(context, size: 28, weight: FontWeight.w500))),
                       if (_items.isNotEmpty) ...[
                         RoundButton(icon: Icons.clear_all_rounded, tooltip: 'Clear the list', size: 42, onTap: _clear),
                         const SizedBox(width: Gap.s),
