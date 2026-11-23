@@ -454,8 +454,8 @@ class _Backdrop extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Skin.sceneOf(context) != null
       // A scene theme: its own place behind, a little darker.
-      ? Ground(
-          child: const DecoratedBox(
+      ? const Ground(
+          child: DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
