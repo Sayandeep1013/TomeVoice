@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 import 'package:tomevoice_spike/library_store.dart';
 import 'package:tomevoice_spike/sources/models.dart';
+import 'package:tomevoice_spike/speech_service.dart' show PickedFile;
 
 void main() {
   late Directory tmp;
