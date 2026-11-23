@@ -83,9 +83,35 @@ object PdfPages {
         printsOf = null
     }
 
-    /** Page count and every page's size in points, flattened [w0, h0, w1, h1...]. */
+    /** The sizes [info] found last, and the file (path, length, time) they are of. */
+    private var sizesOf: String? = null
+    private var sizesKept: Map<String, Any>? = null
+
+    /**
+     * Page count and every page's size in points, flattened [w0, h0, w1, h1...].
+     *
+     * Finding them opens every page (a thousand for a big scan), so they are
+     * kept: for the session, and in a small file beside the rendered pages,
+     * so a book's pages are measured once. Both are of the file as it is
+     * (its path, length and time), so a file changed at that path is
+     * measured again.
+     */
     @Synchronized
-    fun info(path: String): Map<String, Any> {
+    fun info(path: String, cacheDir: File): Map<String, Any> {
+        val source = File(path)
+        val stamp = path + "|" + source.length() + "|" + source.lastModified()
+        val kept = sizesKept
+        if (kept != null && sizesOf == stamp) return kept
+        val dir = File(cacheDir, "pages").apply { mkdirs() }
+        val file = File(dir, Integer.toHexString(stamp.hashCode()) + "-sizes1.txt")
+        val found = readSizes(file) ?: measure(path).also { writeSizes(file, it) }
+        val info = mapOf("pages" to found.size / 2, "sizes" to found)
+        sizesOf = stamp
+        sizesKept = info
+        return info
+    }
+
+    private fun measure(path: String): List<Int> {
         val r = open(path)
         val sizes = ArrayList<Int>(r.pageCount * 2)
         for (i in 0 until r.pageCount) {
@@ -97,7 +123,47 @@ object PdfPages {
                 page.close()
             }
         }
-        return mapOf("pages" to r.pageCount, "sizes" to sizes)
+        return sizes
+    }
+
+    /**
+     * Sizes [writeSizes] kept: the page count on the first line, then "w h"
+     * a page. Null when there are none, or they are not whole; read, the
+     * file is kept from the week's [sweep] as the book is.
+     */
+    private fun readSizes(file: File): List<Int>? {
+        if (!file.exists()) return null
+        return try {
+            val lines = file.readLines()
+            val count = lines.firstOrNull()?.trim()?.toIntOrNull() ?: return null
+            if (count <= 0 || lines.size < count + 1) return null
+            val sizes = ArrayList<Int>(count * 2)
+            for (k in 1..count) {
+                val parts = lines[k].trim().split(' ')
+                if (parts.size != 2) return null
+                sizes.add(parts[0].toIntOrNull() ?: return null)
+                sizes.add(parts[1].toIntOrNull() ?: return null)
+            }
+            file.setLastModified(System.currentTimeMillis())
+            sizes
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun writeSizes(file: File, sizes: List<Int>) {
+        if (sizes.isEmpty()) return
+        try {
+            val text = StringBuilder().append(sizes.size / 2).append('\n')
+            for (k in sizes.indices step 2) {
+                text.append(sizes[k]).append(' ').append(sizes[k + 1]).append('\n')
+            }
+            val tmp = File(file.parentFile, file.name + ".tmp")
+            tmp.writeText(text.toString())
+            if (!tmp.renameTo(file)) tmp.delete()
+        } catch (_: Exception) {
+            // Measured again next time.
+        }
     }
 
     /**

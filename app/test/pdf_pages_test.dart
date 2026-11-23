@@ -4,6 +4,7 @@
 // the text's; and with Crop margins each page shows only its print, every
 // page one shape.
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -37,6 +38,31 @@ Rect? _printOf(int page) {
   return b == null ? null : Rect.fromLTRB(b[0], b[1], b[2], b[3]);
 }
 
+/// What the phone answers.
+Object? _answer(MethodCall call) => switch (call.method) {
+      'launchArgs' => <String, Object?>{},
+      'listEngines' => [
+          {'name': 'com.google.android.tts', 'label': 'Google TTS'},
+        ],
+      'listVoices' => [
+          {'name': 'en-gb-x-gba-local', 'locale': 'en-GB', 'quality': 300, 'networkRequired': false, 'installed': true},
+        ],
+      'outputDir' => _tmp.path,
+      'playerPosition' => 0,
+      'pdfInfo' => {
+          'pages': 3,
+          'sizes': [612, 792, 612, 792, 612, 792],
+        },
+      // Never drawn in a test: the page shows its number, which says which
+      // page is on screen.
+      'pdfRender' => '${_tmp.path}/page.jpg',
+      'pdfPrint' => [
+          for (final p in (call.arguments as Map)['pages'] as List) _printsAt.containsKey(p) ? _printsAt[p] : _usual,
+        ],
+      'playerEnqueue' => 0,
+      _ => null,
+    };
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -49,29 +75,7 @@ void main() {
     SpeechService.resetQueue();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(_channel, (call) async {
       _calls.add(call);
-      return switch (call.method) {
-        'launchArgs' => <String, Object?>{},
-        'listEngines' => [
-            {'name': 'com.google.android.tts', 'label': 'Google TTS'},
-          ],
-        'listVoices' => [
-            {'name': 'en-gb-x-gba-local', 'locale': 'en-GB', 'quality': 300, 'networkRequired': false, 'installed': true},
-          ],
-        'outputDir' => _tmp.path,
-        'playerPosition' => 0,
-        'pdfInfo' => {
-            'pages': 3,
-            'sizes': [612, 792, 612, 792, 612, 792],
-          },
-        // Never drawn in a test: the page shows its number, which says which
-        // page is on screen.
-        'pdfRender' => '${_tmp.path}/page.jpg',
-        'pdfPrint' => [
-            for (final p in (call.arguments as Map)['pages'] as List) _printsAt.containsKey(p) ? _printsAt[p] : _usual,
-          ],
-        'playerEnqueue' => 0,
-        _ => null,
-      };
+      return _answer(call);
     });
   });
 
@@ -221,6 +225,75 @@ void main() {
     await slide(tester, c, const Offset(0, -200));
     expect(tester.getTopLeft(first).dy, top);
     expect(tester.widget<InteractiveViewer>(first).transformationController!.value.storage[13], lessThan(y - 50));
+    await finish(tester);
+  });
+
+  testWidgets(
+      'scrolled, pages are drawn two at a time, those on screen first: after a long scroll the pages landed on '
+      'come next, those passed are not drawn, and one that failed is drawn again', (tester) async {
+    // A long scan whose pages take as long as the test says.
+    final waiting = <({int page, Completer<String> done})>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(_channel, (call) async {
+      _calls.add(call);
+      if (call.method == 'pdfInfo') {
+        return {
+          'pages': 40,
+          'sizes': [for (var i = 0; i < 40; i++) ...[612, 792]],
+        };
+      }
+      if (call.method == 'pdfRender') {
+        final done = Completer<String>();
+        waiting.add((page: (call.arguments as Map)['page'] as int, done: done));
+        return done.future;
+      }
+      return _answer(call);
+    });
+    List<int> asked() => [
+          for (final c in _calls.where((c) => c.method == 'pdfRender')) (c.arguments as Map)['page'] as int,
+        ];
+    Set<int> onScreen() => shown().split(',').where((s) => s.isNotEmpty).map((s) => int.parse(s) - 1).toSet();
+
+    await openPdf(tester);
+    expect(asked(), hasLength(2), reason: 'two at a time');
+    final first = asked().toSet();
+
+    // A long way down, by hand, while those two are still being drawn.
+    for (var i = 0; i < 6; i++) {
+      await tester.drag(find.byType(PdfPagesView), const Offset(0, -2500));
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+    final here = onScreen();
+    expect(here.intersection(first), isEmpty, reason: 'scrolled well past the first pages');
+    expect(asked(), hasLength(2), reason: 'nothing more begun while two are drawn');
+
+    // The first two done: the next are pages on screen now, not those passed.
+    for (final w in waiting.toList()) {
+      w.done.complete('${_tmp.path}/page.jpg');
+    }
+    await tester.pump();
+    await tester.pump();
+    final next = asked().skip(2).toList();
+    expect(next, hasLength(2));
+    expect(here, containsAll(next), reason: 'the pages landed on come first');
+
+    // One fails (out of memory, say): a little later it is asked for again.
+    final failed = waiting[2];
+    failed.done.completeError(PlatformException(code: 'PDF_PAGES', message: 'Cannot draw page'));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    // Its turn comes as the pages before it are drawn.
+    for (var k = 0; k < 20 && !asked().skip(4).contains(failed.page); k++) {
+      for (final w in waiting.toList()) {
+        if (!w.done.isCompleted) w.done.complete('${_tmp.path}/page.jpg');
+      }
+      await tester.pump();
+    }
+    expect(asked().skip(4), contains(failed.page), reason: 'not left as its number');
+
+    for (final w in waiting) {
+      if (!w.done.isCompleted) w.done.complete('${_tmp.path}/page.jpg');
+    }
     await finish(tester);
   });
 
