@@ -212,7 +212,7 @@ class _UpdatesScreenState extends State<UpdatesScreen> with WidgetsBindingObserv
       groups.putIfAbsent(day[0].toUpperCase() + day.substring(1), () => []).add(c);
     }
     return DecoratedBox(
-      decoration: BoxDecoration(gradient: Skin.ground(context)),
+      decoration: Skin.groundDecoration(context),
       child: SafeArea(
         bottom: false,
         child: RefreshIndicator(

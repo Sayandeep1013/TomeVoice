@@ -79,7 +79,7 @@ class _HistoryScreenState extends State<HistoryScreen> with WhenShown<HistoryScr
       groups.putIfAbsent(day[0].toUpperCase() + day.substring(1), () => []).add(e);
     }
     return shownGate(DecoratedBox(
-      decoration: BoxDecoration(gradient: Skin.ground(context)),
+      decoration: Skin.groundDecoration(context),
       child: SafeArea(
         bottom: false,
         child: Column(

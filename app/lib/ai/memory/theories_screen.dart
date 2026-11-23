@@ -51,7 +51,7 @@ class _TheoriesScreenState extends State<TheoriesScreen> {
     final list = _theories;
     return Scaffold(
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: SafeArea(
           bottom: false,
           child: Column(

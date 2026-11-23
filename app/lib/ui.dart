@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show BoxHitTestResult, RenderProxyBox;
 
+import 'scene.dart';
 import 'theme.dart';
 
 /// The shared pieces every screen is built from. Each exists once, so a
@@ -584,7 +585,12 @@ class EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 40, color: Skin.accentInkOf(context).withValues(alpha: 0.85)),
+            // A scene theme's own picture (a candle on a skull, glowing
+            // mushrooms, a ringed planet) in place of the icon.
+            if (Skin.sceneOf(context) case final scene?)
+              SceneEmptyArt(scene)
+            else
+              Icon(icon, size: 40, color: Skin.accentInkOf(context).withValues(alpha: 0.85)),
             const SizedBox(height: Gap.l),
             Text(title, textAlign: TextAlign.center, style: Skin.title(context, size: 24)),
             const SizedBox(height: Gap.s),

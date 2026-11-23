@@ -543,6 +543,7 @@ class _WebNovelReaderState extends State<WebNovelReader> {
     // Each reader (or the wait for one) fades in over the same ground. The
     // old one goes at once: kept for a cross-fade, its player stopping would
     // silence the new one, already reading.
+    // Plain under the reader, a scene theme's too: no art behind the words.
     return DecoratedBox(
       decoration: BoxDecoration(gradient: Skin.ground(context)),
       child: FadeIn(key: ValueKey(reading ? _generation : -1), child: reading ? _reader(layout) : _wait(context)),
@@ -578,7 +579,7 @@ class _WebNovelReaderState extends State<WebNovelReader> {
 
   Widget _wait(BuildContext context) => Scaffold(
         body: DecoratedBox(
-          decoration: BoxDecoration(gradient: Skin.ground(context)),
+          decoration: Skin.groundDecoration(context),
           child: SafeArea(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,

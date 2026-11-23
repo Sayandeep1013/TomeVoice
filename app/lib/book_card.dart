@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'book_tint.dart';
 import 'library_store.dart';
 import 'prefs.dart';
+import 'scene.dart';
 import 'stats.dart' show dayStartsAtHour;
 import 'theme.dart';
 import 'ui.dart';
@@ -19,11 +20,16 @@ class BookCover extends StatelessWidget {
     required this.width,
     this.shadow = true,
     this.titled = true,
+    this.framed = true,
   });
 
   final LibraryEntry entry;
   final double width;
   final bool shadow;
+
+  /// In a scene theme, the cover sits in the scene's frame (rusted iron,
+  /// wood and vine, neon). A tile frames itself whole instead.
+  final bool framed;
 
   /// Whether a cover made from the title shows the title. Tiles print the
   /// title on their own band, so theirs shows only an initial.
@@ -47,7 +53,8 @@ class BookCover extends StatelessWidget {
     final generated = _generated(context);
     final path = entry.shownCover;
     final radius = BorderRadius.circular((width * 0.07).clamp(4.0, Radii.chip));
-    return Container(
+    final scene = framed ? Skin.sceneOf(context) : null;
+    final cover = Container(
       width: width,
       height: height,
       decoration: BoxDecoration(
@@ -81,6 +88,8 @@ class BookCover extends StatelessWidget {
               ),
       ),
     );
+    if (scene == null) return cover;
+    return CustomPaint(foregroundPainter: CoverFramePainter(scene, radius.topLeft.x), child: cover);
   }
 
   Widget _generated(BuildContext context) {
@@ -462,7 +471,7 @@ class BookTile extends StatelessWidget {
                     CoverHero(
                       entry: e,
                       titled: false,
-                      child: BookCover(entry: e, width: w, shadow: false, titled: false),
+                      child: BookCover(entry: e, width: w, shadow: false, titled: false, framed: false),
                     ),
                     // The band: clear at the top, dark enough at the foot for
                     // white text on any cover.
@@ -519,7 +528,19 @@ class BookTile extends StatelessWidget {
                         ),
                       ),
                     ),
-                    Positioned(left: 7, top: 7, child: _StatusBadge(entry: e)),
+                    // A scene theme's frame round the whole tile.
+                    if (Skin.sceneOf(context) case final scene?)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: CustomPaint(painter: CoverFramePainter(scene, radius.topLeft.x)),
+                        ),
+                      ),
+                    // Inside a scene's frame, not over it.
+                    Positioned(
+                      left: Skin.sceneOf(context) == null ? 7 : 7 + (w * 0.06).clamp(2.5, 9.0),
+                      top: Skin.sceneOf(context) == null ? 7 : 7 + (w * 0.06).clamp(2.5, 9.0),
+                      child: _StatusBadge(entry: e),
+                    ),
                     Positioned.fill(
                       child: _Chosen(
                         selected: selected,

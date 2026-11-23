@@ -51,6 +51,7 @@ import 'speech_service.dart';
 import 'starter.dart';
 import 'updates.dart';
 import 'updates_screen.dart';
+import 'scene.dart';
 import 'theme.dart';
 import 'ui.dart';
 import 'update_flow.dart';
@@ -632,7 +633,7 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
     final Widget body;
     if (store == null) {
       body = DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: Center(
           child: _error == null
               ? const BrandLockup()
@@ -663,7 +664,7 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
       // The library arrives from the opening lockup, and each place picked
       // in the drawer, the way a new screen does: over the same ground.
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: FadeIn(key: ValueKey(store == null), trigger: _place, child: body),
       ),
     ));
@@ -673,8 +674,8 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
   /// ([current], that screen's row), that screen's row is.
   Widget _drawer(BuildContext context, {String? current}) {
     bool on(_Place p) => current == null && _place == p;
-    return Drawer(
-        child: SafeArea(
+    final scene = Skin.sceneOf(context);
+    final list = SafeArea(
           child: ListView(
             padding: const EdgeInsets.symmetric(vertical: Gap.l),
             children: [
@@ -726,10 +727,28 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
                   selected: current == 'Settings', onTap: () => _push('Settings', (s) => SettingsScreen(store: s))),
               _item(context, Icons.info_outline_rounded, Icons.info_rounded, 'About',
                   selected: current == 'About', onTap: () => _push('About', (store) => AboutScreen(root: store.root))),
+              // Room for a scene's ornament at the foot.
+              if (scene != null) const SizedBox(height: 120),
             ],
           ),
-        ),
-      );
+        );
+    if (scene == null) return Drawer(child: list);
+    // A scene theme: the drawer is a piece of its place, a crest at the top
+    // and something at the foot (a hand and a candle in the dungeon).
+    return Drawer(
+      backgroundColor: Colors.transparent,
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        children: [
+          Positioned.fill(child: DecoratedBox(decoration: Skin.groundDecoration(context))),
+          // Dark enough under the rows for every word on them.
+          const Positioned.fill(child: ColoredBox(color: Color(0x8C000000))),
+          Positioned(top: MediaQuery.paddingOf(context).top + 4, right: 6, child: SceneOrnament(scene, foot: false, width: 64, height: 64)),
+          Positioned(left: 0, right: 0, bottom: 0, child: Center(child: SceneOrnament(scene, foot: true, width: 200, height: 110))),
+          list,
+        ],
+      ),
+    );
   }
 
   /// A group's heading, with a rule above it (but the first's).
@@ -739,7 +758,10 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (!first) ...[
-              Divider(height: 1, color: Skin.inkOn(context).withValues(alpha: 0.12)),
+              if (Skin.sceneOf(context) case final scene?)
+                SceneDivider(scene)
+              else
+                Divider(height: 1, color: Skin.inkOn(context).withValues(alpha: 0.12)),
               const SizedBox(height: Gap.m),
             ],
             Eyebrow(label),

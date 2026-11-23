@@ -191,7 +191,7 @@ class _NovelMoveScreenState extends State<NovelMoveScreen> {
     final langs = {for (final p in _installed) p.lang};
     return Scaffold(
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: SafeArea(
           bottom: false,
           child: Column(
