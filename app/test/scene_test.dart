@@ -134,7 +134,11 @@ void main() {
       await tester.tap(find.text('Designer themes'));
       await tester.pumpAndSettle();
       expect(find.text('SCENES'), findsOneWidget);
-      expect(find.text('COLOURS', skipOffstage: false), findsOneWidget);
+      // The colours come below the scenes: scrolled to, and back.
+      final sheet = find.byType(Scrollable).last;
+      await tester.scrollUntilVisible(find.text('COLOURS'), 400, scrollable: sheet);
+      expect(find.text('COLOURS'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Dungeon'), -400, scrollable: sheet);
       expect(find.text('Dungeon'), findsOneWidget);
       expect(find.text('Starship'), findsOneWidget);
       await tester.tap(find.text('Dungeon'));
