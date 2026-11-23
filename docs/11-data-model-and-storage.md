@@ -62,6 +62,9 @@ sources/                web-novel sources: repos.json (the lists), installed.jso
                         storage-<id>.json (each plugin's own settings), cookies per plugin,
                         index-*.json (cached lists), moved.json, restored.json
 errors.jsonl            the local error log (about 50 entries), scrubbed of titles and paths
+voice-log.jsonl         the voice log (About > Voice log; off unless turned on, voice-log.on): timings,
+                        engine errors and voices, a sentence only as its length and alphabet; last 4000
+                        notes; shared by the reader as a text file; never in a backup
 .secrets.json           catalogue and sync passwords, this phone's sync id and, from 2.0,
                         the AI keys; never backed up (builds before 1.4 kept it in the
                         library folder, and moved it here the first time it was read)

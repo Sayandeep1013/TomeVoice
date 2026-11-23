@@ -601,6 +601,39 @@ class MainActivity : FlutterActivity() {
                         "model" to Build.MODEL,
                     )
                 )
+                // What makes a phone slow or fast to speak, for the voice log
+                // the reader shares themselves (About > Voice log): its
+                // memory, cores, 32 or 64 bits, battery saver, and the
+                // version of the speech engine in use ([engine]).
+                "phoneDetails" -> {
+                    val details = mutableMapOf<String, Any>()
+                    try {
+                        val am = getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+                        val mi = android.app.ActivityManager.MemoryInfo()
+                        am.getMemoryInfo(mi)
+                        details["memoryMb"] = mi.totalMem / 1048576L
+                        details["freeMb"] = mi.availMem / 1048576L
+                        details["lowRam"] = am.isLowRamDevice
+                    } catch (e: Exception) {
+                    }
+                    try {
+                        val pm = getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+                        details["powerSave"] = pm.isPowerSaveMode
+                    } catch (e: Exception) {
+                    }
+                    details["cores"] = Runtime.getRuntime().availableProcessors()
+                    details["abis"] = Build.SUPPORTED_ABIS.joinToString(",")
+                    details["is64"] = android.os.Process.is64Bit()
+                    val engine = call.argument<String>("engine").orEmpty()
+                    if (engine.isNotEmpty()) {
+                        try {
+                            @Suppress("DEPRECATION")
+                            details["engineVersion"] = packageManager.getPackageInfo(engine, 0).versionName ?: ""
+                        } catch (e: Exception) {
+                        }
+                    }
+                    result.success(details)
+                }
                 // The wallpaper's colours, for a theme that follows them
                 // (Settings > Appearance). Null before Android 12.
                 "systemColours" -> result.success(systemColours())

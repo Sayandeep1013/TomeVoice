@@ -41,6 +41,8 @@ object LibraryBackup {
         // app's private storage, which is the library's folder too only on a
         // phone with no storage outside the app.
         if (rel == ErrorLog.FILE || rel == PastExits.SEEN) return true
+        // So is the voice log (voice_log.dart), and whether it is on.
+        if (rel == "voice-log.jsonl" || rel == "voice-log.on") return true
         // A cached copy of a source list; fetched again when needed.
         if (rel.startsWith("sources/index-")) return true
         // Natural voices are a download away (64 to 110 MB each). Carried,
