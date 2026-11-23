@@ -466,6 +466,31 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      # R8's own reports (what it kept and why, what it removed, every rule
+      # in force, rules it found missing) and the size of each DEX: what
+      # narrowing the keep rules is measured against.
+      - name: R8 reports and DEX sizes
+        if: inputs.variant == 'play' || inputs.variant == 'test'
+        working-directory: app
+        run: |
+          ls -la build/app/outputs/mapping/release/ || true
+          for f in build/app/outputs/bundle/release/app-release.aab build/app/outputs/flutter-apk/*.apk; do
+            [ -f "$f" ] && { echo "$f"; unzip -l "$f" | grep -E '\.dex$' || true; }
+          done
+          for f in seeds usage configuration missing_rules; do
+            [ -f "build/app/outputs/mapping/release/$f.txt" ] && echo "$f.txt: $(wc -l < build/app/outputs/mapping/release/$f.txt) lines"
+          done
+          echo "kept classes (seeds): $(grep -vc '^ ' build/app/outputs/mapping/release/seeds.txt 2>/dev/null || echo ?)"
+          true
+
+      - name: Upload the R8 reports
+        if: inputs.variant == 'play' || inputs.variant == 'test'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tomevoice-${{ inputs.variant }}-r8-reports
+          path: app/build/app/outputs/mapping/release/
+          if-no-files-found: warn
+
       - name: Upload the 32-bit APK
         if: matrix.abi == 'arm'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
