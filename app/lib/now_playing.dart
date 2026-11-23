@@ -265,16 +265,26 @@ class NowPlayingScreen extends StatelessWidget {
                 // is theirs too, a finger's 48.
                 TapBand(
                   above: 11,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _chip(context, '${trimSpeed(speed())}×', Icons.speed_rounded, onSpeed),
-                      _chip(context, sleep == null ? 'Sleep' : 'Sleep on', Icons.bedtime_outlined, onSleep),
-                      _chip(context, 'Save', Icons.bookmark_add_outlined, onSave),
-                      // The voice's name takes what the three short ones leave.
-                      _chip(context, voiceLabel(), Icons.record_voice_over_rounded, onVoice, grow: true),
-                    ],
-                  ),
+                  child: LayoutBuilder(builder: (context, c) {
+                    final labels = ['${trimSpeed(speed())}×', sleep == null ? 'Sleep' : 'Sleep on', 'Save'];
+                    final voice = voiceLabel();
+                    // The three short chips keep their own width and the
+                    // voice's name takes what they leave, when all four fit
+                    // at least a few letters of it; on a narrow screen (or
+                    // large text) each gets a quarter, as before.
+                    final scale = MediaQuery.textScalerOf(context);
+                    final short = labels.fold<double>(0, (a, l) => a + _chipWidth(l, scale));
+                    final roomy = short + _chipWidth('EN · Ab', scale) <= c.maxWidth;
+                    return Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        _chip(context, labels[0], Icons.speed_rounded, onSpeed, fixed: roomy),
+                        _chip(context, labels[1], Icons.bedtime_outlined, onSleep, fixed: roomy),
+                        _chip(context, labels[2], Icons.bookmark_add_outlined, onSave, fixed: roomy),
+                        _chip(context, voice, Icons.record_voice_over_rounded, onVoice),
+                      ],
+                    );
+                  }),
                 ),
               ],
             );
@@ -298,11 +308,21 @@ class NowPlayingScreen extends StatelessWidget {
         style: Skin.ui(size: 13, weight: FontWeight.w600, color: Colors.white),
       );
 
-  Widget _chip(BuildContext context, String label, IconData icon, VoidCallback onTap, {bool grow = false}) =>
+  /// A chip's whole width for [label]: its padding, icon and words.
+  static double _chipWidth(String label, TextScaler scale) {
+    final painter = TextPainter(
+      text: TextSpan(text: label, style: Skin.ui(size: 13, weight: FontWeight.w600)),
+      textDirection: TextDirection.ltr,
+      textScaler: scale,
+      maxLines: 1,
+    )..layout();
+    return painter.width + 3 * 2 + Gap.m * 2 + 15 + 6 + 2;
+  }
+
+  /// [fixed]: as wide as its label, never cut (only when the row has room).
+  Widget _chip(BuildContext context, String label, IconData icon, VoidCallback onTap, {bool fixed = false}) =>
       Flexible(
-        // Short chips keep their own width; only [grow] is cut, and only
-        // when the row is truly full.
-        flex: grow ? 1 : 0,
+        flex: fixed ? 0 : 1,
         fit: FlexFit.loose,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 3),
@@ -319,10 +339,7 @@ class NowPlayingScreen extends StatelessWidget {
                   children: [
                     Icon(icon, size: 15, color: Skin.accentSoftOf(context)),
                     const SizedBox(width: 6),
-                    if (grow)
-                      Flexible(child: _chipText(label))
-                    else
-                      _chipText(label),
+                    if (fixed) _chipText(label) else Flexible(child: _chipText(label)),
                   ],
                 ),
               ),
