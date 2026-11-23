@@ -204,6 +204,36 @@ void main() {
       expect(e.edited, isNotNull);
       await tester.pump(const Duration(seconds: 5));
     });
+
+    testWidgets('an entry opened and closed unchanged asks nothing; a change can be thrown away', (tester) async {
+      final old = JournalEntry(
+        id: 'y',
+        bookId: 'book',
+        bookTitle: 'Shadow Slave',
+        created: DateTime.utc(2026, 11, 1),
+        stamp: at(3),
+        answers: const [JournalAnswer(question: 'Why?', text: 'First words.')],
+      );
+      await store.put(old);
+      await pump(tester, opener(() => at(99), entry: old));
+      await tester.tap(find.text('Write'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pumpAndSettle();
+      expect(find.text('Keep your changes?'), findsNothing);
+      expect(find.text('Write'), findsOneWidget);
+      // Changed, then thrown away: the entry stays as it was.
+      await tester.tap(find.text('Write'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.widgetWithText(TextField, 'First words.'), 'Other words.');
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pumpAndSettle();
+      expect(find.text('Keep your changes?'), findsOneWidget);
+      await tester.tap(find.text('Throw away'));
+      await tester.pumpAndSettle();
+      expect(store.forBook('book').single.answers.single.text, 'First words.');
+      await tester.pump(const Duration(seconds: 5));
+    });
   });
 
   test('the export carries the journal under the book, in the order written', () {

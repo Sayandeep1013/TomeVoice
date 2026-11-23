@@ -271,7 +271,8 @@ class NowPlayingScreen extends StatelessWidget {
                       _chip(context, '${trimSpeed(speed())}×', Icons.speed_rounded, onSpeed),
                       _chip(context, sleep == null ? 'Sleep' : 'Sleep on', Icons.bedtime_outlined, onSleep),
                       _chip(context, 'Save', Icons.bookmark_add_outlined, onSave),
-                      _chip(context, voiceLabel(), Icons.record_voice_over_rounded, onVoice),
+                      // The voice's name takes what the three short ones leave.
+                      _chip(context, voiceLabel(), Icons.record_voice_over_rounded, onVoice, grow: true),
                     ],
                   ),
                 ),
@@ -290,7 +291,19 @@ class NowPlayingScreen extends StatelessWidget {
         icon: Icon(icon),
       );
 
-  Widget _chip(BuildContext context, String label, IconData icon, VoidCallback onTap) => Flexible(
+  Widget _chipText(String label) => Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: Skin.ui(size: 13, weight: FontWeight.w600, color: Colors.white),
+      );
+
+  Widget _chip(BuildContext context, String label, IconData icon, VoidCallback onTap, {bool grow = false}) =>
+      Flexible(
+        // Short chips keep their own width; only [grow] is cut, and only
+        // when the row is truly full.
+        flex: grow ? 1 : 0,
+        fit: FlexFit.loose,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 3),
           child: Material(
@@ -306,14 +319,10 @@ class NowPlayingScreen extends StatelessWidget {
                   children: [
                     Icon(icon, size: 15, color: Skin.accentSoftOf(context)),
                     const SizedBox(width: 6),
-                    Flexible(
-                      child: Text(
-                        label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Skin.ui(size: 13, weight: FontWeight.w600, color: Colors.white),
-                      ),
-                    ),
+                    if (grow)
+                      Flexible(child: _chipText(label))
+                    else
+                      _chipText(label),
                   ],
                 ),
               ),

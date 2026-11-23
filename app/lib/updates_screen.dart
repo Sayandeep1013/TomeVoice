@@ -314,7 +314,8 @@ class _UpdatesScreenState extends State<UpdatesScreen> with WidgetsBindingObserv
                   child: FadeIn(
                     child: Center(
                       child: EmptyState(
-                        icon: Icons.new_releases_outlined,
+                        // Calm, not a warning badge: being caught up is good news.
+                        icon: _hasWeb ? Icons.done_all_rounded : Icons.travel_explore_rounded,
                         title: _hasWeb ? 'No new chapters' : 'Nothing to follow yet',
                         body: _hasWeb
                             ? 'When the sites add chapters to novels in your library, they show up here.'
