@@ -841,6 +841,22 @@ class _DrawerBackScaffoldState extends State<DrawerBackScaffold> {
       );
 }
 
+/// A screen opened from the drawer (Saved, Journal, Settings…): its top bar
+/// shows Menu, which opens the drawer again, where a screen opened from
+/// another screen shows Back. Back itself still leaves it.
+class DrawerPage extends InheritedWidget {
+  const DrawerPage({super.key, required this.openDrawer, required super.child});
+
+  final VoidCallback openDrawer;
+
+  /// Opens the drawer, for a screen opened from it; null for any other.
+  static VoidCallback? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<DrawerPage>()?.openDrawer;
+
+  @override
+  bool updateShouldNotify(DrawerPage oldWidget) => false;
+}
+
 /// Ask for a short piece of text (a category name). Null if cancelled.
 /// [message] says what it is for, above the field; [email] asks for an
 /// email address (its keyboard, and no capital put on its first letter).
@@ -1306,6 +1322,8 @@ class _RouteWatchState extends State<_RouteWatch> {
 }
 
 /// The top of a pushed screen: a round back button and the screen's title.
+/// Opened from the drawer ([DrawerPage]), the button is Menu instead, as on
+/// the library.
 class ScreenTopBar extends StatelessWidget {
   const ScreenTopBar({super.key, required this.title, required this.onBack, this.actions = const []});
 
@@ -1316,19 +1334,24 @@ class ScreenTopBar extends StatelessWidget {
   final List<Widget> actions;
 
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(Gap.m, Gap.s, Gap.page, Gap.m),
-        child: Row(
-          children: [
-            RoundButton(icon: Icons.arrow_back_rounded, tooltip: 'Back', onTap: onBack),
-            const SizedBox(width: Gap.m),
-            Expanded(
-              child: Text.rich(titleWithDashes(title, Skin.title(context, size: 26, weight: FontWeight.w500))),
-            ),
-            ...actions,
-          ],
-        ),
-      );
+  Widget build(BuildContext context) {
+    final menu = DrawerPage.maybeOf(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(Gap.m, Gap.s, Gap.page, Gap.m),
+      child: Row(
+        children: [
+          menu != null
+              ? RoundButton(icon: Icons.menu_rounded, tooltip: 'Menu', onTap: menu)
+              : RoundButton(icon: Icons.arrow_back_rounded, tooltip: 'Back', onTap: onBack),
+          const SizedBox(width: Gap.m),
+          Expanded(
+            child: Text.rich(titleWithDashes(title, Skin.title(context, size: 26, weight: FontWeight.w500))),
+          ),
+          ...actions,
+        ],
+      ),
+    );
+  }
 }
 
 /// [text] in the title face, its dashes in the interface face: Bodoni

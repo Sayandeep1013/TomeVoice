@@ -308,9 +308,17 @@ class MemoryService {
 
   void attach(LibraryStore store, {AiRouter? router}) {
     _store?.chapterSaved.removeListener(_onSaved);
+    _store?.memoryBack.removeListener(_onMemoryBack);
     _store = store;
     _router = router;
     store.chapterSaved.addListener(_onSaved);
+    store.memoryBack.addListener(_onMemoryBack);
+  }
+
+  /// A removed book added again, its kept memory back in its folder.
+  void _onMemoryBack() {
+    final id = _store?.memoryBack.value;
+    if (id != null) unawaited(refresh(id));
   }
 
   /// When each book was last kept up, and the wait after a web novel's
@@ -434,6 +442,7 @@ class MemoryService {
   @visibleForTesting
   void reset() {
     _store?.chapterSaved.removeListener(_onSaved);
+    _store?.memoryBack.removeListener(_onMemoryBack);
     for (final t in _afterSaves.values) {
       t.cancel();
     }
@@ -985,6 +994,29 @@ class MemoryService {
     _n(id).value = const BookMemoryState();
   }
 
+  /// Book [id]'s building stopped (not by pause(), which would write
+  /// "paused" into the file as it moves); the memory stays as it stood,
+  /// paused or not.
+  Future<void> _stopFor(String id) async {
+    _wakes.remove(id)?.cancel();
+    _letGo(id);
+    _builders[id]?.pause();
+    // A batch on its way writes to the file: let it land first.
+    final b = _builders.remove(id);
+    for (var i = 0; b != null && b.running && i < 240; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    _paused.remove(id);
+  }
+
+  /// Book [id] is being removed with its memory kept aside
+  /// (LibraryStore.remove): its building stops first, so nothing writes to
+  /// the file as it moves, and it no longer counts as having a memory.
+  Future<void> letGo(String id) async {
+    await _stopFor(id);
+    _n(id).value = const BookMemoryState();
+  }
+
   /// Book [from]'s memory carried to book [to], its file replaced by another
   /// edition: the notes, the cast, the theories and its settings go with it.
   /// The word index then finds the chapters whose text changed (by their
@@ -995,17 +1027,7 @@ class MemoryService {
     final src = File(_path(from));
     final dst = File(_path(to));
     if (!await src.exists() || await dst.exists()) return false;
-    // Its building stops (not by pause(), which would write "paused" into
-    // the file as it moves); the memory goes as it stood, paused or not.
-    _wakes.remove(from)?.cancel();
-    _letGo(from);
-    _builders[from]?.pause();
-    // A batch on its way writes to the file: let it land first.
-    final b = _builders.remove(from);
-    for (var i = 0; b != null && b.running && i < 240; i++) {
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-    }
-    _paused.remove(from);
+    await _stopFor(from);
     await dst.parent.create(recursive: true);
     try {
       await src.rename(dst.path);

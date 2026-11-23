@@ -10,7 +10,7 @@ import '../ai_keys.dart';
 import '../ai_screen.dart' show AiScreen, wakeTime;
 import '../../backup_flow.dart' show sizeLabel;
 import '../../download_queue.dart';
-import '../../library_store.dart' show LibraryEntry;
+import '../../library_store.dart' show KeptMemory, LibraryEntry;
 import '../talk/talk_sheet.dart' show showTalk;
 import 'chapter_notes_screen.dart';
 import 'find_where_screen.dart';
@@ -653,11 +653,69 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
     super.dispose();
   }
 
+  /// Memories kept from books that were removed (LibraryStore.keptMemories).
+  List<KeptMemory> _kept = const [];
+
   void _load() {
-    unawaited(MemoryService.instance.booksWithMemory().then((b) {
-      if (mounted) setState(() => _books = [for (final e in b) (id: e.id, title: e.title, author: e.authors.join(', '))]);
+    unawaited(MemoryService.instance.booksWithMemory().then((b) async {
+      final kept = await MemoryService.instance.library?.keptMemories() ?? const <KeptMemory>[];
+      if (mounted) {
+        setState(() {
+          _books = [for (final e in b) (id: e.id, title: e.title, author: e.authors.join(', '))];
+          _kept = kept;
+        });
+      }
     }));
   }
+
+  Future<void> _deleteKept(KeptMemory k) async {
+    final store = MemoryService.instance.library;
+    if (store == null) return;
+    final sure = await confirm(
+      context,
+      title: 'Delete this memory?',
+      body: 'What the AI remembers of "${k.title}" is deleted for good. Adding the book again would mean '
+          'building its memory again, which sends the book to your AI key once more.',
+      action: 'Delete',
+    );
+    if (!sure) return;
+    await store.deleteKeptMemory(k.id);
+    _load();
+  }
+
+  Widget _keptRow(BuildContext context, KeptMemory k) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: Gap.xs),
+        child: Row(
+          children: [
+            Container(
+              width: 4,
+              height: 40,
+              decoration: BoxDecoration(color: Skin.inkFaintOn(context), borderRadius: BorderRadius.circular(2)),
+            ),
+            const SizedBox(width: Gap.m),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(k.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: Skin.title(context, size: 18)),
+                  Text(
+                    [
+                      if (k.author.isNotEmpty) k.author,
+                      if (k.chapters > 0) 'built from ${k.chapters} ${k.chapters == 1 ? 'chapter' : 'chapters'}',
+                    ].join(' · '),
+                    style: Skin.meta(context),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              tooltip: 'Delete this memory',
+              icon: Icon(Icons.delete_outline_rounded, color: Skin.inkSoftOn(context)),
+              onPressed: () => unawaited(_deleteKept(k)),
+            ),
+          ],
+        ),
+      );
 
   /// New memory: a book picked, then started as from its page.
   Future<void> _newMemory() async {
@@ -727,6 +785,22 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
     final items = <Widget>[
       for (final s in series) _SeriesCard(series: s, books: byId),
       for (final b in single) _bookRow(context, b),
+      // Books removed with their memory kept: theirs again if added again.
+      if (_kept.isNotEmpty)
+        Column(
+          key: const Key('kept-memories'),
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SectionTitle('From removed books'),
+            const SizedBox(height: Gap.xs),
+            Text(
+              'Kept when the book was removed. Add the same book again and its memory is back, as it was.',
+              style: Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkSoftOn(context)),
+            ),
+            const SizedBox(height: Gap.s),
+            for (final k in _kept) _keptRow(context, k),
+          ],
+        ),
     ];
     return Scaffold(
       body: DecoratedBox(
@@ -753,7 +827,7 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
               Expanded(
                 child: books == null
                     ? const SizedBox.shrink()
-                    : books.isEmpty
+                    : books.isEmpty && _kept.isEmpty
                         ? EmptyState(
                             icon: Icons.auto_awesome_outlined,
                             title: 'No memories yet',

@@ -9,12 +9,14 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor, ReadingLayout, ingestString;
+import 'package:tomevoice_spike/book_card.dart' show relativeDay;
 import 'package:tomevoice_spike/journal.dart';
 import 'package:tomevoice_spike/notebook.dart' show savedWhen;
 import 'package:tomevoice_spike/journal_page.dart';
 import 'package:tomevoice_spike/journal_questions_screen.dart';
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/quote_export.dart';
+import 'package:tomevoice_spike/stats.dart' show dayStartsAtHour;
 
 void main() {
   late Directory tmp;
@@ -310,6 +312,21 @@ void main() {
       expect(savedWhen(DateTime(2025, 10, 12, 9), now: now), '12 Oct 2025');
       expect(savedWhen(DateTime(2026, 11, 24, 9), now: now), 'today', reason: 'a clock behind never says "-1 days ago"');
       expect(savedWhen(DateTime.utc(2026, 11, 22, 12), now: now), isNot('today'));
+    });
+
+    test("History's day begins at 4 am, as Stats' does", () {
+      // Read at 2:30 am, looked at that morning: the night before.
+      final morning = DateTime(2026, 11, 23, 9);
+      expect(relativeDay(DateTime(2026, 11, 23, 2, 30), now: morning, startHour: dayStartsAtHour), 'yesterday');
+      expect(relativeDay(DateTime(2026, 11, 23, 4, 10), now: morning, startHour: dayStartsAtHour), 'today');
+      // Still up at 3 am: what was read at 11 pm is still tonight.
+      final late = DateTime(2026, 11, 24, 3);
+      expect(relativeDay(DateTime(2026, 11, 23, 23), now: late, startHour: dayStartsAtHour), 'today');
+      expect(relativeDay(DateTime(2026, 11, 23, 2, 30), now: late, startHour: dayStartsAtHour), 'yesterday');
+      // Calendar days stay the default (journal, Saved).
+      expect(relativeDay(DateTime(2026, 11, 23, 2, 30), now: morning), 'today');
+      // An older one is named by its reading day.
+      expect(relativeDay(DateTime(2026, 11, 13, 1), now: morning, startHour: dayStartsAtHour), '12 Nov');
     });
   });
 

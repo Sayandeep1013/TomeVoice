@@ -592,18 +592,38 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
   }
 
   void _go(_Place place) {
-    Navigator.of(context).pop(); // The drawer.
+    final nav = Navigator.of(context);
+    nav.pop(); // The drawer.
+    // From a screen the drawer opened: back to the shell, at that place.
+    nav.popUntil((r) => r.isFirst);
     setState(() {
       _place = place;
       _visited.add(place);
     });
   }
 
-  void _push(Widget Function(LibraryStore store) page) {
+  /// A screen the drawer opens ([label] is its row): it has the drawer too,
+  /// and its top bar shows Menu, as the library's does (ScreenTopBar). One
+  /// picked from there takes its place, so Back always comes to the shell.
+  void _push(String label, Widget Function(LibraryStore store) page) {
     final store = _store;
     if (store == null) return;
-    Navigator.of(context).pop();
-    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page(store)));
+    final nav = Navigator.of(context);
+    nav.pop(); // The drawer.
+    nav.popUntil((r) => r.isFirst);
+    nav.push(MaterialPageRoute<void>(
+      builder: (_) => DrawerBackScaffold(
+        canPop: true,
+        onBack: () {},
+        drawer: Builder(builder: (ctx) => _drawer(ctx, current: label)),
+        body: Builder(
+          builder: (ctx) => DrawerPage(
+            openDrawer: () => Scaffold.of(ctx).openDrawer(),
+            child: page(store),
+          ),
+        ),
+      ),
+    ));
   }
 
   @override
@@ -649,7 +669,11 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
     ));
   }
 
-  Widget _drawer(BuildContext context) => Drawer(
+  /// The drawer: on the shell, its place is lit; on a screen it opened
+  /// ([current], that screen's row), that screen's row is.
+  Widget _drawer(BuildContext context, {String? current}) {
+    bool on(_Place p) => current == null && _place == p;
+    return Drawer(
         child: SafeArea(
           child: ListView(
             padding: const EdgeInsets.symmetric(vertical: Gap.l),
@@ -677,35 +701,36 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
               // Grouped by what each is for, a quiet heading over each group.
               _heading(context, 'Your books', first: true),
               _item(context, Icons.auto_stories_outlined, Icons.auto_stories_rounded, 'Library',
-                  selected: _place == _Place.library, onTap: () => _go(_Place.library)),
+                  selected: on(_Place.library), onTap: () => _go(_Place.library)),
               _item(context, Icons.folder_copy_outlined, Icons.folder_copy_rounded, 'Categories',
-                  onTap: () => _push((s) => CategoriesScreen(store: s))),
+                  selected: current == 'Categories', onTap: () => _push('Categories', (s) => CategoriesScreen(store: s))),
               _item(context, Icons.history_rounded, Icons.history_rounded, 'History',
-                  selected: _place == _Place.history, onTap: () => _go(_Place.history)),
+                  selected: on(_Place.history), onTap: () => _go(_Place.history)),
               _item(context, Icons.bookmarks_outlined, Icons.bookmarks_rounded, 'Saved',
-                  onTap: () => _push((s) => SavedScreen(store: s))),
+                  selected: current == 'Saved', onTap: () => _push('Saved', (s) => SavedScreen(store: s))),
               _heading(context, 'Find books'),
               _item(context, Icons.travel_explore_rounded, Icons.travel_explore_rounded, 'Browse',
-                    selected: _place == _Place.browse, onTap: () => _go(_Place.browse)),
+                  selected: on(_Place.browse), onTap: () => _go(_Place.browse)),
               _item(context, Icons.new_releases_outlined, Icons.new_releases_rounded, 'Updates',
-                    selected: _place == _Place.updates, onTap: () => _go(_Place.updates)),
+                  selected: on(_Place.updates), onTap: () => _go(_Place.updates)),
               _heading(context, 'Thoughts and AI'),
               // The reading journal: what was thought, a page a book.
               _item(context, Icons.edit_note_outlined, Icons.edit_note_rounded, 'Journal',
-                  onTap: () => _push((s) => JournalScreen(store: s))),
+                  selected: current == 'Journal', onTap: () => _push('Journal', (s) => JournalScreen(store: s))),
               // Talking with the AI. The books' memories and AI settings are
               // behind its buttons.
               _item(context, Icons.forum_outlined, Icons.forum_rounded, 'AI chat',
-                  onTap: () => _push((s) => AiChatScreen(store: s))),
+                  selected: current == 'AI chat', onTap: () => _push('AI chat', (s) => AiChatScreen(store: s))),
               _heading(context, 'App'),
               _item(context, Icons.settings_outlined, Icons.settings_rounded, 'Settings',
-                  onTap: () => _push((s) => SettingsScreen(store: s))),
+                  selected: current == 'Settings', onTap: () => _push('Settings', (s) => SettingsScreen(store: s))),
               _item(context, Icons.info_outline_rounded, Icons.info_rounded, 'About',
-                  onTap: () => _push((store) => AboutScreen(root: store.root))),
+                  selected: current == 'About', onTap: () => _push('About', (store) => AboutScreen(root: store.root))),
             ],
           ),
         ),
       );
+  }
 
   /// A group's heading, with a rule above it (but the first's).
   Widget _heading(BuildContext context, String label, {bool first = false}) => Padding(

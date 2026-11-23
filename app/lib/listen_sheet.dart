@@ -1013,6 +1013,11 @@ class _SpeedControlState extends State<SpeedControl> {
   @override
   Widget build(BuildContext context) {
     final preset = speedPresets.where((p) => (p - _speed).abs() < 0.001).firstOrNull;
+    // A speed between the common ones (1.35 after + and −) is a segment of
+    // its own, in its place and lit, until a common one is picked. Six fit
+    // a phone's width without their "×" (the value above has it).
+    final own = preset == null;
+    final speeds = [...speedPresets, if (own) _speed]..sort();
     return Column(
       children: [
         StepperControl(
@@ -1024,9 +1029,10 @@ class _SpeedControlState extends State<SpeedControl> {
         ),
         const SizedBox(height: Gap.m),
         ChoiceRow<double?>(
-          options: [for (final p in speedPresets) (p, '${trimSpeed(p)}×')],
-          value: preset,
-          minSegment: 54,
+          key: const Key('speed-row'),
+          options: [for (final p in speeds) (p, own ? trimSpeed(p) : '${trimSpeed(p)}×')],
+          value: own ? _speed : preset,
+          minSegment: own ? 44 : 54,
           onChanged: (v) => _setSpeed(v!),
         ),
         if (widget.bookId != null)

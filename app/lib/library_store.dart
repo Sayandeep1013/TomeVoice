@@ -137,6 +137,7 @@ class LibraryStore {
   Future<void> _change(List<LibraryEntry> Function(List<LibraryEntry> entries) change, {bool place = false}) async {
     await index();
     if (_held) return;
+    final before = place ? null : {for (final e in _known!.entries) e.id};
     var next = change([..._known!.entries]);
     // A book come or gone, moved or put in a series: the series titles
     // share are found again (a place saved changes none).
@@ -144,6 +145,114 @@ class LibraryStore {
     next.sort((a, b) => b.lastTouched.compareTo(a.lastTouched));
     _known = LibraryIndex(entries: next, categories: _categories, defaultCategory: _defaultCategory);
     await _write(next, place: place);
+    // A book added again whose memory was kept when it was removed: it
+    // has it back.
+    if (before != null) await _bringBackMemories([for (final e in next) if (!before.contains(e.id)) e.id]);
+  }
+
+  // ---- memories kept from removed books
+
+  /// Where the memories of removed books are kept, when the reader chose to
+  /// keep them: a folder each, named by the book's id, holding its memory
+  /// (memory.db, as in the book's own folder) and what the book was
+  /// (kept.json). A book's id is its file's content (a web novel's, its
+  /// site and address), so the same book added again has the same id, and
+  /// its memory is moved back into its folder.
+  Directory get _keptDir => Directory('${root.path}/kept-memories');
+
+  Directory _keptFor(String id) {
+    if (!isBookId(id)) throw ArgumentError.value(id, 'id', 'not a book id');
+    return Directory('${_keptDir.path}/$id');
+  }
+
+  /// A kept memory that came back to its book (its id), for the memory's
+  /// state to be read again.
+  final memoryBack = ValueNotifier<String?>(null);
+
+  /// The memories kept from removed books, the most recently kept first.
+  Future<List<KeptMemory>> keptMemories() async {
+    final dir = _keptDir;
+    if (!await dir.exists()) return const [];
+    final out = <KeptMemory>[];
+    await for (final d in dir.list()) {
+      if (d is! Directory) continue;
+      final id = d.uri.pathSegments.lastWhere((s) => s.isNotEmpty);
+      if (!isBookId(id) || !File('${d.path}/memory.db').existsSync()) continue;
+      Map<String, Object?> about = const {};
+      try {
+        about = (jsonDecode(await File('${d.path}/kept.json').readAsString()) as Map).cast<String, Object?>();
+      } on Object {
+        // Its note lost: still listed, under no name.
+      }
+      out.add(KeptMemory(
+        id: id,
+        title: about['title'] as String? ?? 'A removed book',
+        author: about['author'] as String? ?? '',
+        chapters: (about['chapters'] as num?)?.toInt() ?? 0,
+        keptAt: DateTime.tryParse(about['keptAt'] as String? ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
+      ));
+    }
+    out.sort((a, b) => b.keptAt.compareTo(a.keptAt));
+    return out;
+  }
+
+  /// A kept memory deleted, for good.
+  Future<void> deleteKeptMemory(String id) async {
+    final d = _keptFor(id);
+    if (await d.exists()) await d.delete(recursive: true);
+  }
+
+  /// Book [e]'s memory moved out of its folder before the folder goes, with
+  /// what it was ([chapters], how far it was built), so Book memories can
+  /// name it. A memory kept before for the same book gives way to this one.
+  Future<void> _keepMemory(LibraryEntry e, {required int chapters}) async {
+    final src = File('${bookDir(e.id)}/memory.db');
+    if (!await src.exists()) return;
+    final to = _keptFor(e.id);
+    if (await to.exists()) await to.delete(recursive: true);
+    await to.create(recursive: true);
+    try {
+      await src.rename('${to.path}/memory.db');
+    } on FileSystemException {
+      await src.copy('${to.path}/memory.db');
+      await src.delete();
+    }
+    await writeSafely(
+      File('${to.path}/kept.json'),
+      jsonEncode({
+        'title': e.title.replaceAll('\n', ' '),
+        'author': e.authors.join(', '),
+        'chapters': chapters,
+        'keptAt': DateTime.now().toIso8601String(),
+      }),
+    );
+  }
+
+  /// The kept memories of books [ids], just added, moved back into their
+  /// folders (unless a book has a memory of its own by now).
+  Future<void> _bringBackMemories(List<String> ids) async {
+    if (ids.isEmpty || !_keptDir.existsSync()) return;
+    for (final id in ids) {
+      if (!isBookId(id)) continue;
+      final kept = File('${_keptFor(id).path}/memory.db');
+      if (!kept.existsSync()) continue;
+      final dst = File('${bookDir(id)}/memory.db');
+      if (dst.existsSync()) continue;
+      try {
+        await dst.parent.create(recursive: true);
+        try {
+          await kept.rename(dst.path);
+        } on FileSystemException {
+          await kept.copy(dst.path);
+          await kept.delete();
+        }
+        await _keptFor(id).delete(recursive: true);
+        memoryBack.value = null;
+        memoryBack.value = id;
+      } on FileSystemException {
+        // Left where it is: Book memories still lists it.
+      }
+    }
   }
 
   // Categories as last read or written; every public method reads the index
@@ -1889,8 +1998,18 @@ class LibraryStore {
   /// shelf's: those go first, with the book. Kept, they showed in Saved and
   /// in exports with the shelf shut, as the book was no longer on it to hide
   /// them, and travelled in every backup.
-  Future<void> remove(String id) async {
+  ///
+  /// With [keepMemory] (never for a secret book, which takes everything with
+  /// it), its book memory is kept aside first, and comes back if the same
+  /// book is added again (see [keptMemories]); [memoryChapters] is how far
+  /// it was built, to say so. Its building must have stopped
+  /// (MemoryService.letGo).
+  Future<void> remove(String id, {bool keepMemory = false, int memoryChapters = 0}) async {
     await index(all: true);
+    if (keepMemory && !isSecret(id)) {
+      final e = _known!.entries.where((e) => e.id == id).firstOrNull;
+      if (e != null) await _keepMemory(e, chapters: memoryChapters);
+    }
     if (isSecret(id)) {
       await MarkStore.instance.removeBook(id);
       await JournalStore.instance.removeBook(id);
@@ -3645,4 +3764,24 @@ String _imageExt(String? contentType, String url) {
     if (u.endsWith(e)) return e;
   }
   return '.jpg';
+}
+
+/// A removed book's memory, kept for when the book is added again.
+class KeptMemory {
+  const KeptMemory({
+    required this.id,
+    required this.title,
+    required this.author,
+    required this.chapters,
+    required this.keptAt,
+  });
+
+  /// The book's id: the same book added again has it.
+  final String id;
+  final String title;
+  final String author;
+
+  /// How many chapters it was built from (0: not known).
+  final int chapters;
+  final DateTime keptAt;
 }

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'book_tint.dart';
 import 'library_store.dart';
 import 'prefs.dart';
+import 'stats.dart' show dayStartsAtHour;
 import 'theme.dart';
 import 'ui.dart';
 import 'voices.dart';
@@ -218,9 +219,12 @@ double speedOf(String id) => (ListeningPrefs.loaded ?? ListeningPrefs.memory).sp
 
 /// "today", "yesterday", "3 days ago", "12 Oct", "12 Oct 2025": calendar
 /// days on this phone's clock, with the year when it is not this year.
-String relativeDay(DateTime when, {DateTime? now}) {
-  final w = when.toLocal();
-  final today = (now ?? DateTime.now()).toLocal();
+/// With [startHour] a day begins then instead of at midnight: reading at
+/// 2:30 am, with 4 (Stats' day, dayStartsAtHour), was the night before.
+String relativeDay(DateTime when, {DateTime? now, int startHour = 0}) {
+  final shift = Duration(hours: startHour);
+  final w = when.toLocal().subtract(shift);
+  final today = (now ?? DateTime.now()).toLocal().subtract(shift);
   // UTC dates, so a clock change in between does not make a day 23 hours.
   final a = DateTime.utc(w.year, w.month, w.day);
   final b = DateTime.utc(today.year, today.month, today.day);
@@ -245,7 +249,7 @@ String progressLine(LibraryEntry e) {
     return 'Not started · added ${relativeDay(e.addedAt)}';
   }
   final pct = percentLabel(e.progress);
-  return useful ? '$pct · $where' : '$pct · read ${relativeDay(e.openedAt!)}';
+  return useful ? '$pct · $where' : '$pct · read ${relativeDay(e.openedAt!, startHour: dayStartsAtHour)}';
 }
 
 /// One book on the shelf: cover, title, author, what it is and how long it

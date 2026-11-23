@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'book_card.dart';
 import 'library_store.dart';
 import 'reader_screen.dart';
+import 'stats.dart' show dayStartsAtHour;
 import 'stats_screen.dart';
 import 'theme.dart';
 import 'ui.dart';
@@ -74,7 +75,7 @@ class _HistoryScreenState extends State<HistoryScreen> with WhenShown<HistoryScr
     // Group by day label, keeping the newest-first order.
     final groups = <String, List<LibraryEntry>>{};
     for (final e in _entries) {
-      final day = relativeDay(e.openedAt!);
+      final day = relativeDay(e.openedAt!, startHour: dayStartsAtHour);
       groups.putIfAbsent(day[0].toUpperCase() + day.substring(1), () => []).add(e);
     }
     return shownGate(DecoratedBox(
