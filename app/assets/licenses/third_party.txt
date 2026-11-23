@@ -115,3 +115,10 @@ be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. TomeVoice, under the
 GNU GPL 3.0, uses it as the LGPL allows; its source, and TomeVoice's, are
 public. The licence: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt
+
+------------------------------------------------------------------------
+Scene art (the Enchanted forest theme's backdrop)
+Asher B. Durand, "In the Woods" (1855), oil on canvas. The Metropolitan
+Museum of Art, Open Access: public domain (CC0 1.0).
+https://www.metmuseum.org/art/collection/search/10790
+Cropped and colour-graded for TomeVoice (tools/scene_art.py).

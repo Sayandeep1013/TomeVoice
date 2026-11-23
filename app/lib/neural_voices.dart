@@ -12,6 +12,7 @@ import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
 import 'keep_alive.dart';
 import 'store_build.dart';
+import 'voice_log.dart';
 
 /// Where the models come from: sherpa-onnx's release of speech models, in
 /// full precision. The half-size (fp16) ones crash the engine on phones:
@@ -1192,7 +1193,10 @@ class NeuralEngine {
         // reads every voice's pronunciation through ([readsThrough]).
         if (!voice.lexicon) _espeakHome ??= dir;
         final loadMs = r['loadMs'] as int? ?? 0;
-        if (loadMs > 0) debugPrint('Natural voice ${voice.id}: loaded in $loadMs ms');
+        if (loadMs > 0) {
+          debugPrint('Natural voice ${voice.id}: loaded in $loadMs ms');
+          VoiceLog.instance.note('voice loaded', {'voice': voice.id, 'ms': loadMs, if (urgent) 'waitedFor': true});
+        }
         if (!last) continue;
         final joins = r['joins'] as List? ?? const [];
         return {
@@ -1215,10 +1219,15 @@ class NeuralEngine {
     }
   }
 
+  /// Whether [voice]'s model is (as far as is known) loaded in the worker:
+  /// asked for since the worker last let go of it.
+  bool holds(NeuralVoice voice) => _worker != null && _asked.contains(voice.modelId);
+
   /// Load [voice] and say one word with it, unheard, so the first sentence
   /// read aloud does not wait for the model (a second or two, longer for
-  /// HD) or for the engine's slower first run. Done at low priority.
-  Future<void> warm(NeuralVoice voice) async {
+  /// HD) or for the engine's slower first run. Done at low priority unless
+  /// [urgent] (reading goes on and will want it in seconds).
+  Future<void> warm(NeuralVoice voice, {bool urgent = false}) async {
     if (!NeuralVoices.instance.readable(voice)) return;
     try {
       final r = await synthesise(
@@ -1226,7 +1235,7 @@ class NeuralEngine {
         text: voice.language == 'zh' ? _helloZh : 'Hi.',
         speed: 1,
         outDir: Directory.systemTemp.path,
-        urgent: false,
+        urgent: urgent,
       );
       await File(r['wavPath']! as String).delete();
     } on Object {

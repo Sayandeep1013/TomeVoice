@@ -773,6 +773,74 @@ void main() {
       expect(sent.every((b) => !b.toString().contains('Nobody asked')), isTrue);
     });
 
+    test('built as far as the reader asks; new chapters wait for them when not built by themselves', () async {
+      const plugin = PluginInfo(id: 'fake', name: 'Fake', site: 'https://fake.site/', lang: 'English', version: '1', url: 'u');
+      final id = (await store.addWebNovel(
+        plugin,
+        SourceNovel(path: 'n', name: 'Road', chapters: [
+          for (var i = 0; i < 10; i++) ChapterItem(name: 'Chapter ${i + 1}', path: 'c$i'),
+        ]),
+      ))
+          .id;
+      for (var i = 0; i < 8; i++) {
+        await store.saveChapterAt(id, 'c$i', '<p>Mira walked on, step $i. The road was long.</p>');
+      }
+      answer = (req, body) => reply(req, 200, chat(notesFor(body)));
+      final service = MemoryService.instance
+        ..reset()
+        ..attach(store, router: AiRouter(pause: Duration.zero));
+      addTearDown(service.reset);
+      final path = service.pathOf(id);
+
+      // Up to chapter 3: what it would take is counted to there.
+      expect((await service.estimate(id, to: 2)).chapters, 3);
+      expect((await service.estimate(id, all: true)).chapters, 8);
+      await service.setBuildTo(id, 2);
+      await service.build(id);
+      var s = service.stateOf(id).value;
+      expect((s.noted, s.leftUnder, s.buildTo, s.autoBuild), (3, 0, 2, true));
+      // Kept up by itself, it still stops where the reader asked.
+      final calls = sent.length;
+      await service.keepUp(id, force: true);
+      expect(service.stateOf(id).value.noted, 3);
+      expect(sent.length, calls);
+
+      // The next two: chapters 4 and 5, then it stops.
+      expect(await service.nthLeftOf(id, 2), 4);
+      expect(await service.nthLeftOf(id, 50), 7);
+      await service.setBuildTo(id, await service.nthLeftOf(id, 2));
+      expect(service.stateOf(id).value.leftUnder, 2);
+      await service.build(id);
+      s = service.stateOf(id).value;
+      expect((s.noted, s.lastNoted, s.leftUnder), (5, 4, 0));
+
+      // Not built by itself: a new chapter waits for the reader, though its
+      // words are indexed for Talk's search.
+      await service.setAutoBuild(id, false);
+      await service.setBuildTo(id, null);
+      final before = sent.length;
+      await store.saveChapterAt(id, 'c8', '<p>Mira reached the river.</p>');
+      await service.keepUp(id, force: true);
+      s = service.stateOf(id).value;
+      expect(sent.length, before);
+      expect((s.noted, s.indexed, s.leftUnder, s.autoBuild), (5, 9, 4, false));
+
+      // With the app closed, too: unless a build the reader asked for is not
+      // done yet.
+      addTearDown(() => Secrets.home = null);
+      Future<Map<String, Object?>> closed() =>
+          runBackgroundBuild(libraryRoot: tmp.path, internalRoot: tmp.path, router: AiRouter(pause: Duration.zero));
+      expect((await closed())['noted'], 0);
+      expect(sent.length, before);
+      final m = MemoryDb.open(path)..setMeta(askedMeta, '1');
+      m.close();
+      expect((await closed())['noted'], 4);
+      final after = MemoryDb.open(path);
+      addTearDown(after.close);
+      expect(after.meta(askedMeta), isNull);
+      expect(after.db.select('SELECT count(*) n FROM chapters WHERE noted = 1').first['n'], 9);
+    });
+
     test('with a key that can embed, each chapter noted also gets its vector', () async {
       final path = await book(3);
       await AiRing.instance.put(AiKey(

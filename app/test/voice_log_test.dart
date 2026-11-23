@@ -186,6 +186,21 @@ void main() {
     expect(s, contains('Android asked for memory back once'));
   });
 
+  test('a log with only a resume says so; a natural voice loaded again is counted', () {
+    final t = DateTime(2026, 11, 23, 22);
+    VoiceEvent e(String kind, Map<String, Object?> f) => VoiceEvent(t, kind, f);
+    final s = voiceLogSummary([
+      e('resume', {}),
+      e('voice loaded', {'voice': 'en_GB-jenny_dioco-medium', 'ms': 9000, 'waitedFor': true}),
+      e('voice loaded', {'voice': 'en_GB-jenny_dioco-medium', 'ms': 7000}),
+      e('made', {'chars': 103, 'script': 'Latin', 'ms': 20111, 'speechMs': 5250, 'speed': 1.0, 'voice': 'neural:x'}),
+    ]).join('\n');
+    expect(s, contains('Reading was only resumed with the log on'));
+    expect(s, contains('A natural voice was loaded 2 times, in 9.0 s as a rule (slowest 9.0 s)'));
+    expect(voiceLogSummary([e('made', {'chars': 10, 'ms': 1, 'speechMs': 2})]).first,
+        startsWith('No start was timed yet'));
+  });
+
   test('speeds are shown as the reader set them', () {
     final x = String.fromCharCode(0xD7);
     expect(speedLabel(1), '1$x');

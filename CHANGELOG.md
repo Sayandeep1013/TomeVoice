@@ -3,6 +3,90 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## 2.6.2 (2026-11-24)
+
+Choose how far a book's memory goes, a painted forest, and smoother natural voices on slower phones.
+
+**Updating** keeps your library, your keys, every book's memory and your journal.
+
+#### Memory: you choose how far
+- **Build sheet, How far:** **Every chapter on the phone**, **Up to chapter N**, or **The next N chapters**. What it would take (chapters, calls, tokens) is counted for the choice you make.
+- The memory **stops there** until you ask for more, by hand or by itself. Its page says **Built to chapter N, where you asked it to stop**, and the button reads **Build more chapters**. A paused build still says **Go on building** and goes on as it was.
+- **Build new chapters by itself**, on each book's memory and in the Build sheet: on, chapters you download or add later join the memory as they come (up to where you asked it to stop); off, it grows only when you tap Build. New chapters' words are still indexed for search either way.
+- **AI → Building memories → New chapters build by themselves** sets it for each memory you begin (on unless you turn it off).
+- **Fixed:** the Build sheet could stay at "Counting…" for a book whose memory was just begun.
+
+#### Natural voices on slower phones
+- After a pause of more than three minutes, a natural voice was let go to free memory, and loaded again only when the next sentence was due: on a slow phone that left ten seconds of silence after Play. It is now loaded again the moment you press Play, while what was made before the pause plays.
+- **Voice log** now also notes each time a natural voice is loaded and how long it took, the theme in use, and what each natural voice's speed test measured on your phone. A log with only a resume (no Play) says so.
+- If the log says a natural voice **cannot keep up** on your phone, choose a **Low** voice in Natural voices, or the phone's own voice: they ask far less of it.
+
+#### Scene themes
+- **Enchanted forest is a painting now:** Asher B. Durand's *In the Woods* (1855), from the Metropolitan Museum of Art's open access collection (public domain), darkened for reading over. The fireflies still drift over it.
+- Scene motion now draws about 30 pictures a second without waking the phone on every frame of the display (two to four times less work on a 60 to 120 Hz screen), and **stands still while battery saver is on**.
+
+#### Smaller and tidier
+- The app's own Android code is shrunk and tidied like the rest (about 100 KB less code to load).
+
+## 2.6.1 (2026-11-23)
+
+A voice log, for a voice that lags, stops or goes wrong on your phone.
+
+**Updating** keeps your library, your keys, every book's memory and your journal.
+
+#### Voice log (new)
+- **About → Voice log → Record a voice log.** Off unless you turn it on.
+- While it is on, TomeVoice notes how long the voice takes to start after Play, a skip or a change of speed; how long each sentence takes to make against how long it takes to say (a phone that cannot keep up at a speed shows here); every time the voice runs dry and for how long; the speech engine's errors; which voice read which alphabet (handy for other languages); and your phone's model, memory, 32 or 64 bits and battery saver.
+- It never notes a book's words or title: a sentence is only its length and alphabet.
+- **Share** sends it as a text file through any app (WhatsApp, Telegram, email). Nothing is sent by the app itself. **Clear** empties it.
+- It does not slow reading down: off, it does nothing; on, it writes a few lines every few seconds.
+- Use the 32-bit APK below on older phones.
+
+## 2.6.0 (2026-11-23)
+
+Scene themes you can live in, a smoother voice at any speed, "Who or what is…" for any name, and a long list of fixes from a full check of the app.
+
+**Updating** keeps your library, your keys, every book's memory and your journal.
+
+#### Scene themes (new)
+- **Dungeon, Enchanted forest and Starship**: not just colours but places, drawn behind every screen. Settings → Designer themes → Scenes.
+- **They move:** torches flicker and throw up embers, fireflies drift and glow while a leaf falls, neon runs along the starship's hull. Nothing moves if your phone is set to remove animations.
+- Each one has its own lettering for screen names, buttons and panels made of stone, wood or hull plate, covers in rusted iron, vines or neon, and its own drawer.
+- The page you read stays plain.
+- A scene keeps its own colours even with "Colours from book covers" on.
+- The TomeVoice logo inside the app now takes the colours of your theme.
+
+#### Read-aloud
+- **Quicker first words:** the first sentence is split where its first piece ends, so the voice starts sooner, for every voice.
+- **Fast speed taps:** tapping + or − several times restarts the voice only once, and the old voice keeps talking until the new one is ready.
+- A speed changed while paused is heard when you resume.
+- **Shorter pauses when faster** (Fine-tune, on by default): pauses between sentences shrink above 1×.
+- A speed between the presets (like 1.35 or 1.55) now shows, lit, in its place in the speed row.
+- Quicker skips and lighter home-screen widgets.
+
+#### Who or what is "…"?
+- Hold a name and ask: it now takes the whole name ("the Nine", "Six Finger", "Lord of Mysteries"), and you can widen or narrow it a word at a time.
+- The book's memory answers first. Otherwise you choose: **ask the AI** (no spoilers) or **search the web** (may spoil). It works without an AI key too.
+- It is not offered for a small word held by chance ("of", "the").
+
+#### PDFs shown as real pages
+- Going to a chapter, a bookmark or a search hit now opens its page.
+- The page you land on is drawn first; pages that failed are tried again; fast flicks scroll smoothly; zoom only when you zoom.
+
+#### Library, memory and backups
+- **Removing a book keeps its AI memory** unless you tick "Also delete its book memory". Kept memories are listed under Book memories → From removed books, come back if you add the book again, and travel in backups.
+- **Restore → Replace** keeps what the backup lacks (downloaded chapters of web novels in it, natural voices, OCR languages) and says so before you confirm.
+- Sync goes by the latest change.
+- History's "today" starts at 4 am, so a late-night session counts as the same day.
+- Every screen opened from the drawer has Menu at the top left.
+- An AI memory build keeps to one key unless you let the next one take over.
+
+#### Smaller fixes
+- Download next N takes the next N chapters not yet downloaded or queued; a paused download queue ends its pause properly.
+- Now Playing chips fit on small screens; the snack bar sits above the player; Listen and Read tabs stay pinned.
+- Journal previews show one answer per line; clearer wording in Settings about what is removed and what stays.
+- Faster around the app: lighter library and reader caches, quieter saves, faster search inside memories.
+
 ## 2.5.0 (2026-11-23)
 
 Series memory, a journal for every book, a calmer AI chat, a new graph, designer themes, and sources that offer whole books.

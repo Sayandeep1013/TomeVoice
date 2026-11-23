@@ -12,8 +12,14 @@
 -dontwarn javax.xml.**
 -dontwarn org.apache.commons.logging.**
 
-# Our platform code is referenced from the manifest and the method channel.
--keep class app.tomevoice.** { *; }
+# Our platform code (app.tomevoice.**) is not kept whole any more: nothing
+# in it is found by name. Its activities, services, receivers (the widgets,
+# which Widgets.kt also makes with their no-argument constructors) and
+# providers are kept by the rules AAPT writes from the manifest; its two
+# workers by the WorkManager rule below (WorkManager makes them by name);
+# everything else is reached from code (the method channels call into it,
+# it calls Flutter's and Android's APIs), so R8 shrinks and renames it like
+# any code. No JNI calls into it, and it uses no reflection.
 
 # WorkManager (the check for new chapters with the app closed,
 # NovelCheckWorker.kt) makes its Room database by reflection. R8 took that
@@ -39,6 +45,6 @@
 -dontwarn javax.sound.sampled.**
 -dontwarn java.beans.**
 
-# A missing optional class must not fail the release build; the code paths
-# that need them (JPEG2000 images, encrypted PDFs) are not used for text.
--ignorewarnings
+# -ignorewarnings is gone: every class a library names but the app does not
+# have is let pass above by name, so a new one fails the build instead of a
+# feature at run time.

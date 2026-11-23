@@ -111,6 +111,39 @@ AiKey? keptKey(String? setting, List<AiKey> order) {
   return order.where((k) => k.id == id).firstOrNull ?? order.first;
 }
 
+/// Where the reader asked a book's memory to stop: the last chapter (from
+/// 0) it is built to, by hand or by itself, until they ask for more. Not
+/// set: every chapter on the phone.
+const buildToMeta = 'build_to';
+
+/// Whether a book's memory builds its new chapters by itself ('on'), as
+/// they are downloaded or reached, or only when the reader taps Build
+/// ('off'). Not set (a memory from before): on.
+const autoBuildMeta = 'auto_build';
+
+/// A build the reader asked for, not yet done: the build with the app
+/// closed finishes it, even for a book whose new chapters are not built by
+/// themselves.
+const askedMeta = 'build_asked';
+
+/// The chapter (from 0) [n] chapters on from where the memory has got to:
+/// the [n]th in reading order with no notes yet (passed-over ones not
+/// counted). The last such chapter when fewer are left; null when none are.
+int? nthLeft(String path, int n) {
+  final m = MemoryDb.open(path);
+  try {
+    final rows = m.db.select(
+      'SELECT ch FROM chapters WHERE indexed = 1 AND noted = 0 AND note_error IS NULL ORDER BY ch LIMIT ?',
+      [math.max(1, n)],
+    );
+    return rows.isEmpty ? null : rows.last['ch'] as int;
+  } finally {
+    m.close();
+  }
+}
+
+Future<int?> nthLeftOff(String path, int n) => Isolate.run(() => nthLeft(path, n));
+
 /// Notes guessed at, a chapter: what the Builder writes back.
 const _outputPerChapter = 1800;
 
@@ -407,6 +440,8 @@ class MemoryBuilder {
     return limits ?? batchSizeFor(order.where((k) => _only?.contains(k.id) ?? true).firstOrNull ?? order.firstOrNull);
   }
 
+  /// What building the rest would take, up to [upTo] (a run reads [upTo]
+  /// once, as it starts, so setting it for a count leaves a run alone).
   Future<BuildEstimate> estimate() {
     final l = _limits;
     final p = path, u = upTo;

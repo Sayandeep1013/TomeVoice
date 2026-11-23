@@ -4,7 +4,7 @@ description: >-
   HTML, Markdown and text, and reads them aloud with the owned audio pipeline.
   See docs/README.md.
 publish_to: none
-version: 2.6.1+43
+version: 2.6.2+44
 
 environment:
   sdk: ^3.5.0
@@ -77,6 +77,9 @@ flutter:
     - assets/licenses/third_party.txt
     # The book a new install starts with (public domain; see starter.dart).
     - assets/starter/pride-and-prejudice.epub
+    # The scenes' painted backdrops (tools/scene_art.py; credits in
+    # assets/licenses/third_party.txt).
+    - assets/scenes/forest.webp
     # The natural voices on offer, by language, with each one's licence
     # (tools/voice_catalog.py makes it; see neural_voices.dart).
     - assets/voices/catalog.json

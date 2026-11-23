@@ -1,9 +1,14 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart' show rootBundle;
+
+import 'speech_service.dart';
 
 /// Scene themes: a place, not a colour. Each draws its own backdrop behind
 /// every screen (stone and torches, a forest, a starship's hull), frames the
@@ -92,8 +97,88 @@ ui.Image? sceneBackdrop(Scene scene, Size size, double dpr) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Painted backdrops: a scene drawn from a real painting (made by
+// tools/scene_art.py into assets/scenes), where it has one. Drawn by hand,
+// the forest's trees and vines looked stiff up close; a painting does not.
+
+/// Scenes with a painted backdrop.
+const _withArt = {Scene.forest};
+
+/// Whether painted backdrops are loaded (off under `flutter test`, which
+/// keeps to the drawn ones).
+@visibleForTesting
+bool sceneArt = !Platform.environment.containsKey('FLUTTER_TEST');
+
+final _art = <Scene, ui.Image>{};
+final _artLoading = <Scene>{};
+final _artFailed = <Scene>{};
+
+/// Bumped each time a scene's painting is ready: what shows it draws again.
+final sceneArtReady = ValueNotifier<int>(0);
+
+/// Whether [scene] has a painting not loaded yet.
+bool _artPending(Scene scene) =>
+    sceneArt && _withArt.contains(scene) && !_art.containsKey(scene) && !_artFailed.contains(scene);
+
+/// [scene]'s painting decoded once, at the screen's width (a phone never
+/// holds more of it than it shows), then kept.
+void _loadArt(Scene scene) {
+  if (!_artPending(scene) || !_artLoading.add(scene)) return;
+  unawaited(() async {
+    try {
+      final data = await rootBundle.load('assets/scenes/${scene.name}.webp');
+      final view = WidgetsBinding.instance.platformDispatcher.implicitView;
+      final width = view == null ? null : math.min(1440, view.physicalSize.shortestSide.round());
+      final codec = await ui.instantiateImageCodec(data.buffer.asUint8List(), targetWidth: width);
+      final frame = await codec.getNextFrame();
+      codec.dispose();
+      _art[scene] = frame.image;
+      // Backdrops drawn before it came are drawn again with it.
+      for (final k in [..._drawn.keys.where((k) => k.startsWith('${scene.name}:'))]) {
+        _drawn.remove(k)!.dispose();
+      }
+      sceneArtReady.value++;
+    } on Object {
+      // Drawn by hand, as before.
+      _artFailed.add(scene);
+      sceneArtReady.value++;
+    } finally {
+      _artLoading.remove(scene);
+    }
+  }());
+}
+
+/// [art] over the whole of [size], cut to fit, sunk into shadow at the top
+/// (the screen's title and buttons), at the foot (the player) and at the
+/// edges, so the lists' panels and the moving light read over it.
+void _paintArt(Canvas canvas, Size size, ui.Image art) {
+  final rect = Offset.zero & size;
+  final src = Size(art.width.toDouble(), art.height.toDouble());
+  final fitted = applyBoxFit(BoxFit.cover, src, size);
+  final from = Alignment.center.inscribe(fitted.source, Offset.zero & src);
+  canvas.drawRect(rect, _fill(const Color(0xFF050805)));
+  canvas.drawImageRect(art, from, rect, Paint()..filterQuality = FilterQuality.medium);
+  canvas.drawRect(
+    rect,
+    Paint()
+      ..shader = ui.Gradient.linear(Offset.zero, Offset(0, size.height), [
+        Colors.black.withValues(alpha: 0.62),
+        Colors.black.withValues(alpha: 0.18),
+        Colors.black.withValues(alpha: 0.22),
+        Colors.black.withValues(alpha: 0.66),
+      ], [
+        0,
+        0.24,
+        0.66,
+        1,
+      ]),
+  );
+  _vignette(canvas, size, edge: 0.72);
+}
+
 /// The ground of a screen in a scene: its backdrop, or [base] while there
-/// is none to show.
+/// is none to show (its painting still loading, the first time).
 class SceneGround extends Decoration {
   const SceneGround(this.scene, this.base);
 
@@ -101,7 +186,7 @@ class SceneGround extends Decoration {
   final Gradient base;
 
   @override
-  BoxPainter createBoxPainter([VoidCallback? onChanged]) => _SceneGroundPainter(this);
+  BoxPainter createBoxPainter([VoidCallback? onChanged]) => _SceneGroundPainter(this, onChanged);
 
   @override
   bool operator ==(Object other) => other is SceneGround && other.scene == scene && other.base == base;
@@ -111,9 +196,17 @@ class SceneGround extends Decoration {
 }
 
 class _SceneGroundPainter extends BoxPainter {
-  _SceneGroundPainter(this.d);
+  _SceneGroundPainter(this.d, VoidCallback? onChanged) : super(onChanged) {
+    if (onChanged != null) sceneArtReady.addListener(onChanged);
+  }
 
   final SceneGround d;
+
+  @override
+  void dispose() {
+    if (onChanged != null) sceneArtReady.removeListener(onChanged!);
+    super.dispose();
+  }
 
   @override
   void paint(Canvas canvas, Offset offset, ImageConfiguration configuration) {
@@ -121,6 +214,12 @@ class _SceneGroundPainter extends BoxPainter {
     if (size == null || size.isEmpty) return;
     final rect = offset & size;
     final dpr = configuration.devicePixelRatio ?? 1;
+    // Its painting on its way: the plain ground meanwhile, a moment, once.
+    if (_artPending(d.scene)) {
+      _loadArt(d.scene);
+      canvas.drawRect(rect, Paint()..shader = d.base.createShader(rect));
+      return;
+    }
     final image = sceneImages ? sceneBackdrop(d.scene, _canvasFor(size), dpr) : null;
     if (image == null) {
       canvas.save();
@@ -139,12 +238,23 @@ class _SceneGroundPainter extends BoxPainter {
   }
 }
 
-/// [scene]'s backdrop on [canvas], at [size].
-void paintBackdrop(Canvas canvas, Size size, Scene scene) => switch (scene) {
-      Scene.dungeon => _Dungeon(canvas, size).paint(),
-      Scene.forest => _Forest(canvas, size).paint(),
-      Scene.starship => _Starship(canvas, size).paint(),
-    };
+/// [scene]'s backdrop on [canvas], at [size]: its painting, where it has
+/// one and it has loaded; else drawn by hand.
+void paintBackdrop(Canvas canvas, Size size, Scene scene) {
+  final art = _art[scene];
+  if (art != null) {
+    _paintArt(canvas, size, art);
+    return;
+  }
+  switch (scene) {
+    case Scene.dungeon:
+      _Dungeon(canvas, size).paint();
+    case Scene.forest:
+      _Forest(canvas, size).paint();
+    case Scene.starship:
+      _Starship(canvas, size).paint();
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Shared strokes.
@@ -1408,29 +1518,107 @@ class SceneLife extends StatefulWidget {
 @visibleForTesting
 bool sceneLifeMoves = !Platform.environment.containsKey('FLUTTER_TEST');
 
-class _SceneLifeState extends State<SceneLife> with SingleTickerProviderStateMixin {
-  final _time = ValueNotifier<double>(0);
-  late final _ticker = createTicker(_tick);
-  Duration _last = Duration.zero;
+/// Android's battery saver is on: the scenes' life stands still, as when
+/// the phone removes animations. Read as the app opens and each time it
+/// comes back to the front.
+final sceneBatterySaver = ValueNotifier<bool>(false);
+DateTime? _saverAskedAt;
 
-  void _tick(Duration t) {
-    // About 30 a second is smooth for flames and fireflies, and half the work.
-    if (t - _last < const Duration(milliseconds: 33)) return;
-    _last = t;
-    _time.value = t.inMicroseconds / 1e6;
+Future<void> _askSaver() async {
+  if (!Platform.isAndroid) return;
+  final now = DateTime.now();
+  final was = _saverAskedAt;
+  if (was != null && now.difference(was) < const Duration(seconds: 5)) return;
+  _saverAskedAt = now;
+  final d = await const SpeechService().phoneDetails();
+  sceneBatterySaver.value = d['powerSave'] == true;
+}
+
+class _SceneLifeState extends State<SceneLife> with WidgetsBindingObserver {
+  final _time = ValueNotifier<double>(0);
+  final _clock = Stopwatch();
+  Timer? _timer;
+  int? _frame;
+
+  /// False while another screen covers this one, or it is put away
+  /// (TickerMode off).
+  bool _current = true;
+  bool _enabled = true;
+
+  /// The phone removes animations (read with the screen's other settings).
+  bool _noMotion = false;
+
+  /// How long to wait after a picture before asking for the next frame:
+  /// drawn on the first frame after 26 ms, about 30 a second at 60, 90 and
+  /// 120 Hz alike, smooth for flames and fireflies. A ticker woke every
+  /// frame of the display (twice or four times the pictures drawn) for as
+  /// long as a scene was on screen, reading aloud on a slow phone too.
+  static const _rest = Duration(milliseconds: 26);
+
+  bool get _visible {
+    final app = WidgetsBinding.instance.lifecycleState;
+    final still = !sceneLifeMoves || _noMotion || sceneBatterySaver.value;
+    return !still && _current && _enabled && (app == null || app == AppLifecycleState.resumed);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    sceneBatterySaver.addListener(_sync);
+    if (sceneLifeMoves) unawaited(_askSaver());
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final still = !sceneLifeMoves || (MediaQuery.maybeDisableAnimationsOf(context) ?? false);
-    if (still && _ticker.isActive) _ticker.stop();
-    if (!still && !_ticker.isActive) _ticker.start();
+    _current = ModalRoute.isCurrentOf(context) ?? true;
+    _enabled = TickerMode.valuesOf(context).enabled;
+    _noMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    _sync();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && sceneLifeMoves) unawaited(_askSaver());
+    _sync();
+  }
+
+  /// Moving only while it can be seen and may move; asleep otherwise (no
+  /// timer left running behind another screen or with the app away).
+  void _sync() {
+    if (!mounted) return;
+    if (!_visible) {
+      _timer?.cancel();
+      _timer = null;
+      if (_frame != null) SchedulerBinding.instance.cancelFrameCallbackWithId(_frame!);
+      _frame = null;
+      _clock.stop();
+    } else if (_timer == null && _frame == null) {
+      _clock.start();
+      _next();
+    }
+  }
+
+  void _next() {
+    _timer = Timer(_rest, () {
+      _timer = null;
+      if (!mounted || !_visible) return;
+      _frame = SchedulerBinding.instance.scheduleFrameCallback((_) {
+        _frame = null;
+        if (!mounted || !_visible) return;
+        _time.value = _clock.elapsedMicroseconds / 1e6;
+        _next();
+      });
+    });
   }
 
   @override
   void dispose() {
-    _ticker.dispose();
+    WidgetsBinding.instance.removeObserver(this);
+    sceneBatterySaver.removeListener(_sync);
+    _timer?.cancel();
+    if (_frame != null) SchedulerBinding.instance.cancelFrameCallbackWithId(_frame!);
     _time.dispose();
     super.dispose();
   }
@@ -1915,7 +2103,16 @@ class ScenePreview extends StatelessWidget {
   final Scene scene;
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
+  Widget build(BuildContext context) {
+    // Its painting, where it has one: drawn again once it has loaded.
+    _loadArt(scene);
+    return ValueListenableBuilder<int>(
+      valueListenable: sceneArtReady,
+      builder: (context, ready, child) => _small(context),
+    );
+  }
+
+  Widget _small(BuildContext context) => LayoutBuilder(
         builder: (context, box) {
           final dpr = MediaQuery.devicePixelRatioOf(context);
           // The whole phone screen's art, drawn small.
@@ -1932,12 +2129,13 @@ class ScenePreview extends StatelessWidget {
 }
 
 class _PreviewPainter extends CustomPainter {
-  const _PreviewPainter(this.scene);
+  _PreviewPainter(this.scene) : super(repaint: sceneArtReady);
 
   final Scene scene;
 
   @override
   void paint(Canvas canvas, Size size) {
+    _loadArt(scene);
     canvas.save();
     canvas.clipRect(Offset.zero & size);
     final k = size.width / 412;

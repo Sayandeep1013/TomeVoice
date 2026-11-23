@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../library_store.dart' show LibraryEntry, LibraryStore;
+import '../../prefs.dart' show ListeningPrefs;
 import '../../theme.dart';
 import '../../ui.dart';
 import '../ai_consent.dart';
@@ -16,7 +19,10 @@ import 'series_store.dart';
 /// Starting a book's memory, from its page or from the Memory screen's New
 /// memory: the AI's consent; a web novel's missing chapters; whether it
 /// carries on from another book (a series, its earlier books built first);
-/// what it will take; then building, in order.
+/// what it will take, how far it goes and whether new chapters join it by
+/// themselves; then building, in order. A memory built before: Go on
+/// building (chapters left before where it stops) goes on as it was;
+/// Build more chapters asks how far.
 Future<void> startMemory(BuildContext context, String bookId, {MemoryService? service}) async {
   final memory = service ?? MemoryService.instance;
   if (!await ensureAiConsent(context) || !context.mounted) return;
@@ -37,14 +43,21 @@ Future<void> startMemory(BuildContext context, String bookId, {MemoryService? se
   }
   if (!context.mounted) return;
   final keys = AiRing.instance.forJob(AiJob.builder);
-  // Begun before: the reader agreed to it then; it goes on. With more than
-  // one key, which of them may build it is asked again (and what is left).
-  if (memory.stateOf(bookId).value.noted > 0) {
-    if (keys.length > 1) {
-      final setting = await _confirmBuild(context, memory, queue: [bookId], title: 'Go on building', keys: keys);
-      if (setting == null) return;
-      await memory.setBuildKeys(bookId, setting);
+  // Begun before: the reader agreed to it then. Chapters left before where
+  // it stops: it goes on (with more than one key, which of them may build
+  // it is asked again). None: how far to go now is asked.
+  final was = memory.stateOf(bookId).value;
+  if (was.noted > 0) {
+    final goingOn = was.leftUnder > 0;
+    if (goingOn && keys.length <= 1) {
+      unawaited(memory.buildInOrder([bookId]));
+      return;
     }
+    final choice = await _confirmBuild(context, memory,
+        queue: [bookId], title: goingOn ? 'Go on building' : 'Build more chapters', keys: keys);
+    if (choice == null) return;
+    await _apply(memory, bookId, choice);
+    await memory.setBuildKeys(bookId, choice.keys);
     unawaited(memory.buildInOrder([bookId]));
     return;
   }
@@ -80,7 +93,7 @@ Future<void> startMemory(BuildContext context, String bookId, {MemoryService? se
   ];
   final queue = [...first, bookId];
   final titles = {for (final e in all) e.id: e.title};
-  final setting = await _confirmBuild(
+  final choice = await _confirmBuild(
     context,
     memory,
     queue: queue,
@@ -91,39 +104,90 @@ Future<void> startMemory(BuildContext context, String bookId, {MemoryService? se
         : 'First ${_listed([for (final b in first) titles[b] ?? 'an earlier book'])}, which have no memory '
             'yet, then ${titles[bookId] ?? 'this book'}: each knows the people of the books before it.',
   );
-  if (setting == null) return;
+  if (choice == null) return;
   for (final id in queue) {
-    await memory.setBuildKeys(id, setting);
+    await memory.setBuildKeys(id, choice.keys);
   }
+  await _apply(memory, bookId, choice);
   unawaited(memory.buildInOrder(queue));
 }
 
-/// The Build sheet: what building [queue] would take, and, with more than
-/// one key, which keys may do it. The reader's choice ([anyKey], or
-/// `only:<key id>`), or null when the sheet was closed.
-Future<String?> _confirmBuild(
+/// What the Build sheet answered: which keys may build it ([anyKey], or
+/// `only:<key id>`), how far ([far], with the number typed), and whether
+/// its new chapters join it by themselves.
+class BuildChoice {
+  const BuildChoice({required this.keys, required this.far, required this.number, required this.auto});
+
+  final String keys;
+  final BuildFar far;
+
+  /// The chapter to stop at (1-based) for [BuildFar.upTo]; how many
+  /// chapters for [BuildFar.next].
+  final int number;
+  final bool auto;
+}
+
+/// How far a build goes: every chapter on the phone, up to a chapter, or
+/// the next so many.
+enum BuildFar { all, upTo, next }
+
+/// Where [choice] stops (0-based; null: every chapter), kept with the
+/// book's memory, with whether its new chapters join it by themselves.
+Future<void> _apply(MemoryService memory, String bookId, BuildChoice choice) async {
+  final to = await stopFor(memory, bookId, choice.far, choice.number);
+  await memory.setBuildTo(bookId, to);
+  await memory.setAutoBuild(bookId, choice.auto);
+}
+
+/// The last chapter (0-based) a build that goes [far] stops at; null for
+/// every chapter. The next [number] when none are left: where it is.
+Future<int?> stopFor(MemoryService memory, String bookId, BuildFar far, int number) async => switch (far) {
+      BuildFar.all => null,
+      BuildFar.upTo => math.max(0, number - 1),
+      BuildFar.next => await memory.nthLeftOf(bookId, number) ?? memory.stateOf(bookId).value.buildTo,
+    };
+
+/// The Build sheet: what building [queue] would take, how far the book
+/// asked for goes (its series' earlier books are built whole), whether its
+/// new chapters join it by themselves, and, with more than one key, which
+/// keys may do it. Null when the sheet was closed.
+Future<BuildChoice?> _confirmBuild(
   BuildContext context,
   MemoryService memory, {
   required List<String> queue,
   required String title,
   required List<AiKey> keys,
   String? before,
-}) {
-  // The sheet at once; what it would take, counted meanwhile.
-  final counting = () async {
+}) async {
+  final bookId = queue.last;
+  final s = memory.stateOf(bookId).value;
+  final here = await memory.hereOf(bookId);
+  if (!context.mounted) return null;
+  // The earlier books', counted once; this book's, for each way of how far.
+  final earlier = () async {
     var total = const BuildEstimate(chapters: 0, inputTokens: 0, outputTokens: 0, calls: 0);
-    for (final id in queue) {
-      final e = await memory.estimate(id);
-      total = BuildEstimate(
-        chapters: total.chapters + e.chapters,
-        inputTokens: total.inputTokens + e.inputTokens,
-        outputTokens: total.outputTokens + e.outputTokens,
-        calls: total.calls + e.calls,
-      );
+    for (final id in queue.take(queue.length - 1)) {
+      total = _plus(total, await memory.estimate(id));
     }
     return total;
   }();
-  return showModalBottomSheet<String>(
+  Future<BuildEstimate> counting(BuildFar far, int number) async {
+    final prior = await earlier;
+    final to = await stopFor(memory, bookId, far, number);
+    final mine = far == BuildFar.all ? await memory.estimate(bookId, all: true) : await memory.estimate(bookId, to: to);
+    return _plus(prior, mine);
+  }
+
+  // How far, as it was: every chapter; where it stops while chapters are
+  // left before it; the next ten once it is there.
+  final far = s.buildTo == null
+      ? BuildFar.all
+      : s.leftUnder > 0
+          ? BuildFar.upTo
+          : BuildFar.next;
+  final last = s.lastNoted ?? -1;
+  final upTo = s.buildTo != null && s.leftUnder > 0 ? s.buildTo! + 1 : (here > last ? here + 1 : last + 11);
+  return showModalBottomSheet<BuildChoice>(
     context: context,
     isScrollControlled: true,
     sheetAnimationStyle: sheetMotion(context),
@@ -133,27 +197,54 @@ Future<String?> _confirmBuild(
       before: before,
       counting: counting,
       keys: keys,
-      setting: memory.stateOf(queue.last).value.buildKeys,
+      setting: s.buildKeys,
+      far: far,
+      upTo: upTo,
+      auto: s.noted == 0 && !s.begun ? (ListeningPrefs.loaded?.aiAutoNew ?? true) : s.autoBuild,
+      firstLeft: () => memory.nthLeftOf(bookId, 1),
+      stopAt: (n) => stopFor(memory, bookId, BuildFar.next, n),
     ),
   );
 }
+
+BuildEstimate _plus(BuildEstimate a, BuildEstimate b) => BuildEstimate(
+      chapters: a.chapters + b.chapters,
+      inputTokens: a.inputTokens + b.inputTokens,
+      outputTokens: a.outputTokens + b.outputTokens,
+      calls: a.calls + b.calls,
+    );
 
 class _BuildSheet extends StatefulWidget {
   const _BuildSheet({
     required this.title,
     required this.counting,
     required this.keys,
+    required this.far,
+    required this.upTo,
+    required this.auto,
+    required this.firstLeft,
+    required this.stopAt,
     this.before,
     this.setting,
   });
 
   final String title;
   final String? before;
-  final Future<BuildEstimate> counting;
+  final Future<BuildEstimate> Function(BuildFar far, int number) counting;
   final List<AiKey> keys;
 
   /// How the book was last built ([buildKeysMeta]).
   final String? setting;
+
+  /// How far, as the sheet opens, and the chapter offered for Up to.
+  final BuildFar far;
+  final int upTo;
+  final bool auto;
+
+  /// The first chapter (0-based) not in the memory yet, and where the next
+  /// so many end.
+  final Future<int?> Function() firstLeft;
+  final Future<int?> Function(int n) stopAt;
 
   @override
   State<_BuildSheet> createState() => _BuildSheetState();
@@ -166,6 +257,87 @@ class _BuildSheetState extends State<_BuildSheet> {
   /// The one key it keeps to: the key it kept to before, or the first.
   late final AiKey? _first = keptKey(widget.setting == anyKey ? null : widget.setting, widget.keys);
 
+  late BuildFar _far = widget.far;
+  late final _upTo = TextEditingController(text: '${widget.upTo}');
+  final _next = TextEditingController(text: '10');
+  late bool _auto = widget.auto;
+
+  /// What it would take, for the way chosen; counted again a moment after
+  /// a number is typed.
+  late Future<BuildEstimate> _count = widget.counting(_far, _number);
+  Timer? _typed;
+
+  /// Every chapter's count, for its line; the first chapter left, and where
+  /// the next so many end, for theirs.
+  late final Future<BuildEstimate> _allCount = widget.far == BuildFar.all ? _count : widget.counting(BuildFar.all, 0);
+  late final Future<int?> _firstLeft = widget.firstLeft();
+  Future<int?>? _nextEnd;
+
+  int get _number {
+    final c = _far == BuildFar.next ? _next : _upTo;
+    return math.max(1, int.tryParse(c.text.trim()) ?? 1);
+  }
+
+  /// The way chosen, or the number typed, changed: counted again.
+  void _recount({bool soon = false}) {
+    _typed?.cancel();
+    void go() {
+      if (!mounted) return;
+      setState(() {
+        _count = widget.counting(_far, _number);
+        if (_far == BuildFar.next) _nextEnd = widget.stopAt(_number);
+      });
+    }
+
+    if (soon) {
+      _typed = Timer(const Duration(milliseconds: 400), go);
+    } else {
+      go();
+    }
+  }
+
+  void _pick(BuildFar far) {
+    if (_far == far) return;
+    _far = far;
+    _recount();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    if (_far == BuildFar.next) _nextEnd = widget.stopAt(_number);
+  }
+
+  @override
+  void dispose() {
+    _typed?.cancel();
+    _upTo.dispose();
+    _next.dispose();
+    super.dispose();
+  }
+
+  /// A number typed in a way's line: choosing that way.
+  Widget _field(TextEditingController c, BuildFar far, String label) => SizedBox(
+        width: 76,
+        child: TextField(
+          controller: c,
+          keyboardType: TextInputType.number,
+          textAlign: TextAlign.center,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(5)],
+          decoration: InputDecoration(
+            isDense: true,
+            contentPadding: const EdgeInsets.symmetric(horizontal: Gap.s, vertical: Gap.s),
+            border: const OutlineInputBorder(),
+            semanticCounterText: label,
+          ),
+          onTap: () => _pick(far),
+          onChanged: (_) {
+            setState(() => _far = far);
+            _recount(soon: true);
+          },
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
     final keys = widget.keys;
@@ -174,7 +346,7 @@ class _BuildSheetState extends State<_BuildSheet> {
     final soft = Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkSoftOn(context)).copyWith(height: 1.4);
     return SafeArea(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(Gap.l, 0, Gap.l, Gap.l),
+        padding: EdgeInsets.fromLTRB(Gap.l, 0, Gap.l, Gap.l + MediaQuery.viewInsetsOf(context).bottom),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -187,22 +359,83 @@ class _BuildSheetState extends State<_BuildSheet> {
               ),
               const SizedBox(height: Gap.s),
             ],
+            const Eyebrow('How far'),
+            const SizedBox(height: Gap.s),
             FutureBuilder<BuildEstimate>(
-              future: widget.counting,
+              future: _allCount,
+              builder: (context, snap) => _KeyChoice(
+                chosen: _far == BuildFar.all,
+                title: 'Every chapter on the phone',
+                body: snap.hasError
+                    ? 'Could not be counted.'
+                    : snap.data == null
+                        ? 'Counting…'
+                        : snap.data!.chapters == 0
+                            ? 'Every chapter on the phone is in it already.'
+                            : '${snap.data!.chapters} ${snap.data!.chapters == 1 ? 'chapter is' : 'chapters are'} '
+                                'not in it yet.',
+                onTap: () => _pick(BuildFar.all),
+              ),
+            ),
+            const SizedBox(height: Gap.s),
+            _KeyChoice(
+              chosen: _far == BuildFar.upTo,
+              title: 'Up to chapter',
+              body: 'It stops there until you ask for more.',
+              trailing: _field(_upTo, BuildFar.upTo, 'Chapter to stop at'),
+              onTap: () => _pick(BuildFar.upTo),
+            ),
+            const SizedBox(height: Gap.s),
+            FutureBuilder<List<int?>>(
+              future: Future.wait([_firstLeft, _nextEnd ?? Future.value(null)]),
+              builder: (context, snap) {
+                final from = snap.data?[0], to = snap.data?[1];
+                return _KeyChoice(
+                  chosen: _far == BuildFar.next,
+                  title: 'The next',
+                  titleAfter: 'chapters',
+                  body: from == null
+                      ? 'Each chapter after where it has got to, in order.'
+                      : to == null || _far != BuildFar.next
+                          ? 'From chapter ${from + 1}, in order.'
+                          : 'Chapters ${from + 1} to ${to + 1}, then it stops.',
+                  trailing: _field(_next, BuildFar.next, 'How many chapters'),
+                  onTap: () => _pick(BuildFar.next),
+                );
+              },
+            ),
+            const SizedBox(height: Gap.m),
+            FutureBuilder<BuildEstimate>(
+              future: _count,
               builder: (context, snap) {
                 final est = snap.data;
                 return Text(
-                  est == null
-                      ? 'Counting what it would take…'
-                      : est.chapters == 0
-                          ? 'Every chapter on the phone is read already.'
-                          : '${est.chapters} ${est.chapters == 1 ? 'chapter' : 'chapters'} to read, in about '
-                              '${est.calls} ${est.calls == 1 ? 'call' : 'calls'}: some ${tokenCount(est.tokens)} '
-                              'tokens. It goes on with TomeVoice behind other apps or the screen off.'
-                              '${keys.length == 1 ? ' When ${keys.single.label} has used its quota for now, it waits for it.' : ''}',
+                  snap.hasError
+                      ? 'What it would take could not be counted (${snap.error}). Building still works.'
+                      : est == null
+                          ? 'Counting what it would take…'
+                          : est.chapters == 0
+                              ? (_far == BuildFar.all
+                                  ? 'Every chapter on the phone is read already.'
+                                  : 'Every chapter up to there is read already.')
+                              : '${est.chapters} ${est.chapters == 1 ? 'chapter' : 'chapters'} to read, in about '
+                                  '${est.calls} ${est.calls == 1 ? 'call' : 'calls'}: some ${tokenCount(est.tokens)} '
+                                  'tokens. It goes on with TomeVoice behind other apps or the screen off.'
+                                  '${keys.length == 1 ? ' When ${keys.single.label} has used its quota for now, it waits for it.' : ''}',
                   style: soft,
                 );
               },
+            ),
+            const SizedBox(height: Gap.s),
+            SwitchRow(
+              padding: const EdgeInsets.symmetric(vertical: Gap.s),
+              title: 'Build new chapters by itself',
+              subtitle: _auto
+                  ? 'Chapters you download or add later join the memory as they come'
+                      '${_far == BuildFar.all ? '' : ', up to where it stops'}.'
+                  : 'Only when you tap Build: you choose when, and how far.',
+              value: _auto,
+              onChanged: (v) => setState(() => _auto = v),
             ),
             if (keys.length > 1 && first != null) ...[
               const SizedBox(height: Gap.m),
@@ -225,7 +458,12 @@ class _BuildSheetState extends State<_BuildSheet> {
             ],
             const SizedBox(height: Gap.l),
             FilledButton(
-              onPressed: () => Navigator.of(context).pop(_any ? anyKey : 'only:${first?.id ?? ''}'),
+              onPressed: () => Navigator.of(context).pop(BuildChoice(
+                keys: _any ? anyKey : 'only:${first?.id ?? ''}',
+                far: _far,
+                number: _number,
+                auto: _auto,
+              )),
               child: const Text('Build'),
             ),
           ],
@@ -235,53 +473,81 @@ class _BuildSheetState extends State<_BuildSheet> {
   }
 }
 
-/// One of the Build sheet's two ways with the keys: what it is called, and
-/// in a line what it means.
+/// One of the Build sheet's choices (how far; which keys): what it is
+/// called, with a number to type when it takes one, and in a line what it
+/// means.
 class _KeyChoice extends StatelessWidget {
-  const _KeyChoice({required this.chosen, required this.title, required this.body, required this.onTap});
+  const _KeyChoice({
+    required this.chosen,
+    required this.title,
+    required this.body,
+    required this.onTap,
+    this.trailing,
+    this.titleAfter,
+  });
 
   final bool chosen;
   final String title;
   final String body;
   final VoidCallback onTap;
 
+  /// A number field after the title, and words after it ("The next [10]
+  /// chapters").
+  final Widget? trailing;
+  final String? titleAfter;
+
   @override
-  Widget build(BuildContext context) => Semantics(
-        selected: chosen,
-        button: true,
-        child: Material(
-          color: chosen ? Skin.accentOf(context).withValues(alpha: 0.16) : Skin.capsuleOn(context),
+  Widget build(BuildContext context) {
+    final titleStyle = Skin.ui(size: 15, weight: FontWeight.w600, color: Skin.inkOn(context));
+    return Semantics(
+      selected: chosen,
+      button: true,
+      child: Material(
+        color: chosen ? Skin.accentOf(context).withValues(alpha: 0.16) : Skin.capsuleOn(context),
+        borderRadius: BorderRadius.circular(Radii.row + 4),
+        child: InkWell(
           borderRadius: BorderRadius.circular(Radii.row + 4),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(Radii.row + 4),
-            onTap: onTap,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(Gap.m, Gap.m, Gap.m, Gap.m),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    chosen ? Icons.check_circle_rounded : Icons.circle_outlined,
-                    size: 22,
-                    color: chosen ? Skin.accentInkOf(context) : Skin.inkSoftOn(context),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(Gap.m, Gap.m, Gap.m, Gap.m),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  chosen ? Icons.check_circle_rounded : Icons.circle_outlined,
+                  size: 22,
+                  color: chosen ? Skin.accentInkOf(context) : Skin.inkSoftOn(context),
+                ),
+                const SizedBox(width: Gap.m),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (trailing == null)
+                        Text(title, style: titleStyle)
+                      else
+                        Wrap(
+                          spacing: Gap.s,
+                          runSpacing: Gap.xs,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            Text(title, style: titleStyle),
+                            trailing!,
+                            if (titleAfter != null) Text(titleAfter!, style: titleStyle),
+                          ],
+                        ),
+                      const SizedBox(height: 2),
+                      Text(body, style: Skin.meta(context)),
+                    ],
                   ),
-                  const SizedBox(width: Gap.m),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(title, style: Skin.ui(size: 15, weight: FontWeight.w600, color: Skin.inkOn(context))),
-                        const SizedBox(height: 2),
-                        Text(body, style: Skin.meta(context)),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
-      );
+      ),
+    );
+  }
 }
 
 /// A book's Memory menu > Add to a series…: the book just before it,

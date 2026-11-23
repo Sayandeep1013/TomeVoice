@@ -261,6 +261,17 @@ by vectors for what has none yet for that model: chapter summaries first, then e
 importance 2 and up, 64 at a time. They are packed as one signed byte a value with a
 scale, and compared by cosine at question time.
 
+**How far, by hand.** The Build sheet asks how far: **Every chapter on the phone**,
+**Up to chapter N** (offered at the reader's place, or ten past the last noted), or
+**The next N chapters** (worked out as the Nth chapter with no notes yet, in reading
+order). The answer is kept with the memory (`meta.build_to`, 0-based; unset for every
+chapter), and every build of that book stops there, by hand, kept up as it is read or
+with the app closed, until the reader asks for more. The memory page then says
+**Built to chapter N, where you asked it to stop**, and its button reads **Build more
+chapters**, which opens the sheet again; **Go on building** stays for a build paused or
+waiting for a key with chapters left before where it stops (it goes on without the
+sheet when there is one key). What it would take is counted for the choice made.
+
 **One book at a time.** `MemoryService` builds one book at a time, so keys' quotas go to
 one book until it is done; starting another pauses the first. **Pause** stops after the
 batch in flight and holds until the reader taps Build or Go on building again: neither
@@ -274,7 +285,17 @@ reaches another chapter, and, for a web novel, about twenty seconds after its ch
 are saved (while a download goes on, what has come joins every twenty seconds or so).
 New chapters are indexed and noted. Not a book never built (no quota is spent on it
 unasked), not a paused one, and not while another book's memory is being built; and,
-except after a download, at most every minute and a half.
+except after a download, at most every minute and a half. It goes no further than
+where the reader asked it to stop.
+
+**Or only when tapped.** Each memory has **Build new chapters by itself** (on its page
+and in the Build sheet; `meta.auto_build`, `on` or `off`, unset meaning on for a memory
+from before). Off, keeping up only indexes the new chapters' words (free, on the phone,
+so Talk's search finds them) and the memory grows only when the reader taps Build. New
+memories take **New chapters build by themselves** from AI → Building memories (on by
+default). A build the reader asked for is marked (`meta.build_asked`) until it is done,
+so the build with the app closed finishes it even for a memory that is not built by
+itself.
 
 **With TomeVoice closed.** `MemoryBuildWorker` (Kotlin) is a periodic WorkManager job,
 every 60 minutes, scheduled only while the AI has a key and **Also with TomeVoice
@@ -287,8 +308,9 @@ runs while the app's own engine is up (the app builds memories itself then), nor
 the new-chapter check runs: two engines must never write the library at once.
 
 The Dart side (`runBackgroundBuild`) has eight minutes, inside WorkManager's ten. Book by
-book, it skips books on a secret shelf, books without a memory, and memories not begun,
-paused or kept away from the AI; brings each word index up to date; then builds until
+book, it skips books on a secret shelf, books without a memory, memories not begun,
+paused or kept away from the AI, and memories not built by themselves with no build the
+reader asked for still to finish; brings each word index up to date; then builds until
 done, out of time, the app opened (checked every ten seconds), or every key resting.
 
 ## 14.7 Web novels: chapters for the memory

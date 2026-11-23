@@ -310,7 +310,7 @@ class _MemoriesState extends State<_Memories> {
                         icon: const Icon(Icons.pause_rounded),
                         onPressed: () => MemoryService.instance.pause(b.id),
                       )
-                    : left && s.noted > 0
+                    : left && s.noted > 0 && s.leftUnder > 0
                         ? IconButton(
                             tooltip: 'Go on building',
                             icon: const Icon(Icons.play_arrow_rounded),
@@ -411,6 +411,16 @@ class _TalkSettingsState extends State<_TalkSettings> {
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: Gap.page),
             child: SectionTitle('Building memories', size: 18),
+          ),
+          SwitchRow(
+            title: 'New chapters build by themselves',
+            subtitle: _p.aiAutoNew
+                ? 'In each memory you begin, chapters you download or add later join it as they come '
+                    '(each book can change it)'
+                : 'Each memory you begin grows only when you tap Build, as far as you choose '
+                    '(each book can change it)',
+            value: _p.aiAutoNew,
+            onChanged: (v) => _set((p) => p.aiAutoNew = v),
           ),
           SwitchRow(
             title: 'Also with TomeVoice closed',

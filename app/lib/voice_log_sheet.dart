@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import 'neural_voices.dart';
 import 'prefs.dart';
 import 'problem_report.dart' show deviceName;
 import 'speech_service.dart';
@@ -40,8 +41,26 @@ Future<List<String>> voiceLogHeader() async {
       if (d['abis'] != null) 'CPU ${d['abis']}',
       if (d['powerSave'] == true) 'battery saver ON',
     ].join(', '),
+    if (ListeningPrefs.loaded?.paletteId case final theme?) 'Theme: $theme',
+    // What each natural voice's speed test measured on this phone (seconds
+    // of speech made per second of work; below 1 it cannot keep up).
+    if (_speedTests() case final tests when tests.isNotEmpty) 'Natural voices tested: $tests',
     'Speech engine: ${engine ?? "the phone's default"}${d['engineVersion'] is String && (d['engineVersion'] as String).isNotEmpty ? ' ${d['engineVersion']}' : ''}',
   ].where((l) => l.isNotEmpty).toList();
+}
+
+String _speedTests() {
+  try {
+    final voices = NeuralVoices.instance;
+    final seen = <String>{};
+    return [
+      for (final v in voices.installedVoices)
+        if (seen.add(v.modelId))
+          if (voices.speedOf(v) case final s?) '${v.modelId} ${s.toStringAsFixed(2)}${String.fromCharCode(0xD7)}',
+    ].join(', ');
+  } on Object {
+    return '';
+  }
 }
 
 class VoiceLogSheet extends StatefulWidget {

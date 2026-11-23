@@ -263,6 +263,13 @@ class _BookMemorySectionState extends State<BookMemorySection> {
     if (s.noted == 0) return 'Its words are indexed, so Talk can search the text. No notes yet.';
     final things = '${s.entities} ${s.entities == 1 ? 'person, place or thing' : 'people, places and things'}';
     if (s.noted + s.skipped >= s.indexed) return 'Built to chapter ${(s.lastNoted ?? 0) + 1} · $things';
+    final more = s.indexed - s.noted - s.skipped;
+    final notYet = '$more ${more == 1 ? 'chapter is' : 'chapters are'} not in it yet';
+    // Where the reader asked it to stop, reached.
+    if (s.buildTo != null && s.leftUnder == 0) {
+      return 'Built to chapter ${s.buildTo! + 1}, where you asked it to stop · $things. $notYet.';
+    }
+    if (!s.autoBuild) return '${s.noted} of ${s.indexed} chapters built · $things. $notYet: it waits for you.';
     return '${s.noted} of ${s.indexed} chapters built · $things';
   }
 
@@ -436,7 +443,7 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                       FilledButton.tonalIcon(
                         onPressed: () => unawaited(_build()),
                         icon: const Icon(Icons.auto_awesome_rounded, size: 18),
-                        label: Text(s.noted == 0 ? 'Build memory' : 'Go on building'),
+                        label: Text(buildLabel(s)),
                       ),
                     if (_nextKey(s) case final next?)
                       FilledButton.tonal(
@@ -474,6 +481,22 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                   style: Skin.meta(context),
                 ),
               ),
+              if (s.exists && (s.begun || s.noted > 0))
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: s.autoBuild,
+                  onChanged: (v) => unawaited(_service.setAutoBuild(widget.bookId, v)),
+                  title: Text('Build new chapters by itself',
+                      style: Skin.ui(size: 15, weight: FontWeight.w600, color: Skin.inkOn(context))),
+                  subtitle: Text(
+                    s.autoBuild
+                        ? 'On: chapters you download or add later join the memory as they come'
+                            '${s.buildTo == null ? '' : ', up to chapter ${s.buildTo! + 1}'}.'
+                        : 'Off: it grows only when you tap ${s.noted == 0 ? 'Build memory' : 'Build more chapters'}, '
+                            'as far as you choose.',
+                    style: Skin.meta(context),
+                  ),
+                ),
               ..._explore(s),
               _ChaptersBlock(bookId: widget.bookId, service: _service, memory: s),
             ],
@@ -482,6 +505,15 @@ class _BookMemorySectionState extends State<BookMemorySection> {
       },
     );
   }
+}
+
+/// What the memory's build button says: Build memory before any chapter
+/// has notes; Go on building while chapters are left before where it
+/// stops (paused, waiting for a key); Build more chapters once it is there.
+String buildLabel(BookMemoryState s) {
+  if (s.noted == 0) return 'Build memory';
+  if (s.leftUnder > 0) return 'Go on building';
+  return 'Build more chapters';
 }
 
 /// The ways into a memory, as its page lists them.
