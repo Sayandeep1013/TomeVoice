@@ -582,22 +582,25 @@ class LibraryStore {
         await _discardOffered(id);
       }
     });
-    String? cover;
-    final url = novel.cover;
-    if (url != null && url.startsWith('http')) {
-      try {
-        // With the source's own cookies, as its covers in Browse are
-        // (NetImage), not the app's.
-        final r = await Net.instance.request(url, headers: {'Referer': plugin.site}, partition: plugin.id);
-        if (r.ok && r.bytes.length > 200) {
-          final img = Directory('${dir.path}/img')..createSync(recursive: true);
-          final f = File('${img.path}/cover${_imageExt(r.headers['content-type'], url)}');
-          await f.writeAsBytes(r.bytes);
-          cover = f.path;
+    // Waited for a moment, not for as long as a slow site takes (the add
+    // hung up to a minute on one): still coming, it is put on the book when
+    // it comes.
+    final fetching = _fetchCover(plugin, novel.cover, dir);
+    var came = true;
+    final cover = await fetching.timeout(coverWait, onTimeout: () {
+      came = false;
+      return null;
+    });
+    if (!came) {
+      unawaited(() async {
+        final c = await fetching;
+        if (c == null) return;
+        try {
+          await _change((entries) => [for (final e in entries) e.id == id ? e.copyWith(cover: c) : e]);
+        } on Object {
+          // A drawn cover will do.
         }
-      } on Object {
-        // A drawn cover will do.
-      }
+      }());
     }
     late LibraryEntry entry;
     await _change((existing) {
@@ -611,6 +614,7 @@ class LibraryStore {
         sourcePath: '',
         addedAt: previous?.addedAt ?? DateTime.now(),
         openedAt: previous?.openedAt,
+        movedAt: previous?.movedAt,
         cursor: previous?.cursor ?? ReadingCursor.zero,
         progress: previous?.progress ?? 0,
         where: previous?.where,
@@ -633,6 +637,28 @@ class LibraryStore {
       return [entry, for (final e in existing) if (e.id != id) e];
     });
     return entry;
+  }
+
+  /// How long adding a web novel waits for its cover (see [addWebNovel]).
+  @visibleForTesting
+  static Duration coverWait = const Duration(seconds: 4);
+
+  /// The cover at [url] saved into book folder [dir]; null for none.
+  Future<String?> _fetchCover(PluginInfo plugin, String? url, Directory dir) async {
+    if (url == null || !url.startsWith('http')) return null;
+    try {
+      // With the source's own cookies, as its covers in Browse are
+      // (NetImage), not the app's.
+      final r = await Net.instance.request(url, headers: {'Referer': plugin.site}, partition: plugin.id);
+      if (!r.ok || r.bytes.length <= 200) return null;
+      final img = Directory('${dir.path}/img')..createSync(recursive: true);
+      final f = File('${img.path}/cover${_imageExt(r.headers['content-type'], url)}');
+      await f.writeAsBytes(r.bytes);
+      return f.path;
+    } on Object {
+      // A drawn cover will do.
+      return null;
+    }
   }
 
   /// The stored details and chapter list of web novel [id].
@@ -1087,6 +1113,7 @@ class LibraryStore {
                   cursor: previous.cursor,
                   progress: previous.progress,
                   openedAt: previous.openedAt,
+                  movedAt: previous.movedAt,
                   where: previous.where,
                   category: previous.category,
                 )
@@ -1148,6 +1175,7 @@ class LibraryStore {
                 cursor: place,
                 progress: previous.progress,
                 openedAt: previous.openedAt,
+                movedAt: previous.movedAt,
                 where: previous.where,
                 category: previous.category,
               )
@@ -1235,6 +1263,7 @@ class LibraryStore {
                 cursor: previous.cursor,
                 progress: previous.progress,
                 openedAt: previous.openedAt,
+                movedAt: previous.movedAt,
                 where: previous.where,
                 category: previous.category,
               )
@@ -1531,19 +1560,32 @@ class LibraryStore {
     String? where,
     DateTime? at,
     ReadingLayout? layout,
+    ReadingCursor? from,
   }) async {
     // Not even its cursor.json, nor its folder, while a restore is under way:
     // the books are being swapped beneath.
     if (_held) return;
     final made = layout == null ? null : _madeAt[layout];
     if (made != null && made != (_remade[id] ?? 0)) return;
+    await index();
+    final was = _known?.entries.where((e) => e.id == id).firstOrNull;
+    // [from]: the place the caller last knew saved, not moved from since. The
+    // place here is no longer that: another phone's further place came in
+    // (sync) while the book was open. Saved, the place it was opened at went
+    // back over it.
+    if (from != null && was != null && !_samePlace(was.cursor, from)) return;
     final dir = Directory(bookDir(id));
     // Made once a run, not once a sentence.
     if (_madeDirs.add(id)) await dir.create(recursive: true);
     if (_held) return;
-    final place = _Place(cursor, progress, where, at ?? DateTime.now(), taken: at != null);
+    final now = at ?? DateTime.now();
+    // Opened and left where it was: when it last moved stays (sync compares
+    // by it). Stamped with every opening, a phone that only opened a book
+    // sent its old place on as the newest, over a further one made elsewhere.
+    final kept = was != null && _samePlace(was.cursor, cursor) ? (was.movedAt ?? was.openedAt) : null;
+    final place = _Place(cursor, progress, where, now,
+        taken: at != null, moved: kept != null && kept.isBefore(now) ? kept : null);
     await writeSafely(File('${dir.path}/cursor.json'), jsonEncode(place.toJson()));
-    await index();
     if (_held || !_keepPlace(id, place)) return;
     placeChanges.value++;
     if (_window == null) {
@@ -1746,6 +1788,7 @@ class LibraryStore {
             cursor: cursor,
             progress: old.progress,
             openedAt: old.openedAt,
+            movedAt: old.movedAt,
             where: old.where,
             category: old.category,
           )
@@ -2746,12 +2789,18 @@ bool _samePlace(ReadingCursor a, ReadingCursor b) =>
 /// A reading place as it is saved: where, how far, the chapter it is in,
 /// and when (cursor.json holds all four).
 class _Place {
-  const _Place(this.cursor, this.progress, this.where, this.at, {this.opened = true, this.taken = false});
+  const _Place(this.cursor, this.progress, this.where, this.at, {this.opened = true, this.taken = false, this.moved});
 
   final ReadingCursor cursor;
   final double progress;
   final String? where;
   final DateTime at;
+
+  /// When this place was moved to, if before [at]: the book was opened and
+  /// left where it was (see LibraryEntry.movedAt). Null: at [at].
+  final DateTime? moved;
+
+  DateTime get movedAt => moved ?? at;
 
   /// Whether saving it was opening the book (a place saved by an older
   /// build, recovered, says nothing of when).
@@ -2765,6 +2814,7 @@ class _Place {
         'progress': progress,
         if (where != null) 'where': where,
         'at': at.toIso8601String(),
+        if (moved != null) 'moved': moved!.toIso8601String(),
       };
 
   /// [e] at this place. A place taken in moves when the book was opened
@@ -2772,7 +2822,13 @@ class _Place {
   LibraryEntry onto(LibraryEntry e) {
     final was = e.openedAt;
     final opens = opened && !(taken && was != null && !at.isAfter(was));
-    return e.copyWith(cursor: cursor, progress: progress, where: where, openedAt: opens ? at : null);
+    return e.copyWith(
+      cursor: cursor,
+      progress: progress,
+      where: where,
+      openedAt: opens ? at : null,
+      movedAt: opened ? movedAt : null,
+    );
   }
 
   /// A cursor.json's place, [raw], when it is later than [e]'s own: saved
@@ -2791,7 +2847,8 @@ class _Place {
     // At the same moment (a coarse clock) only another place is later.
     final opened = e.openedAt;
     if (opened != null && (at.isBefore(opened) || (at == opened && _samePlace(cursor, e.cursor)))) return null;
-    return _Place(cursor, progress, where, at);
+    final moved = DateTime.tryParse(raw['moved'] as String? ?? '');
+    return _Place(cursor, progress, where, at, moved: moved != null && moved.isBefore(at) ? moved : null);
   }
 }
 
@@ -2861,6 +2918,7 @@ class LibraryEntry {
     required this.sourcePath,
     required this.addedAt,
     this.openedAt,
+    this.movedAt,
     this.cursor = ReadingCursor.zero,
     this.progress = 0,
     this.where,
@@ -2889,6 +2947,11 @@ class LibraryEntry {
   final String sourcePath;
   final DateTime addedAt;
   final DateTime? openedAt;
+
+  /// When the place last moved: opening a book and leaving it where it was
+  /// moves [openedAt] (History) but not this. What sync compares places by;
+  /// null in an entry from an older build, where [openedAt] stands in.
+  final DateTime? movedAt;
   final ReadingCursor cursor;
   final double progress;
 
@@ -2998,6 +3061,7 @@ class LibraryEntry {
     double? progress,
     DateTime? openedAt,
     bool clearOpened = false,
+    DateTime? movedAt,
     String? where,
     String? cover,
     CoverMode? coverMode,
@@ -3023,6 +3087,7 @@ class LibraryEntry {
         sourcePath: sourcePath,
         addedAt: addedAt,
         openedAt: clearOpened ? null : (openedAt ?? this.openedAt),
+        movedAt: clearOpened ? null : (movedAt ?? this.movedAt),
         cursor: cursor ?? this.cursor,
         progress: progress ?? this.progress,
         where: where ?? this.where,
@@ -3052,6 +3117,7 @@ class LibraryEntry {
         'sourcePath': sourcePath,
         'addedAt': addedAt.toIso8601String(),
         if (openedAt != null) 'openedAt': openedAt!.toIso8601String(),
+        if (movedAt != null) 'movedAt': movedAt!.toIso8601String(),
         'cursor': cursor.toJson(),
         'progress': progress,
         if (where != null) 'where': where,
@@ -3087,6 +3153,7 @@ class LibraryEntry {
         addedAt: DateTime.tryParse(json['addedAt'] as String? ?? '') ??
             DateTime.fromMillisecondsSinceEpoch(0),
         openedAt: DateTime.tryParse(json['openedAt'] as String? ?? ''),
+        movedAt: DateTime.tryParse(json['movedAt'] as String? ?? ''),
         cursor: ReadingCursor.fromJson(
           Map<String, Object?>.from(json['cursor'] as Map? ?? const {}),
         ),

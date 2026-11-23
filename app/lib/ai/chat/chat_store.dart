@@ -273,17 +273,36 @@ class ChatStore {
   @visibleForTesting
   void reset() {
     _dir = null;
+    _loading = null;
     _chats.clear();
     _notes = const [];
     _wiped.clear();
     changes.value++;
   }
 
+  /// The chats being read in, while they are (see [attach]); null once
+  /// they are.
+  Future<void>? _loading;
+
+  /// Read the chats in [root]. The app does not wait for it to show the
+  /// shelf (every chat is read in full, a long one is large): the lists
+  /// fill in as [changes] says, a moment later, and nothing is changed
+  /// until it is done.
   Future<void> attach(Directory root) async {
     final dir = Directory('${root.path}/chats');
     _dir = dir;
     _chats.clear();
     _notes = const [];
+    final loading = _load(dir);
+    _loading = loading;
+    try {
+      await loading;
+    } finally {
+      if (identical(_loading, loading)) _loading = null;
+    }
+  }
+
+  Future<void> _load(Directory dir) async {
     try {
       if (await dir.exists()) {
         await for (final f in dir.list()) {
@@ -326,6 +345,9 @@ class ChatStore {
 
   /// Keep [chat] (new, or changed).
   Future<void> put(Chat chat) async {
+    // Not before the chats are read in: a note kept, or a chat saved, went
+    // over the ones not read yet. (Once they are, nothing waits here.)
+    if (_loading != null) await _loading;
     if (_wiped.contains(chat.id)) return;
     chat.updated = DateTime.now().toUtc();
     _chats[chat.id] = chat;
@@ -345,6 +367,7 @@ class ChatStore {
   }
 
   Future<void> remove(String id) async {
+    if (_loading != null) await _loading;
     _chats.remove(id);
     changes.value++;
     final dir = _dir;
@@ -360,6 +383,7 @@ class ChatStore {
   /// Chat [id] gone, and all it left here: the notes kept from it, and
   /// the places other chats cite from it. Nothing saves it again.
   Future<void> wipe(String id) async {
+    if (_loading != null) await _loading;
     _wiped.add(id);
     await remove(id);
     if (_notes.any((n) => n.chatId == id)) {
@@ -382,6 +406,7 @@ class ChatStore {
 
   /// Keep a note about the reader; the same words twice are kept once.
   Future<ReaderNote?> remember(String text, {String? bookId, String? bookTitle, String? chatId}) async {
+    if (_loading != null) await _loading;
     final t = text.trim();
     if (t.isEmpty || (chatId != null && _wiped.contains(chatId))) return null;
     final same = _notes.where((n) => n.text.toLowerCase() == t.toLowerCase()).firstOrNull;
@@ -400,11 +425,13 @@ class ChatStore {
   }
 
   Future<void> forget(String noteId) async {
+    if (_loading != null) await _loading;
     _notes = [for (final n in _notes) if (n.id != noteId) n];
     await _saveNotes();
   }
 
   Future<void> forgetAll() async {
+    if (_loading != null) await _loading;
     _notes = const [];
     await _saveNotes();
   }

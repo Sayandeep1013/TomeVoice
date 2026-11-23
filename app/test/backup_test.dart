@@ -597,4 +597,146 @@ void main() {
     expect(await AppUpdates.shouldOffer(root, v5, now: now.add(const Duration(days: 30))), isFalse);
     expect(await AppUpdates.shouldOffer(root, v6, now: now), isTrue, reason: 'the next release asks again');
   });
+
+  group('replace with a backup that left things out', () {
+    Map<String, Object?> novel(List<String> paths) => {
+          'plugin': {'id': 'p', 'name': 'P', 'site': 's', 'lang': 'English', 'version': '1', 'url': 'u'},
+          'novel': {'path': '/n', 'name': 'N'},
+          'chapters': [for (final p in paths) {'name': p, 'path': p}],
+        };
+
+    void mineWithSecret() {
+      put(root, 'library.json', {
+        'categories': [
+          {'id': 'later', 'name': 'Later'},
+          {'id': 'hush', 'name': 'Hush', 'secret': true},
+        ],
+        'books': [book('web'), book('gone'), book('hidden', category: 'hush')],
+      });
+      put(root, 'books/hidden/cursor.json', {'x': 'hidden'});
+      put(root, 'books/gone/cursor.json', {'x': 'gone'});
+      put(root, 'books/web/novel.json', novel(['/c0', '/c1', '/c2', '/c3']));
+      put(root, 'books/web/ch/0.json', {'n': 'c0'});
+      put(root, 'books/web/ch/2.json', {'n': 'c2'});
+      put(root, 'books/web/ch/3.json', {'n': 'c3'});
+      put(root, 'marks.json', [
+        {'id': 'q-hidden', 'book': 'hidden', 'created': '2026-10-02T10:00:00.000'},
+        {'id': 'q-web', 'book': 'web', 'created': '2026-10-01T10:00:00.000'},
+      ]);
+      put(root, 'journal.json', [
+        {'id': 'j-hidden', 'book': 'hidden', 'created': '2026-10-03T10:00:00.000'},
+      ]);
+    }
+
+    // As an automatic backup is by default: no secret shelf, no chapters;
+    // the site put a chapter in at 2 since.
+    void autoBackup() {
+      put(staging, 'library.json', {
+        'categories': [
+          {'id': 'later', 'name': 'Later'},
+        ],
+        'books': [book('web')],
+      });
+      put(staging, 'books/web/novel.json', novel(['/c0', '/c1', '/new', '/c2']));
+      put(staging, 'marks.json', [
+        {'id': 'q-web', 'book': 'web', 'created': '2026-10-01T10:00:00.000'},
+      ]);
+    }
+
+    StagedBackup lean() => StagedBackup(
+          staging,
+          BackupInfo(format: backupFormat, created: DateTime(2026, 10, 24), root: '/old/files', books: 1, chapters: false),
+        );
+
+    test('the confirm says what goes and what stays', () async {
+      mineWithSecret();
+      autoBackup();
+      final p = await replacePreview(root, lean());
+      expect((p.gone, p.secretKept, p.chaptersKept), (1, 1, true));
+      final words = replaceWarning(made: '24 Oct 2026', gone: 1, secretKept: 1, chaptersKept: true);
+      expect(words, contains("1 book on this phone that the backup doesn't have will be removed"));
+      expect(words, contains('so yours (1 book) is kept'));
+      expect(words, contains('downloaded chapters'));
+    });
+
+    test('keeps the secret shelf and the downloaded chapters the backup never had', () async {
+      mineWithSecret();
+      autoBackup();
+      final r = await replaceLibrary(root, lean());
+      expect(r.secretBooks, 1);
+      expect(r.chapters, 1, reason: 'only chapter 0 is the same chapter in both lists');
+
+      final index = read(root, 'library.json');
+      final ids = [for (final b in index['books'] as List) (b as Map)['id']];
+      expect(ids, ['web', 'hidden']);
+      final cats = [for (final c in index['categories'] as List) Map<String, Object?>.from(c as Map)];
+      expect(cats.singleWhere((c) => c['secret'] == true)['id'], 'hush');
+      expect(read(root, 'books/hidden/cursor.json')['x'], 'hidden');
+      expect(Directory('${root.path}/books/gone').existsSync(), isFalse);
+      expect(read(root, 'books/web/ch/0.json')['n'], 'c0');
+      expect(File('${root.path}/books/web/ch/2.json').existsSync(), isFalse, reason: 'chapter 2 is another chapter now');
+      final marks = [for (final m in jsonDecode(File('${root.path}/marks.json').readAsStringSync()) as List) (m as Map)['id']];
+      expect(marks, ['q-hidden', 'q-web']);
+      final journal = jsonDecode(File('${root.path}/journal.json').readAsStringSync()) as List;
+      expect([for (final j in journal) (j as Map)['id']], ['j-hidden']);
+      expect(replaceSummary('24 Oct 2026', r), contains('Kept from before: your secret shelf (1 book) and 1 downloaded chapter.'));
+
+      // The replaced library is kept a day, then goes.
+      String? kept() => [
+            for (final e in root.listSync())
+              if (e.uri.pathSegments.lastWhere((s) => s.isNotEmpty).startsWith('.replaced-library-'))
+                e.uri.pathSegments.lastWhere((s) => s.isNotEmpty),
+          ].firstOrNull;
+      expect(kept(), isNotNull);
+      expect(File('${root.path}/${kept()}/books/gone/cursor.json').existsSync(), isTrue);
+      await clearStaleRestore(root);
+      expect(kept(), isNotNull, reason: 'not yet a day');
+      await clearStaleRestore(root, now: DateTime.now().add(replacedKept + const Duration(minutes: 1)));
+      expect(kept(), isNull);
+    });
+
+    test('a backup with a secret shelf of its own is taken as it is', () async {
+      mineWithSecret();
+      put(staging, 'library.json', {
+        'categories': [
+          {'id': 'shh', 'name': 'Shh', 'secret': true},
+        ],
+        'books': [book('web', category: 'shh')],
+      });
+      final r = await replaceLibrary(root, staged());
+      expect(r.secretBooks, 0);
+      expect([for (final b in read(root, 'library.json')['books'] as List) (b as Map)['id']], ['web']);
+    });
+  });
+
+  test("add keeps a book's folder here that the list had lost, with its chapters and later place", () async {
+    // library.json was set aside as unreadable: the folders are still here.
+    put(root, 'library.json', {'books': []});
+    put(root, 'books/web/cursor.json', {
+      'cursor': {'sectionIndex': 9},
+      'progress': 0.9,
+      'at': '2026-10-30T10:00:00.000',
+    });
+    put(root, 'books/web/ch/5.json', {'n': 'mine'});
+    put(staging, 'library.json', {
+      'books': [book('web', progress: 0.1)],
+    });
+    put(staging, 'books/web/cursor.json', {
+      'cursor': {'sectionIndex': 1},
+      'progress': 0.1,
+      'at': '2026-10-01T10:00:00.000',
+    });
+    put(staging, 'books/web/cover.jpg', 'cover');
+    put(staging, 'books/web/ch/1.json', {'n': 'theirs'});
+
+    final report = await addToLibrary(root, staged());
+
+    expect(report.added, 1);
+    expect(read(root, 'books/web/ch/5.json')['n'], 'mine');
+    expect(read(root, 'books/web/ch/1.json')['n'], 'theirs');
+    expect(File('${root.path}/books/web/cover.jpg').readAsStringSync(), 'cover');
+    expect(read(root, 'books/web/cursor.json')['progress'], 0.9);
+    final entry = (read(root, 'library.json')['books'] as List).single as Map;
+    expect(entry['progress'], 0.9);
+  });
 }
