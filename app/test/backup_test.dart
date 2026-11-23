@@ -709,6 +709,117 @@ void main() {
     });
   });
 
+  group('AI memories in a backup', () {
+    // A memory kept from a removed book, as LibraryStore keeps it.
+    void keep(Directory dir, String id, {String db = 'db', String at = '2026-11-01T10:00:00.000'}) {
+      put(dir, 'kept-memories/$id/memory.db', db);
+      put(dir, 'kept-memories/$id/kept.json', {'title': 'Book $id', 'author': '', 'chapters': 9, 'keptAt': at});
+    }
+
+    String? text(Directory dir, String rel) {
+      final f = File('${dir.path}/$rel');
+      return f.existsSync() ? f.readAsStringSync() : null;
+    }
+
+    void library(Directory dir, List<String> ids) => put(dir, 'library.json', {
+          'categories': [
+            {'id': 'later', 'name': 'Later'},
+          ],
+          'books': [for (final id in ids) book(id)],
+        });
+
+    StagedBackup lean() => StagedBackup(
+          staging,
+          BackupInfo(format: backupFormat, created: DateTime(2026, 10, 24), root: '/old/files', books: 1, chapters: false),
+        );
+
+    test("replace with a backup that has none keeps this phone's, and says so", () async {
+      library(root, ['here']);
+      keep(root, 'removed', db: 'mine');
+      keep(root, 'back', db: 'back-mine');
+      // The backup has the book "back" again, with no memory of its own.
+      library(staging, ['here', 'back']);
+      put(staging, 'books/back/cursor.json', {'x': 1});
+
+      final p = await replacePreview(root, lean());
+      expect(p.memoriesKept, 2);
+      final words = replaceWarning(
+        made: '24 Oct 2026',
+        gone: p.gone,
+        secretKept: p.secretKept,
+        chaptersKept: p.chaptersKept,
+        memoriesKept: p.memoriesKept,
+      );
+      expect(words, contains('so yours (2 AI memories) stay for when those books come back'));
+
+      final r = await replaceLibrary(root, lean());
+      expect(r.memories, 2);
+      expect(text(root, 'kept-memories/removed/memory.db'), 'mine');
+      expect(text(root, 'books/back/memory.db'), 'back-mine', reason: 'its book is in the library again');
+      expect(Directory('${root.path}/kept-memories/back').existsSync(), isFalse);
+      expect(replaceSummary('24 Oct 2026', r), contains('2 AI memories from removed books'));
+    });
+
+    test("replace with a backup that has its own takes the backup's", () async {
+      library(root, ['here']);
+      keep(root, 'mine-only', db: 'mine');
+      library(staging, ['here']);
+      keep(staging, 'theirs-only', db: 'theirs');
+
+      final p = await replacePreview(root, lean());
+      expect(p.memoriesKept, 0);
+      final r = await replaceLibrary(root, lean());
+      expect(r.memories, 0);
+      expect(text(root, 'kept-memories/theirs-only/memory.db'), 'theirs');
+      expect(Directory('${root.path}/kept-memories/mine-only').existsSync(), isFalse);
+    });
+
+    test('add brings memories not here and never overwrites a newer or a book’s own', () async {
+      library(root, ['both', 'own', 'mineback']);
+      put(root, 'books/own/memory.db', 'own-here');
+      keep(root, 'older', db: 'older-here', at: '2026-11-01T10:00:00.000');
+      keep(root, 'newer', db: 'newer-here', at: '2026-11-20T10:00:00.000');
+      keep(root, 'returns', db: 'returns-here');
+
+      library(staging, ['both', 'own', 'returns']);
+      put(staging, 'books/both/memory.db', 'both-theirs');
+      put(staging, 'books/own/memory.db', 'own-theirs');
+      put(staging, 'books/returns/cursor.json', {'x': 1});
+      keep(staging, 'fresh', db: 'fresh-theirs');
+      keep(staging, 'older', db: 'older-theirs', at: '2026-11-10T10:00:00.000');
+      keep(staging, 'newer', db: 'newer-theirs', at: '2026-11-10T10:00:00.000');
+      keep(staging, 'mineback', db: 'mineback-theirs');
+
+      final r = await addToLibrary(root, staged());
+      // A book in both with no memory here takes the backup's; one with its
+      // own keeps it.
+      expect(text(root, 'books/both/memory.db'), 'both-theirs');
+      expect(text(root, 'books/own/memory.db'), 'own-here');
+      // Kept memories: one not here comes; a later one replaces an earlier;
+      // an earlier one does not.
+      expect(text(root, 'kept-memories/fresh/memory.db'), 'fresh-theirs');
+      expect(text(root, 'kept-memories/older/memory.db'), 'older-theirs');
+      expect(text(root, 'kept-memories/newer/memory.db'), 'newer-here');
+      // The backup's kept memory of a book this library has goes into it.
+      expect(text(root, 'books/mineback/memory.db'), 'mineback-theirs');
+      expect(Directory('${root.path}/kept-memories/mineback').existsSync(), isFalse);
+      // This phone's kept memory of a book the backup brought back goes in.
+      expect(text(root, 'books/returns/memory.db'), 'returns-here');
+      expect(Directory('${root.path}/kept-memories/returns').existsSync(), isFalse);
+      expect(r.memories, 4);
+      expect(addSummary(r), contains('4 AI memories'));
+    });
+
+    test('a library with no memories restores as before', () async {
+      library(root, ['a']);
+      library(staging, ['a', 'b']);
+      final r = await addToLibrary(root, staged());
+      expect(r.memories, 0);
+      expect(Directory('${root.path}/kept-memories').existsSync(), isFalse);
+      expect(addSummary(r), isNot(contains('memor')));
+    });
+  });
+
   test("add keeps a book's folder here that the list had lost, with its chapters and later place", () async {
     // library.json was set aside as unreadable: the folders are still here.
     put(root, 'library.json', {'books': []});

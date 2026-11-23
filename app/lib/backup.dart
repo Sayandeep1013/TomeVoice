@@ -289,8 +289,52 @@ Future<void> rewritePaths(File index, {required String from, required String to}
 const keptOnPhone = {'voices', 'ocr', 'app_update.json', ErrorLog.fileName, ErrorLog.exitsName};
 
 /// What a replace kept of the library it replaced, that the backup did not
-/// have: books on a secret shelf, and downloaded chapters.
-typedef ReplaceReport = ({int secretBooks, int chapters});
+/// have: books on a secret shelf, downloaded chapters, and the AI memories
+/// kept from removed books.
+typedef ReplaceReport = ({int secretBooks, int chapters, int memories});
+
+/// The folder of memories kept from removed books (LibraryStore's
+/// kept-memories): one folder a book, by its id, with memory.db and
+/// kept.json.
+const keptMemoriesDir = 'kept-memories';
+
+/// The kept memories in library folder [root]: book id to its folder.
+Future<Map<String, Directory>> _keptIn(String root) async {
+  final dir = Directory('$root/$keptMemoriesDir');
+  if (!await dir.exists()) return const {};
+  final out = <String, Directory>{};
+  await for (final d in dir.list()) {
+    if (d is! Directory) continue;
+    final id = _name(d);
+    if (LibraryStore.isBookId(id) && await File('${d.path}/memory.db').exists()) out[id] = d;
+  }
+  return out;
+}
+
+/// When kept memory [d] was kept (its kept.json), for which of two is newer.
+Future<DateTime> _keptAt(Directory d) async {
+  final about = await _readMap(File('${d.path}/kept.json'));
+  return DateTime.tryParse('${about['keptAt']}') ?? DateTime.fromMillisecondsSinceEpoch(0);
+}
+
+/// Kept memories in [root] whose book is in the library ([ids]) again,
+/// moved back into the book's folder when it has no memory of its own (as
+/// LibraryStore does when a book is added again); how many.
+Future<int> _keptBack(Directory root, Iterable<Object?> ids) async {
+  final kept = await _keptIn(root.path);
+  var back = 0;
+  for (final id in ids) {
+    final d = kept[id];
+    if (d == null) continue;
+    final dst = File('${root.path}/books/$id/memory.db');
+    if (await dst.exists()) continue;
+    await dst.parent.create(recursive: true);
+    await File('${d.path}/memory.db').rename(dst.path);
+    await d.delete(recursive: true);
+    back++;
+  }
+  return back;
+}
 
 /// Swap the library for [staged]. The current one is moved aside first and
 /// put back if anything fails. What the backup never had is carried over
@@ -341,7 +385,7 @@ Future<ReplaceReport> replaceLibrary(Directory root, StagedBackup staged) async 
     }
     rethrow;
   }
-  var kept = (secretBooks: 0, chapters: 0);
+  ReplaceReport kept = (secretBooks: 0, chapters: 0, memories: 0);
   try {
     kept = await _carryOver(root, aside);
   } on Object catch (e, st) {
@@ -435,13 +479,29 @@ Future<ReplaceReport> _carryOver(Directory root, Directory aside) async {
       carried.add(id);
     }
   }
-  if (carried.isEmpty && chapters == 0) return (secretBooks: 0, chapters: 0);
   if (carried.isNotEmpty) {
     await _writeIndex(index, {...theirs, 'categories': cats, 'books': books});
     await _carryLines(root, aside, 'marks.json', carried);
     await _carryLines(root, aside, 'journal.json', carried);
   }
-  return (secretBooks: carried.length, chapters: chapters);
+
+  // The AI memories kept from removed books, when the backup has none (one
+  // made before they were kept, or by an older app): each cost a build's
+  // worth of calls, and the backup has nothing in their place.
+  var memories = 0;
+  final mineKept = await _keptIn(aside.path);
+  if (mineKept.isNotEmpty && (await _keptIn(root.path)).isEmpty) {
+    final into = Directory('${root.path}/$keptMemoriesDir');
+    if (await into.exists()) await into.delete(recursive: true);
+    await into.create(recursive: true);
+    for (final e in mineKept.entries) {
+      await e.value.rename('${into.path}/${e.key}');
+      memories++;
+    }
+  }
+  // A kept memory whose book the library has (again): back in its folder.
+  await _keptBack(root, {...ids, ...carried});
+  return (secretBooks: carried.length, chapters: chapters, memories: memories);
 }
 
 /// The entries of list file [name] (quotes and bookmarks, the journal) of
@@ -511,7 +571,8 @@ Future<List<String>?> _chapterPaths(String dir) async {
 /// secret shelf are kept (the backup has no secret shelf: see [_carryOver]),
 /// and whether the backup has no downloaded chapters, so that those here
 /// are kept for the novels in both.
-Future<({int gone, int secretKept, bool chaptersKept})> replacePreview(Directory root, StagedBackup staged) async {
+Future<({int gone, int secretKept, bool chaptersKept, int memoriesKept})> replacePreview(
+    Directory root, StagedBackup staged) async {
   final mine = await _readIndex(File('${root.path}/library.json'));
   final theirs = await _readIndex(File('${staged.dir.path}/library.json'));
   final ids = {for (final b in theirs['books'] as List) if (b is Map) b['id']};
@@ -529,17 +590,29 @@ Future<({int gone, int secretKept, bool chaptersKept})> replacePreview(Directory
       gone++;
     }
   }
-  return (gone: gone, secretKept: kept, chaptersKept: !staged.info.chapters);
+  final memories = (await _keptIn(staged.dir.path)).isEmpty ? (await _keptIn(root.path)).length : 0;
+  return (gone: gone, secretKept: kept, chaptersKept: !staged.info.chapters, memoriesKept: memories);
 }
 
+String _memories(int n) => '$n AI ${n == 1 ? 'memory' : 'memories'}';
+
 /// The confirm's words for a replace (see [replacePreview]).
-String replaceWarning({required String made, required int gone, required int secretKept, required bool chaptersKept}) {
+String replaceWarning({
+  required String made,
+  required int gone,
+  required int secretKept,
+  required bool chaptersKept,
+  int memoriesKept = 0,
+}) {
   String books(int n) => '$n ${n == 1 ? 'book' : 'books'}';
   return [
     "Your books, places, categories, quotes, journal and settings become the backup's from $made.",
     if (gone > 0) "${books(gone)} on this phone that the backup doesn't have will be removed.",
     if (secretKept > 0) 'The backup has no secret shelf, so yours (${books(secretKept)}) is kept.',
     if (chaptersKept) 'The backup has no downloaded chapters, so those on this phone are kept for the web novels it has.',
+    if (memoriesKept > 0)
+      'The backup has no memories from removed books, so yours (${_memories(memoriesKept)}) '
+          '${memoriesKept == 1 ? 'stays' : 'stay'} for when those books come back.',
     'Natural voices and OCR languages stay on this phone.',
   ].join('\n\n');
 }
@@ -549,14 +622,26 @@ String replaceSummary(String made, ReplaceReport r) {
   final kept = [
     if (r.secretBooks > 0) 'your secret shelf (${r.secretBooks} ${r.secretBooks == 1 ? 'book' : 'books'})',
     if (r.chapters > 0) '${r.chapters} downloaded ${r.chapters == 1 ? 'chapter' : 'chapters'}',
+    if (r.memories > 0) '${_memories(r.memories)} from removed books',
   ];
-  return 'Your library is the backup made $made.${kept.isEmpty ? '' : ' Kept from before: ${kept.join(' and ')}.'}';
+  final list = kept.length < 2 ? kept.join() : '${kept.sublist(0, kept.length - 1).join(', ')} and ${kept.last}';
+  return 'Your library is the backup made $made.${kept.isEmpty ? '' : ' Kept from before: $list.'}';
 }
 
 /// What [addToLibrary] did: books added and brought up to date, sources,
-/// quotes and bookmarks, days of stats, reading rules, and whether the
-/// backup's settings were taken.
-typedef AddReport = ({int added, int updated, int sources, int marks, int days, int rules, bool settings});
+/// quotes and bookmarks, days of stats, reading rules, AI memories (a
+/// book's, or one kept from a removed book), and whether the backup's
+/// settings were taken.
+typedef AddReport = ({
+  int added,
+  int updated,
+  int sources,
+  int marks,
+  int days,
+  int rules,
+  int memories,
+  bool settings,
+});
 
 /// Add [staged] to the library: books not here are added; for a book in
 /// both, the further place is kept and missing downloaded chapters are
@@ -596,6 +681,8 @@ Future<AddReport> addToLibrary(Directory root, StagedBackup staged, {bool settin
   final books = [for (final b in current['books'] as List) Map<String, Object?>.from(b as Map)];
   var added = 0;
   var updated = 0;
+  var memories = 0;
+  final addedIds = <String>[];
   await Directory('${root.path}/books').create(recursive: true);
   for (final b in incoming['books'] as List) {
     final m = Map<String, Object?>.from(b as Map);
@@ -623,6 +710,7 @@ Future<AddReport> addToLibrary(Directory root, StagedBackup staged, {bool settin
         await dir.rename(dest.path);
       }
       books.add(m);
+      addedIds.add(id);
       added++;
       continue;
     }
@@ -660,8 +748,21 @@ Future<AddReport> addToLibrary(Directory root, StagedBackup staged, {bool settin
       changed = true;
     }
     if (await _moveChapters(dir.path, '${root.path}/books/$id') > 0) changed = true;
+    // Its AI memory, built on the other phone, when this one has none: a
+    // memory here is never replaced.
+    final memory = File('${dir.path}/memory.db');
+    final memoryHere = File('${root.path}/books/$id/memory.db');
+    if (LibraryStore.isBookId(id) && await memory.exists() && !await memoryHere.exists()) {
+      await memoryHere.parent.create(recursive: true);
+      await memory.rename(memoryHere.path);
+      memories++;
+    }
     if (changed) updated++;
   }
+  memories += await _addKeptMemories(root, from, {for (final b in books) b['id']});
+  // This phone's memories kept from removed books, for the books the backup
+  // brought back.
+  await _keptBack(root, addedIds);
 
   await _writeIndex(File('${root.path}/library.json'), {...current, 'categories': cats, 'books': books});
   final sources = await _addSources(Directory('${root.path}/sources'), Directory('$from/sources'));
@@ -670,7 +771,47 @@ Future<AddReport> addToLibrary(Directory root, StagedBackup staged, {bool settin
   final rules = await _addRules(root, from);
   final took = settings && await _takeSettings(root, from);
   await staged.discard();
-  return (added: added, updated: updated, sources: sources, marks: marks, days: days, rules: rules, settings: took);
+  return (
+    added: added,
+    updated: updated,
+    sources: sources,
+    marks: marks,
+    days: days,
+    rules: rules,
+    memories: memories,
+    settings: took,
+  );
+}
+
+/// The backup's memories kept from removed books ([from]'s kept-memories)
+/// added to [root]: into the book's folder when the library has the book
+/// ([ids]) and it has no memory of its own; otherwise kept here, where
+/// none is kept for that book or the backup's was kept later. How many.
+Future<int> _addKeptMemories(Directory root, String from, Set<Object?> ids) async {
+  final theirs = await _keptIn(from);
+  if (theirs.isEmpty) return 0;
+  final mine = await _keptIn(root.path);
+  var n = 0;
+  for (final e in theirs.entries) {
+    final id = e.key;
+    if (ids.contains(id)) {
+      final dst = File('${root.path}/books/$id/memory.db');
+      if (await dst.exists()) continue;
+      await dst.parent.create(recursive: true);
+      await File('${e.value.path}/memory.db').rename(dst.path);
+      n++;
+      continue;
+    }
+    final here = mine[id];
+    if (here != null) {
+      if (!(await _keptAt(e.value)).isAfter(await _keptAt(here))) continue;
+      await here.delete(recursive: true);
+    }
+    await Directory('${root.path}/$keptMemoriesDir').create(recursive: true);
+    await e.value.rename('${root.path}/$keptMemoriesDir/$id');
+    n++;
+  }
+  return n;
 }
 
 /// A book in both libraries, [mine] as it is here and [theirs] in the
@@ -824,6 +965,7 @@ String addSummary(AddReport r) {
     if (r.marks > 0) n(r.marks, 'quote or bookmark', 'quotes and bookmarks'),
     if (r.rules > 0) n(r.rules, 'reading rule', 'reading rules'),
     if (r.days > 0) n(r.days, 'day of stats', 'days of stats'),
+    if (r.memories > 0) n(r.memories, 'AI memory', 'AI memories'),
     if (r.sources > 0) n(r.sources, 'source', 'sources'),
   ];
   final list = parts.length < 2

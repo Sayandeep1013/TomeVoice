@@ -49,7 +49,7 @@ Future<void> runBackup(BuildContext context, LibraryStore store) async {
             label: 'Everything',
             detail: [
               if (all >= 0) 'About ${sizeLabel(all)}',
-              'Books, places, categories, sources, settings and downloaded chapters',
+              'Books, places, categories, sources, settings, AI book memories and downloaded chapters',
             ].join(' · '),
             onTap: () => Navigator.pop(ctx, true),
           ),
@@ -179,7 +179,13 @@ Future<void> runRestore(BuildContext context, LibraryStore store) async {
     // Said in full: what goes, and what a backup without it keeps here.
     final p = await replacePreview(store.root, staged);
     if (!context.mounted) return;
-    final warning = replaceWarning(made: made, gone: p.gone, secretKept: p.secretKept, chaptersKept: p.chaptersKept);
+    final warning = replaceWarning(
+      made: made,
+      gone: p.gone,
+      secretKept: p.secretKept,
+      chaptersKept: p.chaptersKept,
+      memoriesKept: p.memoriesKept,
+    );
     if (!await confirm(
       context,
       title: 'Replace your library?',
