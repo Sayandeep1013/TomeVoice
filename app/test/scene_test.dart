@@ -134,7 +134,7 @@ void main() {
       await tester.tap(find.text('Designer themes'));
       await tester.pumpAndSettle();
       expect(find.text('SCENES'), findsOneWidget);
-      expect(find.text('COLOURS'), findsOneWidget);
+      expect(find.text('COLOURS', skipOffstage: false), findsOneWidget);
       expect(find.text('Dungeon'), findsOneWidget);
       expect(find.text('Starship'), findsOneWidget);
       await tester.tap(find.text('Dungeon'));
