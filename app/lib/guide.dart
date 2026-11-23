@@ -304,7 +304,7 @@ const aiGuideCards = <GuideCard>[
     'Press and hold a sentence on the page, and pick:',
     [
       (Icons.help_outline_rounded, 'Explain this: what the sentence means at this point in the story.'),
-      (Icons.badge_outlined, 'Who or what is it: a card of all that is known of the name, so far.'),
+      (Icons.badge_outlined, 'Who or what is it: the card the book\'s memory keeps on the name, so far. If it has none, ask the AI or search the web.'),
       (Icons.history_rounded, 'Back after a few days away? Previously… tells you what happened just before.'),
     ],
   ),

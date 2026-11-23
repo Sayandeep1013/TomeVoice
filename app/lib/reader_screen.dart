@@ -1605,6 +1605,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       word: word,
       web: web,
       ai: _talkable,
+      memory: widget.store != null && MemoryDb.existsIn(widget.store!.bookDir(_book.id)),
       onSaveAsAudio: () => unawaited(showSaveAsAudio(
         context,
         layout: _l,
@@ -1626,15 +1627,18 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         await _talk(first: 'Explain this, as it stands in the story here: "$sentence"');
       case 'who':
         final store = widget.store;
-        if (store == null) return;
+        final secret = store?.isSecret(_book.id) ?? false;
         await showNameCard(
           context,
-          memoryPath: MemoryDb.pathIn(store.bookDir(_book.id)),
+          memoryPath: store == null ? null : MemoryDb.pathIn(store.bookDir(_book.id)),
           word: word,
           sentence: sentence,
           line: _talkLine(),
+          // A secret book's title is not put in a web search.
+          searchTitle: secret ? null : _book.metadata.title,
           onLook: _lookAtPlace,
-          onAsk: (q) => unawaited(_talk(first: q)),
+          onAsk: _talkable ? (q) => unawaited(_talk(first: q)) : null,
+          openUrl: _svc.openUrl,
         );
       case 'quote':
         // Widen it to the sentences around, add a note, then keep it.
