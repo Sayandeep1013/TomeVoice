@@ -341,7 +341,7 @@ Future<ReplaceReport> replaceLibrary(Directory root, StagedBackup staged) async 
     }
     rethrow;
   }
-  ReplaceReport kept = (secretBooks: 0, chapters: 0);
+  var kept = (secretBooks: 0, chapters: 0);
   try {
     kept = await _carryOver(root, aside);
   } on Object catch (e, st) {
