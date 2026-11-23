@@ -16,6 +16,7 @@ import 'package:tomevoice_spike/ai/memory/memory_db.dart';
 import 'package:tomevoice_spike/ai/talk/answer_pack.dart';
 import 'package:tomevoice_spike/ai/talk/name_card.dart';
 import 'package:tomevoice_spike/ai/talk/phrase.dart';
+import 'package:tomevoice_spike/ai/talk/phrase_highlight.dart';
 import 'package:tomevoice_spike/ai/talk/who_sheet.dart';
 import 'package:tomevoice_spike/library_store.dart' show specimenBook;
 import 'package:tomevoice_spike/marks.dart';
@@ -115,6 +116,38 @@ void main() {
       expect(wider.addBefore().text, 'with six finger');
       expect(wider.dropFirst().text, 'finger');
       expect(wider.dropLast().text, 'six');
+    });
+
+    test('a word tapped in the sentence takes the words up to it in; one inside changes nothing', () {
+      final g = guessPhrase('the man with six finger came.', 'six');
+      expect(g.extendTo(4).text, 'six finger');
+      expect(g.extendTo(1).text, 'man with six');
+      expect(g.extendTo(3).text, 'six');
+      expect(g.extendTo(99).text, 'six');
+    });
+
+    testWidgets('the sentence is shown with what will be looked up lit, and grows as a word is tapped', (tester) async {
+      late PhraseSpan span;
+      span = guessPhrase('Then Six Finger smiled at Mira.', 'Finger');
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) => SizedBox(
+              width: 800,
+              child: PhraseInSentence(span: span, onTapWord: (i) => setState(() => span = span.extendTo(i))),
+            ),
+          ),
+        ),
+      ));
+      expect(span.text, 'Six Finger');
+      expect(find.text('Then Six Finger smiled at Mira.'), findsOneWidget);
+      // The last word, "Mira", tapped (the test font's letters are as wide
+      // as the font is tall: "Mira" starts 26 letters in): the mark runs out
+      // to it.
+      final box = tester.getRect(find.byType(PhraseInSentence));
+      await tester.tapAt(Offset(box.left + 28 * 16, box.top + 8));
+      await tester.pumpAndSettle();
+      expect(span.text, 'Six Finger smiled at Mira');
     });
 
     test('at the edges of the sentence nothing more is added', () {

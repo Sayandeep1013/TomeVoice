@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
 import 'ai/talk/phrase.dart';
+import 'ai/talk/phrase_highlight.dart';
 import 'book_tint.dart';
 import 'marks.dart';
 import 'theme.dart';
@@ -41,19 +42,13 @@ Future<String?> showSentenceActions(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // The sentence, with the name a "Who or what" would look up
+                // lit in it ("Six Finger", not "Finger").
                 Padding(
                   padding: const EdgeInsets.fromLTRB(Gap.xl, 0, Gap.xl, Gap.m),
-                  child: Text(
-                    sentence,
-                    maxLines: 4,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontFamily: 'Newsreader',
-                      fontStyle: FontStyle.italic,
-                      fontSize: 16,
-                      height: 1.4,
-                      color: Skin.inkSoftOn(ctx),
-                    ),
+                  child: PhraseInSentence(
+                    span: guessPhrase(sentence, word),
+                    lit: word.isNotEmpty && namesSomething(guessPhrase(sentence, word).text),
                   ),
                 ),
                 SheetAction(icon: Icons.play_arrow_rounded, label: 'Read from here', onTap: () => Navigator.pop(ctx, 'read')),

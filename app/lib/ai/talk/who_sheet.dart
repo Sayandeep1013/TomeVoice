@@ -6,6 +6,7 @@ import '../../theme.dart';
 import '../../ui.dart';
 import 'name_card.dart' show FoundCard;
 import 'phrase.dart';
+import 'phrase_highlight.dart';
 
 /// What the "Who or what is it?" sheet was asked to do.
 enum WhoChoice { card, ai, web }
@@ -136,6 +137,17 @@ class _WhoSheetState extends State<WhoSheet> {
                   ? "The book's memory has nothing on it yet"
                   : 'This book has no memory to look in',
             ),
+            // The sentence, with what will be looked up lit in it: a tap on a
+            // word takes it in.
+            if (widget.guess.words.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(Gap.xl, 0, Gap.xl, Gap.m),
+                child: PhraseInSentence(
+                  span: _span,
+                  lit: phrase == _span.text,
+                  onTapWord: (i) => _move(_span.extendTo(i)),
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: Gap.xl),
               child: TextField(
