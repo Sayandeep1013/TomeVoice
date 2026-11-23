@@ -174,7 +174,7 @@ class _SavedScreenState extends State<SavedScreen> {
         : [for (final m in mine) if (m.kind == _kind && !_present.contains(m.bookId)) m];
     return Scaffold(
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: SafeArea(
           bottom: false,
           child: Column(

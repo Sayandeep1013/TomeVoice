@@ -241,8 +241,12 @@ object SourcesBridge {
                 "notificationsAllowed" -> result.success(NovelCheckWorker.allowed(appContext))
                 "askNotifications" -> {
                     val a = activity
+                    val settings = call.argument<Boolean>("settings") ?: true
                     if (a == null) {
                         result.success(false)
+                    } else if (NovelCheckWorker.allowed(appContext)) {
+                        // Already allowed: nothing to ask, no settings page.
+                        result.success(true)
                     } else if (Build.VERSION.SDK_INT >= 33 &&
                         a.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
                         android.content.pm.PackageManager.PERMISSION_GRANTED &&
@@ -251,6 +255,9 @@ object SourcesBridge {
                         asked = true
                         a.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIFY)
                         result.success(true)
+                    } else if (!settings) {
+                        // A job starting: never leave the app for Settings.
+                        result.success(false)
                     } else {
                         // Refused before, or turned off: only Android's own
                         // settings can turn them on now.

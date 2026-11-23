@@ -227,6 +227,49 @@ void main() {
       }
       await finish(tester);
     });
+
+    testWidgets('a screen opened from the menu has Menu where others have Back, and Back still leaves it',
+        (tester) async {
+      phone(tester);
+      await tester.pumpWidget(const SpikeApp());
+      Future<void> settle() async {
+        for (var i = 0; i < 15; i++) {
+          await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+          await tester.pump();
+        }
+        await tester.pumpAndSettle();
+      }
+
+      for (var i = 0; i < 80 && find.text('Your shelf is empty').evaluate().isEmpty; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Menu'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Categories'));
+      await settle();
+      expect(find.text('Your shelf is empty'), findsNothing, reason: 'Categories is up');
+      expect(find.byTooltip('Back'), findsNothing);
+      expect(find.byTooltip('Menu'), findsOneWidget, reason: 'as on the library');
+
+      // Its Menu opens the menu, with Categories lit; another place from it
+      // takes its place.
+      await tester.tap(find.byTooltip('Menu'));
+      await tester.pumpAndSettle();
+      expect(find.byType(BrandMark), findsWidgets);
+      await tester.tap(find.text('Saved'));
+      await settle();
+      expect(find.byTooltip('Menu'), findsOneWidget);
+      expect(find.byTooltip('Back'), findsNothing);
+
+      // Back from it: the library, not Categories.
+      await tester.binding.handlePopRoute();
+      await settle();
+      expect(find.text('Your shelf is empty'), findsOneWidget);
+      await finish(tester);
+    });
   });
 
   group('library rows', () {

@@ -1,6 +1,7 @@
 package app.tomevoice.tomevoice_spike
 
 import android.content.Context
+import com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
@@ -42,11 +43,10 @@ object PdfText {
         }
         val doc = try {
             PDDocument.load(File(path))
+        } catch (e: InvalidPasswordException) {
+            // By its type, not its class name: R8 renames PdfBox's classes.
+            throw IllegalStateException("This PDF is password-protected.")
         } catch (e: Exception) {
-            val name = e.javaClass.simpleName
-            if (name.contains("Password")) {
-                throw IllegalStateException("This PDF is password-protected.")
-            }
             throw IllegalStateException("Could not open this PDF: ${e.message}")
         }
         doc.use { d ->

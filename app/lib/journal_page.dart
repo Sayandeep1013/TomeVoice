@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -49,6 +50,7 @@ Future<JournalEntry?> openJournal(
   String? language,
   Future<VoidCallback?> Function()? hold,
   List<JournalChapter>? chapters,
+  EdgeInsets? snackMargin,
 }) async {
   final kept = await Navigator.of(context).push<JournalEntry>(MaterialPageRoute(
     builder: (_) => JournalPage(
@@ -61,7 +63,7 @@ Future<JournalEntry?> openJournal(
         chapters: chapters),
   ));
   if (kept != null && context.mounted) {
-    showSnack(context, entry == null ? 'In your journal, ${kept.stamp.label}.' : 'Changed.');
+    showSnack(context, entry == null ? 'In your journal, ${kept.stamp.label}.' : 'Changed.', margin: snackMargin);
   }
   return kept;
 }
@@ -204,7 +206,17 @@ class _JournalPageState extends State<JournalPage> {
         }
       }
     }
+    _opened = _what;
   }
+
+  /// What would be kept, as text: compared on leaving, so an entry opened
+  /// and closed again without a change is not asked about.
+  String get _what => jsonEncode({
+        'blank': _blank,
+        'page': _page.text.trim(),
+        'answers': [for (final a in _answers) if (!a.isEmpty) a.toJson()],
+      });
+  late final String _opened;
 
   @override
   void dispose() {
@@ -332,18 +344,28 @@ class _JournalPageState extends State<JournalPage> {
 
   /// Leaving with words written and not kept: asked first.
   Future<void> _leave() async {
-    if (_empty) {
+    final old = widget.entry;
+    if (_empty || (old != null && _picked == null && _what == _opened)) {
       _kept = true;
       Navigator.of(context).pop();
       return;
     }
-    final keep = await confirm(
-      context,
-      title: 'Keep what you wrote?',
-      body: 'It goes in your journal, stamped with where the story is.',
-      action: 'Keep',
+    // Three answers: keep it, throw it away, or (Back, a tap outside)
+    // stay and write on.
+    final keep = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(old == null ? 'Keep what you wrote?' : 'Keep your changes?'),
+        content: Text(old == null
+            ? 'Keep puts it in your journal, stamped with where the story is. Throw away deletes these words.'
+            : 'Keep saves the entry as it is now. Throw away leaves it as it was before you opened it.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Throw away')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Keep')),
+        ],
+      ),
     );
-    if (!mounted) return;
+    if (!mounted || keep == null) return;
     if (keep) {
       await _done();
     } else {
@@ -543,15 +565,20 @@ class _JournalPageState extends State<JournalPage> {
                 for (final (n, p) in q.picks.indexed) _sticker(context, i, p, ink.tab(n), ink),
               ],
             ),
-            // A word of the reader's own, when none of the picks is it.
+            // A word of the reader's own, when none of the picks is it. It
+            // wraps like the other answers: a longer one, written here,
+            // never runs on along one line out of sight.
             TextField(
               controller: _own[i],
               onChanged: (v) => setState(() {
                 if (v.trim().isNotEmpty) _picks[i] = null;
               }),
+              maxLines: null,
+              keyboardType: TextInputType.text,
+              textInputAction: TextInputAction.next,
               textCapitalization: TextCapitalization.sentences,
               style: handwriting(22, ink.pen),
-              decoration: _onPaper('or something more…', handwriting(20, soft.withValues(alpha: 0.6))),
+              decoration: _onPaper('or in a word of your own…',handwriting(20, soft.withValues(alpha: 0.6))),
             ),
           ] else
             TextField(
@@ -634,6 +661,9 @@ class JournalEntryCard extends StatelessWidget {
     final tone = ink.tone;
     final soft = tone.inkSoft!;
     final feeling = entry.feeling;
+    // A feeling in the reader's own words, longer than a sticker holds,
+    // is written out on a line of its own instead.
+    final longFeeling = feeling != null && feeling.length > 24;
     final shown = entry.isPage ? const <JournalAnswer>[] : [for (final a in entry.answers) if (a.text.trim().isNotEmpty) a];
     // Each entry a box of its own on the paper: where one ends and the
     // next begins is plain, and each is tapped by itself.
@@ -666,7 +696,7 @@ class JournalEntryCard extends StatelessWidget {
                     style: handwriting(18, soft, weight: FontWeight.w600),
                   ),
                 ),
-                if (feeling != null)
+                if (feeling != null && !longFeeling)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
                     decoration: BoxDecoration(color: ink.tab(_pickColour(feeling)), borderRadius: BorderRadius.circular(99)),
@@ -675,6 +705,12 @@ class JournalEntryCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 4),
+            if (feeling != null && longFeeling)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(feeling,
+                    maxLines: 4, overflow: TextOverflow.ellipsis, style: handwriting(21, ink.pen).copyWith(height: 1.2)),
+              ),
             if (entry.isTalk)
               for (final l in entry.talk.take(4))
                 Padding(
@@ -760,7 +796,7 @@ class BookJournalSection extends StatelessWidget {
               ? 'Write how the book makes you feel, as you read'
               : '${entries.length} ${entries.length == 1 ? 'entry' : 'entries'} · '
                   '${latest.isTalk ? 'a talk' : 'thoughts'} ${latest.stamp.label}, ${savedWhen(latest.created)}';
-          final words = latest?.words.replaceAll(RegExp(r'\s*\n\s*'), ' · ').trim() ?? '';
+          final words = latest?.preview ?? '';
           return Material(
             color: Skin.capsuleOn(context),
             borderRadius: BorderRadius.circular(Radii.row + 4),

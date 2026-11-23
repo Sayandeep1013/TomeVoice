@@ -478,12 +478,23 @@ class Net {
     HttpClientRequest? open;
     try {
       return await _request(url, method, headers, body, partition, maxBytes, step, (r) => open = r);
-    } on TimeoutException {
-      // Cut off, not left to finish in the background.
+    } on Object {
+      // Cut off, not left to finish in the background (timed out, or a page
+      // too large): it held one of the site's few connections.
       open?.abort();
       rethrow;
     }
   }
+
+  /// The request [opening] makes, within [limit]. Timed out (waiting for one
+  /// of the site's few connections), the request it gives later is aborted
+  /// as it comes: left open, it held that connection until the server let
+  /// go, and every request after it waited in vain too.
+  static Future<HttpClientRequest> _opened(Future<HttpClientRequest> opening, Duration limit) =>
+      opening.timeout(limit, onTimeout: () {
+        unawaited(opening.then((r) => r.abort(), onError: (Object _) {}));
+        throw TimeoutException('The site took too long to answer.', limit);
+      });
 
   Future<NetResponse> _request(
     String url,
@@ -500,7 +511,7 @@ class Net {
     // POSTs that redirect become GETs, the way browsers do it.
     for (var hop = 0; hop < 8; hop++) {
       if (!isWebAddress(uri.toString())) throw BlockedAddressException('Only web pages can be asked for.');
-      final req = await _client.openUrl(method, uri).timeout(step());
+      final req = await _opened(_client.openUrl(method, uri), step());
       opened(req);
       req.followRedirects = false;
       req.headers.set(HttpHeaders.userAgentHeader, userAgent);
@@ -569,9 +580,29 @@ class Net {
     Duration timeout = const Duration(seconds: 45),
   }) async {
     var uri = Uri.parse(url);
+    HttpClientRequest? open;
+    try {
+      return await _download(uri, to, headers, partition, onProgress, timeout, (r) => open = r);
+    } on Object {
+      // As in [request]: never left holding a connection.
+      open?.abort();
+      rethrow;
+    }
+  }
+
+  Future<({String? name, String? type})> _download(
+    Uri uri,
+    File to,
+    Map<String, String> headers,
+    String partition,
+    void Function(int done, int total)? onProgress,
+    Duration timeout,
+    void Function(HttpClientRequest r) opened,
+  ) async {
     for (var hop = 0; hop < 8; hop++) {
       if (!isWebAddress(uri.toString())) throw BlockedAddressException('Only web pages can be asked for.');
-      final req = await _client.getUrl(uri).timeout(timeout);
+      final req = await _opened(_client.getUrl(uri), timeout);
+      opened(req);
       req.followRedirects = false;
       req.headers.set(HttpHeaders.userAgentHeader, userAgent);
       final cookie = jar.headerFor(uri, partition: partition);
@@ -606,11 +637,22 @@ class Net {
       final disposition = res.headers.value('content-disposition') ?? '';
       final named = RegExp(r'''filename\*?=(?:UTF-8'')?"?([^";]+)"?''', caseSensitive: false).firstMatch(disposition);
       return (
-        name: named == null ? null : Uri.decodeComponent(named.group(1)!.trim()),
+        name: named == null ? null : _decodedName(named.group(1)!.trim()),
         type: res.headers.contentType?.mimeType,
       );
     }
     throw HttpException('Too many redirects', uri: uri);
+  }
+
+  /// A file name from a server's header, %-decoded when it is encoded. A
+  /// bare "%" ("100% Guide.epub") is kept as it is: decoding throws there,
+  /// and failing a download already saved over its name was wrong.
+  static String _decodedName(String raw) {
+    try {
+      return Uri.decodeComponent(raw);
+    } on Object {
+      return raw;
+    }
   }
 
   /// GET [url] as text; throws on an HTTP error.

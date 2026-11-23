@@ -60,6 +60,10 @@ class PageLook {
   Object get key => Object.hash(text, heading, chapterHeading, title, label, textScaler, justify, indent, margin);
 }
 
+/// How long a look must stay unchanged, after a change just made, before
+/// the pages are cut again for the next (see _PagedBookState._takeLook).
+const lookQuiet = Duration(milliseconds: 150);
+
 /// A note's type (a footnote, a caption): smaller than the text, in the
 /// page's soft ink; shown on the page, never read aloud.
 TextStyle noteStyle(PageLook look) => look.text.copyWith(
@@ -300,6 +304,14 @@ class _PagedBookState extends State<PagedBook> {
   /// The size, look and spread the page shown was found for.
   Object? _cutAt;
 
+  /// The look the pages are cut and painted with: [PagedBook.look], except
+  /// while the reader is still changing it (a text size tapped up and up):
+  /// the first change is cut at once, later ones once they stop for
+  /// [lookQuiet], so each tap does not cut the chapter again.
+  late PageLook _look = widget.look;
+  Timer? _lookTimer;
+  bool _lookWaiting = false;
+
   @override
   void initState() {
     super.initState();
@@ -307,9 +319,31 @@ class _PagedBookState extends State<PagedBook> {
     _pendingUnit = widget.startUnit;
   }
 
+  void _takeLook() {
+    if (widget.look.key == _look.key) {
+      // Colours only (or back to the look shown): painted at once.
+      _look = widget.look;
+      _lookWaiting = false;
+      return;
+    }
+    if (_lookTimer == null) {
+      _look = widget.look;
+    } else {
+      _lookWaiting = true;
+      _lookTimer!.cancel();
+    }
+    _lookTimer = Timer(lookQuiet, () {
+      _lookTimer = null;
+      if (!_lookWaiting || !mounted) return;
+      _lookWaiting = false;
+      setState(() => _look = widget.look);
+    });
+  }
+
   @override
   void didUpdateWidget(PagedBook old) {
     super.didUpdateWidget(old);
+    if (!identical(old.look, widget.look)) _takeLook();
     if (old.controller != widget.controller) {
       old.controller._state = null;
       widget.controller._state = this;
@@ -332,6 +366,7 @@ class _PagedBookState extends State<PagedBook> {
   void dispose() {
     if (widget.controller._state == this) widget.controller._state = null;
     _pages?.dispose();
+    _lookTimer?.cancel();
     _forgetLaid();
     super.dispose();
   }
@@ -369,7 +404,7 @@ class _PagedBookState extends State<PagedBook> {
   bool get _rtl => widget.textDirection == TextDirection.rtl;
 
   double get _leafWidth => widget.spread ? _size.width / 2 : _size.width;
-  double get _sideFor => math.max(widget.look.margin, (_leafWidth - 720) / 2);
+  double get _sideFor => math.max(_look.margin, (_leafWidth - 720) / 2);
   double get _columnWidth => math.max(120, _leafWidth - 2 * _sideFor);
 
   static const _statusBand = 30.0;
@@ -382,7 +417,7 @@ class _PagedBookState extends State<PagedBook> {
   int _chapterEnd(int c) => c + 1 < _l.chapters.length ? _l.chapterFirstItem[c + 1] : _l.items.length;
 
   _Laid _lay(int i) => _laid[i] ??= () {
-        final look = widget.look;
+        final look = _look;
         final item = _l.items[i];
         final chapterStart = i == _l.chapterFirstItem[item.chapter];
         final TextStyle style;
@@ -453,7 +488,7 @@ class _PagedBookState extends State<PagedBook> {
   }
 
   List<_Page> _pagesOf(int c) {
-    final key = Object.hash(widget.look.key, _size, widget.spread, widget.textDirection);
+    final key = Object.hash(_look.key, _size, widget.spread, widget.textDirection);
     if (_cutFor != key) {
       _forget();
       _cutFor = key;
@@ -462,7 +497,7 @@ class _PagedBookState extends State<PagedBook> {
   }
 
   List<_Page> _cutChapter(int c) {
-    final look = widget.look;
+    final look = _look;
     final height = _pageHeight;
     final pages = <_Page>[];
     var pieces = <_Piece>[];
@@ -567,9 +602,9 @@ class _PagedBookState extends State<PagedBook> {
   double _labelHeight(String? label) {
     if (label == null) return 0;
     final tp = TextPainter(
-      text: TextSpan(text: label, style: widget.look.label),
+      text: TextSpan(text: label, style: _look.label),
       textDirection: TextDirection.ltr,
-      textScaler: widget.look.textScaler,
+      textScaler: _look.textScaler,
     )..layout();
     final h = tp.height + 8 + 12;
     tp.dispose();
@@ -774,7 +809,7 @@ class _PagedBookState extends State<PagedBook> {
         child: LayoutBuilder(
         builder: (context, box) {
           final size = Size(box.maxWidth, box.maxHeight);
-          final cut = Object.hash(widget.look.key, size, widget.spread, widget.textDirection);
+          final cut = Object.hash(_look.key, size, widget.spread, widget.textDirection);
           if (cut != _cutAt) {
             _cutAt = cut;
             _size = size;
@@ -923,7 +958,7 @@ class _PagedBookState extends State<PagedBook> {
     if (page == null) return const SizedBox.shrink();
     final pages = _pagesOf(page.chapter);
     final number = pages.indexOf(page) + 1;
-    final look = widget.look;
+    final look = _look;
     final margin = _sideFor;
     final unitsLeft = _wordsLeft(page);
     final minutes = (unitsLeft / _readingWpm).ceil();
@@ -1007,7 +1042,7 @@ class _PagedBookState extends State<PagedBook> {
   }
 
   Widget _pieceView(BuildContext context, _Piece p, {required bool last}) {
-    final look = widget.look;
+    final look = _look;
     switch (p.kind) {
       case _Kind.label:
         final label = widget.chapterLabel?.call(_l.items[p.item].chapter) ?? '';

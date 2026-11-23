@@ -9,7 +9,7 @@ import 'package:flutter/foundation.dart' show ValueNotifier, visibleForTesting;
 import 'package:flutter/services.dart' show BackgroundIsolateBinaryMessenger, MethodChannel, RootIsolateToken;
 import 'package:tomevoice_document/tomevoice_document.dart';
 
-import 'book_search.dart' show foldForSearch;
+import 'book_search.dart' show FoundPassage, PassageFind, foldForSearch, searchTexts;
 import 'index_file.dart';
 import 'journal.dart';
 import 'marks.dart';
@@ -137,6 +137,7 @@ class LibraryStore {
   Future<void> _change(List<LibraryEntry> Function(List<LibraryEntry> entries) change, {bool place = false}) async {
     await index();
     if (_held) return;
+    final before = place ? null : {for (final e in _known!.entries) e.id};
     var next = change([..._known!.entries]);
     // A book come or gone, moved or put in a series: the series titles
     // share are found again (a place saved changes none).
@@ -144,6 +145,114 @@ class LibraryStore {
     next.sort((a, b) => b.lastTouched.compareTo(a.lastTouched));
     _known = LibraryIndex(entries: next, categories: _categories, defaultCategory: _defaultCategory);
     await _write(next, place: place);
+    // A book added again whose memory was kept when it was removed: it
+    // has it back.
+    if (before != null) await _bringBackMemories([for (final e in next) if (!before.contains(e.id)) e.id]);
+  }
+
+  // ---- memories kept from removed books
+
+  /// Where the memories of removed books are kept, when the reader chose to
+  /// keep them: a folder each, named by the book's id, holding its memory
+  /// (memory.db, as in the book's own folder) and what the book was
+  /// (kept.json). A book's id is its file's content (a web novel's, its
+  /// site and address), so the same book added again has the same id, and
+  /// its memory is moved back into its folder.
+  Directory get _keptDir => Directory('${root.path}/kept-memories');
+
+  Directory _keptFor(String id) {
+    if (!isBookId(id)) throw ArgumentError.value(id, 'id', 'not a book id');
+    return Directory('${_keptDir.path}/$id');
+  }
+
+  /// A kept memory that came back to its book (its id), for the memory's
+  /// state to be read again.
+  final memoryBack = ValueNotifier<String?>(null);
+
+  /// The memories kept from removed books, the most recently kept first.
+  Future<List<KeptMemory>> keptMemories() async {
+    final dir = _keptDir;
+    if (!await dir.exists()) return const [];
+    final out = <KeptMemory>[];
+    await for (final d in dir.list()) {
+      if (d is! Directory) continue;
+      final id = d.uri.pathSegments.lastWhere((s) => s.isNotEmpty);
+      if (!isBookId(id) || !File('${d.path}/memory.db').existsSync()) continue;
+      Map<String, Object?> about = const {};
+      try {
+        about = (jsonDecode(await File('${d.path}/kept.json').readAsString()) as Map).cast<String, Object?>();
+      } on Object {
+        // Its note lost: still listed, under no name.
+      }
+      out.add(KeptMemory(
+        id: id,
+        title: about['title'] as String? ?? 'A removed book',
+        author: about['author'] as String? ?? '',
+        chapters: (about['chapters'] as num?)?.toInt() ?? 0,
+        keptAt: DateTime.tryParse(about['keptAt'] as String? ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
+      ));
+    }
+    out.sort((a, b) => b.keptAt.compareTo(a.keptAt));
+    return out;
+  }
+
+  /// A kept memory deleted, for good.
+  Future<void> deleteKeptMemory(String id) async {
+    final d = _keptFor(id);
+    if (await d.exists()) await d.delete(recursive: true);
+  }
+
+  /// Book [e]'s memory moved out of its folder before the folder goes, with
+  /// what it was ([chapters], how far it was built), so Book memories can
+  /// name it. A memory kept before for the same book gives way to this one.
+  Future<void> _keepMemory(LibraryEntry e, {required int chapters}) async {
+    final src = File('${bookDir(e.id)}/memory.db');
+    if (!await src.exists()) return;
+    final to = _keptFor(e.id);
+    if (await to.exists()) await to.delete(recursive: true);
+    await to.create(recursive: true);
+    try {
+      await src.rename('${to.path}/memory.db');
+    } on FileSystemException {
+      await src.copy('${to.path}/memory.db');
+      await src.delete();
+    }
+    await writeSafely(
+      File('${to.path}/kept.json'),
+      jsonEncode({
+        'title': e.title.replaceAll('\n', ' '),
+        'author': e.authors.join(', '),
+        'chapters': chapters,
+        'keptAt': DateTime.now().toIso8601String(),
+      }),
+    );
+  }
+
+  /// The kept memories of books [ids], just added, moved back into their
+  /// folders (unless a book has a memory of its own by now).
+  Future<void> _bringBackMemories(List<String> ids) async {
+    if (ids.isEmpty || !_keptDir.existsSync()) return;
+    for (final id in ids) {
+      if (!isBookId(id)) continue;
+      final kept = File('${_keptFor(id).path}/memory.db');
+      if (!kept.existsSync()) continue;
+      final dst = File('${bookDir(id)}/memory.db');
+      if (dst.existsSync()) continue;
+      try {
+        await dst.parent.create(recursive: true);
+        try {
+          await kept.rename(dst.path);
+        } on FileSystemException {
+          await kept.copy(dst.path);
+          await kept.delete();
+        }
+        await _keptFor(id).delete(recursive: true);
+        memoryBack.value = null;
+        memoryBack.value = id;
+      } on FileSystemException {
+        // Left where it is: Book memories still lists it.
+      }
+    }
   }
 
   // Categories as last read or written; every public method reads the index
@@ -250,6 +359,9 @@ class LibraryStore {
   /// (a size of -1: there was none).
   (DateTime, int)? _seen;
 
+  /// Writes of the index under way (see [_rereadIfChanged]).
+  int _writing = 0;
+
   (DateTime, int) _stamp() {
     final s = _indexFile.statSync();
     return s.type == FileSystemEntityType.notFound ? (DateTime(0), -1) : (s.modified, s.size);
@@ -262,6 +374,11 @@ class LibraryStore {
   void _rereadIfChanged() {
     final seen = _seen;
     if (seen == null) return;
+    // A write of our own is landing: the file on disk is already new while
+    // [_seen] is set only once the write's answer comes back. Read now, it
+    // would look like another copy's and drop a change still waiting to be
+    // written after it.
+    if (_writing > 0) return;
     try {
       final now = _stamp();
       if (now == seen || now.$2 < 0) return;
@@ -391,6 +508,7 @@ class LibraryStore {
     // What is written now holds every place kept here so far.
     final written = Map.of(_unwritten);
     _unwritten.clear();
+    _writing++;
     try {
       // One write at a time, each to its own temp file (two writes sharing
       // one temp name could interleave into invalid JSON, read back as no
@@ -410,6 +528,8 @@ class LibraryStore {
       written.forEach((id, p) => _unwritten.putIfAbsent(id, () => p));
       if (_unwritten.isNotEmpty && _window == null) _openWindow();
       rethrow;
+    } finally {
+      _writing--;
     }
     _seen = _stamp();
     if (place) {
@@ -565,28 +685,31 @@ class LibraryStore {
       final info = WebNovelInfo(
           plugin: plugin, novel: novel, chapters: novel.chapters, checkedAt: DateTime.now(), filed: true);
       if (before == null) {
-        await writeSafely(File('${dir.path}/novel.json'), jsonEncode(info.toJson()));
+        await _writeNovel(id, info);
       } else {
         await _replaceChapters(id, before, info);
         await _discardOffered(id);
       }
     });
-    String? cover;
-    final url = novel.cover;
-    if (url != null && url.startsWith('http')) {
-      try {
-        // With the source's own cookies, as its covers in Browse are
-        // (NetImage), not the app's.
-        final r = await Net.instance.request(url, headers: {'Referer': plugin.site}, partition: plugin.id);
-        if (r.ok && r.bytes.length > 200) {
-          final img = Directory('${dir.path}/img')..createSync(recursive: true);
-          final f = File('${img.path}/cover${_imageExt(r.headers['content-type'], url)}');
-          await f.writeAsBytes(r.bytes);
-          cover = f.path;
+    // Waited for a moment, not for as long as a slow site takes (the add
+    // hung up to a minute on one): still coming, it is put on the book when
+    // it comes.
+    final fetching = _fetchCover(plugin, novel.cover, dir);
+    var came = true;
+    final cover = await fetching.timeout(coverWait, onTimeout: () {
+      came = false;
+      return null;
+    });
+    if (!came) {
+      unawaited(() async {
+        final c = await fetching;
+        if (c == null) return;
+        try {
+          await _change((entries) => [for (final e in entries) e.id == id ? e.copyWith(cover: c) : e]);
+        } on Object {
+          // A drawn cover will do.
         }
-      } on Object {
-        // A drawn cover will do.
-      }
+      }());
     }
     late LibraryEntry entry;
     await _change((existing) {
@@ -600,6 +723,7 @@ class LibraryStore {
         sourcePath: '',
         addedAt: previous?.addedAt ?? DateTime.now(),
         openedAt: previous?.openedAt,
+        movedAt: previous?.movedAt,
         cursor: previous?.cursor ?? ReadingCursor.zero,
         progress: previous?.progress ?? 0,
         where: previous?.where,
@@ -624,14 +748,86 @@ class LibraryStore {
     return entry;
   }
 
+  /// How long adding a web novel waits for its cover (see [addWebNovel]).
+  @visibleForTesting
+  static Duration coverWait = const Duration(seconds: 4);
+
+  /// The cover at [url] saved into book folder [dir]; null for none.
+  Future<String?> _fetchCover(PluginInfo plugin, String? url, Directory dir) async {
+    if (url == null || !url.startsWith('http')) return null;
+    try {
+      // With the source's own cookies, as its covers in Browse are
+      // (NetImage), not the app's.
+      final r = await Net.instance.request(url, headers: {'Referer': plugin.site}, partition: plugin.id);
+      if (!r.ok || r.bytes.length <= 200) return null;
+      final img = Directory('${dir.path}/img')..createSync(recursive: true);
+      final f = File('${img.path}/cover${_imageExt(r.headers['content-type'], url)}');
+      await f.writeAsBytes(r.bytes);
+      return f.path;
+    } on Object {
+      // A drawn cover will do.
+      return null;
+    }
+  }
+
+  /// Each web novel's novel.json as last read, with the file's time and
+  /// size then: a downloaded chapter, the update check and the novel's page
+  /// each ask for it, and a 3,000-chapter list is hundreds of KB to decode.
+  /// Dropped on every write of the store's own ([_novelWritten]); a write
+  /// from elsewhere (the engine that checks away from the app, a restore)
+  /// changes the file's time or size.
+  final _novels = <String, ({DateTime at, int size, WebNovelInfo info})>{};
+
+  /// novel.json files bigger than this are decoded away from the UI.
+  static const _novelOffThread = 64 * 1024;
+
+  /// [query] in web novel [id]'s chapters on the phone, searched on a
+  /// background isolate a few dozen chapters at a time (see
+  /// [_findInWebSync]): Find a passage on its page, which loaded every
+  /// chapter into one layout first.
+  Future<PassageFind> findInWebNovel(String id, String query, {bool wholeWords = false, int limit = 2000}) {
+    final dir = bookDir(id);
+    final chapters = downloadedChapters(id).toList()..sort();
+    return _runFindInWeb(dir, id, chapters, query, wholeWords, limit);
+  }
+
   /// The stored details and chapter list of web novel [id].
   Future<WebNovelInfo?> webNovel(String id) async {
     final f = File('${bookDir(id)}/novel.json');
-    if (!await f.exists()) return null;
+    final FileStat stat;
     try {
-      return WebNovelInfo.fromJson(Map<String, Object?>.from(jsonDecode(await f.readAsString()) as Map));
+      stat = await f.stat();
     } on Object {
+      _novels.remove(id);
       return null;
+    }
+    if (stat.type == FileSystemEntityType.notFound) {
+      _novels.remove(id);
+      return null;
+    }
+    final known = _novels[id];
+    if (known != null && known.at == stat.modified && known.size == stat.size) return known.info;
+    try {
+      final text = await f.readAsString();
+      final info = text.length > _novelOffThread ? await _runDecodeNovel(text) : decodeWebNovel(text);
+      _novels[id] = (at: stat.modified, size: stat.size, info: info);
+      return info;
+    } on Object {
+      _novels.remove(id);
+      return null;
+    }
+  }
+
+  /// Web novel [id]'s novel.json was just written by this store: read again
+  /// next time.
+  void _novelWritten(String id) => _novels.remove(id);
+
+  /// Write [info] as web novel [id]'s novel.json.
+  Future<void> _writeNovel(String id, WebNovelInfo info) async {
+    try {
+      await writeSafely(File('${bookDir(id)}/novel.json'), jsonEncode(info.toJson()));
+    } finally {
+      _novelWritten(id);
     }
   }
 
@@ -670,12 +866,11 @@ class LibraryStore {
     var verdict = judgeChapterList(info.chapters, fresh, complete: complete);
     if (force && fresh.isNotEmpty && verdict.refused) verdict = const ListVerdict(ListChange.taken);
     final now = DateTime.now();
-    final file = File('${bookDir(id)}/novel.json');
     switch (verdict.change) {
       case ListChange.same:
         // Checked (so the novel's page need not ask again for a while), and
         // nothing came of it; a refusal recorded earlier no longer holds.
-        await writeSafely(file, jsonEncode(info.copyWith(checkedAt: now, clearRefusal: true).toJson()));
+        await _writeNovel(id, info.copyWith(checkedAt: now, clearRefusal: true));
         if (info.refusal != null) await _discardOffered(id);
       case ListChange.taken:
         await _replaceChapters(id, info, info.copyWith(chapters: fresh, checkedAt: now, clearRefusal: true));
@@ -685,7 +880,7 @@ class LibraryStore {
         }
       case ListChange.refused:
         final refusal = ListRefusal(why: verdict.why ?? '', at: now, count: fresh.length, offered: verdict.offered);
-        await writeSafely(file, jsonEncode(info.copyWith(refusal: refusal).toJson()));
+        await _writeNovel(id, info.copyWith(refusal: refusal));
         if (verdict.offered) {
           await writeSafely(_offeredFile(id), jsonEncode([for (final c in fresh) c.toJson()]));
         } else {
@@ -748,13 +943,12 @@ class LibraryStore {
   /// novel opens. Under the novel's lock ([withNovelLock]): no chapter is
   /// saved between the list and its downloads.
   Future<void> _replaceChapters(String id, WebNovelInfo before, WebNovelInfo next) async {
-    final file = File('${bookDir(id)}/novel.json');
     final moves = _refileMoves(before.chapters, next.chapters);
     final orphans = Directory('${bookDir(id)}/ch/orphaned').existsSync();
-    await writeSafely(file, jsonEncode(next.copyWith(filed: moves.isEmpty).toJson()));
+    await _writeNovel(id, next.copyWith(filed: moves.isEmpty));
     if (moves.isEmpty && !orphans) return;
     await _refile(id, moves, [for (final c in next.chapters) c.name]);
-    await writeSafely(file, jsonEncode(next.copyWith(filed: true).toJson()));
+    await _writeNovel(id, next.copyWith(filed: true));
   }
 
   /// Append [fresh] to web novel [id]'s stored list without touching the
@@ -764,10 +958,7 @@ class LibraryStore {
   /// app to take when it next checks).
   Future<bool> appendWebChapters(String id, WebNovelInfo info, List<ChapterItem> fresh) => withNovelLock(id, () async {
         if (!info.filed || _refileMoves(info.chapters, fresh).isNotEmpty) return false;
-        await writeSafely(
-          File('${bookDir(id)}/novel.json'),
-          jsonEncode(info.copyWith(chapters: fresh, checkedAt: DateTime.now(), clearRefusal: true).toJson()),
-        );
+        await _writeNovel(id, info.copyWith(chapters: fresh, checkedAt: DateTime.now(), clearRefusal: true));
         return true;
       });
 
@@ -812,7 +1003,7 @@ class LibraryStore {
     _downloads.remove(id);
     await _followMoves(id, moves);
     final next = info.copyWith(filed: true);
-    await writeSafely(File('${bookDir(id)}/novel.json'), jsonEncode(next.toJson()));
+    await _writeNovel(id, next);
     return next;
   }
 
@@ -1058,6 +1249,7 @@ class LibraryStore {
         throw ScannedPdf(e.message, OcrOffer(path: file.path, name: file.name, pdf: pdf, language: language));
       }
       final entry = made.entry;
+      _forgetLayout(entry.id);
       if (made.note != null) {
         if (onScan != null) {
           onScan(OcrOffer(path: entry.sourcePath, name: file.name, pdf: pdf!, bookId: entry.id, language: entry.language));
@@ -1076,6 +1268,7 @@ class LibraryStore {
                   cursor: previous.cursor,
                   progress: previous.progress,
                   openedAt: previous.openedAt,
+                  movedAt: previous.movedAt,
                   where: previous.where,
                   category: previous.category,
                 )
@@ -1111,6 +1304,7 @@ class LibraryStore {
     // over it from the moment that begins (see [saveCursor]). The job's
     // folder is named for its book.
     final id = Directory(jobDir).uri.pathSegments.lastWhere((s) => s.isNotEmpty);
+    _forgetLayout(id);
     final was = _remade[id];
     _remade[id] = (was ?? 0) + 1;
     final LibraryEntry made;
@@ -1137,6 +1331,7 @@ class LibraryStore {
                 cursor: place,
                 progress: previous.progress,
                 openedAt: previous.openedAt,
+                movedAt: previous.movedAt,
                 where: previous.where,
                 category: previous.category,
               )
@@ -1205,6 +1400,7 @@ class LibraryStore {
     BookMetadata? details,
   }) async {
     await ensure();
+    _forgetLayout(id);
     final made = await _runMade((
       dir: bookDir(id),
       id: id,
@@ -1224,6 +1420,7 @@ class LibraryStore {
                 cursor: previous.cursor,
                 progress: previous.progress,
                 openedAt: previous.openedAt,
+                movedAt: previous.movedAt,
                 where: previous.where,
                 category: previous.category,
               )
@@ -1267,15 +1464,28 @@ class LibraryStore {
       _madeAt[layout] = _remade[id] ?? 0;
       return layout;
     }
+    final rule = entry == null ? null : (entry.source == SourceKind.text ? entry.textChapters : const TextChapters.auto());
     // A PDF read by an older PDF reader is read again from its file, once:
     // its text from the platform, the book built anew, the place carried.
     Map<String, Object?>? pdf;
     final source = entry?.sourcePath;
-    if (entry != null &&
+    final pdfAgain = entry != null &&
         entry.source == SourceKind.pdf &&
         entry.pdfParser < pdfParserVersion &&
         source != null &&
-        File(source).existsSync()) {
+        File(source).existsSync();
+    // Opened again (or asked for by the AI helpers): the layout made last
+    // time, if nothing it was made from has changed.
+    if (entry != null && rule != null && !pdfAgain) {
+      final kept = await _keptLayout(id, notes, rule);
+      if (kept != null) {
+        _madeAt[kept] = _remade[id] ?? 0;
+        if (kept.book.narration != null) BookNarrationReader.files[id] = entry.sourcePath;
+        return kept;
+      }
+    }
+    final epoch = _layoutEpoch;
+    if (pdfAgain) {
       try {
         // A scan read by OCR is made again from the text OCR gave it, kept
         // with the book: its pages are never read again.
@@ -1291,12 +1501,13 @@ class LibraryStore {
       pdf: pdf,
       token: RootIsolateToken.instance,
       notes: notes,
-      chapters: entry == null ? null : (entry.source == SourceKind.text ? entry.textChapters : const TextChapters.auto()),
+      chapters: rule,
     );
     final (:layout, :remade) = await _runLoad(job);
     // Made again as it opened: a layout loaded before is the old making's.
     if (remade) _remade[id] = (_remade[id] ?? 0) + 1;
     _madeAt[layout] = _remade[id] ?? 0;
+    if (entry != null && rule != null) await _keepLayout(id, notes, rule, layout, epoch);
     // A book with its own narration plays its audio from its EPUB.
     if (layout.book.narration != null && entry != null) BookNarrationReader.files[id] = entry.sourcePath;
     // A book read again carried its place across in cursor.json (see
@@ -1520,19 +1731,32 @@ class LibraryStore {
     String? where,
     DateTime? at,
     ReadingLayout? layout,
+    ReadingCursor? from,
   }) async {
     // Not even its cursor.json, nor its folder, while a restore is under way:
     // the books are being swapped beneath.
     if (_held) return;
     final made = layout == null ? null : _madeAt[layout];
     if (made != null && made != (_remade[id] ?? 0)) return;
+    await index();
+    final was = _known?.entries.where((e) => e.id == id).firstOrNull;
+    // [from]: the place the caller last knew saved, not moved from since. The
+    // place here is no longer that: another phone's further place came in
+    // (sync) while the book was open. Saved, the place it was opened at went
+    // back over it.
+    if (from != null && was != null && !_samePlace(was.cursor, from)) return;
     final dir = Directory(bookDir(id));
     // Made once a run, not once a sentence.
     if (_madeDirs.add(id)) await dir.create(recursive: true);
     if (_held) return;
-    final place = _Place(cursor, progress, where, at ?? DateTime.now(), taken: at != null);
+    final now = at ?? DateTime.now();
+    // Opened and left where it was: when it last moved stays (sync compares
+    // by it). Stamped with every opening, a phone that only opened a book
+    // sent its old place on as the newest, over a further one made elsewhere.
+    final kept = was != null && _samePlace(was.cursor, cursor) ? (was.movedAt ?? was.openedAt) : null;
+    final place = _Place(cursor, progress, where, now,
+        taken: at != null, moved: kept != null && kept.isBefore(now) ? kept : null);
     await writeSafely(File('${dir.path}/cursor.json'), jsonEncode(place.toJson()));
-    await index();
     if (_held || !_keepPlace(id, place)) return;
     placeChanges.value++;
     if (_window == null) {
@@ -1544,9 +1768,14 @@ class LibraryStore {
   // ---------------------------------------------------------------- places
 
   /// How long after a place is written into library.json the places saved
-  /// next wait, at most, to be written together (see [saveCursor]).
+  /// next wait, at most, to be written together (see [saveCursor]). Read
+  /// aloud, a place is saved about once a sentence: at 5 s the whole index
+  /// (hundreds of KB) was written 720 times an hour, for nothing a crash
+  /// needs (each place is in its cursor.json at once). What reads the index
+  /// away from the app (the widgets, the resume card) is at most this late,
+  /// and up to date as soon as the reading pauses or the app is put away.
   @visibleForTesting
-  Duration placeWindow = const Duration(seconds: 5);
+  Duration placeWindow = const Duration(seconds: 30);
 
   /// Places saved and not yet written into library.json, by book. They are
   /// in [_known] already, and in each book's cursor.json.
@@ -1594,6 +1823,9 @@ class LibraryStore {
     _window = null;
     _unwritten.clear();
     _madeDirs.clear();
+    _layoutEpoch++;
+    _layouts.clear();
+    _novels.clear();
   }
 
   /// Books whose folder a place has been saved into in this run.
@@ -1604,6 +1836,81 @@ class LibraryStore {
   /// was made at (see [saveCursor]).
   final _remade = <String, int>{};
   final _madeAt = Expando<int>('made');
+
+  /// The last books laid out (not web novels, whose layouts follow their
+  /// downloads and window), newest first: opening a book again, and the AI
+  /// helpers asking where the reader is, need not parse the whole book
+  /// again. Each is kept with what it was made from: parsed.json's time and
+  /// size, the notes-aloud choice, the chapter rule and the times the book
+  /// was made again ([_remade]); any of them changed, it is made afresh.
+  final _layouts = <_KeptLayout>[];
+  static const _layoutsKept = 2;
+
+  /// Book [id]'s kept layout is no longer its own.
+  void _dropLayout(String id) => _layouts.removeWhere((kept) => kept.id == id);
+
+  /// Counts [_forgetLayout]s: a layout that was being made while one came
+  /// is not kept.
+  var _layoutEpoch = 0;
+
+  /// Book [id] was imported, made again, replaced or removed: its kept
+  /// layout goes, and one being made meanwhile is not kept.
+  void _forgetLayout(String id) {
+    _layoutEpoch++;
+    _dropLayout(id);
+  }
+
+  Future<ReadingLayout?> _keptLayout(String id, bool notes, TextChapters chapters) async {
+    final k = _layouts.where((kept) => kept.id == id).firstOrNull;
+    if (k == null) return null;
+    final FileStat stat;
+    try {
+      stat = await File('${bookDir(id)}/parsed.json').stat();
+    } on Object {
+      _dropLayout(id);
+      return null;
+    }
+    if (k.notes != notes ||
+        k.chapters != chapters ||
+        k.remade != (_remade[id] ?? 0) ||
+        k.at != stat.modified ||
+        k.size != stat.size ||
+        stat.type == FileSystemEntityType.notFound) {
+      _dropLayout(id);
+      return null;
+    }
+    // Newest first.
+    _layouts
+      ..remove(k)
+      ..insert(0, k);
+    return k.layout;
+  }
+
+  Future<void> _keepLayout(String id, bool notes, TextChapters chapters, ReadingLayout layout, int epoch) async {
+    _dropLayout(id);
+    try {
+      final stat = await File('${bookDir(id)}/parsed.json').stat();
+      if (stat.type == FileSystemEntityType.notFound || epoch != _layoutEpoch) return;
+      _dropLayout(id);
+      _layouts.insert(
+        0,
+        _KeptLayout(
+          id: id,
+          notes: notes,
+          chapters: chapters,
+          remade: _remade[id] ?? 0,
+          at: stat.modified,
+          size: stat.size,
+          layout: layout,
+        ),
+      );
+      while (_layouts.length > _layoutsKept) {
+        _layouts.removeLast();
+      }
+    } on Object {
+      // Not kept: made again next time.
+    }
+  }
 
   /// [place] for book [id] in the copy here, to be written; false if the
   /// book is not in the library (removed meanwhile).
@@ -1691,8 +1998,18 @@ class LibraryStore {
   /// shelf's: those go first, with the book. Kept, they showed in Saved and
   /// in exports with the shelf shut, as the book was no longer on it to hide
   /// them, and travelled in every backup.
-  Future<void> remove(String id) async {
+  ///
+  /// With [keepMemory] (never for a secret book, which takes everything with
+  /// it), its book memory is kept aside first, and comes back if the same
+  /// book is added again (see [keptMemories]); [memoryChapters] is how far
+  /// it was built, to say so. Its building must have stopped
+  /// (MemoryService.letGo).
+  Future<void> remove(String id, {bool keepMemory = false, int memoryChapters = 0}) async {
     await index(all: true);
+    if (keepMemory && !isSecret(id)) {
+      final e = _known!.entries.where((e) => e.id == id).firstOrNull;
+      if (e != null) await _keepMemory(e, chapters: memoryChapters);
+    }
     if (isSecret(id)) {
       await MarkStore.instance.removeBook(id);
       await JournalStore.instance.removeBook(id);
@@ -1708,6 +2025,8 @@ class LibraryStore {
       _downloads.remove(id);
     });
     _madeDirs.remove(id);
+    _forgetLayout(id);
+    _novelWritten(id);
     await _change((entries) => [for (final e in entries) if (e.id != id) e]);
   }
 
@@ -1735,6 +2054,7 @@ class LibraryStore {
             cursor: cursor,
             progress: old.progress,
             openedAt: old.openedAt,
+            movedAt: old.movedAt,
             where: old.where,
             category: old.category,
           )
@@ -1750,6 +2070,7 @@ class LibraryStore {
     });
     await saveCursor(fresh.id, cursor, old.progress, where: old.where);
     final dir = Directory(bookDir(old.id));
+    _forgetLayout(old.id);
     try {
       if (await dir.exists()) await dir.delete(recursive: true);
     } on FileSystemException {
@@ -1802,6 +2123,45 @@ Future<void> _runRefile(String dir, Map<int, int> moves, List<String> names) => 
     });
 
 Future<Map<int, int>> _runSettle(String dir, List<String> names) => Isolate.run(() => _settleSync(dir, names));
+
+Future<WebNovelInfo> _runDecodeNovel(String text) => Isolate.run(() => decodeWebNovel(text));
+
+// Top-level, as the others: the closure captures only what it is given.
+Future<PassageFind> _runFindInWeb(String dir, String id, List<int> chapters, String query, bool wholeWords, int limit) =>
+    Isolate.run(() => _findInWebSync(dir, id, chapters, query, wholeWords, limit));
+
+/// How many chapter files [_findInWebSync] lays out at a time.
+const _findBatch = 40;
+
+/// [query] in web novel [id]'s downloaded [chapters], laid out
+/// [_findBatch] at a time, so only the matches are ever kept, not every
+/// chapter at once (3,000 of them is millions of words).
+PassageFind _findInWebSync(String dir, String id, List<int> chapters, String query, bool wholeWords, int limit) {
+  final info = decodeWebNovel(File('$dir/novel.json').readAsStringSync());
+  final found = <FoundPassage>[];
+  for (var b = 0; b < chapters.length && found.length < limit; b += _findBatch) {
+    final batch = chapters.sublist(b, math.min(b + _findBatch, chapters.length)).toSet();
+    final layout = _loadWebSync(dir, id, chapters: batch, known: info);
+    final texts = [for (final u in layout.units) u.text];
+    for (final h in searchTexts(texts, query, wholeWords: wholeWords, limit: limit - found.length)) {
+      final unit = layout.units[h.unit];
+      final chapter = unit.sectionIndex;
+      found.add(FoundPassage(
+        chapter: chapter,
+        title: chapter < info.chapters.length ? info.chapters[chapter].name : 'Chapter ${chapter + 1}',
+        at: cursorOf(unit),
+        text: unit.text,
+        start: h.start,
+        end: h.end,
+      ));
+    }
+  }
+  return (found: found, searched: chapters.length, all: info.chapters.length);
+}
+
+/// A novel.json's text, decoded.
+WebNovelInfo decodeWebNovel(String text) =>
+    WebNovelInfo.fromJson(Map<String, Object?>.from(jsonDecode(text) as Map));
 
 Future<bool> _runPutBack(String from, String to, List<(String, String)> moves) =>
     Isolate.run(() => _putBackSync(from, to, moves));
@@ -2575,10 +2935,15 @@ Set<int> webWindow(int at, int count, bool Function(int chapter) have, {int befo
 ReadingLayout loadWebChaptersSync(String dir, String id, Set<int> chapters) =>
     _loadWebSync(dir, id, chapters: chapters);
 
-ReadingLayout _loadWebSync(String dir, String id, {int? around, Set<int>? chapters, bool notes = false}) {
-  final info = WebNovelInfo.fromJson(
-    Map<String, Object?>.from(jsonDecode(File('$dir/novel.json').readAsStringSync()) as Map),
-  );
+ReadingLayout _loadWebSync(
+  String dir,
+  String id, {
+  int? around,
+  Set<int>? chapters,
+  bool notes = false,
+  WebNovelInfo? known,
+}) {
+  final info = known ?? decodeWebNovel(File('$dir/novel.json').readAsStringSync());
   final sections = <Section>[];
   // Lines the reader chose not to hear, from rules.json at the library root.
   final skip = ReadingRules.skipTextsSync(Directory(dir).parent.parent.path, info.plugin.id);
@@ -2729,18 +3094,45 @@ Future<({ReadingLayout layout, bool remade})> _loadLayout(_LoadJob job) async {
   return (layout: layout, remade: remade);
 }
 
+/// A layout [LibraryStore.loadLayout] made, and what it was made from.
+class _KeptLayout {
+  const _KeptLayout({
+    required this.id,
+    required this.notes,
+    required this.chapters,
+    required this.remade,
+    required this.at,
+    required this.size,
+    required this.layout,
+  });
+
+  final String id;
+  final bool notes;
+  final TextChapters chapters;
+  final int remade;
+  final DateTime at;
+  final int size;
+  final ReadingLayout layout;
+}
+
 bool _samePlace(ReadingCursor a, ReadingCursor b) =>
     a.sectionIndex == b.sectionIndex && a.blockIndex == b.blockIndex && a.sentenceIndex == b.sentenceIndex;
 
 /// A reading place as it is saved: where, how far, the chapter it is in,
 /// and when (cursor.json holds all four).
 class _Place {
-  const _Place(this.cursor, this.progress, this.where, this.at, {this.opened = true, this.taken = false});
+  const _Place(this.cursor, this.progress, this.where, this.at, {this.opened = true, this.taken = false, this.moved});
 
   final ReadingCursor cursor;
   final double progress;
   final String? where;
   final DateTime at;
+
+  /// When this place was moved to, if before [at]: the book was opened and
+  /// left where it was (see LibraryEntry.movedAt). Null: at [at].
+  final DateTime? moved;
+
+  DateTime get movedAt => moved ?? at;
 
   /// Whether saving it was opening the book (a place saved by an older
   /// build, recovered, says nothing of when).
@@ -2754,6 +3146,7 @@ class _Place {
         'progress': progress,
         if (where != null) 'where': where,
         'at': at.toIso8601String(),
+        if (moved != null) 'moved': moved!.toIso8601String(),
       };
 
   /// [e] at this place. A place taken in moves when the book was opened
@@ -2761,7 +3154,13 @@ class _Place {
   LibraryEntry onto(LibraryEntry e) {
     final was = e.openedAt;
     final opens = opened && !(taken && was != null && !at.isAfter(was));
-    return e.copyWith(cursor: cursor, progress: progress, where: where, openedAt: opens ? at : null);
+    return e.copyWith(
+      cursor: cursor,
+      progress: progress,
+      where: where,
+      openedAt: opens ? at : null,
+      movedAt: opened ? movedAt : null,
+    );
   }
 
   /// A cursor.json's place, [raw], when it is later than [e]'s own: saved
@@ -2780,7 +3179,8 @@ class _Place {
     // At the same moment (a coarse clock) only another place is later.
     final opened = e.openedAt;
     if (opened != null && (at.isBefore(opened) || (at == opened && _samePlace(cursor, e.cursor)))) return null;
-    return _Place(cursor, progress, where, at);
+    final moved = DateTime.tryParse(raw['moved'] as String? ?? '');
+    return _Place(cursor, progress, where, at, moved: moved != null && moved.isBefore(at) ? moved : null);
   }
 }
 
@@ -2850,6 +3250,7 @@ class LibraryEntry {
     required this.sourcePath,
     required this.addedAt,
     this.openedAt,
+    this.movedAt,
     this.cursor = ReadingCursor.zero,
     this.progress = 0,
     this.where,
@@ -2878,6 +3279,11 @@ class LibraryEntry {
   final String sourcePath;
   final DateTime addedAt;
   final DateTime? openedAt;
+
+  /// When the place last moved: opening a book and leaving it where it was
+  /// moves [openedAt] (History) but not this. What sync compares places by;
+  /// null in an entry from an older build, where [openedAt] stands in.
+  final DateTime? movedAt;
   final ReadingCursor cursor;
   final double progress;
 
@@ -2987,6 +3393,7 @@ class LibraryEntry {
     double? progress,
     DateTime? openedAt,
     bool clearOpened = false,
+    DateTime? movedAt,
     String? where,
     String? cover,
     CoverMode? coverMode,
@@ -3012,6 +3419,7 @@ class LibraryEntry {
         sourcePath: sourcePath,
         addedAt: addedAt,
         openedAt: clearOpened ? null : (openedAt ?? this.openedAt),
+        movedAt: clearOpened ? null : (movedAt ?? this.movedAt),
         cursor: cursor ?? this.cursor,
         progress: progress ?? this.progress,
         where: where ?? this.where,
@@ -3041,6 +3449,7 @@ class LibraryEntry {
         'sourcePath': sourcePath,
         'addedAt': addedAt.toIso8601String(),
         if (openedAt != null) 'openedAt': openedAt!.toIso8601String(),
+        if (movedAt != null) 'movedAt': movedAt!.toIso8601String(),
         'cursor': cursor.toJson(),
         'progress': progress,
         if (where != null) 'where': where,
@@ -3076,6 +3485,7 @@ class LibraryEntry {
         addedAt: DateTime.tryParse(json['addedAt'] as String? ?? '') ??
             DateTime.fromMillisecondsSinceEpoch(0),
         openedAt: DateTime.tryParse(json['openedAt'] as String? ?? ''),
+        movedAt: DateTime.tryParse(json['movedAt'] as String? ?? ''),
         cursor: ReadingCursor.fromJson(
           Map<String, Object?>.from(json['cursor'] as Map? ?? const {}),
         ),
@@ -3354,4 +3764,24 @@ String _imageExt(String? contentType, String url) {
     if (u.endsWith(e)) return e;
   }
   return '.jpg';
+}
+
+/// A removed book's memory, kept for when the book is added again.
+class KeptMemory {
+  const KeptMemory({
+    required this.id,
+    required this.title,
+    required this.author,
+    required this.chapters,
+    required this.keptAt,
+  });
+
+  /// The book's id: the same book added again has it.
+  final String id;
+  final String title;
+  final String author;
+
+  /// How many chapters it was built from (0: not known).
+  final int chapters;
+  final DateTime keptAt;
 }

@@ -85,7 +85,7 @@ class AiKey {
   final Map<AiJob, String> models;
 
   /// The most tokens it may use in a day (null: no limit of the reader's).
-  /// Reached, it rests until midnight, and the next key takes over.
+  /// Reached (or about to be, by the next call), it rests until midnight.
   final int? dailyCap;
 
   AiEndpoint endpoint(AiJob job) => AiEndpoint(baseUrl: baseUrl, key: secret, model: models[job] ?? '');
@@ -158,6 +158,8 @@ class DayUse {
   int calls;
   int input;
   int output;
+
+  int get total => input + output;
 
   Map<String, Object?> toJson() => {'calls': calls, 'in': input, 'out': output};
 
@@ -474,11 +476,13 @@ class AiRing extends ChangeNotifier {
   /// How a rest for the daily limit is said, and known.
   static const dailyLimitReached = 'its daily limit of';
 
-  /// The soonest a resting key of [job] wakes, if all of them rest.
-  DateTime? wakesAt(AiJob job, {DateTime? now}) {
+  /// The soonest a resting key of [job] wakes, if all of them rest; of
+  /// those in [only], when only they may do it.
+  DateTime? wakesAt(AiJob job, {DateTime? now, Set<String>? only}) {
     final at = now ?? DateTime.now();
     DateTime? soonest;
     for (final k in forJob(job)) {
+      if (only != null && !only.contains(k.id)) continue;
       final s = stateOf(k.id);
       if (s.refused != null) continue;
       if (!s.restingAt(at)) return null;
@@ -520,6 +524,15 @@ class AiRing extends ChangeNotifier {
 
   bool _useDirty = false;
   Timer? _useTimer;
+
+  /// What was counted, written now: before the closed-app build's engine
+  /// ends, which came before the two-second timer did, so the last batch
+  /// of every hourly run was never counted against the daily limit.
+  Future<void> flush() async {
+    _useTimer?.cancel();
+    _useTimer = null;
+    await _saveUse();
+  }
 
   Future<void> _saveUse() async {
     final f = _useFile;

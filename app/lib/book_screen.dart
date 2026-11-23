@@ -408,8 +408,7 @@ class _BookScreenState extends State<BookScreen> with WhenShown<BookScreen> {
         ),
     ];
     return shownGate(Scaffold(
-      body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+      body: Ground(
         child: SafeArea(
           bottom: false,
           // Landscape on a phone: details beside the chapters, each scrolling

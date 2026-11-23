@@ -258,7 +258,9 @@ class KosyncClient {
       req.add(bytes);
     }
     final res = await req.close().timeout(const Duration(seconds: 30));
-    final text = await res.transform(utf8.decoder).join();
+    // The body has its own limit: a server that sends headers and then
+    // stalls would otherwise hold every later sync (they join this one).
+    final text = await res.transform(utf8.decoder).join().timeout(const Duration(seconds: 30));
     Object? body;
     try {
       body = text.isEmpty ? null : jsonDecode(text);
@@ -358,7 +360,9 @@ Future<({int sent, int taken})> syncKosync(
       var moved = false;
       if (remote != null &&
           remote.deviceId != device &&
-          remote.timestamp * 1000 > opened.millisecondsSinceEpoch &&
+          // Later than the place last moved here, not than the book was last
+          // opened: opened and left, it took nothing newer in.
+          remote.timestamp * 1000 > (e.movedAt ?? opened).millisecondsSinceEpoch &&
           remote.timestamp != mine['taken']) {
         final l = await book();
         final page = e.source == SourceKind.pdf ? int.tryParse(remote.progress) : null;

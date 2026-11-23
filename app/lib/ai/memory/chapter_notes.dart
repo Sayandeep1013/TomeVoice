@@ -193,8 +193,7 @@ List<Map<String, Object?>> _maps(Object? v) => [
 /// or with no summary, is an error, as is a reply that is not JSON; any
 /// other part that is wrong (an event with no words, a fact with no value)
 /// is left out rather than failing the chapter.
-List<ChapterNotes> parseChapterNotes(String reply, List<int> expected, {int passages = 1 << 30}) {
-  final v = jsonObjectIn(reply);
+Map<int, Map<String, Object?>> _byChapter(Map<String, Object?> v, List<int> expected) {
   final list = _maps(v['chapters']);
   // One chapter sent: its notes may come without the list round them.
   if (list.isEmpty && expected.length == 1 && v['summary'] != null) list.add({...v, 'ch': expected.single});
@@ -203,6 +202,29 @@ List<ChapterNotes> parseChapterNotes(String reply, List<int> expected, {int pass
     final ch = _int(c['ch']) ?? (i < expected.length ? expected[i] : null);
     if (ch != null) byCh[ch] = c;
   }
+  return byCh;
+}
+
+/// The chapters of [expected], from the first, that [reply] has notes for,
+/// up to the first it has not: those can be kept when the rest did not
+/// come (notes are merged in the story's order, so only a leading run).
+List<int> leadingChapters(String reply, List<int> expected) {
+  try {
+    final byCh = _byChapter(jsonObjectIn(reply), expected);
+    final lead = <int>[];
+    for (final e in expected) {
+      if (byCh[e]?['summary'] == null) break;
+      lead.add(e);
+    }
+    return lead;
+  } on NotesFormatException {
+    return const [];
+  }
+}
+
+List<ChapterNotes> parseChapterNotes(String reply, List<int> expected, {int passages = 1 << 30}) {
+  final v = jsonObjectIn(reply);
+  final byCh = _byChapter(v, expected);
   final missing = [for (final e in expected) if (byCh[e]?['summary'] == null) e];
   if (missing.isNotEmpty) {
     throw NotesFormatException(

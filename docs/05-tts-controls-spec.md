@@ -182,6 +182,16 @@ as silence when the sentence's PCM is encoded. Since 1.5.0, with a natural voice
 punctuation pause is how long the silence is in all, the voice's own pause included,
 not that much more (`topUp`): before, a comma paused twice.
 
+**As built (2.6.0).** "Shorter pauses when faster" (Fine-tune, on by default,
+`PipelineSettings.pausesFollowSpeed`): above 1x the silences we put in (word gap,
+punctuation, sentence and paragraph pauses) shrink by the square root of the speed
+(`pauseScaleAt`, `scheduler.dart`): 71% at 2x, 58% at 3x. Kept fixed, the 350 ms between
+sentences was heard as the reader lagging at 2x and over; scaled fully, it vanished at
+2.5x, the reason the default above was "not scaled". Below 1x nothing changes. A change
+of speed, voice or pauses is made audible once the changes stop coming (300 ms after the
+last tap), and one made while paused is made again from the sentence when it resumes
+(`PlaybackScheduler.remake`).
+
 ---
 
 ## 5.5 Volume, gain and loudness

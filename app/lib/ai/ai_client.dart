@@ -48,10 +48,16 @@ enum AiFailure {
 }
 
 class AiError implements Exception {
-  const AiError(this.kind, this.message, {this.retryAfter, this.status});
+  const AiError(this.kind, this.message, {this.retryAfter, this.status, this.slow = false});
 
   final AiFailure kind;
   final String message;
+
+  /// Given up on as too slow (no answer, or the answer stopped coming, for
+  /// [AiClient.timeout]): the provider may well have done the work, and
+  /// sending the same long prompt again, or to another key, pays for it
+  /// twice. A smaller request is the cure.
+  final bool slow;
 
   /// How long the key should rest, when the provider said or it can be told
   /// (a quota reset at the day's end).
@@ -161,6 +167,7 @@ class AiClient {
     int? maxTokens,
     double? temperature,
     void Function(String piece)? onText,
+    bool Function()? stopped,
   }) async {
     final body = <String, Object?>{
       'model': to.model,
@@ -182,7 +189,7 @@ class AiClient {
       }
       return parseChatReply(v, sent: messages);
     }
-    return _stream(res, messages, onText);
+    return _stream(res, messages, onText, stopped);
   }
 
   /// The models a key may use, by id, as the provider lists them.
@@ -211,8 +218,9 @@ class AiClient {
   }
 
   Future<HttpClientResponse> _send(AiEndpoint to, String path, Map<String, Object?>? body) async {
+    HttpClientRequest? req;
     try {
-      final req = body == null ? await _http.getUrl(to.path(path)) : await _http.postUrl(to.path(path));
+      req = body == null ? await _http.getUrl(to.path(path)) : await _http.postUrl(to.path(path));
       req.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${to.key}');
       req.headers.set(HttpHeaders.acceptHeader, 'application/json, text/event-stream');
       // OpenRouter shows the app's name on its own usage page; nothing of the
@@ -229,7 +237,9 @@ class AiClient {
     } on AiError {
       rethrow;
     } on TimeoutException {
-      throw const AiError(AiFailure.server, 'The provider took too long to answer');
+      // Given up on: the connection is closed, not left to run on.
+      req?.abort();
+      throw const AiError(AiFailure.server, 'The provider took too long to answer', slow: true);
     } on SocketException catch (e) {
       throw AiError(AiFailure.network, e.message);
     } on HandshakeException catch (e) {
@@ -239,15 +249,38 @@ class AiClient {
     }
   }
 
-  Future<String> _read(HttpClientResponse res) => res.transform(utf8.decoder).join().timeout(timeout);
+  /// The whole body as text. Whatever goes wrong while it comes (the
+  /// network dropped half way, Wi-Fi to mobile data, a stall) is an
+  /// [AiError], as for the request itself: anything else got past the
+  /// router and the builder, and a build stopped there with no word.
+  Future<String> _read(HttpClientResponse res) async {
+    try {
+      return await res.transform(utf8.decoder).join().timeout(timeout);
+    } on TimeoutException {
+      throw const AiError(AiFailure.server, 'The answer stopped coming', slow: true);
+    } on SocketException catch (e) {
+      throw AiError(AiFailure.network, e.message);
+    } on HandshakeException catch (e) {
+      throw AiError(AiFailure.network, e.message);
+    } on HttpException catch (e) {
+      throw AiError(AiFailure.network, e.message);
+    } on FormatException {
+      throw const AiError(AiFailure.server, 'The provider sent back text that could not be read');
+    }
+  }
 
-  Future<AiReply> _stream(HttpClientResponse res, List<Map<String, Object?>> sent, void Function(String) onText) async {
+  /// A streamed reply read as it comes. [stopped] true (the reader pressed
+  /// Stop, or closed Talk): the connection is let go at once, so the
+  /// provider stops writing, and stops billing, the rest.
+  Future<AiReply> _stream(HttpClientResponse res, List<Map<String, Object?>> sent, void Function(String) onText,
+      bool Function()? stopped) async {
     final text = StringBuffer();
     final calls = <int, ({String id, String name, StringBuffer args})>{};
     String? finish;
     AiUsage? usage;
     try {
       await for (final line in res.transform(utf8.decoder).transform(const LineSplitter()).timeout(timeout)) {
+        if (stopped != null && stopped()) break;
         if (!line.startsWith('data:')) continue;
         final data = line.substring(5).trim();
         if (data == '[DONE]') break;
@@ -288,7 +321,13 @@ class AiClient {
         }
       }
     } on TimeoutException {
-      throw const AiError(AiFailure.server, 'The answer stopped coming');
+      throw const AiError(AiFailure.server, 'The answer stopped coming', slow: true);
+    } on SocketException catch (e) {
+      throw AiError(AiFailure.network, e.message);
+    } on HandshakeException catch (e) {
+      throw AiError(AiFailure.network, e.message);
+    } on HttpException catch (e) {
+      throw AiError(AiFailure.network, e.message);
     }
     final whole = text.toString();
     return AiReply(

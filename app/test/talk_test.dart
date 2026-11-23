@@ -133,6 +133,30 @@ void main() {
       expect(items.where((i) => i.section == 'Latest chapters').map((i) => i.place!.chapter), [0, 1]);
     });
 
+    test('the story so far: the 250-chapter accounts, then only the 25-chapter ones they do not cover yet', () {
+      final path = _memory(tmp);
+      final m = MemoryDb.open(path);
+      void arc(int level, int from, int to, String s) =>
+          m.db.execute('INSERT INTO arcs(level, from_ch, to_ch, summary) VALUES (?, ?, ?, ?)', [level, from, to, s]);
+      arc(3, -1, -1, 'Book one.');
+      for (var from = 0; from < 275; from += 25) {
+        arc(1, from, from + 24, 'Arc $from.');
+      }
+      arc(2, 0, 249, 'The first 250.');
+      final at300 = [for (final r in storySoFar(m, 300)) '${r['summary']}'];
+      expect(at300, ['Book one.', 'The first 250.', 'Arc 250.']);
+      // Before the second level is made, the first level carries it.
+      expect([for (final r in storySoFar(m, 60)) '${r['summary']}'], ['Book one.', 'Arc 0.', 'Arc 25.']);
+      // Over the limit: the latest kept.
+      expect([for (final r in storySoFar(m, 300, maxChars: 20)) '${r['summary']}'], ['Book one.', 'Arc 250.']);
+      m.close();
+      final pack = buildPack(PackInput(path: path, question: 'What happened?', here: 300))
+          .where((i) => i.section == 'The story so far')
+          .map((i) => i.text);
+      expect(pack.where((t) => t.contains('Arc 0.')), isEmpty);
+      expect(pack.where((t) => t.contains('The first 250.')).length, 1);
+    });
+
     test('with the guard off, all it remembers: awakened, and the Weaver answered', () {
       final path = _memory(tmp);
       final text = buildPack(PackInput(path: path, question: 'Who is Sunny and what is the Weaver?', here: 4))
@@ -162,6 +186,28 @@ void main() {
       expect(pieces.length, greaterThan(2));
       expect(pieces.every((p) => p.length <= 240), isTrue);
       expect(pieces.join(' '), long);
+    });
+
+    test('citation marks in the forms models write, ranges spelled out', () {
+      final en = String.fromCharCode(0x2013);
+      List<int>? nums(String t) {
+        final m = citeMarks.allMatches('x $t y').toList();
+        return m.length == 1 && m.single.group(0) == t ? citeNumbers(t) : null;
+      }
+
+      expect(nums('[S3, S5]'), [3, 5]);
+      expect(nums('[S118${en}S119]'), [118, 119]);
+      expect(nums('[S118-121]'), [118, 119, 120, 121]);
+      expect(nums('[S4 to S6]'), [4, 5, 6]);
+      expect(nums('[S1; S2]'), [1, 2]);
+      expect(nums('[ S1 ]'), [1]);
+      expect(nums('[s7]'), [7]);
+      expect(nums('${String.fromCharCode(0x3010)}S9${String.fromCharCode(0x3011)}'), [9]);
+      expect(nums('[S1-S99]'), [1, 99], reason: 'a range over 30 keeps only its ends');
+      for (final t in ['[Sx]', '[1]', '[Sunny]', '[S3 dogs]']) {
+        expect(citeMarks.hasMatch(t), isFalse, reason: t);
+      }
+      expect(spokenAnswer('He left [S118${en}S119].'), 'He left.');
     });
 
     test("the tools keep to the line too", () {
@@ -459,6 +505,7 @@ class _Said extends TalkEngine {
     List<String> journal = const [],
     void Function(String piece)? onText,
     bool theory = false,
+    bool Function()? stopped,
   }) async =>
       TalkAnswer(text, cites);
 }

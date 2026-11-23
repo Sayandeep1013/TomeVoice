@@ -97,11 +97,29 @@ class MemoryDb {
   /// The memory at [path], made if it is not there yet.
   static MemoryDb open(String path) {
     File(path).parent.createSync(recursive: true);
-    final db = sqlite3.open(path);
-    final m = MemoryDb._(db, path);
-    m._setUp();
-    return m;
+    for (var attempt = 1;; attempt++) {
+      final db = sqlite3.open(path);
+      final m = MemoryDb._(db, path);
+      try {
+        m._setUp();
+        return m;
+      } on SqliteException catch (e) {
+        db.close();
+        // Opened while another connection (the Builder's isolate) was
+        // committing: reading the file's schema met its lock in a way
+        // SQLite answers at once with "busy" rather than through the busy
+        // timeout (a journal it must look at, a lock it cannot wait for
+        // without a deadlock). It is over in a moment: tried again a few
+        // times, a little longer each, about 3 s in all.
+        if (e.resultCode != _busy || attempt >= _openTries) rethrow;
+        sleep(Duration(milliseconds: 20 * attempt));
+      }
+    }
   }
+
+  /// SQLITE_BUSY, and how many times an open meeting it tries.
+  static const _busy = 5;
+  static const _openTries = 17;
 
   /// A memory kept nowhere, for tests.
   static MemoryDb inMemory() {

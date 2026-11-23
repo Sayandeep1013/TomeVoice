@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'book_tint.dart';
 import 'library_store.dart';
 import 'prefs.dart';
+import 'scene.dart';
+import 'stats.dart' show dayStartsAtHour;
 import 'theme.dart';
 import 'ui.dart';
 import 'voices.dart';
@@ -18,11 +20,16 @@ class BookCover extends StatelessWidget {
     required this.width,
     this.shadow = true,
     this.titled = true,
+    this.framed = true,
   });
 
   final LibraryEntry entry;
   final double width;
   final bool shadow;
+
+  /// In a scene theme, the cover sits in the scene's frame (rusted iron,
+  /// wood and vine, neon). A tile frames itself whole instead.
+  final bool framed;
 
   /// Whether a cover made from the title shows the title. Tiles print the
   /// title on their own band, so theirs shows only an initial.
@@ -46,7 +53,8 @@ class BookCover extends StatelessWidget {
     final generated = _generated(context);
     final path = entry.shownCover;
     final radius = BorderRadius.circular((width * 0.07).clamp(4.0, Radii.chip));
-    return Container(
+    final scene = framed ? Skin.sceneOf(context) : null;
+    final cover = Container(
       width: width,
       height: height,
       decoration: BoxDecoration(
@@ -80,6 +88,8 @@ class BookCover extends StatelessWidget {
               ),
       ),
     );
+    if (scene == null) return cover;
+    return CustomPaint(foregroundPainter: CoverFramePainter(scene, radius.topLeft.x), child: cover);
   }
 
   Widget _generated(BuildContext context) {
@@ -216,17 +226,23 @@ String listenLength(int words, {double speed = 1}) {
 /// The speed book [id] is listened at: its own, or the one for every book.
 double speedOf(String id) => (ListeningPrefs.loaded ?? ListeningPrefs.memory).speedFor(id);
 
-/// "today", "yesterday", "3 days ago", "12 Oct".
-String relativeDay(DateTime when, {DateTime? now}) {
-  final today = now ?? DateTime.now();
-  final a = DateTime(when.year, when.month, when.day);
-  final b = DateTime(today.year, today.month, today.day);
+/// "today", "yesterday", "3 days ago", "12 Oct", "12 Oct 2025": calendar
+/// days on this phone's clock, with the year when it is not this year.
+/// With [startHour] a day begins then instead of at midnight: reading at
+/// 2:30 am, with 4 (Stats' day, dayStartsAtHour), was the night before.
+String relativeDay(DateTime when, {DateTime? now, int startHour = 0}) {
+  final shift = Duration(hours: startHour);
+  final w = when.toLocal().subtract(shift);
+  final today = (now ?? DateTime.now()).toLocal().subtract(shift);
+  // UTC dates, so a clock change in between does not make a day 23 hours.
+  final a = DateTime.utc(w.year, w.month, w.day);
+  final b = DateTime.utc(today.year, today.month, today.day);
   final days = b.difference(a).inDays;
   if (days <= 0) return 'today';
   if (days == 1) return 'yesterday';
   if (days < 7) return '$days days ago';
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  return '${when.day} ${months[when.month - 1]}';
+  return '${w.day} ${months[w.month - 1]}${w.year == today.year ? '' : ' ${w.year}'}';
 }
 
 /// "34%". A book that has been started never reads "0%".
@@ -242,7 +258,7 @@ String progressLine(LibraryEntry e) {
     return 'Not started · added ${relativeDay(e.addedAt)}';
   }
   final pct = percentLabel(e.progress);
-  return useful ? '$pct · $where' : '$pct · read ${relativeDay(e.openedAt!)}';
+  return useful ? '$pct · $where' : '$pct · read ${relativeDay(e.openedAt!, startHour: dayStartsAtHour)}';
 }
 
 /// One book on the shelf: cover, title, author, what it is and how long it
@@ -455,7 +471,7 @@ class BookTile extends StatelessWidget {
                     CoverHero(
                       entry: e,
                       titled: false,
-                      child: BookCover(entry: e, width: w, shadow: false, titled: false),
+                      child: BookCover(entry: e, width: w, shadow: false, titled: false, framed: false),
                     ),
                     // The band: clear at the top, dark enough at the foot for
                     // white text on any cover.
@@ -512,7 +528,19 @@ class BookTile extends StatelessWidget {
                         ),
                       ),
                     ),
-                    Positioned(left: 7, top: 7, child: _StatusBadge(entry: e)),
+                    // A scene theme's frame round the whole tile.
+                    if (Skin.sceneOf(context) case final scene?)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: CustomPaint(painter: CoverFramePainter(scene, radius.topLeft.x)),
+                        ),
+                      ),
+                    // Inside a scene's frame, not over it.
+                    Positioned(
+                      left: Skin.sceneOf(context) == null ? 7 : 7 + (w * 0.06).clamp(2.5, 9.0),
+                      top: Skin.sceneOf(context) == null ? 7 : 7 + (w * 0.06).clamp(2.5, 9.0),
+                      child: _StatusBadge(entry: e),
+                    ),
                     Positioned.fill(
                       child: _Chosen(
                         selected: selected,

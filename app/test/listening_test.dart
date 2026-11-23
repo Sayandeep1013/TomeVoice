@@ -144,13 +144,14 @@ void main() {
     }
   });
 
-  PlaybackScheduler scheduler({String? voice}) => PlaybackScheduler(
+  PlaybackScheduler scheduler({String? voice, bool quickStart = true}) => PlaybackScheduler(
         service: const SpeechService(),
         units: layout.units,
         settingsFor: (t) => const PipelineSettings().copyWith(text: t),
         engineIdOf: () => null,
         voiceNameOf: () => voice,
         pauseAfter: (_) => 100,
+        quickStart: quickStart,
       );
 
   group('a jump', () {
@@ -184,7 +185,9 @@ void main() {
         () async {
       final worker = _Worker();
       NeuralEngine.workerForTests = worker.start;
-      final player = scheduler(voice: 'neural:en_US-kristin-medium');
+      // The whole sentence made at once, in its pieces, as one made after
+      // others is (a start makes its first piece alone: the test below).
+      final player = scheduler(voice: 'neural:en_US-kristin-medium', quickStart: false);
       addTearDown(player.dispose);
       final long = text.indexOf(_long);
       expect(long, isNonNegative);
@@ -206,6 +209,22 @@ void main() {
       expect(worker.ops.where((m) => m['op'] == 'drop'), isNotEmpty, reason: 'its first piece is not kept');
       await _until(() => count('playerEnqueue') > 0);
       expect(player.unit.value, long + 4);
+      await player.stop();
+    });
+
+    test('with a natural voice, a start makes the first piece of its sentence alone, then the rest', () async {
+      final worker = _Worker();
+      NeuralEngine.workerForTests = worker.start;
+      final player = scheduler(voice: 'neural:en_US-kristin-medium');
+      addTearDown(player.dispose);
+      final long = text.indexOf(_long);
+      final pieces = clausePieces(_long);
+      unawaited(player.play(long));
+      await _until(() => worker.said.length >= 2 && count('playerEnqueue') >= 2);
+      expect(worker.said.take(2), [pieces.first.text, _long.substring(pieces[1].start)],
+          reason: 'the first piece is made and queued before the rest');
+      expect(count('playerEnqueue'), greaterThanOrEqualTo(2), reason: 'each part queued as it is made');
+      expect(player.unit.value, long);
       await player.stop();
     });
   });

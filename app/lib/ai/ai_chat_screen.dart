@@ -151,7 +151,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
     final notes = _chats.notes.length;
     return Scaffold(
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: SafeArea(
           bottom: false,
           child: Column(
@@ -358,7 +358,10 @@ class _ReaderNotesScreenState extends State<ReaderNotesScreen> {
 
   Future<void> _forgetAll() async {
     final sure = await confirm(context,
-        title: 'Forget everything?', body: 'Every note the AI kept about you goes.', action: 'Forget all');
+        title: 'Forget everything?',
+        body: 'Every note the AI kept about you goes, so later chats start without them. '
+            'Your chats themselves, your journal and the book memories stay.',
+        action: 'Forget all');
     if (sure) await _chats.forgetAll();
   }
 
@@ -368,7 +371,7 @@ class _ReaderNotesScreenState extends State<ReaderNotesScreen> {
     final bottom = MediaQuery.viewPaddingOf(context).bottom;
     return Scaffold(
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: SafeArea(
           bottom: false,
           child: Column(

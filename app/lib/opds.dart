@@ -517,7 +517,8 @@ class OpdsClient {
     if (star != null) {
       try {
         return Uri.decodeComponent(star[1]!.trim());
-      } on FormatException {
+      } on Object {
+        // Bad %-encoding throws ArgumentError, not FormatException:
         // The plain one below.
       }
     }

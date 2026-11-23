@@ -832,6 +832,7 @@ Map<String, Object?> settingsToJson(PipelineSettings s) => {
       'trimDb': s.trimDb,
       'normaliseLoudness': s.normaliseLoudness,
       'compression': s.compression.name,
+      'pausesFollowSpeed': s.pausesFollowSpeed,
     };
 
 PipelineSettings settingsFromJson(Map<String, Object?> j) {
@@ -853,6 +854,7 @@ PipelineSettings settingsFromJson(Map<String, Object?> j) {
     volume: f('volume', d.volume),
     trimDb: f('trimDb', d.trimDb),
     normaliseLoudness: j['normaliseLoudness'] as bool? ?? d.normaliseLoudness,
+    pausesFollowSpeed: j['pausesFollowSpeed'] as bool? ?? d.pausesFollowSpeed,
     compression: Compression.values.firstWhere(
       (c) => c.name == j['compression'],
       orElse: () => d.compression,

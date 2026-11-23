@@ -597,4 +597,257 @@ void main() {
     expect(await AppUpdates.shouldOffer(root, v5, now: now.add(const Duration(days: 30))), isFalse);
     expect(await AppUpdates.shouldOffer(root, v6, now: now), isTrue, reason: 'the next release asks again');
   });
+
+  group('replace with a backup that left things out', () {
+    Map<String, Object?> novel(List<String> paths) => {
+          'plugin': {'id': 'p', 'name': 'P', 'site': 's', 'lang': 'English', 'version': '1', 'url': 'u'},
+          'novel': {'path': '/n', 'name': 'N'},
+          'chapters': [for (final p in paths) {'name': p, 'path': p}],
+        };
+
+    void mineWithSecret() {
+      put(root, 'library.json', {
+        'categories': [
+          {'id': 'later', 'name': 'Later'},
+          {'id': 'hush', 'name': 'Hush', 'secret': true},
+        ],
+        'books': [book('web'), book('gone'), book('hidden', category: 'hush')],
+      });
+      put(root, 'books/hidden/cursor.json', {'x': 'hidden'});
+      put(root, 'books/gone/cursor.json', {'x': 'gone'});
+      put(root, 'books/web/novel.json', novel(['/c0', '/c1', '/c2', '/c3']));
+      put(root, 'books/web/ch/0.json', {'n': 'c0'});
+      put(root, 'books/web/ch/2.json', {'n': 'c2'});
+      put(root, 'books/web/ch/3.json', {'n': 'c3'});
+      put(root, 'marks.json', [
+        {'id': 'q-hidden', 'book': 'hidden', 'created': '2026-10-02T10:00:00.000'},
+        {'id': 'q-web', 'book': 'web', 'created': '2026-10-01T10:00:00.000'},
+      ]);
+      put(root, 'journal.json', [
+        {'id': 'j-hidden', 'book': 'hidden', 'created': '2026-10-03T10:00:00.000'},
+      ]);
+    }
+
+    // As an automatic backup is by default: no secret shelf, no chapters;
+    // the site put a chapter in at 2 since.
+    void autoBackup() {
+      put(staging, 'library.json', {
+        'categories': [
+          {'id': 'later', 'name': 'Later'},
+        ],
+        'books': [book('web')],
+      });
+      put(staging, 'books/web/novel.json', novel(['/c0', '/c1', '/new', '/c2']));
+      put(staging, 'marks.json', [
+        {'id': 'q-web', 'book': 'web', 'created': '2026-10-01T10:00:00.000'},
+      ]);
+    }
+
+    StagedBackup lean() => StagedBackup(
+          staging,
+          BackupInfo(format: backupFormat, created: DateTime(2026, 10, 24), root: '/old/files', books: 1, chapters: false),
+        );
+
+    test('the confirm says what goes and what stays', () async {
+      mineWithSecret();
+      autoBackup();
+      final p = await replacePreview(root, lean());
+      expect((p.gone, p.secretKept, p.chaptersKept), (1, 1, true));
+      final words = replaceWarning(made: '24 Oct 2026', gone: 1, secretKept: 1, chaptersKept: true);
+      expect(words, contains("1 book on this phone that the backup doesn't have will be removed"));
+      expect(words, contains('so yours (1 book) is kept'));
+      expect(words, contains('downloaded chapters'));
+    });
+
+    test('keeps the secret shelf and the downloaded chapters the backup never had', () async {
+      mineWithSecret();
+      autoBackup();
+      final r = await replaceLibrary(root, lean());
+      expect(r.secretBooks, 1);
+      expect(r.chapters, 1, reason: 'only chapter 0 is the same chapter in both lists');
+
+      final index = read(root, 'library.json');
+      final ids = [for (final b in index['books'] as List) (b as Map)['id']];
+      expect(ids, ['web', 'hidden']);
+      final cats = [for (final c in index['categories'] as List) Map<String, Object?>.from(c as Map)];
+      expect(cats.singleWhere((c) => c['secret'] == true)['id'], 'hush');
+      expect(read(root, 'books/hidden/cursor.json')['x'], 'hidden');
+      expect(Directory('${root.path}/books/gone').existsSync(), isFalse);
+      expect(read(root, 'books/web/ch/0.json')['n'], 'c0');
+      expect(File('${root.path}/books/web/ch/2.json').existsSync(), isFalse, reason: 'chapter 2 is another chapter now');
+      final marks = [for (final m in jsonDecode(File('${root.path}/marks.json').readAsStringSync()) as List) (m as Map)['id']];
+      expect(marks, ['q-hidden', 'q-web']);
+      final journal = jsonDecode(File('${root.path}/journal.json').readAsStringSync()) as List;
+      expect([for (final j in journal) (j as Map)['id']], ['j-hidden']);
+      expect(replaceSummary('24 Oct 2026', r), contains('Kept from before: your secret shelf (1 book) and 1 downloaded chapter.'));
+
+      // The replaced library is kept a day, then goes.
+      String? kept() => [
+            for (final e in root.listSync())
+              if (e.uri.pathSegments.lastWhere((s) => s.isNotEmpty).startsWith('.replaced-library-'))
+                e.uri.pathSegments.lastWhere((s) => s.isNotEmpty),
+          ].firstOrNull;
+      expect(kept(), isNotNull);
+      expect(File('${root.path}/${kept()}/books/gone/cursor.json').existsSync(), isTrue);
+      await clearStaleRestore(root);
+      expect(kept(), isNotNull, reason: 'not yet a day');
+      await clearStaleRestore(root, now: DateTime.now().add(replacedKept + const Duration(minutes: 1)));
+      expect(kept(), isNull);
+    });
+
+    test('a backup with a secret shelf of its own is taken as it is', () async {
+      mineWithSecret();
+      put(staging, 'library.json', {
+        'categories': [
+          {'id': 'shh', 'name': 'Shh', 'secret': true},
+        ],
+        'books': [book('web', category: 'shh')],
+      });
+      final r = await replaceLibrary(root, staged());
+      expect(r.secretBooks, 0);
+      expect([for (final b in read(root, 'library.json')['books'] as List) (b as Map)['id']], ['web']);
+    });
+  });
+
+  group('AI memories in a backup', () {
+    // A memory kept from a removed book, as LibraryStore keeps it.
+    void keep(Directory dir, String id, {String db = 'db', String at = '2026-11-01T10:00:00.000'}) {
+      put(dir, 'kept-memories/$id/memory.db', db);
+      put(dir, 'kept-memories/$id/kept.json', {'title': 'Book $id', 'author': '', 'chapters': 9, 'keptAt': at});
+    }
+
+    String? text(Directory dir, String rel) {
+      final f = File('${dir.path}/$rel');
+      return f.existsSync() ? f.readAsStringSync() : null;
+    }
+
+    void library(Directory dir, List<String> ids) => put(dir, 'library.json', {
+          'categories': [
+            {'id': 'later', 'name': 'Later'},
+          ],
+          'books': [for (final id in ids) book(id)],
+        });
+
+    StagedBackup lean() => StagedBackup(
+          staging,
+          BackupInfo(format: backupFormat, created: DateTime(2026, 10, 24), root: '/old/files', books: 1, chapters: false),
+        );
+
+    test("replace with a backup that has none keeps this phone's, and says so", () async {
+      library(root, ['here']);
+      keep(root, 'removed', db: 'mine');
+      keep(root, 'back', db: 'back-mine');
+      // The backup has the book "back" again, with no memory of its own.
+      library(staging, ['here', 'back']);
+      put(staging, 'books/back/cursor.json', {'x': 1});
+
+      final p = await replacePreview(root, lean());
+      expect(p.memoriesKept, 2);
+      final words = replaceWarning(
+        made: '24 Oct 2026',
+        gone: p.gone,
+        secretKept: p.secretKept,
+        chaptersKept: p.chaptersKept,
+        memoriesKept: p.memoriesKept,
+      );
+      expect(words, contains('so yours (2 AI memories) stay for when those books come back'));
+
+      final r = await replaceLibrary(root, lean());
+      expect(r.memories, 2);
+      expect(text(root, 'kept-memories/removed/memory.db'), 'mine');
+      expect(text(root, 'books/back/memory.db'), 'back-mine', reason: 'its book is in the library again');
+      expect(Directory('${root.path}/kept-memories/back').existsSync(), isFalse);
+      expect(replaceSummary('24 Oct 2026', r), contains('2 AI memories from removed books'));
+    });
+
+    test("replace with a backup that has its own takes the backup's", () async {
+      library(root, ['here']);
+      keep(root, 'mine-only', db: 'mine');
+      library(staging, ['here']);
+      keep(staging, 'theirs-only', db: 'theirs');
+
+      final p = await replacePreview(root, lean());
+      expect(p.memoriesKept, 0);
+      final r = await replaceLibrary(root, lean());
+      expect(r.memories, 0);
+      expect(text(root, 'kept-memories/theirs-only/memory.db'), 'theirs');
+      expect(Directory('${root.path}/kept-memories/mine-only').existsSync(), isFalse);
+    });
+
+    test('add brings memories not here and never overwrites a newer or a book’s own', () async {
+      library(root, ['both', 'own', 'mineback']);
+      put(root, 'books/own/memory.db', 'own-here');
+      keep(root, 'older', db: 'older-here', at: '2026-11-01T10:00:00.000');
+      keep(root, 'newer', db: 'newer-here', at: '2026-11-20T10:00:00.000');
+      keep(root, 'returns', db: 'returns-here');
+
+      library(staging, ['both', 'own', 'returns']);
+      put(staging, 'books/both/memory.db', 'both-theirs');
+      put(staging, 'books/own/memory.db', 'own-theirs');
+      put(staging, 'books/returns/cursor.json', {'x': 1});
+      keep(staging, 'fresh', db: 'fresh-theirs');
+      keep(staging, 'older', db: 'older-theirs', at: '2026-11-10T10:00:00.000');
+      keep(staging, 'newer', db: 'newer-theirs', at: '2026-11-10T10:00:00.000');
+      keep(staging, 'mineback', db: 'mineback-theirs');
+
+      final r = await addToLibrary(root, staged());
+      // A book in both with no memory here takes the backup's; one with its
+      // own keeps it.
+      expect(text(root, 'books/both/memory.db'), 'both-theirs');
+      expect(text(root, 'books/own/memory.db'), 'own-here');
+      // Kept memories: one not here comes; a later one replaces an earlier;
+      // an earlier one does not.
+      expect(text(root, 'kept-memories/fresh/memory.db'), 'fresh-theirs');
+      expect(text(root, 'kept-memories/older/memory.db'), 'older-theirs');
+      expect(text(root, 'kept-memories/newer/memory.db'), 'newer-here');
+      // The backup's kept memory of a book this library has goes into it.
+      expect(text(root, 'books/mineback/memory.db'), 'mineback-theirs');
+      expect(Directory('${root.path}/kept-memories/mineback').existsSync(), isFalse);
+      // This phone's kept memory of a book the backup brought back goes in.
+      expect(text(root, 'books/returns/memory.db'), 'returns-here');
+      expect(Directory('${root.path}/kept-memories/returns').existsSync(), isFalse);
+      expect(r.memories, 4);
+      expect(addSummary(r), contains('4 AI memories'));
+    });
+
+    test('a library with no memories restores as before', () async {
+      library(root, ['a']);
+      library(staging, ['a', 'b']);
+      final r = await addToLibrary(root, staged());
+      expect(r.memories, 0);
+      expect(Directory('${root.path}/kept-memories').existsSync(), isFalse);
+      expect(addSummary(r), isNot(contains('memor')));
+    });
+  });
+
+  test("add keeps a book's folder here that the list had lost, with its chapters and later place", () async {
+    // library.json was set aside as unreadable: the folders are still here.
+    put(root, 'library.json', {'books': []});
+    put(root, 'books/web/cursor.json', {
+      'cursor': {'sectionIndex': 9},
+      'progress': 0.9,
+      'at': '2026-10-30T10:00:00.000',
+    });
+    put(root, 'books/web/ch/5.json', {'n': 'mine'});
+    put(staging, 'library.json', {
+      'books': [book('web', progress: 0.1)],
+    });
+    put(staging, 'books/web/cursor.json', {
+      'cursor': {'sectionIndex': 1},
+      'progress': 0.1,
+      'at': '2026-10-01T10:00:00.000',
+    });
+    put(staging, 'books/web/cover.jpg', 'cover');
+    put(staging, 'books/web/ch/1.json', {'n': 'theirs'});
+
+    final report = await addToLibrary(root, staged());
+
+    expect(report.added, 1);
+    expect(read(root, 'books/web/ch/5.json')['n'], 'mine');
+    expect(read(root, 'books/web/ch/1.json')['n'], 'theirs');
+    expect(File('${root.path}/books/web/cover.jpg').readAsStringSync(), 'cover');
+    expect(read(root, 'books/web/cursor.json')['progress'], 0.9);
+    final entry = (read(root, 'library.json')['books'] as List).single as Map;
+    expect(entry['progress'], 0.9);
+  });
 }

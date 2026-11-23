@@ -98,8 +98,9 @@ state ("Ready", "Resting until 05:30", "Refused: …") and its use today.
   journal entries for that book. Tools the model calls return more of the same memory.
 - **Never sent:** a book on a secret shelf (open or shut), and a book the reader keeps
   away from the AI (its Memory menu → Keep this book away from the AI, stored as
-  `meta.private`). For either, the Talk button, Explain this and Who or what is "…" are
-  not offered, and nothing is built, kept up or built in the background.
+  `meta.private`). For either, the Talk button and Explain this are not offered (Who or
+  what is "…" offers only the memory's card and a web search), and nothing is built,
+  kept up or built in the background.
 - **Keys** are kept with the catalogue and sync passwords (`Secrets`, `.secrets.json` in
   the app's internal storage, under `ai.ring`), never in the library's folder, so never
   in a backup. A restored backup on another phone has no keys until they are added there.
@@ -304,7 +305,7 @@ A memory is made from the chapters on the phone. For a web novel:
 - While chapters are still downloading, the Builder goes no further than the chapter
   before the first one not yet on the phone, so ranks, titles and relations are told in
   order. Once nothing waits, it builds the rest wherever it is.
-- **Free the space** deletes the downloaded chapters the memory has already read (in the
+- **Free up space** deletes the downloaded chapters the memory has already read (in the
   word index, with notes). The memory keeps its own copy of their words; a chapter
   opened to read is fetched again from the site.
 
@@ -371,7 +372,16 @@ or **Talks**.
 - **Who or what is "…"?** (holding a word) opens its card at once, with no AI call and
   no network: the longest known name in the sentence that contains the word ("Changing
   Star" for a hold on "Star"; "Oren's" is Oren), as of the line. Each line's chapter can
-  be looked at; **Tell me more** asks Talk.
+  be looked at; **Tell me more** asks Talk. It is offered for any held word, with or
+  without a key. When the memory has nothing (or the book has none), a sheet starts from
+  the name the word is probably part of, guessed from the capitals round it ("Six
+  Finger", "the Nine", "Lord of Mysteries", "Mr. Darcy"; a sentence's opening "Then" or
+  "When" is left out; a word ending "'s" ends the name); the reader can add or drop a
+  word at either end within the sentence, or type. With a memory, the words as they
+  stand are looked for again and **Open its card** offered when found. Then **Ask the
+  AI (no spoilers)** (only where Talk is offered: the question names the words and
+  quotes the sentence) or **Search the web (may spoil)**: a Google search for the words
+  in quotes with the book's title (no title for a secret book).
 - **Previously…**: opening a book with notes after a number of days away (AI → Talk:
   never, a day, 3 days or a week; 3 by default) offers a short recap of the chapters
   just before the reader's place.

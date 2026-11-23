@@ -40,6 +40,11 @@ class MemoryBuildWorker(context: Context, params: WorkerParameters) : Worker(con
         if (SourcesBridge.appIsOpen() || NovelCheckWorker.running.get()) return Result.success()
         val handle = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(KEY_HANDLE, 0L)
         if (handle == 0L || !running.compareAndSet(false, true)) return Result.success()
+        // See NovelCheckWorker: its own flag set, the other's read again.
+        if (NovelCheckWorker.running.get()) {
+            running.set(false)
+            return Result.success()
+        }
         val main = Handler(Looper.getMainLooper())
         val engine = AtomicReference<FlutterEngine?>(null)
         try {

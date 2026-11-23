@@ -29,8 +29,9 @@ class NeuralVoicesScreen extends StatefulWidget {
 class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
   final _voices = NeuralVoices.instance;
 
-  /// The model being tested ([NeuralVoice.modelId]).
-  String? _testing;
+  /// The model being tested ([NeuralVoice.modelId]): the service's, so a
+  /// test after a download runs on when this screen is left.
+  String? get _testing => _voices.testing;
 
   /// The voice whose sample is playing.
   String? _hearing;
@@ -111,8 +112,15 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
   /// What natural voices cost, before any is downloaded; "No thanks" keeps
   /// the phone's voices and the app stops offering these.
   Future<void> _askFirst() async {
-    final yes = await _costs(context, title: 'Before you download a voice');
+    final answer = await _costsAnswer(context, title: 'Before you download a voice');
     if (!mounted) return;
+    // Back only closes the notice and the screen: nothing is decided, so
+    // it is asked again next time and the voices row stays.
+    if (answer == null) {
+      Navigator.of(context).maybePop();
+      return;
+    }
+    final yes = answer;
     setState(() => _prefs.naturalVoices = yes);
     _prefs.save();
     if (!yes) Navigator.of(context).maybePop();
@@ -167,6 +175,16 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
       unawaited(_test(v));
     } on DownloadCancelled {
       if (mounted) showSnack(context, 'Download stopped.');
+    } on NoSpaceForVoice {
+      if (mounted) {
+        showSnack(
+          context,
+          'Not enough free space on the phone. This voice needs about '
+          '${(spaceForVoice(v.bytes) / (1024 * 1024)).round()} MB free while it is set up. '
+          'Free some space and try again: anything already downloaded is kept.',
+          long: true,
+        );
+      }
     } on Object catch (e) {
       debugPrint('Natural voice ${v.modelId}: download failed: $e');
       if (mounted) {
@@ -185,10 +203,9 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
   /// must keep up (Kokoro) is offered for reading only if it does.
   Future<void> _test(NeuralVoice v) async {
     if (_testing != null) return;
-    setState(() => _testing = v.modelId);
     try {
-      final r = await NeuralEngine.instance.measure(v, Directory.systemTemp.path);
-      await _voices.rememberSpeed(v, r);
+      final r = await _voices.testSpeed(v);
+      if (r == null) return;
       VoiceCatalog.instance.neuralChanged();
       final pack = v.pack;
       if (mounted && pack != null && pack.mustKeepUp) {
@@ -203,8 +220,6 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
     } on Object catch (e) {
       debugPrint('Natural voice ${v.modelId}: speed test failed: $e');
       if (mounted) showSnack(context, 'The voice did not work on this phone. Remove it, or try another.', long: true);
-    } finally {
-      if (mounted) setState(() => _testing = null);
     }
   }
 
@@ -222,8 +237,8 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
     final ok = await confirm(
       context,
       title: 'Remove all natural voices?',
-      body: 'Every natural voice is deleted from the phone. Books that used one are read in the '
-          'phone\'s own voice again.',
+      body: 'Every natural voice is deleted from the phone, freeing its space. Books that used one are read in '
+          'the phone\'s own voice again. Your books and places stay, and any voice can be downloaded again.',
       action: 'Remove all',
     );
     if (!ok) return;
@@ -249,7 +264,7 @@ class _NeuralVoicesScreenState extends State<NeuralVoicesScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
         body: DecoratedBox(
-          decoration: BoxDecoration(gradient: Skin.ground(context)),
+          decoration: Skin.groundDecoration(context),
           child: SafeArea(
             bottom: false,
             child: Column(
@@ -842,7 +857,12 @@ Future<void> _showLicence(BuildContext context, String voice, VoiceLicence licen
 /// What a natural voice costs: true to go ahead. [pack]: a model with many
 /// speakers, whose own costs are said.
 Future<bool> _costs(BuildContext context, {required String title, int? size, NeuralPack? pack}) async =>
-    await showDialog<bool>(
+    await _costsAnswer(context, title: title, size: size, pack: pack) == true;
+
+/// The same notice, null when it was closed with Back or a tap outside
+/// (neither yes nor no).
+Future<bool?> _costsAnswer(BuildContext context, {required String title, int? size, NeuralPack? pack}) =>
+    showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(title),
@@ -904,8 +924,7 @@ Future<bool> _costs(BuildContext context, {required String title, int? size, Neu
           TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(size == null ? 'Show me' : 'Download')),
         ],
       ),
-    ) ==
-    true;
+    );
 
 /// Whether [v] is what [query] asks for: every word of it found in the
 /// voice's name, its language, its accent (said as "british" or as "United

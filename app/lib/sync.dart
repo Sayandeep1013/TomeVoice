@@ -463,9 +463,12 @@ BookRecord localRecord(LibraryEntry e, {Map<String, DateTime> removed = const {}
             cursor: e.cursor,
             progress: e.progress,
             where: e.where,
-            // Saved with every new place; a book taken off History has none,
-            // and loses to any place saved elsewhere.
-            at: (opened ?? DateTime.fromMillisecondsSinceEpoch(0)).toUtc(),
+            // When the place last moved, not when the book was last opened:
+            // opened and left, an old place beat a further one made elsewhere
+            // since. An entry from an older build has only the opening. A book
+            // taken off History has neither, and loses to any place saved
+            // elsewhere.
+            at: (e.movedAt ?? opened ?? DateTime.fromMillisecondsSinceEpoch(0)).toUtc(),
           )
         : null,
     marks: MarkStore.instance.forBook(e.id),
@@ -482,7 +485,12 @@ BookRecord localRecord(LibraryEntry e, {Map<String, DateTime> removed = const {}
 /// per day raised. True when anything changed.
 Future<bool> applyRecord(LibraryStore store, BookRecord local, BookRecord merged) async {
   var changed = false;
-  final mp = merged.place, lp = local.place;
+  final mp = merged.place;
+  // The place as it is now, not as the sync set out with: one saved here
+  // meanwhile (a book read on while the server answered) is not gone back
+  // over.
+  final current = mp == null ? null : (await store.list(all: true)).where((e) => e.id == merged.id).firstOrNull;
+  final lp = current == null ? local.place : localRecord(current).place;
   if (mp != null && (lp == null || (mp.at.isAfter(lp.at) && !mp.samePlace(lp)))) {
     // At the time it was saved there, not now: stamped now, it beat a
     // later place on the phone it came from, and moved the book up History.

@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_spike/ai/ai_client.dart';
 import 'package:tomevoice_spike/ai/ai_keys.dart';
 import 'package:tomevoice_spike/ai/ai_router.dart';
+import 'package:tomevoice_spike/ai/memory/memory_builder.dart';
 
 /// A provider on this machine: each request answered by [answer], which
 /// gets the key it was sent with and the body.
@@ -132,6 +133,31 @@ void main() {
       // No count from the provider: guessed.
       expect(r.usage.guessed, isTrue);
       expect(provider.requests.single.body['stream'], isTrue);
+    });
+
+    test('stopped while it streams: let go at once, not read (and paid) to the end', () async {
+      provider.answer = (req, key, body) async {
+        req.response.headers.contentType = ContentType('text', 'event-stream');
+        try {
+          for (var i = 0; i < 20; i++) {
+            req.response.write('data: ${jsonEncode({'choices': [{'delta': {'content': 'w$i '}}]})}\n\n');
+            await req.response.flush();
+            await Future<void>.delayed(const Duration(milliseconds: 50));
+          }
+          req.response.write('data: [DONE]\n\n');
+          await req.response.close();
+        } on Object {
+          // Let go by the app.
+        }
+      };
+      final pieces = <String>[];
+      var stop = false;
+      final r = await client.chat(at('k'), [aiMessage('user', 'Go on')], onText: (p) {
+        pieces.add(p);
+        if (pieces.length == 2) stop = true;
+      }, stopped: () => stop);
+      expect(pieces, ['w0 ', 'w1 ']);
+      expect(r.text, 'w0 w1 ');
     });
 
     test("a key's models, by id", () async {
@@ -287,6 +313,121 @@ void main() {
         router.chat(AiJob.builder, [aiMessage('user', 'x')]),
         throwsA(isA<AiResting>().having((e) => e.until, 'until', now.add(const Duration(minutes: 1)))),
       );
+    });
+
+    test('a build kept to one key: that key spent, the work waits for it; the next key is never sent anything',
+        () async {
+      final ring = AiRing.instance;
+      await ring.put(key('a', base: provider.url));
+      await ring.put(key('b', base: provider.url));
+      provider.answer = (req, k, body) => k == 'secret-a'
+          ? reply(req, 429, '{"error":{"message":"later"}}', headers: {'retry-after': '120'})
+          : reply(req, 200, said('From b.'));
+      final now = DateTime(2026, 11, 23, 10);
+      final router = AiRouter(client: client, pause: Duration.zero, clock: () => now);
+      await expectLater(
+        router.chat(AiJob.builder, [aiMessage('user', 'x')], only: {'a'}),
+        throwsA(isA<AiResting>().having((e) => e.until, 'until', now.add(const Duration(minutes: 2)))),
+      );
+      expect(provider.requests.map((r) => r.key), ['secret-a']);
+      // "Go on with b": only b, from then on.
+      expect((await router.chat(AiJob.builder, [aiMessage('user', 'x')], only: {'b'})).text, 'From b.');
+    });
+
+    test('a lost signal never moves on to the next key: the same key rests a moment and is tried again', () async {
+      final ring = AiRing.instance;
+      // Nothing listens on port 9: the connection is refused, as with no
+      // signal.
+      await ring.put(key('a'));
+      await ring.put(key('b', base: provider.url));
+      provider.answer = (req, k, body) => reply(req, 200, said('From b.'));
+      final now = DateTime(2026, 11, 23, 10);
+      final router = AiRouter(client: client, pause: Duration.zero, clock: () => now);
+      await expectLater(
+        router.chat(AiJob.talker, [aiMessage('user', 'x')]),
+        throwsA(isA<AiResting>()
+            .having((e) => e.until, 'until', now.add(const Duration(minutes: 1)))
+            .having((e) => e.unreachable, 'unreachable', isTrue)),
+      );
+      expect(provider.requests, isEmpty, reason: 'b was not sent the question');
+    });
+
+    test("a key's daily limit is looked at before a call: one that would pass it is not sent", () async {
+      final ring = AiRing.instance;
+      await ring.put(AiKey(
+        id: 'a',
+        provider: AiProvider.custom,
+        label: 'Spare',
+        baseUrl: provider.url,
+        secret: 'secret-a',
+        models: const {AiJob.builder: 'm'},
+        dailyCap: 5000,
+      ));
+      provider.answer = (req, k, body) => reply(req, 200, said('Done.', input: 3000, output: 500));
+      final now = DateTime.now();
+      final router = AiRouter(client: client, pause: Duration.zero, clock: () => now);
+      expect((await router.chat(AiJob.builder, [aiMessage('user', 'x')], expect: 3500)).text, 'Done.');
+      // 3,500 used of 5,000: another 3,500 would pass it.
+      await expectLater(
+        router.chat(AiJob.builder, [aiMessage('user', 'x')], expect: 3500),
+        throwsA(isA<AiResting>().having((e) => e.until, 'until', DateTime(now.year, now.month, now.day + 1))),
+      );
+      expect(provider.requests.length, 1);
+    });
+
+    test('a reply too slow is not sent again, nor to the next key; the Builder may take it to halve its batch',
+        () async {
+      final ring = AiRing.instance;
+      await ring.put(key('a', base: provider.url));
+      await ring.put(key('b', base: provider.url));
+      provider.answer = (req, k, body) async {
+        if (k == 'secret-a') await Future<void>.delayed(const Duration(milliseconds: 900));
+        try {
+          await reply(req, 200, said('Late.'));
+        } on Object {
+          // The app gave up on it and let the connection go.
+        }
+      };
+      final router = AiRouter(
+        client: AiClient(timeout: const Duration(milliseconds: 250)),
+        pause: Duration.zero,
+      );
+      await expectLater(
+        router.chat(AiJob.builder, [aiMessage('user', 'x')], slowToCaller: true),
+        throwsA(isA<AiError>().having((e) => e.slow, 'slow', isTrue)),
+      );
+      expect(router.tried?.id, 'a');
+      await expectLater(
+        router.chat(AiJob.builder, [aiMessage('user', 'x')]),
+        throwsA(isA<AiResting>().having((e) => e.unreachable, 'unreachable', isTrue)),
+      );
+      expect(provider.requests.map((r) => r.key), ['secret-a', 'secret-a'], reason: 'once each time, never b');
+      // What it most likely used, counted all the same.
+      expect(ring.today('a').calls, 2);
+    });
+  });
+
+  group('a build and its keys', () {
+    final order = [
+      for (final id in ['m', 'g', 's'])
+        AiKey(id: id, provider: AiProvider.custom, label: id, baseUrl: 'u', secret: 's', models: const {AiJob.builder: 'x'}),
+    ];
+
+    test('not set: only the first key; "any": every key in turn; a named key that has gone: the first', () {
+      expect(allowedKeys(null, order), {'m'});
+      expect(allowedKeys(anyKey, order), isNull);
+      expect(allowedKeys('only:g', order), {'g'});
+      expect(allowedKeys('only:gone', order), {'m'});
+      expect(keptKey('only:s', order)!.id, 's');
+      expect(keptKey(anyKey, order), isNull);
+      expect(allowedKeys(null, const []), isNull);
+    });
+
+    test('a key with a small daily limit gets batches of a third of it at most', () {
+      const small = AiKey(
+          id: 'c', provider: AiProvider.gemini, label: 'c', baseUrl: 'u', secret: 's', models: {}, dailyCap: 30000);
+      expect(batchSizeFor(small).tokens, 10000);
+      expect(batchSizeFor(order.first).tokens, 12000);
     });
   });
 }

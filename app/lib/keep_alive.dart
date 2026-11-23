@@ -156,7 +156,7 @@ class _ChannelPlatform implements KeepAlivePlatform {
   Future<bool> show(KeepAliveNotice n) async {
     if (!_askedToNotify) {
       _askedToNotify = true;
-      unawaited(SourcesBridge.askNotifications());
+      unawaited(SourcesBridge.askNotifications(settings: false));
     }
     try {
       return await channel.invokeMethod<bool>('show', {

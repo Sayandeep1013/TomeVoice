@@ -9,11 +9,14 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor, ReadingLayout, ingestString;
+import 'package:tomevoice_spike/book_card.dart' show relativeDay;
 import 'package:tomevoice_spike/journal.dart';
+import 'package:tomevoice_spike/notebook.dart' show savedWhen;
 import 'package:tomevoice_spike/journal_page.dart';
 import 'package:tomevoice_spike/journal_questions_screen.dart';
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/quote_export.dart';
+import 'package:tomevoice_spike/stats.dart' show dayStartsAtHour;
 
 void main() {
   late Directory tmp;
@@ -203,6 +206,36 @@ void main() {
       expect(e.edited, isNotNull);
       await tester.pump(const Duration(seconds: 5));
     });
+
+    testWidgets('an entry opened and closed unchanged asks nothing; a change can be thrown away', (tester) async {
+      final old = JournalEntry(
+        id: 'y',
+        bookId: 'book',
+        bookTitle: 'Shadow Slave',
+        created: DateTime.utc(2026, 11, 1),
+        stamp: at(3),
+        answers: const [JournalAnswer(question: 'Why?', text: 'First words.')],
+      );
+      await store.put(old);
+      await pump(tester, opener(() => at(99), entry: old));
+      await tester.tap(find.text('Write'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pumpAndSettle();
+      expect(find.text('Keep your changes?'), findsNothing);
+      expect(find.text('Write'), findsOneWidget);
+      // Changed, then thrown away: the entry stays as it was.
+      await tester.tap(find.text('Write'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.widgetWithText(TextField, 'First words.'), 'Other words.');
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pumpAndSettle();
+      expect(find.text('Keep your changes?'), findsOneWidget);
+      await tester.tap(find.text('Throw away'));
+      await tester.pumpAndSettle();
+      expect(store.forBook('book').single.answers.single.text, 'First words.');
+      await tester.pump(const Duration(seconds: 5));
+    });
   });
 
   test('the export carries the journal under the book, in the order written', () {
@@ -266,6 +299,55 @@ void main() {
       await tester.pumpAndSettle();
       expect(ListeningPrefs.memory.journalQuestions, isNull, reason: "the defaults again: nothing of the reader's kept");
       await tester.pump(const Duration(seconds: 5));
+    });
+  });
+
+  group('when it was written', () {
+    test('calendar days, not 24-hour spans, and the year when it is not this one', () {
+      final now = DateTime(2026, 11, 23, 8, 30);
+      expect(savedWhen(DateTime(2026, 11, 23, 0, 5), now: now), 'today');
+      expect(savedWhen(DateTime(2026, 11, 22, 23, 50), now: now), 'yesterday', reason: 'last night, seen this morning');
+      expect(savedWhen(DateTime(2026, 11, 20, 9), now: now), '3 days ago');
+      expect(savedWhen(DateTime(2026, 10, 12, 9), now: now), '12 Oct');
+      expect(savedWhen(DateTime(2025, 10, 12, 9), now: now), '12 Oct 2025');
+      expect(savedWhen(DateTime(2026, 11, 24, 9), now: now), 'today', reason: 'a clock behind never says "-1 days ago"');
+      expect(savedWhen(DateTime.utc(2026, 11, 22, 12), now: now), isNot('today'));
+    });
+
+    test("History's day begins at 4 am, as Stats' does", () {
+      // Read at 2:30 am, looked at that morning: the night before.
+      final morning = DateTime(2026, 11, 23, 9);
+      expect(relativeDay(DateTime(2026, 11, 23, 2, 30), now: morning, startHour: dayStartsAtHour), 'yesterday');
+      expect(relativeDay(DateTime(2026, 11, 23, 4, 10), now: morning, startHour: dayStartsAtHour), 'today');
+      // Still up at 3 am: what was read at 11 pm is still tonight.
+      final late = DateTime(2026, 11, 24, 3);
+      expect(relativeDay(DateTime(2026, 11, 23, 23), now: late, startHour: dayStartsAtHour), 'today');
+      expect(relativeDay(DateTime(2026, 11, 23, 2, 30), now: late, startHour: dayStartsAtHour), 'yesterday');
+      // Calendar days stay the default (journal, Saved).
+      expect(relativeDay(DateTime(2026, 11, 23, 2, 30), now: morning), 'today');
+      // An older one is named by its reading day.
+      expect(relativeDay(DateTime(2026, 11, 13, 1), now: morning, startHour: dayStartsAtHour), '12 Nov');
+    });
+  });
+
+  group('the preview', () {
+    test('each answer on a line of its own, without its question', () {
+      final e = JournalEntry(
+        id: 'a',
+        bookId: 'book',
+        bookTitle: 'Book',
+        created: DateTime.utc(2026, 11, 1),
+        stamp: at(3),
+        answers: const [
+          JournalAnswer(question: 'How am I feeling?', pick: 'Good'),
+          JournalAnswer(question: 'Why?', text: 'The fight.\n\nAnd the twist.'),
+          JournalAnswer(question: 'What stood out?'),
+        ],
+      );
+      expect(e.preview, 'Good\nThe fight.\nAnd the twist.');
+      final page = JournalEntry(
+          id: 'b', bookId: 'book', bookTitle: 'Book', created: DateTime.utc(2026, 11, 2), stamp: at(9), page: ' One.\n\n Two. ');
+      expect(page.preview, 'One.\nTwo.');
     });
   });
 }

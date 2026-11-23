@@ -132,5 +132,9 @@ class SourcesBridge {
   static Future<bool?> notificationsAllowed() => _ask<bool>('notificationsAllowed');
 
   /// Ask the reader (Android 13 and later) to let TomeVoice notify them.
-  static Future<void> askNotifications() => _ask<void>('askNotifications');
+  /// Nothing happens when they already may. Once refused, Android's own
+  /// settings page opens instead, unless [settings] is false (a job starting
+  /// on its own must never throw the reader out to Settings).
+  static Future<void> askNotifications({bool settings = true}) =>
+      _ask<void>('askNotifications', {'settings': settings});
 }

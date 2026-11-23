@@ -143,7 +143,16 @@ class ReaderController {
     _syncMarked();
     _events = SpeechService.events.listen(_onPlatformEvent);
     _statsTimer = Timer.periodic(const Duration(seconds: 15), (_) => countTime());
+    _knownPlace = initialCursor;
+    _knownUnit = cursor.value;
   }
+
+  /// The place as this page last knew it saved (the one it opened at, then
+  /// each it saved), and the sentence it was at: not moved from it, the page
+  /// does not save it over a place another phone sent meanwhile (see
+  /// LibraryStore.saveCursor's from).
+  ReadingCursor? _knownPlace;
+  int _knownUnit = -1;
 
   /// The chapters read: the page's, with any joined on after them since
   /// (see [widen]).
@@ -240,7 +249,6 @@ class ReaderController {
 
   StreamSubscription<Map<String, Object?>>? _events;
   Timer? _persistTimer;
-  Timer? _restartTimer;
 
   /// The phone's audio, followed as the background reading follows it.
   late final _focus = FocusFollower(
@@ -365,7 +373,6 @@ class ReaderController {
     _disposed = true;
     _sleepTick?.cancel();
     _persistTimer?.cancel();
-    _restartTimer?.cancel();
     _sleepTimer?.cancel();
     _focus.dispose();
     _statsTimer?.cancel();
@@ -534,6 +541,8 @@ class ReaderController {
     _sleepTick = null;
     _sleepAt = null;
     _sleepChapter = -1;
+    // A ping's sound ending must not start it again.
+    _focus.forget();
     // Faded out already: paused at once, then back to full volume for Play.
     unawaited(player.pause(now: true).whenComplete(player.endFade));
     if (view.mounted) {
@@ -614,7 +623,8 @@ class ReaderController {
     follow();
     final state = player.state.value;
     if (play || state == PlayState.playing || state == PlayState.loading) {
-      await player.play(next);
+      // A move: speech already made for it is played again, not made again.
+      await player.play(next, reuse: true);
     } else if (state == PlayState.paused) {
       // Its voice stops, so Play reads from here; the card stays up, paused
       // at the new place, whichever buttons moved it (the page's own once
@@ -665,15 +675,10 @@ class ReaderController {
     if (view.mounted) view.changed();
     _updateSession();
     if (!restart) return;
-    // Make the change audible from the current sentence, once the user has
-    // stopped fiddling.
-    _restartTimer?.cancel();
-    _restartTimer = Timer(const Duration(milliseconds: 350), () {
-      final s = player.state.value;
-      if (s == PlayState.playing || s == PlayState.loading) {
-        unawaited(player.play(cursor.value));
-      }
-    });
+    // Made audible from the current sentence once the user has stopped
+    // fiddling (one restart for a run of taps on +), or, paused, when the
+    // reading resumes.
+    player.remake(from: () => cursor.value);
   }
 
   void _onFinished() {
@@ -782,7 +787,9 @@ class ReaderController {
       case 'action':
         switch (e['action']) {
           case 'play':
-            if (player.state.value != PlayState.playing) unawaited(togglePlay());
+            // Not while the first sentence is still being made (loading):
+            // togglePlay would pause it.
+            if (!player.isPlaying) unawaited(togglePlay());
           case 'pause':
             unawaited(player.pause());
           case 'stop':
@@ -936,13 +943,18 @@ class ReaderController {
     _syncMarked();
   }
 
+  /// Auto-scroll is moving the page (set by the reader's screen): its place
+  /// moves every couple of seconds, saved as the voice's is (see
+  /// [_schedulePersist]), and at once when it stops.
+  bool autoReading = false;
+
   /// The place saved a moment after it moves; while the voice reads on,
   /// every [readingSaveEvery] instead, and at once when it pauses, stops, or
   /// the chapter changes. Saved at every sentence (with a flush to the
   /// disk, and the home screen's widget drawn again), hours of listening
   /// woke the storage thousands of times.
   void _schedulePersist({bool soon = false}) {
-    final reading = player.isPlaying && !soon;
+    final reading = (player.isPlaying || autoReading) && !soon;
     if (reading && _persistTimer != null && _persistTimer!.isActive) return;
     _persistTimer?.cancel();
     _persistTimer = Timer(reading ? readingSaveEvery : const Duration(milliseconds: 1500), () => unawaited(persist()));
@@ -954,14 +966,20 @@ class ReaderController {
     // Handed on: the place is the background reading's, further on.
     if (store == null || layout.isEmpty || _handedOn || _placeAway) return;
     final u = cursor.value.clamp(0, layout.units.length - 1);
+    final place = cursorOf(layout.units[u]);
     try {
       await store.saveCursor(
         _book.id,
-        cursorOf(layout.units[u]),
+        place,
         view.progressOf?.call(u) ?? progressFraction(layout.units, u),
         where: layout.chapterTitle(layout.unitChapter[u]),
         layout: layout,
+        from: u == _knownUnit ? _knownPlace : null,
       );
+      if (u != _knownUnit) {
+        _knownPlace = place;
+        _knownUnit = u;
+      }
     } on Object {
       // Losing a position save is not worth an error on screen.
     }

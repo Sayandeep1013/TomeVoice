@@ -133,6 +133,7 @@ class PageTone {
       : [for (var t = 0.0; t <= 1; t += 0.25) Color.lerp(paper!.first, paper!.last, t)!];
 
   /// The paper as a decoration: the tone's, or the app's diagonal ground.
+  /// Always plain, a scene theme's too: no art is ever behind the words.
   BoxDecoration paperOf(BuildContext context) => paper == null
       ? BoxDecoration(gradient: Skin.ground(context))
       : BoxDecoration(

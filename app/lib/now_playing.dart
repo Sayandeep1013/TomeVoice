@@ -12,6 +12,7 @@ import 'page_style.dart';
 import 'player_controls.dart';
 import 'prefs.dart';
 import 'reader_text.dart' show wordAt;
+import 'scene.dart';
 import 'scheduler.dart';
 import 'theme.dart';
 import 'ui.dart';
@@ -171,19 +172,38 @@ class NowPlayingScreen extends StatelessWidget {
               borderRadius: BorderRadius.circular(Radii.card),
               boxShadow: const [BoxShadow(color: Color(0x99000000), blurRadius: 32, offset: Offset(0, 16))],
             ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(Radii.card),
-              child: cover == null
-                  ? _DrawnCover(title: title)
-                  : Image.file(File(cover!), fit: BoxFit.cover, cacheWidth: 600, gaplessPlayback: true),
+            // In a scene theme, hung in its frame.
+            child: CustomPaint(
+              foregroundPainter: switch (Skin.sceneOf(context)) {
+                final scene? => CoverFramePainter(scene, Radii.card),
+                null => null,
+              },
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(Radii.card),
+                child: cover == null
+                    ? _DrawnCover(title: title)
+                    : Image.file(File(cover!), fit: BoxFit.cover, cacheWidth: 600, gaplessPlayback: true),
+              ),
             ),
           ),
         ),
       );
 
+  /// In a scene theme, the words and controls on a piece of its stone,
+  /// wood or hull, the scene showing round it; otherwise as they are.
+  Widget _onScenePanel(BuildContext context, Widget child) {
+    final scene = Skin.sceneOf(context);
+    if (scene == null) return child;
+    return DecoratedBox(
+      decoration: ScenePanel(scene, radius: BorderRadius.circular(Radii.card), lit: true),
+      child: Padding(padding: const EdgeInsets.fromLTRB(Gap.l, Gap.l, Gap.l, Gap.s), child: child),
+    );
+  }
+
   Widget _panel(BuildContext context, {required bool compact}) => Padding(
-        padding: EdgeInsets.fromLTRB(Gap.xl, compact ? Gap.l : 0, Gap.xl, Gap.l),
-        child: ListenableBuilder(
+        padding: EdgeInsets.fromLTRB(
+            Skin.sceneOf(context) == null ? Gap.xl : Gap.m, compact ? Gap.l : 0, Skin.sceneOf(context) == null ? Gap.xl : Gap.m, Gap.l),
+        child: _onScenePanel(context, ListenableBuilder(
           listenable: Listenable.merge([cursor, ListeningPrefs.revision, sleepChanges]),
           builder: (context, _) {
             final u = cursor.value.clamp(0, layout.units.isEmpty ? 0 : layout.units.length - 1);
@@ -265,20 +285,31 @@ class NowPlayingScreen extends StatelessWidget {
                 // is theirs too, a finger's 48.
                 TapBand(
                   above: 11,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _chip(context, '${trimSpeed(speed())}×', Icons.speed_rounded, onSpeed),
-                      _chip(context, sleep == null ? 'Sleep' : 'Sleep on', Icons.bedtime_outlined, onSleep),
-                      _chip(context, 'Save', Icons.bookmark_add_outlined, onSave),
-                      _chip(context, voiceLabel(), Icons.record_voice_over_rounded, onVoice),
-                    ],
-                  ),
+                  child: LayoutBuilder(builder: (context, c) {
+                    final labels = ['${trimSpeed(speed())}×', sleep == null ? 'Sleep' : 'Sleep on', 'Save'];
+                    final voice = voiceLabel();
+                    // The three short chips keep their own width and the
+                    // voice's name takes what they leave, when all four fit
+                    // at least a few letters of it; on a narrow screen (or
+                    // large text) each gets a quarter, as before.
+                    final scale = MediaQuery.textScalerOf(context);
+                    final short = labels.fold<double>(0, (a, l) => a + _chipWidth(l, scale));
+                    final roomy = short + _chipWidth('EN · Ab', scale) <= c.maxWidth;
+                    return Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        _chip(context, labels[0], Icons.speed_rounded, onSpeed, fixed: roomy),
+                        _chip(context, labels[1], Icons.bedtime_outlined, onSleep, fixed: roomy),
+                        _chip(context, labels[2], Icons.bookmark_add_outlined, onSave, fixed: roomy),
+                        _chip(context, voice, Icons.record_voice_over_rounded, onVoice),
+                      ],
+                    );
+                  }),
                 ),
               ],
             );
           },
-        ),
+        )),
       );
 
   Widget _icon(IconData icon, String tip, VoidCallback? onTap) => IconButton(
@@ -290,7 +321,29 @@ class NowPlayingScreen extends StatelessWidget {
         icon: Icon(icon),
       );
 
-  Widget _chip(BuildContext context, String label, IconData icon, VoidCallback onTap) => Flexible(
+  Widget _chipText(String label) => Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: Skin.ui(size: 13, weight: FontWeight.w600, color: Colors.white),
+      );
+
+  /// A chip's whole width for [label]: its padding, icon and words.
+  static double _chipWidth(String label, TextScaler scale) {
+    final painter = TextPainter(
+      text: TextSpan(text: label, style: Skin.ui(size: 13, weight: FontWeight.w600)),
+      textDirection: TextDirection.ltr,
+      textScaler: scale,
+      maxLines: 1,
+    )..layout();
+    return painter.width + 3 * 2 + Gap.m * 2 + 15 + 6 + 2;
+  }
+
+  /// [fixed]: as wide as its label, never cut (only when the row has room).
+  Widget _chip(BuildContext context, String label, IconData icon, VoidCallback onTap, {bool fixed = false}) =>
+      Flexible(
+        flex: fixed ? 0 : 1,
+        fit: FlexFit.loose,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 3),
           child: Material(
@@ -306,14 +359,7 @@ class NowPlayingScreen extends StatelessWidget {
                   children: [
                     Icon(icon, size: 15, color: Skin.accentSoftOf(context)),
                     const SizedBox(width: 6),
-                    Flexible(
-                      child: Text(
-                        label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Skin.ui(size: 13, weight: FontWeight.w600, color: Colors.white),
-                      ),
-                    ),
+                    if (fixed) _chipText(label) else Flexible(child: _chipText(label)),
                   ],
                 ),
               ),
@@ -406,7 +452,20 @@ class _Backdrop extends StatelessWidget {
   final Color accent;
 
   @override
-  Widget build(BuildContext context) => Stack(
+  Widget build(BuildContext context) => Skin.sceneOf(context) != null
+      // A scene theme: its own place behind, a little darker.
+      ? const Ground(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0x33000000), Color(0x66000000)],
+              ),
+            ),
+          ),
+        )
+      : Stack(
         fit: StackFit.expand,
         children: [
           ColoredBox(color: Color.lerp(accent, Colors.black, 0.72)!),

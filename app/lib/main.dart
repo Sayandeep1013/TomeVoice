@@ -106,6 +106,9 @@ void _registerFontLicences() {
       ('Literata', 'Literata'),
       ('Doto', 'Doto'),
       ('Caveat', 'Caveat'),
+      ('Pirata One', 'PirataOne'),
+      ('Uncial Antiqua', 'UncialAntiqua'),
+      ('Orbitron', 'Orbitron'),
     ]) {
       yield LicenseEntryWithLineBreaks(
         [family],
@@ -218,7 +221,7 @@ class _ModeGateState extends State<_ModeGate> {
         // scaffold and then a different product.
         null => Scaffold(
             body: Container(
-              decoration: BoxDecoration(gradient: Skin.ground(context)),
+              decoration: Skin.groundDecoration(context),
               child: const SafeArea(
                 child: Center(child: BrandLockup()),
               ),

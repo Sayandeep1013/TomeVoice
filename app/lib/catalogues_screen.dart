@@ -384,7 +384,7 @@ class _CataloguesScreenState extends State<CataloguesScreen> {
     if (widget.embedded) return list;
     return Scaffold(
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: SafeArea(
           bottom: false,
           child: Column(
@@ -760,7 +760,7 @@ class _FeedScreenState extends State<FeedScreen> {
     final error = _error;
     return Scaffold(
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: SafeArea(
           bottom: false,
           child: Column(
@@ -1030,7 +1030,7 @@ class _OpdsBookScreenState extends State<OpdsBookScreen> {
     final progress = _progress;
     return Scaffold(
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: SafeArea(
           bottom: false,
           child: Column(

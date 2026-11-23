@@ -188,6 +188,13 @@ class _SearchSheetState extends State<_SearchSheet> {
     for (var i = 0; i < _hits.length; i++) {
       byChapter.putIfAbsent(l.chapterOfUnit(_hits[i].unit), () => []).add(i);
     }
+    // Each row: a chapter's heading (hit -1, only for the whole book), or hit i.
+    final rows = <(int, int)>[
+      for (final e in byChapter.entries) ...[
+        if (_whole) (e.key, -1),
+        for (final i in e.value) (e.key, i),
+      ],
+    ];
     final (have, all) = _coverage;
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
@@ -249,23 +256,25 @@ class _SearchSheetState extends State<_SearchSheet> {
               ),
             ),
             Expanded(
-              child: ListView(
+              // Rows made as they scroll into view: a search for "the" has
+              // 2,000, and the sheet is built again on every frame of the
+              // keyboard sliding.
+              child: ListView.builder(
                 padding: const EdgeInsets.fromLTRB(Gap.l, 0, Gap.l, Gap.xl),
-                children: [
-                  for (final e in byChapter.entries) ...[
-                    if (_whole)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(Gap.s, Gap.m, Gap.s, Gap.xs),
-                        child: Text(
-                          '${l.chapterTitle(e.key)}  ·  ${e.value.length}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Skin.title(context, size: 15),
-                        ),
-                      ),
-                    for (final i in e.value) _row(context, i),
-                  ],
-                ],
+                itemCount: rows.length,
+                itemBuilder: (context, k) {
+                  final (chapter, i) = rows[k];
+                  if (i >= 0) return _row(context, i);
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(Gap.s, Gap.m, Gap.s, Gap.xs),
+                    child: Text(
+                      '${l.chapterTitle(chapter)}  ·  ${byChapter[chapter]!.length}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Skin.title(context, size: 15),
+                    ),
+                  );
+                },
               ),
             ),
           ],
@@ -308,6 +317,223 @@ class _SearchSheetState extends State<_SearchSheet> {
               ),
             ),
             TextSpan(text: '${text.substring(h.end, e)}${e < text.length ? '…' : ''}'),
+          ]),
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    );
+  }
+}
+
+// ------------------------------------------------- a web novel's chapters
+
+/// A match found in a web novel's chapter files (see
+/// LibraryStore.findInWebNovel): its chapter, the place of its sentence,
+/// and where in the sentence's [text].
+class FoundPassage {
+  const FoundPassage({
+    required this.chapter,
+    required this.title,
+    required this.at,
+    required this.text,
+    required this.start,
+    required this.end,
+  });
+
+  final int chapter;
+  final String title;
+  final ReadingCursor at;
+  final String text;
+  final int start;
+  final int end;
+}
+
+/// What a search of a web novel's chapters found, and how many of its
+/// [all] chapters were [searched] (those on the phone).
+typedef PassageFind = ({List<FoundPassage> found, int searched, int all});
+
+/// Find a passage in a web novel's chapters on the phone, each searched in
+/// its own file by [find] (never the whole novel in memory at once).
+/// Picking a match calls [onPick] with it.
+Future<void> showPassageFinder(
+  BuildContext context, {
+  required Future<PassageFind> Function(String query, bool wholeWords) find,
+  required void Function(FoundPassage passage) onPick,
+}) =>
+    showModalBottomSheet<void>(
+      context: context,
+      sheetAnimationStyle: sheetMotion(context),
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (ctx) => carryTint(context, _FinderSheet(find: find, onPick: onPick)),
+    );
+
+class _FinderSheet extends StatefulWidget {
+  const _FinderSheet({required this.find, required this.onPick});
+
+  final Future<PassageFind> Function(String query, bool wholeWords) find;
+  final void Function(FoundPassage passage) onPick;
+
+  @override
+  State<_FinderSheet> createState() => _FinderSheetState();
+}
+
+class _FinderSheetState extends State<_FinderSheet> {
+  bool _wholeWords = false;
+  String _query = '';
+  PassageFind? _result;
+  bool _busy = false;
+  Timer? _debounce;
+  int _run = 0;
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  void _search() {
+    _debounce?.cancel();
+    // A little longer than a book's: each search reads the chapter files.
+    _debounce = Timer(const Duration(milliseconds: 400), () async {
+      final q = _query.trim();
+      final run = ++_run;
+      if (q.length < 2) {
+        setState(() {
+          _result = null;
+          _busy = false;
+        });
+        return;
+      }
+      setState(() => _busy = true);
+      PassageFind? result;
+      try {
+        result = await widget.find(q, _wholeWords);
+      } on Object {
+        result = null;
+      }
+      if (!mounted || run != _run) return;
+      setState(() {
+        _result = result ?? (found: const <FoundPassage>[], searched: 0, all: 0);
+        _busy = false;
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final result = _result;
+    final found = result?.found ?? const <FoundPassage>[];
+    // Each row: a chapter's heading (match -1), or match i.
+    final rows = <(int, int)>[];
+    final counts = <int, int>{};
+    for (var i = 0; i < found.length; i++) {
+      final c = found[i].chapter;
+      if (i == 0 || found[i - 1].chapter != c) rows.add((c, -1));
+      rows.add((c, i));
+      counts[c] = (counts[c] ?? 0) + 1;
+    }
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.8,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SheetHeader('Find a passage'),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: Gap.xl),
+              child: SearchField(
+                hint: 'Search the chapters on the phone',
+                autofocus: true,
+                onChanged: (v) {
+                  _query = v;
+                  _search();
+                },
+              ),
+            ),
+            const SizedBox(height: Gap.m),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: Gap.xl),
+              child: Row(
+                children: [
+                  const Spacer(),
+                  FilterChip(
+                    label: const Text('Whole words'),
+                    selected: _wholeWords,
+                    onSelected: (v) {
+                      setState(() => _wholeWords = v);
+                      _search();
+                    },
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.m, Gap.xl, Gap.xs),
+              child: Text(
+                [
+                  if (_busy)
+                    'Searching…'
+                  else if (_query.trim().length >= 2 && result != null)
+                    _SearchSheetState._count(found.length),
+                  if (!_busy && result != null && result.searched < result.all)
+                    'Searched ${result.searched} of ${result.all} chapters (the ones on the phone)',
+                ].join(' · ').toUpperCase(),
+                style: Skin.meta(context, size: 10.5),
+              ),
+            ),
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.fromLTRB(Gap.l, 0, Gap.l, Gap.xl),
+                itemCount: rows.length,
+                itemBuilder: (context, k) {
+                  final (chapter, i) = rows[k];
+                  if (i >= 0) return _row(context, found[i]);
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(Gap.s, Gap.m, Gap.s, Gap.xs),
+                    child: Text(
+                      '${found[rows[k + 1].$2].title}  ·  ${counts[chapter]}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Skin.title(context, size: 15),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _row(BuildContext context, FoundPassage p) {
+    final text = p.text;
+    final s = (p.start - 50).clamp(0, text.length);
+    final e = (p.end + 90).clamp(0, text.length);
+    final base = Skin.ui(size: 14.5, weight: FontWeight.w400, color: Skin.inkSoftOn(context)).copyWith(height: 1.4);
+    return InkWell(
+      borderRadius: BorderRadius.circular(Radii.card / 2),
+      onTap: () {
+        Navigator.of(context).pop();
+        widget.onPick(p);
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: Gap.s, vertical: 10),
+        child: Text.rich(
+          TextSpan(style: base, children: [
+            TextSpan(text: '${s > 0 ? '…' : ''}${text.substring(s, p.start)}'),
+            TextSpan(
+              text: text.substring(p.start, p.end),
+              style: TextStyle(
+                color: Skin.inkOn(context),
+                fontWeight: FontWeight.w700,
+                backgroundColor: Skin.accentOf(context).withValues(alpha: 0.28),
+              ),
+            ),
+            TextSpan(text: '${text.substring(p.end, e)}${e < text.length ? '…' : ''}'),
           ]),
           maxLines: 3,
           overflow: TextOverflow.ellipsis,

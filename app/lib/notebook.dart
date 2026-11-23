@@ -731,13 +731,6 @@ class NotebookSpiral extends CustomPainter {
   bool shouldRepaint(NotebookSpiral old) => old.wire != wire || old.paper != paper;
 }
 
-/// When something was saved, said on this phone's own calendar.
-String savedWhen(DateTime saved) {
-  final t = saved.toLocal();
-  final days = DateTime.now().difference(t).inDays;
-  if (days == 0) return 'today';
-  if (days == 1) return 'yesterday';
-  if (days < 7) return '$days days ago';
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  return '${t.day} ${months[t.month - 1]}';
-}
+/// When something was saved, said on this phone's own calendar: written
+/// last night is "yesterday" this morning, not "today".
+String savedWhen(DateTime saved, {DateTime? now}) => relativeDay(saved, now: now);

@@ -79,7 +79,7 @@ class _AiScreenState extends State<AiScreen> {
     final bottom = MediaQuery.viewPaddingOf(context).bottom;
     return Scaffold(
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: SafeArea(
           bottom: false,
           child: Column(
@@ -97,7 +97,8 @@ class _AiScreenState extends State<AiScreen> {
                               'provider: there is no TomeVoice server. Nothing from your books is sent until '
                               'you add a key.'
                           : 'Your keys, straight from this phone to each provider. When one has used up its '
-                              'quota it rests, and the next takes over.',
+                              'quota it rests. A memory is built with its first key only, unless you let the '
+                              'next take over.',
                     ),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: Gap.page - Gap.s),
@@ -644,7 +645,10 @@ class _KeySheetState extends State<KeySheet> {
     final k = widget.editing;
     if (k == null) return;
     final sure = await confirm(context,
-        title: 'Remove this key?', body: 'TomeVoice forgets it. The provider still has it.', action: 'Remove');
+        title: 'Remove this key?',
+        body: 'TomeVoice forgets this key. The memories and chats made with it stay. '
+            'The key still works at the provider: delete it there if you want it gone for good.',
+        action: 'Remove');
     if (!sure) return;
     await widget.ring.remove(k.id);
     if (mounted) Navigator.of(context).pop();
@@ -777,7 +781,7 @@ class _KeySheetState extends State<KeySheet> {
                   decoration: const InputDecoration(
                     labelText: 'Daily limit, in tokens (optional)',
                     hintText: '2M, 500k, or empty for none',
-                    helperText: 'Reached, the key rests until midnight and the next one takes over.',
+                    helperText: 'Reached, the key rests until midnight. Checked before each call, so it is never passed.',
                     helperMaxLines: 2,
                   ),
                 ),

@@ -3,11 +3,14 @@ import 'dart:isolate';
 
 import 'package:flutter/material.dart';
 
+import '../../speech_service.dart';
 import '../../theme.dart';
 import '../../ui.dart';
 import '../memory/graph.dart';
 import '../memory/memory_db.dart';
 import 'answer_pack.dart';
+import 'phrase.dart';
+import 'who_sheet.dart';
 
 /// A held word as a name: "Oren's" is Oren.
 String bareName(String word) => word.trim().replaceFirst(RegExp("['’]s\$"), '');
@@ -32,7 +35,8 @@ FoundCard? findCard(String path, String word, String sentence, int? at) {
     for (final e in g.namedIn(sentence)) {
       for (final r in m.db.select('SELECT norm FROM aliases WHERE entity = ?', [e])) {
         final norm = r['norm'] as String;
-        if (norm.split(' ').contains(w) && norm.length > best) {
+        // The word, or words ("six finger"), whole within the name.
+        if (w.isNotEmpty && ' $norm '.contains(' $w ') && norm.length > best) {
           best = norm.length;
           id = g.live(e);
         }
@@ -65,30 +69,60 @@ FoundCard? cardOf(String path, int id, int? at) {
 /// [cardOf] off the UI thread's isolate.
 Future<FoundCard?> cardOff(String path, int id, int? at) => Isolate.run(() => cardOf(path, id, at));
 
-/// Who or what a held word is: its card from the book's memory, at once and
-/// with no AI; each line's chapter a tap looks at; Tell me more asks Talk.
+/// Who or what a held word is. First its card from the book's memory
+/// ([memoryPath], when the book has one), at once and with no AI: the word,
+/// or the name round it in [sentence]. Each line's chapter a tap looks at;
+/// Tell me more asks Talk ([onAsk], null when the AI may not be asked).
+///
+/// When the memory has nothing, a sheet with the name it is probably part
+/// of ("the Nine", "Six Finger"), to widen or change, then asked of the AI
+/// or searched on the web ([openUrl]; the book's [searchTitle] with it, null
+/// for a book that must not be named). [lookUp] stands in for the memory in
+/// tests.
 Future<void> showNameCard(
   BuildContext context, {
-  required String memoryPath,
+  required String? memoryPath,
   required String word,
   required String sentence,
   required int? line,
-  required void Function(MemoryPlace place) onLook,
-  required void Function(String question) onAsk,
+  required String? searchTitle,
+  void Function(MemoryPlace place)? onLook,
+  void Function(String question)? onAsk,
+  Future<bool> Function(String url)? openUrl,
+  Future<FoundCard?> Function(String phrase)? lookUp,
 }) async {
-  final path = memoryPath;
-  final card = await Isolate.run(() => findCard(path, word, sentence, line));
+  final path = memoryPath != null && MemoryDb.existsAt(memoryPath) ? memoryPath : null;
+  final look = lookUp ??
+      (path == null ? null : (String p) => Isolate.run(() => findCard(path, p, sentence, line)));
+  final guess = guessPhrase(sentence, word);
+  var card = look == null ? null : await look(word);
+  if (card == null && look != null && guess.text.isNotEmpty && guess.text != bareName(word)) {
+    card = await look(guess.text);
+  }
   if (!context.mounted) return;
   if (card == null) {
-    showSnack(context, 'Nothing is remembered about "${bareName(word)}" yet. Build the memory from the book\'s page, or ask in Talk.');
-    return;
+    final pick = await showWhoSheet(context, guess: guess, ai: onAsk != null, memory: look != null, lookUp: look);
+    if (pick == null || !context.mounted) return;
+    switch (pick.choice) {
+      case WhoChoice.card:
+        card = pick.card;
+      case WhoChoice.ai:
+        onAsk?.call(whoQuestion(pick.phrase, sentence));
+        return;
+      case WhoChoice.web:
+        final opened = await (openUrl ?? const SpeechService().openUrl)(webSearchUrl(pick.phrase, searchTitle));
+        if (!opened && context.mounted) showSnack(context, 'No browser on this phone could open the search.');
+        return;
+    }
+    if (card == null || !context.mounted) return;
   }
+  final shown = card;
   await showModalBottomSheet<void>(
     context: context,
     sheetAnimationStyle: sheetMotion(context),
     isScrollControlled: true,
     useSafeArea: true,
-    builder: (ctx) => NameCardSheet(card: card, line: line, onLook: onLook, onAsk: onAsk),
+    builder: (ctx) => NameCardSheet(card: shown, line: line, onLook: onLook, onAsk: onAsk),
   );
 }
 

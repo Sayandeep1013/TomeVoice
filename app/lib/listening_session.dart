@@ -272,6 +272,30 @@ class FocusFollower {
 
   bool _resumeOnFocus = false;
   Timer? _lossTimer;
+  PlaybackScheduler? _watched;
+
+  /// The audio-return resume is off: the sleep timer fired, or the reader
+  /// played or paused by hand since the loss. A ping's sound ending must
+  /// not start reading again then.
+  void forget() {
+    _resumeOnFocus = false;
+    _lossTimer?.cancel();
+  }
+
+  /// Off as soon as [player] leaves "paused" by anything (the reader's
+  /// Play; this follower's own resume clears it anyway).
+  void _watch(PlaybackScheduler player) {
+    if (identical(_watched, player)) return;
+    _watched?.state.removeListener(_onState);
+    _watched = player;
+    player.state.addListener(_onState);
+  }
+
+  void _onState() {
+    final player = _watched;
+    if (player == null || !_resumeOnFocus) return;
+    if (player.state.value != PlayState.paused) forget();
+  }
 
   /// Follow platform event [type] while [player] reads: true for one about
   /// the phone's audio, false for any other.
@@ -286,6 +310,7 @@ class FocusFollower {
         pause();
       case 'focusLossTransient':
         if (player.isPlaying) {
+          _watch(player);
           _resumeOnFocus = true;
           _lossTimer?.cancel();
           _lossTimer = Timer(resumeAfterLossWithin, () => _resumeOnFocus = false);
@@ -303,7 +328,11 @@ class FocusFollower {
     return true;
   }
 
-  void dispose() => _lossTimer?.cancel();
+  void dispose() {
+    _lossTimer?.cancel();
+    _watched?.state.removeListener(_onState);
+    _watched = null;
+  }
 }
 
 /// What a reader takes back from a book read on in the background.
@@ -666,6 +695,7 @@ class BackgroundReading {
       // Fired: not to be armed again by the book opened after.
       _sleepAt = null;
       _sleep = SleepChoice.off;
+      _focus.forget();
       unawaited(pause(now: true).whenComplete(player.endFade));
     });
   }
@@ -680,6 +710,7 @@ class BackgroundReading {
     if (_sleep == SleepChoice.chapterEnd && _sleepChapter >= 0 && layout.chapterOfUnit(u) != _sleepChapter) {
       _sleep = SleepChoice.off;
       _sleepChapter = -1;
+      _focus.forget();
       unawaited(pause());
     }
     if (web) {
@@ -942,7 +973,8 @@ class BackgroundReading {
           case 'speed':
             _prefs.setSpeed(nextSpeed(_speed), book: bookId);
             _prefs.save();
-            if (playing) unawaited(player.play(unit));
+            // Pressed three times running, made again once, at the last.
+            player.remake();
             _updateCard();
           case 'save':
             unawaited(_saveLine());
@@ -1004,7 +1036,8 @@ class BackgroundReading {
     // to: it paused at once on the card's Next chapter.
     if (_sleep == SleepChoice.chapterEnd && _sleepChapter >= 0) _sleepChapter = layout.chapterOfUnit(to);
     if (playing) {
-      unawaited(player.play(to));
+      // A move: speech already made for it is played again, not made again.
+      unawaited(player.play(to, reuse: true));
     } else {
       _parkedAt = to;
       unawaited(_persistNow());

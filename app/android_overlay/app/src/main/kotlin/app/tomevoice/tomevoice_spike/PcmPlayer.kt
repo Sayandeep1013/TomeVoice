@@ -68,6 +68,9 @@ class PcmPlayer {
     private var haveStamp = false
     private var stampAskedAt = 0L
     private var lastHeard = 0L
+
+    /** When the head reached the end of what was given (0: it has not). */
+    private var drainedAt = 0L
     private var bluetooth = false
     private var routeAskedAt = 0L
 
@@ -121,7 +124,18 @@ class PcmPlayer {
         val bt = onBluetooth(t, now)
         val topUp = if (bt) maxOf(0L, BLUETOOTH_DELAY_MS * sampleRate / 1000 - (head - presented)) else 0L
         val offset = (if (bt) bluetoothOffsetMs else otherOffsetMs) * sampleRate / 1000
-        val heard = (presented - topUp - offset).coerceIn(0L, head)
+        // Everything given has left the track: the head stands still, so the
+        // delay taken off above would keep "heard" short of the end for good
+        // (on Bluetooth, the end of a book was never reached: the last
+        // sentence was said again, then an error). From then on the clock
+        // carries it on, as the last of the sound really comes out.
+        if (head >= framesEnqueued) {
+            if (drainedAt == 0L) drainedAt = now
+        } else {
+            drainedAt = 0L
+        }
+        val after = if (drainedAt == 0L) 0L else (now - drainedAt) * sampleRate / 1_000_000_000L
+        val heard = (presented - topUp - offset + after).coerceIn(0L, head)
         // Never back while it plays (an offset changed, a stale stamp).
         lastHeard = maxOf(lastHeard, heard)
         lastHeard
@@ -231,6 +245,7 @@ class PcmPlayer {
         failed = false
         haveStamp = false
         lastHeard = 0L
+        drainedAt = 0L
         routeAskedAt = 0L
         try {
             t.setVolume(volume)
@@ -282,6 +297,7 @@ class PcmPlayer {
         failed = false
         haveStamp = false
         lastHeard = 0L
+        drainedAt = 0L
         val t = track ?: return
         track = null
         framesEnqueued = 0L

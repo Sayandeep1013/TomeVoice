@@ -35,11 +35,41 @@ class TalkAnswer {
   }
 }
 
-/// [S3], [S3, S5], [S3][S5].
-final citeMarks = RegExp(r'\[S\d+(?:\s*,\s*S?\d+)*\]');
+/// The dashes a model may put in a range: hyphen, the Unicode hyphens and
+/// dashes (U+2010 to U+2014) and minus (U+2212). Char codes, not escapes.
+final _dashes = '-${String.fromCharCodes([0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2212])}';
 
-List<int> citeNumbers(String mark) =>
-    [for (final m in RegExp(r'\d+').allMatches(mark)) int.parse(m.group(0)!)];
+/// [S3], [S3, S5], [S3][S5], and the other ways models write them: ranges
+/// ([S118–S119], [S118-119], [S4 to S6]), "; & and" lists, spaces inside,
+/// lower case, and full-width brackets (U+3010, U+3011).
+final citeMarks = RegExp(
+  r'[\[' '${String.fromCharCode(0x3010)}' r']\s*S\s*\d+'
+  r'(?:\s*(?:,|;|&|and|to|[' '$_dashes' r'])\s*S?\s*\d+)*'
+  r'\s*[\]' '${String.fromCharCode(0x3011)}' ']',
+  caseSensitive: false,
+);
+
+/// The sentence numbers in a mark, with a range spelled out: [S4–S6] is
+/// 4, 5, 6. A range longer than 30 keeps only its two ends.
+List<int> citeNumbers(String mark) {
+  final out = <int>[];
+  final nums = RegExp(r'\d+').allMatches(mark).toList();
+  for (var i = 0; i < nums.length; i++) {
+    final n = int.parse(nums[i].group(0)!);
+    if (i > 0 && out.isNotEmpty) {
+      final between = mark.substring(nums[i - 1].end, nums[i].start).toLowerCase();
+      final from = out.last;
+      final range = between.contains('to') || between.split('').any(_dashes.contains);
+      if (range && n > from && n - from <= 30) {
+        for (var k = from + 1; k < n; k++) {
+          out.add(k);
+        }
+      }
+    }
+    out.add(n);
+  }
+  return out;
+}
 
 /// An answer as it is said aloud: no citation marks, no markdown.
 String spokenAnswer(String text) => text
@@ -224,8 +254,8 @@ class TalkEngine {
         if (line != null)
           'The reader has read up to chapter ${line + 1}. Never reveal, hint at or guess anything that happens '
               'after it.',
-        'After each sentence that rests on the material, cite it as [S3] (several: [S3, S7]). Cite only '
-            'numbers given to you.',
+        'After each sentence that rests on the material, cite it as [S3] (several: [S3, S7], each number '
+            'written out, never a range). Cite only numbers given to you.',
         if (_earlier.isNotEmpty)
           'This book carries on from ${_earlier.map((b) => '"${b.title}"').join(' and ')}: material from '
               'there is marked with its book. Say which book something happened in.',
@@ -260,6 +290,7 @@ class TalkEngine {
     List<String> journal = const [],
     void Function(String piece)? onText,
     bool theory = false,
+    bool Function()? stopped,
   }) async {
     final meaning = await _meaningOf(question);
     final input = PackInput(
@@ -289,7 +320,7 @@ class TalkEngine {
             '${theory ? 'The reader has a theory: $question\n\n$_weigh' : 'The reader asks: $question'}',
       ),
     ];
-    final reply = await _converse(messages, line, onText);
+    final reply = await _converse(messages, line, onText, stopped);
     // Kept, for "you asked about this before" (a theory is kept as one).
     if (!theory && MemoryDb.existsAt(memoryPath)) {
       try {
@@ -318,14 +349,17 @@ class TalkEngine {
     }
   }
 
-  Future<String> _converse(List<Map<String, Object?>> messages, int? line, void Function(String)? onText) async {
+  Future<String> _converse(
+      List<Map<String, Object?>> messages, int? line, void Function(String)? onText, bool Function()? stopped) async {
     final key = router.ring.forJob(AiJob.talker).firstOrNull;
     var tools = key != null && !_noTools.contains(key.id) && MemoryDb.existsAt(memoryPath);
     for (var round = 0; round < 5; round++) {
       final AiReply reply;
       try {
         reply = await router.chat(AiJob.talker, messages,
-            tools: tools ? [...talkTools, if (_earlier.isNotEmpty) earlierTool] : const [], onText: onText);
+            tools: tools ? [...talkTools, if (_earlier.isNotEmpty) earlierTool] : const [],
+            onText: onText,
+            stopped: stopped);
       } on AiResting catch (e) {
         // A provider that turns tools down: once more without them.
         if (tools && e.last?.kind == AiFailure.request) {
@@ -335,7 +369,7 @@ class TalkEngine {
         }
         rethrow;
       }
-      if (reply.toolCalls.isEmpty || round == 4) return reply.text.trim();
+      if (reply.toolCalls.isEmpty || round == 4 || (stopped?.call() ?? false)) return reply.text.trim();
       messages.add(reply.asMessage);
       for (final call in reply.toolCalls) {
         final args = call.args;

@@ -186,7 +186,7 @@ class _SeriesMemoryScreenState extends State<SeriesMemoryScreen> {
     final book = _book;
     return Scaffold(
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: SafeArea(
           bottom: false,
           child: Column(

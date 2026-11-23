@@ -190,7 +190,9 @@ class _OcrSheetState extends State<_OcrSheet> {
               padding: const EdgeInsets.fromLTRB(Gap.xl, 0, Gap.xl, Gap.l),
               child: Text(
                 '$what TomeVoice can read the words in them (OCR) here on the phone, a few seconds a page, '
-                'with the screen off too. What it reads may have mistakes.',
+                'with the screen off too. What it reads may have mistakes.'
+                // Said plainly: with nothing to read, Not now adds nothing.
+                '${offer.imported ? '' : ' Without it there are no words to read aloud, so Not now leaves it out of your library.'}',
                 style: body,
               ),
             ),

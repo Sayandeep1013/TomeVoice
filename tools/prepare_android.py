@@ -624,8 +624,22 @@ def main() -> int:
     elif not Path(keystore).exists():
         print(f"gradle: {keystore} is written just before the build")
     print(patch_gradle(gradle, signing, app_id))
+    print(patch_gradle_properties(app_dir / "android/gradle.properties"))
 
     return 0
+
+
+def patch_gradle_properties(path: Path) -> str:
+    """Gradle's build cache on: CI keeps ~/.gradle/caches between runs, so the
+    Kotlin, dex and R8 work of an unchanged Android side is reused instead of
+    redone. The outputs are the same either way; only the time changes."""
+    text = path.read_text(encoding="utf-8") if path.exists() else ""
+    if re.search(r"^org\.gradle\.caching\s*=", text, re.M):
+        return "gradle.properties: build cache already set"
+    if text and not text.endswith("\n"):
+        text += "\n"
+    path.write_text(text + "org.gradle.caching=true\n", encoding="utf-8", newline="\n")
+    return "gradle.properties: build cache on"
 
 
 if __name__ == "__main__":

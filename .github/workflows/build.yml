@@ -17,9 +17,9 @@ on:
         required: false
         default: ""
       variant:
-        description: 'test: only a 64-bit APK of the separate test app (app.tomevoice.test, "TomeVoice Test"), never released. play: the Google Play app bundle (.aab), never released here. play-test: the Play build as the test app, to try on a phone'
+        description: 'test: only a 64-bit APK of the separate test app (app.tomevoice.test, "TomeVoice Test"), never released. play: the Google Play app bundle (.aab), never released here. play-test: the Play build as the test app, to try on a phone. check: analyze and tests only, no APK'
         type: choice
-        options: [release, test, play, play-test]
+        options: [release, test, play, play-test, check]
         default: release
       relock:
         description: "Only re-resolve the pubspec.lock files with the pinned SDKs and upload them (builds nothing)"
@@ -130,13 +130,21 @@ jobs:
             echo "::endgroup::"
           done
 
-  # Only runs if the core is green, so a broken pipeline never produces an
-  # installable build. Nothing here can publish: see the release job.
+  # Runs beside the tests (app-tests, dart-core), not after them, so a test
+  # APK is ready in about half the time. An APK can therefore exist from a run
+  # whose tests failed: the run is red, and nothing from it is ever released.
+  # Nothing here can publish: the release job (and the Play bundle job) need
+  # dart-core, app-tests and this job all green. The 32-bit APK, which only
+  # a release uses, is built in a leg of its own beside the 64-bit one.
   android-apk:
-    name: Android release APK
+    name: Android release APK${{ matrix.abi == 'arm' && ' (32-bit)' || '' }}
+    if: github.event_name != 'workflow_dispatch' || (!inputs.relock && inputs.variant != 'check')
     runs-on: ubuntu-latest
-    needs: dart-core
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: ${{ fromJSON((inputs.variant == 'release' || inputs.variant == '') && '["arm64", "arm"]' || '["arm64"]') }}
     env:
       # variant=test builds the separate test app (tools/prepare_android.py):
       # it installs beside TomeVoice with an empty library of its own, so a
@@ -170,14 +178,17 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
-      # Gradle, AGP and PdfBox downloads dominate a cold Android build.
+      # Gradle, AGP and PdfBox downloads dominate a cold Android build. The
+      # cache also holds Gradle's build cache (prepare_android.py turns it on):
+      # Kotlin, dex and R8 results for an unchanged Android side. Saved when
+      # the key is new, so the key follows the Android sources too.
       - name: Cache Gradle
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('app/pubspec.lock', 'tools/prepare_android.py') }}
+          key: gradle-${{ runner.os }}-${{ hashFiles('app/pubspec.lock', 'tools/prepare_android.py', 'app/android_overlay/**') }}
           restore-keys: gradle-${{ runner.os }}-
 
       - &show-toolchain
@@ -198,8 +209,18 @@ jobs:
           # flutter create also writes a pubspec.lock of its own (the SDK's
           # pins only), over ours: keep ours aside.
           if [ -f pubspec.lock ]; then cp pubspec.lock /tmp/tv_pubspec.lock; fi
+          # The lint set is committed (app/analysis_options.yaml, the pinned
+          # Flutter's own template), so an editor sees the same lints as CI.
+          # Moved aside so flutter create writes its template, which is then
+          # compared: a new Flutter with a different template is warned about.
+          mv analysis_options.yaml /tmp/tv_analysis_options.yaml
           # --no-pub: the only resolution is the locked one further down.
           flutter create --no-pub --platforms=android --project-name tomevoice_spike --org app.tomevoice .
+          if ! cmp -s analysis_options.yaml /tmp/tv_analysis_options.yaml; then
+            diff -u /tmp/tv_analysis_options.yaml analysis_options.yaml || true
+            echo "::warning file=app/analysis_options.yaml::flutter create's analysis_options.yaml differs from the committed one (kept)"
+          fi
+          cp /tmp/tv_analysis_options.yaml analysis_options.yaml
           # flutter create writes lib/main.dart and pubspec.yaml, and also a
           # stub test/widget_test.dart referencing a MyApp class this project
           # does not have. All three are ours; restore all three.
@@ -209,7 +230,7 @@ jobs:
           cp /tmp/tv_pubspec.yaml pubspec.yaml
           if [ -f /tmp/tv_pubspec.lock ]; then cp /tmp/tv_pubspec.lock pubspec.lock; fi
           # Our sources and lockfile, exactly as committed.
-          changed=$(git status --porcelain --untracked-files=no -- lib test pubspec.yaml pubspec.lock)
+          changed=$(git status --porcelain --untracked-files=no -- lib test pubspec.yaml pubspec.lock analysis_options.yaml)
           if [ -n "$changed" ]; then echo "$changed"; echo "::error::flutter create changed our files"; exit 1; fi
 
       # A stable key means each build installs over the last one. Without the
@@ -310,13 +331,10 @@ jobs:
             exit 1
           fi
 
-      - name: Analyze
-        working-directory: app
-        run: flutter analyze --no-pub
-
-      - name: Widget tests
-        working-directory: app
-        run: flutter test --no-pub
+      # Which NDKs the runner image has (Flutter's own is downloaded when it
+      # is not one of them).
+      - name: Show the NDKs
+        run: ls "$ANDROID_HOME/ndk" || true
 
       # The key exists on disk only from here until "Delete the signing key".
       - name: Write the signing key
@@ -332,9 +350,10 @@ jobs:
       # Two APKs, one per CPU kind, built separately rather than with
       # --split-per-abi, which renumbers version codes: the 64-bit one is
       # what nearly every phone takes; the 32-bit one is for older and
-      # Android Go phones. The test app is 64-bit only.
+      # Android Go phones. The test app is 64-bit only. Each is the matrix
+      # leg of its own (abi), so the two build side by side.
       - name: Build release APK (32-bit phones)
-        if: inputs.variant == 'release' || inputs.variant == ''
+        if: matrix.abi == 'arm'
         working-directory: app
         env:
           TV_KEYSTORE_PASSWORD: ${{ secrets.TV_KEYSTORE_PASSWORD }}
@@ -344,7 +363,7 @@ jobs:
           cp build/app/outputs/flutter-apk/app-release.apk "$RUNNER_TEMP/app-release-32bit.apk"
 
       - name: Build release APK
-        if: inputs.variant != 'play'
+        if: matrix.abi == 'arm64' && inputs.variant != 'play'
         working-directory: app
         env:
           TV_KEYSTORE_PASSWORD: ${{ secrets.TV_KEYSTORE_PASSWORD }}
@@ -355,14 +374,9 @@ jobs:
           unzip -l build/app/outputs/flutter-apk/app-release.apk | grep -E "lib/" | awk '{print $4}' | cut -d/ -f2 | sort -u
           ls -la build/app/outputs/flutter-apk/app-release.apk
 
-      # The Play build: the widget tests that check what it leaves out, then
-      # one app bundle with both CPUs' code; Play makes each phone's APK from
-      # it. Signed with the TomeVoice key as the upload key.
-      - name: Play build tests
-        if: inputs.variant == 'play' || inputs.variant == 'play-test'
-        working-directory: app
-        run: flutter test --no-pub --dart-define=TV_STORE=play test/play_build_test.dart
-
+      # The Play build: one app bundle with both CPUs' code; Play makes each
+      # phone's APK from it. Signed with the TomeVoice key as the upload key.
+      # (The widget tests that check what it leaves out run in app-tests.)
       - name: Build the Play app bundle
         if: inputs.variant == 'play'
         working-directory: app
@@ -440,16 +454,20 @@ jobs:
           grep -o 'android:foregroundServiceType="[a-zA-Z|]*"' "$merged" | sort | uniq -c
           python3 ../tools/check_16kb.py build/app/outputs/bundle/release/app-release.aab
 
-      - name: Upload the Play app bundle
+      # Not the bundle to hand to Play yet: the tests may still be running or
+      # red. The play-bundle job passes it on as tomevoice-play-aab only when
+      # everything is green.
+      - name: Upload the Play app bundle (unchecked)
         if: inputs.variant == 'play'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: tomevoice-play-aab
+          name: tomevoice-play-aab-unchecked
           path: app/build/app/outputs/bundle/release/app-release.aab
           if-no-files-found: error
+          retention-days: 1
 
       - name: Upload the 32-bit APK
-        if: inputs.variant == 'release' || inputs.variant == ''
+        if: matrix.abi == 'arm'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tomevoice-apk-32bit
@@ -457,7 +475,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload the APK
-        if: inputs.variant == 'release' || inputs.variant == ''
+        if: matrix.abi == 'arm64' && (inputs.variant == 'release' || inputs.variant == '')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tomevoice-apk
@@ -477,12 +495,77 @@ jobs:
           path: ${{ runner.temp }}/TomeVoice-test.apk
           if-no-files-found: error
 
+  # The app's analyze and widget tests, in three shards side by side (the cost
+  # is one compile per test file, in series, so shards help where
+  # --concurrency does not). Beside the APK build, not before it. Every
+  # variant runs them, check runs only them (and dart-core).
+  app-tests:
+    name: App analyze and tests (${{ matrix.shard }}/3)
+    if: github.event_name != 'workflow_dispatch' || !inputs.relock
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      # Every failing test reported, not only the first shard's.
+      fail-fast: false
+      # (Expressions have no arithmetic: flutter's 0-based index beside it.)
+      matrix:
+        include:
+          - { shard: 1, index: 0 }
+          - { shard: 2, index: 1 }
+          - { shard: 3, index: 2 }
+    steps:
+      - *checkout
+      - *setup-java
+      - *setup-flutter
+      - *show-toolchain
+      - *scaffold
+      - *overlay
+      - *resolve-app
+
+      - name: Analyze
+        if: matrix.shard == 1
+        working-directory: app
+        run: flutter analyze --no-pub
+
+      - name: Widget tests
+        working-directory: app
+        run: flutter test --no-pub --total-shards 3 --shard-index ${{ matrix.index }}
+
+      # The widget tests that check what the Play build leaves out.
+      - name: Play build tests
+        if: matrix.shard == 1 && (inputs.variant == 'play' || inputs.variant == 'play-test')
+        working-directory: app
+        run: flutter test --no-pub --dart-define=TV_STORE=play test/play_build_test.dart
+
+  # The bundle to upload to Play, only from a run whose every check is green:
+  # the build job's copy is passed on once dart-core and app-tests are too.
+  play-bundle:
+    name: Play app bundle (all checks green)
+    needs: [dart-core, app-tests, android-apk]
+    if: github.event_name == 'workflow_dispatch' && inputs.variant == 'play'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download the checked bundle
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tomevoice-play-aab-unchecked
+          path: aab
+
+      - name: Upload the Play app bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tomevoice-play-aab
+          path: aab/app-release.aab
+          if-no-files-found: error
+
   # Releasing from CI: uploads from a home connection can stall. The only job
   # that can write to the repository, and it runs no build: it takes the APKs
-  # the build job checked, renames them and publishes the tag's draft release.
+  # the build job checked, renames them and publishes the tag's draft release,
+  # and only when the core, the app's tests and both APK legs are all green.
   release:
     name: Attach to the release
-    needs: android-apk
+    needs: [dart-core, app-tests, android-apk]
     if: github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.variant == 'release'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -530,16 +613,17 @@ jobs:
       - *setup-java
       - *setup-flutter
 
-      - name: Cache Gradle
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # The APK build's Gradle cache, read but never saved again here: a
+      # second 1.3 GB copy per key kept the repository over its 10 GB of
+      # caches (11.6 GB on 23 Nov), so GitHub had to evict others.
+      - name: Restore the Gradle cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-emulator-${{ runner.os }}-${{ hashFiles('app/pubspec.lock', 'tools/prepare_android.py') }}
-          restore-keys: |
-            gradle-emulator-${{ runner.os }}-
-            gradle-${{ runner.os }}-
+          key: gradle-${{ runner.os }}-${{ hashFiles('app/pubspec.lock', 'tools/prepare_android.py', 'app/android_overlay/**') }}
+          restore-keys: gradle-${{ runner.os }}-
 
       - *show-toolchain
       - *scaffold

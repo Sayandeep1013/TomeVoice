@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:tomevoice_document/tomevoice_document.dart';
 
+import 'ai/talk/phrase.dart';
 import 'book_tint.dart';
 import 'marks.dart';
 import 'theme.dart';
@@ -15,7 +16,9 @@ import 'ui.dart';
 /// sheet has gone. [word] is the word under the finger ('' for none);
 /// [web], a web novel's sentence (a line like it can be left out, and its
 /// chapter is saved as audio, not the whole book). With [ai] (the AI has a
-/// key, the book may be sent), also 'explain' and 'who'.
+/// key, the book may be sent), also 'explain'. 'who' is offered for any
+/// word: the book's memory first ([memory]: it has one), then the AI or the
+/// web.
 Future<String?> showSentenceActions(
   BuildContext context, {
   required String sentence,
@@ -23,6 +26,7 @@ Future<String?> showSentenceActions(
   required bool web,
   required VoidCallback onSaveAsAudio,
   bool ai = false,
+  bool memory = false,
 }) =>
     showModalBottomSheet<String>(
       context: context,
@@ -60,10 +64,16 @@ Future<String?> showSentenceActions(
                     detail: 'What it means here, from what the AI remembers of the book',
                     onTap: () => Navigator.pop(ctx, 'explain'),
                   ),
-                if (ai && word.isNotEmpty)
+                if (word.isNotEmpty && namesSomething(guessPhrase(sentence, word).text))
                   SheetAction(
                     icon: Icons.person_search_rounded,
-                    label: 'Who or what is "${word.replaceFirst(RegExp("['’]s\$"), '')}"?',
+                    label: 'Who or what is "${guessPhrase(sentence, word).text}"?',
+                    detail: switch ((memory, ai)) {
+                      (true, true) => "From the book's memory, or ask the AI",
+                      (true, false) => "From the book's memory, or search the web",
+                      (false, true) => 'Ask the AI, or search the web',
+                      (false, false) => 'Search the web for it',
+                    },
                     onTap: () => Navigator.pop(ctx, 'who'),
                   ),
                 SheetAction(icon: Icons.format_quote_rounded, label: 'Save as a quote', onTap: () => Navigator.pop(ctx, 'quote')),

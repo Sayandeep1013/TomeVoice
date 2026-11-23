@@ -4,6 +4,7 @@
 // the text's; and with Crop margins each page shows only its print, every
 // page one shape.
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -15,6 +16,7 @@ import 'package:tomevoice_spike/marks.dart';
 import 'package:tomevoice_spike/page_crop.dart';
 import 'package:tomevoice_spike/page_curl.dart';
 import 'package:tomevoice_spike/page_tone.dart';
+import 'package:tomevoice_spike/paged_view.dart' show PageTurn;
 import 'package:tomevoice_spike/pages_view.dart';
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/reader_screen.dart';
@@ -37,6 +39,31 @@ Rect? _printOf(int page) {
   return b == null ? null : Rect.fromLTRB(b[0], b[1], b[2], b[3]);
 }
 
+/// What the phone answers.
+Object? _answer(MethodCall call) => switch (call.method) {
+      'launchArgs' => <String, Object?>{},
+      'listEngines' => [
+          {'name': 'com.google.android.tts', 'label': 'Google TTS'},
+        ],
+      'listVoices' => [
+          {'name': 'en-gb-x-gba-local', 'locale': 'en-GB', 'quality': 300, 'networkRequired': false, 'installed': true},
+        ],
+      'outputDir' => _tmp.path,
+      'playerPosition' => 0,
+      'pdfInfo' => {
+          'pages': 3,
+          'sizes': [612, 792, 612, 792, 612, 792],
+        },
+      // Never drawn in a test: the page shows its number, which says which
+      // page is on screen.
+      'pdfRender' => '${_tmp.path}/page.jpg',
+      'pdfPrint' => [
+          for (final p in (call.arguments as Map)['pages'] as List) _printsAt.containsKey(p) ? _printsAt[p] : _usual,
+        ],
+      'playerEnqueue' => 0,
+      _ => null,
+    };
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -49,29 +76,7 @@ void main() {
     SpeechService.resetQueue();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(_channel, (call) async {
       _calls.add(call);
-      return switch (call.method) {
-        'launchArgs' => <String, Object?>{},
-        'listEngines' => [
-            {'name': 'com.google.android.tts', 'label': 'Google TTS'},
-          ],
-        'listVoices' => [
-            {'name': 'en-gb-x-gba-local', 'locale': 'en-GB', 'quality': 300, 'networkRequired': false, 'installed': true},
-          ],
-        'outputDir' => _tmp.path,
-        'playerPosition' => 0,
-        'pdfInfo' => {
-            'pages': 3,
-            'sizes': [612, 792, 612, 792, 612, 792],
-          },
-        // Never drawn in a test: the page shows its number, which says which
-        // page is on screen.
-        'pdfRender' => '${_tmp.path}/page.jpg',
-        'pdfPrint' => [
-            for (final p in (call.arguments as Map)['pages'] as List) _printsAt.containsKey(p) ? _printsAt[p] : _usual,
-          ],
-        'playerEnqueue' => 0,
-        _ => null,
-      };
+      return _answer(call);
     });
   });
 
@@ -84,17 +89,27 @@ void main() {
     }
   });
 
-  Future<void> openPdf(WidgetTester tester, {ThemeData? theme}) async {
+  /// The test book: three pages, a sentence on each.
+  ReadingLayout pdfLayout() => ReadingLayout.build(ingestPdfText(id: 'p', pages: [
+        for (var i = 1; i <= 3; i++) 'Page $i of the book has text enough to be a real page of it, honestly.',
+      ]));
+
+  /// The first sentence on [page] (from 0).
+  int unitOnPage(ReadingLayout l, int page) => l.unitPage.indexWhere((p) => p == page);
+
+  Future<void> openPdf(WidgetTester tester, {ThemeData? theme, int lookAtPage = -1}) async {
     tester.view.physicalSize = const Size(1080, 2340);
     tester.view.devicePixelRatio = 2.75;
     addTearDown(tester.view.reset);
     ListeningPrefs.memory.pdfPages = true;
-    final book = ingestPdfText(id: 'p', pages: [
-      for (var i = 1; i <= 3; i++) 'Page $i of the book has text enough to be a real page of it, honestly.',
-    ]);
+    final layout = pdfLayout();
     await tester.pumpWidget(MaterialApp(
       theme: theme,
-      home: ReaderScreen(layout: ReadingLayout.build(book), sourcePath: '${_tmp.path}/b.pdf'),
+      home: ReaderScreen(
+        layout: layout,
+        sourcePath: '${_tmp.path}/b.pdf',
+        lookAt: lookAtPage < 0 ? null : cursorOf(layout.units[unitOnPage(layout, lookAtPage)]),
+      ),
     ));
     await tester.pumpAndSettle();
   }
@@ -115,8 +130,16 @@ void main() {
     await tester.pump();
   }
 
-  Matrix4 zoomOf(WidgetTester tester) =>
-      tester.widget<InteractiveViewer>(find.byType(InteractiveViewer)).transformationController!.value;
+  /// The pages, each one that can zoom. Its zoom viewer is there only
+  /// while it is zoomed in.
+  Finder zoomPages() => find.byWidgetPredicate((w) => w.runtimeType.toString() == '_ZoomPage');
+
+  /// The zoomed page's zoom; none zoomed is the whole page.
+  Matrix4 zoomOf(WidgetTester tester) {
+    final viewer = find.byType(InteractiveViewer);
+    if (viewer.evaluate().isEmpty) return Matrix4.identity();
+    return tester.widget<InteractiveViewer>(viewer.first).transformationController!.value;
+  }
 
   /// A finger drawn across the page in small steps, as a hand moves (a pan
   /// starts only once the finger has gone some way).
@@ -153,7 +176,7 @@ void main() {
         ..pageTurn = turn;
       await openPdf(tester);
       expect(shown(), '1');
-      final page = find.byType(InteractiveViewer);
+      final page = zoomPages();
       expect(page, findsOneWidget);
       final c = tester.getCenter(page);
 
@@ -195,7 +218,7 @@ void main() {
       expect(shown(), '2');
 
       // Two taps in the middle come closer, there.
-      final mid = tester.getCenter(find.byType(InteractiveViewer));
+      final mid = tester.getCenter(zoomPages());
       await tester.tapAt(mid);
       await tester.pump(const Duration(milliseconds: 60));
       await tester.tapAt(mid);
@@ -207,20 +230,106 @@ void main() {
 
   testWidgets('scrolled, a page zooms too, and holds the list still while zoomed in', (tester) async {
     await openPdf(tester);
-    final first = find.byType(InteractiveViewer).first;
+    final first = zoomPages().first;
     final c = tester.getCenter(first);
     await tester.tapAt(c);
     await tester.pump(const Duration(milliseconds: 60));
     await tester.tapAt(c);
     await tester.pumpAndSettle();
-    expect(tester.widget<InteractiveViewer>(first).transformationController!.value.getMaxScaleOnAxis(),
-        greaterThan(2));
+    expect(zoomOf(tester).getMaxScaleOnAxis(), greaterThan(2));
     final top = tester.getTopLeft(first).dy;
-    final y = tester.widget<InteractiveViewer>(first).transformationController!.value.storage[13];
+    final y = zoomOf(tester).storage[13];
     // A drag up moves the page under the finger, not the list.
     await slide(tester, c, const Offset(0, -200));
     expect(tester.getTopLeft(first).dy, top);
-    expect(tester.widget<InteractiveViewer>(first).transformationController!.value.storage[13], lessThan(y - 50));
+    expect(zoomOf(tester).storage[13], lessThan(y - 50));
+    await finish(tester);
+  });
+
+  testWidgets('scrolled, a fast flick moves the list: a page at its whole size does not take it', (tester) async {
+    await openPdf(tester);
+    final list = find.descendant(of: find.byType(PdfPagesView), matching: find.byType(Scrollable)).first;
+    final before = tester.state<ScrollableState>(list).position.pixels;
+    // A flick as a quick hand makes it: the first move already far past
+    // both the list's and a zoom's slop.
+    final finger = await tester.startGesture(tester.getCenter(zoomPages().first));
+    for (var i = 0; i < 4; i++) {
+      await finger.moveBy(const Offset(0, -120));
+      await tester.pump(const Duration(milliseconds: 8));
+    }
+    await finger.up();
+    await tester.pumpAndSettle();
+    expect(tester.state<ScrollableState>(list).position.pixels, greaterThan(before + 300));
+    expect(find.byType(InteractiveViewer), findsNothing, reason: 'nothing was zoomed');
+    await finish(tester);
+  });
+
+  testWidgets(
+      'scrolled, pages are drawn two at a time, those on screen first: after a long scroll the pages landed on '
+      'come next, those passed are not drawn, and one that failed is drawn again', (tester) async {
+    // A long scan whose pages take as long as the test says.
+    final waiting = <({int page, Completer<String> done})>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(_channel, (call) async {
+      _calls.add(call);
+      if (call.method == 'pdfInfo') {
+        return {
+          'pages': 40,
+          'sizes': [for (var i = 0; i < 40; i++) ...[612, 792]],
+        };
+      }
+      if (call.method == 'pdfRender') {
+        final done = Completer<String>();
+        waiting.add((page: (call.arguments as Map)['page'] as int, done: done));
+        return done.future;
+      }
+      return _answer(call);
+    });
+    List<int> asked() => [
+          for (final c in _calls.where((c) => c.method == 'pdfRender')) (c.arguments as Map)['page'] as int,
+        ];
+    Set<int> onScreen() => shown().split(',').where((s) => s.isNotEmpty).map((s) => int.parse(s) - 1).toSet();
+
+    await openPdf(tester);
+    expect(asked(), hasLength(2), reason: 'two at a time');
+    final first = asked().toSet();
+
+    // A long way down, by hand, while those two are still being drawn.
+    for (var i = 0; i < 6; i++) {
+      await tester.drag(find.byType(PdfPagesView), const Offset(0, -2500));
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+    final here = onScreen();
+    expect(here.intersection(first), isEmpty, reason: 'scrolled well past the first pages');
+    expect(asked(), hasLength(2), reason: 'nothing more begun while two are drawn');
+
+    // The first two done: the next are pages on screen now, not those passed.
+    for (final w in waiting.toList()) {
+      w.done.complete('${_tmp.path}/page.jpg');
+    }
+    await tester.pump();
+    await tester.pump();
+    final next = asked().skip(2).toList();
+    expect(next, hasLength(2));
+    expect(here, containsAll(next), reason: 'the pages landed on come first');
+
+    // One fails (out of memory, say): a little later it is asked for again.
+    final failed = waiting[2];
+    failed.done.completeError(PlatformException(code: 'PDF_PAGES', message: 'Cannot draw page'));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    // Its turn comes as the pages before it are drawn.
+    for (var k = 0; k < 20 && !asked().skip(4).contains(failed.page); k++) {
+      for (final w in waiting.toList()) {
+        if (!w.done.isCompleted) w.done.complete('${_tmp.path}/page.jpg');
+      }
+      await tester.pump();
+    }
+    expect(asked().skip(4), contains(failed.page), reason: 'not left as its number');
+
+    for (final w in waiting) {
+      if (!w.done.isCompleted) w.done.complete('${_tmp.path}/page.jpg');
+    }
     await finish(tester);
   });
 
@@ -280,6 +389,57 @@ void main() {
         invertedPage(paper: Skin.darkOn(context), ink: Skin.inkOn(context)));
     await finish(tester);
   });
+
+  testWidgets("opened to look at a place (a chapter, a mark), a PDF's real pages open at its page, not the voice's",
+      (tester) async {
+    ListeningPrefs.memory
+      ..pages = true
+      ..pageTurn = 'none';
+    await openPdf(tester, lookAtPage: 2);
+    expect(shown(), '3');
+    await finish(tester);
+
+    // Scrolled, the same: the page looked at is on screen, the first is not.
+    ListeningPrefs.reset();
+    ListeningPrefs.memory.pages = false;
+    await openPdf(tester, lookAtPage: 2);
+    expect(shown(), contains('3'));
+    expect(shown(), isNot(contains('1')));
+    await finish(tester);
+  });
+
+  for (final pages in [false, true]) {
+    testWidgets("asked to show a place while open, a PDF's real pages go to its page (${pages ? 'turned' : 'scrolled'})",
+        (tester) async {
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 2.75;
+      addTearDown(tester.view.reset);
+      final layout = pdfLayout();
+      final control = PdfPagesController();
+      final detached = ValueNotifier(false);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfPagesView(
+            path: '${_tmp.path}/b.pdf',
+            layout: layout,
+            cursor: ValueNotifier(0),
+            detached: detached,
+            onTapPage: (_) {},
+            controller: control,
+            turn: pages ? PageTurn.none : null,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(shown(), startsWith('1'));
+      detached.value = true;
+      control.show(unitOnPage(layout, 2));
+      await tester.pumpAndSettle();
+      expect(shown(), contains('3'));
+      expect(shown(), isNot(contains('1')));
+      await finish(tester);
+    });
+  }
 
   testWidgets("the page keys, a tap at a side and TalkBack turn a PDF's pages as they turn the text's",
       (tester) async {
@@ -443,13 +603,13 @@ void main() {
     testWidgets('a page zoomed in comes back to its whole size as it is cut, and the list scrolls again',
         (tester) async {
       await openPdf(tester);
-      final first = find.byType(InteractiveViewer).first;
+      final first = zoomPages().first;
       final c = tester.getCenter(first);
       await tester.tapAt(c);
       await tester.pump(const Duration(milliseconds: 60));
       await tester.tapAt(c);
       await tester.pumpAndSettle();
-      Matrix4 zoom() => tester.widget<InteractiveViewer>(first).transformationController!.value;
+      Matrix4 zoom() => zoomOf(tester);
       expect(zoom().getMaxScaleOnAxis(), greaterThan(2));
       ListeningPrefs.memory
         ..pdfCrop = true

@@ -51,6 +51,7 @@ import 'speech_service.dart';
 import 'starter.dart';
 import 'updates.dart';
 import 'updates_screen.dart';
+import 'scene.dart';
 import 'theme.dart';
 import 'ui.dart';
 import 'update_flow.dart';
@@ -84,27 +85,36 @@ Future<OpenLibrary> openLibrary() async {
 }
 
 Future<OpenLibrary> _open(String dir) async {
+  // How long each step took, for the log (see _StartTimes).
+  final took = _StartTimes();
   // A restore the app stopped in the middle of is finished or undone first,
   // before any store reads the library half swapped.
-  await clearStaleRestore(Directory(dir));
-  final prefs = await ListeningPrefs.load(dir);
+  await took('restore check', clearStaleRestore(Directory(dir)));
+  final prefs = await took('settings', ListeningPrefs.load(dir));
   // The Play build lists more natural voices only when asked to.
   NeuralCatalog.wide = prefs.moreVoices;
   // The reader's own font, if it is the page's, before a book opens.
-  if (prefs.bookFont == BookFont.own) await OwnFonts.use(dir, prefs.ownFont);
-  // Sources ask as the phone's own browser does (see Net.userAgent).
-  final agent = await const SpeechService().webUserAgent();
-  if (agent != null && agent.isNotEmpty) Net.userAgent = agent;
+  if (prefs.bookFont == BookFont.own) await took('own font', OwnFonts.use(dir, prefs.ownFont));
   // Sources live in internal storage, moved there once from the library's
   // folder (which other apps can read on Android 8 to 10).
-  final internal = await SourcesBridge.sourcesRoot();
+  final internal = await took('sources folder', SourcesBridge.sourcesRoot());
   // So do the passwords (Secrets), moved the first time they are read.
   if (internal != null) Secrets.home = Directory(internal);
-  final sources = await SourceStore.open(Directory(internal ?? dir), legacyRoot: Directory(dir));
-  await Net.instance.attach(sources.dir);
+  final sources = await took('sources', SourceStore.open(Directory(internal ?? dir), legacyRoot: Directory(dir)));
+  // Sources ask as the phone's own browser does (see Net.userAgent): with
+  // the agent kept last run, the web view asked again once the shelf is up.
+  // Asked first, it held the start up (the web view loads on the main
+  // thread, a few hundred ms on a cold start).
+  final saved = await sources.savedUserAgent();
+  if (saved != null) {
+    Net.userAgent = saved;
+    unawaited(Future<void>.delayed(const Duration(seconds: 3), () => _askUserAgent(sources)));
+  } else {
+    // The first run: none kept yet, so asked now.
+    await took('web view agent', _askUserAgent(sources));
+  }
+  await took('cookies', Net.instance.attach(sources.dir));
   SourceEngine.instance.attach(sources);
-  // The check made with the app closed asks with the same agent.
-  if (agent != null && agent.isNotEmpty) unawaited(sources.saveUserAgent(agent));
   final store = LibraryStore(Directory(dir));
   _settleWhenLeft(store);
   // What the error log must never write, whatever an error says: every
@@ -120,19 +130,28 @@ Future<OpenLibrary> _open(String dir) async {
   keepOutOfLog();
   // Long jobs (downloads, memories) kept going in the background, and what
   // the last run left going, to pick up (keep_alive.dart).
-  await LongJobs.instance.attach(Directory(dir));
+  await took('long jobs', LongJobs.instance.attach(Directory(dir)));
   // Chapters left downloading when the app last closed carry on.
   unawaited(DownloadQueue.instance.attach(store));
-  await TintCache.instance.attach(Directory(dir));
-  await ReadingRules.instance.attach(Directory(dir));
-  await MarkStore.instance.attach(Directory(dir));
-  await JournalStore.instance.attach(Directory(dir));
-  // AI chat's conversations, and what it keeps about the reader.
-  await ChatStore.instance.attach(Directory(dir));
-  // Books whose memories are read together, as a series.
-  await SeriesStore.instance.attach(Directory(dir));
-  // The reader's AI keys (kept with the catalogue passwords) and their use.
-  await AiRing.instance.attach(Directory(dir));
+  // Each reads its own file, and none needs another: read together, not one
+  // after another.
+  await took(
+    'stores',
+    Future.wait([
+      TintCache.instance.attach(Directory(dir)),
+      ReadingRules.instance.attach(Directory(dir)),
+      MarkStore.instance.attach(Directory(dir)),
+      JournalStore.instance.attach(Directory(dir)),
+      // Books whose memories are read together, as a series.
+      SeriesStore.instance.attach(Directory(dir)),
+      // The reader's AI keys (kept with the catalogue passwords) and their use.
+      AiRing.instance.attach(Directory(dir)),
+      StatsStore.instance.attach(Directory(dir)),
+    ]),
+  );
+  // AI chat's conversations, and what it keeps about the reader: read in
+  // after, not waited for (every chat is read whole; the shelf needs none).
+  unawaited(ChatStore.instance.attach(Directory(dir)));
   MemoryService.instance.attach(store);
   // A memory that was being built when the app last closed goes on, once
   // TomeVoice is in front (not for a book read from outside it).
@@ -140,13 +159,52 @@ Future<OpenLibrary> _open(String dir) async {
   // Memories built with the app closed, while the AI has a key.
   unawaited(MemoryBackground.apply(prefs));
   AiRing.instance.addListener(() => unawaited(MemoryBackground.apply(ListeningPrefs.loaded ?? prefs)));
-  await StatsStore.instance.attach(Directory(dir));
   NeuralVoices.instance.attach(Directory(dir));
   // One check for the whole engine (the shelves', the Updates page's, and
   // the closed-app check's worker's, see checkInApp), which queues the new
   // chapters of novels that download them by themselves.
   final updates = Updates(store, auto: AutoDownloads());
+  took.done();
   return (dir: dir, store: store, sources: sources, updates: updates);
+}
+
+/// The phone's web view agent, for the sources to ask with, kept for the
+/// next run and for the check made with the app closed.
+Future<void> _askUserAgent(SourceStore sources) async {
+  try {
+    final agent = await const SpeechService().webUserAgent();
+    if (agent == null || agent.isEmpty) return;
+    Net.userAgent = agent;
+    await sources.saveUserAgent(agent);
+  } on Object {
+    // The one kept, or the built-in one, will do.
+  }
+}
+
+/// How long each step of opening the library took: written to the phone's
+/// log (logcat) at every start, and to the error log when the whole took
+/// longer than [slow], so that a slow start can be told apart.
+class _StartTimes {
+  static const slow = Duration(seconds: 2);
+
+  final _watch = Stopwatch()..start();
+  final _steps = <String>[];
+
+  Future<T> call<T>(String step, Future<T> work) async {
+    final from = _watch.elapsedMilliseconds;
+    try {
+      return await work;
+    } finally {
+      _steps.add('$step ${_watch.elapsedMilliseconds - from} ms');
+    }
+  }
+
+  void done() {
+    final total = _watch.elapsed;
+    final line = 'Opening the library took ${total.inMilliseconds} ms: ${_steps.join(', ')}';
+    debugPrint(line);
+    if (total > slow) ErrorLog.instance.record('Slow start. $line', null);
+  }
 }
 
 /// What the closed-app check's worker asks of this engine when it finds it
@@ -214,6 +272,9 @@ class HomeShell extends StatefulWidget {
 
 enum _Place { library, browse, updates, history }
 
+/// How often a moving place (reading) redraws the home-screen widgets.
+const widgetsPlaceEvery = Duration(seconds: 45);
+
 class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
   Timer? _followTimer;
   Timer? _widgetTimer;
@@ -226,11 +287,31 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
   /// if Android's installer was backed out of.
   String? _offered;
 
+  /// When the widgets were last redrawn from here.
+  DateTime? _widgetsDrawn;
+
   /// The widgets show the library and the streak: redraw them a moment after
-  /// a change (places are saved often while reading).
+  /// a change.
   void _scheduleWidgets() {
     _widgetTimer?.cancel();
-    _widgetTimer = Timer(const Duration(seconds: 3), () => unawaited(const SpeechService().refreshWidgets()));
+    _widgetTimer = Timer(const Duration(seconds: 3), _drawWidgets);
+  }
+
+  /// A place moved: while reading that is about once a sentence, and the
+  /// widget's progress moves by a hair, so at most every
+  /// [widgetsPlaceEvery]. Play, pause and a new book redraw them at once
+  /// from the reading service.
+  void _schedulePlaceWidgets() {
+    if (_widgetTimer?.isActive ?? false) return;
+    final drawn = _widgetsDrawn;
+    final since = drawn == null ? widgetsPlaceEvery : DateTime.now().difference(drawn);
+    final wait = since >= widgetsPlaceEvery ? const Duration(seconds: 3) : widgetsPlaceEvery - since;
+    _widgetTimer = Timer(wait, _drawWidgets);
+  }
+
+  void _drawWidgets() {
+    _widgetsDrawn = DateTime.now();
+    unawaited(const SpeechService().refreshWidgets());
   }
 
   /// A widget was tapped: open its book (and play it), or Stats.
@@ -287,7 +368,7 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
     _store?.changes.removeListener(_scheduleFollow);
     _store?.placeChanges.removeListener(_scheduleFollow);
     _store?.changes.removeListener(_scheduleWidgets);
-    _store?.placeChanges.removeListener(_scheduleWidgets);
+    _store?.placeChanges.removeListener(_schedulePlaceWidgets);
     _store?.placeChanges.removeListener(_scheduleSync);
     super.dispose();
   }
@@ -362,7 +443,7 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
       store.changes.addListener(_scheduleFollow);
       store.placeChanges.addListener(_scheduleFollow);
       store.changes.addListener(_scheduleWidgets);
-      store.placeChanges.addListener(_scheduleWidgets);
+      store.placeChanges.addListener(_schedulePlaceWidgets);
       // A widget may have opened the app.
       unawaited(_fromWidget());
       _widgetEvents = SpeechService.events.where((e) => e['type'] == 'widgetLaunch').listen((_) => _fromWidget());
@@ -512,18 +593,38 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
   }
 
   void _go(_Place place) {
-    Navigator.of(context).pop(); // The drawer.
+    final nav = Navigator.of(context);
+    nav.pop(); // The drawer.
+    // From a screen the drawer opened: back to the shell, at that place.
+    nav.popUntil((r) => r.isFirst);
     setState(() {
       _place = place;
       _visited.add(place);
     });
   }
 
-  void _push(Widget Function(LibraryStore store) page) {
+  /// A screen the drawer opens ([label] is its row): it has the drawer too,
+  /// and its top bar shows Menu, as the library's does (ScreenTopBar). One
+  /// picked from there takes its place, so Back always comes to the shell.
+  void _push(String label, Widget Function(LibraryStore store) page) {
     final store = _store;
     if (store == null) return;
-    Navigator.of(context).pop();
-    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page(store)));
+    final nav = Navigator.of(context);
+    nav.pop(); // The drawer.
+    nav.popUntil((r) => r.isFirst);
+    nav.push(MaterialPageRoute<void>(
+      builder: (_) => DrawerBackScaffold(
+        canPop: true,
+        onBack: () {},
+        drawer: Builder(builder: (ctx) => _drawer(ctx, current: label)),
+        body: Builder(
+          builder: (ctx) => DrawerPage(
+            openDrawer: () => Scaffold.of(ctx).openDrawer(),
+            child: page(store),
+          ),
+        ),
+      ),
+    ));
   }
 
   @override
@@ -532,7 +633,7 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
     final Widget body;
     if (store == null) {
       body = DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: Center(
           child: _error == null
               ? const BrandLockup()
@@ -563,14 +664,18 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
       // The library arrives from the opening lockup, and each place picked
       // in the drawer, the way a new screen does: over the same ground.
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: FadeIn(key: ValueKey(store == null), trigger: _place, child: body),
       ),
     ));
   }
 
-  Widget _drawer(BuildContext context) => Drawer(
-        child: SafeArea(
+  /// The drawer: on the shell, its place is lit; on a screen it opened
+  /// ([current], that screen's row), that screen's row is.
+  Widget _drawer(BuildContext context, {String? current}) {
+    bool on(_Place p) => current == null && _place == p;
+    final scene = Skin.sceneOf(context);
+    final list = SafeArea(
           child: ListView(
             padding: const EdgeInsets.symmetric(vertical: Gap.l),
             children: [
@@ -584,7 +689,7 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('TomeVoice', style: Skin.title(context, size: 26, weight: FontWeight.w500)),
+                          Text('TomeVoice', style: Skin.heading(context, size: 26, weight: FontWeight.w500)),
                           Text('Any book, read aloud.',
                               style: Skin.title(context, size: 14, italic: true, weight: FontWeight.w400,
                                   color: Skin.inkSoftOn(context))),
@@ -597,35 +702,54 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
               // Grouped by what each is for, a quiet heading over each group.
               _heading(context, 'Your books', first: true),
               _item(context, Icons.auto_stories_outlined, Icons.auto_stories_rounded, 'Library',
-                  selected: _place == _Place.library, onTap: () => _go(_Place.library)),
+                  selected: on(_Place.library), onTap: () => _go(_Place.library)),
               _item(context, Icons.folder_copy_outlined, Icons.folder_copy_rounded, 'Categories',
-                  onTap: () => _push((s) => CategoriesScreen(store: s))),
+                  selected: current == 'Categories', onTap: () => _push('Categories', (s) => CategoriesScreen(store: s))),
               _item(context, Icons.history_rounded, Icons.history_rounded, 'History',
-                  selected: _place == _Place.history, onTap: () => _go(_Place.history)),
+                  selected: on(_Place.history), onTap: () => _go(_Place.history)),
               _item(context, Icons.bookmarks_outlined, Icons.bookmarks_rounded, 'Saved',
-                  onTap: () => _push((s) => SavedScreen(store: s))),
+                  selected: current == 'Saved', onTap: () => _push('Saved', (s) => SavedScreen(store: s))),
               _heading(context, 'Find books'),
               _item(context, Icons.travel_explore_rounded, Icons.travel_explore_rounded, 'Browse',
-                    selected: _place == _Place.browse, onTap: () => _go(_Place.browse)),
+                  selected: on(_Place.browse), onTap: () => _go(_Place.browse)),
               _item(context, Icons.new_releases_outlined, Icons.new_releases_rounded, 'Updates',
-                    selected: _place == _Place.updates, onTap: () => _go(_Place.updates)),
+                  selected: on(_Place.updates), onTap: () => _go(_Place.updates)),
               _heading(context, 'Thoughts and AI'),
               // The reading journal: what was thought, a page a book.
               _item(context, Icons.edit_note_outlined, Icons.edit_note_rounded, 'Journal',
-                  onTap: () => _push((s) => JournalScreen(store: s))),
+                  selected: current == 'Journal', onTap: () => _push('Journal', (s) => JournalScreen(store: s))),
               // Talking with the AI. The books' memories and AI settings are
               // behind its buttons.
               _item(context, Icons.forum_outlined, Icons.forum_rounded, 'AI chat',
-                  onTap: () => _push((s) => AiChatScreen(store: s))),
+                  selected: current == 'AI chat', onTap: () => _push('AI chat', (s) => AiChatScreen(store: s))),
               _heading(context, 'App'),
               _item(context, Icons.settings_outlined, Icons.settings_rounded, 'Settings',
-                  onTap: () => _push((s) => SettingsScreen(store: s))),
+                  selected: current == 'Settings', onTap: () => _push('Settings', (s) => SettingsScreen(store: s))),
               _item(context, Icons.info_outline_rounded, Icons.info_rounded, 'About',
-                  onTap: () => _push((store) => AboutScreen(root: store.root))),
+                  selected: current == 'About', onTap: () => _push('About', (store) => AboutScreen(root: store.root))),
+              // Room for a scene's ornament at the foot.
+              if (scene != null) const SizedBox(height: 120),
             ],
           ),
-        ),
-      );
+        );
+    if (scene == null) return Drawer(child: list);
+    // A scene theme: the drawer is a piece of its place, a crest at the top
+    // and something at the foot (a hand and a candle in the dungeon).
+    return Drawer(
+      backgroundColor: Colors.transparent,
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        children: [
+          Positioned.fill(child: DecoratedBox(decoration: Skin.groundDecoration(context))),
+          // Dark enough under the rows for every word on them.
+          const Positioned.fill(child: ColoredBox(color: Color(0x8C000000))),
+          Positioned(top: MediaQuery.paddingOf(context).top + 4, right: 6, child: SceneOrnament(scene, foot: false, width: 64, height: 64)),
+          Positioned(left: 0, right: 0, bottom: 0, child: Center(child: SceneOrnament(scene, foot: true, width: 200, height: 110))),
+          list,
+        ],
+      ),
+    );
+  }
 
   /// A group's heading, with a rule above it (but the first's).
   Widget _heading(BuildContext context, String label, {bool first = false}) => Padding(
@@ -634,7 +758,10 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (!first) ...[
-              Divider(height: 1, color: Skin.inkOn(context).withValues(alpha: 0.12)),
+              if (Skin.sceneOf(context) case final scene?)
+                SceneDivider(scene)
+              else
+                Divider(height: 1, color: Skin.inkOn(context).withValues(alpha: 0.12)),
               const SizedBox(height: Gap.m),
             ],
             Eyebrow(label),

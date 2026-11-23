@@ -65,6 +65,9 @@ class ReadAloudService : MediaBrowserService() {
         const val ACTION_STOP = "app.tomevoice.action.STOP"
         const val ACTION_NEXT = "app.tomevoice.action.NEXT"
         const val ACTION_PREV = "app.tomevoice.action.PREV"
+
+        /** On a widget's button: sent as a foreground start, so the service goes foreground first. */
+        const val EXTRA_FROM_WIDGET = "app.tomevoice.widget.FOREGROUND"
         private const val CUSTOM_SPEED = "speed"
         private const val CUSTOM_SAVE = "save"
         private const val CHANNEL_ID = "reading"
@@ -112,10 +115,9 @@ class ReadAloudService : MediaBrowserService() {
         /** A Play from outside the app gives Dart this long to start reading. */
         private const val START_TIMEOUT_MS = 30 * 1000L
 
-        /** The browser's roots: Android Auto's, the resume card's, and one with nothing for apps not known. */
+        /** The browser's roots: Android Auto's and the resume card's. */
         private const val ROOT = "root"
         private const val ROOT_RECENT = "recent"
-        private const val ROOT_EMPTY = "empty"
 
         /** How many books Android Auto lists: the one being read, then the ones read before it. */
         private const val BROWSE_MAX = 12
@@ -132,8 +134,10 @@ class ReadAloudService : MediaBrowserService() {
 
         /**
          * Apps that may browse the books besides the system's own: Android
-         * Auto, Wear OS and the Assistant. Any other is given an empty root:
-         * it may still press play, but sees no titles.
+         * Auto, Wear OS and the Assistant. Any other is turned away: an
+         * empty root would still hand it the session, and with it the title
+         * and cover being read and the buttons. Remotes that work from the
+         * notification (watches, headsets) do not use the browser.
          */
         private val CLIENTS = setOf(
             "com.google.android.projection.gearhead",
@@ -401,11 +405,12 @@ class ReadAloudService : MediaBrowserService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         started = true
         val action = intent?.action
+        val fromWidget = intent?.getBooleanExtra(EXTRA_FROM_WIDGET, false) == true
         // A start that promised the notification (startForegroundService:
-        // the reading's own, and a headset's Play once the app is gone) puts
-        // it up first; a widget's or the notification's button needs it only
-        // while a book is being read.
-        if (action == null || action == Intent.ACTION_MEDIA_BUTTON || reading) goForeground()
+        // the reading's own, a headset's Play once the app is gone, and a
+        // widget's button) puts it up first; the notification's button
+        // needs it only while a book is being read.
+        if (action == null || action == Intent.ACTION_MEDIA_BUTTON || fromWidget || reading) goForeground()
         when (action) {
             ACTION_PLAY -> play(null)
             ACTION_PAUSE -> onAction?.invoke("pause", 0)
@@ -417,7 +422,7 @@ class ReadAloudService : MediaBrowserService() {
         if (reading && now.playing) keepAwake(true)
         // Started for a reading that is paused (a book handed on paused):
         // up, as Android requires of a start like this, and out again.
-        if (action == null) settleSoon()
+        if (action == null || fromWidget) settleSoon()
         if (!reading && !starting) {
             // Nothing is being read (the app was closed since, or a button
             // with nothing to act on): stop again, and redraw the widgets so
@@ -770,7 +775,7 @@ class ReadAloudService : MediaBrowserService() {
      * Who may see the books. The system's resume card asks with EXTRA_RECENT
      * (System UI, a system app) and gets the book to carry on with; Android
      * Auto and the other known clients, and the system's own apps, get the
-     * list; any other app an empty root.
+     * list; any other app nothing (null: it is not connected).
      */
     override fun onGetRoot(clientPackageName: String, clientUid: Int, rootHints: Bundle?): MediaBrowserService.BrowserRoot? {
         val known = trusted(clientPackageName, clientUid)
@@ -781,7 +786,7 @@ class ReadAloudService : MediaBrowserService() {
                 Bundle().apply { putBoolean(MediaBrowserService.BrowserRoot.EXTRA_RECENT, true) }
             )
         }
-        if (!known) return MediaBrowserService.BrowserRoot(ROOT_EMPTY, null)
+        if (!known) return null
         return MediaBrowserService.BrowserRoot(
             ROOT,
             Bundle().apply {

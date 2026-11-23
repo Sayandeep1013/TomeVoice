@@ -211,6 +211,26 @@ class JournalEntry {
                 if (!a.isEmpty) '${a.question} ${[if (a.pick != null) a.pick, if (a.text.isNotEmpty) a.text].join(' — ')}',
             ].join('\n');
 
+  /// The entry's first lines for a preview (the book page's Journal row,
+  /// the Journal's book cards): each answer on a line of its own, without
+  /// its question ("Good", then the why on the next line), never run
+  /// together on one line; blank lines left out.
+  String get preview {
+    final lines = isTalk
+        ? [for (final l in talk) '${l.mine ? 'Me' : 'AI'}: ${l.text}']
+        : isPage
+            ? page.split('\n')
+            : [
+                for (final a in answers)
+                  if (!a.isEmpty) [if (a.pick != null) a.pick!.trim(), if (a.text.trim().isNotEmpty) a.text.trim()].join(': '),
+              ];
+    return [
+      for (final l in lines)
+        for (final part in l.split('\n'))
+          if (part.trim().isNotEmpty) part.trim(),
+    ].join('\n');
+  }
+
   JournalEntry copyWith({List<JournalAnswer>? answers, String? page, DateTime? edited, JournalStamp? stamp, String? bookId}) =>
       JournalEntry(
         id: id,

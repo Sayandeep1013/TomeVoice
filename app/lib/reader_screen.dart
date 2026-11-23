@@ -195,7 +195,7 @@ class _ReaderSkeleton extends StatelessWidget {
     final faint = Skin.inkFaintOn(context).withValues(alpha: 0.18);
     return Scaffold(
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: SafeArea(
           // Two less each way round the back button: its target is 48 dp,
           // its circle 44, and the circle stays where it was.
@@ -252,6 +252,16 @@ class _ReaderSkeleton extends StatelessWidget {
 
 /// The reading surface.
 ///
+/// What the page holding a reader may ask of the reader open in it (a web
+/// novel's page, which builds a new reader over its chapters now and then).
+class ReaderLink {
+  Future<bool> Function()? _keep;
+
+  /// Save the place being read now (while the voice reads on it is saved
+  /// only every half minute); true if the voice was reading.
+  Future<bool> keepPlace() => _keep?.call() ?? Future<bool>.value(false);
+}
+
 /// Laid out from the reference design (docs/10 ADR-017): a soft gradient
 /// ground, chrome as floating capsules, monospace instrumentation, and the
 /// text itself as the loudest thing on screen. The whole book scrolls as one
@@ -277,7 +287,11 @@ class ReaderScreen extends StatefulWidget {
     this.viewSection,
     this.openContents,
     this.layouts,
+    this.link,
   });
+
+  /// Lets the page holding this reader ask it to save its place.
+  final ReaderLink? link;
 
   final ReadingLayout layout;
 
@@ -436,6 +450,17 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }();
   final _scroll = ItemScrollController();
 
+  /// A PDF's real pages open where [_startItem] has the text open: at
+  /// something picked to look at, or the chapter opened from the book's
+  /// page; null, at the voice's place.
+  late final int? _pdfStartUnit = () {
+    if (_l.isEmpty) return null;
+    if (_reader.lookUnit >= 0) return _reader.lookUnit;
+    final view = widget.viewSection;
+    final c = view == null ? -1 : _l.chapters.indexOf(view);
+    return c < 0 ? null : _l.chapterFirstUnit[c];
+  }();
+
   /// Scrolls the page by a distance, for travelling far.
   final _offsets = ScrollOffsetController();
 
@@ -488,6 +513,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       lookAt: widget.lookAt,
     );
     widget.layouts?.addListener(_onLayouts);
+    widget.link?._keep = _keepPlace;
     _watched = _voiceElsewhere;
     _watched?.layouts.addListener(_voiceMoved);
     BackgroundReading.current.addListener(_voiceMoved);
@@ -867,8 +893,18 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   /// [_snackMargin]); a new key each time it opens.
   GlobalKey _nowPlayingKey = GlobalKey();
 
+  /// See [ReaderLink.keepPlace].
+  Future<bool> _keepPlace() async {
+    final playing = _player.isPlaying || _player.state.value == PlayState.loading;
+    await _reader.persist();
+    return playing;
+  }
+
   @override
   void dispose() {
+    // The next reader on the same page may have taken the link already.
+    final link = widget.link;
+    if (link != null && link._keep == _keepPlace) link._keep = null;
     // First: closing the page hands its voice to the background, which
     // would ask this page to be built again.
     _watched?.layouts.removeListener(_voiceMoved);
@@ -1317,7 +1353,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             SheetAction(
               icon: Icons.notes_rounded,
               label: 'Pick a sentence on this page',
-              detail: 'Shown as text: hold a sentence to read from it, keep it, or look a word up',
+              detail: 'Shown as text: hold a sentence to read from it or keep it; hold a name to ask who or what it is',
               onTap: () => Navigator.pop(ctx, 'text'),
             ),
             const SizedBox(height: Gap.s),
@@ -1377,6 +1413,8 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       bookTitle: _book.metadata.title,
       stampNow: stamp ?? _stampNow,
       language: _reader.language,
+      // Above the player, not over its Play button.
+      snackMargin: _snackMargin,
       // Speaking into it: the book waits, and reads on from where it was.
       hold: () async {
         if (!_player.isPlaying) return null;
@@ -1567,6 +1605,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
       word: word,
       web: web,
       ai: _talkable,
+      memory: widget.store != null && MemoryDb.existsIn(widget.store!.bookDir(_book.id)),
       onSaveAsAudio: () => unawaited(showSaveAsAudio(
         context,
         layout: _l,
@@ -1588,15 +1627,18 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         await _talk(first: 'Explain this, as it stands in the story here: "$sentence"');
       case 'who':
         final store = widget.store;
-        if (store == null) return;
+        final secret = store?.isSecret(_book.id) ?? false;
         await showNameCard(
           context,
-          memoryPath: MemoryDb.pathIn(store.bookDir(_book.id)),
+          memoryPath: store == null ? null : MemoryDb.pathIn(store.bookDir(_book.id)),
           word: word,
           sentence: sentence,
           line: _talkLine(),
+          // A secret book's title is not put in a web search.
+          searchTitle: secret ? null : _book.metadata.title,
           onLook: _lookAtPlace,
-          onAsk: (q) => unawaited(_talk(first: q)),
+          onAsk: _talkable ? (q) => unawaited(_talk(first: q)) : null,
+          openUrl: _svc.openUrl,
         );
       case 'quote':
         // Widen it to the sentences around, add a note, then keep it.
@@ -1696,6 +1738,11 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
     final u = unit.clamp(0, _l.units.length - 1);
     _detached.value = true;
     _viewChapter.value = _l.chapterOfUnit(u);
+    // A PDF's real pages: the page it is on.
+    if (_showPages) {
+      _pdf.show(u);
+      return;
+    }
     if (_inPages) {
       _paged.showUnit(u, animate: false);
       return;
@@ -1771,11 +1818,14 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   void _onAuto() {
     if (_auto.on != _autoOn) {
       _autoOn = _auto.on;
+      _reader.autoReading = _autoOn;
       if (_autoOn) {
         _autoBegin();
       } else {
         _autoHalt();
         _autoPlace();
+        // Saved every half minute while it moved: now, where it stopped.
+        unawaited(_reader.persist());
       }
       if (mounted) setState(() {});
       return;
@@ -2308,6 +2358,7 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             onTurned: _onPdfPage,
             inset: inset,
             onTap: _tapPdf,
+            startUnit: _pdfStartUnit,
           )),
         ),
       );
@@ -3049,7 +3100,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
         // Built again on a web novel's chapters joined on, as the page is.
         ListenableBuilder(
           listenable: Listenable.merge([widget.layouts]),
-          builder: (_, __) => NowPlayingScreen(
+          // Its context is inside the tint, so the sheets opened from here
+          // take the book's colour, as they do from the reader.
+          builder: (tinted, __) => NowPlayingScreen(
             key: key,
             title: _book.metadata.title,
             cover: _cover,
@@ -3065,9 +3118,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
             onPrevChapter: () => _reader.goChapter(-1),
             onNextChapter: () => _reader.goChapter(1),
             moreAfter: widget.onReachedEnd != null,
-            onSpeed: () => showListenSheet(ctx, _listenFor(autoScroll: false), focus: ListenFocus.speed),
-            onVoice: () => showListenSheet(ctx, _listenFor(autoScroll: false)),
-            onSleep: () => showListenSheet(ctx, _listenFor(autoScroll: false)),
+            onSpeed: () => showListenSheet(tinted, _listenFor(autoScroll: false), focus: ListenFocus.speed),
+            onVoice: () => showListenSheet(tinted, _listenFor(autoScroll: false)),
+            onSleep: () => showListenSheet(tinted, _listenFor(autoScroll: false)),
             onSave: () => _save(MarkKind.quote),
             onHold: (unit, word) => unawaited(_onLongPress(unit, word)),
           ),

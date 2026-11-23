@@ -160,7 +160,7 @@ class _JournalScreenState extends State<JournalScreen> {
               label: const Text('Write'),
             ),
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: SafeArea(
           bottom: false,
           child: Column(
@@ -286,7 +286,7 @@ class _JournalScreenState extends State<JournalScreen> {
                             const SizedBox(height: 2),
                             Expanded(
                               child: Text(
-                                latest.words.replaceAll(RegExp(r'\s*\n\s*'), ' · ').trim(),
+                                latest.preview,
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                                 style: handwriting(19, ink.pen).copyWith(height: 1.15),
@@ -394,7 +394,7 @@ class _BookJournalScreenState extends State<BookJournalScreen> {
         label: const Text('Write'),
       ),
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: SafeArea(
           bottom: false,
           child: Column(

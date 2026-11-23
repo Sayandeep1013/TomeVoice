@@ -128,7 +128,7 @@ class _GuideScreenState extends State<GuideScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
         body: DecoratedBox(
-          decoration: BoxDecoration(gradient: Skin.ground(context)),
+          decoration: Skin.groundDecoration(context),
           child: SafeArea(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -272,7 +272,8 @@ const aiGuideCards = <GuideCard>[
     'TomeVoice talks to an AI with your own key, straight from this phone. There is no TomeVoice server.',
     [
       (Icons.add_rounded, 'Add a key in AI settings, the gear in AI chat: Google Gemini, OpenRouter, Groq, Inception, OpenAI, AgentRouter, 100milionseek or any service like them. Free tiers work.'),
-      (Icons.sync_rounded, 'Add as many keys as you like. When one has used its quota it rests, and the next takes over.'),
+      (Icons.sync_rounded, 'Add as many keys as you like. When one has used its quota it rests. A build uses only its first key unless '
+          'you let the next one take over.'),
       (Icons.lock_outline_rounded, 'Nothing of a book is sent until you add a key, and never a book on a secret shelf.'),
     ],
   ),
@@ -283,7 +284,7 @@ const aiGuideCards = <GuideCard>[
     [
       (Icons.menu_book_rounded, "On a book's page, open Memory and press Build memory."),
       (Icons.schedule_rounded, 'A long book takes hours on a free key. It goes on in the background, and with TomeVoice closed if you allow it in AI settings.'),
-      (Icons.download_rounded, 'A web novel fetches its missing chapters first. Once the memory has read them, Free the space deletes them again.'),
+      (Icons.download_rounded, 'A web novel fetches its missing chapters first. Once the memory has read them, Free up space deletes those chapter files; the memory itself stays.'),
     ],
   ),
   GuideCard(
@@ -303,7 +304,7 @@ const aiGuideCards = <GuideCard>[
     'Press and hold a sentence on the page, and pick:',
     [
       (Icons.help_outline_rounded, 'Explain this: what the sentence means at this point in the story.'),
-      (Icons.badge_outlined, 'Who or what is it: a card of all that is known of the name, so far.'),
+      (Icons.badge_outlined, 'Who or what is it: the card the book\'s memory keeps on the name, so far. If it has none, ask the AI or search the web.'),
       (Icons.history_rounded, 'Back after a few days away? Previously… tells you what happened just before.'),
     ],
   ),

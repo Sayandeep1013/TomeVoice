@@ -452,6 +452,28 @@ object ReadingCore {
     private var ttsReady = false
     private val ttsWaiters = mutableListOf<(TextToSpeech?) -> Unit>()
 
+    // What the engine was told, kept here: asking the engine for its voice
+    // or its voices is a round trip to its service that returns every voice
+    // it has (hundreds), and it was done three times a sentence on the main
+    // thread. Forgotten with the engine.
+    private var ttsVoice: android.speech.tts.Voice? = null
+    private var ttsVoicesByName: Map<String, android.speech.tts.Voice>? = null
+    private var ttsDefaultEngine: String? = null
+
+    private fun forgetVoices() {
+        ttsVoice = null
+        ttsVoicesByName = null
+        ttsDefaultEngine = null
+    }
+
+    /** The engine's voice called [name], from the kept list; looked up again once on a miss. */
+    private fun voiceNamed(engine: TextToSpeech, name: String): android.speech.tts.Voice? {
+        ttsVoicesByName?.get(name)?.let { return it }
+        val fresh = (engine.voices ?: emptySet()).associateBy { it.name }
+        ttsVoicesByName = fresh
+        return fresh[name]
+    }
+
     private fun synthDir(): File = File(app.cacheDir, "tts").apply { mkdirs() }
 
     private fun engineMatches(requested: String?): Boolean {
@@ -469,6 +491,7 @@ object ReadingCore {
             return
         }
         current?.shutdown()
+        forgetVoices()
         ttsReady = false
         ttsEngineId = if (engineId.isNullOrBlank()) null else engineId
         ttsWaiters.add(block)
@@ -480,6 +503,7 @@ object ReadingCore {
                 ttsReady = status == TextToSpeech.SUCCESS
                 if (!ttsReady) {
                     tts = null
+                    forgetVoices()
                     engine.shutdown()
                 }
                 val waiting = ttsWaiters.toList()
@@ -545,6 +569,7 @@ object ReadingCore {
         } catch (_: Exception) {
         }
         tts = null
+        forgetVoices()
         ttsReady = false
     }
 
@@ -596,8 +621,11 @@ object ReadingCore {
             val utteranceId = "tv-" + System.nanoTime()
             val outFile = File(synthDir(), "$utteranceId.wav")
             try {
-                if (!wanted.isNullOrBlank() && engine.voice?.name != wanted) {
-                    engine.voices?.firstOrNull { it.name == wanted }?.let { engine.voice = it }
+                if (!wanted.isNullOrBlank() && ttsVoice?.name != wanted) {
+                    voiceNamed(engine, wanted)?.let {
+                        engine.voice = it
+                        ttsVoice = it
+                    }
                 }
                 engine.setSpeechRate(rate)
                 engine.setPitch(pitch)
@@ -661,11 +689,22 @@ object ReadingCore {
             words > 0 && events.size >= (words * 0.6) -> "word"
             else -> "utterance"
         }
+        if (ttsEngineId == null && ttsDefaultEngine == null) {
+            ttsDefaultEngine = engine.defaultEngine
+        }
+        if (ttsVoice == null) {
+            // No voice chosen: the engine's own, asked once.
+            ttsVoice = try {
+                engine.voice
+            } catch (e: Exception) {
+                null
+            }
+        }
         return mapOf(
             "wavPath" to file.absolutePath,
-            "engineId" to (ttsEngineId ?: engine.defaultEngine ?: "unknown"),
-            "voiceName" to (engine.voice?.name ?: "unknown"),
-            "voiceQuality" to (engine.voice?.quality ?: -1),
+            "engineId" to (ttsEngineId ?: ttsDefaultEngine ?: "unknown"),
+            "voiceName" to (ttsVoice?.name ?: "unknown"),
+            "voiceQuality" to (ttsVoice?.quality ?: -1),
             "rangeEvents" to events,
             "rangeStartFired" to events.isNotEmpty(),
             "granularity" to granularity,

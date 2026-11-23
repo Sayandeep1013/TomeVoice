@@ -593,7 +593,8 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
       context,
       title: 'Remove $n ${n == 1 ? 'book' : 'books'}?',
       body:
-          'They are deleted from TomeVoice with their reading places. '
+          'They are deleted from TomeVoice, with their reading places, any downloaded chapters and any '
+          'book memory. Your journal and the quotes you saved stay (not for books on a secret shelf). '
           'The original files on your phone are not touched.',
       action: 'Remove',
     );
@@ -911,8 +912,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
       },
       child: CompositedTransformTarget(
         link: _groundLink,
-        child: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        child: Ground(
         child: SafeArea(
           child: Stack(
             children: [
@@ -990,7 +990,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
                                 child: GroundFade(
                                   link: _groundLink,
                                   size: MediaQuery.sizeOf(context),
-                                  ground: DecoratedBox(decoration: BoxDecoration(gradient: Skin.ground(context))),
+                                  ground: DecoratedBox(decoration: Skin.groundDecoration(context)),
                                 ),
                               ),
                           ],
@@ -1174,7 +1174,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
             alignment: Alignment.centerLeft,
             child: GestureDetector(
               onLongPress: _secretDoor,
-              child: Text('Library', style: Skin.title(context, size: 28, weight: FontWeight.w500)),
+              child: Text('Library', style: Skin.heading(context, size: 28, weight: FontWeight.w500)),
             ),
           ),
         ),
@@ -1640,16 +1640,21 @@ class _ContinueDockState extends State<ContinueDock> {
     // No blur behind it: the shelf has faded to the bare ground by the time
     // it reaches the dock, so a blur showed nothing, and it cost a layer and
     // a blur on every frame of every scroll. A shade more opaque instead.
+    final scene = Skin.sceneOf(context);
     return ClipRRect(
-      borderRadius: BorderRadius.circular(Radii.card),
+      borderRadius: scene?.corners(BorderRadius.circular(Radii.card)) ?? BorderRadius.circular(Radii.card),
       child: AnimatedContainer(
         duration: Motion.of(context, Motion.standard),
         curve: Motion.out,
         height: books.length > 1 ? 96 : 88,
-        decoration: BoxDecoration(
-          color: Skin.darkOn(context).withValues(alpha: 0.9),
-          borderRadius: BorderRadius.circular(Radii.card),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        decoration: Skin.panel(
+          context,
+          BoxDecoration(
+            color: Skin.darkOn(context).withValues(alpha: 0.9),
+            borderRadius: BorderRadius.circular(Radii.card),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+          ),
+          lit: true,
         ),
         child: Column(
           children: [

@@ -297,16 +297,23 @@ class _WebNovelReaderState extends State<WebNovelReader> {
     }));
   }
 
-  /// A line rule was added or removed: rebuild the chapters at the saved
-  /// place (the reader saves it as it goes), so the change shows at once.
+  /// A line rule was added or removed: rebuild the chapters at the place,
+  /// so the change shows at once. The reader saves its place first (while
+  /// reading aloud it saves only every half minute, so the page opened a
+  /// little way back), and a voice that was reading reads on.
   void _onRules() {
     final skip = ReadingRules.instance.skip;
     if (identical(skip, _skip)) return;
     _skip = skip;
-    Future<void>.delayed(const Duration(milliseconds: 1700), () {
-      if (mounted) unawaited(_open(null, autoplay: false));
+    Future<void>.delayed(const Duration(milliseconds: 1700), () async {
+      if (!mounted) return;
+      final playing = await _link.keepPlace();
+      if (mounted) unawaited(_open(null, autoplay: playing));
     });
   }
+
+  /// The reader open on this page, for [_onRules].
+  final _link = ReaderLink();
 
   /// Make sure chapter [start] (or the saved place) and a few after it are
   /// here, then (re)build the book and show it there.
@@ -373,10 +380,14 @@ class _WebNovelReaderState extends State<WebNovelReader> {
     }
   }
 
-  /// The highest chapter number with text, in a row from [from].
+  /// The highest chapter number with text, in a row from [from], looking at
+  /// most two ahead: all the fetching ahead needs to know. From the store's
+  /// set of chapters on the phone, not a file check each: with thousands
+  /// downloaded, walking to the end on every page turn was a hitch.
   int _lastLoaded(int from) {
+    final here = _store.downloadedChapters(_id);
     var c = from;
-    while (c + 1 < _total && _store.hasChapter(_id, c + 1)) {
+    while (c + 1 < _total && c - from < 2 && here.contains(c + 1)) {
       c++;
     }
     return c;
@@ -532,6 +543,7 @@ class _WebNovelReaderState extends State<WebNovelReader> {
     // Each reader (or the wait for one) fades in over the same ground. The
     // old one goes at once: kept for a cross-fade, its player stopping would
     // silence the new one, already reading.
+    // Plain under the reader, a scene theme's too: no art behind the words.
     return DecoratedBox(
       decoration: BoxDecoration(gradient: Skin.ground(context)),
       child: FadeIn(key: ValueKey(reading ? _generation : -1), child: reading ? _reader(layout) : _wait(context)),
@@ -560,13 +572,14 @@ class _WebNovelReaderState extends State<WebNovelReader> {
       chapterNumberOf: (c) => window.value.chapters[c] + 1,
       viewSection: _view,
       openContents: _contents,
+      link: _link,
       endLabel: layout.isEmpty || layout.units.last.sectionIndex + 1 >= _total ? 'Check for new chapters' : 'Next chapter',
     );
   }
 
   Widget _wait(BuildContext context) => Scaffold(
         body: DecoratedBox(
-          decoration: BoxDecoration(gradient: Skin.ground(context)),
+          decoration: Skin.groundDecoration(context),
           child: SafeArea(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,

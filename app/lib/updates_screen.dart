@@ -212,7 +212,7 @@ class _UpdatesScreenState extends State<UpdatesScreen> with WidgetsBindingObserv
       groups.putIfAbsent(day[0].toUpperCase() + day.substring(1), () => []).add(c);
     }
     return DecoratedBox(
-      decoration: BoxDecoration(gradient: Skin.ground(context)),
+      decoration: Skin.groundDecoration(context),
       child: SafeArea(
         bottom: false,
         child: RefreshIndicator(
@@ -234,7 +234,7 @@ class _UpdatesScreenState extends State<UpdatesScreen> with WidgetsBindingObserv
                         onTap: () => Scaffold.maybeOf(context)?.openDrawer(),
                       ),
                       const SizedBox(width: Gap.m),
-                      Expanded(child: Text('Updates', style: Skin.title(context, size: 28, weight: FontWeight.w500))),
+                      Expanded(child: Text('Updates', style: Skin.heading(context, size: 28, weight: FontWeight.w500))),
                       if (_items.isNotEmpty) ...[
                         RoundButton(icon: Icons.clear_all_rounded, tooltip: 'Clear the list', size: 42, onTap: _clear),
                         const SizedBox(width: Gap.s),
@@ -314,7 +314,8 @@ class _UpdatesScreenState extends State<UpdatesScreen> with WidgetsBindingObserv
                   child: FadeIn(
                     child: Center(
                       child: EmptyState(
-                        icon: Icons.new_releases_outlined,
+                        // Calm, not a warning badge: being caught up is good news.
+                        icon: _hasWeb ? Icons.done_all_rounded : Icons.travel_explore_rounded,
                         title: _hasWeb ? 'No new chapters' : 'Nothing to follow yet',
                         body: _hasWeb
                             ? 'When the sites add chapters to novels in your library, they show up here.'

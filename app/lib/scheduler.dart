@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'dart:ui' show AppLifecycleState;
 
@@ -110,6 +111,7 @@ class PlaybackScheduler {
     this.dialogueVoiceOf,
     this.pitchOf,
     this.quoteOpenAt,
+    this.quickStart = true,
     this.fallbackVoiceOf,
     this.speakers,
     this.narration,
@@ -142,6 +144,13 @@ class PlaybackScheduler {
   /// Whether a quotation is open where unit i begins (said on from an
   /// earlier sentence of its paragraph), when that can be told.
   final bool Function(int index)? quoteOpenAt;
+
+  /// A start makes the first clause of its first sentence alone, so the
+  /// voice is heard sooner (see [firstClauseEnd]): a natural voice, and the
+  /// phone's too, whose engine says nothing of a sentence until it has made
+  /// all of it (a long one took most of a second before a word was heard,
+  /// on every Play, skip and change of speed).
+  final bool quickStart;
 
   /// The phone's own voice for the book's language: what reads on when a
   /// natural voice fails (docs/04 section 4.9), rather than sentences being
@@ -283,6 +292,16 @@ class PlaybackScheduler {
   /// in their place (a natural dialogue voice: the narrator's).
   final _failed = <String>{};
 
+  /// What is queued was made before a change to how sentences are said
+  /// (speed, voice, pitch, pauses, a pronunciation): see [remake].
+  bool _stale = false;
+  Timer? _remakeTimer;
+
+  /// [SpeechService.streamStops] when this scheduler last started its own
+  /// stream: a voice sample (or another reading) played since has taken
+  /// the player, and what this one had queued there is gone.
+  int _streamAt = -1;
+
   /// Waiting for audio focus the phone promised later (a call): play goes
   /// on when it comes.
   StreamSubscription<Map<String, Object?>>? _focusWait;
@@ -303,10 +322,57 @@ class PlaybackScheduler {
     return Duration.zero;
   }
 
+  /// How long after the last of a run of changes (taps on the speed's − or
+  /// +, a slider let go) the voice is made again: once, the way it was left,
+  /// not once a tap, each tap cutting off the one before.
+  static const remakeAfter = Duration(milliseconds: 300);
+
+  /// How sentences are said has changed (speed, voice, pitch, pauses, a
+  /// pronunciation): what is queued was made the old way. Reading, it is made
+  /// again from the sentence being heard ([from], if given) once the changes
+  /// stop coming; paused, when it resumes (it played on at the old speed
+  /// before, as long as ten seconds of it). Idle, the next play makes all
+  /// afresh anyway.
+  void remake({int Function()? from}) {
+    if (!active) return;
+    _stale = true;
+    _remakeTimer?.cancel();
+    _remakeTimer = Timer(remakeAfter, () {
+      _remakeTimer = null;
+      if (_stale && isPlaying) unawaited(play(from?.call() ?? unit.value));
+    });
+  }
+
+  /// Whether a [remake] is waiting: for tests.
+  @visibleForTesting
+  bool get remakeDue => _stale;
+
   /// Start speaking at [from], discarding anything queued.
-  Future<void> play(int from) async {
+  ///
+  /// With [reuse] (a move with nothing about the voice changed: Next,
+  /// Previous, a sentence tapped), speech already made for [from] and what
+  /// follows it is queued again rather than made afresh, so a skip is
+  /// heard at once (with a natural voice it was seconds of silence). Not
+  /// after a change of speed, voice or pronunciation: that must be made
+  /// again.
+  Future<void> play(int from, {bool reuse = false}) async {
     if (units.isEmpty) return;
+    // What is queued is not the way it is said now: nothing of it is reused.
+    if (reuse && !_stale && state.value == PlayState.playing) {
+      final to = from.clamp(0, units.length - 1);
+      final at = _chunks.indexWhere((c) => c.unit == to);
+      if (at >= 0) {
+        error.value = null;
+        _restarted = false;
+        await _rewind(from: at);
+        return;
+      }
+    }
     beforePlay?.call(this);
+    // Made afresh from here, the way it is said now.
+    _stale = false;
+    _remakeTimer?.cancel();
+    _remakeTimer = null;
     final gen = await _reset();
     if (gen != _gen) return;
     _next = from.clamp(0, units.length - 1);
@@ -397,6 +463,12 @@ class PlaybackScheduler {
   /// it goes back to the start of the sentence being heard.
   Future<void> resume({bool rewind = false}) async {
     if (state.value != PlayState.paused) return;
+    // Changed while paused (a faster speed, another voice): made again from
+    // the sentence being heard, rather than ten seconds more the old way.
+    if (_stale) {
+      await play(unit.value);
+      return;
+    }
     final gen = _gen;
     final long = _rewindDue;
     final focus = await service.requestFocus();
@@ -415,7 +487,12 @@ class PlaybackScheduler {
     _rewindTimer?.cancel();
     _rewindDue = false;
     error.value = null;
-    if ((rewind || long) && _chunks.isNotEmpty) {
+    // A voice sample played meanwhile (a voice tried in the sheet, the speed
+    // heard): the player's stream is its now, and this one's is gone.
+    // Resumed as it was, the head never moved and the sentence came back
+    // only when the stall check gave up, five seconds on.
+    final lost = _streamAt != SpeechService.streamStops;
+    if ((rewind || long || lost) && _chunks.isNotEmpty) {
       await _rewind();
       return;
     }
@@ -425,6 +502,9 @@ class PlaybackScheduler {
   }
 
   Future<void> stop() async {
+    _stale = false;
+    _remakeTimer?.cancel();
+    _remakeTimer = null;
     await _reset();
     state.value = PlayState.idle;
     word.value = WordMark.none;
@@ -478,6 +558,7 @@ class PlaybackScheduler {
     _wake();
     _stopTicker();
     _rewindTimer?.cancel();
+    _remakeTimer?.cancel();
     unawaited(_focusWait?.cancel());
     if (_fade != null) {
       _fade?.cancel();
@@ -509,6 +590,7 @@ class PlaybackScheduler {
     _stillMs = 0;
     await service.cancelSynthesis();
     await service.stopPlayback();
+    _streamAt = SpeechService.streamStops;
     return gen;
   }
 
@@ -571,19 +653,21 @@ class PlaybackScheduler {
 
   /// Back to the start of the sentence being heard, with what is queued
   /// after it. The speech already made is queued again: nothing is made
-  /// afresh, so it starts at once.
-  Future<void> _rewind() async {
+  /// afresh, so it starts at once. With [from], from that chunk instead
+  /// (a skip to a sentence already made, see [play]).
+  Future<void> _rewind({int? from}) async {
     final gen = ++_gen;
     _stopTicker();
     _wake();
     final pos = _position;
-    final keep = [for (final c in _chunks) if (c.end > pos) c];
+    final keep = from != null ? _chunks.sublist(from) : [for (final c in _chunks) if (c.end > pos) c];
     _chunks.clear();
     _fillDone = false;
     // The sentence being made is dropped; the fill makes it again after
     // what is kept.
     await service.cancelSynthesis();
     await service.stopPlayback();
+    _streamAt = SpeechService.streamStops;
     if (gen != _gen) return;
     _position = 0;
     for (final c in keep) {
@@ -615,6 +699,8 @@ class PlaybackScheduler {
       ];
 
   int get _queuedEnd => _chunks.isEmpty ? 0 : _chunks.last.end;
+
+  static final _quoteMark = RegExp('[“”"«»「」„]');
 
   /// A line with something in it to say: a letter or a digit, in any script.
   static final _sayable = RegExp(r'[\p{L}\p{N}]', unicode: true);
@@ -759,22 +845,49 @@ class PlaybackScheduler {
           if (neuralVoiceFor(v) case final natural?) natural,
       ]);
       try {
+        final settings = settingsFor(text);
+        final open = quoted == null ? null : quoteOpenAt?.call(i);
+        // The first sentence of a start: nothing is heard until it is all
+        // made (seconds, for a long one with a slow natural voice; most of a
+        // second with the phone's). Its first clause is made and queued
+        // alone, then the rest.
+        final plain = quoted == null || (open != true && !text.contains(_quoteMark));
+        final cut = quickStart && _chunks.isEmpty && plain ? firstClauseEnd(text) : -1;
+        if (cut > 0) {
+          final head = await makeSentence(
+            service: service,
+            text: text.substring(0, cut).trimRight(),
+            settings: settings,
+            engineId: engineIdOf(),
+            narrator: narrator,
+            dialogue: null,
+            pitchOf: pitchOf,
+            pauseAfterMs: () => 0,
+            levelDb: _levelDb,
+            urgent: true,
+            stale: () => gen != _gen,
+          );
+          if (head == null || gen != _gen) return;
+          if (!await _queue(gen, i, head, said.changed ? _onPage(head.timings, said) : head.timings)) return;
+        }
         final r = await makeSentence(
           service: service,
-          text: text,
-          settings: settingsFor(text),
-          open: quoted == null ? null : quoteOpenAt?.call(i),
+          text: cut > 0 ? text.substring(cut) : text,
+          settings: settings,
+          open: cut > 0 ? null : open,
           engineId: engineIdOf(),
           narrator: narrator,
-          dialogue: quoted,
+          dialogue: cut > 0 ? null : quoted,
           pitchOf: pitchOf,
           pauseAfterMs: () => pauseAfter(i),
           levelDb: _levelDb,
-          urgent: urgent,
+          urgent: urgent || cut > 0,
           stale: () => gen != _gen,
         );
         if (r == null || gen != _gen) return;
-        if (!await _queue(gen, i, r, said.changed ? _onPage(r.timings, said) : r.timings)) return;
+        // The rest's words, placed in the whole sentence.
+        final timings = cut > 0 ? shiftTimings(r.timings, cut) : r.timings;
+        if (!await _queue(gen, i, r, said.changed ? _onPage(timings, said) : timings)) return;
         final took = watch.elapsedMilliseconds;
         _lastMade = (ms: took, speechMs: r.speechFrames * 1000 ~/ r.sampleRate, urgent: urgent);
         if (text.length >= 20) {
@@ -883,10 +996,11 @@ class PlaybackScheduler {
     // A natural voice switched from is let go: the recording needs none.
     NeuralEngine.instance.keepOnly(const []);
     try {
+      final settings = settingsFor(units[i].text);
       final r = await narration!.make(
         i,
-        settings: settingsFor(units[i].text),
-        pauseAfterMs: pauseAfter(i),
+        settings: settings,
+        pauseAfterMs: pauseAtSpeed(pauseAfter(i), settings),
         levelDb: _levelDb,
         stale: () => gen != _gen,
       );
@@ -990,6 +1104,11 @@ class PlaybackScheduler {
   /// again from its start, once; if it stops again, reading ends and says so.
   Future<void> _stalled(int gen) async {
     if (gen != _gen) return;
+    if (_stale) {
+      // What is queued is the old way: made again, not queued again.
+      await play(unit.value);
+      return;
+    }
     if (!_restarted) {
       _restarted = true;
       debugPrint('TomeVoice: the player stopped moving; starting the sentence again');
@@ -1015,12 +1134,82 @@ class PlaybackScheduler {
   }
 }
 
+/// Where the first clause of [text] ends (just after its comma, semicolon,
+/// colon or dash), for a first sentence made in two parts; -1 when the
+/// sentence is short, or has no such mark with enough on both sides.
+///
+/// A sentence long enough for a natural voice to make in pieces
+/// ([clausePieces]) is cut where its first piece ends, so the head is that
+/// piece.
+int firstClauseEnd(String text, {int minHead = 30, int minTail = 25, int minLength = 70}) {
+  if (text.length < minLength) return -1;
+  final pieces = clausePieces(text);
+  if (pieces.length > 1) return pieces[1].start;
+  for (var i = minHead; i < text.length - minTail; i++) {
+    final c = text.codeUnitAt(i);
+    // , ; : and the en and em dashes.
+    if (c == 0x2C || c == 0x3B || c == 0x3A || c == 0x2013 || c == 0x2014) {
+      // Not inside a number ("1,000", "10:30").
+      final next = text.codeUnitAt(i + 1);
+      if (next >= 0x30 && next <= 0x39) continue;
+      return i + 1;
+    }
+  }
+  return -1;
+}
+
+/// [timings] of a part of a sentence that starts [by] characters in, as
+/// places in the whole sentence.
+List<WordTiming> shiftTimings(List<WordTiming> timings, int by) => [
+      for (final t in timings)
+        WordTiming(
+          charStart: t.charStart + by,
+          charEnd: t.charEnd + by,
+          frameStart: t.frameStart,
+          frameEnd: t.frameEnd,
+          source: t.source,
+        ),
+    ];
+
+/// How much the silences put into speech are shortened at [speed]: not at
+/// all at 1x or slower; above it, by the square root of the speed, so a
+/// pause is 82% as long at 1.5x, 71% at 2x and 58% at 3x. Kept as they
+/// were, the voice sped up and the 350 ms between its sentences did not:
+/// at 2x and over it was heard as the reader lagging. Shortened fully, at
+/// 2.5x a sentence pause all but vanished (docs/05 section 5.3).
+double pauseScaleAt(double speed) => speed <= 1 ? 1 : 1 / math.sqrt(speed);
+
+/// [ms] of silence as [settings] put it in at their speed (see
+/// [pauseScaleAt]), unless pauses are kept as they are set.
+int pauseAtSpeed(int ms, PipelineSettings settings) =>
+    settings.pausesFollowSpeed ? (ms * pauseScaleAt(settings.speedScale)).round() : ms;
+
+/// [settings] with the silences they put inside a sentence (the word gap,
+/// the pauses at punctuation) as long as they are at their speed.
+PipelineSettings pausesAtSpeed(PipelineSettings settings) {
+  if (!settings.pausesFollowSpeed || settings.speedScale <= 1) return settings;
+  int f(int ms) => pauseAtSpeed(ms, settings);
+  final p = settings.punctuation;
+  return settings.copyWith(
+    wordGapMs: f(settings.wordGapMs),
+    punctuation: p.copyWith(
+      commaMs: f(p.commaMs),
+      clauseMs: f(p.clauseMs),
+      colonMs: f(p.colonMs),
+      dashMs: f(p.dashMs),
+      ellipsisMs: f(p.ellipsisMs),
+      quoteMs: f(p.quoteMs),
+    ),
+  );
+}
+
 /// One sentence as reading aloud makes it: said by [narrator] (words in
 /// quotation marks by [dialogue]: the voice the book's cast gives whoever
 /// says them, else the book's dialogue voice, when it has one), at the
 /// speed and pitch in [settings] ([pitchOf] gives each voice its own), then
 /// through the pipeline with the reader's word gap, punctuation pauses and
-/// loudness, with [pauseAfterMs] of silence after it. The scheduler makes
+/// loudness, with [pauseAfterMs] of silence after it (these silences
+/// shortened at a speed over 1x: [pausesAtSpeed]). The scheduler makes
 /// every sentence it reads this way, and saving a book as audio
 /// (export_audio.dart, with [PlaybackScheduler.quoteVoiceAt]) every
 /// sentence it writes, so what is saved is what is heard.
@@ -1081,8 +1270,8 @@ Future<RenderedSpeech?> makeSentence({
     native: native,
     // Speed is the engine's job (real duration change); the DSP stub
     // would pitch-shift. Sentence pause is ours, appended after it.
-    settings: s.copyWith(speedScale: 1.0, sentencePauseMs: 0, text: text),
-    pauseAfterMs: pauseAfterMs(),
+    settings: pausesAtSpeed(s).copyWith(speedScale: 1.0, sentencePauseMs: 0, text: text),
+    pauseAfterMs: pauseAtSpeed(pauseAfterMs(), s),
     levelDb: levelDb,
   );
 }

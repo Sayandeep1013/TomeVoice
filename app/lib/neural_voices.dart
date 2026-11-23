@@ -7,7 +7,7 @@ import 'dart:math' as math;
 
 import 'package:archive/archive_io.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart' show AssetBundle, PlatformException, rootBundle;
+import 'package:flutter/services.dart' show AssetBundle, MethodChannel, PlatformException, rootBundle;
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
 import 'keep_alive.dart';
@@ -463,6 +463,7 @@ class NeuralVoices extends ChangeNotifier {
   void attach(Directory root) {
     _dir = Directory('${root.path}/voices');
     _here = null;
+    _bytes = null;
     _speeds.clear();
     // Folders from an earlier format (the fp16 models, which crash the
     // engine) or an unfinished unpacking are not voices: clear them, and a
@@ -584,6 +585,28 @@ class NeuralVoices extends ChangeNotifier {
     return _speeds[key] = s;
   }
 
+  /// The model whose speed is being measured ([NeuralVoice.modelId]), if
+  /// any. Kept here, not on the screen: the test after a download runs on
+  /// when the screen is left (Kokoro is offered for reading only once it
+  /// has been measured).
+  String? testing;
+
+  /// Measure [v] on this phone and keep the speed; null if a test is
+  /// already running. Throws what the engine threw.
+  Future<double?> testSpeed(NeuralVoice v) async {
+    if (testing != null) return null;
+    testing = v.modelId;
+    notifyListeners();
+    try {
+      final r = await NeuralEngine.instance.measure(v, Directory.systemTemp.path);
+      await rememberSpeed(v, r);
+      return r;
+    } finally {
+      testing = null;
+      notifyListeners();
+    }
+  }
+
   Future<void> rememberSpeed(NeuralVoice v, double speed) async {
     _speeds[v.modelId] = speed;
     notifyListeners();
@@ -635,12 +658,21 @@ class NeuralVoices extends ChangeNotifier {
     _cancelled.remove(key);
     downloading[key] = 0;
     notifyListeners();
+    final part = File('${dir.path}/$key$_partial');
+    // Room for the archive, the unpacked tar and the voice (about three
+    // times the download at the peak), asked before a byte is fetched.
+    final free = await freeBytes();
+    final came = await part.exists() ? await part.length() : 0;
+    if (free >= 0 && v.bytes > 0 && free < spaceForVoice(v.bytes) - came) {
+      downloading.remove(key);
+      notifyListeners();
+      throw const NoSpaceForVoice();
+    }
     // Made elsewhere: a closure here that held this object would be carried
     // into the unpacking isolate below, which cannot take it.
     final keep = _keepJob(v);
     if (keepVoiceDownloadsAlive) LongJobs.instance.begin(keep);
     var shown = -1;
-    final part = File('${dir.path}/$key$_partial');
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 20);
     _clients[key] = client;
     var keepPart = true;
@@ -651,9 +683,12 @@ class NeuralVoices extends ChangeNotifier {
         final req = await client.getUrl(source ?? Uri.parse(v.url));
         if (have > 0) req.headers.set(HttpHeaders.rangeHeader, 'bytes=$have-');
         final res = await req.close();
-        // The part on the phone is the whole file, or not this one: start over.
         if (res.statusCode == HttpStatus.requestedRangeNotSatisfiable && attempt == 0) {
           await res.drain<void>();
+          // The whole file is here already (the app was stopped while it
+          // unpacked): unpacked now, not fetched again.
+          if (v.bytes > 0 && have == v.bytes) break;
+          // Not this one: start over.
           await part.delete();
           continue;
         }
@@ -686,6 +721,8 @@ class NeuralVoices extends ChangeNotifier {
         if (total > 0 && got != total) throw const HttpException('The download was cut short');
         break;
       }
+      downloading[key] = 0.9;
+      notifyListeners();
       // Unpacking a few hundred files takes a moment: off the screen's isolate.
       // Only plain values go across: a closure that held this object (and
       // so the screens listening to it) cannot be sent to another isolate.
@@ -694,24 +731,37 @@ class NeuralVoices extends ChangeNotifier {
       final model = v.modelFile;
       final shared = v.pack != null;
       // A broken archive is not worth resuming: it starts over next time.
+      // A phone that filled up while unpacking keeps it, to unpack once
+      // there is room.
+      try {
+        await Isolate.run(() => _unpack(from, into, model, shared: shared));
+      } on Object catch (e) {
+        if (isNoSpace(e)) throw const NoSpaceForVoice();
+        keepPart = false;
+        rethrow;
+      }
+      // Unpacked: the archive is not kept.
       keepPart = false;
-      await Isolate.run(() => _unpack(from, into, model, shared: shared));
       _here = null;
+      _bytes = null;
       _speeds.remove(key);
       downloading.remove(key);
       notifyListeners();
-    } on Object {
+    } on Object catch (e) {
       // Called off: whatever the closed connection threw, it is that.
       final cancelled = _cancelled.remove(key);
       if (cancelled) keepPart = false;
       downloading.remove(key);
       _here = null;
+      _bytes = null;
       final f = folder(v);
       if (!installed(v) && !NeuralEngine.instance.readsThrough(f) && await f.exists()) {
         await f.delete(recursive: true);
       }
       notifyListeners();
       if (cancelled) throw const DownloadCancelled();
+      // The phone filled up: what came is kept, to carry on once there is room.
+      if (e is! NoSpaceForVoice && isNoSpace(e)) throw const NoSpaceForVoice();
       rethrow;
     } finally {
       LongJobs.instance.end(keep.key, job: keep);
@@ -721,6 +771,16 @@ class NeuralVoices extends ChangeNotifier {
     }
   }
 
+  /// Bytes free on the phone where voices go; -1 if unknown. Replaced in tests.
+  @visibleForTesting
+  static Future<int> Function() freeBytes = () async {
+    try {
+      return (await const MethodChannel('tomevoice/export').invokeMethod<num>('space'))?.toInt() ?? -1;
+    } on Object {
+      return -1;
+    }
+  };
+
   /// [v]'s download as the keep-alive shows it; its Stop calls it off.
   KeepAliveJob _keepJob(NeuralVoice v) =>
       KeepAliveJob(key: 'voice:${v.modelId}', kind: KeepAliveKind.voice, text: v.name, onStop: () => cancel(v));
@@ -728,8 +788,12 @@ class NeuralVoices extends ChangeNotifier {
   /// The whole size from "bytes 100-199/2000"; 0 when it is not said.
   static int _totalOf(String? range) => int.tryParse(range?.split('/').last.trim() ?? '') ?? 0;
 
-  /// Space the natural voices take, in bytes.
-  int get bytesUsed {
+  /// Space the natural voices take, in bytes: counted once and again after
+  /// each change (see [_here]), not on every frame of a download.
+  int get bytesUsed => _bytes ??= _count();
+  int? _bytes;
+
+  int _count() {
     if (!dir.existsSync()) return 0;
     var n = 0;
     for (final f in dir.listSync(recursive: true)) {
@@ -753,6 +817,7 @@ class NeuralVoices extends ChangeNotifier {
       }
     }
     _here = null;
+    _bytes = null;
     _speeds.clear();
     notifyListeners();
   }
@@ -761,6 +826,7 @@ class NeuralVoices extends ChangeNotifier {
     await NeuralEngine.instance.unload(v);
     await _clear(folder(v));
     _here = null;
+    _bytes = null;
     _speeds.remove(v.modelId);
     notifyListeners();
   }
@@ -784,6 +850,23 @@ class NeuralVoices extends ChangeNotifier {
 /// A download called off from the screen.
 class DownloadCancelled implements Exception {
   const DownloadCancelled();
+}
+
+/// The phone has not the room a voice needs, before it is fetched or while
+/// it is unpacked (a fetched archive is kept for then).
+class NoSpaceForVoice implements Exception {
+  const NoSpaceForVoice();
+}
+
+/// About what downloading and unpacking a voice of [bytes] needs free: the
+/// archive, the tar unpacked from it, and the voice's files.
+int spaceForVoice(int bytes) => bytes * 3 + 50 * 1024 * 1024;
+
+/// Whether [e] is the disk being full (ENOSPC).
+bool isNoSpace(Object e) {
+  if (e is FileSystemException && e.osError?.errorCode == 28) return true;
+  final text = e.toString();
+  return text.contains('No space left') || text.contains('ENOSPC');
 }
 
 /// Unpack the archive at [archive] into [into], dropping its top folder.

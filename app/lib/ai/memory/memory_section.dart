@@ -7,10 +7,10 @@ import 'package:tomevoice_document/tomevoice_document.dart' show ReadingCursor;
 import '../../theme.dart';
 import '../../ui.dart';
 import '../ai_keys.dart';
-import '../ai_screen.dart' show wakeTime;
+import '../ai_screen.dart' show AiScreen, wakeTime;
 import '../../backup_flow.dart' show sizeLabel;
 import '../../download_queue.dart';
-import '../../library_store.dart' show LibraryEntry;
+import '../../library_store.dart' show KeptMemory, LibraryEntry;
 import '../talk/talk_sheet.dart' show showTalk;
 import 'chapter_notes_screen.dart';
 import 'find_where_screen.dart';
@@ -214,9 +214,29 @@ class _BookMemorySectionState extends State<BookMemorySection> {
   Future<void> _forget() async {
     final sure = await confirm(context,
         title: 'Forget what it remembers?',
-        body: 'The notes, the cast and the word index of this book are deleted. Your journal stays.',
+        body: "This book's memory is deleted: its chapter notes, cast, graph, threads, theories and word index. "
+            'The book, its downloaded chapters, your place, your journal and your AI chats stay. '
+            'Building it again costs the calls again.',
         action: 'Forget');
     if (sure) await _service.forget(widget.bookId);
+  }
+
+  /// The key the reader may go on with while the one key the build keeps
+  /// to is resting (or turned it down): the next of the Building list that
+  /// can take it now. Null when the build may use any key, or none can.
+  AiKey? _nextKey(BookMemoryState s) {
+    final phase = s.build.phase;
+    if (phase != BuildPhase.resting && phase != BuildPhase.failed) return null;
+    final order = AiRing.instance.forJob(AiJob.builder);
+    final kept = keptKey(s.buildKeys, order);
+    if (kept == null) return null;
+    final now = DateTime.now();
+    final after = order.indexWhere((k) => k.id == kept.id);
+    for (final k in [...order.skip(after + 1), ...order.take(math.max(0, after))]) {
+      final st = AiRing.instance.stateOf(k.id);
+      if (st.refused == null && !st.restingAt(now)) return k;
+    }
+    return null;
   }
 
   String _line(BookMemoryState s) {
@@ -227,7 +247,11 @@ class _BookMemorySectionState extends State<BookMemorySection> {
       case BuildPhase.running:
         return 'Building · ${s.noted} of ${s.indexed} chapters';
       case BuildPhase.resting:
-        return 'Waiting: every key has used its quota for now. Goes on at ${wakeTime(b.until!)}.';
+        final kept = keptKey(s.buildKeys, AiRing.instance.forJob(AiJob.builder));
+        final at = wakeTime(b.until!);
+        if (kept == null) return 'Waiting: every key has used its quota for now. Goes on at $at.';
+        return 'Waiting: ${kept.label} ${b.error ?? 'has reached its limit for now'}. It goes on by itself at $at, '
+            'with ${kept.label} only.';
       case BuildPhase.failed:
         return 'Stopped: ${b.error ?? 'no key could build it'}';
       case BuildPhase.paused:
@@ -414,8 +438,18 @@ class _BookMemorySectionState extends State<BookMemorySection> {
                         icon: const Icon(Icons.auto_awesome_rounded, size: 18),
                         label: Text(s.noted == 0 ? 'Build memory' : 'Go on building'),
                       ),
+                    if (_nextKey(s) case final next?)
+                      FilledButton.tonal(
+                        onPressed: () => unawaited(_service.goOnWith(widget.bookId, next)),
+                        child: Text('Go on with ${next.label}'),
+                      ),
                   ],
                 ),
+                if (_nextKey(s) case final next?)
+                  Padding(
+                    padding: const EdgeInsets.only(top: Gap.xs),
+                    child: Text('${next.label} then builds it, and only ${next.label}.', style: Skin.meta(context)),
+                  ),
               ],
               if (s.skipped > 0)
                 Padding(
@@ -564,7 +598,7 @@ class BookMemoryScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
         body: DecoratedBox(
-          decoration: BoxDecoration(gradient: Skin.ground(context)),
+          decoration: Skin.groundDecoration(context),
           child: SafeArea(
             bottom: false,
             child: Column(
@@ -619,11 +653,69 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
     super.dispose();
   }
 
+  /// Memories kept from books that were removed (LibraryStore.keptMemories).
+  List<KeptMemory> _kept = const [];
+
   void _load() {
-    unawaited(MemoryService.instance.booksWithMemory().then((b) {
-      if (mounted) setState(() => _books = [for (final e in b) (id: e.id, title: e.title, author: e.authors.join(', '))]);
+    unawaited(MemoryService.instance.booksWithMemory().then((b) async {
+      final kept = await MemoryService.instance.library?.keptMemories() ?? const <KeptMemory>[];
+      if (mounted) {
+        setState(() {
+          _books = [for (final e in b) (id: e.id, title: e.title, author: e.authors.join(', '))];
+          _kept = kept;
+        });
+      }
     }));
   }
+
+  Future<void> _deleteKept(KeptMemory k) async {
+    final store = MemoryService.instance.library;
+    if (store == null) return;
+    final sure = await confirm(
+      context,
+      title: 'Delete this memory?',
+      body: 'What the AI remembers of "${k.title}" is deleted for good. Adding the book again would mean '
+          'building its memory again, which sends the book to your AI key once more.',
+      action: 'Delete',
+    );
+    if (!sure) return;
+    await store.deleteKeptMemory(k.id);
+    _load();
+  }
+
+  Widget _keptRow(BuildContext context, KeptMemory k) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: Gap.xs),
+        child: Row(
+          children: [
+            Container(
+              width: 4,
+              height: 40,
+              decoration: BoxDecoration(color: Skin.inkFaintOn(context), borderRadius: BorderRadius.circular(2)),
+            ),
+            const SizedBox(width: Gap.m),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(k.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: Skin.title(context, size: 18)),
+                  Text(
+                    [
+                      if (k.author.isNotEmpty) k.author,
+                      if (k.chapters > 0) 'built from ${k.chapters} ${k.chapters == 1 ? 'chapter' : 'chapters'}',
+                    ].join(' · '),
+                    style: Skin.meta(context),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              tooltip: 'Delete this memory',
+              icon: Icon(Icons.delete_outline_rounded, color: Skin.inkSoftOn(context)),
+              onPressed: () => unawaited(_deleteKept(k)),
+            ),
+          ],
+        ),
+      );
 
   /// New memory: a book picked, then started as from its page.
   Future<void> _newMemory() async {
@@ -693,16 +785,33 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
     final items = <Widget>[
       for (final s in series) _SeriesCard(series: s, books: byId),
       for (final b in single) _bookRow(context, b),
+      // Books removed with their memory kept: theirs again if added again.
+      if (_kept.isNotEmpty)
+        Column(
+          key: const Key('kept-memories'),
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SectionTitle('From removed books'),
+            const SizedBox(height: Gap.xs),
+            Text(
+              'Kept when the book was removed. Add the same book again and its memory is back, as it was.',
+              style: Skin.ui(size: 14, weight: FontWeight.w400, color: Skin.inkSoftOn(context)),
+            ),
+            const SizedBox(height: Gap.s),
+            for (final k in _kept) _keptRow(context, k),
+          ],
+        ),
     ];
     return Scaffold(
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: Skin.ground(context)),
+        decoration: Skin.groundDecoration(context),
         child: SafeArea(
           bottom: false,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              ScreenTopBar(title: 'Memory', onBack: () => Navigator.of(context).maybePop()),
+              // Named as the button that opens it ("Book memories" in AI chat).
+              ScreenTopBar(title: 'Book memories', onBack: () => Navigator.of(context).maybePop()),
               if (AiRing.instance.hasKeys)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.m),
@@ -718,15 +827,27 @@ class _MemoriesScreenState extends State<MemoriesScreen> {
               Expanded(
                 child: books == null
                     ? const SizedBox.shrink()
-                    : books.isEmpty
+                    : books.isEmpty && _kept.isEmpty
                         ? EmptyState(
                             icon: Icons.auto_awesome_outlined,
                             title: 'No memories yet',
                             body: AiRing.instance.hasKeys
                                 ? 'Tap New memory and pick a book, or tap Memory on a book\'s page: the AI reads it '
                                     'once, chapter by chapter, and remembers who is who and what happened.'
-                                : 'Add a key in AI chat > settings first. Then, from a book\'s page, the AI reads it once and remembers '
+                                : 'Add a key in AI settings first. Then, from a book\'s page, the AI reads it once and remembers '
                                     'who is who and what happened.',
+                            // The same way on as AI chat's own empty page.
+                            action: AiRing.instance.hasKeys
+                                ? null
+                                : FilledButton.icon(
+                                    onPressed: () async {
+                                      await Navigator.of(context)
+                                          .push(MaterialPageRoute<void>(builder: (_) => const AiScreen()));
+                                      if (mounted) setState(() {});
+                                    },
+                                    icon: const Icon(Icons.settings_outlined),
+                                    label: const Text('Open AI settings'),
+                                  ),
                           )
                         : ListView(
                             padding: EdgeInsets.fromLTRB(
@@ -809,7 +930,7 @@ class _SeriesCard extends StatelessWidget {
 
 /// A web novel's chapters, for its memory: how many are on the phone and
 /// the space they take; Download all, its progress and failures (Try
-/// again); and, once the memory has read them, Free the space (the memory
+/// again); and, once the memory has read them, Free up space (the memory
 /// keeps its own copy of their words, and a chapter is fetched again when
 /// it is opened to read). Nothing for a book that is not a web novel.
 class _ChaptersBlock extends StatefulWidget {
@@ -876,13 +997,17 @@ class _ChaptersBlockState extends State<_ChaptersBlock> {
   Future<void> _free() async {
     final c = _c;
     if (c == null) return;
+    final read = math.min(c.onPhone, c.noted);
     final sure = await confirm(
       context,
-      title: 'Free the space?',
-      body: 'The chapters the memory has already read are taken off the phone. The memory keeps its own copy of '
-          "their words, so Talk, search and Who's who go on working, and any chapter you open to read is "
-          'fetched again from the site. Chapters it has not read yet stay.',
-      action: 'Free the space',
+      title: 'Free up space?',
+      body: 'Deletes only the downloaded chapter files the memory has already read '
+          '(${read == 1 ? 'one chapter' : 'about $read chapters'}). '
+          'The memory you built is not touched: its notes, cast, graph and its own copy of the words stay, '
+          "so Talk, search and Who's who go on working. Your place and journal stay too.\n\n"
+          'A chapter you open to read is downloaded again from the site. Chapters the memory has not read yet '
+          'stay on the phone.',
+      action: 'Free up space',
     );
     if (!sure) return;
     setState(() => _busy = true);
@@ -890,7 +1015,10 @@ class _ChaptersBlockState extends State<_ChaptersBlock> {
     if (!mounted) return;
     setState(() => _busy = false);
     showSnack(
-        context, r.chapters == 0 ? 'Nothing to free yet.' : 'Freed ${sizeLabel(r.bytes)}: ${r.chapters} chapters.');
+        context,
+        r.chapters == 0
+            ? 'Nothing to free yet.'
+            : 'Freed ${sizeLabel(r.bytes)}: ${r.chapters} chapter files. The memory is as it was.');
     await _load();
   }
 
@@ -940,10 +1068,18 @@ class _ChaptersBlockState extends State<_ChaptersBlock> {
                 OutlinedButton.icon(
                   onPressed: _busy ? null : () => unawaited(_free()),
                   icon: const Icon(Icons.cleaning_services_outlined, size: 18),
-                  label: const Text('Free the space'),
+                  label: const Text('Free up space'),
                 ),
             ],
           ),
+          if (readOnPhone > 0 && c.bytes > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: Gap.s),
+              child: Text(
+                'Free up space deletes the chapter files the memory has read. The memory itself stays.',
+                style: Skin.ui(size: 13, weight: FontWeight.w400, color: Skin.inkFaintOn(context)),
+              ),
+            ),
         ],
       ),
     );
