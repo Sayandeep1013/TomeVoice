@@ -456,8 +456,10 @@ void main() {
         }
         player.dispose();
       });
+      // The first sentence of a start is made in two, its first clause first.
       expect(voice.asked, [
-        'The gate of the Iron Keep opened at dawn, and Rhea was the first through it.',
+        'The gate of the Iron Keep opened at dawn,',
+        ' and Rhea was the first through it.',
         'She drew the blade and stepped into the yard.',
         '“Nobody move,” she said.',
       ]);

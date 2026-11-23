@@ -159,7 +159,8 @@ void main() {
     final voices = _Voices(dir);
     final player = reader(voices, units: units);
     addTearDown(player.dispose);
-    await player.play(0);
+    final first = units.indexWhere((u) => u.text.startsWith('It was'));
+    await player.play(first);
     await until(() => voices.asked.length >= 2);
     expect(voices.asked[0].text, 'It was a bright cold day in April,');
     expect(voices.asked[1].text, ' and the clocks were striking thirteen across the town.');
@@ -167,9 +168,9 @@ void main() {
     final whole = _Voices(dir);
     final off = reader(whole, units: units, quickStart: false);
     addTearDown(off.dispose);
-    await off.play(0);
+    await off.play(first);
     await until(() => whole.asked.isNotEmpty);
-    expect(whole.asked[0].text, units[0].text);
+    expect(whole.asked[0].text, units[first].text);
   });
 
   group('the silences put in, at speed', () {
@@ -260,7 +261,7 @@ class _Voices extends SpeechService {
     final events = <Map<String, int>>[];
     for (final m in RegExp(r'\S+').allMatches(text)) {
       events.add({'start': m.start, 'end': m.end, 'frame': samples.length});
-      final n = sr * 120 ~/ 1000;
+      const n = sr * 120 ~/ 1000;
       for (var i = 0; i < n; i++) {
         samples.add(0.4 * math.sin(2 * math.pi * 220 * i / sr) * math.sin(math.pi * i / n));
       }
