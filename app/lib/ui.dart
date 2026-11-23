@@ -1162,7 +1162,11 @@ class _Reveal extends AnimatedWidget {
 /// a beat after the one before. A row built later (scrolled to, or rebuilt)
 /// is simply there: lists do not animate while you scroll them.
 class Entrance extends StatefulWidget {
-  const Entrance({super.key, required this.index, required this.since, required this.child});
+  const Entrance({super.key, required this.index, required this.since, required this.child, this.always = false});
+
+  /// It comes in whenever it is first built, however long after [since]
+  /// (the menu's rows, built as it opens).
+  final bool always;
 
   /// The row's place in the list.
   final int index;
@@ -1192,7 +1196,7 @@ class _EntranceState extends State<Entrance> with SingleTickerProviderStateMixin
   void initState() {
     super.initState();
     final since = widget.since;
-    if (since == null || DateTime.now().difference(since) > Entrance.window) return;
+    if (!widget.always && (since == null || DateTime.now().difference(since) > Entrance.window)) return;
     // At most eight beats, so a long list does not keep the last rows waiting.
     final delay = 35.0 * widget.index.clamp(0, 8);
     final total = delay + Motion.page.inMilliseconds + 120;

@@ -781,6 +781,7 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
       Entrance(
         index: _drawerRow++,
         since: _drawerAt,
+        always: true,
         child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: Gap.m, vertical: 2),
         child: Material(
