@@ -295,6 +295,7 @@ class DownloadQueue {
       }
     }
     if (gone == 0) return;
+    _pauseEndsIfDry();
     await _save();
     _kick();
   }
@@ -302,6 +303,16 @@ class DownloadQueue {
   /// The addresses of [bookId]'s chapters waiting (not failed).
   Set<String> waitingPaths(String bookId) =>
       {for (final j in _jobs) if (j.bookId == bookId && j.failed == null) j.path};
+
+  /// A pause with nothing left waiting is over, once the last chapter has
+  /// come (or gone with Cancel): kept, it held back the next chapters asked
+  /// for (on any novel), shown as "Paused" with Resume, their spinners
+  /// turning, though the reader had paused only what was there then (or
+  /// pressed the notification's Stop). Not while a novel's chapters are out
+  /// for a move (takeOut), which puts them back.
+  void _pauseEndsIfDry() {
+    if (_paused && !_jobs.any((j) => j.failed == null)) _paused = false;
+  }
 
   Future<void> pause() async {
     _paused = true;
@@ -327,6 +338,7 @@ class DownloadQueue {
     } else {
       _doneOf.remove(bookId);
     }
+    _pauseEndsIfDry();
     await _save();
     _kick();
   }
@@ -382,14 +394,6 @@ class DownloadQueue {
   /// waits.
   void _kick() {
     _wake?.cancel();
-    // A pause with nothing left waiting is over: kept, it held back the
-    // next chapters asked for (on any novel), shown as "Paused" with
-    // Resume, their spinners turning, though the reader had paused only
-    // what was there then (or pressed the notification's Stop).
-    if (_paused && !_jobs.any((j) => j.failed == null)) {
-      _paused = false;
-      unawaited(_save());
-    }
     if (_paused || _held || _store == null) {
       _notify();
       return;
@@ -476,6 +480,7 @@ class DownloadQueue {
     } finally {
       if (identical(_running[site], job)) _running.remove(site);
       _lastAsked[site] = DateTime.now();
+      if (!_jobs.contains(job)) _pauseEndsIfDry();
       await _save();
       _kick();
     }
