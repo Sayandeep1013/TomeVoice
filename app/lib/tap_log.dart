@@ -407,7 +407,9 @@ List<String> tapLogSummary(List<LogEvent> events) {
       for (final e in taps)
         if (e.s('answer') != 'none' && e.n('ms') != null) e.n('ms')!.round(),
     ];
-    if (times.isNotEmpty) {
+    // A button answers as the finger lifts; only a late answer (one that
+    // waits for a double tap, a screen slow to open) is worth a line.
+    if (times.isNotEmpty && times.reduce((a, b) => a > b ? a : b) >= 50) {
       out.add('An answer came ${_secs(_median(times))} after the finger lifted, as a rule '
           '(slowest ${_secs(times.reduce((a, b) => a > b ? a : b))}).');
     }

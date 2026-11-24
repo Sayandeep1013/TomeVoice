@@ -113,7 +113,7 @@ class _NoteLogSheetState extends State<NoteLogSheet> {
                         ),
                         if (summary.isNotEmpty) ...[
                           const SizedBox(height: Gap.m),
-                          Text('SO FAR · ${events.length} NOTES', style: Skin.meta(context)),
+                          Text('SO FAR · ${events.length} ${events.length == 1 ? 'NOTE' : 'NOTES'}', style: Skin.meta(context)),
                           const SizedBox(height: Gap.s),
                           for (final line in summary)
                             Padding(
