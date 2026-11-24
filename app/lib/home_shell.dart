@@ -397,6 +397,10 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
     final next = tint == 0 ? null : tint;
     if (next == Skin.followTint) return;
     Skin.followTint = next;
+    // At once, not eased across: the eased change rebuilt every screen
+    // reading the theme each frame for its 300 ms, just as the shelf came
+    // back from a book (a palette picked in Settings still eases).
+    Skin.snapThemeOnce = true;
     // The app's theme is rebuilt on this; nothing is saved.
     ListeningPrefs.revision.value++;
   }

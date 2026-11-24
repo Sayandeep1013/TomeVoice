@@ -38,6 +38,17 @@ class Skin {
   /// when book colours are on (set by the shell, read by the app's theme).
   static int? followTint;
 
+  /// The next change of the app's theme is to be made at once (a book's
+  /// colour followed), not eased; read and cleared by [takeSnapTheme].
+  static bool snapThemeOnce = false;
+
+  /// Whether this build's theme change is to be made at once, clearing it.
+  static bool takeSnapTheme() {
+    final snap = snapThemeOnce;
+    snapThemeOnce = false;
+    return snap;
+  }
+
   /// The palette for [c]: a book's own inside its [TintScope], otherwise
   /// the app's.
   static Palette paletteOf(BuildContext c) =>

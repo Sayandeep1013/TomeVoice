@@ -164,7 +164,7 @@ class SpikeApp extends StatelessWidget {
           themeMode: mode,
           // Palette and light/dark changes ease across rather than snap
           // (Settings also cross-fades its whole screen when you pick one).
-          themeAnimationDuration: Motion.page,
+          themeAnimationDuration: Skin.takeSnapTheme() ? Duration.zero : Motion.page,
           themeAnimationCurve: Motion.emphasized,
           // Status bar icons dark on the light ground, light on the dark one.
           // Every field is set: one left out falls back to Android's default,

@@ -5,7 +5,7 @@ Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoi
 
 ## 2.6.4 (2026-11-25)
 
-Buttons answer the first tap again, and a tap log to find any that still do not.
+Buttons answer the first tap again, opening and closing a book is smooth again, and a tap log to find anything that still is not.
 
 **Updating** keeps your library, your keys, every book's memory and your journal.
 
@@ -22,6 +22,10 @@ Buttons answer the first tap again, and a tap log to find any that still do not.
   - **The reader:** a tap while the page follows the voice brings the bars back, rather than only stopping the scroll.
   - **Sources and Browse:** a source's menu acts on that source, not one that moved into its row.
   - **Play** gives under your finger only where it answers.
+
+#### Smoother
+- **Opening and closing a book no longer stutters.** The cover flying between the shelf and the book's page was decoded again at every frame of its flight, some twenty times each way, which kept the phone busy for moments after the page came. It also pushed the shelf's covers out of memory, so the next switch of shelf stuttered while they were decoded again. The cover is decoded once now.
+- **Back on the shelf:** the app's colour follows the book read last, and that change was eased across the whole app, rebuilding every screen at every frame for a third of a second just as the shelf came back. It changes at once now; a theme you pick in Settings still eases across.
 
 #### New
 - **Tap log** (About, Tap log): for buttons that need tapping again and again. While it is on, TomeVoice notes where your finger comes down, how long it stays, which of its buttons was under it and whether that answered, and the moments the screen stuck. Share it as a file with whoever is helping. Never a book's words or what you type; rows that show your own words (a tag, a shelf, a key's name) are noted by a plain name. Off unless you turn it on, kept on the phone, never in backups. For each moment the screen stuck it notes whether the app's own work or the drawing took the time, and it tells a tap a scroll took apart from a tap that was lost.
