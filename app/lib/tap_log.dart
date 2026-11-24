@@ -128,14 +128,19 @@ class TapLog extends NoteLog {
           press.tag = target.metaData as TapTag;
           press.tagged = target;
         }
-        if (press.handler == null && target is RenderSemanticsGestureHandler && target.onTap != null) {
-          press.handler = target;
-        }
+        if (press.handler == null && target is RenderObject && _takesTaps(target)) press.handler = target;
       }
     } on Object {
       // Nothing known of what was under it.
     }
   }
+
+  /// Whether [target] takes a tap: a GestureDetector's, or an InkWell's
+  /// (which keeps its detector out of semantics and says so on a Semantics
+  /// of its own).
+  static bool _takesTaps(RenderObject target) =>
+      (target is RenderSemanticsGestureHandler && target.onTap != null) ||
+      (target is RenderSemanticsAnnotations && target.properties.onTap != null);
 
   /// Note the tap [press]: what answered it, or that nothing did (and
   /// whether its button was built anew under the finger).
