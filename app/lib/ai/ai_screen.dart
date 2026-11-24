@@ -225,6 +225,7 @@ class _KeyRow extends StatelessWidget {
     return SettingRow(
       icon: Icons.key_rounded,
       title: aiKey.label.isEmpty ? aiKey.provider.label : aiKey.label,
+      logName: 'a key',
       subtitle: '${aiKey.provider.label} · ${aiKey.masked}\n'
           '${jobs.isEmpty ? 'No job yet: pick its models' : 'For ${jobs.join(', ')}'}',
       trailing: ConstrainedBox(

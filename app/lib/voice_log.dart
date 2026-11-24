@@ -1,11 +1,9 @@
-import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:flutter/widgets.dart';
 
 import 'error_log.dart' show scrubError;
-import 'safe_file.dart';
+import 'note_log.dart';
+
+export 'note_log.dart' show LogEvent;
 
 /// The voice log: what reading aloud did on this phone, step by step, for a
 /// reader whose voice lags, stops or goes wrong to share (About > Voice
@@ -22,8 +20,8 @@ import 'safe_file.dart';
 /// Off, [note] returns at once. On, a line is added to a list in memory and
 /// written a few seconds later with the others, so reading never waits on
 /// the disk.
-class VoiceLog with WidgetsBindingObserver {
-  VoiceLog._();
+class VoiceLog extends NoteLog with WidgetsBindingObserver {
+  VoiceLog._() : super(fileName: fileName, onName: onName, keep: keep);
 
   static final instance = VoiceLog._();
 
@@ -37,144 +35,18 @@ class VoiceLog with WidgetsBindingObserver {
   /// There while the log is on.
   static const onName = 'voice-log.on';
 
-  Directory? _dir;
-  bool _on = false;
-  final _events = <VoiceEvent>[];
-  final _unsaved = <VoiceEvent>[];
-  int _fileLines = 0;
-  Timer? _saveTimer;
   bool _watching = false;
 
-  /// Told when it is turned on or off, or cleared.
-  final changes = ValueNotifier<int>(0);
-
-  bool get on => _on;
-
-  /// Oldest first.
-  List<VoiceEvent> get events => List.unmodifiable(_events);
-
-  /// Read what is kept in [dir] (the app's private storage), and whether it
-  /// is on.
-  Future<void> attach(Directory dir) async {
-    if (_dir?.path == dir.path) return;
-    _dir = dir;
-    try {
-      _on = await File('${dir.path}/$onName').exists();
-      final file = File('${dir.path}/$fileName');
-      if (await file.exists()) {
-        final read = <VoiceEvent>[];
-        for (final line in await file.readAsLines()) {
-          if (line.trim().isEmpty) continue;
-          try {
-            final e = VoiceEvent.fromJson(jsonDecode(line));
-            if (e != null) read.add(e);
-          } on FormatException {
-            // A line cut short as the app was ended.
-          }
-        }
-        _fileLines = read.length;
-        _events.insertAll(0, read);
-        _trim();
-      }
-    } on Object {
-      // Unreadable: started afresh.
-    }
-    _watch();
-    changes.value++;
-  }
-
-  /// Turn the log on or off. Off keeps what was noted, to be shared.
-  Future<void> setOn(bool on) async {
-    if (on == _on) return;
-    if (on) {
-      _on = true;
-      note('log on');
-    } else {
-      note('log off');
-      await flush();
-      _on = false;
-    }
-    final dir = _dir;
-    if (dir != null) {
-      final flag = File('${dir.path}/$onName');
-      try {
-        if (on) {
-          await flag.writeAsString('1');
-        } else if (await flag.exists()) {
-          await flag.delete();
-        }
-      } on Object {
-        // Asked again next time.
-      }
-    }
-    _watch();
-    changes.value++;
-  }
-
-  /// Note [kind] with [fields] (numbers, short words: never a book's text).
-  void note(String kind, [Map<String, Object?> fields = const {}]) {
-    if (!_on) return;
-    final e = VoiceEvent(DateTime.now(), kind, fields);
-    _events.add(e);
-    _unsaved.add(e);
-    _trim();
-    _saveTimer ??= Timer(const Duration(seconds: 4), () => unawaited(flush()));
-  }
-
-  void _trim() {
-    if (_events.length > keep) _events.removeRange(0, _events.length - keep);
-  }
-
-  /// Write what is not written yet: added to the end of the file, which is
-  /// written afresh only when it has grown to twice what is kept.
-  Future<void> flush() async {
-    _saveTimer?.cancel();
-    _saveTimer = null;
-    final dir = _dir;
-    if (dir == null || _unsaved.isEmpty) return;
-    final file = File('${dir.path}/$fileName');
-    final count = _unsaved.length;
-    final lines = _unsaved.map((e) => jsonEncode(e.toJson())).join('\n');
-    _unsaved.clear();
-    try {
-      if (_fileLines + count > keep * 2) {
-        await writeSafely(file, '${_events.map((e) => jsonEncode(e.toJson())).join('\n')}\n');
-        _fileLines = _events.length;
-      } else {
-        await file.writeAsString('$lines\n', mode: FileMode.append, flush: true);
-        _fileLines += count;
-      }
-    } on Object {
-      // Written with the next.
-    }
-  }
-
-  /// Forget everything noted.
-  Future<void> clear() async {
-    _saveTimer?.cancel();
-    _saveTimer = null;
-    _events.clear();
-    _unsaved.clear();
-    _fileLines = 0;
-    final dir = _dir;
-    if (dir != null) {
-      final file = File('${dir.path}/$fileName');
-      try {
-        if (await file.exists()) await file.delete();
-      } on Object {
-        // Gone with the next write.
-      }
-    }
-    changes.value++;
-  }
+  @override
+  void switched() => _watch();
 
   /// Android's own warnings, noted only while the log is on.
   void _watch() {
     final binding = WidgetsBinding.instance;
-    if (_on && !_watching) {
+    if (on && !_watching) {
       binding.addObserver(this);
       _watching = true;
-    } else if (!_on && _watching) {
+    } else if (!on && _watching) {
       binding.removeObserver(this);
       _watching = false;
     }
@@ -189,54 +61,16 @@ class VoiceLog with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) note('app shown');
   }
 
-  /// Back to nothing, nowhere (between tests).
-  @visibleForTesting
+  @override
   void reset() {
-    _saveTimer?.cancel();
-    _saveTimer = null;
     if (_watching) WidgetsBinding.instance.removeObserver(this);
     _watching = false;
-    _dir = null;
-    _on = false;
-    _events.clear();
-    _unsaved.clear();
-    _fileLines = 0;
+    super.reset();
   }
-
-  /// Turned on in memory only (tests).
-  @visibleForTesting
-  set onForTests(bool on) => _on = on;
 }
 
 /// One thing reading aloud did.
-@immutable
-class VoiceEvent {
-  const VoiceEvent(this.time, this.kind, this.fields);
-
-  final DateTime time;
-  final String kind;
-  final Map<String, Object?> fields;
-
-  Map<String, Object?> toJson() => {'t': time.millisecondsSinceEpoch, 'k': kind, ...fields};
-
-  static VoiceEvent? fromJson(Object? json) {
-    if (json is! Map) return null;
-    final t = json['t'];
-    final k = json['k'];
-    if (t is! int || k is! String) return null;
-    return VoiceEvent(
-      DateTime.fromMillisecondsSinceEpoch(t),
-      k,
-      {
-        for (final e in json.entries)
-          if (e.key != 't' && e.key != 'k') '${e.key}': e.value,
-      },
-    );
-  }
-
-  num? n(String key) => fields[key] is num ? fields[key] as num : null;
-  String s(String key) => '${fields[key] ?? ''}';
-}
+typedef VoiceEvent = LogEvent;
 
 /// The alphabet [text] is mostly written in ("Latin", "Bengali", "CJK"…),
 /// from its first letters: which voice should read it, without its words.
@@ -387,8 +221,6 @@ List<String> voiceLogSummary(List<VoiceEvent> events) {
 /// The whole log as text to share: [header] (the phone and the app), the
 /// summary, then every event, oldest first.
 String voiceLogText(List<VoiceEvent> events, {required List<String> header}) {
-  String two(int n) => n.toString().padLeft(2, '0');
-  String three(int n) => n.toString().padLeft(3, '0');
   final b = StringBuffer()
     ..writeln('TomeVoice voice log')
     ..writeln("It never holds a book's words or title: a sentence is its length and alphabet.")
@@ -407,17 +239,7 @@ String voiceLogText(List<VoiceEvent> events, {required List<String> header}) {
     ..writeln()
     ..writeln('Step by step')
     ..writeln('------------');
-  String? day;
-  for (final e in events) {
-    final t = e.time;
-    final d = '${t.year}-${two(t.month)}-${two(t.day)}';
-    if (d != day) {
-      day = d;
-      b.writeln(d);
-    }
-    final fields = e.fields.entries.map((f) => '${f.key}=${f.value}').join(' ');
-    b.writeln('${two(t.hour)}:${two(t.minute)}:${two(t.second)}.${three(t.millisecond)}  ${e.kind}${fields.isEmpty ? '' : '  $fields'}');
-  }
+  writeSteps(b, events);
   return b.toString();
 }
 

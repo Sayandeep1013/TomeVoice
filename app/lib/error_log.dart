@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'safe_file.dart';
 import 'sources/bridge.dart';
 import 'speech_service.dart';
+import 'tap_log.dart' show TapLog;
 import 'voice_log.dart' show VoiceLog;
 
 /// One error the app met: when, in which version, what it said and where in
@@ -380,8 +381,10 @@ Future<void> openErrorLog() async {
     final dir = await SourcesBridge.sourcesRoot();
     if (dir != null) {
       await ErrorLog.instance.attach(Directory(dir));
-      // The voice log, kept beside it (off unless the reader turned it on).
+      // The voice and tap logs, kept beside it (off unless the reader
+      // turned them on).
       await VoiceLog.instance.attach(Directory(dir));
+      await TapLog.instance.attach(Directory(dir));
     }
     ErrorLog.instance.version = await const SpeechService().appVersion() ?? '';
     ErrorLog.instance.addPast(await SourcesBridge.pastExits());

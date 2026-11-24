@@ -3,6 +3,18 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## 2.6.4 (2026-11-25)
+
+Buttons answer the first tap again, and a tap log to find any that still do not.
+
+**Updating** keeps your library, your keys, every book's memory and your journal.
+
+#### Fixed
+- **Taps that needed repeating:** since 2.6.3, a row, a sheet's action (Read from here), a round button or Play often did nothing unless tapped very quickly, so it took several tries. The give under your finger rebuilt the button while it was pressed and the tap was lost. A tap now always counts, however long your finger stays. Battery level had nothing to do with it.
+
+#### New
+- **Tap log** (About, Tap log): for buttons that need tapping again and again. While it is on, TomeVoice notes where your finger comes down, how long it stays, which of its buttons was under it and whether that answered, and the moments the screen stuck. Share it as a file with whoever is helping. Never a book's words or what you type; rows that show your own words (a tag, a shelf, a key's name) are noted by a plain name. Off unless you turn it on, kept on the phone, never in backups.
+
 ## 2.6.3 (2026-11-24)
 
 Painted scenes and two new ones, smooth motion you can turn off, search in Settings and in the provider list, twelve more AI providers, and the name being looked up lit in its sentence.

@@ -276,6 +276,7 @@ class _SecretSheetState extends State<_SecretSheet> {
                   SheetAction(
                     icon: Icons.folder_open_outlined,
                     label: 'Make "${c.name}" an ordinary shelf',
+                    logName: 'Make a shelf ordinary',
                     onTap: () => _setSecret(c, false),
                   ),
                 SheetAction(

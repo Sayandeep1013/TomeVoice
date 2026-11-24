@@ -294,6 +294,8 @@ const keptOnPhone = {
   ErrorLog.exitsName,
   'voice-log.jsonl',
   'voice-log.on',
+  'tap-log.jsonl',
+  'tap-log.on',
 };
 
 /// What a replace kept of the library it replaced, that the backup did not

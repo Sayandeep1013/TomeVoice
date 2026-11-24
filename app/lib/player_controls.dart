@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'motion.dart';
 import 'scheduler.dart';
 import 'slider_shapes.dart';
+import 'tap_log.dart';
 import 'theme.dart';
 import 'ui.dart';
 
@@ -72,12 +73,15 @@ class PlayButton extends StatelessWidget {
                   ),
                   Jelly.listen(
                     strength: 1.3,
-                    child: Material(
+                    child: tapTagged(
+                    'Play',
+                    speaking ? 'Pause' : 'Play',
+                    Material(
                     color: onTap == null ? Skin.accentOf(context).withValues(alpha: 0.4) : Skin.accentOf(context),
                     shape: const CircleBorder(),
                     child: InkWell(
                       customBorder: const CircleBorder(),
-                      onTap: onTap,
+                      onTap: tapAnswered(speaking ? 'Pause' : 'Play', onTap),
                       child: SizedBox(
                         width: 54,
                         height: 54,
@@ -106,6 +110,7 @@ class PlayButton extends StatelessWidget {
                         ),
                       ),
                     ),
+                  ),
                   ),
                   ),
                 ],

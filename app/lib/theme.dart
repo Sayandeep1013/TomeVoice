@@ -10,6 +10,7 @@ import 'motion.dart';
 import 'own_fonts.dart' show OwnFonts;
 import 'scene.dart';
 import 'slider_shapes.dart';
+import 'tap_log.dart';
 
 /// The visual language, in one place.
 ///
@@ -1302,6 +1303,7 @@ class Capsule extends StatefulWidget {
     this.color,
     this.border = true,
     this.radius,
+    this.logName,
   });
 
   final Widget child;
@@ -1311,6 +1313,10 @@ class Capsule extends StatefulWidget {
   final Color? color;
   final bool border;
   final BorderRadius? radius;
+
+  /// What the tap log calls this button (a round button's tooltip); never
+  /// the reader's own words.
+  final String? logName;
 
   @override
   State<Capsule> createState() => _CapsuleState();
@@ -1335,7 +1341,7 @@ class _CapsuleState extends State<Capsule> {
           child: widget.onTap == null
               ? body
               : InkWell(
-                  onTap: widget.onTap,
+                  onTap: tapAnswered(widget.logName ?? '', widget.onTap),
                   onLongPress: widget.onLongPress,
                   onHighlightChanged: (down) => setState(() => _down = down),
                   child: body,
@@ -1343,7 +1349,7 @@ class _CapsuleState extends State<Capsule> {
         ),
       );
       if (widget.onTap == null) return capsule;
-      return Jelly(pressed: _down, child: capsule);
+      return Jelly(pressed: _down, child: tapTagged('button', widget.logName ?? '', capsule));
     }
     final body = Container(
       padding: widget.padding,
@@ -1363,14 +1369,14 @@ class _CapsuleState extends State<Capsule> {
       child: widget.onTap == null
           ? body
           : InkWell(
-              onTap: widget.onTap,
+              onTap: tapAnswered(widget.logName ?? '', widget.onTap),
               onLongPress: widget.onLongPress,
               onHighlightChanged: (down) => setState(() => _down = down),
               child: body,
             ),
     );
     if (widget.onTap == null) return capsule;
-    return Jelly(pressed: _down, child: capsule);
+    return Jelly(pressed: _down, child: tapTagged('button', widget.logName ?? '', capsule));
   }
 }
 
@@ -1434,6 +1440,7 @@ class RoundButton extends StatelessWidget {
           onLongPress: onLongPress,
           padding: EdgeInsets.zero,
           color: color,
+          logName: tooltip,
           child: Icon(
             icon,
             size: size * 0.46,

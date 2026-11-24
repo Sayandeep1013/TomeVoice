@@ -45,6 +45,7 @@ Future<String?> pickCategory(
                             ? Icons.lock_open_rounded
                             : Icons.folder_outlined,
                     label: c.name,
+                    logName: 'a shelf',
                     detail: _books(idx.inCategory(c.id).length),
                     onTap: () => Navigator.pop(ctx, c.id),
                   ),

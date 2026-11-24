@@ -65,6 +65,10 @@ errors.jsonl            the local error log (about 50 entries), scrubbed of titl
 voice-log.jsonl         the voice log (About > Voice log; off unless turned on, voice-log.on): timings,
                         engine errors and voices, a sentence only as its length and alphabet; last 4000
                         notes; shared by the reader as a text file; never in a backup
+tap-log.jsonl           the tap log (About > Tap log; off unless turned on, tap-log.on): each tap's
+                        place in dp, how long held, the app's own button under it (by its name, or
+                        a plain name for the reader's own words) and whether it answered, stuck
+                        frames; last 3000 notes; shared as a text file; never in a backup
 .secrets.json           catalogue and sync passwords, this phone's sync id and, from 2.0,
                         the AI keys; never backed up (builds before 1.4 kept it in the
                         library folder, and moved it here the first time it was read)

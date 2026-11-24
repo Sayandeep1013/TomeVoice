@@ -212,6 +212,7 @@ Future<void> exportNovelEpub(BuildContext context, LibraryStore store, LibraryEn
           SheetAction(
             icon: Icons.save_alt_rounded,
             label: known == null ? 'Save as a file' : 'Save to ${known.name}',
+            logName: known == null ? null : 'Save to a folder',
             detail: known == null ? 'In a folder on your phone or in Drive' : name,
             onTap: () => Navigator.pop(ctx, 'save'),
           ),
