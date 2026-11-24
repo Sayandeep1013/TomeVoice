@@ -302,7 +302,7 @@ class BookRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) =>
-      BookTint(bookId: entry.id, cover: entry.shownCover, child: Builder(builder: _body));
+      BookTint(bookId: entry.id, cover: entry.shownCover, theme: false, child: Builder(builder: _body));
 
   Widget _body(BuildContext context) {
     final e = entry;
@@ -446,7 +446,7 @@ class BookTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) =>
-      BookTint(bookId: entry.id, cover: entry.shownCover, child: Builder(builder: _body));
+      BookTint(bookId: entry.id, cover: entry.shownCover, theme: false, child: Builder(builder: _body));
 
   Widget _body(BuildContext context) {
     final e = entry;

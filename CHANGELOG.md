@@ -3,6 +3,18 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## 2.6.5 (2026-11-25)
+
+Smoother: opening a book, changing screens and switching shelves drop far fewer frames.
+
+**Updating** keeps your library, your keys, every book's memory and your journal.
+
+#### Smoother
+- **Changing screens:** a screen fading in or out was redrawn off to the side and blended back at every frame, the most work a phone's graphics do in a transition, and at 120 frames a second it dropped frames as every book or screen opened. The background is now laid over the screen instead, which looks the same and costs a fraction.
+- **Switching shelves:** the whole library was rebuilt half way through the slide, and the shelf names' weight was drawn afresh at every frame. Only the names follow the slide now, in a few steps drawn once.
+- **Book colours on the shelf:** each book's tile made a whole theme of its colours; the shelf only needs the colour.
+- **Natural voices:** a book's voice warmed up as the book opens now loads in the background's priority, not over the page being drawn.
+
 ## 2.6.4 (2026-11-25)
 
 Buttons answer the first tap again, opening and closing a book is smooth again, and a tap log to find anything that still is not.

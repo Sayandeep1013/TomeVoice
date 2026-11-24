@@ -1215,18 +1215,44 @@ class CalmPageTransitionsBuilder extends PageTransitionsBuilder {
     final Animation<double> below = gesture || reduced
         ? kAlwaysCompleteAnimation
         : secondaryAnimation.drive(secondaryAnimation.status == AnimationStatus.reverse ? _comeBack : _makeWay);
+    // A screen part faded is not faded itself: the ground is laid over it,
+    // at what of the screen is not to show. A whole screen faded is drawn
+    // off-screen and blended back at every frame (no cache for it on the
+    // phone's renderer), which at 120 pictures a second was the stutter of
+    // every book opened and screen changed; the ground over it is one
+    // rectangle, and looks the same, the ground being what shows through
+    // (the screen below has gone to it by the time this one shows, and a
+    // screen leaving has the ground behind it). Not shown at all, it is
+    // left out, so the screen leaving beneath it still shows. The back
+    // gesture still fades the screen itself, showing the one below.
+    final shown = gesture ? 1.0 : below.value * opacity.value;
+    final hidden = shown <= 0;
+    final Animation<double> fade =
+        gesture ? opacity : (hidden ? kAlwaysDismissedAnimation : kAlwaysCompleteAnimation);
+    final cover = gesture || hidden ? 0.0 : (1 - shown).clamp(0.0, 1.0);
     return _BackGesture(
       route: route,
       // While this screen has faded for one above it, the ground shows
       // instead of black.
       child: DecoratedBox(
         decoration: below.value < 1 ? Skin.groundDecoration(context) : const BoxDecoration(),
-        child: FadeTransition(
-          opacity: below,
-          child: FadeTransition(
-            opacity: opacity,
-            child: ScaleTransition(scale: scale, child: child),
-          ),
+        child: Stack(
+          fit: StackFit.passthrough,
+          children: [
+            FadeTransition(
+              opacity: fade,
+              child: ScaleTransition(scale: scale, child: child),
+            ),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Opacity(
+                  key: const ValueKey('transition ground'),
+                  opacity: cover,
+                  child: DecoratedBox(decoration: Skin.groundDecoration(context)),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

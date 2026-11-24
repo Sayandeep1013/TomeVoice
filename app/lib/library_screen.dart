@@ -67,7 +67,14 @@ class _Importing {
 class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScreen> {
   LibraryStore get _store => widget.store;
   LibraryIndex? _index;
-  int _page = 0;
+
+  /// The shelf shown, which only the category pills follow: set as the
+  /// pager passes half way, it was a setState of the whole library, every
+  /// shelf in view built again in the middle of the swipe (frames dropped
+  /// as categories were switched).
+  final _shownShelf = ValueNotifier<int>(0);
+  int get _page => _shownShelf.value;
+  set _page(int page) => _shownShelf.value = page;
 
   /// The shelves' pager, made when the shelves first show. By then the
   /// index has been read, so it starts on the default shelf: made at once,
@@ -140,6 +147,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
     BackgroundReading.current.removeListener(_onBackground);
     _searchController.dispose();
     _pager?.dispose();
+    _shownShelf.dispose();
     super.dispose();
   }
 
@@ -511,7 +519,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
   /// books and covers on the way).
   void _goToPage(int page) {
     final from = _page;
-    setState(() => _page = page);
+    _page = page;
     // Not while two pagers share it (the shelves fading back in over the
     // search, for a moment).
     if (_pages.positions.length != 1) return;
@@ -523,7 +531,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
       // The shelf is the one the pager came to rest on.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         final shown = _shownPage;
-        if (mounted && shown != _page) setState(() => _page = shown);
+        if (mounted && shown != _page) _page = shown;
       });
     } else {
       // Off at once and easing to a stop: a tapped shelf moves the moment
@@ -837,13 +845,16 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(Gap.page, Gap.xs, Gap.s, Gap.s),
-            child: _CategoryTabs(
-              index: idx,
-              filter: filter,
-              current: _page,
-              pages: _pages,
-              onPick: _goToPage,
-              onManage: _manageCategories,
+            child: ValueListenableBuilder<int>(
+              valueListenable: _shownShelf,
+              builder: (context, shown, _) => _CategoryTabs(
+                index: idx,
+                filter: filter,
+                current: shown,
+                pages: _pages,
+                onPick: _goToPage,
+                onManage: _manageCategories,
+              ),
             ),
           ),
           _unfold(
@@ -870,7 +881,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
                 key: const PageStorageKey('shelves'),
                 controller: _pages,
                 itemCount: categories.length,
-                onPageChanged: (p) => setState(() => _page = p),
+                onPageChanged: (p) => _page = p,
                 itemBuilder: (context, p) {
                   final c = categories[p];
                   final books = _sorted(idx.inCategory(c.id).where(filter.matches));
@@ -1568,7 +1579,10 @@ class _CategoryTabsState extends State<_CategoryTabs> {
                     size: 14,
                     weight: t >= 0.5 ? FontWeight.w700 : FontWeight.w600,
                     color: Color.lerp(Skin.inkOn(context), Skin.onAmber, t),
-                  ).copyWith(fontVariations: [FontVariation('wght', 600 + 100 * t)]),
+                  // In steps of 25, not a new weight every frame: each new
+                  // one had its glyphs drawn afresh, frame after frame, as
+                  // the shelf slid; five are drawn once and kept.
+                  ).copyWith(fontVariations: [FontVariation('wght', 600 + (4 * t).round() * 25)]),
                 ),
                 const SizedBox(width: 6),
                 Text(
