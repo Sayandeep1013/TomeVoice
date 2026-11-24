@@ -1248,7 +1248,9 @@ class CalmPageTransitionsBuilder extends PageTransitionsBuilder {
                 child: Opacity(
                   key: const ValueKey('transition ground'),
                   opacity: cover,
-                  child: DecoratedBox(decoration: Skin.groundDecoration(context)),
+                  // Only while it shows: at rest the screen has no ground
+                  // of the transition's in it (a book's page stays plain).
+                  child: cover > 0 ? DecoratedBox(decoration: Skin.groundDecoration(context)) : const SizedBox.shrink(),
                 ),
               ),
             ),
