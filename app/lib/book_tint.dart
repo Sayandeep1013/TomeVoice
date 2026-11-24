@@ -223,8 +223,8 @@ Widget tinted(BuildContext context, int? tint, Widget child, {bool theme = true}
   final on = tint != null && tint != 0 && bookColoursOn;
   final palette = on ? Skin.palette.withTint(tint) : Skin.paletteOf(context);
   if (!theme) return TintScope(palette: palette, child: child);
-  final theme = on ? Skin.themeFor(palette, Theme.of(context).brightness) : Theme.of(context);
-  return TintScope(palette: palette, child: Theme(data: theme, child: child));
+  final data = on ? Skin.themeFor(palette, Theme.of(context).brightness) : Theme.of(context);
+  return TintScope(palette: palette, child: Theme(data: data, child: child));
 }
 
 /// [child] in the colours of the screen at [from]. For sheets and dialogs:
