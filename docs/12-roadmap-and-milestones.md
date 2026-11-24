@@ -53,6 +53,25 @@ How it works: [14 — AI Companion](14-ai-companion.md). Before release it was t
    into its next chapters is ignored; a shared Wikipedia page's notes in other sections'
    names may still be read.
 
+## To build: what older readers have and TomeVoice does not yet
+
+Found on 25 November 2026 by checking a comparison with Librera Reader, KOReader and
+@Voice Aloud against the code (most of what it said was missing is built: pronunciations,
+running heads and page numbers left out, two-column order, OCR, DjVu, OPDS, sorting and
+filters, Markdown export, audiobook export). What is truly missing, to be built:
+
+| To build | Today |
+|---|---|
+| Find-and-replace rules for the voice, with regular expressions | A pronunciation (`SayRule`) matches a whole word as plain text, any case |
+| "Don't read lines like this" rules for every book | The reader's own skip rules work in web novels; books get the built-in skips (notes, rows of symbols, titles said twice) |
+| The reader's own margins and column choice on PDF pages | Margins are cropped and two columns ordered automatically (`page_crop.dart`, `pdf.dart` `_readingOrder`) |
+| Contrast for faint scans | Real pages only invert for the night |
+| OCR for picture-only DjVu | Refused with a message (`djvu.dart`) |
+| Comics: CBZ, CBR, CBT | A zip that is mostly pictures is refused on purpose |
+| An offline dictionary (StarDict) and translation in the app | A word goes to the phone's dictionary app, its sentence to the translate app |
+| Exporting bookmarks; plain-text exports | Quotes and the journal export as Markdown |
+| WAV export; legacy Word .doc | M4B, M4A and MP3; DOCX and ODT |
+
 ## From the earlier plans, not built
 
 Ideas the plans of 23 October (web novels and the new look, the road to 1.0, and the
@@ -74,7 +93,6 @@ scheduled.
 |---|---|
 | The interface in other languages | The app's language stays English; books in any language are read in their own voice. |
 | On-device AI | Kept out to keep the app light. The 2.0 companion uses an AI service through the reader's own API keys instead. |
-| A Play Store build | Not planned for now ([07 §7.8](07-platform-android.md#78-play-store-compliance-checklist) keeps a checklist, should that change). |
 | Windows | Not started. Android only for now; maybe later ([08](08-platform-windows.md)). |
 
 ## Known limits, and what could lift them

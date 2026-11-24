@@ -75,6 +75,23 @@ reading companion a key of your own: see below).
 
 With [Obtainium](https://obtainium.imranr.dev/), the button above adds TomeVoice set up to take the main APK (not the 32-bit one) and tells you when a new release is out.
 
+## At a glance
+
+| | |
+|---|---|
+| **Opens** | EPUB (with EPUB 3 recorded narration), PDF (scanned ones too), DjVu, MOBI / AZW / AZW3 / PRC (no DRM), FB2, DOCX, ODT, RTF, HTML, Markdown, TXT; web articles from a shared link; pasted text; web novels |
+| **Reads aloud with** | the phone's own voices, or about 180 natural voices in 42 languages made on the phone with no internet (Piper, plus Kokoro and Kitten); dialogue in a second voice; a voice for each character (experimental) |
+| **Fixes how it reads** | your own pronunciations ("say *Hermione* as…"), for one book or all, shared as a file; running headers, footers and page numbers left out by themselves (PDF, DjVu, scanned pages); two-column pages read down the left column, then the right; footnotes, and web-novel notices and credits, passed over |
+| **PDFs and scans** | reflowed into paragraphs, or shown as the real pages (zoom, dark at night, margins cropped); scanned PDFs read by OCR on the phone (Tesseract), in the languages you pick |
+| **Words** | press and hold a word to look it up in your dictionary app or translate its sentence in your translate app; *Who or what is…?* from the book's memory |
+| **Library** | shelves; tags; series (found for you); sort by last read, date added, title, author, series or progress; filter by progress, format, language, tag or series; duplicates found; secret shelves; history |
+| **Catalogues** | Project Gutenberg and Standard Ebooks built in; your Calibre library or any OPDS 1 or OPDS 2 catalogue, with search and sign-in |
+| **Export** | quotes and highlights, with your notes, as Markdown; the journal as Markdown; a chapter or a whole book as an audiobook (M4B with chapters, M4A, or MP3 with chapters); a web novel as an EPUB |
+| **Sync** | your own WebDAV folder, or a KOReader sync server |
+| **AI, if you want it** | a memory of each book, chat about it, Explain this, name cards: with an API key of your own, nothing sent otherwise |
+
+Not there yet: see [Not built yet](#not-built-yet).
+
 ---
 
 ## What it does
@@ -83,6 +100,9 @@ With [Obtainium](https://obtainium.imranr.dev/), the button above adds TomeVoice
   FB2, RTF, HTML, Markdown and TXT, in whatever encoding they were saved. Pictures and maps
   in ebooks are shown in the text; PDFs can be read as text or shown as their real pages
   (pinch to zoom, dark at night); chapters are found even when a file does not list them.
+  Read as text, a PDF's running headers, footers and page numbers are left out (the voice
+  never says "Page 42", and a sentence running over the page is not cut by them), and a
+  page set in two columns is read down the left one, then the right.
   Footnotes stay on the page in small type and are not read, unless you turn on
   **Read notes aloud**.
 - **Your own chapters for a TXT book.** A web novel saved as one text file often heads
@@ -342,6 +362,24 @@ never does.
 - **Talk elsewhere.** The memory as one Markdown page (the story so far, who matters,
   what is unanswered, your theories and journal) to copy or share into ChatGPT, Gemini
   or NotebookLM, kept to your chapter when the guard is on.
+
+## Not built yet
+
+What TomeVoice does not do yet, and is to be built:
+
+- **Find-and-replace rules for the voice, with regular expressions.** Today a
+  pronunciation matches a whole word as written.
+- **"Don't read lines like this" for every book.** Today your own skip rules work in web
+  novels; books get the built-in ones (notes, rows of symbols, titles said twice).
+- **Your own margins and columns for PDF pages.** Today both are found automatically.
+- **Brighter, sharper scans:** contrast for faint pages.
+- **OCR for DjVu files that have no text layer.** Today a picture-only DjVu is refused.
+- **Comics:** CBZ, CBR and CBT.
+- **A dictionary and translation inside the app**, offline (StarDict). Today a word goes
+  to your phone's dictionary or translate app.
+- **Exporting bookmarks, and plain-text exports.** Today quotes and the journal export as
+  Markdown.
+- **WAV audio**, and old Word **.doc** files.
 
 ## What it deliberately does not do
 
