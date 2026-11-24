@@ -302,6 +302,20 @@ class ReaderController {
   /// reading's until the page for those chapters takes them back.
   bool _handedOn = false;
 
+  /// Still handed on: false once the reading it went to has ended without
+  /// a page taking it back (the latest chapter so far, or the next one
+  /// would not come; it stops itself then), and the voice is this page's
+  /// again. Until then Play, Read from here and the player's buttons did
+  /// nothing on this page however often they were tapped.
+  bool get _stillHanded {
+    if (!_handedOn) return false;
+    if (_handing) return true;
+    final bg = BackgroundReading.current.value;
+    if (bg != null && bg.bookId == _book.id) return true;
+    _handedOn = false;
+    return false;
+  }
+
   /// Handing it on: this page's voice is stopping, and the background
   /// reading does not have it yet. A page closed meanwhile leaves the rest,
   /// and its player, to [_readOn].
@@ -580,7 +594,7 @@ class ReaderController {
       }
       return;
     }
-    if (_handedOn) {
+    if (_stillHanded) {
       // Shown a moment longer while the next chapters load: the voice is
       // the background reading's.
       final bg = BackgroundReading.current.value;
@@ -606,7 +620,7 @@ class ReaderController {
   Future<void> goTo(int unit, {bool play = false}) async {
     // Handed on: this page goes as soon as the next is built; the voice is
     // not to be pulled back to it.
-    if (layout.isEmpty || _handedOn) return;
+    if (layout.isEmpty || _stillHanded) return;
     if (_placeAway) {
       // Read from here: the voice comes to this page. Any other move (the
       // player's buttons) is the voice's: back to it first.

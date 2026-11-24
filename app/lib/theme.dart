@@ -10,6 +10,7 @@ import 'motion.dart';
 import 'own_fonts.dart' show OwnFonts;
 import 'scene.dart';
 import 'slider_shapes.dart';
+import 'tap_log.dart';
 
 /// The visual language, in one place.
 ///
@@ -36,6 +37,17 @@ class Skin {
   /// The cover colour of the book being read, which the whole app follows
   /// when book colours are on (set by the shell, read by the app's theme).
   static int? followTint;
+
+  /// The next change of the app's theme is to be made at once (a book's
+  /// colour followed), not eased; read and cleared by [takeSnapTheme].
+  static bool snapThemeOnce = false;
+
+  /// Whether this build's theme change is to be made at once, clearing it.
+  static bool takeSnapTheme() {
+    final snap = snapThemeOnce;
+    snapThemeOnce = false;
+    return snap;
+  }
 
   /// The palette for [c]: a book's own inside its [TintScope], otherwise
   /// the app's.
@@ -1302,6 +1314,7 @@ class Capsule extends StatefulWidget {
     this.color,
     this.border = true,
     this.radius,
+    this.logName,
   });
 
   final Widget child;
@@ -1311,6 +1324,10 @@ class Capsule extends StatefulWidget {
   final Color? color;
   final bool border;
   final BorderRadius? radius;
+
+  /// What the tap log calls this button (a round button's tooltip); never
+  /// the reader's own words.
+  final String? logName;
 
   @override
   State<Capsule> createState() => _CapsuleState();
@@ -1335,7 +1352,7 @@ class _CapsuleState extends State<Capsule> {
           child: widget.onTap == null
               ? body
               : InkWell(
-                  onTap: widget.onTap,
+                  onTap: tapAnswered(widget.logName ?? '', widget.onTap),
                   onLongPress: widget.onLongPress,
                   onHighlightChanged: (down) => setState(() => _down = down),
                   child: body,
@@ -1343,7 +1360,7 @@ class _CapsuleState extends State<Capsule> {
         ),
       );
       if (widget.onTap == null) return capsule;
-      return Jelly(pressed: _down, child: capsule);
+      return Jelly(pressed: _down, child: tapTagged('button', widget.logName ?? '', capsule));
     }
     final body = Container(
       padding: widget.padding,
@@ -1363,14 +1380,14 @@ class _CapsuleState extends State<Capsule> {
       child: widget.onTap == null
           ? body
           : InkWell(
-              onTap: widget.onTap,
+              onTap: tapAnswered(widget.logName ?? '', widget.onTap),
               onLongPress: widget.onLongPress,
               onHighlightChanged: (down) => setState(() => _down = down),
               child: body,
             ),
     );
     if (widget.onTap == null) return capsule;
-    return Jelly(pressed: _down, child: capsule);
+    return Jelly(pressed: _down, child: tapTagged('button', widget.logName ?? '', capsule));
   }
 }
 
@@ -1434,6 +1451,7 @@ class RoundButton extends StatelessWidget {
           onLongPress: onLongPress,
           padding: EdgeInsets.zero,
           color: color,
+          logName: tooltip,
           child: Icon(
             icon,
             size: size * 0.46,

@@ -85,11 +85,24 @@ class _AiChatScreenState extends State<AiChatScreen> {
 
   /// A new chat, about the book read last (that has a memory), or about all
   /// of them when none has.
+  ///
+  /// Finding that book reads each memory (seconds, while one is being
+  /// built): taps meanwhile are the same tap, not a chat each.
   Future<void> _newChat() async {
-    final books = await chatableBooks();
-    if (!mounted) return;
-    await _push(ChatScreen(store: widget.store, books: [if (books.isNotEmpty) books.first.id], chats: widget.chats));
+    if (_opening) return;
+    setState(() => _opening = true);
+    try {
+      final books = await chatableBooks();
+      if (!mounted) return;
+      setState(() => _opening = false);
+      await _push(ChatScreen(store: widget.store, books: [if (books.isNotEmpty) books.first.id], chats: widget.chats));
+    } finally {
+      if (mounted && _opening) setState(() => _opening = false);
+    }
   }
+
+  /// A new chat on its way (its books being found).
+  bool _opening = false;
 
   Future<void> _rename(Chat c) async {
     final t = await askText(context, title: 'Name this chat', initial: c.title);
@@ -191,29 +204,40 @@ class _AiChatScreenState extends State<AiChatScreen> {
                           ),
                         ),
                       )
+                    // Every child keyed: an answer ending in the background
+                    // moves its chat to the top (a group heading may come
+                    // or go), and unkeyed, the rows after it each took
+                    // another's place, built anew under a finger pressing
+                    // one (the Also rows among them).
                     : ListView(
                         padding: EdgeInsets.fromLTRB(0, 0, 0, Gap.xxl + bottom),
                         children: [
                           Padding(
+                            key: const ValueKey('new'),
                             padding: const EdgeInsets.symmetric(horizontal: Gap.page),
                             child: Align(
                               alignment: Alignment.centerLeft,
                               child: FilledButton.icon(
                                 onPressed: () => unawaited(_newChat()),
-                                icon: const Icon(Icons.add_rounded),
+                                icon: _opening
+                                    ? const SizedBox(
+                                        width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                                    : const Icon(Icons.add_rounded),
                                 label: const Text('New chat'),
                               ),
                             ),
                           ),
                           if (all.length > 3) ...[
-                            const SizedBox(height: Gap.l),
+                            const SizedBox(key: ValueKey('search gap'), height: Gap.l),
                             Padding(
+                              key: const ValueKey('search'),
                               padding: const EdgeInsets.symmetric(horizontal: Gap.page),
                               child: SearchField(hint: 'Find a chat', onChanged: (v) => setState(() => _query = v)),
                             ),
                           ],
                           if (all.isEmpty)
                             Padding(
+                              key: const ValueKey('intro'),
                               padding: const EdgeInsets.fromLTRB(Gap.page, Gap.l, Gap.page, 0),
                               child: Text(
                                 'Your chats are kept here. A chat about one book is also kept in its journal, '
@@ -224,27 +248,31 @@ class _AiChatScreenState extends State<AiChatScreen> {
                             ),
                           if (all.isNotEmpty && chats.isEmpty)
                             Padding(
+                              key: const ValueKey('no match'),
                               padding: const EdgeInsets.fromLTRB(Gap.page, Gap.l, Gap.page, 0),
                               child: Text('No chat has those words.', style: Skin.meta(context)),
                             ),
                           for (final (i, c) in chats.indexed) ...[
                             if (i == 0 || _group(chats[i - 1]) != _group(c)) ...[
-                              const SizedBox(height: Gap.l),
+                              SizedBox(key: ValueKey('gap ${_group(c)}'), height: Gap.l),
                               Padding(
+                                key: ValueKey('group ${_group(c)}'),
                                 padding: const EdgeInsets.symmetric(horizontal: Gap.page),
                                 child: Eyebrow(_group(c)),
                               ),
-                              const SizedBox(height: Gap.xs),
+                              SizedBox(key: ValueKey('gap under ${_group(c)}'), height: Gap.xs),
                             ],
                             _chatRow(context, c),
                           ],
-                          const SizedBox(height: Gap.xl),
+                          const SizedBox(key: ValueKey('also gap'), height: Gap.xl),
                           const Padding(
+                            key: ValueKey('also'),
                             padding: EdgeInsets.symmetric(horizontal: Gap.page),
                             child: Eyebrow('Also'),
                           ),
-                          const SizedBox(height: Gap.xs),
+                          const SizedBox(key: ValueKey('also gap under'), height: Gap.xs),
                           SettingRow(
+                            key: const ValueKey('reader notes'),
                             icon: Icons.bookmark_border_rounded,
                             title: 'What the AI remembers about you',
                             subtitle: notes == 0
@@ -254,12 +282,14 @@ class _AiChatScreenState extends State<AiChatScreen> {
                           ),
                           if (talks.isNotEmpty)
                             SettingRow(
+                              key: const ValueKey('talks'),
                               icon: Icons.chat_bubble_outline_rounded,
                               title: 'Talks from the reader',
                               subtitle: '${talks.length} kept in the journal',
                               onTap: () => unawaited(_push(JournalScreen(store: widget.store, onlyTalks: true))),
                             ),
                           SettingRow(
+                            key: const ValueKey('memories'),
                             icon: Icons.psychology_outlined,
                             title: 'Book memories',
                             subtitle: 'What the AI has read and remembers of each book',
@@ -276,6 +306,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
   }
 
   Widget _chatRow(BuildContext context, Chat c) => InkWell(
+        key: ValueKey('chat ${c.id}'),
         onTap: () => unawaited(_push(ChatScreen(store: widget.store, chat: c, chats: widget.chats))),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(Gap.page, Gap.s, Gap.s, Gap.s),

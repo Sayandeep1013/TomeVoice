@@ -16,6 +16,7 @@ import 'reader_screen.dart';
 import 'secret_shelf.dart';
 import 'sources/bridge.dart';
 import 'speech_service.dart';
+import 'tap_log.dart' show TapLogScreens, TapRecorder;
 import 'theme.dart';
 import 'wallpaper_colours.dart';
 
@@ -67,7 +68,7 @@ void _listen() {
 var _built = false;
 
 /// One list for every build of the app, so the navigator keeps its observer.
-final _observers = <NavigatorObserver>[placeSettler];
+final _observers = <NavigatorObserver>[placeSettler, TapLogScreens()];
 
 /// The app on screen: built once for the engine, and drawn edge to edge in
 /// each new activity's window (Android gives each its own, and the mode was
@@ -163,7 +164,7 @@ class SpikeApp extends StatelessWidget {
           themeMode: mode,
           // Palette and light/dark changes ease across rather than snap
           // (Settings also cross-fades its whole screen when you pick one).
-          themeAnimationDuration: Motion.page,
+          themeAnimationDuration: Skin.takeSnapTheme() ? Duration.zero : Motion.page,
           themeAnimationCurve: Motion.emphasized,
           // Status bar icons dark on the light ground, light on the dark one.
           // Every field is set: one left out falls back to Android's default,
@@ -197,7 +198,8 @@ class SpikeApp extends StatelessWidget {
               data: MediaQuery.of(context).copyWith(
                   disableAnimations:
                       MediaQuery.of(context).disableAnimations || !(ListeningPrefs.loaded?.animations ?? true)),
-              child: child!,
+              // Every finger, to the tap log (which notes nothing while off).
+              child: TapRecorder(child: child!),
             ),
           ),
           home: const _ModeGate(),

@@ -740,6 +740,10 @@ class _PassageState extends State<_Passage> {
           style: style,
         );
     return Padding(
+      // Keyed by the paragraph: as the window slides on, unkeyed, each slot
+      // took the next paragraph's place, and a press held across that read
+      // from a sentence further on.
+      key: ValueKey('para $a'),
       padding: EdgeInsets.only(bottom: heading ? Gap.m : Gap.l),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,

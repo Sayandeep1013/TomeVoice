@@ -75,8 +75,13 @@ class _JellyState extends State<Jelly> with SingleTickerProviderStateMixin {
       animation: _p,
       builder: (context, child) {
         final p = _p.value;
-        if (p.abs() < 0.001) return child!;
-        // Down: a touch wider and shorter.
+        // Down: a touch wider and shorter. Always a Transform, even at rest
+        // (where it is the identity and paints straight through): returning
+        // the bare child at rest and a Transform once it moved swapped the
+        // widget above the InkWell mid-press, which built the InkWell anew
+        // and dropped the tap it was following. Any press held past a frame
+        // or two (most real fingers) was lost, so buttons needed tapping
+        // again and again (2.6.3).
         return Transform(
           alignment: Alignment.center,
           transform: Matrix4.diagonal3Values(1 + k * 0.35 * p, 1 - k * p, 1),
@@ -87,7 +92,9 @@ class _JellyState extends State<Jelly> with SingleTickerProviderStateMixin {
     );
     if (!widget._listens) return body;
     return Listener(
-      behavior: HitTestBehavior.translucent,
+      // Only where the child takes the finger: a round button in a square
+      // gave under a press on its corner, which nothing answered.
+      behavior: HitTestBehavior.deferToChild,
       onPointerDown: (e) {
         _from = e.position;
         _set(true);

@@ -322,8 +322,12 @@ class _WhosWhoScreenState extends State<WhosWhoScreen> {
                   ],
                 ),
               ),
+              // Keyed, as the suggestion comes in after the screen opens:
+              // unkeyed it took the search field's place, which lost what
+              // was typed in it.
               if (_proposed.isNotEmpty && !widget.readOnly)
                 Padding(
+                  key: const ValueKey('kinds'),
                   padding: const EdgeInsets.fromLTRB(Gap.page - Gap.s, Gap.xs, Gap.page, 0),
                   child: Align(
                     alignment: Alignment.centerLeft,
@@ -336,6 +340,7 @@ class _WhosWhoScreenState extends State<WhosWhoScreen> {
                   ),
                 ),
               Padding(
+                key: const ValueKey('find'),
                 padding: const EdgeInsets.fromLTRB(Gap.page, Gap.s, Gap.page, Gap.s),
                 child: SearchField(
                   hint: 'Find by any name',

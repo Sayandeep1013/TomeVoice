@@ -3,6 +3,32 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## 2.6.4 (2026-11-25)
+
+Buttons answer the first tap again, opening and closing a book is smooth again, and a tap log to find anything that still is not.
+
+**Updating** keeps your library, your keys, every book's memory and your journal.
+
+#### Fixed
+- **Taps that needed repeating:** since 2.6.3, a row, a sheet's action (Read from here), a round button or Play often did nothing unless tapped very quickly, so it took several tries. The give under your finger rebuilt the button while it was pressed and the tap was lost. A tap now always counts, however long your finger stays. Battery level had nothing to do with it.
+- **Every other place a tap could be lost or land wrong**, found by going through the whole app:
+  - **Web novels:** after the voice reached the latest chapter (or the next would not come), Play, Read from here and the player's buttons did nothing on that page until you left it. They work again, and Play tries the next chapter again.
+  - **AI chat:** an answer finishing in the background no longer moves the rows under your finger (the Also rows among them), and New chat no longer opens a chat per tap while it finds the book.
+  - **Book memories:** Who's who, the graph, Find and the rest open once however often they are tapped; the "Carries on from" line no longer vanishes at every chapter a build notes; the graph's controls keep a press as a load ends; the download buttons stay put as downloads move on; Who's who keeps what you typed when a suggestion comes in.
+  - **A book's colours arriving** (a new book, a cover changed) no longer rebuilds its page or the reader, losing the scroll and any press.
+  - **The chapter list's fast scroller:** the first drag no longer stops at once with its bubble stuck on screen.
+  - **Now Playing:** a sentence pressed as the text moves on reads from that sentence, not a later one.
+  - **The reader:** a tap while the page follows the voice brings the bars back, rather than only stopping the scroll.
+  - **Sources and Browse:** a source's menu acts on that source, not one that moved into its row.
+  - **Play** gives under your finger only where it answers.
+
+#### Smoother
+- **Opening and closing a book no longer stutters.** The cover flying between the shelf and the book's page was decoded again at every frame of its flight, some twenty times each way, which kept the phone busy for moments after the page came. It also pushed the shelf's covers out of memory, so the next switch of shelf stuttered while they were decoded again. The cover is decoded once now.
+- **Back on the shelf:** the app's colour follows the book read last, and that change was eased across the whole app, rebuilding every screen at every frame for a third of a second just as the shelf came back. It changes at once now; a theme you pick in Settings still eases across.
+
+#### New
+- **Tap log** (About, Tap log): for buttons that need tapping again and again. While it is on, TomeVoice notes where your finger comes down, how long it stays, which of its buttons was under it and whether that answered, and the moments the screen stuck. Share it as a file with whoever is helping. Never a book's words or what you type; rows that show your own words (a tag, a shelf, a key's name) are noted by a plain name. Off unless you turn it on, kept on the phone, never in backups. For each moment the screen stuck it notes whether the app's own work or the drawing took the time, and it tells a tap a scroll took apart from a tap that was lost.
+
 ## 2.6.3 (2026-11-24)
 
 Painted scenes and two new ones, smooth motion you can turn off, search in Settings and in the provider list, twelve more AI providers, and the name being looked up lit in its sentence.

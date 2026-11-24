@@ -6,6 +6,7 @@ import 'package:flutter/rendering.dart' show BoxHitTestResult, RenderProxyBox;
 
 import 'scene.dart';
 import 'motion.dart';
+import 'tap_log.dart';
 import 'theme.dart';
 
 /// The shared pieces every screen is built from. Each exists once, so a
@@ -433,6 +434,7 @@ class SettingRow extends StatelessWidget {
     this.icon,
     this.trailing,
     this.onTap,
+    this.logName,
   });
 
   final String title;
@@ -442,11 +444,19 @@ class SettingRow extends StatelessWidget {
   final Widget? trailing;
   final VoidCallback? onTap;
 
+  /// What the tap log calls this row, when its [title] is the reader's own
+  /// words (a tag, a note): never those.
+  final String? logName;
+
   @override
   Widget build(BuildContext context) => Jelly.listen(
         strength: onTap == null ? 0 : 0.22,
-        child: InkWell(
-        onTap: onTap,
+        child: _tagged(
+        'row',
+        logName ?? title,
+        onTap,
+        InkWell(
+        onTap: tapAnswered(logName ?? title, onTap),
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 56),
           child: Padding(
@@ -486,8 +496,13 @@ class SettingRow extends StatelessWidget {
           ),
         ),
       ),
+      ),
       );
 }
+
+/// [child] tagged for the tap log, when it takes a tap at all.
+Widget _tagged(String kind, String name, VoidCallback? onTap, Widget child) =>
+    onTap == null ? child : tapTagged(kind, name, child);
 
 /// A setting that is on or off.
 class SwitchRow extends StatelessWidget {
@@ -509,8 +524,11 @@ class SwitchRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Jelly.listen(
         strength: 0.22,
-        child: InkWell(
-        onTap: () => onChanged(!value),
+        child: tapTagged(
+        'switch row',
+        title,
+        InkWell(
+        onTap: tapAnswered(title, () => onChanged(!value)),
         child: Padding(
           padding: padding,
           child: Row(
@@ -527,10 +545,17 @@ class SwitchRow extends StatelessWidget {
                   ],
                 ),
               ),
-              Switch(value: value, onChanged: onChanged),
+              Switch(
+                value: value,
+                onChanged: (v) {
+                  TapLog.instance.answered(title);
+                  onChanged(v);
+                },
+              ),
             ],
           ),
         ),
+      ),
       ),
       );
 }
@@ -637,6 +662,7 @@ class SheetAction extends StatelessWidget {
     required this.onTap,
     this.danger = false,
     this.detail,
+    this.logName,
   });
 
   final IconData icon;
@@ -645,13 +671,20 @@ class SheetAction extends StatelessWidget {
   final VoidCallback onTap;
   final bool danger;
 
+  /// What the tap log calls this action, when its [label] is the reader's
+  /// own words (a tag, a folder): never those.
+  final String? logName;
+
   @override
   Widget build(BuildContext context) {
     final color = danger ? Skin.dangerOn(context) : Skin.inkOn(context);
     return Jelly.listen(
       strength: 0.22,
-      child: InkWell(
-      onTap: onTap,
+      child: tapTagged(
+      'sheet action',
+      logName ?? label,
+      InkWell(
+      onTap: tapAnswered(logName ?? label, onTap),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: Gap.xl, vertical: 14),
         child: Row(
@@ -672,6 +705,7 @@ class SheetAction extends StatelessWidget {
           ],
         ),
       ),
+    ),
     ),
     );
   }

@@ -66,6 +66,7 @@ footer a { color: inherit; }
     <li>A list of the calls made to the AI (when, for what, which book, which model, how many tokens), so you can see what was sent. It never leaves the phone.</li>
     <li>A log of the app's own errors, with book titles and personal details taken out. It is sent only if you choose "Report a problem", which opens a GitHub issue you can read before sending.</li>
     <li>A voice log, only if you turn it on (About → Voice log): how long the voice took to start and to make each sentence, gaps, the speech engine's errors, the voice used, and your phone's model, memory and Android version. A sentence is noted only by its length and alphabet, never its words or the book's title. It leaves the phone only as a file you share yourself.</li>
+    <li>A tap log, only if you turn it on (About → Tap log): where on the screen your finger came down (in dp), how long it stayed, which of the app's own buttons was under it and whether it answered, the moments the screen stuck, and the same phone details as the voice log. Never a book's words or anything you type; a row showing your own words (a tag, a shelf, a key's name) is noted by a plain name instead. It leaves the phone only as a file you share yourself.</li>
   </ul>
 
   <h2>What leaves your phone, and where it goes</h2>
@@ -83,6 +84,7 @@ footer a { color: inherit; }
       <tr><td>report an AI answer</td><td>that answer, your question, the reason and note you give, the model's name and the app's version</td><td>the developer (a Google Form)</td></tr>
       <tr><td>choose "Report a problem"</td><td>the error log described above, with your phone's model and Android version</td><td>GitHub, as an issue you open yourself</td></tr>
       <tr><td>share the voice log</td><td>the voice log described above, as a text file</td><td>whoever you share it with, through the app you pick</td></tr>
+      <tr><td>share the tap log</td><td>the tap log described above, as a text file</td><td>whoever you share it with, through the app you pick</td></tr>
     </tbody>
   </table>
   <p>The GitHub version also asks GitHub every few hours whether there is a new version (it can be turned off). The Google Play version gets its updates from Google Play.</p>

@@ -539,6 +539,7 @@ Future<void> tagSelected(BuildContext context, LibraryStore store, Set<String> i
                   SheetAction(
                     icon: onAll(t.name) ? Icons.check_circle_rounded : Icons.sell_outlined,
                     label: t.name,
+                    logName: 'a tag',
                     detail: onAll(t.name) ? 'On ${n == 1 ? 'it' : 'all of them'}: tap to take it off' : _books(t.count),
                     onTap: () => Navigator.pop(ctx, t.name),
                   ),

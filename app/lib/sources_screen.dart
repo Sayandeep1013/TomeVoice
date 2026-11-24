@@ -219,7 +219,10 @@ class _SourcesScreenState extends State<SourcesScreen> {
           p,
     ];
     var row = 0;
-    Widget arrive(Widget child) => Entrance(index: row++, since: _loadedAt, child: child);
+    // Rows keyed by their source: the Updates section coming in moved the
+    // rest along, and an open menu then acted on whichever source had
+    // taken its row's place.
+    Widget arrive(Widget child, {Key? key}) => Entrance(key: key, index: row++, since: _loadedAt, child: child);
     return Scaffold(
       body: DecoratedBox(
         decoration: Skin.groundDecoration(context),
@@ -319,11 +322,12 @@ class _SourcesScreenState extends State<SourcesScreen> {
                       ],
                       if (_installed.isNotEmpty) ...[
                         arrive(_section('Installed', note: '${_installed.length}')),
-                        for (final p in _installed) arrive(_installedRow(context, p)),
+                        for (final p in _installed) arrive(_installedRow(context, p), key: ValueKey('installed ${p.id}')),
                       ],
                       if (_available.isNotEmpty) ...[
                         arrive(_section('Available', note: '${_available.length - installedIds.length}')),
                         Padding(
+                          key: const ValueKey('find a source'),
                           padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.s),
                           child: SearchField(
                             hint: 'Find a source',
@@ -346,7 +350,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
                               onChanged: (l) => setState(() => _language = l),
                             ),
                           ),
-                        for (final p in shown) arrive(_availableRow(context, p)),
+                        for (final p in shown) arrive(_availableRow(context, p), key: ValueKey('available ${p.id}')),
 
                         if (shown.isEmpty)
                           Padding(

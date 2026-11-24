@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -21,11 +22,16 @@ class BookCover extends StatelessWidget {
     this.shadow = true,
     this.titled = true,
     this.framed = true,
+    this.decodeWidth,
   });
 
   final LibraryEntry entry;
   final double width;
   final bool shadow;
+
+  /// The width its picture is decoded at, when not [width]: a cover in
+  /// flight, sized anew each frame, keeps one decode for the whole flight.
+  final double? decodeWidth;
 
   /// In a scene theme, the cover sits in the scene's frame (rusted iron,
   /// wood and vine, neon). A tile frames itself whole instead.
@@ -79,7 +85,7 @@ class BookCover extends StatelessWidget {
                 height: height,
                 fit: BoxFit.cover,
                 // A full-size cover is megabytes of pixels for a thumbnail.
-                cacheWidth: (width * dpr).round(),
+                cacheWidth: ((decodeWidth ?? width) * dpr).round(),
                 // Fades in over the drawn cover; a cover that changes does
                 // not blink through blank.
                 frameBuilder: fadeInOver(generated),
@@ -192,9 +198,22 @@ class CoverHero extends StatelessWidget {
     final lower = direction == HeroFlightDirection.push ? from : to;
     final entry = (upper ?? lower)?.entry;
     if (entry == null) return const SizedBox.shrink();
+    // Decoded once, at the larger end's size (the shelf tile's, already in
+    // the image cache). At the flight's own size, new every frame, the
+    // cover file was read and decoded some twenty times an open and as
+    // many on Back: the phone busy for moments after the page came, and
+    // the cache, flooded, letting the shelf's covers go to be decoded again
+    // at the next switch of shelf.
+    double widthOf(BuildContext c) {
+      final box = c.findRenderObject();
+      return box is RenderBox && box.hasSize ? box.size.width : 0;
+    }
+
+    final decode = math.max(widthOf(fromContext), widthOf(toContext));
     return LayoutBuilder(
       builder: (context, c) {
-        Widget cover(bool titled) => BookCover(entry: entry, width: c.maxWidth, titled: titled);
+        Widget cover(bool titled) =>
+            BookCover(entry: entry, width: c.maxWidth, titled: titled, decodeWidth: decode > 0 ? decode : null);
         final upperTitled = upper?.titled ?? true;
         final lowerTitled = lower?.titled ?? true;
         // A real picture looks the same either way; only a made cover

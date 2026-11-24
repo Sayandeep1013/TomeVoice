@@ -78,6 +78,21 @@ class _BookMemorySectionState extends State<BookMemorySection> {
   /// (a series), what it will take, then building (see startMemory).
   Future<void> _build() => startMemory(context, widget.bookId, service: _service);
 
+  /// A screen of the memory on its way: each first finds where the reader
+  /// is in the book (a moment for a long one), and taps meanwhile were a
+  /// screen each, opened one over another. They are the same tap now.
+  bool _opening = false;
+
+  Future<void> _once(Future<void> Function() open) async {
+    if (_opening) return;
+    _opening = true;
+    try {
+      await open();
+    } finally {
+      _opening = false;
+    }
+  }
+
   Future<void> _openWho() async {
     final line = await _service.lineOf(widget.bookId);
     if (!mounted) return;
@@ -290,13 +305,13 @@ class _BookMemorySectionState extends State<BookMemorySection> {
         : const <Widget>[];
     if (rows.isEmpty) return hint;
     VoidCallback open(MemoryRow r) => switch (r) {
-          MemoryRow.who => () => unawaited(_openWho()),
-          MemoryRow.chapters => () => unawaited(_openChapters()),
-          MemoryRow.graph => () => unawaited(_openGraph()),
-          MemoryRow.threads => () => unawaited(_openThreads()),
-          MemoryRow.theories => () => unawaited(_openTheories()),
-          MemoryRow.find => () => unawaited(_openFind()),
-          MemoryRow.elsewhere => () => unawaited(_handOff()),
+          MemoryRow.who => () => unawaited(_once(_openWho)),
+          MemoryRow.chapters => () => unawaited(_once(_openChapters)),
+          MemoryRow.graph => () => unawaited(_once(_openGraph)),
+          MemoryRow.threads => () => unawaited(_once(_openThreads)),
+          MemoryRow.theories => () => unawaited(_once(_openTheories)),
+          MemoryRow.find => () => unawaited(_once(_openFind)),
+          MemoryRow.elsewhere => () => unawaited(_once(_handOff)),
         };
     return [
       ...hint,
@@ -421,7 +436,11 @@ class _BookMemorySectionState extends State<BookMemorySection> {
             ],
             if (!s.private && s.exists)
               _FollowsLine(
-                key: ValueKey('follows ${s.entities} ${s.noted}'),
+                // Keyed by the book alone: keyed by the counts too, it was
+                // built anew at every chapter a build noted (the line gone
+                // until read again, and a press on it lost).
+                key: ValueKey('follows ${widget.bookId}'),
+                stamp: '${s.entities} ${s.noted}',
                 service: _service,
                 bookId: widget.bookId,
                 onChange: () => unawaited(carryOnFrom(context, widget.bookId, service: _service)),
@@ -1084,20 +1103,25 @@ class _ChaptersBlockState extends State<_ChaptersBlock> {
             spacing: Gap.s,
             runSpacing: Gap.s,
             children: [
+              // Keyed: they come and go as downloads move on (every 2 s),
+              // and unkeyed the one under a finger could become another.
               if (missing > 0 && (q == null || q.waiting == 0))
                 OutlinedButton.icon(
+                  key: const ValueKey('download all'),
                   onPressed: _busy ? null : () => unawaited(_downloadAll()),
                   icon: const Icon(Icons.download_rounded, size: 18),
                   label: Text('Download all ($missing)'),
                 ),
               if (q != null && q.failed > 0)
                 OutlinedButton.icon(
+                  key: const ValueKey('try again'),
                   onPressed: () => unawaited(DownloadQueue.instance.retry(widget.bookId)),
                   icon: const Icon(Icons.replay_rounded, size: 18),
                   label: const Text('Try again'),
                 ),
               if (readOnPhone > 0 && c.bytes > 0)
                 OutlinedButton.icon(
+                  key: const ValueKey('free up space'),
                   onPressed: _busy ? null : () => unawaited(_free()),
                   icon: const Icon(Icons.cleaning_services_outlined, size: 18),
                   label: const Text('Free up space'),
@@ -1121,11 +1145,21 @@ class _ChaptersBlockState extends State<_ChaptersBlock> {
 /// "Carries on from Book 1", under a memory that does: and when that
 /// book's memory has changed since, a button to bring it over again.
 class _FollowsLine extends StatefulWidget {
-  const _FollowsLine({super.key, required this.service, required this.bookId, required this.onChange});
+  const _FollowsLine({
+    super.key,
+    required this.service,
+    required this.bookId,
+    required this.onChange,
+    this.stamp = '',
+  });
 
   final MemoryService service;
   final String bookId;
   final VoidCallback onChange;
+
+  /// Changes as the memory grows: the books it follows are read again
+  /// then, the line staying as it was meanwhile.
+  final String stamp;
 
   @override
   State<_FollowsLine> createState() => _FollowsLineState();
@@ -1139,6 +1173,12 @@ class _FollowsLineState extends State<_FollowsLine> {
   void initState() {
     super.initState();
     unawaited(_load());
+  }
+
+  @override
+  void didUpdateWidget(_FollowsLine old) {
+    super.didUpdateWidget(old);
+    if (old.stamp != widget.stamp || old.bookId != widget.bookId) unawaited(_load());
   }
 
   Future<void> _load() async {
