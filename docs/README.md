@@ -8,14 +8,12 @@ optional AI reading companion that works with the reader's own API keys. GPL-3.0
 
 ## Where it stands
 
-**1.6.0 was released on 18 November 2026.** Android only: Windows is not started (maybe
-later) and there is no Play Store build for now. The next release is **2.0, an AI reading
-companion**, being built on the `ai-companion` branch and not yet released: a memory of
-each book (chapter notes, the cast and how it changes, the story so far), Talk about the
-book, Explain this, name cards, Who's who, a memory graph and theories, all with API
-keys the reader brings and no server of ours
-([14 — AI Companion](14-ai-companion.md)). What each release changed is in the
-[changelog](../CHANGELOG.md).
+Android only (Windows is not started). The latest release and what every release
+changed are in the [changelog](../CHANGELOG.md); the APKs are on
+[Releases](https://github.com/Sayandeep1013/TomeVoice/releases). The AI reading companion
+(2.0 on) works with API keys the reader brings and no server of ours
+([14 — AI Companion](14-ai-companion.md)). What it does not do yet is listed under
+[Not built yet](../README.md#not-built-yet).
 
 What the releases since 1.4.0 added, in short:
 
