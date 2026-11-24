@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:ui' as ui;
 
-import 'package:flutter/gestures.dart' show DeviceGestureSettings, VerticalDragGestureRecognizer;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show BoxHitTestResult, RenderProxyBox;
 
@@ -421,31 +420,6 @@ class StepperControl extends StatelessWidget {
             iconColor: onPlus == null ? Skin.inkFaintOn(context) : Skin.inkOn(context),
           ),
         ],
-      );
-}
-
-/// A swipe up or down on [child], told by its speed as the finger leaves
-/// ([onEnd]), as GestureDetector's onVerticalDragEnd, but only once the
-/// finger has moved as far as a tap may (18 dp). With Android's own slop
-/// (about 8 dp) a press on a button under it that drifted a little became
-/// a swipe, and the button's tap was lost (Play, the skips, the chips).
-class VerticalSwipe extends StatelessWidget {
-  const VerticalSwipe({super.key, required this.onEnd, required this.child});
-
-  final GestureDragEndCallback onEnd;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) => RawGestureDetector(
-        gestures: {
-          VerticalDragGestureRecognizer: GestureRecognizerFactoryWithHandlers<VerticalDragGestureRecognizer>(
-            () => VerticalDragGestureRecognizer(debugOwner: this),
-            (r) => r
-              ..onEnd = onEnd
-              ..gestureSettings = const DeviceGestureSettings(touchSlop: 18),
-          ),
-        },
-        child: child,
       );
 }
 

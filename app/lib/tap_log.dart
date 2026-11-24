@@ -44,8 +44,9 @@ class TapLog extends NoteLog {
   /// (a button that also takes a double tap answers 0.3 s late).
   static const window = Duration(milliseconds: 700);
 
-  /// A press that moves further than this is a scroll or a drag to
-  /// Flutter, not a tap (its touch slop).
+  /// Flutter's touch slop where the phone gives none: on Android a tap
+  /// gives up, and a scroll or a drag takes the finger, at the phone's own
+  /// (about 8 dp, see [_slopOf]). Past this the press was surely moving.
   static const slop = 18.0;
 
   /// A picture that took longer than this to draw is a stuck screen.

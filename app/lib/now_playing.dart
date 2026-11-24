@@ -87,8 +87,8 @@ class NowPlayingScreen extends StatelessWidget {
     final accent = Skin.accentOf(context);
     return Scaffold(
       backgroundColor: Colors.black,
-      body: VerticalSwipe(
-        onEnd: (d) {
+      body: GestureDetector(
+        onVerticalDragEnd: (d) {
           if ((d.primaryVelocity ?? 0) > 300) Navigator.of(context).maybePop();
         },
         child: Stack(
