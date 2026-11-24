@@ -26,7 +26,7 @@ export 'note_log.dart' show LogEvent;
 /// (rows showing the reader's own words, such as a tag's, give a plain
 /// name instead).
 class TapLog extends NoteLog {
-  TapLog._() : super(fileName: fileName, onName: onName, keep: keep);
+  TapLog._() : super(logFile: fileName, onFlag: onName, most: keep);
 
   static final instance = TapLog._();
 

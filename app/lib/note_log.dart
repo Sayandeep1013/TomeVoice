@@ -13,16 +13,16 @@ import 'safe_file.dart';
 /// memory and written a few seconds later with the others, so nothing ever
 /// waits on the disk.
 class NoteLog {
-  NoteLog({required this.fileName, required this.onName, required this.keep});
+  NoteLog({required this.logFile, required this.onFlag, required this.most});
 
   /// The notes, one a line.
-  final String fileName;
+  final String logFile;
 
   /// There while the log is on.
-  final String onName;
+  final String onFlag;
 
   /// The most kept: one more pushes out the oldest.
-  final int keep;
+  final int most;
 
   Directory? _dir;
   bool _on = false;
@@ -49,8 +49,8 @@ class NoteLog {
     if (_dir?.path == dir.path) return;
     _dir = dir;
     try {
-      _on = await File('${dir.path}/$onName').exists();
-      final file = File('${dir.path}/$fileName');
+      _on = await File('${dir.path}/$onFlag').exists();
+      final file = File('${dir.path}/$logFile');
       if (await file.exists()) {
         final read = <LogEvent>[];
         for (final line in await file.readAsLines()) {
@@ -86,7 +86,7 @@ class NoteLog {
     }
     final dir = _dir;
     if (dir != null) {
-      final flag = File('${dir.path}/$onName');
+      final flag = File('${dir.path}/$onFlag');
       try {
         if (on) {
           await flag.writeAsString('1');
@@ -112,7 +112,7 @@ class NoteLog {
   }
 
   void _trim() {
-    if (_events.length > keep) _events.removeRange(0, _events.length - keep);
+    if (_events.length > most) _events.removeRange(0, _events.length - most);
   }
 
   /// Write what is not written yet: added to the end of the file, which is
@@ -122,12 +122,12 @@ class NoteLog {
     _saveTimer = null;
     final dir = _dir;
     if (dir == null || _unsaved.isEmpty) return;
-    final file = File('${dir.path}/$fileName');
+    final file = File('${dir.path}/$logFile');
     final count = _unsaved.length;
     final lines = _unsaved.map((e) => jsonEncode(e.toJson())).join('\n');
     _unsaved.clear();
     try {
-      if (_fileLines + count > keep * 2) {
+      if (_fileLines + count > most * 2) {
         await writeSafely(file, '${_events.map((e) => jsonEncode(e.toJson())).join('\n')}\n');
         _fileLines = _events.length;
       } else {
@@ -148,7 +148,7 @@ class NoteLog {
     _fileLines = 0;
     final dir = _dir;
     if (dir != null) {
-      final file = File('${dir.path}/$fileName');
+      final file = File('${dir.path}/$logFile');
       try {
         if (await file.exists()) await file.delete();
       } on Object {

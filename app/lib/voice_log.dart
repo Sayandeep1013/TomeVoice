@@ -21,7 +21,7 @@ export 'note_log.dart' show LogEvent;
 /// written a few seconds later with the others, so reading never waits on
 /// the disk.
 class VoiceLog extends NoteLog with WidgetsBindingObserver {
-  VoiceLog._() : super(fileName: fileName, onName: onName, keep: keep);
+  VoiceLog._() : super(logFile: fileName, onFlag: onName, most: keep);
 
   static final instance = VoiceLog._();
 
