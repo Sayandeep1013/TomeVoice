@@ -205,15 +205,18 @@ class _BookTintState extends State<BookTint> {
   Widget build(BuildContext context) => tinted(context, _cache.forBook(widget.bookId), widget.child);
 }
 
-/// [child] with the accent of [tint] (a cover colour), or as it is when
-/// there is none or book colours are off.
+/// [child] with the accent of [tint] (a cover colour), or in the colours
+/// around it when there is none or book colours are off.
+///
+/// Always the same shape, as page_tone.dart's [toned] is: the bare child
+/// until a cover's colour was learnt and a TintScope after, the whole
+/// page (a book's, the reader) was built anew when the colour came, its
+/// scroll and state lost and a tap on it at that moment with them.
 Widget tinted(BuildContext context, int? tint, Widget child) {
-  if (tint == null || tint == 0 || !bookColoursOn) return child;
-  final palette = Skin.palette.withTint(tint);
-  return TintScope(
-    palette: palette,
-    child: Theme(data: Skin.themeFor(palette, Theme.of(context).brightness), child: child),
-  );
+  final on = tint != null && tint != 0 && bookColoursOn;
+  final palette = on ? Skin.palette.withTint(tint) : Skin.paletteOf(context);
+  final theme = on ? Skin.themeFor(palette, Theme.of(context).brightness) : Theme.of(context);
+  return TintScope(palette: palette, child: Theme(data: theme, child: child));
 }
 
 /// [child] in the colours of the screen at [from]. For sheets and dialogs:

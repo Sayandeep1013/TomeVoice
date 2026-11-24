@@ -87,8 +87,8 @@ class NowPlayingScreen extends StatelessWidget {
     final accent = Skin.accentOf(context);
     return Scaffold(
       backgroundColor: Colors.black,
-      body: GestureDetector(
-        onVerticalDragEnd: (d) {
+      body: VerticalSwipe(
+        onEnd: (d) {
           if ((d.primaryVelocity ?? 0) > 300) Navigator.of(context).maybePop();
         },
         child: Stack(
@@ -740,6 +740,10 @@ class _PassageState extends State<_Passage> {
           style: style,
         );
     return Padding(
+      // Keyed by the paragraph: as the window slides on, unkeyed, each slot
+      // took the next paragraph's place, and a press held across that read
+      // from a sentence further on.
+      key: ValueKey('para $a'),
       padding: EdgeInsets.only(bottom: heading ? Gap.m : Gap.l),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,

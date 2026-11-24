@@ -72,7 +72,15 @@ class TapLog extends NoteLog {
 
   void _frames(List<FrameTiming> timings) {
     for (final t in timings) {
-      if (t.totalSpan >= stuck) note('stuck', {'ms': t.totalSpan.inMilliseconds});
+      // Which half took the time: building (the app's own work on its
+      // main thread: layout, loading, decoding) or drawing (the GPU's).
+      if (t.totalSpan >= stuck) {
+        note('stuck', {
+          'ms': t.totalSpan.inMilliseconds,
+          'build': t.buildDuration.inMilliseconds,
+          'raster': t.rasterDuration.inMilliseconds,
+        });
+      }
     }
   }
 
@@ -81,7 +89,7 @@ class TapLog extends NoteLog {
     if (!on) return;
     switch (e) {
       case PointerDownEvent():
-        final press = _Press(DateTime.now(), e.position, screenName(_top));
+        final press = _Press(DateTime.now(), e.position, screenName(_top))..dragSlop = _slopOf(e.viewId);
         _look(press, e);
         // A second finger makes it a pinch: neither is a tap.
         if (_fingers.isNotEmpty) {
@@ -135,6 +143,15 @@ class TapLog extends NoteLog {
     }
   }
 
+  /// How far a finger moves on this phone before a scroll or a swipe takes
+  /// it (Android's own, about 8 dp), in dp: less than a tap allows (18).
+  static double _slopOf(int viewId) {
+    final view = WidgetsBinding.instance.platformDispatcher.view(id: viewId);
+    final physical = view?.gestureSettings.physicalTouchSlop;
+    if (view == null || physical == null || view.devicePixelRatio <= 0) return slop;
+    return physical / view.devicePixelRatio;
+  }
+
   /// Whether [target] takes a tap: a GestureDetector's, or an InkWell's
   /// (which keeps its detector out of semantics and says so on a Semantics
   /// of its own).
@@ -150,6 +167,9 @@ class TapLog extends NoteLog {
     final tag = press.tag;
     final answer = press.answer ?? (press.screenChanged ? '${press.changeWord} ${screenName(_top)}' : null);
     final lost = (press.handler?.attached == false) || (press.tagged?.attached == false);
+    // Moved past the phone's slop: a scroll or swipe under it most likely
+    // took the finger, which is no fault of the button.
+    final slid = answer == null && !lost && press.far >= press.dragSlop;
     note('tap', {
       ..._where(press),
       'on': tag?.name ?? (press.handler != null ? 'other' : 'nothing'),
@@ -159,6 +179,7 @@ class TapLog extends NoteLog {
       'answer': answer ?? 'none',
       if (press.answerAt != null) 'ms': press.answerAt!.difference(press.up!).inMilliseconds.clamp(0, 99999),
       if (answer == null && lost) 'lost': 'rebuilt',
+      if (slid) ...{'lost': 'slid', 'slop': press.dragSlop.round()},
     });
   }
 
@@ -335,6 +356,7 @@ class _Press {
   final String screen;
   DateTime? up;
   double far = 0;
+  double dragSlop = TapLog.slop;
   bool pinch = false;
   TapTag? tag;
   RenderObject? tagged;
@@ -375,7 +397,7 @@ List<String> tapLogSummary(List<LogEvent> events) {
     final ours = taps.where((e) => e.s('kind').isNotEmpty).toList();
     out.add('${taps.length} ${taps.length == 1 ? 'tap' : 'taps'} noted; ${ours.length} on the app\'s own buttons, '
         'which say when they answer.');
-    final missed = ours.where((e) => e.s('answer') == 'none').toList();
+    final missed = ours.where((e) => e.s('answer') == 'none' && e.s('lost') != 'slid').toList();
     if (ours.isNotEmpty && missed.isEmpty) out.add('Every tap on those buttons was answered.');
     if (missed.isNotEmpty) {
       final byName = <String, int>{};
@@ -396,8 +418,9 @@ List<String> tapLogSummary(List<LogEvent> events) {
     if (ours.isNotEmpty) {
       String part(List<LogEvent> xs) =>
           '${xs.where((e) => e.s('answer') != 'none').length} of ${xs.length}';
-      final quick = ours.where((e) => (e.n('held') ?? 0) < _quick).toList();
-      final longer = ours.where((e) => (e.n('held') ?? 0) >= _quick).toList();
+      final real = ours.where((e) => e.s('lost') != 'slid');
+      final quick = real.where((e) => (e.n('held') ?? 0) < _quick).toList();
+      final longer = real.where((e) => (e.n('held') ?? 0) >= _quick).toList();
       if (quick.isNotEmpty && longer.isNotEmpty) {
         out.add('Quick taps (under ${_secs(_quick)}) were answered ${part(quick)} times; '
             'taps held a moment longer ${part(longer)}.');
@@ -415,11 +438,25 @@ List<String> tapLogSummary(List<LogEvent> events) {
     }
     final nothing = taps.where((e) => e.s('on') == 'nothing' && e.s('answer') == 'none').length;
     if (nothing > 0) out.add('A tap landed where there is nothing to tap ${_times(nothing)}.');
-    final others = taps.where((e) => e.s('on') == 'other' && e.s('answer') == 'none').length;
+    // Any other control lost the same way: its tap handler was gone by the
+    // time the finger lifted.
+    final otherLost = taps.where((e) => e.s('on') == 'other' && e.s('lost') == 'rebuilt').toList();
+    if (otherLost.isNotEmpty) {
+      final where = {for (final e in otherLost) e.s('screen')}.join(', ');
+      out.add('${otherLost.length} ${otherLost.length == 1 ? 'tap on another control was' : 'taps on other controls were'} '
+          'lost because the control was built anew under the finger ($where): a fault in the app.');
+    }
+    final others = taps.where((e) => e.s('on') == 'other' && e.s('answer') == 'none' && e.s('lost').isEmpty).length;
     if (others > 0) {
       out.add('$others ${others == 1 ? 'tap' : 'taps'} on other controls (menus, switches, text buttons) '
           'opened nothing; this log cannot see whether those answered in place.');
     }
+  }
+  final taken = [for (final e in events) if (e.kind == 'tap' && e.s('lost') == 'slid') e];
+  if (taken.isNotEmpty) {
+    final n = taken.length;
+    out.add('${n == 1 ? 'A tap' : '$n taps'} moved further than this phone lets a finger move before a scroll or '
+        'swipe takes it (${taken.first.s('slop')} dp), and ${n == 1 ? 'was' : 'were'} most likely taken as one.');
   }
   final slid = events.where((e) => e.kind == 'slid').length;
   if (slid > 0) {
@@ -430,6 +467,13 @@ List<String> tapLogSummary(List<LogEvent> events) {
   if (stuck.isNotEmpty) {
     out.add('The screen stuck ${_times(stuck.length)} (a picture took over ${_secs(TapLog.stuck.inMilliseconds)} '
         'to draw), the longest ${_secs(stuck.reduce((a, b) => a > b ? a : b))}.');
+    final split = [for (final e in events) if (e.kind == 'stuck' && e.n('build') != null && e.n('raster') != null) e];
+    if (split.isNotEmpty) {
+      final building = split.where((e) => e.n('build')! >= e.n('raster')!).length;
+      out.add(building * 2 >= split.length
+          ? 'Most of that time ($building of ${split.length}) went on building: the app working out what to show.'
+          : 'Most of that time (${split.length - building} of ${split.length}) went on drawing it.');
+    }
   }
   return out;
 }

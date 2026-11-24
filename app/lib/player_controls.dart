@@ -34,16 +34,17 @@ class PlayButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final voice = this.voice;
-    if (voice == null) return _button(context, player.state);
-    return ValueListenableBuilder<bool>(
-      valueListenable: voice,
-      builder: (context, on, _) => _button(context, ValueNotifier(on ? PlayState.playing : PlayState.paused)),
+    // One shape whichever voice it follows: a builder of the page's play
+    // state for one and of a bool for the other, the whole button was
+    // built anew (a press on it lost) when the voice moved between them.
+    return ListenableBuilder(
+      listenable: voice ?? player.state,
+      builder: (context, _) =>
+          _button(context, voice == null ? player.state.value : (voice.value ? PlayState.playing : PlayState.paused)),
     );
   }
 
-  Widget _button(BuildContext context, ValueListenable<PlayState> states) => ValueListenableBuilder<PlayState>(
-        valueListenable: states,
-        builder: (context, state, _) {
+  Widget _button(BuildContext context, PlayState state) {
           final speaking = state == PlayState.playing || state == PlayState.loading;
           return Tooltip(
             message: speaking ? 'Pause' : 'Play',
@@ -117,8 +118,7 @@ class PlayButton extends StatelessWidget {
               ),
             ),
           );
-        },
-      );
+  }
 }
 
 /// Position within the chapter. Drag or tap to jump.

@@ -217,13 +217,19 @@ class _FastScrollerState extends State<FastScroller> {
                         child: Stack(
                           clipBehavior: Clip.none,
                           children: [
+                            // Keyed: the bubble comes in ahead of the thumb
+                            // as a drag starts, and unkeyed it took the
+                            // thumb's place, building the thumb (and the
+                            // drag it was following) anew.
                             if (label != null)
                               Positioned(
+                                key: const ValueKey('bubble'),
                                 right: _hitWidth + 6,
                                 top: y + _thumbHeight / 2 - 22,
                                 child: _bubble(context, label),
                               ),
                             Positioned(
+                              key: const ValueKey('thumb'),
                               right: 0,
                               top: y,
                               width: _hitWidth,

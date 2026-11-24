@@ -194,17 +194,34 @@ void main() {
       tap('Book memories', 'none', 200, lost: 'rebuilt'),
       tap('Book memories', 'none', 180, lost: 'rebuilt'),
       tap('nothing', 'none', 90),
+      LogEvent(t, 'tap', const {'screen': 'BookScreen', 'on': 'other', 'held': 160, 'answer': 'none', 'lost': 'rebuilt'}),
+      LogEvent(t, 'tap', const {
+        'screen': 'ReaderScreen',
+        'on': 'Play',
+        'kind': 'Play',
+        'held': 120,
+        'moved': 12,
+        'answer': 'none',
+        'lost': 'slid',
+        'slop': 8,
+      }),
       LogEvent(t, 'slid', const {'moved': 25}),
-      LogEvent(t, 'stuck', const {'ms': 300}),
+      LogEvent(t, 'stuck', const {'ms': 300, 'build': 240, 'raster': 40}),
     ];
     final s = tapLogSummary(events);
-    expect(s, contains("6 taps noted; 5 on the app's own buttons, which say when they answer."));
+    expect(s, contains("8 taps noted; 6 on the app's own buttons, which say when they answer."));
+    expect(s, contains('A tap moved further than this phone lets a finger move before a scroll or swipe takes it '
+        '(8 dp), and was most likely taken as one.'));
+    expect(s, anyElement(startsWith('1 tap on another control was lost because the control was built anew under the '
+        'finger (BookScreen)')));
+    expect(s, isNot(anyElement(contains('opened nothing'))), reason: 'the lost one is told apart, not counted twice');
     expect(s, contains('2 of them went unanswered: Book memories (AiChatScreen) 2 times.'));
     expect(s, anyElement(startsWith('2 of the unanswered were lost because the button was built anew')));
     expect(s, contains('Quick taps (under 0.15 s) were answered 3 of 3 times; taps held a moment longer 0 of 2.'));
     expect(s, anyElement(startsWith('A tap landed where there is nothing to tap once')));
     expect(s, anyElement(startsWith('A press slid a little')));
     expect(s, anyElement(startsWith('The screen stuck once')));
+    expect(s, contains('Most of that time (1 of 1) went on building: the app working out what to show.'));
     expect(tapLogSummary(const []), [startsWith('No tap was noted yet')]);
   });
 

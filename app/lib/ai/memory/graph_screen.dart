@@ -955,13 +955,18 @@ class _MemoryGraphScreenState extends State<MemoryGraphScreen> with TickerProvid
                                     );
                                   }),
                                 ),
-                              if (_loading)
-                                const Positioned(
-                                  top: 8,
-                                  right: 16,
-                                  child:
-                                      SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-                                ),
+                              // Always there, only its spinner coming and
+                              // going: put in and taken out, it moved every
+                              // control after it a place along, and a press
+                              // on one as a load ended was lost.
+                              Positioned(
+                                top: 8,
+                                right: 16,
+                                child: _loading
+                                    ? const SizedBox(
+                                        width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                                    : const SizedBox.shrink(),
+                              ),
                               // The timeline and how many, over the graph's foot
                               // with no ground of their own: the web shows
                               // through, and runs on under them.

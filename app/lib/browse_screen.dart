@@ -380,6 +380,9 @@ class _BrowseScreenState extends State<BrowseScreen> {
   Widget _resultRow(BuildContext context, _Results r) {
     final items = r.items;
     return Column(
+      // Keyed by its source: rows come in as sources answer, and unkeyed a
+      // pressed one could become another source's.
+      key: ValueKey('results ${r.plugin.id}'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(

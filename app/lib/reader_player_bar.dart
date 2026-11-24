@@ -92,8 +92,8 @@ class ReaderPlayerBar extends StatelessWidget {
   final VoidCallback? onSave;
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
-        onVerticalDragEnd: (d) {
+  Widget build(BuildContext context) => VerticalSwipe(
+        onEnd: (d) {
           if ((d.primaryVelocity ?? 0) < -250) onExpand();
         },
         child: dock ? _dock(context) : _bar(context),

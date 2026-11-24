@@ -1224,7 +1224,9 @@ class _ReaderScreenState extends State<ReaderScreen> with WidgetsBindingObserver
   }
 
   bool _onScrollNotification(ScrollNotification n) {
-    if (n is ScrollUpdateNotification) _lastMove = DateTime.now();
+    // The page following the voice is no fling: a tap then is a tap for
+    // the bars, not one taken up by stopping it.
+    if (n is ScrollUpdateNotification && !_programmaticScroll) _lastMove = DateTime.now();
     if (n is ScrollUpdateNotification && n.dragDetails != null) _reader.lastScroll = DateTime.now();
     // For auto-scroll: whether the book's end is reached, and the page
     // scrolled by hand (it holds it, and goes on after).

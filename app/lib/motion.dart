@@ -92,7 +92,9 @@ class _JellyState extends State<Jelly> with SingleTickerProviderStateMixin {
     );
     if (!widget._listens) return body;
     return Listener(
-      behavior: HitTestBehavior.translucent,
+      // Only where the child takes the finger: a round button in a square
+      // gave under a press on its corner, which nothing answered.
+      behavior: HitTestBehavior.deferToChild,
       onPointerDown: (e) {
         _from = e.position;
         _set(true);
