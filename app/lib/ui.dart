@@ -776,50 +776,76 @@ void showSnack(
     ));
 }
 
-/// The ground drawn once more over the [top] edge of a scrolling list (or
-/// its foot), fading out away from the edge: the list fades into the ground
-/// as it did under a mask over all of it, which cost an offscreen pass of
-/// the whole list on every frame it moved; this costs only the strip.
+/// A scrolling list's foot (or its [top] edge) fading into the ground, in
+/// two plain draws and nothing offscreen: what is under the strip is let go
+/// of, more of it nearer the edge, and the ground is drawn in behind it, in
+/// its place, filling only what was let go. It looks as a mask over a copy
+/// of the ground did, which had the GPU draw the strip offscreen and blend
+/// it back on every frame anything on the screen moved (and a mask over all
+/// of the list, before that, a pass of the whole list).
 ///
 /// [ground] is the ground as it is laid under the list, at [size], and
 /// [link] is a [CompositedTransformTarget] around the real one: the copy is
 /// drawn where that is, so a diagonal or vignetted ground meets itself with
 /// no seam (a painted band of one colour never matched it, and read as a
-/// bar).
+/// bar). Everywhere but the strip the screen is opaque, so the copy drawn
+/// in behind changes nothing there, and needs no clip.
 class GroundFade extends StatelessWidget {
   const GroundFade({super.key, required this.link, required this.size, required this.ground, this.top = false});
 
   final LayerLink link;
   final Size size;
-  final Widget ground;
+  final Decoration ground;
   final bool top;
 
   @override
   Widget build(BuildContext context) => IgnorePointer(
-        child: ShaderMask(
-          blendMode: BlendMode.dstIn,
-          shaderCallback: (rect) => LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: top ? const [Colors.black, Colors.transparent] : const [Colors.transparent, Colors.black],
-          ).createShader(rect),
-          // Clipped to the strip: the copy is the whole ground.
-          child: ClipRect(
-            child: CompositedTransformFollower(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            CustomPaint(painter: _LetGo(top: top)),
+            // Shown unlinked too (where it is, a little off): the strip let
+            // go must always have the ground drawn in behind it.
+            CompositedTransformFollower(
               link: link,
-              showWhenUnlinked: false,
               child: OverflowBox(
                 alignment: Alignment.topLeft,
                 minWidth: size.width,
                 maxWidth: size.width,
                 minHeight: size.height,
                 maxHeight: size.height,
-                child: ground,
+                child: PaintedGround(ground: ground, blend: BlendMode.dstOver),
               ),
             ),
-          ),
+          ],
         ),
       );
+}
+
+/// What is under the strip kept less and less toward [GroundFade]'s edge
+/// (all of it away from the edge, none of it at the edge).
+class _LetGo extends CustomPainter {
+  const _LetGo({required this.top});
+
+  final bool top;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..blendMode = BlendMode.dstIn
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: top ? const [Colors.transparent, Colors.black] : const [Colors.black, Colors.transparent],
+        ).createShader(rect),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_LetGo old) => old.top != top;
 }
 
 /// The fields of a form, one under another with room between them: each a
@@ -1011,9 +1037,9 @@ AnimationStyle sheetMotion(BuildContext context) => Motion.reduced(context)
         reverseCurve: Motion.out,
       );
 
-/// [child] fading in (and settling from a touch smaller) when it first
-/// shows, and again whenever [trigger] changes, without being rebuilt: a new
-/// screen in the same place arrives the way a pushed one does.
+/// [child] fading in (and rising the last little way into place) when it
+/// first shows, and again whenever [trigger] changes, without being rebuilt:
+/// a new screen in the same place arrives the way a pushed one does.
 class FadeIn extends StatefulWidget {
   const FadeIn({super.key, this.trigger, this.arrive = true, required this.child});
 
@@ -1060,8 +1086,17 @@ class _FadeInState extends State<FadeIn> with SingleTickerProviderStateMixin {
   @override
   Widget build(BuildContext context) => FadeTransition(
         opacity: _t,
-        child: ScaleTransition(scale: Tween(begin: 0.98, end: 1.0).animate(_t), child: widget.child),
+        child: AnimatedBuilder(
+          animation: _t,
+          child: widget.child,
+          builder: (context, child) => Transform.translate(offset: Offset(0, _rise * (1 - _t.value)), child: child),
+        ),
       );
+
+  /// How far it rises as it fades in, in logical pixels (see
+  /// [CalmPageTransitionsBuilder]: grown instead, every letter in it was
+  /// drawn anew at each size).
+  static const _rise = 8.0;
 }
 
 /// A sliver fading in when it first shows: a list taking the place of a
@@ -1235,7 +1270,7 @@ class _EntranceState extends State<Entrance> with SingleTickerProviderStateMixin
   CurvedAnimation? _spring;
   Animation<double> get _t => _curve ?? kAlwaysCompleteAnimation;
 
-  /// The rise and the size, on a spring: a touch past, and back.
+  /// The rise, settling as it ends.
   Animation<double> get _s => _spring ?? kAlwaysCompleteAnimation;
 
   @override
@@ -1282,12 +1317,9 @@ class _EntranceState extends State<Entrance> with SingleTickerProviderStateMixin
         animation: _s,
         child: widget.child,
         builder: (context, child) {
-          final v = _s.value;
-          return Transform(
-            alignment: Alignment.bottomCenter,
-            transform: Matrix4.translationValues(0, 18 * (1 - v), 0)..scaleByDouble(0.96 + 0.04 * v, 0.96 + 0.04 * v, 1, 1),
-            child: child,
-          );
+          // Rising, not growing: grown, every letter on it was drawn anew
+          // at each size (see CalmPageTransitionsBuilder).
+          return Transform.translate(offset: Offset(0, 18 * (1 - _s.value)), child: child);
         },
       ),
     );

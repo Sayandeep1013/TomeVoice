@@ -23,6 +23,7 @@ import 'package:tomevoice_spike/player_controls.dart';
 import 'package:tomevoice_spike/prefs.dart';
 import 'package:tomevoice_spike/reader_screen.dart';
 import 'package:tomevoice_spike/speech_service.dart';
+import 'package:tomevoice_spike/theme.dart' show PaintedGround;
 import 'package:tomevoice_spike/ui.dart';
 import 'package:tomevoice_spike/voice_glow.dart';
 
@@ -164,8 +165,12 @@ void main() {
     expect(strip.height, 130);
     expect(strip.width, shelf.width);
     expect(tester.widget<GroundFade>(fade).top, isFalse);
-    // The ground drawn again where the library's is.
-    final copy = tester.renderObject<RenderBox>(find.descendant(of: fade, matching: find.byType(DecoratedBox)).first);
+    // The ground drawn again where the library's is, in behind what the
+    // strip lets go of: no mask, nothing drawn offscreen.
+    expect(find.descendant(of: fade, matching: find.byType(ShaderMask)), findsNothing);
+    expect(tester.widget<PaintedGround>(find.descendant(of: fade, matching: find.byType(PaintedGround))).blend,
+        BlendMode.dstOver);
+    final copy = tester.renderObject<RenderBox>(find.descendant(of: fade, matching: find.byType(PaintedGround)));
     expect(copy.localToGlobal(Offset.zero), Offset.zero);
     expect(copy.size, tester.getSize(find.byType(LibraryScreen)));
     await finish(tester);

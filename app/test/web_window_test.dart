@@ -25,6 +25,7 @@ import 'package:tomevoice_spike/sources/models.dart';
 import 'package:tomevoice_spike/sources/source_engine.dart';
 import 'package:tomevoice_spike/sources/source_store.dart';
 import 'package:tomevoice_spike/speech_service.dart';
+import 'package:tomevoice_spike/theme.dart' show PaintedGround;
 import 'package:tomevoice_spike/web_reader.dart';
 
 const _channel = MethodChannel('tomevoice/tts');
@@ -187,7 +188,7 @@ void main() {
         .widget<FadeTransition>(find.ancestor(of: find.byType(ReaderScreen), matching: find.byType(FadeTransition)).first)
         .opacity
         .value;
-    final grounds = tester.widgetList<Opacity>(find.byKey(const ValueKey('transition ground')));
+    final grounds = tester.widgetList<PaintedGround>(find.byKey(const ValueKey('transition ground')));
     return fade * (1 - (grounds.isEmpty ? 0.0 : grounds.last.opacity));
   }
 
