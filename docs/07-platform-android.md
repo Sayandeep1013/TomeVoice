@@ -7,7 +7,7 @@
 | Minimum SDK | 26 (Android 8.0) |
 | Target SDK | **36 (Android 16)** |
 | ABIs | arm64-v8a (the main APK), armeabi-v7a (`TomeVoice-<version>-32bit.apk`); x86_64 only for CI's emulator |
-| Distribution | APKs on GitHub Releases, signed with one key so each update installs over the last; the app offers new versions itself. No Play build for now ([7.8](#78-play-store-compliance-checklist)) |
+| Distribution | APKs on GitHub Releases, signed with one key so each update installs over the last; the app offers new versions itself. A separate Google Play build, updated by Play, is in closed testing ([7.8](#78-play-store-compliance-checklist)) |
 | Application id | `app.tomevoice` since 0.6 (never to change again); the Kotlin package is still `app.tomevoice.tomevoice_spike` |
 
 **The target-SDK deadline has already passed.** As of 31 August 2026, new apps and
@@ -303,8 +303,14 @@ during TalkBack's own announcements.
 
 ## 7.8 Play Store compliance checklist
 
-No Play build is planned for now. A Play build would have to leave out what Play's
-policies do not allow; this checklist is kept for that day.
+There is a separate Google Play build (`--dart-define=TV_STORE=play`, `playBuild` in
+`store_build.dart`), made from the branch `play`: `main` plus anything Play-only. It
+leaves out what Play's policies do not allow: the built-in web-novel source list and
+starter novels, updating itself from GitHub (and `REQUEST_INSTALL_PACKAGES`), the
+battery-saving exemption request, GitHub links, and voices whose recordings are not
+open unless the reader asks for more. It has been in closed testing since 20 November
+2026, and 2.6.2 was in Play's review on 25 November. Nothing is removed from the GitHub
+build for Play's sake. The checklist below predates the Play build.
 
 - Target API 36; native libraries 16 KB aligned.
 - Foreground service type declared, with a Play Console justification for
