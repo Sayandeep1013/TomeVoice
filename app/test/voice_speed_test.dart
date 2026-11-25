@@ -40,14 +40,19 @@ void main() {
   final layout = ReadingLayout.build(book);
 
   var speed = 1.0;
-  setUp(() => speed = 1.0);
+  var pitch = 0.0;
+  setUp(() {
+    speed = 1.0;
+    pitch = 0.0;
+  });
 
-  PlaybackScheduler reader(_Voices voices, {List<Speakable>? units, bool quickStart = true}) => PlaybackScheduler(
+  PlaybackScheduler reader(_Voices voices, {List<Speakable>? units, bool quickStart = true, String voice = 'en-us'}) =>
+      PlaybackScheduler(
         service: voices,
         units: units ?? layout.units,
-        settingsFor: (text) => PipelineSettings(text: text, speedScale: speed),
+        settingsFor: (text) => PipelineSettings(text: text, speedScale: speed, pitchSemitones: pitch),
         engineIdOf: () => 'engine',
-        voiceNameOf: () => 'en-us',
+        voiceNameOf: () => voice,
         pauseAfter: (_) => 300,
         quickStart: quickStart,
       );
@@ -86,6 +91,93 @@ void main() {
     expect(after.first.text, layout.units[heard].text, reason: 'made again from the sentence being heard');
     expect(after.every((a) => a.rate == 1.25), isTrue, reason: 'at the speed it was left on');
     expect(player.remakeDue, isFalse);
+  });
+
+  group('a change of speed alone, with a natural voice', () {
+    const natural = 'neural:test:voice';
+
+    test('is heard at once: what was made is played at the new speed, not made again', () async {
+      final voices = _Voices(dir);
+      final player = reader(voices, voice: natural);
+      addTearDown(player.dispose);
+      await player.play(0);
+      await until(() => player.state.value == PlayState.playing && voices.asked.length >= 3);
+      final heardAt = <int>[];
+      voices.onCancel = () => heardAt.add(player.unit.value);
+      final queuedBefore = voices.queued.length;
+
+      speed = 1.25;
+      player.remake();
+      await until(() => voices.cancels == 2);
+      await until(() => !player.remakeDue);
+      final heard = heardAt.last;
+      final after = voices.asked.sublist(voices.askedAtCancel.last);
+      expect(after.where((a) => a.text == layout.units[heard].text), isEmpty,
+          reason: 'the sentence being heard is not made again');
+      expect(voices.queued.length, greaterThan(queuedBefore), reason: 'queued again, stretched');
+      final stretched = voices.queued[queuedBefore];
+      final made = voices.queued.first;
+      expect(stretched.length, lessThan(made.length), reason: 'faster is shorter');
+      expect(player.state.value, PlayState.playing);
+      // What comes after what was made is made at the new speed.
+      await until(() => voices.asked.length > voices.askedAtCancel.last);
+      expect(voices.asked.skip(voices.askedAtCancel.last).every((a) => a.rate == 1.25), isTrue);
+    });
+
+    test('too big a change (1x to 3x) is made again, as before', () async {
+      final voices = _Voices(dir);
+      final player = reader(voices, voice: natural);
+      addTearDown(player.dispose);
+      await player.play(0);
+      await until(() => player.state.value == PlayState.playing && voices.asked.length >= 3);
+      final heardAt = <int>[];
+      voices.onCancel = () => heardAt.add(player.unit.value);
+
+      speed = 3.0;
+      player.remake();
+      await until(() => voices.cancels == 2);
+      await until(() => voices.asked.length > voices.askedAtCancel.last);
+      final again = voices.asked[voices.askedAtCancel.last];
+      expect(again.text, layout.units[heardAt.last].text);
+      expect(again.rate, 3.0);
+    });
+
+    test('a change of anything else (the pitch) is made again, as before', () async {
+      final voices = _Voices(dir);
+      final player = reader(voices, voice: natural);
+      addTearDown(player.dispose);
+      await player.play(0);
+      await until(() => player.state.value == PlayState.playing && voices.asked.length >= 3);
+      final heardAt = <int>[];
+      voices.onCancel = () => heardAt.add(player.unit.value);
+
+      speed = 1.25;
+      pitch = 2;
+      player.remake();
+      await until(() => voices.cancels == 2);
+      await until(() => voices.asked.length > voices.askedAtCancel.last);
+      expect(voices.asked[voices.askedAtCancel.last].text, layout.units[heardAt.last].text);
+    });
+
+    test('stretched: the speech is shorter by the speed, its pitch kept', () {
+      const rate = 24000;
+      final samples = Float32List(rate);
+      for (var i = 0; i < samples.length; i++) {
+        samples[i] = 0.4 * math.sin(2 * math.pi * 220 * i / rate);
+      }
+      final pcm = WavCodec.pcm16Bytes(AudioBuffer(samples, rate), silenceFrames: 2400);
+      final out = restretchAll([(pcm: pcm, speechFrames: rate, silenceFrames: 1200, rate: rate, ratio: 1.25)]).single;
+      expect(out.pcm.length ~/ 2, rate * 4 ~/ 5 + 1200);
+      // Zero crossings per second: the same tone, so the same pitch.
+      final data = ByteData.sublistView(out.pcm);
+      var crossings = 0;
+      for (var i = 1; i < rate * 4 ~/ 5; i++) {
+        final a = data.getInt16((i - 1) * 2, Endian.little), b = data.getInt16(i * 2, Endian.little);
+        if ((a < 0) != (b < 0)) crossings++;
+      }
+      expect(crossings / 0.8, closeTo(440, 15));
+      expect(out.levels, isNotEmpty);
+    });
   });
 
   test('a change made while paused is heard from the sentence when it resumes, not the old way', () async {
@@ -171,6 +263,37 @@ void main() {
     await off.play(first);
     await until(() => whole.asked.isNotEmpty);
     expect(whole.asked[0].text, units[first].text);
+  });
+
+  test('a long first sentence in a natural voice is queued a piece at a time, as the voice cuts it', () async {
+    final clause = [
+      'the rain came down on the long grey roofs of the old town for hours',
+      'the lamps along the river were lit one after another by the keeper',
+      'the boats that had been out since dawn came slowly back to the quay',
+      'and the people who had waited for them went home to their suppers at last.',
+    ];
+    final sentence = 'All evening ${clause.join(', ')}';
+    final long = ingestString('# One\n\n$sentence Then quiet.', filename: 'longer.md');
+    final units = ReadingLayout.build(long).units;
+    final first = units.indexWhere((u) => u.text.startsWith('All evening'));
+    expect(units[first].text.length, greaterThan(270));
+
+    final voices = _Voices(dir);
+    final player = reader(voices, units: units, voice: 'neural:test:voice');
+    addTearDown(player.dispose);
+    await player.play(first);
+    await until(() => voices.asked.any((a) => a.text.startsWith('Then')));
+    final parts = voices.asked.takeWhile((a) => !a.text.startsWith('Then')).map((a) => a.text).toList();
+    expect(parts.length, greaterThanOrEqualTo(3), reason: 'its first clause, then the pieces of the rest');
+    expect(parts.join(' ').replaceAll(RegExp(r'\s+'), ' ').trim(), units[first].text.replaceAll(RegExp(r'\s+'), ' ').trim(),
+        reason: 'nothing left out or said twice');
+
+    final phone = _Voices(dir);
+    final plain = reader(phone, units: units);
+    addTearDown(plain.dispose);
+    await plain.play(first);
+    await until(() => phone.asked.any((a) => a.text.startsWith('Then')));
+    expect(phone.asked.takeWhile((a) => !a.text.startsWith('Then')).length, 2, reason: "the phone's voice: in two, as before");
   });
 
   group('the silences put in, at speed', () {

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'dart:ui' show AppLifecycleState;
 
@@ -74,8 +76,13 @@ abstract interface class BookNarration {
 }
 
 class _Chunk {
-  _Chunk(this.unit, this.start, this.speechFrames, this.totalFrames, this.timings, this.levels, this.pcm);
+  _Chunk(this.unit, this.start, this.speechFrames, this.totalFrames, this.timings, this.levels, this.pcm, {this.made});
   final int unit;
+
+  /// How a natural voice made it (null for a recording or the phone's
+  /// voice): kept so a change of speed alone can play it faster or slower
+  /// at once ([PlaybackScheduler._restretch]).
+  final _Made? made;
 
   /// Where it starts in the stream; it moves when the sentence is queued
   /// again from its start (see [PlaybackScheduler._rewind]).
@@ -90,6 +97,60 @@ class _Chunk {
   final Uint8List pcm;
   int get end => start + totalFrames;
 }
+
+/// A sentence as a natural voice made it, at the stream's rate: its sound,
+/// its words' places, the speed it was made at, and [way], everything else
+/// about how it was said (voices, pitch, pauses, the words as respelled).
+/// A stretched sentence keeps the one it came from, so it is always
+/// stretched from what the voice made, never stretched twice.
+class _Made {
+  const _Made(this.pcm, this.speechFrames, this.totalFrames, this.timings, this.speed, this.way);
+  final Uint8List pcm;
+  final int speechFrames;
+  final int totalFrames;
+  final List<WordTiming> timings;
+  final double speed;
+  final String way;
+}
+
+/// How far a change of speed is bridged by stretching what is already made
+/// (see [PlaybackScheduler._restretch]): a few steps either way sound
+/// close to the voice's own; further (3x to 1x), stretched speech smears,
+/// and it is made again as before.
+const restretchRange = (low: 0.6, high: 1.7);
+
+/// [restretchAll] on another isolate. A function of its own, so the
+/// closure sent there holds [job] alone (one made inside the scheduler
+/// carries the scheduler's whole context with it, and fails to send).
+Future<List<({Uint8List pcm, Uint8List levels})>> _restretchOff(
+  List<({Uint8List pcm, int speechFrames, int silenceFrames, int rate, double ratio})> job,
+) =>
+    Isolate.run(() => restretchAll(job));
+
+/// [job]'s sentences played [ratio] times as fast, their pitch kept (WSOLA,
+/// as for a book's own narration): the speech stretched, the silence after
+/// it given its new length. On another isolate: it takes nothing of the
+/// scheduler with it.
+List<({Uint8List pcm, Uint8List levels})> restretchAll(
+  List<({Uint8List pcm, int speechFrames, int silenceFrames, int rate, double ratio})> job,
+) =>
+    [
+      for (final j in job)
+        () {
+          final data = ByteData.sublistView(j.pcm);
+          final n = math.min(j.speechFrames, j.pcm.length ~/ 2);
+          final x = Float32List(n);
+          for (var i = 0; i < n; i++) {
+            x[i] = data.getInt16(i * 2, Endian.little) / 32768.0;
+          }
+          final y = TimeStretchStage.stretch(x, j.rate, j.ratio);
+          final buffer = AudioBuffer(y, j.rate);
+          return (
+            pcm: WavCodec.pcm16Bytes(buffer, silenceFrames: j.silenceFrames),
+            levels: speechLevels(y, j.rate),
+          );
+        }(),
+    ];
 
 /// Streams sentences into the platform player, keeping several seconds of
 /// audio queued ahead of what is audible.
@@ -350,8 +411,136 @@ class PlaybackScheduler {
     _remakeTimer?.cancel();
     _remakeTimer = Timer(remakeAfter, () {
       _remakeTimer = null;
-      if (_stale && isPlaying) unawaited(play(from?.call() ?? unit.value));
+      if (_stale && isPlaying) unawaited(_remakeFrom(from?.call() ?? unit.value));
     });
+  }
+
+  /// After a change, reading: a change of speed alone is heard at once
+  /// from what is already made ([_restretch]); anything else is made again.
+  Future<void> _remakeFrom(int from) async {
+    if (await _restretch(from)) return;
+    if (_stale && isPlaying) await play(from);
+  }
+
+  /// A change of speed alone, with a natural voice: the sentences already
+  /// made, from [from] on, played at the new speed with their pitch kept
+  /// ([restretchAll]), from the start of [from], as a remake would; the
+  /// voice goes on making the ones after at the new speed itself. A natural
+  /// voice took seconds to be heard again after each change of speed (6.2
+  /// s on a friend's phone, 25 Nov 2026), while what it had made waited
+  /// to be thrown away. False, and nothing changed, when anything but the
+  /// speed changed, the voice is the phone's (it is heard again in well
+  /// under a second anyway), or the change is too big to stretch well.
+  Future<bool> _restretch(int from) async {
+    if (state.value != PlayState.playing) return false;
+    final at = _chunks.indexWhere((c) => c.unit == from);
+    if (at < 0) return false;
+    final kept = _chunks.sublist(at);
+    if (kept.any((c) => c.made == null)) return false;
+    // What each sentence would be made with now.
+    final now = <int, ({double speed, String way, bool follows})>{};
+    for (final c in kept) {
+      if (now.containsKey(c.unit)) continue;
+      String? character;
+      final cast = speakers;
+      if (cast != null) {
+        final asked = cast.voiceAt(c.unit);
+        if (asked is Future<String?>) return false;
+        character = asked;
+      }
+      final (narrator, _, quoted) = _voicesFor(character);
+      if (!isNeural(narrator)) return false;
+      final said = (respell?.call(units[c.unit]) ?? Respelled.same(units[c.unit].text)).text;
+      final settings = settingsFor(said);
+      now[c.unit] = (
+        speed: settings.speedScale,
+        way: _wayOf(narrator, quoted, said, settings),
+        follows: settings.pausesFollowSpeed,
+      );
+    }
+    for (final c in kept) {
+      final made = c.made!;
+      final want = now[c.unit]!;
+      if (made.way != want.way) return false;
+      final ratio = want.speed / made.speed;
+      if (ratio < restretchRange.low || ratio > restretchRange.high) return false;
+    }
+    final gen = _gen;
+    final watch = Stopwatch()..start();
+    final job = [
+      for (final c in kept)
+        () {
+          final made = c.made!;
+          final want = now[c.unit]!;
+          final ratio = want.speed / made.speed;
+          // The silence after it shortened as it would be at the new speed
+          // (see [pauseAtSpeed]).
+          final scale = want.follows ? pauseScaleAt(want.speed) / pauseScaleAt(made.speed) : 1.0;
+          return (
+            pcm: made.pcm,
+            speechFrames: made.speechFrames,
+            silenceFrames: ((made.totalFrames - made.speechFrames) * scale).round(),
+            rate: _rate,
+            ratio: ratio,
+          );
+        }(),
+    ];
+    final List<({Uint8List pcm, Uint8List levels})> out;
+    try {
+      out = await _restretchOff(job);
+    } on Object {
+      return false;
+    }
+    // Overtaken while it was stretched: a skip, a stop, another change.
+    if (gen != _gen || !_stale || state.value != PlayState.playing) return false;
+    final stretched = <_Chunk, _Chunk>{};
+    for (final (k, c) in kept.indexed) {
+      final made = c.made!;
+      final ratio = job[k].ratio;
+      final speechFrames = (made.speechFrames / ratio).round();
+      final totalFrames = out[k].pcm.length ~/ 2;
+      stretched[c] = _Chunk(
+        c.unit,
+        c.start,
+        speechFrames,
+        totalFrames,
+        [
+          for (final t in made.timings)
+            WordTiming(
+              charStart: t.charStart,
+              charEnd: t.charEnd,
+              frameStart: (t.frameStart / ratio).round().clamp(0, speechFrames),
+              frameEnd: (t.frameEnd / ratio).round().clamp(0, speechFrames),
+              source: t.source,
+            ),
+        ],
+        out[k].levels,
+        out[k].pcm,
+        made: made,
+      );
+    }
+    // Meanwhile the head may have moved on, and the voice queued more the
+    // old way: the sentence [from] must still be there, and what follows it
+    // is kept only while it was stretched.
+    final start = _chunks.indexWhere((c) => identical(c, kept.first));
+    if (start < 0) return false;
+    var end = start;
+    // A sentence still being made (its first part queued, the rest not
+    // yet) is left to be made again whole.
+    while (end < _chunks.length && stretched.containsKey(_chunks[end]) && _chunks[end].unit < _next) {
+      end++;
+    }
+    if (end == start) return false;
+    _chunks.replaceRange(start, _chunks.length, [for (final c in _chunks.sublist(start, end)) stretched[c]!]);
+    _stale = false;
+    _changedAt = null;
+    VoiceLog.instance.note('restretched', {
+      'ms': watch.elapsedMilliseconds,
+      'sentences': end - start,
+      'ratio': double.parse(job.first.ratio.toStringAsFixed(2)),
+    });
+    await _rewind(from: start);
+    return true;
   }
 
   /// Whether a [remake] is waiting: for tests.
@@ -876,14 +1065,7 @@ class PlaybackScheduler {
       final watch = Stopwatch()..start();
       // A natural voice that failed is not asked again: the phone's voice
       // (the narrator's, for dialogue) reads in its place.
-      var narrator = voiceNameOf();
-      if (_failed.contains(narrator)) narrator = fallbackVoiceOf?.call() ?? narrator;
-      var dialogue = dialogueVoiceOf?.call();
-      if (_failed.contains(dialogue) || dialogue == narrator) dialogue = null;
-      // Who says the words in quotation marks: the character's own voice
-      // (none, for one read in the narrator's), else the dialogue voice.
-      var quoted = dialogue;
-      if (character != null && !_failed.contains(character)) quoted = character == narrator ? null : character;
+      final (narrator, dialogue, quoted) = _voicesFor(character);
       // A natural voice switched away from (or one that failed) is let go
       // now, before another loads, not minutes later. The cast's stay: each
       // is admitted only while the phone holds them all (cast.dart).
@@ -898,6 +1080,9 @@ class PlaybackScheduler {
       ]);
       try {
         final settings = settingsFor(text);
+        // Kept with a natural voice's sentence, so a change of speed alone
+        // can be heard at once (see [_restretch]).
+        final way = isNeural(narrator) ? _wayOf(narrator, quoted, text, settings) : null;
         final open = quoted == null ? null : quoteOpenAt?.call(i);
         // The first sentence of a start: nothing is heard until it is all
         // made (seconds, for a long one with a slow natural voice; most of a
@@ -921,13 +1106,47 @@ class PlaybackScheduler {
             stale: () => gen != _gen,
           );
           if (head == null || gen != _gen) return;
-          if (!await _queue(gen, i, head, said.changed ? _onPage(head.timings, said) : head.timings)) return;
+          if (!await _queue(gen, i, head, said.changed ? _onPage(head.timings, said) : head.timings,
+              speed: settings.speedScale, way: way)) {
+            return;
+          }
           headSpeechMs = head.speechFrames * 1000 ~/ head.sampleRate;
           VoiceLog.instance.note('first part made', {'ms': watch.elapsedMilliseconds, 'speechMs': headSpeechMs});
         }
+        // With a natural voice, the rest of that first sentence is queued
+        // a piece at a time, as each is made: the pieces the voice cuts a
+        // long sentence into anyway ([clausePieces]), so it sounds as it
+        // did, but the first is heard while the next are made. Made whole,
+        // the rest of a long one came seconds after its first clause (a
+        // friend's phone, 25 Nov 2026: two seconds of silence there).
+        final rest = cut > 0 ? text.substring(cut) : text;
+        final parts = cut > 0 && isNeural(narrator) ? clausePieces(rest) : [(start: 0, text: rest)];
+        for (final part in parts.take(parts.length - 1)) {
+          final piece = await makeSentence(
+            service: service,
+            text: part.text,
+            settings: settings,
+            engineId: engineIdOf(),
+            narrator: narrator,
+            dialogue: null,
+            pitchOf: pitchOf,
+            pauseAfterMs: () => 0,
+            levelDb: _levelDb,
+            urgent: true,
+            stale: () => gen != _gen,
+          );
+          if (piece == null || gen != _gen) return;
+          final placed = shiftTimings(piece.timings, cut + part.start);
+          if (!await _queue(gen, i, piece, said.changed ? _onPage(placed, said) : placed,
+              speed: settings.speedScale, way: way)) {
+            return;
+          }
+          headSpeechMs += piece.speechFrames * 1000 ~/ piece.sampleRate;
+        }
+        final last = parts.last;
         final r = await makeSentence(
           service: service,
-          text: cut > 0 ? text.substring(cut) : text,
+          text: last.text,
           settings: settings,
           open: cut > 0 ? null : open,
           engineId: engineIdOf(),
@@ -941,8 +1160,11 @@ class PlaybackScheduler {
         );
         if (r == null || gen != _gen) return;
         // The rest's words, placed in the whole sentence.
-        final timings = cut > 0 ? shiftTimings(r.timings, cut) : r.timings;
-        if (!await _queue(gen, i, r, said.changed ? _onPage(timings, said) : timings)) return;
+        final timings = cut > 0 ? shiftTimings(r.timings, cut + last.start) : r.timings;
+        if (!await _queue(gen, i, r, said.changed ? _onPage(timings, said) : timings,
+            speed: settings.speedScale, way: way)) {
+          return;
+        }
         final took = watch.elapsedMilliseconds;
         _lastMade = (ms: took, speechMs: r.speechFrames * 1000 ~/ r.sampleRate, urgent: urgent);
         if (VoiceLog.instance.on) {
@@ -1037,7 +1259,56 @@ class PlaybackScheduler {
   /// [r], sentence [i] made, queued after what is queued (at the stream's
   /// rate, which a sentence at another rate is brought to), with [timings]
   /// on the page's text. False when it was overtaken meanwhile.
-  Future<bool> _queue(int gen, int i, RenderedSpeech r, List<WordTiming> timings) async {
+  /// Who says a sentence: the narrator (the phone's voice in place of a
+  /// natural one that failed), the dialogue voice (none when it is the
+  /// narrator's), and who says its quotations: the character's own voice
+  /// (none, for one read in the narrator's), else the dialogue voice.
+  (String?, String?, String?) _voicesFor(String? character) {
+    var narrator = voiceNameOf();
+    if (_failed.contains(narrator)) narrator = fallbackVoiceOf?.call() ?? narrator;
+    var dialogue = dialogueVoiceOf?.call();
+    if (_failed.contains(dialogue) || dialogue == narrator) dialogue = null;
+    var quoted = dialogue;
+    if (character != null && !_failed.contains(character)) quoted = character == narrator ? null : character;
+    return (narrator, dialogue, quoted);
+  }
+
+  /// Everything about how [said] is said but its speed: the engine, the
+  /// voices and their pitches, the words as respelled, the pauses and the
+  /// loudness. Two sentences of the same [way] differ only in speed.
+  String _wayOf(String? narrator, String? quoted, String said, PipelineSettings s) {
+    final p = s.punctuation;
+    return [
+      engineIdOf(),
+      narrator,
+      quoted,
+      pitchOf?.call(narrator),
+      pitchOf?.call(quoted),
+      identityHashCode(speakers),
+      s.pitchSemitones,
+      s.wordGapMs,
+      s.sentencePauseMs,
+      s.paragraphPauseMs,
+      s.crossfadeMs,
+      s.snapSearchMs,
+      s.trimEdges,
+      s.trimDb,
+      s.volume,
+      s.normaliseLoudness,
+      s.compression,
+      s.pausesFollowSpeed,
+      p.topUp,
+      p.commaMs,
+      p.clauseMs,
+      p.colonMs,
+      p.dashMs,
+      p.ellipsisMs,
+      p.quoteMs,
+      said,
+    ].join('\u0001');
+  }
+
+  Future<bool> _queue(int gen, int i, RenderedSpeech r, List<WordTiming> timings, {double? speed, String? way}) async {
     final to = _streamRate ??= r.sampleRate;
     final k = to / r.sampleRate;
     int at(int frame) => (frame * k).round();
@@ -1046,25 +1317,29 @@ class PlaybackScheduler {
     if (gen != _gen) return false;
     _rate = to;
     _levelDb = r.gainDb;
+    final speechFrames = at(r.speechFrames);
+    final totalFrames = to == r.sampleRate ? r.totalFrames : pcm.length ~/ 2;
+    final placed = [
+      for (final t in timings)
+        to == r.sampleRate
+            ? t
+            : WordTiming(
+                charStart: t.charStart,
+                charEnd: t.charEnd,
+                frameStart: at(t.frameStart),
+                frameEnd: at(t.frameEnd),
+                source: t.source,
+              ),
+    ];
     _chunks.add(_Chunk(
       i,
       start,
-      at(r.speechFrames),
-      to == r.sampleRate ? r.totalFrames : pcm.length ~/ 2,
-      [
-        for (final t in timings)
-          to == r.sampleRate
-              ? t
-              : WordTiming(
-                  charStart: t.charStart,
-                  charEnd: t.charEnd,
-                  frameStart: at(t.frameStart),
-                  frameEnd: at(t.frameEnd),
-                  source: t.source,
-                ),
-      ],
+      speechFrames,
+      totalFrames,
+      placed,
       r.levels,
       pcm,
+      made: speed == null || way == null ? null : _Made(pcm, speechFrames, totalFrames, placed, speed, way),
     ));
     return true;
   }
@@ -1123,6 +1398,7 @@ class PlaybackScheduler {
           final m = _lastMade;
           _dryAt = DateTime.now();
           VoiceLog.instance.note('ran dry', {if (m != null) 'lastMadeMs': m.ms, if (m != null) 'lastSpeechMs': m.speechMs});
+          if (m != null && m.urgent && m.ms > m.speechMs) _fellBehind();
           if (m != null) {
             debugPrint('TomeVoice: the voice ran dry; the last sentence took ${m.ms} ms to make '
                 '${m.speechMs} ms of speech${m.urgent ? '' : ' (low priority)'}');
@@ -1171,6 +1447,29 @@ class PlaybackScheduler {
     } finally {
       _ticking = false;
     }
+  }
+
+  /// How often a natural voice ran dry at each speed for making speech
+  /// slower than it is said, and the speeds the reader was told of.
+  final _behind = <double, int>{};
+  final _toldBehind = <double>{};
+
+  /// A natural voice ran dry, its last sentence slower to make than to
+  /// say: the second time at a speed, the reader is told once why there
+  /// are gaps, and what reads without them. Before, the voice only stopped
+  /// and started (a friend's phone at 3x, 25 Nov 2026).
+  void _fellBehind() {
+    final narrator = voiceNameOf();
+    if (!isNeural(narrator) || _failed.contains(narrator) || units.isEmpty) return;
+    final speed = settingsFor(units[unit.value.clamp(0, units.length - 1)].text).speedScale;
+    final times = _behind[speed] = (_behind[speed] ?? 0) + 1;
+    if (times < 2 || !_toldBehind.add(speed)) return;
+    final name = neuralVoiceFor(narrator)?.name ?? 'The natural voice';
+    notice.value = speed > 1
+        ? "$name can't keep up at ${speedLabel(speed)} on this phone, so there are gaps. "
+            "A slower speed, or the phone's own voice, reads without them."
+        : "$name is slower than speech on this phone, so there are gaps. "
+            "The phone's own voice, or a lighter natural voice, reads without them.";
   }
 
   /// The voice is heard (seen at the tick after the player moved on): for

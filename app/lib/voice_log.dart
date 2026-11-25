@@ -155,6 +155,13 @@ List<String> voiceLogSummary(List<VoiceEvent> events) {
               '(${_times(xs.length)}; slowest ${_secs(xs.reduce((a, b) => a > b ? a : b))}).');
     }
   }
+  // Changes of speed heard at once, from what was made (scheduler.dart's
+  // _restretch).
+  final stretched = events.where((e) => e.kind == 'restretched').map((e) => (e.n('ms') ?? 0).round()).toList();
+  if (stretched.isNotEmpty) {
+    out.add('A change of speed was heard at once ${_times(stretched.length)}: what was made was played at the new '
+        'speed (${_secs(_median(stretched))} to ready it, as a rule).');
+  }
   // Keeping up, by speed.
   final made = events.where((e) => e.kind == 'made' && (e.n('ms') ?? 0) > 0 && (e.n('speechMs') ?? 0) > 0).toList();
   if (made.isNotEmpty) {
