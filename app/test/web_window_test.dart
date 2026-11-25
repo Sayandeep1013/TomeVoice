@@ -180,11 +180,16 @@ void main() {
     return p.units[p.unit.value.clamp(0, p.units.length - 1)].sectionIndex;
   }
 
-  /// How far the page in front has faded in: 1 once it is all there.
-  double shown(WidgetTester tester) => tester
-      .widget<FadeTransition>(find.ancestor(of: find.byType(ReaderScreen), matching: find.byType(FadeTransition)).first)
-      .opacity
-      .value;
+  /// How far the page in front has faded in: 1 once it is all there. The
+  /// transition fades it, or lays the ground over it (the top screen's).
+  double shown(WidgetTester tester) {
+    final fade = tester
+        .widget<FadeTransition>(find.ancestor(of: find.byType(ReaderScreen), matching: find.byType(FadeTransition)).first)
+        .opacity
+        .value;
+    final grounds = tester.widgetList<Opacity>(find.byKey(const ValueKey('transition ground')));
+    return fade * (1 - (grounds.isEmpty ? 0.0 : grounds.last.opacity));
+  }
 
   /// Read aloud from the place to chapter [to], the head moving on a little
   /// at a time; whatever happens on the way is told to [seen].

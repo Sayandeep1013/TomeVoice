@@ -159,11 +159,17 @@ List<int> widgetAccents(int seed) {
 /// buttons). [cover] is its shown picture, when known; the colour is worked
 /// out from it the first time.
 class BookTint extends StatefulWidget {
-  const BookTint({super.key, required this.bookId, this.cover, required this.child});
+  const BookTint({super.key, required this.bookId, this.cover, required this.child, this.theme = true});
 
   final String bookId;
   final String? cover;
   final Widget child;
+
+  /// Whether a whole theme is made in the book's colours too (its pages),
+  /// or only its accent (a tile on the shelf: a theme each, a dozen tiles
+  /// at a time, was work for every shelf shown, and the tiles draw their
+  /// colours from the accent alone).
+  final bool theme;
 
   @override
   State<BookTint> createState() => _BookTintState();
@@ -202,7 +208,8 @@ class _BookTintState extends State<BookTint> {
   }
 
   @override
-  Widget build(BuildContext context) => tinted(context, _cache.forBook(widget.bookId), widget.child);
+  Widget build(BuildContext context) =>
+      tinted(context, _cache.forBook(widget.bookId), widget.child, theme: widget.theme);
 }
 
 /// [child] with the accent of [tint] (a cover colour), or in the colours
@@ -212,11 +219,12 @@ class _BookTintState extends State<BookTint> {
 /// until a cover's colour was learnt and a TintScope after, the whole
 /// page (a book's, the reader) was built anew when the colour came, its
 /// scroll and state lost and a tap on it at that moment with them.
-Widget tinted(BuildContext context, int? tint, Widget child) {
+Widget tinted(BuildContext context, int? tint, Widget child, {bool theme = true}) {
   final on = tint != null && tint != 0 && bookColoursOn;
   final palette = on ? Skin.palette.withTint(tint) : Skin.paletteOf(context);
-  final theme = on ? Skin.themeFor(palette, Theme.of(context).brightness) : Theme.of(context);
-  return TintScope(palette: palette, child: Theme(data: theme, child: child));
+  if (!theme) return TintScope(palette: palette, child: child);
+  final data = on ? Skin.themeFor(palette, Theme.of(context).brightness) : Theme.of(context);
+  return TintScope(palette: palette, child: Theme(data: data, child: child));
 }
 
 /// [child] in the colours of the screen at [from]. For sheets and dialogs:

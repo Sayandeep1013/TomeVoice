@@ -1494,10 +1494,20 @@ Future<void> _workerMain(SendPort out) async {
             }
             final watch = Stopwatch()..start();
             // Its threads start at this thread's priority; they are set for
-            // each piece below.
-            _setNice(tid, 0);
+            // each piece below. Loaded ahead of need (a book just opened,
+            // warming its voice) it loads in the background's priority: at
+            // the foreground's, its hundreds of MB were read and set up in
+            // the same moments as the opened page was drawn, which stuttered.
+            _setNice(tid, urgent ? 0 : 10);
             final before = _threads();
-            final tts = sherpa.OfflineTts(modelConfigFor(m));
+            final sherpa.OfflineTts tts;
+            try {
+              tts = sherpa.OfflineTts(modelConfigFor(m));
+            } catch (_) {
+              // The VM's thread goes back as it came (see below).
+              _setNice(tid, 0);
+              rethrow;
+            }
             engine = _Engine(tts, [for (final t in _threads()) if (!before.contains(t)) t]);
             loadMs = watch.elapsedMilliseconds;
           }
