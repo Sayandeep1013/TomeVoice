@@ -2064,10 +2064,14 @@ void _silverDragonLife(Canvas c, Size s, double t) {
     c.drawRect(
       band,
       Paint()
-        ..shader = ui.Gradient.linear(band.centerLeft, band.centerRight, [
-          const Color(0x00DCE6F6),
-          const Color(0x0FDCE6F6),
-          const Color(0x00DCE6F6),
+        ..shader = ui.Gradient.linear(band.centerLeft, band.centerRight, const [
+          Color(0x00DCE6F6),
+          Color(0x0FDCE6F6),
+          Color(0x00DCE6F6),
+        ], const [
+          0,
+          0.5,
+          1,
         ]),
     );
   }

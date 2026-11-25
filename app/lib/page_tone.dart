@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'contrast.dart' show groundOf;
+import 'prefs.dart' show ListeningPrefs;
 import 'theme.dart';
 
 /// The page under the text: the app's own colours, or a reader's paper —
@@ -191,13 +192,17 @@ class PageGround extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final edge = vignette ? tone.vignette : null;
+    // In a scene, with "Scene behind the page" on and the app's own tone:
+    // its painting under the words, darkened so they read.
+    final scene = tone.paper == null && (ListeningPrefs.loaded?.sceneOnPage ?? false);
     // One shape with or without the vignette: another shape rebuilt [child]
     // afresh when the tone changed (see toned).
     return DecoratedBox(
-      decoration: tone.paperOf(context),
+      decoration: scene ? Skin.groundDecoration(context) : tone.paperOf(context),
       child: Stack(
         fit: StackFit.expand,
         children: [
+          IgnorePointer(child: ColoredBox(color: scene && Skin.sceneOf(context) != null ? const Color(0xB8000000) : const Color(0x00000000))),
           IgnorePointer(
             child: DecoratedBox(
               decoration: edge == null

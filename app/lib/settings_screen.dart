@@ -521,6 +521,18 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           padding: EdgeInsets.zero,
                           onChanged: (v) => _change(() => _prefs.animations = v),
                         ),
+                        if (Skin.sceneOf(context) != null) ...[
+                          const SizedBox(height: Gap.l),
+                          SwitchRow(
+                            title: 'Scene behind the page',
+                            subtitle: _prefs.sceneOnPage
+                                ? "The scene's painting under the words, darkened so they read (with the app's own page tone)"
+                                : 'Off: the page you read is plain',
+                            value: _prefs.sceneOnPage,
+                            padding: EdgeInsets.zero,
+                            onChanged: (v) => _change(() => _prefs.sceneOnPage = v),
+                          ),
+                        ],
                       ],
                     ),
                     _Group(

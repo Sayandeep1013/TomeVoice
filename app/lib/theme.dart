@@ -1075,10 +1075,11 @@ class Palette {
     label: 'Silver dragon',
     day: [Color(0xFF14161C), Color(0xFF101217), Color(0xFF0C0E12), Color(0xFF07080A)],
     night: [Color(0xFF14161C), Color(0xFF101217), Color(0xFF0C0E12), Color(0xFF07080A)],
-    // Polished silver.
-    accent: Color(0xFFD6DEEA),
-    accentSoft: Color(0xFFEDF2F9),
-    accentDeep: Color(0xFF7D8BA2),
+    // Polished silver, a little steel in it: white-silver under the words
+    // read aloud left them at 3.8:1.
+    accent: Color(0xFFAEBBD0),
+    accentSoft: Color(0xFFD4DCEA),
+    accentDeep: Color(0xFF66748C),
     onAccent: Color(0xFF12151C),
     nightCapsule: Color(0xF2181B22),
     nightSheet: Color(0xFF0B0C10),
