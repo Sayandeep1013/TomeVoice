@@ -70,6 +70,7 @@ flutter:
     - assets/fonts/OFL-Cinzel.txt
     - assets/fonts/OFL-CormorantGaramond.txt
     - assets/fonts/OFL-MarcellusSC.txt
+    - assets/fonts/OFL-IMFellEnglish.txt
     # The libraries LNReader source plugins use, and TomeVoice's host for
     # them (tools/lnreader_libs builds the first).
     - assets/js/lnreader_libs.js
@@ -147,3 +148,6 @@ flutter:
     - family: MarcellusSC
       fonts:
         - asset: assets/fonts/MarcellusSC-Regular.ttf
+    - family: IMFellEnglish
+      fonts:
+        - asset: assets/fonts/IMFellEnglish-Regular.ttf

@@ -249,6 +249,7 @@ class Skin {
       Scene.sketch => ('Caveat', 1.22, 0.0, FontWeight.w600),
       Scene.blackRose => ('CormorantGaramond', 1.12, 0.01, FontWeight.w600),
       Scene.dragonSlate => ('MarcellusSC', 0.94, 0.06, FontWeight.w400),
+      Scene.oldTome => ('IMFellEnglish', 1.1, 0.0, FontWeight.w400),
     };
     final s = size * scale;
     return TextStyle(
@@ -1060,7 +1061,28 @@ class Palette {
     scene: Scene.dragonSlate,
   ));
 
-  static final scenes = [forestScene, silverWitch, solar, dungeon, sketch, blackRose, dragonSlate];
+  /// An old book's worn leather: parchment type, gilt for its light.
+  static final oldTome = readable(const Palette(
+    id: 'scene-old-tome',
+    label: 'Old tome',
+    day: [Color(0xFF221509), Color(0xFF1C1108), Color(0xFF170E06), Color(0xFF0E0804)],
+    night: [Color(0xFF221509), Color(0xFF1C1108), Color(0xFF170E06), Color(0xFF0E0804)],
+    // Gilt.
+    accent: Color(0xFFD9B36A),
+    accentSoft: Color(0xFFE8CC92),
+    accentDeep: Color(0xFF8E6A26),
+    onAccent: Color(0xFF1C1206),
+    nightCapsule: Color(0xF22A1A0E),
+    nightSheet: Color(0xFF140C06),
+    // Parchment.
+    nightInk: Color(0xFFF2E6CF),
+    nightInkSoft: Color(0xFFD2C2A4),
+    nightInkFaint: Color(0xFF9C8D72),
+    only: Brightness.dark,
+    scene: Scene.oldTome,
+  ));
+
+  static final scenes = [forestScene, silverWitch, solar, dungeon, sketch, blackRose, dragonSlate, oldTome];
 
   static final all = [forest, lavender, ocean, black, paper, ...designer, ...scenes];
 

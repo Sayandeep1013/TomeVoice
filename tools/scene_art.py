@@ -77,6 +77,11 @@ SCENES = {
         'credit': 'Made for TomeVoice with ChatGPT image generation (OpenAI). Cropped and colour-graded.',
         'across': 0.5, 'brightness': 0.8, 'contrast': 1.08, 'colour': 0.85, 'tint': (0.98, 0.98, 1.0),
     },
+    'oldTome': {
+        'local': 'scene_sources/oldTome.png',
+        'credit': 'Made for TomeVoice with ChatGPT image generation (OpenAI). Cropped and colour-graded.',
+        'across': 0.5, 'brightness': 0.8, 'contrast': 1.08, 'colour': 0.9, 'tint': (1.0, 0.97, 0.92),
+    },
 }
 
 

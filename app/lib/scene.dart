@@ -36,7 +36,10 @@ enum Scene {
   blackRose('Black rose', 'Moonlit roses, thorns and silver', kin: Scene.forest, hue: 228, saturation: 0.26),
   // The dungeon's worn stone gone cold and grey, over cracked slate with a
   // dragon worn into it; embers rise.
-  dragonSlate('Dragon slate', 'Cracked slate, a worn dragon and embers', kin: Scene.dungeon, hue: 215, saturation: 0.1);
+  dragonSlate('Dragon slate', 'Cracked slate, a worn dragon and embers', kin: Scene.dungeon, hue: 215, saturation: 0.1),
+  // The forest's vines and curls turned to gilt tooling, over the worn
+  // leather of an old book's cover; dust drifts in candlelight.
+  oldTome('Old tome', 'Worn leather, gilt and candlelight', kin: Scene.forest, hue: 36, saturation: 0.55);
 
   const Scene(this.label, this.note, {Scene? kin, this.hue, this.saturation = 1}) : _kin = kin;
 
@@ -61,7 +64,7 @@ enum Scene {
         Scene.dungeon => 12,
         Scene.forest => 16,
         Scene.sketch => 14,
-        Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.dragonSlate => 2,
+        Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.dragonSlate || Scene.oldTome => 2,
       };
 
   /// How far a hull's panels and buttons are cut at two corners.
@@ -129,7 +132,7 @@ ui.Image? sceneBackdrop(Scene scene, Size size, double dpr) {
 // the forest's trees and vines looked stiff up close; a painting does not.
 
 /// Scenes with a painted backdrop.
-const _withArt = {Scene.forest, Scene.silverWitch, Scene.solar, Scene.dungeon, Scene.blackRose, Scene.dragonSlate};
+const _withArt = {Scene.forest, Scene.silverWitch, Scene.solar, Scene.dungeon, Scene.blackRose, Scene.dragonSlate, Scene.oldTome};
 
 /// Whether painted backdrops are loaded (off under `flutter test`, which
 /// keeps to the drawn ones).
@@ -301,7 +304,7 @@ void paintBackdrop(Canvas canvas, Size size, Scene scene) {
       _Forest(canvas, size).paint();
     case Scene.sketch:
       _Sketch(canvas, size).paint();
-    case Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.dragonSlate:
+    case Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.dragonSlate || Scene.oldTome:
       // A scene made from a painting, while it loads: its dark, in shadow.
       canvas.drawRect(Offset.zero & size, _fill(_k(scene, const Color(0xFF0A1424))));
       _vignette(canvas, size);
@@ -1105,7 +1108,7 @@ void paintCoverFrame(Canvas c, Rect rect, Scene scene, double radius) {
       }
     case Scene.sketch:
       _sketchCoverFrame(c, rect, radius);
-    case Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.dragonSlate:
+    case Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.dragonSlate || Scene.oldTome:
       final sharp = rect.deflate(0.5);
       c.drawRect(sharp, _stroke(_k(scene, _neon).withValues(alpha: 0.4), 1)..strokeCap = StrokeCap.butt);
       final len = rect.width * 0.2;
@@ -1317,7 +1320,7 @@ void paintPanel(Canvas c, Rect rect, Scene scene, BorderRadius corners, {bool li
       }
     case Scene.sketch:
       _sketchPanel(c, rect, rr, lit: lit);
-    case Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.dragonSlate:
+    case Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.dragonSlate || Scene.oldTome:
       final hull = panelPath(rect, scene, corners);
       c.drawPath(
         hull,
@@ -1449,7 +1452,7 @@ void paintButton(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius radi
       c.drawPath(path.shift(const Offset(0, 1)), _stroke(Colors.white.withValues(alpha: bright ? 0.2 : 0.07), 1));
     case Scene.sketch:
       _sketchButtonInside(c, rect, bright: bright);
-    case Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.dragonSlate:
+    case Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.dragonSlate || Scene.oldTome:
       for (var y = rect.top + 2; y < rect.bottom; y += 3.5) {
         c.drawLine(Offset(rect.left, y), Offset(rect.right, y), _stroke(Colors.white.withValues(alpha: 0.03), 1)..strokeCap = StrokeCap.butt);
       }
@@ -1464,7 +1467,7 @@ void paintButton(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius radi
       c.drawPath(path, _stroke((bright ? _k(scene, const Color(0xFFCFFFF0)) : _k(scene, const Color(0xFF3A6A34))).withValues(alpha: bright ? 0.35 : 0.8), 0.9));
     case Scene.sketch:
       _sketchButtonEdge(c, path, rect, fill, bright: bright);
-    case Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.dragonSlate:
+    case Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.dragonSlate || Scene.oldTome:
       if (bright) {
         c.drawPath(path, _glow(fill.withValues(alpha: 0.6), 4)
           ..style = PaintingStyle.stroke
@@ -1647,6 +1650,8 @@ class LifePainter extends CustomPainter {
         _blackRoseLife(canvas, s, t);
       case Scene.dragonSlate:
         _dragonSlateLife(canvas, s, t);
+      case Scene.oldTome:
+        _oldTomeLife(canvas, s, t);
     }
     canvas.restore();
   }
@@ -2048,6 +2053,26 @@ void _dragonSlateLife(Canvas c, Size s, double t) {
   );
 }
 
+/// Old tome: a candle's warm light breathing at the upper left, and dust
+/// drifting slowly through it, catching the light as it turns.
+void _oldTomeLife(Canvas c, Size s, double t) {
+  final f = _flicker(t * 0.35, 1.7).clamp(0.0, 1.0);
+  _light(c, Offset(s.width * 0.12, s.height * 0.14), s.width * (0.7 + 0.05 * f),
+      const Color(0xFFFFB45A).withValues(alpha: 0.06 + 0.05 * f), mid: 0.25);
+  for (var i = 0; i < 28; i++) {
+    final drift = 40.0 + (i % 5) * 9;
+    final age = ((t + i * 3.1) % drift) / drift;
+    final x = ((i * 0.191 + 0.02) % 1 + age * 0.18) % 1 * s.width + math.sin(t * 0.3 + i) * 14;
+    final y = ((i * 0.317 + 0.05) % 1) * s.height * 0.8 + math.sin(t * 0.22 + i * 1.9) * 24 - age * 30;
+    // Brighter nearer the candle, glinting as a mote turns.
+    final near = 1 - ((Offset(x, y) - Offset(s.width * 0.12, s.height * 0.14)).distance / s.height).clamp(0.0, 1.0);
+    final glint = 0.5 + 0.5 * math.sin(t * (1.1 + (i % 4) * 0.3) + i);
+    final fade = math.min(1.0, math.min(age * 6, (1 - age) * 6));
+    c.drawCircle(Offset(x, y), 0.7 + (i % 3) * 0.35,
+        _fill(const Color(0xFFFFE2B0).withValues(alpha: (0.08 + 0.32 * near * glint) * fade)));
+  }
+}
+
 /// What an empty screen shows in [scene], [size] across.
 class SceneEmptyArt extends StatelessWidget {
   const SceneEmptyArt(this.scene, {super.key, this.size = 92});
@@ -2116,7 +2141,7 @@ class _EmptyPainter extends CustomPainter {
         }
       case Scene.sketch:
         _sketchEmpty(c, s);
-      case Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.dragonSlate:
+      case Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.dragonSlate || Scene.oldTome:
         final r = math.Random(9);
         for (var i = 0; i < 30; i++) {
           c.drawCircle(Offset(r.nextDouble() * s.width, r.nextDouble() * s.height), r.nextDouble() * 0.9 + 0.3,
@@ -2242,7 +2267,7 @@ class _OrnamentPainter extends CustomPainter {
         }
       case (Scene.sketch, final foot):
         _sketchOrnament(c, s, foot: foot);
-      case (Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.dragonSlate, false):
+      case (Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.dragonSlate || Scene.oldTome, false):
         final m = Offset(s.width / 2, s.height / 2);
         final hex = Path();
         for (var i = 0; i < 6; i++) {
@@ -2256,7 +2281,7 @@ class _OrnamentPainter extends CustomPainter {
           ..strokeWidth = 4);
         c.drawPath(hex, _stroke(_k(scene, const Color(0xFF9FF6FF)), 1.6)..strokeJoin = StrokeJoin.miter);
         c.drawCircle(m, s.width * 0.1, _fill(_k(scene, _neon).withValues(alpha: 0.8)));
-      case (Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.dragonSlate, true):
+      case (Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.dragonSlate || Scene.oldTome, true):
         for (var i = 0; i < 8; i++) {
           final color = [_k(scene, const Color(0xFF39FF88)), _k(scene, const Color(0xFFFFB13A)), _k(scene, _neon), _k(scene, const Color(0xFFFF4A6A))][r.nextInt(4)];
           final p = Offset(s.width * (0.1 + i * 0.11), s.height - 14);
@@ -2329,7 +2354,7 @@ class _DividerPainter extends CustomPainter {
         }
       case Scene.sketch:
         _sketchDivider(c, s);
-      case Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.dragonSlate:
+      case Scene.solar || Scene.silverWitch || Scene.blackRose || Scene.dragonSlate || Scene.oldTome:
         c.drawLine(Offset(0, y), Offset(s.width, y), _glow(_k(scene, _neon).withValues(alpha: 0.35), 3)..strokeWidth = 2);
         c.drawLine(Offset(0, y), Offset(s.width, y), _stroke(_k(scene, _neon).withValues(alpha: 0.6), 0.8)..strokeCap = StrokeCap.butt);
     }

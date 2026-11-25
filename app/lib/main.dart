@@ -116,6 +116,7 @@ void _registerFontLicences() {
       ('Cinzel', 'Cinzel'),
       ('Cormorant Garamond', 'CormorantGaramond'),
       ('Marcellus SC', 'MarcellusSC'),
+      ('IM Fell English', 'IMFellEnglish'),
     ]) {
       yield LicenseEntryWithLineBreaks(
         [family],
