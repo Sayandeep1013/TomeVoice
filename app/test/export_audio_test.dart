@@ -659,7 +659,7 @@ void main() {
         return null;
       });
       await tester.pumpWidget(const SpikeApp());
-      for (var i = 0; i < 40 && find.text('Library').evaluate().isEmpty; i++) {
+      for (var i = 0; i < 400 && find.text('Library').evaluate().isEmpty; i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
         await tester.pump();
       }

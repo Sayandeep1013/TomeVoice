@@ -8,6 +8,7 @@ import 'package:tomevoice_audio/tomevoice_audio.dart';
 
 import 'brand.dart';
 import 'error_log.dart';
+import 'frame_print.dart';
 import 'home_shell.dart';
 import 'listening_session.dart';
 import 'own_colours.dart';
@@ -16,6 +17,7 @@ import 'reader_screen.dart';
 import 'secret_shelf.dart';
 import 'sources/bridge.dart';
 import 'speech_service.dart';
+import 'store_build.dart' show testBuild;
 import 'tap_log.dart' show TapLogScreens, TapRecorder;
 import 'theme.dart';
 import 'wallpaper_colours.dart';
@@ -29,6 +31,7 @@ void main() {
     WidgetsFlutterBinding.ensureInitialized();
     catchErrors();
     unawaited(openErrorLog());
+    if (testBuild) printFrameTimings();
     _registerFontLicences();
     _listen();
     _show();

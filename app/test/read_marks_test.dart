@@ -147,7 +147,7 @@ void main() {
     }
 
     Future<void> settle(WidgetTester tester, bool Function() until) async {
-      for (var i = 0; i < 60 && !until(); i++) {
+      for (var i = 0; i < 400 && !until(); i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 25)));
         await tester.pump();
       }

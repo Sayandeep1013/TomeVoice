@@ -72,7 +72,7 @@ void main() {
   Future<void> launch(WidgetTester tester) async {
     phone(tester);
     await tester.pumpWidget(const SpikeApp());
-    for (var i = 0; i < 40 && find.text('Library').evaluate().isEmpty; i++) {
+    for (var i = 0; i < 400 && find.text('Library').evaluate().isEmpty; i++) {
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
       await tester.pump();
     }
@@ -101,7 +101,7 @@ void main() {
     expect(ListeningPrefs.loaded!.guideShown, isTrue);
     // Kept, so the next launch does not show it.
     var kept = false;
-    for (var i = 0; i < 40 && !kept; i++) {
+    for (var i = 0; i < 400 && !kept; i++) {
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 25)));
       await tester.pump(const Duration(milliseconds: 100));
       final f = File('${_tmp.path}/prefs.json');

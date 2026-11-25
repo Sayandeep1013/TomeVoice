@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
@@ -23,6 +25,7 @@ class BookCover extends StatelessWidget {
     this.titled = true,
     this.framed = true,
     this.decodeWidth,
+    this.corners,
   });
 
   final LibraryEntry entry;
@@ -41,6 +44,9 @@ class BookCover extends StatelessWidget {
   /// title on their own band, so theirs shows only an initial.
   final bool titled;
 
+  /// Its corners when they are not its own: a tile's, which it fills.
+  final BorderRadius? corners;
+
   double get height => width * 1.5;
 
   static const _palette = [
@@ -56,9 +62,9 @@ class BookCover extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dpr = MediaQuery.devicePixelRatioOf(context);
-    final generated = _generated(context);
     final path = entry.shownCover;
-    final radius = BorderRadius.circular((width * 0.07).clamp(4.0, Radii.chip));
+    final radius = corners ?? BorderRadius.circular((width * 0.07).clamp(4.0, Radii.chip));
+    final generated = _generated(context, radius);
     final scene = framed ? Skin.sceneOf(context) : null;
     final cover = Container(
       width: width,
@@ -75,30 +81,22 @@ class BookCover extends StatelessWidget {
               ]
             : null,
       ),
-      child: ClipRRect(
-        borderRadius: radius,
-        child: path == null
-            ? generated
-            : Image.file(
-                File(path),
-                width: width,
-                height: height,
-                fit: BoxFit.cover,
-                // A full-size cover is megabytes of pixels for a thumbnail.
-                cacheWidth: ((decodeWidth ?? width) * dpr).round(),
-                // Fades in over the drawn cover; a cover that changes does
-                // not blink through blank.
-                frameBuilder: fadeInOver(generated),
-                gaplessPlayback: true,
-                errorBuilder: (_, __, ___) => generated,
-              ),
-      ),
+      // Rounded by what is drawn, not by a clip (see _CoverPicture).
+      child: path == null
+          ? generated
+          : _CoverPicture(
+              path: path,
+              radius: radius,
+              // A full-size cover is megabytes of pixels for a thumbnail.
+              decodeWidth: ((decodeWidth ?? width) * dpr).round(),
+              under: generated,
+            ),
     );
     if (scene == null) return cover;
     return CustomPaint(foregroundPainter: CoverFramePainter(scene, radius.topLeft.x), child: cover);
   }
 
-  Widget _generated(BuildContext context) {
+  Widget _generated(BuildContext context, BorderRadius radius) {
     final color = _palette[entry.title.hashCode.abs() % _palette.length];
     if (!titled) {
       final t = entry.title.trim();
@@ -106,6 +104,7 @@ class BookCover extends StatelessWidget {
         width: width,
         height: height,
         decoration: BoxDecoration(
+          borderRadius: radius,
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -124,6 +123,7 @@ class BookCover extends StatelessWidget {
       width: width,
       height: height,
       decoration: BoxDecoration(
+        borderRadius: radius,
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -154,6 +154,132 @@ class BookCover extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A cover's picture, drawn as a rounded rectangle filled with it: rounded
+/// with no clip. A clip costs the GPU a fill of what is round it as well, on
+/// every frame anything on the screen moves, and a shelf had two a book (the
+/// tile's and the cover's), each going back over the whole shelf.
+///
+/// Decoded as Image.file(cacheWidth:) decodes it, so the two share the
+/// picture in memory. It fades in over [under] (the cover made from the
+/// title) when it comes after the first frame, shows at once when it was in
+/// memory already, and once it shows, [under] is no longer drawn beneath
+/// it. A new picture takes the old one's place without a blink.
+class _CoverPicture extends StatefulWidget {
+  const _CoverPicture({required this.path, required this.radius, required this.decodeWidth, required this.under});
+
+  final String path;
+  final BorderRadius radius;
+  final int decodeWidth;
+  final Widget under;
+
+  @override
+  State<_CoverPicture> createState() => _CoverPictureState();
+}
+
+class _CoverPictureState extends State<_CoverPicture> with SingleTickerProviderStateMixin {
+  late final _fade = AnimationController(vsync: this, duration: Motion.standard);
+  late final _listener = ImageStreamListener(_onImage, onError: _onError);
+  ImageStream? _stream;
+  ImageInfo? _info;
+  bool _failed = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _resolve();
+  }
+
+  @override
+  void didUpdateWidget(_CoverPicture old) {
+    super.didUpdateWidget(old);
+    if (old.path != widget.path || old.decodeWidth != widget.decodeWidth) _resolve();
+  }
+
+  void _resolve() {
+    final provider = ResizeImage.resizeIfNeeded(widget.decodeWidth, null, FileImage(File(widget.path)));
+    final stream = provider.resolve(createLocalImageConfiguration(context));
+    final was = _stream;
+    if (was != null && was.key == stream.key) return;
+    was?.removeListener(_listener);
+    _stream = stream;
+    stream.addListener(_listener);
+  }
+
+  void _onImage(ImageInfo info, bool synchronousCall) {
+    final first = _info == null;
+    setState(() {
+      _info?.dispose();
+      _info = info;
+      _failed = false;
+    });
+    if (synchronousCall || !first || Motion.reduced(context)) {
+      _fade.value = 1;
+    } else if (!_fade.isAnimating && !_fade.isCompleted) {
+      unawaited(_fade.forward());
+    }
+  }
+
+  void _onError(Object error, StackTrace? stack) {
+    if (mounted) setState(() => _failed = true);
+  }
+
+  @override
+  void dispose() {
+    _stream?.removeListener(_listener);
+    _info?.dispose();
+    _fade.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final info = _info;
+    if (_failed || info == null) return widget.under;
+    return AnimatedBuilder(
+      animation: _fade,
+      builder: (context, _) {
+        final t = Motion.out.transform(_fade.value);
+        return Stack(
+          fit: StackFit.passthrough,
+          children: [
+            if (t < 1) KeyedSubtree(key: const ValueKey('under'), child: widget.under),
+            CustomPaint(key: const ValueKey('picture'), painter: _RoundedPicture(info.image, widget.radius, t)),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _RoundedPicture extends CustomPainter {
+  _RoundedPicture(this.image, this.radius, this.opacity);
+
+  final ui.Image image;
+  final BorderRadius radius;
+  final double opacity;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (opacity <= 0 || size.isEmpty) return;
+    // Filled as BoxFit.cover fills, centred: scaled to cover the box, what
+    // is past its shape simply not drawn.
+    final iw = image.width.toDouble();
+    final ih = image.height.toDouble();
+    final scale = math.max(size.width / iw, size.height / ih);
+    final place = Matrix4.translationValues((size.width - iw * scale) / 2, (size.height - ih * scale) / 2, 0)
+      ..scaleByDouble(scale, scale, 1, 1);
+    canvas.drawRRect(
+      radius.toRRect(Offset.zero & size),
+      Paint()
+        ..color = Color.fromRGBO(0, 0, 0, opacity)
+        ..shader = ImageShader(image, TileMode.clamp, TileMode.clamp, place.storage, filterQuality: FilterQuality.medium),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_RoundedPicture old) => old.image != image || old.radius != radius || old.opacity != opacity;
 }
 
 /// A cover that flies between the shelf and the book's own page, so opening
@@ -482,98 +608,105 @@ class BookTile extends StatelessWidget {
                   ),
                 ],
               ),
-              child: ClipRRect(
-                borderRadius: radius,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    CoverHero(
-                      entry: e,
-                      titled: false,
-                      child: BookCover(entry: e, width: w, shadow: false, titled: false, framed: false),
+              // No clip round it all: the cover, the band and the chosen
+              // tint each have the tile's corners of their own (see
+              // _CoverPicture).
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  CoverHero(
+                    entry: e,
+                    titled: false,
+                    child: BookCover(
+                        entry: e, width: w, shadow: false, titled: false, framed: false, corners: radius),
+                  ),
+                  // The band: clear at the top, dark enough at the foot for
+                  // white text on any cover.
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.only(bottomLeft: radius.bottomLeft, bottomRight: radius.bottomRight),
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.black.withValues(alpha: 0),
+                            Colors.black.withValues(alpha: 0.62),
+                            Colors.black.withValues(alpha: 0.86),
+                          ],
+                          stops: const [0, 0.38, 1],
+                        ),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(10, 34, 10, 10),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              e.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Skin.title(context, size: 15.5, color: white).copyWith(height: 1.15),
+                            ),
+                            if (e.authorLine.isNotEmpty)
+                              Text(
+                                e.authorLine,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Skin.ui(
+                                    size: 12, weight: FontWeight.w500, color: white.withValues(alpha: 0.75)),
+                              ),
+                            const SizedBox(height: 6),
+                            Wrap(
+                              spacing: 4,
+                              runSpacing: 4,
+                              children: [for (final t in tags) _GlassTag(t)],
+                            ),
+                            if (e.progress > 0 && !e.finished) ...[
+                              const SizedBox(height: 7),
+                              Progress(e.progress,
+                                  height: 3, track: white.withValues(alpha: 0.22), color: Skin.accentSoftOf(context)),
+                            ],
+                          ],
+                        ),
+                      ),
                     ),
-                    // The band: clear at the top, dark enough at the foot for
-                    // white text on any cover.
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
+                  ),
+                  // A scene theme's frame round the whole tile.
+                  if (Skin.sceneOf(context) case final scene?)
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        // Kept inside the tile's corners: parts of a frame
+                        // reach past its edge.
+                        child: CustomPaint(painter: CoverFramePainter(scene, radius.topLeft.x, within: radius)),
+                      ),
+                    ),
+                  // Inside a scene's frame, not over it.
+                  Positioned(
+                    left: Skin.sceneOf(context) == null ? 7 : 7 + (w * 0.06).clamp(2.5, 9.0),
+                    top: Skin.sceneOf(context) == null ? 7 : 7 + (w * 0.06).clamp(2.5, 9.0),
+                    child: _StatusBadge(entry: e),
+                  ),
+                  Positioned.fill(
+                    child: _Chosen(
+                      selected: selected,
                       child: DecoratedBox(
                         decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.black.withValues(alpha: 0),
-                              Colors.black.withValues(alpha: 0.62),
-                              Colors.black.withValues(alpha: 0.86),
-                            ],
-                            stops: const [0, 0.38, 1],
-                          ),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(10, 34, 10, 10),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                e.title,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: Skin.title(context, size: 15.5, color: white).copyWith(height: 1.15),
-                              ),
-                              if (e.authorLine.isNotEmpty)
-                                Text(
-                                  e.authorLine,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Skin.ui(
-                                      size: 12, weight: FontWeight.w500, color: white.withValues(alpha: 0.75)),
-                                ),
-                              const SizedBox(height: 6),
-                              Wrap(
-                                spacing: 4,
-                                runSpacing: 4,
-                                children: [for (final t in tags) _GlassTag(t)],
-                              ),
-                              if (e.progress > 0 && !e.finished) ...[
-                                const SizedBox(height: 7),
-                                Progress(e.progress,
-                                    height: 3, track: white.withValues(alpha: 0.22), color: Skin.accentSoftOf(context)),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    // A scene theme's frame round the whole tile.
-                    if (Skin.sceneOf(context) case final scene?)
-                      Positioned.fill(
-                        child: IgnorePointer(
-                          child: CustomPaint(painter: CoverFramePainter(scene, radius.topLeft.x)),
-                        ),
-                      ),
-                    // Inside a scene's frame, not over it.
-                    Positioned(
-                      left: Skin.sceneOf(context) == null ? 7 : 7 + (w * 0.06).clamp(2.5, 9.0),
-                      top: Skin.sceneOf(context) == null ? 7 : 7 + (w * 0.06).clamp(2.5, 9.0),
-                      child: _StatusBadge(entry: e),
-                    ),
-                    Positioned.fill(
-                      child: _Chosen(
-                        selected: selected,
-                        child: ColoredBox(
                           color: Skin.accentOf(context).withValues(alpha: 0.30),
-                          child: const Align(
-                            alignment: Alignment(0, -0.4),
-                            child: Icon(Icons.check_circle_rounded, color: Colors.white, size: 34),
-                          ),
+                          borderRadius: radius,
+                        ),
+                        child: const Align(
+                          alignment: Alignment(0, -0.4),
+                          child: Icon(Icons.check_circle_rounded, color: Colors.white, size: 34),
                         ),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             );
           },

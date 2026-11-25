@@ -56,6 +56,7 @@ kept as written: where the build went another way, the note says so.
 | [C-36](#c-36) | Testing audio output | S2 | Buffer-level tests, the verifier, emulator flows |
 | [C-37](#c-37) | Store policy and AI disclosure | S3 | Moot while there is no store build |
 | [C-38](#c-38) | Scope creep — the app is three apps | S2 | Android only; Windows not started |
+| [C-39](#c-39) | Dropped frames on a 120 Hz phone (added 2.6.6) | S2 | Shelf switches fixed (2.6.6); a book's first moment open still drops frames |
 
 ---
 
@@ -875,3 +876,39 @@ then a speakable document with the phone's voices, every format, the reader, web
 and natural voices last (1.0.0), Kokoro later still (1.4.0). The other half of the
 protection was scope: Android only, with Windows not started. 0.2.0 to 1.4.0 shipped in
 ten days, 22 to 31 October 2026.
+
+### C-39
+**Dropped frames on a 120 Hz phone** — S2
+
+Not in the register of 2026-09-01: found on the owner's phone (Nothing Phone (3a),
+Snapdragon 7s Gen 3, 120 Hz) in November 2026. Opening a book and switching shelves
+dropped frames, a few each time. Measured with SurfaceFlinger's present times
+(`dumpsys SurfaceFlinger --latency`), the test app's own frame timings, `atrace`, and the
+engine's timeline from a profile build of the test app. The UI thread was nearly idle and
+the raster thread spent only 2–5 ms of each frame on the CPU. The rest it waited in
+`queueBuffer`, where Android keeps a producer at most two frames ahead of the GPU (the
+"Throttling EGL Production" wait in
+[`BufferQueueProducer::queueBuffer`](https://android.googlesource.com/platform/frameworks/native/+/refs/heads/main/libs/gui/BufferQueueProducer.cpp)).
+After a second or two with nothing moving, the phone lets the GPU's clock fall; the first
+150–300 ms of an animation are drawn on the slow GPU, three to five times slower, so how
+heavy each frame is decides how many are missed.
+
+**Solution.** Less to draw in each frame, and nothing drawn offscreen (on the phone's
+renderer, Impeller on Vulkan, every offscreen pass is redone at every frame, with no cache):
+no whole-screen fades (the ground is laid over a screen instead), no masks, no clips where
+the shape can be drawn, and nothing animated in size where text is (Impeller draws
+letters anew for each size, so a growing screen redrew all of its letters at every frame).
+
+**As built.** 2.6.5: screen changes lay the ground over a screen instead of fading it; the
+shelf no longer rebuilds mid-slide. 2.6.6: covers and tiles are rounded by what is drawn
+(a rounded rectangle filled with the picture) instead of two clips a book; the cover made
+from the title is no longer drawn beneath a loaded picture; the fade of the shelf's foot
+into the ground is two plain draws over just its strip (what is there let go of, then the
+ground drawn in behind) instead of a mask; the page change's ground carries its opacity in
+the paint instead of an opacity layer; screens, parts of screens and new shelves rise into
+place instead of growing. Measured back to back against 2.6.5, two rounds of four shelf
+switches each: about 5 frames dropped per switch instead of about 11, and a frame of the
+slide costs 8.6 ms instead of 9.6 ms. Opening a book did not change: its first frames are
+drawn while the GPU is still slow, and even a nearly empty library takes 25–35 ms a frame
+then. A steady 60 Hz (each frame given 16.7 ms) measured best for that (about 1 hitch an
+opening instead of about 4) and is not in the app yet.

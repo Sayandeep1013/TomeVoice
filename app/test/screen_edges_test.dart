@@ -146,7 +146,7 @@ void main() {
       }
     });
     await tester.pumpWidget(const SpikeApp());
-    for (var i = 0; i < 40 && find.byType(BookCover).evaluate().isEmpty; i++) {
+    for (var i = 0; i < 400 && find.byType(BookCover).evaluate().isEmpty; i++) {
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
       await tester.pump();
     }
@@ -164,10 +164,13 @@ void main() {
     expect(strip.height, 130);
     expect(strip.width, shelf.width);
     expect(tester.widget<GroundFade>(fade).top, isFalse);
-    // The ground drawn again where the library's is.
-    final copy = tester.renderObject<RenderBox>(find.descendant(of: fade, matching: find.byType(DecoratedBox)).first);
-    expect(copy.localToGlobal(Offset.zero), Offset.zero);
-    expect(copy.size, tester.getSize(find.byType(LibraryScreen)));
+    // The ground drawn in again, in behind what the strip lets go of, where
+    // the library's is: the strip found its own place in it (no mask, no
+    // copy of the whole ground, nothing drawn offscreen).
+    expect(find.descendant(of: fade, matching: find.byType(ShaderMask)), findsNothing);
+    final drawn = tester.renderObject<RenderGroundFade>(fade);
+    expect(strip.topLeft + drawn.groundAt!, Offset.zero);
+    expect(tester.widget<GroundFade>(fade).size, tester.getSize(find.byType(LibraryScreen)));
     await finish(tester);
   });
 

@@ -1004,7 +1004,7 @@ class _LibraryScreenState extends State<LibraryScreen> with WhenShown<LibraryScr
                                 child: GroundFade(
                                   link: _groundLink,
                                   size: MediaQuery.sizeOf(context),
-                                  ground: DecoratedBox(decoration: Skin.groundDecoration(context)),
+                                  ground: Skin.groundDecoration(context),
                                 ),
                               ),
                           ],

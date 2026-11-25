@@ -3,6 +3,21 @@
 What changed in each release of TomeVoice, newest first, as each release told it.
 Every release has its APK on [Releases](https://github.com/Sayandeep1013/TomeVoice/releases).
 
+## 2.6.6 (2026-11-25)
+
+Switching shelves is smooth: it drops less than half the frames it did.
+
+**Updating** keeps your library, your keys, every book's memory and your journal.
+
+#### Smoother
+- **Switching shelves:** every book's rounded corners were cut out of a square picture, twice a book (the tile and the cover in it), and each cut sent the phone's graphics over the whole shelf again, at every frame of the slide. Covers are drawn rounded to begin with now. Measured on a 120 Hz phone, a shelf switch drops about 5 frames instead of about 11.
+- **Covers on the shelf:** the cover made from the title, shown while a book's picture loads, was still drawn beneath the picture after it had appeared. It goes once the picture shows.
+- **Books fading behind the Continue bar:** the fade was drawn on a sheet of its own and copied back at every frame. It is drawn straight onto the screen now, only where it shows.
+- **Screens rise into place instead of growing.** A screen drawn a little larger at every frame had every letter on it drawn anew at each size. It looks nearly the same.
+
+#### Not yet
+- **Opening a book** is about as smooth as in 2.6.5. Its first moment is drawn while the phone's graphics are still waking from rest, so it can drop a few frames there. Running at 60 Hz measured best for that; it may come as a setting in a later update.
+
 ## 2.6.5 (2026-11-25)
 
 Smoother: opening a book, changing screens and switching shelves drop far fewer frames.

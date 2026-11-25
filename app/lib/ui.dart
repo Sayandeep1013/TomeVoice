@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show BoxHitTestResult, RenderProxyBox;
+import 'package:flutter/rendering.dart' show BoxHitTestResult, PipelineOwner, RenderLeaderLayer, RenderProxyBox;
 
 import 'scene.dart';
 import 'motion.dart';
@@ -776,50 +776,132 @@ void showSnack(
     ));
 }
 
-/// The ground drawn once more over the [top] edge of a scrolling list (or
-/// its foot), fading out away from the edge: the list fades into the ground
-/// as it did under a mask over all of it, which cost an offscreen pass of
-/// the whole list on every frame it moved; this costs only the strip.
+/// A scrolling list's foot (or its [top] edge) fading into the ground, in
+/// two plain draws over the strip and nothing else: what is under it is let
+/// go of, more of it nearer the edge, and the ground is drawn in behind it,
+/// filling only what was let go. It looks as a mask over a copy of the
+/// ground did, which had the GPU draw the strip offscreen and blend it back
+/// on every frame anything on the screen moved (and a mask over all of the
+/// list, before that, a pass of the whole list).
 ///
-/// [ground] is the ground as it is laid under the list, at [size], and
-/// [link] is a [CompositedTransformTarget] around the real one: the copy is
-/// drawn where that is, so a diagonal or vignetted ground meets itself with
-/// no seam (a painted band of one colour never matched it, and read as a
-/// bar).
-class GroundFade extends StatelessWidget {
+/// [ground] is the ground as it is laid under the list, at [size], inside a
+/// [CompositedTransformTarget] of [link] above this: the strip draws the
+/// part of it that lies under the strip, found from where the strip is in
+/// it, so a diagonal or vignetted ground meets itself with no seam (a
+/// painted band of one colour never matched it, and read as a bar).
+class GroundFade extends LeafRenderObjectWidget {
   const GroundFade({super.key, required this.link, required this.size, required this.ground, this.top = false});
 
   final LayerLink link;
   final Size size;
-  final Widget ground;
+  final Decoration ground;
   final bool top;
 
   @override
-  Widget build(BuildContext context) => IgnorePointer(
-        child: ShaderMask(
-          blendMode: BlendMode.dstIn,
-          shaderCallback: (rect) => LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: top ? const [Colors.black, Colors.transparent] : const [Colors.transparent, Colors.black],
-          ).createShader(rect),
-          // Clipped to the strip: the copy is the whole ground.
-          child: ClipRect(
-            child: CompositedTransformFollower(
-              link: link,
-              showWhenUnlinked: false,
-              child: OverflowBox(
-                alignment: Alignment.topLeft,
-                minWidth: size.width,
-                maxWidth: size.width,
-                minHeight: size.height,
-                maxHeight: size.height,
-                child: ground,
-              ),
-            ),
-          ),
-        ),
-      );
+  RenderGroundFade createRenderObject(BuildContext context) =>
+      RenderGroundFade(link, size, ground, top, MediaQuery.devicePixelRatioOf(context));
+
+  @override
+  void updateRenderObject(BuildContext context, RenderGroundFade renderObject) => renderObject
+    ..link = link
+    ..groundSize = size
+    ..ground = ground
+    ..top = top
+    ..dpr = MediaQuery.devicePixelRatioOf(context);
+}
+
+/// [GroundFade]'s strip.
+class RenderGroundFade extends RenderBox {
+  RenderGroundFade(this._link, this._groundSize, this._ground, this._top, this._dpr);
+
+  LayerLink _link;
+  set link(LayerLink v) {
+    if (v == _link) return;
+    _link = v;
+    markNeedsPaint();
+  }
+
+  Size _groundSize;
+  set groundSize(Size v) {
+    if (v == _groundSize) return;
+    _groundSize = v;
+    markNeedsPaint();
+  }
+
+  Decoration _ground;
+  set ground(Decoration v) {
+    if (v == _ground) return;
+    _ground = v;
+    markNeedsPaint();
+  }
+
+  bool _top;
+  set top(bool v) {
+    if (v == _top) return;
+    _top = v;
+    markNeedsPaint();
+  }
+
+  double _dpr;
+  set dpr(double v) {
+    if (v == _dpr) return;
+    _dpr = v;
+    markNeedsPaint();
+  }
+
+  /// Where the whole ground was, from the strip's top left, when it was
+  /// last drawn.
+  @visibleForTesting
+  Offset? groundAt;
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    // A scene's painting coming in later is drawn when it comes.
+    sceneArtReady.addListener(markNeedsPaint);
+  }
+
+  @override
+  void detach() {
+    sceneArtReady.removeListener(markNeedsPaint);
+    super.detach();
+  }
+
+  @override
+  bool get sizedByParent => true;
+
+  @override
+  Size computeDryLayout(BoxConstraints constraints) => constraints.biggest;
+
+  /// The ground's top left, from the strip's: the strip's place in the
+  /// box of [_link]'s target, turned round.
+  Offset _whereGroundIs() {
+    var r = parent;
+    while (r != null && !(r is RenderLeaderLayer && r.link == _link)) {
+      r = r.parent;
+    }
+    if (r == null) return Offset.zero;
+    return -MatrixUtils.transformPoint(getTransformTo(r), Offset.zero);
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    if (size.isEmpty) return;
+    final canvas = context.canvas;
+    final strip = offset & size;
+    canvas.drawRect(
+      strip,
+      Paint()
+        ..blendMode = BlendMode.dstIn
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: _top ? const [Colors.transparent, Colors.black] : const [Colors.black, Colors.transparent],
+        ).createShader(strip),
+    );
+    final at = groundAt = _whereGroundIs();
+    paintGround(canvas, (offset + at) & _groundSize, _ground, _dpr, blend: BlendMode.dstOver, only: strip);
+  }
 }
 
 /// The fields of a form, one under another with room between them: each a
@@ -1011,9 +1093,9 @@ AnimationStyle sheetMotion(BuildContext context) => Motion.reduced(context)
         reverseCurve: Motion.out,
       );
 
-/// [child] fading in (and settling from a touch smaller) when it first
-/// shows, and again whenever [trigger] changes, without being rebuilt: a new
-/// screen in the same place arrives the way a pushed one does.
+/// [child] fading in (and rising the last little way into place) when it
+/// first shows, and again whenever [trigger] changes, without being rebuilt:
+/// a new screen in the same place arrives the way a pushed one does.
 class FadeIn extends StatefulWidget {
   const FadeIn({super.key, this.trigger, this.arrive = true, required this.child});
 
@@ -1060,8 +1142,17 @@ class _FadeInState extends State<FadeIn> with SingleTickerProviderStateMixin {
   @override
   Widget build(BuildContext context) => FadeTransition(
         opacity: _t,
-        child: ScaleTransition(scale: Tween(begin: 0.98, end: 1.0).animate(_t), child: widget.child),
+        child: AnimatedBuilder(
+          animation: _t,
+          child: widget.child,
+          builder: (context, child) => Transform.translate(offset: Offset(0, _rise * (1 - _t.value)), child: child),
+        ),
       );
+
+  /// How far it rises as it fades in, in logical pixels (see
+  /// [CalmPageTransitionsBuilder]: grown instead, every letter in it was
+  /// drawn anew at each size).
+  static const _rise = 8.0;
 }
 
 /// A sliver fading in when it first shows: a list taking the place of a
@@ -1235,7 +1326,7 @@ class _EntranceState extends State<Entrance> with SingleTickerProviderStateMixin
   CurvedAnimation? _spring;
   Animation<double> get _t => _curve ?? kAlwaysCompleteAnimation;
 
-  /// The rise and the size, on a spring: a touch past, and back.
+  /// The rise, settling as it ends.
   Animation<double> get _s => _spring ?? kAlwaysCompleteAnimation;
 
   @override
@@ -1282,12 +1373,9 @@ class _EntranceState extends State<Entrance> with SingleTickerProviderStateMixin
         animation: _s,
         child: widget.child,
         builder: (context, child) {
-          final v = _s.value;
-          return Transform(
-            alignment: Alignment.bottomCenter,
-            transform: Matrix4.translationValues(0, 18 * (1 - v), 0)..scaleByDouble(0.96 + 0.04 * v, 0.96 + 0.04 * v, 1, 1),
-            child: child,
-          );
+          // Rising, not growing: grown, every letter on it was drawn anew
+          // at each size (see CalmPageTransitionsBuilder).
+          return Transform.translate(offset: Offset(0, 18 * (1 - _s.value)), child: child);
         },
       ),
     );

@@ -227,30 +227,52 @@ class _SceneGroundPainter extends BoxPainter {
   void paint(Canvas canvas, Offset offset, ImageConfiguration configuration) {
     final size = configuration.size;
     if (size == null || size.isEmpty) return;
-    final rect = offset & size;
-    final dpr = configuration.devicePixelRatio ?? 1;
-    // Its painting on its way: the plain ground meanwhile, a moment, once.
-    if (_artPending(d.scene)) {
-      _loadArt(d.scene);
-      canvas.drawRect(rect, Paint()..shader = d.base.createShader(rect));
-      return;
-    }
-    final image = sceneImages ? sceneBackdrop(d.scene, _canvasFor(size), dpr) : null;
-    if (image == null) {
-      canvas.save();
-      canvas.clipRect(rect);
-      canvas.translate(offset.dx, offset.dy);
-      paintBackdrop(canvas, size, d.scene);
-      canvas.restore();
-      return;
-    }
-    canvas.drawImageRect(
-      image,
-      Rect.fromLTWH(0, 0, size.width * dpr, size.height * dpr),
-      rect,
-      Paint()..filterQuality = FilterQuality.low,
-    );
+    paintSceneGround(canvas, offset & size, d, configuration.devicePixelRatio ?? 1);
   }
+}
+
+/// [ground] laid over [rect] on [canvas], at [opacity] and with [blend]
+/// (over a screen going, or in behind a shelf's foot): one draw, its
+/// opacity and blend in the paint, so the GPU draws nothing offscreen for
+/// it. With [only], just that part of it (no clip, no fill of the rest).
+void paintSceneGround(Canvas canvas, Rect rect, SceneGround ground, double dpr,
+    {double opacity = 1, BlendMode blend = BlendMode.srcOver, Rect? only}) {
+  final size = rect.size;
+  final area = only == null ? rect : rect.intersect(only);
+  if (area.isEmpty) return;
+  final paint = Paint()
+    ..color = Color.fromRGBO(0, 0, 0, opacity)
+    ..blendMode = blend;
+  // Its painting on its way: the plain ground meanwhile, a moment, once.
+  if (_artPending(ground.scene)) {
+    _loadArt(ground.scene);
+    canvas.drawRect(area, paint..shader = ground.base.createShader(rect));
+    return;
+  }
+  final image = sceneImages ? sceneBackdrop(ground.scene, _canvasFor(size), dpr) : null;
+  if (image == null) {
+    // Drawn by hand, in many strokes (only where no image can be kept):
+    // gathered first when they must be faded or blended as one.
+    final plain = opacity >= 1 && blend == BlendMode.srcOver;
+    if (plain) {
+      canvas.save();
+    } else {
+      canvas.saveLayer(area, paint);
+    }
+    canvas.clipRect(area);
+    canvas.translate(rect.left, rect.top);
+    paintBackdrop(canvas, size, ground.scene);
+    canvas.restore();
+    return;
+  }
+  // The backdrop is drawn at the ground's size from the image's top left.
+  final from = (area.topLeft - rect.topLeft) * dpr;
+  canvas.drawImageRect(
+    image,
+    Rect.fromLTWH(from.dx, from.dy, area.width * dpr, area.height * dpr),
+    area,
+    paint..filterQuality = FilterQuality.low,
+  );
 }
 
 /// [scene]'s backdrop on [canvas], at [size]: its painting, where it has
@@ -1085,16 +1107,31 @@ void paintCoverFrame(Canvas c, Rect rect, Scene scene, double radius) {
 
 /// A frame drawn over a cover (or a tile) in [scene].
 class CoverFramePainter extends CustomPainter {
-  const CoverFramePainter(this.scene, this.radius);
+  const CoverFramePainter(this.scene, this.radius, {this.within});
 
   final Scene scene;
   final double radius;
 
-  @override
-  void paint(Canvas canvas, Size size) => paintCoverFrame(canvas, Offset.zero & size, scene, radius);
+  /// Corners the frame is kept inside (a tile's: a frame's outer edge and
+  /// its leaves reach a little past the box).
+  final BorderRadius? within;
 
   @override
-  bool shouldRepaint(CoverFramePainter old) => old.scene != scene || old.radius != radius;
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final within = this.within;
+    if (within == null) {
+      paintCoverFrame(canvas, rect, scene, radius);
+      return;
+    }
+    canvas.save();
+    canvas.clipRRect(within.toRRect(rect));
+    paintCoverFrame(canvas, rect, scene, radius);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(CoverFramePainter old) => old.scene != scene || old.radius != radius || old.within != within;
 }
 
 /// A panel of [scene]'s material: settings groups, the player, the dock,

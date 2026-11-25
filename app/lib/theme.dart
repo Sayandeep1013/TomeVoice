@@ -1156,8 +1156,13 @@ class Motion {
 }
 
 /// A fade-through: the screen below fades away, then the new one fades in
-/// while settling from a touch smaller. Every screen shares the same ground,
-/// so nothing slides across it; only what is on it changes.
+/// while rising the last little way into place. Every screen shares the same
+/// ground, so nothing slides across it; only what is on it changes.
+///
+/// It rises rather than grows: a screen drawn at a new size on every frame
+/// had each of its letters drawn anew at that size, frame after frame, for
+/// as long as it grew (the phone's renderer keeps letters by size), and
+/// that was the dropped frames of a book's page coming in.
 ///
 /// Android's predictive back still works: during the gesture the screen
 /// shrinks and fades with the finger, showing the one below.
@@ -1176,10 +1181,12 @@ class CalmPageTransitionsBuilder extends PageTransitionsBuilder {
   static const _arrive = Interval(0.3, 1, curve: Curves.easeOutCubic);
   // Leaving: gone in the first 30%, so the screen below can come back.
   static const _leave = Interval(0.7, 1);
-  // The screen grows the last little way to full size as it fades in.
-  static final _arriveScale =
-      Tween<double>(begin: 0.94, end: 1).chain(CurveTween(curve: const Interval(0.3, 1, curve: Motion.arrive)));
-  static final _leaveScale = Tween<double>(begin: 0.96, end: 1).chain(CurveTween(curve: _leave));
+  // The screen rises the last little way into place as it fades in, and
+  // sinks a little less as it goes (how far, in logical pixels).
+  static const _rise = 20.0;
+  static final _arriveRise =
+      Tween<double>(begin: _rise, end: 0).chain(CurveTween(curve: const Interval(0.3, 1, curve: Motion.arrive)));
+  static final _leaveRise = Tween<double>(begin: _rise * 0.6, end: 0).chain(CurveTween(curve: _leave));
   static final _gestureScale = Tween<double>(begin: 0.9, end: 1);
   // The screen below, while another arrives on top / leaves it.
   static final _makeWay = Tween<double>(begin: 1, end: 0).chain(CurveTween(curve: const Interval(0, 0.3)));
@@ -1200,17 +1207,19 @@ class CalmPageTransitionsBuilder extends PageTransitionsBuilder {
     final reduced = Motion.reduced(context);
     final leaving = animation.status == AnimationStatus.reverse;
     final Animation<double> opacity;
-    final Animation<double> scale;
+    // The screen's size (only under the finger) and how far it still has
+    // to rise.
+    var size = 1.0;
+    var rise = 0.0;
     if (gesture) {
       opacity = animation;
-      scale = animation.drive(_gestureScale);
+      size = _gestureScale.evaluate(animation);
     } else if (reduced) {
       // A short cross-fade, nothing moving.
       opacity = animation.drive(CurveTween(curve: leaving ? const Interval(0.5, 1) : const Interval(0, 0.5)));
-      scale = kAlwaysCompleteAnimation;
     } else {
       opacity = animation.drive(CurveTween(curve: leaving ? _leave : _arrive));
-      scale = animation.drive(leaving ? _leaveScale : _arriveScale);
+      rise = (leaving ? _leaveRise : _arriveRise).evaluate(animation);
     }
     final Animation<double> below = gesture || reduced
         ? kAlwaysCompleteAnimation
@@ -1241,16 +1250,20 @@ class CalmPageTransitionsBuilder extends PageTransitionsBuilder {
           children: [
             FadeTransition(
               opacity: fade,
-              child: ScaleTransition(scale: scale, child: child),
+              child: Transform(
+                alignment: Alignment.center,
+                transform: Matrix4.diagonal3Values(size, size, 1)..setTranslationRaw(0, rise, 0),
+                child: child,
+              ),
             ),
             Positioned.fill(
               child: IgnorePointer(
-                child: Opacity(
+                // Its opacity in its paint, never a layer (see paintGround).
+                // At rest it draws nothing: a book's page stays plain.
+                child: PaintedGround(
                   key: const ValueKey('transition ground'),
+                  ground: Skin.groundDecoration(context),
                   opacity: cover,
-                  // Only while it shows: at rest the screen has no ground
-                  // of the transition's in it (a book's page stays plain).
-                  child: cover > 0 ? DecoratedBox(decoration: Skin.groundDecoration(context)) : const SizedBox.shrink(),
                 ),
               ),
             ),
@@ -1417,6 +1430,88 @@ class _CapsuleState extends State<Capsule> {
     if (widget.onTap == null) return capsule;
     return Jelly(pressed: _down, child: tapTagged('button', widget.logName ?? '', capsule));
   }
+}
+
+/// [ground] (a screen's: [Skin.groundDecoration]) laid over [rect] on
+/// [canvas], at [opacity] and with [blend], in one draw with both in its
+/// paint. Over a whole screen, an Opacity round it had the GPU draw it
+/// offscreen and blend it back, frame after frame. With [only], just that
+/// part of it is drawn (a strip of a whole screen's ground), and nothing
+/// round it: no clip, no fill of the rest.
+void paintGround(Canvas canvas, Rect rect, Decoration ground, double dpr,
+    {double opacity = 1, BlendMode blend = BlendMode.srcOver, Rect? only}) {
+  final area = only == null ? rect : rect.intersect(only);
+  if (opacity <= 0 || area.isEmpty) return;
+  if (ground is SceneGround) {
+    paintSceneGround(canvas, rect, ground, dpr, opacity: opacity, blend: blend, only: area);
+    return;
+  }
+  if (ground is BoxDecoration &&
+      ground.image == null &&
+      ground.border == null &&
+      ground.borderRadius == null &&
+      ground.boxShadow == null &&
+      ground.backgroundBlendMode == null) {
+    final paint = Paint()..blendMode = blend;
+    if (ground.gradient case final gradient?) {
+      paint
+        ..shader = gradient.createShader(rect)
+        ..color = Color.fromRGBO(0, 0, 0, opacity);
+    } else {
+      final color = ground.color ?? Colors.transparent;
+      paint.color = color.withValues(alpha: color.a * opacity);
+    }
+    canvas.drawRect(area, paint);
+    return;
+  }
+  // Any other ground: its own painter, gathered first only when it must be
+  // faded or blended as one.
+  final plain = opacity >= 1 && blend == BlendMode.srcOver;
+  canvas.save();
+  if (area != rect) canvas.clipRect(area);
+  if (!plain) {
+    canvas.saveLayer(area, Paint()
+      ..color = Color.fromRGBO(0, 0, 0, opacity)
+      ..blendMode = blend);
+  }
+  final painter = ground.createBoxPainter();
+  painter.paint(canvas, rect.topLeft, ImageConfiguration(size: rect.size, devicePixelRatio: dpr));
+  painter.dispose();
+  if (!plain) canvas.restore();
+  canvas.restore();
+}
+
+/// A screen's [ground] painted where this is, at [opacity] and with [blend]
+/// (see [paintGround]): the page change lays it over a screen going, and
+/// [GroundFade] lays it in behind a shelf's foot.
+class PaintedGround extends StatelessWidget {
+  const PaintedGround({super.key, required this.ground, this.opacity = 1, this.blend = BlendMode.srcOver});
+
+  final Decoration ground;
+  final double opacity;
+  final BlendMode blend;
+
+  @override
+  Widget build(BuildContext context) =>
+      CustomPaint(painter: _GroundPainter(ground, MediaQuery.devicePixelRatioOf(context), opacity, blend));
+}
+
+class _GroundPainter extends CustomPainter {
+  // A scene's painting coming in later is drawn when it comes.
+  _GroundPainter(this.ground, this.dpr, this.opacity, this.blend) : super(repaint: sceneArtReady);
+
+  final Decoration ground;
+  final double dpr;
+  final double opacity;
+  final BlendMode blend;
+
+  @override
+  void paint(Canvas canvas, Size size) =>
+      paintGround(canvas, Offset.zero & size, ground, dpr, opacity: opacity, blend: blend);
+
+  @override
+  bool shouldRepaint(_GroundPainter old) =>
+      old.ground != ground || old.dpr != dpr || old.opacity != opacity || old.blend != blend;
 }
 
 /// A screen's ground with [child] on it; in a scene, what moves in the
