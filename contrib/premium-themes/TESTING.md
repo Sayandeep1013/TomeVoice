@@ -51,7 +51,7 @@ dart format --output=none --set-exit-if-changed `
   test\premium_themes_preview_test.dart
 ```
 
-PASS — `Formatted 3 files (0 changed in 0.04 seconds)`, exit 0. Log:
+PASS — `Formatted 3 files (0 changed in 0.07 seconds)`, exit 0. Log:
 `testing/new_files_format.log`.
 
 `app/lib/theme.dart` is deliberately excluded from this command. Its only edit
@@ -65,7 +65,7 @@ original formatting was preserved.
 flutter analyze --no-pub
 ```
 
-PASS — `No issues found! (ran in 42.1s)`, exit 0. Log:
+PASS — `No issues found! (ran in 13.0s)`, exit 0. Log:
 `testing/contribution_analyze.log`.
 
 ### 4. Relevant test suite
