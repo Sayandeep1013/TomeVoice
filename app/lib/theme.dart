@@ -602,7 +602,16 @@ class Skin {
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: inkColor,
-          side: BorderSide(color: outline),
+          // In a scene with controls of its own: its silver, or its gilt.
+          side: BorderSide(
+            color: switch (crafted) {
+              Scene.blackRose => const Color(0x99DDE4F4),
+              Scene.dragonSlate => const Color(0x88C9C7C0),
+              Scene.oldTome => const Color(0xAAD2AA5C),
+              _ => outline,
+            },
+            width: crafted == null ? 1 : 1.2,
+          ),
           shape: pill,
           padding: const EdgeInsets.symmetric(horizontal: Gap.xl, vertical: 14),
           textStyle: uiStyle(15, FontWeight.w600),
