@@ -26,6 +26,7 @@ import 'secret_shelf.dart';
 import 'settings_screen.dart';
 import 'shared_text.dart';
 import 'speech_service.dart';
+import 'scene.dart' show Scene, SketchDiscPainter, SketchFillPainter;
 import 'theme.dart';
 import 'ui.dart';
 import 'voices.dart';
@@ -1588,8 +1589,11 @@ class _CategoryTabsState extends State<_CategoryTabs> {
           borderRadius: BorderRadius.circular(Radii.pill),
           onTap: () => widget.onPick(i),
           onLongPress: widget.onManage,
-
-          child: Padding(
+          // On the board, the chosen shelf scribbled in with chalk once it
+          // has slid into place: not drawn anew at every frame of the slide.
+          child: CustomPaint(
+            painter: t >= 0.99 && Skin.sceneOf(context) == Scene.sketch ? SketchFillPainter(Skin.amber) : null,
+            child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: Gap.s),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -1625,6 +1629,7 @@ class _CategoryTabsState extends State<_CategoryTabs> {
                 ),
               ],
             ),
+          ),
           ),
         ),
       ),
@@ -1801,19 +1806,26 @@ class _ContinueDockState extends State<ContinueDock> {
                       child: InkWell(
                         customBorder: const CircleBorder(),
                         onTap: () => live == null ? widget.onPlay(e) : unawaited(live.toggle()),
-                        child: SizedBox(
+                        // On the board, a painted disc, as the reader's.
+                        child: CustomPaint(
+                          foregroundPainter: Skin.sceneOf(context) == Scene.sketch
+                              ? SketchDiscPainter(Skin.accentOf(context))
+                              : null,
+                          child: SizedBox(
                           width: 52,
                           height: 52,
                           child: AnimatedSwitcher(
                             duration: Motion.of(context, Motion.quick),
                             transitionBuilder: (child, a) => ScaleTransition(scale: a, child: child),
-                            child: Icon(
+                            child: Skin.icon(
+                              context,
                               live != null && playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
                               key: ValueKey(live != null && playing),
                               size: 32,
                               color: Skin.onAccentOf(context),
                             ),
                           ),
+                        ),
                         ),
                       ),
                     ),
