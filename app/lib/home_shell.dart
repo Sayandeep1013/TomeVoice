@@ -765,8 +765,8 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
                   shaderCallback: (r) => const LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [Color(0x00000000), Color(0x00000000), Color(0xCC000000)],
-                    stops: [0, 0.72, 1],
+                    colors: [Color(0x00000000), Color(0x00000000), Color(0xF2000000)],
+                    stops: [0, 0.6, 1],
                   ).createShader(r),
                   child: DecoratedBox(decoration: Skin.groundDecoration(context)),
                 ),

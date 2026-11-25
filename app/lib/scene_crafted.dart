@@ -731,3 +731,62 @@ class SceneFillPainter extends CustomPainter {
   @override
   bool shouldRepaint(SceneFillPainter old) => old.scene != scene || old.fill != fill;
 }
+
+// ---------------------------------------------------------------------------
+// Dividers.
+
+/// A divider of [scene]'s own across [s] (a group's rule in the drawer and
+/// in lists), matching its edges; false where its kin's is drawn.
+bool paintOwnDivider(Canvas c, Size s, Scene scene) {
+  final y = s.height / 2;
+  final m = Offset(s.width / 2, y);
+  switch (scene) {
+    case Scene.blackRose:
+      final silver = const Color(0xFFDDE4F4).withValues(alpha: 0.42);
+      c.drawLine(Offset(0, y), Offset(s.width, y),
+          Paint()
+            ..strokeWidth = 0.8
+            ..shader = ui.Gradient.linear(Offset(0, y), Offset(s.width, y),
+                [silver.withValues(alpha: 0), silver, silver, silver.withValues(alpha: 0)], const [0, 0.3, 0.7, 1]));
+      _jewel(c, m, silver.withValues(alpha: 0.7), const Color(0xFF0E1120));
+      return true;
+    case Scene.oldTome:
+      final g = _gilt.withValues(alpha: 0.5);
+      for (final dy in [-1.6, 1.6]) {
+        c.drawLine(Offset(4, y + dy), Offset(s.width - 4, y + dy), _stroke(g, dy < 0 ? 0.9 : 0.5));
+      }
+      c.drawCircle(m, 4.5, _fill(const Color(0xFF1C1108)));
+      c.drawPath(
+        Path()
+          ..moveTo(m.dx, m.dy - 3)
+          ..lineTo(m.dx + 3, m.dy)
+          ..lineTo(m.dx, m.dy + 3)
+          ..lineTo(m.dx - 3, m.dy)
+          ..close(),
+        _fill(_gilt.withValues(alpha: 0.85)),
+      );
+      return true;
+    case Scene.dragonSlate:
+      _chipped(c, Path()
+        ..moveTo(4, y)
+        ..lineTo(s.width - 4, y), _silverWorn.withValues(alpha: 0.4), 1, 9);
+      _light(c, m, 7, _ember.withValues(alpha: 0.35), mid: 0.2);
+      c.drawCircle(m, 1.4, _fill(const Color(0xFFFFC27A)));
+      return true;
+    case Scene.silverWitch:
+      final silver = const Color(0xFFC8D4E8).withValues(alpha: 0.4);
+      c.drawLine(Offset(0, y), Offset(s.width, y),
+          Paint()
+            ..strokeWidth = 0.7
+            ..shader = ui.Gradient.linear(Offset(0, y), Offset(s.width, y),
+                [silver.withValues(alpha: 0), silver, silver, silver.withValues(alpha: 0)], const [0, 0.3, 0.7, 1]));
+      c.drawCircle(m, 5, _fill(const Color(0xFF0A0F1B)));
+      c.drawPath(_moonPath(m, 3.6), _fill(const Color(0xFFF0F4FF).withValues(alpha: 0.85)));
+      for (final sx in [-1.0, 1.0]) {
+        _star4(c, m + Offset(sx * 14, 0), 2.2, silver.withValues(alpha: 0.8));
+      }
+      return true;
+    case Scene.forest || Scene.solar || Scene.dungeon || Scene.sketch:
+      return false;
+  }
+}

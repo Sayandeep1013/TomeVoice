@@ -2323,6 +2323,7 @@ class _DividerPainter extends CustomPainter {
   @override
   void paint(Canvas c, Size s) {
     final y = s.height / 2;
+    if (paintOwnDivider(c, s, scene)) return;
     switch (scene.kin) {
       case Scene.dungeon:
         final rune = _stroke(_k(scene, const Color(0xFF8A6A4A)).withValues(alpha: 0.55), 1.1);
