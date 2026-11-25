@@ -124,7 +124,9 @@ void main() {
 
   /// Let real file work finish, then the frame.
   Future<void> io(WidgetTester tester, {bool Function()? until}) async {
-    for (var i = 0; i < 60 && !(until?.call() ?? false); i++) {
+    // Waiting on [until]: up to 10 s for a slow disk, done the moment it
+    // holds. With none, the 1.5 s it always was.
+    for (var i = 0; i < (until == null ? 60 : 400) && !(until?.call() ?? false); i++) {
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 25)));
       await tester.pump();
     }

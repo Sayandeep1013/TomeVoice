@@ -294,29 +294,50 @@ void main() {
     tester.view.physicalSize = const Size(1080, 2340);
     tester.view.devicePixelRatio = 2.75;
     addTearDown(tester.view.reset);
-    Future<void> settle() async {
-      for (var i = 0; i < 20; i++) {
+    // The memory is read in isolates, off the test's clock: a few rounds,
+    // then on (up to some 8 s, for a slow disk) until [until] shows.
+    Future<void> settle({bool Function()? until}) async {
+      for (var i = 0; i < 100 && (i < 20 || !(until?.call() ?? true)); i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 40)));
         await tester.pump(const Duration(milliseconds: 50));
       }
     }
 
     await tester.pumpWidget(MaterialApp(home: WhosWhoScreen(bookTitle: 'Shadow Slave', memoryPath: path)));
-    await settle();
+    await settle(until: () => find.text('Sunless').evaluate().isNotEmpty);
     expect(find.text('Sunless'), findsOneWidget);
     expect(find.text('Places 1'), findsOneWidget);
     await tester.tap(find.text('Places 1'));
-    await settle();
+    await settle(until: () => find.text('Forgotten Shore').evaluate().isNotEmpty);
     expect(find.text('Sunless'), findsNothing);
     expect(find.text('Forgotten Shore'), findsOneWidget);
 
     await tester.tap(find.byTooltip('The memory graph'));
-    await settle();
+    await settle(until: () => find.text('Round Sunless').evaluate().isNotEmpty);
     expect(find.byType(MemoryGraphScreen), findsOneWidget);
     // It opens on the whole web, a chip away from round the main character.
     expect(find.text('Round Sunless'), findsOneWidget);
-    final painter = tester.widget<CustomPaint>(
+    GraphPainter graph() => tester.widget<CustomPaint>(
         find.descendant(of: find.byType(InteractiveViewer), matching: find.byType(CustomPaint)).first).painter as GraphPainter;
+    // The web at rest before Sunless is tapped where it is drawn: nothing
+    // loading (a second load, for the screen's shape, can come late on a
+    // slow machine and move the web) and Sunless still for 10 rounds, the
+    // 450 ms the web takes to move to its new places.
+    ({double x, double y})? was;
+    for (var i = 0, still = 0; i < 150 && still < 10; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 40)));
+      await tester.pump(const Duration(milliseconds: 50));
+      final p = graph();
+      final node = p.data.nodes.where((n) => n.name == 'Sunless').firstOrNull;
+      final now = node == null ? null : p.at[node.id];
+      final loading = find
+          .descendant(of: find.byType(MemoryGraphScreen), matching: find.byType(CircularProgressIndicator))
+          .evaluate()
+          .isNotEmpty;
+      still = !loading && now != null && now == was ? still + 1 : 0;
+      was = now;
+    }
+    final painter = graph();
     final sunny = painter.data.nodes.firstWhere((n) => n.name == 'Sunless');
     final at = painter.at[sunny.id]!;
     // Fitted to the screen: the canvas (a square of the layout's side) drawn
@@ -327,10 +348,8 @@ void main() {
     expect(scale, lessThan(1));
     await tester.tapAt(box.topLeft + Offset(at.x, at.y) * scale);
     await tester.pump();
-    for (var i = 0; i < 10; i++) {
-      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 40)));
-      await tester.pump(const Duration(milliseconds: 50));
-    }
+    // The node's links are read from the memory: on until they show.
+    await settle(until: () => find.text('Centre here').evaluate().isNotEmpty);
     expect(find.text('Sunless'), findsOneWidget);
     expect(find.text('Centre here'), findsOneWidget);
     expect(find.text('Linked with…'), findsOneWidget);
@@ -364,21 +383,23 @@ void main() {
     tester.view.physicalSize = const Size(1080, 2340);
     tester.view.devicePixelRatio = 2.75;
     addTearDown(tester.view.reset);
-    Future<void> settle() async {
-      for (var i = 0; i < 20; i++) {
+    // The memory is read in isolates, off the test's clock: a few rounds,
+    // then on (up to some 8 s, for a slow disk) until [until] shows.
+    Future<void> settle({bool Function()? until}) async {
+      for (var i = 0; i < 100 && (i < 20 || !(until?.call() ?? true)); i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 40)));
         await tester.pump(const Duration(milliseconds: 50));
       }
     }
 
     await tester.pumpWidget(MaterialApp(home: WhosWhoScreen(bookTitle: 'Shadow Slave', memoryPath: path)));
-    await settle();
+    await settle(until: () => find.textContaining('in 4 chapters, 1 to 4').evaluate().isNotEmpty);
     // Where each is in the book, on their row.
     expect(find.textContaining('in 4 chapters, 1 to 4'), findsOneWidget);
     await tester.tap(find.text('Sunless'));
-    await settle();
+    await settle(until: () => find.text('See their links').evaluate().isNotEmpty);
     await tester.tap(find.text('See their links'));
-    await settle();
+    await settle(until: () => find.widgetWithText(ChoiceChip, 'Round Sunless').evaluate().isNotEmpty);
     expect(find.byType(MemoryGraphScreen), findsOneWidget);
     expect(tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Round Sunless')).selected, isTrue);
     final painter = tester.widget<CustomPaint>(
