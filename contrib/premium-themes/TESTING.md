@@ -1,13 +1,14 @@
 # Testing record
 
-Scope: upstream `cf97d775fb3655b57fb7089b3dd85ab1b238b3e4`. All commands below
-were run on Windows with an isolated E-drive toolchain; no C-drive work files
-were created for this contribution.
+Scope: upstream `cf97d775fb3655b57fb7089b3dd85ab1b238b3e4`, the seven colour
+themes, and the two later full runtime scene themes. All commands below were
+run on Windows with an isolated E-drive toolchain; no C-drive work files were
+created for this contribution.
 
 ## Environment and why a scratch app is used
 
-- Contribution checkout: `E:\TomeVoice` (branch `main`, clean baseline at the
-  commit above before these changes).
+- Contribution checkout: `E:\TomeVoice` (branch `premium-themes`; baseline was
+  clean at the commit above before these changes).
 - Pinned SDK: `E:\TomeVoice\_theme_work\sdk` — Flutter 3.47.8 / Dart 3.13.7,
   matching `.github/workflows/build.yml`. Package cache:
   `E:\TomeVoice\_theme_work\pub-cache`.
@@ -28,9 +29,10 @@ scratch pubspec, stub and generated platform folders are not part of the diff.
 
 ## Commands and results
 
-All commands were run from the scratch app unless stated otherwise, with
-`PUB_CACHE=E:\TomeVoice\_theme_work\pub-cache` and the pinned SDK's `bin`
-directory first on `PATH`.
+All Flutter/Dart commands were run from the scratch app unless stated
+otherwise, with `PUB_CACHE=E:\TomeVoice\_theme_work\pub-cache`, `TEMP`/`TMP`
+under `E:\TomeVoice\_theme_work\scratch`, and the pinned SDK's `bin` directory
+first on PATH. `TOMEVOICE_PREVIEW_DIR` was unset for normal test runs.
 
 ### 1. Baseline before changing code
 
@@ -48,16 +50,19 @@ confirms the contrast suite was green before any palette was added.
 dart format --output=none --set-exit-if-changed `
   lib\premium_theme_palettes.dart `
   test\premium_themes_test.dart `
-  test\premium_themes_preview_test.dart
+  test\premium_themes_preview_test.dart `
+  test\scene_themes_preview_test.dart
 ```
 
-PASS — `Formatted 3 files (0 changed in 0.07 seconds)`, exit 0. Log:
-`testing/new_files_format.log`.
+PASS — `Formatted 4 files (0 changed) in 0.02 seconds`, exit 0. Logs:
+`testing/new_files_format.log` (seven-theme files) and
+`testing/scene_new_files_format.log` (final four-file check).
 
-`app/lib/theme.dart` is deliberately excluded from this command. Its only edit
-is the two-line hook; running Dart 3.13's formatter over the whole pre-existing
-file would create an unrelated 398-insertion/119-deletion rewrite, so the
-original formatting was preserved.
+The pre-existing Dart files are deliberately excluded from this command. Dart
+3.13's formatter rewrites many unrelated legacy lines in them, so their edits
+were reduced to semantic-only diffs instead: `theme.dart` 45+/1-,
+`scene.dart` 162+/9-, `brand.dart` 66+/0-, `scene_test.dart` 40+/0-. No behavior
+was dropped in that reduction; the full suite below proves it.
 
 ### 3. Static analysis
 
@@ -65,8 +70,9 @@ original formatting was preserved.
 flutter analyze --no-pub
 ```
 
-PASS — `No issues found! (ran in 13.0s)`, exit 0. Log:
-`testing/contribution_analyze.log`.
+PASS — `No issues found! (ran in 24.5s)`, exit 0. Logs:
+`testing/contribution_analyze.log` (seven themes) and
+`testing/scene_analyze.log` (final scene work).
 
 ### 4. Relevant test suite
 
@@ -77,16 +83,17 @@ flutter test --no-pub --reporter expanded `
   test\scene_test.dart `
   test\accessibility_test.dart `
   test\widget_test.dart `
-  test\premium_themes_preview_test.dart
+  test\premium_themes_preview_test.dart `
+  test\scene_themes_preview_test.dart
 ```
 
-PASS — `+198: All tests passed!`, exit 0, no skipped or expected-failure tests.
-Log: `testing/contribution_tests_final.log`.
+PASS — `+213: All tests passed!`, exit 0. No test was skipped, `.only`-ed,
+`xfail`-ed or commented out. Logs: `testing/contribution_tests_final.log`
+(seven themes, `+198`) and `testing/scene_tests_full.log` (final, `+213`).
 
-The count is 198 rather than the earlier 187 because the opt-in preview
-renderer now registers one test per supported theme brightness (12 tests)
-instead of a single no-op; all 12 are no-ops when `TOMEVOICE_PREVIEW_DIR` is
-unset, so the normal suite still writes nothing.
+The count is 213 because both opt-in preview renderers register no-op tests in
+the normal suite: 12 colour-theme brightness cases and 2 scene cases. They
+write nothing unless `TOMEVOICE_PREVIEW_DIR` is set.
 
 Coverage of the new behavior:
 
@@ -94,37 +101,70 @@ Coverage of the new behavior:
   `Palette.byId()`, all semantic fields present, contrast contract clean,
   brightness locks correct, and `Skin.themeFor()` maps palettes onto the real
   `ThemeData` controls.
-- `colours_test.dart` — the repository's own contrast/ink-order checks run over
-  `Palette.all`, so every new palette is included automatically.
-- `scene_test.dart`, `accessibility_test.dart`, `widget_test.dart` — adjacent
-  surface regression checks remain green with the extended registry.
-- `premium_themes_preview_test.dart` — no-op during the normal suite.
+- `colours_test.dart` — the repository's own contrast, ink-order and
+  hue-retention checks run over `Palette.all`, so every new palette is included
+  automatically. Gothic's initial `accentDeep` hue drifted 13.452° from its
+  accent; the palette value was changed from `0xFF8A6328` to `0xFF846626`,
+  bringing the drift to 4.08° with zero unmet contrast needs. The test was not
+  weakened. Log of the focused retest: `testing/scene_focused_tests.log`
+  (`+99: All tests passed!`).
+- `scene_test.dart` — new ids, the retired `scene-gothic` alias, dark-only
+  registration order, the still-motion gate, and the absence of a `LifePainter`
+  layer for Classic Renaissance while Gothic keeps its candlelight.
+- `accessibility_test.dart` and `widget_test.dart` — adjacent surface
+  regressions remain green with the extended registry and scenes.
+- Both preview tests — no-ops during the normal suite.
 
 ### 5. Preview generation
+
+Seven colour themes (12 brightness cases):
 
 ```powershell
 $env:TOMEVOICE_PREVIEW_DIR = 'E:\TomeVoice\contrib\premium-themes\previews'
 flutter test --no-pub --reporter expanded test\premium_themes_preview_test.dart
 ```
 
-PASS — `+12: All tests passed!`, exit 0, exactly 12 non-empty PNGs. Log:
-`testing/previews.log`. The renderer uses `Skin.themeFor()` and
-`Skin.groundFor()`; `toImage()`/`toByteData()` are awaited through
-`tester.runAsync()` so the Flutter test binding does not leave pending real
-async work at teardown.
+PASS — `+12: All tests passed!`, exit 0, exactly 12 non-empty PNGs, 720x440
+each. Log: `testing/previews.log`; pixel inspection:
+`testing/preview_inspection.log`.
 
-Decoded pixel inspection (2 px grid) confirmed both brightness families:
+Two runtime scene themes:
 
-- `arctic-silver-light.png`: `#F5F8FA` sheet, `#101820` ink, `#3C4A56` soft ink,
-  `#5FA8C9` accent.
-- `obsidian-luxe-dark.png`: `#080808` sheet, `#FBF4E5` ink, `#C6BCAB` soft ink,
-  `#D9B45E` accent.
+```powershell
+flutter test --no-pub --reporter expanded test\scene_themes_preview_test.dart
+```
 
-Log: `testing/preview_inspection.log`. The images are 720x440 each. Direct
-image viewing was unavailable in the agent model, so the inspection used
-`System.Drawing.Bitmap` pixel decoding rather than a visual guess.
+PASS — `+2: All tests passed!`, exit 0. Both PNGs are 720x1080:
 
-### 6. Diff hygiene
+- `previews/scene-gothic-cathedral-dark.png` — 831,056 bytes.
+- `previews/scene-classic-renaissance-dark.png` — 784,692 bytes.
+
+Logs: `testing/scene_previews.log` and
+`testing/scene_preview_inspection.log`. Unlike the colour previews, this
+renderer sets `Skin.palette` to the scene palette, paints the real
+`SceneGround`, waits on `sceneArtLoaded()`, and captures only after the real
+WebP has decoded. Decoded pixel grids show the Gothic dark ground
+`#120D09` with aged-gold `#E3C98D`, and the Renaissance ground `#16110A` with
+ochre `#E2BE86`.
+
+### 6. Runtime asset generation
+
+```powershell
+# from E:\TomeVoice
+python tools\scene_art.py
+```
+
+PASS — both WebPs were generated from their credited public-domain Wikimedia
+sources and decoded at 720x1600 by `app/lib/scene.dart`. Logs:
+`testing/scene_art_generation.log`. Assets:
+
+- `app/assets/scenes/gothic.webp` — 136,670 bytes.
+- `app/assets/scenes/classicRenaissance.webp` — 121,896 bytes.
+
+Both are declared by explicit path in `app/pubspec.yaml` and credited in
+`app/assets/licenses/third_party.txt`.
+
+### 7. Diff hygiene
 
 ```powershell
 # from E:\TomeVoice
@@ -133,23 +173,21 @@ git status --short
 git diff --stat
 ```
 
-PASS — `git diff --check` exit 0. `git status --short` shows only:
+PASS — `git diff --check` exit 0; the only output is Git's local CRLF notice for
+the contributor Markdown files, not a whitespace error. Logs:
+`testing/diff_check.log`, `testing/final_status.log`, and the final
+`testing/scene_diff_check.log`, `testing/scene_final_status.log`.
 
-```
- M app/lib/theme.dart
-?? app/lib/premium_theme_palettes.dart
-?? app/test/premium_themes_preview_test.dart
-?? app/test/premium_themes_test.dart
-?? contrib/
-```
-
-`git diff --stat` for the tracked existing file is `12 insertions(+), 1
-deletion(-)`. Logs: `testing/diff_check.log`, `testing/final_status.log`.
+The final `git status --short` contains only the theme-related source, tests,
+runtime assets, previews and documentation listed in `MODIFIED_FILES.md`. No
+screen, navigation, business-logic, audio, document, DB or API file is touched.
 
 ## Known environment notes
 
 - The scratch workaround is a local test harness only. The contribution adds no
-  dependency, changes no pubspec/lockfile, and ships no stub or generated
-  platform file.
-- All new runtime colors live in `app/lib/premium_theme_palettes.dart`; the
-  previews in `contrib/premium-themes/previews/` are documentation only.
+  dependency and ships no stub or generated platform file. Its only pubspec
+  change is two explicit WebP asset paths for the two scene backdrops.
+- The seven colour themes remain asset-free: their colours live in
+  `app/lib/premium_theme_palettes.dart` and their PNGs in `previews/` are
+  documentation only. The two scene themes intentionally add bundled WebP
+  backdrops, generated by `tools/scene_art.py` and credited in the app.

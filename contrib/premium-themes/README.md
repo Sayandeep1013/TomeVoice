@@ -1,18 +1,24 @@
 # Premium themes for TomeVoice
 
-Seven contributor colour themes for TomeVoice 2.6.6 (`cf97d77`). They are
-additions only: no screen, navigation route, business rule, audio/document
-pipeline, database, API, persistence format, existing palette or bundled asset
-is changed.
+Seven contributor colour themes and two full runtime scene themes for
+TomeVoice 2.6.6 (`cf97d77`). They are additions only: no screen, navigation
+route, business rule, audio/document pipeline, database, API, persistence
+format or existing palette is changed. The two scene themes add their own
+bundled WebP backdrops; the seven colour themes add none.
 
 ## What is delivered
 
 | Path | Purpose |
 | --- | --- |
 | `../../app/lib/premium_theme_palettes.dart` | The seven `Palette` definitions and `PremiumThemes.all` |
-| `../../app/lib/theme.dart` | Two-line registration hook (see `MODIFIED_FILES.md`) |
+| `../../app/lib/theme.dart` | Palette registration plus the two scene palettes (see `MODIFIED_FILES.md`) |
+| `../../app/lib/scene.dart` | Scene enum entries, art loading, custom scene glyphs and the still-motion gate |
+| `../../app/lib/brand.dart` | Custom icon rims for the two scenes |
+| `../../app/assets/scenes/gothic.webp` | Gothic cathedral backdrop |
+| `../../app/assets/scenes/classicRenaissance.webp` | Still Renaissance interior backdrop |
 | `../../app/test/premium_themes_test.dart` | Registration, contrast, brightness-lock and `ThemeData` mapping checks |
-| `../../app/test/premium_themes_preview_test.dart` | Opt-in renderer for the PNG previews |
+| `../../app/test/premium_themes_preview_test.dart` | Opt-in renderer for the seven colour PNG previews |
+| `../../app/test/scene_themes_preview_test.dart` | Opt-in renderer for the two scene PNGs, loading the real WebPs |
 | `previews/` | Rendered previews, produced through `Skin.groundFor()` and `Skin.themeFor()` |
 | `architecture_report.md` | Exact theme architecture, interfaces and why the hook is minimal |
 | `INTEGRATION.md` | Apply/rollback instructions for the repository owner |
@@ -38,6 +44,8 @@ little to clear a contrast threshold.
 | Arctic Silver | `arctic-silver` | Cool white, silver and ice blue by day; charcoal by night | Ice blue `#5FA8C9` | Light + dark |
 | Mocha Atelier | `mocha-atelier` | Espresso, caramel, bronze and parchment; warm and bookish | Caramel `#C98A4B` | Light + dark |
 | Amethyst Noir | `amethyst-noir` | Violet-black with amethyst and lavender, silvered surfaces | Amethyst `#B994EA` | Dark only |
+| Gothic cathedral | `scene-gothic-cathedral` | A public-domain cathedral painting behind aged-gold stone, lancet icons and candlelight | Aged gold `#C9A85A` | Dark only |
+| Classic Renaissance | `scene-classic-renaissance` | A still late-Renaissance church interior in parchment and laurel, with no moving life layer | Ochre gold `#C79A5B` | Dark only |
 
 ### Obsidian Luxe
 
@@ -84,6 +92,25 @@ Violet-black grounds with amethyst, lavender and silver surfaces. It is dark
 only so the violet depth is preserved; the accent keeps its hue through the
 contrast fit instead of collapsing into a generic purple.
 
+### Gothic cathedral
+
+A full scene theme, not just a colour palette. Its backdrop is Paul Vredeman
+de Vries's public-domain "Interior of a Gothic Cathedral", cropped and graded
+for a phone screen by `tools/scene_art.py`. It reuses the dungeon's stone
+panels and buttons, turned towards aged gold and oxblood, but has its own
+lancet-arch empty state, crest, foot ornament and divider. The icon rim is a
+four-rivet aged-gold edge with small lancet arches. Candlelife moves as in the
+dungeon; nothing about the dungeon itself is changed.
+
+### Classic Renaissance
+
+A full scene theme built to be still. Its backdrop is Anthonie Palamedesz.'s
+public-domain-marked late-Renaissance church interior, cropped and graded by
+the same generator. The palette is parchment and laurel, the icon rim carries
+small laurel sprigs, and the ornaments are period leaves and an open book.
+`Scene.classicRenaissance.still` keeps `_SceneLifeState` from building a timer
+or a life layer at all, so its only motion is the app's normal navigation.
+
 ## Semantic coverage
 
 Because the app builds everything from `Palette` through `Skin.theme()`, each
@@ -98,7 +125,10 @@ book words.
 
 ## Assets
 
-No new runtime asset is needed. The architecture draws palette grounds and page
-textures in code, and only scene themes load bundled WebP art. The PNGs in
-`previews/` are documentation artefacts generated from the app's own theme APIs;
-they are not declared in `pubspec.yaml` and are not bundled into the app.
+The seven colour themes need no runtime asset: their grounds and page textures
+are drawn in code. The two scene themes add two public-domain WebP backdrops,
+generated reproducibly by `tools/scene_art.py`, declared explicitly in
+`app/pubspec.yaml` and credited in `app/assets/licenses/third_party.txt`. The
+PNG files in `previews/` are documentation artefacts from the opt-in preview
+tests; they are not declared in `pubspec.yaml` and are not bundled into the
+app. See `assets/README.md` for source and licence details.
