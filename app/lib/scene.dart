@@ -231,19 +231,22 @@ class _SceneGroundPainter extends BoxPainter {
   }
 }
 
-/// [ground] over [rect] on [canvas], at [opacity] and with [blend] (laid
-/// over a screen going, or in behind a shelf's foot): one draw, its opacity
-/// and blend in the paint, so the GPU draws nothing offscreen for it.
+/// [ground] laid over [rect] on [canvas], at [opacity] and with [blend]
+/// (over a screen going, or in behind a shelf's foot): one draw, its
+/// opacity and blend in the paint, so the GPU draws nothing offscreen for
+/// it. With [only], just that part of it (no clip, no fill of the rest).
 void paintSceneGround(Canvas canvas, Rect rect, SceneGround ground, double dpr,
-    {double opacity = 1, BlendMode blend = BlendMode.srcOver}) {
+    {double opacity = 1, BlendMode blend = BlendMode.srcOver, Rect? only}) {
   final size = rect.size;
+  final area = only == null ? rect : rect.intersect(only);
+  if (area.isEmpty) return;
   final paint = Paint()
     ..color = Color.fromRGBO(0, 0, 0, opacity)
     ..blendMode = blend;
   // Its painting on its way: the plain ground meanwhile, a moment, once.
   if (_artPending(ground.scene)) {
     _loadArt(ground.scene);
-    canvas.drawRect(rect, paint..shader = ground.base.createShader(rect));
+    canvas.drawRect(area, paint..shader = ground.base.createShader(rect));
     return;
   }
   final image = sceneImages ? sceneBackdrop(ground.scene, _canvasFor(size), dpr) : null;
@@ -254,18 +257,20 @@ void paintSceneGround(Canvas canvas, Rect rect, SceneGround ground, double dpr,
     if (plain) {
       canvas.save();
     } else {
-      canvas.saveLayer(rect, paint);
+      canvas.saveLayer(area, paint);
     }
-    canvas.clipRect(rect);
+    canvas.clipRect(area);
     canvas.translate(rect.left, rect.top);
     paintBackdrop(canvas, size, ground.scene);
     canvas.restore();
     return;
   }
+  // The backdrop is drawn at the ground's size from the image's top left.
+  final from = (area.topLeft - rect.topLeft) * dpr;
   canvas.drawImageRect(
     image,
-    Rect.fromLTWH(0, 0, size.width * dpr, size.height * dpr),
-    rect,
+    Rect.fromLTWH(from.dx, from.dy, area.width * dpr, area.height * dpr),
+    area,
     paint..filterQuality = FilterQuality.low,
   );
 }

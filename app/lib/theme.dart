@@ -1432,15 +1432,18 @@ class _CapsuleState extends State<Capsule> {
   }
 }
 
-/// [ground] (a screen's: [Skin.groundDecoration]) over [rect] on [canvas],
-/// at [opacity] and with [blend], in one draw with both in its paint. Over
-/// a whole screen, an Opacity round it had the GPU draw it offscreen and
-/// blend it back, frame after frame.
+/// [ground] (a screen's: [Skin.groundDecoration]) laid over [rect] on
+/// [canvas], at [opacity] and with [blend], in one draw with both in its
+/// paint. Over a whole screen, an Opacity round it had the GPU draw it
+/// offscreen and blend it back, frame after frame. With [only], just that
+/// part of it is drawn (a strip of a whole screen's ground), and nothing
+/// round it: no clip, no fill of the rest.
 void paintGround(Canvas canvas, Rect rect, Decoration ground, double dpr,
-    {double opacity = 1, BlendMode blend = BlendMode.srcOver}) {
-  if (opacity <= 0 || rect.isEmpty) return;
+    {double opacity = 1, BlendMode blend = BlendMode.srcOver, Rect? only}) {
+  final area = only == null ? rect : rect.intersect(only);
+  if (opacity <= 0 || area.isEmpty) return;
   if (ground is SceneGround) {
-    paintSceneGround(canvas, rect, ground, dpr, opacity: opacity, blend: blend);
+    paintSceneGround(canvas, rect, ground, dpr, opacity: opacity, blend: blend, only: area);
     return;
   }
   if (ground is BoxDecoration &&
@@ -1458,14 +1461,16 @@ void paintGround(Canvas canvas, Rect rect, Decoration ground, double dpr,
       final color = ground.color ?? Colors.transparent;
       paint.color = color.withValues(alpha: color.a * opacity);
     }
-    canvas.drawRect(rect, paint);
+    canvas.drawRect(area, paint);
     return;
   }
   // Any other ground: its own painter, gathered first only when it must be
   // faded or blended as one.
   final plain = opacity >= 1 && blend == BlendMode.srcOver;
+  canvas.save();
+  if (area != rect) canvas.clipRect(area);
   if (!plain) {
-    canvas.saveLayer(rect, Paint()
+    canvas.saveLayer(area, Paint()
       ..color = Color.fromRGBO(0, 0, 0, opacity)
       ..blendMode = blend);
   }
@@ -1473,6 +1478,7 @@ void paintGround(Canvas canvas, Rect rect, Decoration ground, double dpr,
   painter.paint(canvas, rect.topLeft, ImageConfiguration(size: rect.size, devicePixelRatio: dpr));
   painter.dispose();
   if (!plain) canvas.restore();
+  canvas.restore();
 }
 
 /// A screen's [ground] painted where this is, at [opacity] and with [blend]
