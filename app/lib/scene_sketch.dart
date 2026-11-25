@@ -402,3 +402,132 @@ void _sketchDivider(Canvas c, Size s) {
     ..moveTo(2, y)
     ..lineTo(s.width - 2, y), seed: s.width.round(), width: 1.2, alpha: 0.45, amp: 1.4, dust: false);
 }
+
+// ---------------------------------------------------------------------------
+// The player's icons and its play button, drawn by hand on the board: not
+// Material's icons roughened, but shapes of their own, a little uneven.
+
+/// The icons the board has its own drawing of, in a 24-unit box.
+Path? _sketchIconPath(IconData icon) {
+  Path tri(Offset a, Offset b, Offset c) => Path()
+    ..moveTo(a.dx, a.dy)
+    ..lineTo(b.dx, b.dy)
+    ..lineTo(c.dx, c.dy)
+    ..close();
+  Path bar(double x, double w) => Path()..addRRect(RRect.fromLTRBR(x, 5.5, x + w, 18.5, const Radius.circular(1.4)));
+  if (icon == Icons.play_arrow_rounded) return tri(const Offset(7.5, 5), const Offset(19, 12.2), const Offset(7.2, 19));
+  if (icon == Icons.pause_rounded) return bar(6.6, 3.8)..addPath(bar(13.8, 3.8), Offset.zero);
+  if (icon == Icons.skip_previous_rounded) {
+    return bar(5.5, 2.4)..addPath(tri(const Offset(18.5, 6), const Offset(9.2, 12.1), const Offset(18.3, 18)), Offset.zero);
+  }
+  if (icon == Icons.skip_next_rounded) {
+    return bar(16.1, 2.4)..addPath(tri(const Offset(5.5, 6), const Offset(14.8, 12.1), const Offset(5.7, 18)), Offset.zero);
+  }
+  if (icon == Icons.fast_rewind_rounded) {
+    return tri(const Offset(11.6, 6.4), const Offset(3.6, 12.1), const Offset(11.4, 17.8))
+      ..addPath(tri(const Offset(20.4, 6.4), const Offset(12.4, 12), const Offset(20.2, 17.6)), Offset.zero);
+  }
+  if (icon == Icons.fast_forward_rounded) {
+    return tri(const Offset(3.6, 6.4), const Offset(11.6, 12.1), const Offset(3.8, 17.8))
+      ..addPath(tri(const Offset(12.4, 6.4), const Offset(20.4, 12), const Offset(12.6, 17.6)), Offset.zero);
+  }
+  return null;
+}
+
+/// Whether the board draws [icon] itself.
+bool sketchDraws(IconData icon) => _sketchIconPath(icon) != null;
+
+/// [icon] painted in chalk, at the size and colour the icon theme gives
+/// (an IconButton's, its disabled colour too).
+class SketchIcon extends StatelessWidget {
+  const SketchIcon(this.icon, {super.key, this.size, this.color});
+
+  final IconData icon;
+  final double? size;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = IconTheme.of(context);
+    final s = size ?? theme.size ?? 24;
+    return SizedBox(
+      width: s,
+      height: s,
+      child: CustomPaint(painter: _SketchIconPainter(icon, color ?? theme.color ?? _chalk)),
+    );
+  }
+}
+
+class _SketchIconPainter extends CustomPainter {
+  const _SketchIconPainter(this.icon, this.color);
+
+  final IconData icon;
+  final Color color;
+
+  @override
+  void paint(Canvas c, Size s) {
+    final path = _sketchIconPath(icon);
+    if (path == null) return;
+    c.save();
+    c.scale(s.width / 24);
+    final seed = icon.codePoint;
+    // Painted in, unevenly, then gone round once more.
+    c.drawPath(_wobbly(path, seed, amp: 0.45, every: 2.5), _fill(color.withValues(alpha: color.a * 0.9)));
+    final r = math.Random(seed);
+    final holes = Float32List(60);
+    final b = path.getBounds();
+    for (var i = 0; i < 30; i++) {
+      holes[i * 2] = b.left + r.nextDouble() * b.width;
+      holes[i * 2 + 1] = b.top + r.nextDouble() * b.height;
+    }
+    c.save();
+    c.clipPath(path);
+    c.drawRawPoints(ui.PointMode.points, holes, Paint()
+      ..color = Colors.black.withValues(alpha: 0.28)
+      ..strokeWidth = 0.9
+      ..strokeCap = StrokeCap.round);
+    c.restore();
+    c.drawPath(_wobbly(path, seed + 3, amp: 0.55, every: 2.5), _stroke(color.withValues(alpha: color.a * 0.75), 1.1));
+    c.restore();
+  }
+
+  @override
+  bool shouldRepaint(_SketchIconPainter old) => old.icon != icon || old.color != color;
+}
+
+/// The play button's disc on the board: its fill's grain and an uneven chalk
+/// rim a little past its edge, as a hand paints a round button.
+class SketchDiscPainter extends CustomPainter {
+  const SketchDiscPainter(this.fill);
+
+  final Color fill;
+
+  @override
+  void paint(Canvas c, Size s) {
+    final m = Offset(s.width / 2, s.height / 2);
+    final rad = s.shortestSide / 2;
+    final r = math.Random(5);
+    final specks = Float32List(140);
+    for (var i = 0; i < 70; i++) {
+      final a = r.nextDouble() * math.pi * 2;
+      final d = math.sqrt(r.nextDouble()) * rad * 0.95;
+      specks[i * 2] = m.dx + math.cos(a) * d;
+      specks[i * 2 + 1] = m.dy + math.sin(a) * d;
+    }
+    c.drawRawPoints(ui.PointMode.points, specks, Paint()
+      ..color = Colors.black.withValues(alpha: 0.16)
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round);
+    paintChalk(c, Path()..addOval(Rect.fromCircle(center: m, radius: rad + 0.5)),
+        color: Color.lerp(fill, Colors.white, 0.5)!, width: 1.6, alpha: 0.75, seed: 8, amp: 1.6, dust: false);
+  }
+
+  @override
+  bool shouldRepaint(SketchDiscPainter old) => old.fill != fill;
+}
+
+/// [icon] as the board draws it, at [size], in [color] (for tests and
+/// previews: on screen it is [SketchIcon]).
+@visibleForTesting
+void paintSketchIcon(Canvas c, IconData icon, Size size, {Color color = _chalk}) =>
+    _SketchIconPainter(icon, color).paint(c, size);

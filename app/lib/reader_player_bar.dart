@@ -435,7 +435,7 @@ class ReaderPlayerBar extends StatelessWidget {
       iconSize: 26,
       color: onDark,
       disabledColor: onDark.withValues(alpha: 0.25),
-      icon: Icon(icon),
+      icon: Skin.icon(context, icon),
     );
   }
 

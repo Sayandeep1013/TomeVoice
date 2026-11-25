@@ -330,7 +330,7 @@ class NowPlayingScreen extends StatelessWidget {
         iconSize: 30,
         color: Colors.white,
         disabledColor: Colors.white.withValues(alpha: 0.25),
-        icon: Icon(icon),
+        icon: Builder(builder: (context) => Skin.icon(context, icon)),
       );
 
   Widget _chipText(String label) => Text(

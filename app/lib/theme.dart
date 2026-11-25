@@ -149,6 +149,13 @@ class Skin {
     );
   }
 
+  /// [icon], drawn by hand in the Sketch scene where it has a drawing of its
+  /// own (the player's), else the icon itself.
+  static Widget icon(BuildContext c, IconData icon, {Key? key, double? size, Color? color}) =>
+      sceneOf(c) == Scene.sketch && sketchDraws(icon)
+          ? SketchIcon(icon, key: key, size: size, color: color)
+          : Icon(icon, key: key, size: size, color: color);
+
   /// The scene where [c] is, when the theme is a scene theme (scene.dart).
   static Scene? sceneOf(BuildContext c) => paletteOf(c).scene;
 
@@ -988,12 +995,17 @@ class Palette {
     label: 'Sketch · chalk',
     day: [Color(0xFF1C1F22), Color(0xFF181A1D), Color(0xFF141618), Color(0xFF0F1012)],
     night: [Color(0xFF1C1F22), Color(0xFF181A1D), Color(0xFF141618), Color(0xFF0F1012)],
-    accent: Color(0xFFE5574A),
-    accentSoft: Color(0xFFF08A7E),
-    accentDeep: Color(0xFFA8352B),
+    // Dusty vermilion: the red of a painted call button.
+    accent: Color(0xFFD25B44),
+    accentSoft: Color(0xFFE58C76),
+    accentDeep: Color(0xFF9E3D2A),
     onAccent: Color(0xFF1C0907),
     nightCapsule: Color(0xF2222528),
     nightSheet: Color(0xFF121416),
+    // Warm ivory, as chalk is.
+    nightInk: Color(0xFFF0E9DA),
+    nightInkSoft: Color(0xFFCBC3B2),
+    nightInkFaint: Color(0xFF979082),
     only: Brightness.dark,
     scene: Scene.sketch,
   ));
