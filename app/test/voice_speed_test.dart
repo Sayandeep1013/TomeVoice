@@ -102,9 +102,17 @@ void main() {
       addTearDown(player.dispose);
       await player.play(0);
       await until(() => player.state.value == PlayState.playing && voices.asked.length >= 3);
+      // Past the chapter's heading: a sentence of the book is being heard.
+      await until(() => player.unit.value >= 1);
       final heardAt = <int>[];
-      voices.onCancel = () => heardAt.add(player.unit.value);
+      final queuedAt = <int>[];
+      voices.onCancel = () {
+        heardAt.add(player.unit.value);
+        queuedAt.add(voices.queued.length);
+      };
       final queuedBefore = voices.queued.length;
+      // Each of the book's sentences, made at 1x: eight words and a pause.
+      final whole = voices.queued.last.length;
 
       speed = 1.25;
       player.remake();
@@ -115,9 +123,10 @@ void main() {
       expect(after.where((a) => a.text == layout.units[heard].text), isEmpty,
           reason: 'the sentence being heard is not made again');
       expect(voices.queued.length, greaterThan(queuedBefore), reason: 'queued again, stretched');
-      final stretched = voices.queued[queuedBefore];
-      final made = voices.queued.first;
-      expect(stretched.length, lessThan(made.length), reason: 'faster is shorter');
+      // The first queued after the restart: the sentence heard, stretched.
+      final stretched = voices.queued[queuedAt.last];
+      expect(stretched.length, lessThan(whole * 0.9), reason: 'faster is shorter');
+      expect(stretched.length, greaterThan(whole * 0.7), reason: 'by the speed, not more');
       expect(player.state.value, PlayState.playing);
       // What comes after what was made is made at the new speed.
       await until(() => voices.asked.length > voices.askedAtCancel.last);
