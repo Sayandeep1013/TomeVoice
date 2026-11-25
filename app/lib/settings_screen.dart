@@ -1213,7 +1213,11 @@ class _DesignerSheet extends StatelessWidget {
   Widget _scenePreview(BuildContext context, Palette p) {
     final scene = p.scene!;
     final on = p.id == selected;
+    // Its own node (container): alone in its row (an odd count), a tile's
+    // was merged into the row's, as wide as the screen, and a tap on its
+    // middle missed it.
     return Semantics(
+      container: true,
       button: true,
       selected: on,
       label: '${p.label} scene',
