@@ -248,7 +248,9 @@ measured is a wish.
 cost on the UI thread with 1,000 books (`place_writes_test`,
 [11 §11.4](11-data-model-and-storage.md#114-places)), CPU and memory per voice on the
 developer's phone ([04 §4.5](04-tts-engine-contract.md#45-adapter-piper-via-sherpa-onnx)),
-and frame pacing on the phone (`dumpsys SurfaceFlinger --latency`) while scrolling. There
+and frame pacing on the phone (`dumpsys SurfaceFlinger --latency`) while scrolling, opening
+books and switching shelves, release against release, back to back on the same phone
+([09 C-39](09-challenges-and-solutions.md#c-39)). There
 is no crash reporting: errors go to a log on the phone that the reader can read and send
 (About, Report a problem).
 

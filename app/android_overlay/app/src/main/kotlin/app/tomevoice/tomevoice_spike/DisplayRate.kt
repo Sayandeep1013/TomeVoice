@@ -14,13 +14,14 @@ import kotlin.math.abs
  * keeps it, so each frame has twice the time (16.7 ms), and an animation that
  * would miss some 120 Hz beats runs at an even 60 instead.
  *
- * A launch can ask for it, to measure it on a phone (any build; nothing
- * else starts the app with this extra):
+ * A launch of the test app (app.tomevoice.test) can ask for it, to measure
+ * it on a phone; TomeVoice itself never reads the extra:
  *
- *   adb shell am start -n <pkg>/app.tomevoice.tomevoice_spike.MainActivity --es tv_rate 60
+ *   adb shell am start -n app.tomevoice.test/app.tomevoice.tomevoice_spike.MainActivity --es tv_rate 60
  */
 object DisplayRate {
     fun fromLaunch(activity: Activity, intent: Intent?) {
+        if (!activity.packageName.endsWith(".test")) return
         if (intent?.getStringExtra("tv_rate") == "60") steady(activity, true)
     }
 
