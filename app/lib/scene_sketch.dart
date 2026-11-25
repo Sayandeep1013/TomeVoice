@@ -172,20 +172,9 @@ Path _bookPath(Offset p, double w) {
   return path;
 }
 
-/// A loose spiral at [p], [r] across.
-Path _spiralPath(Offset p, double r) {
-  final path = Path();
-  for (var i = 0; i <= 60; i++) {
-    final a = i / 60 * math.pi * 5;
-    final q = p + Offset(math.cos(a), math.sin(a)) * (r * i / 60);
-    i == 0 ? path.moveTo(q.dx, q.dy) : path.lineTo(q.dx, q.dy);
-  }
-  return path;
-}
-
 /// The board's stars, where it draws them and its life twinkles them.
 List<(Offset, double)> _stars(Size s) =>
-    [(Offset(s.width - 100, 66), 9.0), (Offset(s.width - 22, 150), 6.0), (Offset(s.width - 132, 120), 5.0)];
+    [(Offset(s.width - 18, s.height * 0.39), 4.5), (Offset(s.width - 34, s.height * 0.42), 3.0), (Offset(s.width - 16, s.height * 0.53), 3.5)];
 
 /// The board, drawn once at the screen's size: slate, wiped-off smudges,
 /// grain, and a few doodles kept to the edges, never under a list.
@@ -231,24 +220,13 @@ class _Sketch {
     }
     _grain(c, s, r, dark: 0.28, light: 0.08, per: 9);
     // The doodles, faint, at the corners and edges.
-    const a = 0.3;
-    paintChalk(c, _moonPath(Offset(s.width - 48, 92), 18), alpha: a, seed: 1, width: 1.6);
+    // A faint moon and a few stars down the right edge: clear of the bars'
+    // buttons at the top and the player at the foot, and faint enough that
+    // a row's words over them still read. (A book, a wave and hatching drawn
+    // lower down sat under the chapter names: taken away.)
+    paintChalk(c, _moonPath(Offset(s.width - 24, s.height * 0.46), 12), alpha: 0.16, seed: 1, width: 1.4);
     for (final (p, k) in _stars(s)) {
-      paintChalk(c, _starPath(p, k), alpha: a, seed: p.dx.round(), width: 1.1, dust: false);
-    }
-    paintChalk(c, _spiralPath(Offset(26, s.height * 0.42), 14), alpha: a * 0.8, seed: 3, width: 1.2);
-    paintChalk(c, _bookPath(Offset(56, s.height - 132), 64), alpha: a, seed: 5, width: 1.4);
-    final wave = Path()..moveTo(s.width * 0.55, s.height - 72);
-    for (var x = s.width * 0.55; x <= s.width - 18; x += 8) {
-      wave.lineTo(x, s.height - 72 + math.sin(x / 9) * 3);
-    }
-    paintChalk(c, wave, alpha: a * 0.9, seed: 9, width: 1.3);
-    // Hatching, as a hand tries the chalk.
-    for (var i = 0; i < 5; i++) {
-      final x = s.width - 70 + i * 8.0;
-      paintChalk(c, Path()
-        ..moveTo(x, s.height - 118)
-        ..lineTo(x + 10, s.height - 136), alpha: a * 0.7, seed: 20 + i, width: 1.1, dust: false);
+      paintChalk(c, _starPath(p, k), alpha: 0.16, seed: p.dx.round(), width: 1.1, dust: false);
     }
     _vignette(c, s, edge: 0.7);
   }
@@ -261,7 +239,7 @@ void _sketchLife(Canvas c, Size s, double t) {
   final frame = (t * 6).floor();
   for (final (i, (p, k)) in _stars(s).indexed) {
     final glow = 0.5 + 0.5 * math.sin(t * 1.3 + i * 2.1);
-    paintChalk(c, _starPath(p, k), alpha: 0.2 + glow * 0.35, seed: frame * 3 + i, width: 1.3, amp: 1.2, dust: false);
+    paintChalk(c, _starPath(p, k), alpha: 0.1 + glow * 0.2, seed: frame * 3 + i, width: 1.2, amp: 1.0, dust: false);
   }
   for (var d = 0; d < 14; d++) {
     final seed = d * 13.7;

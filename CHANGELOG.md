@@ -16,7 +16,7 @@ Scanned books open at once, OCR reads them several times faster, and a new hand-
 - **A scan not read yet offers nothing it cannot do:** no AI memory, Talk or Save as audio until its pages have words.
 
 #### Sketch · chalk
-- **A new scene theme, drawn by hand:** chalk on a grainy slate, every line drawn twice by an unsteady hand, chalk dust along it, wiped-off smudges on the board and a few doodles at its edges. Dusty vermilion for what you press, warm ivory for the words, handwritten headings.
+- **A new scene theme, drawn by hand:** chalk on a grainy slate, every line drawn twice by an unsteady hand, chalk dust along it, wiped-off smudges on the board, a faint moon and stars at its edge. Dusty vermilion for what you press, warm ivory for the words, handwritten headings.
 - **The player's own drawings:** play, pause and skip are painted in chalk, and the play button is a painted red disc.
 - **The board's stars twinkle and boil** (redrawn by the hand a few times a second) and chalk dust drifts down; off with Settings > Appearance > Animations, as all motion is.
 - The page you read stays plain and clean.
