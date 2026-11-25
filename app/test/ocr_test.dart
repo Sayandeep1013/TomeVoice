@@ -308,36 +308,95 @@ void main() {
 
     Future<LibraryEntry> made(File pdf) => ocrBook(store, pdf);
 
-    test('a refused scan keeps its file, to be read with OCR', () async {
+    test('a scan goes on the shelf at once, as its pages, and OCR waits until it is wanted', () async {
       final f = picked('scan.pdf', utf8.encode('%PDF-1.4 a scan of pictures'));
       pdfs[f.path] = scanText(5);
-      final failed = store.importFile(PickedFile(path: f.path, name: 'scan.pdf'));
-      await expectLater(failed, throwsA(isA<ScannedPdf>()));
-      final scan = await failed.then<ScannedPdf?>((_) => null, onError: (Object e) => e as ScannedPdf);
-      expect(scan!.offer.path, f.path);
-      expect(scan.offer.imported, isFalse);
-      expect(scan.offer.pageCount, 5);
-      expect(f.existsSync(), isTrue, reason: 'kept for OCR');
-      expect(scan.message, contains('scanned'), reason: 'still says why, where OCR is not offered');
-      expect(await store.list(), isEmpty);
+      final offers = <OcrOffer>[];
+      final entry = await store.importFile(PickedFile(path: f.path, name: 'scan.pdf'), onScan: offers.add);
+      expect(entry.scan, isTrue);
+      expect(entry.wordCount, 0);
+      expect(entry.sourcePath, endsWith('/books/${entry.id}/source.pdf'));
+      expect(f.existsSync(), isFalse, reason: "the picker's copy goes, as any import's");
+      final listed = (await store.list()).single;
+      expect(listed.scan, isTrue, reason: 'kept in the index');
+      expect(LibraryEntry.fromJson(listed.toJson()).scan, isTrue);
 
-      await declineOcr(scan.offer);
-      expect(f.existsSync(), isFalse, reason: 'declined, the copy goes');
-      expect(f.parent.existsSync(), isFalse);
+      // Told, not asked: the offer is for its page and Listen.
+      expect(offers.single.imported, isTrue);
+      expect(offers.single.scan, isTrue);
+      expect(offers.single.bookId, entry.id);
+      expect(offers.single.pageCount, 5);
+
+      // Its pages, one place each, to be shown as they are.
+      final layout = await store.loadLayout(entry.id);
+      expect(isScanPagesBook(layout.book), isTrue);
+      expect(layout.units, hasLength(5));
+      expect(layout.hasPages, isTrue);
+      expect([for (var u = 0; u < 5; u++) layout.unitPage[u]], [0, 1, 2, 3, 4]);
+
+      // What OCR starts from is kept with it.
+      final offer = await store.ocrOfferFor(listed);
+      expect(offer!.scan, isTrue);
+      expect(offer.path, entry.sourcePath);
+      expect(ocrPagesToRead(offer.pdf), [0, 1, 2, 3, 4]);
     });
 
-    test("a refused scan's language is told by a name in its own script", () async {
-      Future<OcrOffer> refused(String name) async {
+    test("a scan's language is told by a name in its own script", () async {
+      Future<OcrOffer> offered(String name) async {
         final f = picked(name, utf8.encode('%PDF-1.4 $name'));
         pdfs[f.path] = scanText(3);
-        final scan = await store
-            .importFile(PickedFile(path: f.path, name: name))
-            .then<ScannedPdf?>((_) => null, onError: (Object e) => e as ScannedPdf);
-        return scan!.offer;
+        final offers = <OcrOffer>[];
+        await store.importFile(PickedFile(path: f.path, name: name), onScan: offers.add);
+        return offers.single;
       }
 
-      expect((await refused('সোনার তরী.pdf')).language, 'bn');
-      expect((await refused('The Lantern Keeper.pdf')).language, isNull, reason: 'Latin letters do not say which');
+      expect((await offered('সোনার তরী.pdf')).language, 'bn');
+      expect((await offered('The Lantern Keeper.pdf')).language, isNull, reason: 'Latin letters do not say which');
+    });
+
+    test('a scan read by OCR keeps the page it was left at', () async {
+      final f = picked('lantern.pdf', utf8.encode('%PDF-1.4 the lantern keeper, scanned'));
+      final pdf = scanText(12);
+      pdfs[f.path] = pdf;
+      final entry = await store.importFile(PickedFile(path: f.path, name: 'lantern.pdf'), onScan: (_) {});
+      final pages = await store.loadLayout(entry.id);
+      await store.saveCursor(entry.id, cursorOf(pages.units[7]), 0.6, layout: pages);
+
+      final dir = Directory('${tmp.path}/ocr/jobs/${entry.id}')..createSync(recursive: true);
+      File('${dir.path}/pdf.json').writeAsStringSync(jsonEncode(pdf));
+      File('${dir.path}/job.json').writeAsStringSync(jsonEncode({
+        'id': entry.id,
+        'name': 'lantern.pdf',
+        'source': entry.sourcePath,
+        'pages': [for (var p = 0; p < 12; p++) p],
+        'languages': 'eng',
+      }));
+      for (var p = 0; p < 12; p++) {
+        File('${dir.path}/pages/$p.txt')
+          ..createSync(recursive: true)
+          ..writeAsStringSync(ocrPage(p));
+      }
+      final made = await store.addOcrBook(dir.path);
+      expect(made.scan, isFalse, reason: 'a book like any other now');
+      expect((await store.list()).single.scan, isFalse);
+      expect(File('${store.bookDir(entry.id)}/pdf.json').existsSync(), isFalse);
+      final now = await store.loadLayout(entry.id);
+      expect(isScanPagesBook(now.book), isFalse);
+      final at = now.unitForCursor(await store.cursorFor(entry.id), saved: true);
+      expect(now.unitPage[at], 7, reason: 'the first sentence on the page it was left at');
+    });
+
+    test("a scan's bookmarks on every page, named for its pictures, are not its chapters", () {
+      final book = scanPagesBook(id: 'k', pages: 12, outline: [
+        for (var p = 0; p < 12; p++) (title: 'DSC0${1139 + p}.tif', page: p),
+      ]);
+      expect(book.sections, hasLength(1));
+      final chaptered = scanPagesBook(id: 'k', pages: 12, outline: [
+        (title: 'One', page: 0),
+        (title: 'Two', page: 5),
+      ]);
+      expect([for (final s in chaptered.sections) s.title], ['One', 'Two']);
+      expect(scanPageOf(chaptered, const ReadingCursor(sectionIndex: 1, blockIndex: 2)), 7);
     });
 
     test('a PDF with a few typed pages is imported, and OCR is offered for the rest', () async {

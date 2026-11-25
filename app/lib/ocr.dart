@@ -480,7 +480,14 @@ class OcrData extends ChangeNotifier {
 /// A PDF that could be read with OCR: one refused because its pages are
 /// pictures, or one imported with only a few pages of text.
 class OcrOffer {
-  const OcrOffer({required this.path, required this.name, required this.pdf, this.bookId, this.language});
+  const OcrOffer({
+    required this.path,
+    required this.name,
+    required this.pdf,
+    this.bookId,
+    this.language,
+    this.scan = false,
+  });
 
   /// The PDF: the picker's copy, when the scan was refused (kept for this,
   /// and gone when it is declined), or the book's own.
@@ -498,6 +505,10 @@ class OcrOffer {
 
   /// The book's language when known (ISO 639-1).
   final String? language;
+
+  /// The book on the shelf is a scan shown as its pages, none read yet
+  /// (LibraryEntry.scan): OCR is what lets it be listened to.
+  final bool scan;
 
   bool get imported => bookId != null;
 
