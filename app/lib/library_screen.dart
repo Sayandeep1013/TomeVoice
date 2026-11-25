@@ -26,7 +26,7 @@ import 'secret_shelf.dart';
 import 'settings_screen.dart';
 import 'shared_text.dart';
 import 'speech_service.dart';
-import 'scene.dart' show Scene, SketchDiscPainter, SketchFillPainter;
+import 'scene.dart' show Scene, SceneFillPainter, SketchDiscPainter, SketchFillPainter;
 import 'theme.dart';
 import 'ui.dart';
 import 'voices.dart';
@@ -1592,7 +1592,14 @@ class _CategoryTabsState extends State<_CategoryTabs> {
           // On the board, the chosen shelf scribbled in with chalk once it
           // has slid into place: not drawn anew at every frame of the slide.
           child: CustomPaint(
-            painter: t >= 0.99 && Skin.sceneOf(context) == Scene.sketch ? SketchFillPainter(Skin.amber) : null,
+            // In another scene, its own button: glass, leather, silver.
+            painter: t < 0.99
+                ? null
+                : switch (Skin.sceneOf(context)) {
+                    null => null,
+                    Scene.sketch => SketchFillPainter(Skin.amber),
+                    final Scene scene => SceneFillPainter(scene, Skin.amber),
+                  },
             child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: Gap.s),
             child: Row(

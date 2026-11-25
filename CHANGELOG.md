@@ -11,7 +11,7 @@ Three new scenes that dress the whole app, not only its backdrop, and natural vo
 
 #### Three new scenes
 - **Black rose:** black and blood-red roses on thorny vines at a moonlit cathedral window. Dark-red petals fall and turn, the moon's light breathes. Buttons are dark glass in chrome rims; panels, menus, sheets and dialogs have silver edges with filigree in their corners; the slider's knob is a glass orb.
-- **Dragon slate:** cracked charcoal slate with a dragon worn into it. Embers rise from the foot of the screen, now and then an ice-blue one. Buttons are chiselled slate; edges are worn silver, chipped here and there; the knob is slate with an ember at its heart.
+- **Silver dragon:** cracked charcoal slate with a dragon worn into it. Embers rise from the foot of the screen, now and then an ice-blue one. Buttons are chiselled slate; edges are worn silver, chipped here and there; the knob is slate with an ember at its heart.
 - **Old tome:** the worn leather cover of an old book, gilt tooling and brass corners. Dust drifts in candlelight. Buttons are tooled leather with stitches; edges are gilt rules with brass corner pieces; the knob is a brass stud.
 - In these three, the filled buttons, outlined buttons, menus, sheets, dialogs, the drawer and the slider take the scene's own look, not the plain app's. New lettering for each: Cormorant Garamond, Marcellus SC and IM Fell English.
 - Their paintings were made for TomeVoice with ChatGPT's image generation; the credits are under About → licences.

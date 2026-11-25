@@ -3,28 +3,26 @@ part of 'scene.dart';
 // What every scene makes its controls of, beyond its backdrop: the edges of
 // sheets, dialogs, menus, cards and the drawer (each scene its own: vines,
 // moon and stars, a hull's gold brackets, iron bands and rivets, chalk,
-// silver filigree, worn chipped silver, gilt and brass), the slider's knob,
-// and filled and outlined buttons. Black rose, Dragon slate and Old tome
-// also have buttons and panels of their own material (glass and chrome,
-// chiselled slate, tooled leather), and Silver witch its own buttons (frosted
-// moon-glass); the others keep their kin's.
+// silver filigree, engraved silver set with sapphires, gilt and brass), the
+// slider's knob, and filled and outlined buttons. Black rose, Silver dragon
+// and Old tome also have buttons and panels of their own material (glass and
+// chrome, polished silver on black velvet, tooled leather), and Silver witch
+// its own buttons (frosted moon-glass); the others keep their kin's.
 //
 // Textured pieces (buttons and panels, with their grain, pits and scuffs) are
 // drawn once for a size and kept as a picture, so a list scrolling over
 // many of them draws pictures, not hundreds of specks a frame.
 
 /// The scenes with buttons and panels of their own material.
-const craftedScenes = {Scene.blackRose, Scene.dragonSlate, Scene.oldTome};
+const craftedScenes = {Scene.blackRose, Scene.silverDragon, Scene.oldTome};
 
 /// Whether [scene] has buttons and panels of its own.
 bool isCrafted(Scene? scene) => scene != null && craftedScenes.contains(scene);
 
 const _chrome = [Color(0xFFF2F5FF), Color(0xFF6A7392), Color(0xFFE4E9F6), Color(0xFF3E445A)];
 const _moonSilver = [Color(0xFFF4F7FF), Color(0xFF8C9AB8), Color(0xFFDCE4F4), Color(0xFF56627E)];
-const _silverWorn = Color(0xFFC9C7C0);
 const _gilt = Color(0xFFD2AA5C);
 const _brass = [Color(0xFFE6C27A), Color(0xFFA87C34), Color(0xFF5E4018)];
-const _ember = Color(0xFFFF8A2A);
 
 // ---------------------------------------------------------------------------
 // Kept pictures.
@@ -83,48 +81,53 @@ void _button(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius radius) 
             0.3 + r.nextDouble() * 0.5, _fill(Colors.white.withValues(alpha: 0.12 + r.nextDouble() * 0.18)));
       }
       c.restore();
-    case Scene.dragonSlate:
-      // Slate, chiselled: lit along its top, sunk along its foot, a crack
-      // with fire in it, a worn silver edge chipped here and there.
+    case Scene.silverDragon:
+      // Polished silver, engraved: bright along its top, a fine engraved
+      // line inside its rim, a small sapphire set at its end when it is
+      // large enough. The accent itself is silver, so a filled one shines.
+      final silver = bright ? fill : Color.lerp(fill, const Color(0xFF2A2F38), 0.55)!;
+      if (bright) c.drawRRect(rr, _glow(const Color(0xFFDCE6F6).withValues(alpha: 0.35), 5));
       c.drawRRect(
         rr,
         Paint()
           ..shader = ui.Gradient.linear(rect.topCenter, rect.bottomCenter, [
-            Color.lerp(fill, Colors.white, bright ? 0.14 : 0.07)!,
-            fill,
-            Color.lerp(fill, Colors.black, bright ? 0.35 : 0.5)!,
+            Color.lerp(silver, Colors.white, bright ? 0.5 : 0.18)!,
+            silver,
+            Color.lerp(silver, Colors.black, bright ? 0.35 : 0.55)!,
+            Color.lerp(silver, Colors.white, bright ? 0.15 : 0.05)!,
           ], const [
             0,
-            0.5,
+            0.45,
+            0.85,
             1,
           ]),
       );
       c.save();
-      c.clipPath(path);
-      final r = math.Random((rect.width * 11 + rect.height).round());
-      for (var i = 0; i < (rect.width * rect.height / 120).clamp(4, 50); i++) {
-        c.drawCircle(Offset(rect.left + r.nextDouble() * rect.width, rect.top + r.nextDouble() * rect.height),
-            0.4 + r.nextDouble() * 0.9, _fill(Colors.black.withValues(alpha: bright ? 0.18 : 0.35)));
-      }
-      if (bright) {
-        c.drawRect(
-          rect,
-          Paint()
-            ..shader = ui.Gradient.radial(rect.center, rect.longestSide * 0.6,
-                [const Color(0xFFFFB050).withValues(alpha: 0.35), _ember.withValues(alpha: 0)]),
-        );
-      } else if (rect.width > 40) {
-        final from = Offset(rect.left + rect.width * (0.6 + r.nextDouble() * 0.3), rect.bottom);
-        final crack = _jagged(r, from, from + Offset(-8 - r.nextDouble() * 10, -rect.height * 0.55), steps: 4, wobble: 2);
-        c.drawPath(crack, _glow(_ember.withValues(alpha: 0.5), 2)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.6);
-        c.drawPath(crack, _stroke(const Color(0xFFFFC27A).withValues(alpha: 0.7), 0.6));
-      }
-      c.drawPath(path.shift(const Offset(0, 1.2)), _stroke(Colors.white.withValues(alpha: bright ? 0.28 : 0.12), 1.1));
-      c.drawPath(path.shift(const Offset(0, -1.4)), _stroke(Colors.black.withValues(alpha: 0.5), 1.4));
+      c.clipRRect(rr);
+      // A sheen across its upper half.
+      final sheen = Rect.fromLTRB(rect.left, rect.top, rect.right, rect.top + rect.height * 0.45);
+      c.drawRect(
+        sheen,
+        Paint()
+          ..shader = ui.Gradient.linear(sheen.topLeft, sheen.bottomRight,
+              [Colors.white.withValues(alpha: 0), Colors.white.withValues(alpha: bright ? 0.35 : 0.12), Colors.white.withValues(alpha: 0)], const [0.2, 0.5, 0.8]),
+      );
       c.restore();
-      _chipped(c, path, _silverWorn.withValues(alpha: bright ? 0.7 : 0.5), 1.0, (rect.width + rect.height).round());
+      if (rect.shortestSide > 18) {
+        c.drawRRect(rr.deflate(math.min(3.2, rect.shortestSide * 0.12)),
+            _stroke((bright ? const Color(0xFF3A4250) : const Color(0xFFE6ECF6)).withValues(alpha: bright ? 0.45 : 0.3), 0.7));
+      }
+      if (rect.width > 90 && rect.height > 30) {
+        _gem(c, Offset(rect.right - rect.height * 0.5, rect.center.dy), math.min(4.0, rect.height * 0.1));
+      }
+      c.drawRRect(
+        rr.deflate(0.7),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.4
+          ..shader = ui.Gradient.linear(rect.topLeft, rect.bottomRight, _chrome, const [0, 0.4, 0.62, 1]),
+      );
+
     case Scene.oldTome:
       // Leather (or gilt, when it is the accent), a tooled rule and
       // stitches round it.
@@ -244,38 +247,26 @@ void _panel(Canvas c, Rect rect, Scene scene, BorderRadius corners, {required bo
               [const Color(0xFFCFE0FF).withValues(alpha: 0.07), const Color(0xFFCFE0FF).withValues(alpha: 0)]),
       );
       c.restore();
-    case Scene.dragonSlate:
+    case Scene.silverDragon:
+      // Black velvet, as in a jewel case: deep, soft, its nap catching a
+      // little light along the top.
       c.drawRRect(
         rr,
         Paint()
           ..shader = ui.Gradient.linear(rect.topCenter, rect.bottomCenter,
-              [lit ? const Color(0xF2292A2E) : const Color(0xF2222326), const Color(0xF417181A), const Color(0xF6101113)], const [0, 0.5, 1]),
+              [lit ? const Color(0xF21C1F27) : const Color(0xF2171A21), const Color(0xF40E1015), const Color(0xF6090A0E)], const [0, 0.5, 1]),
       );
       c.save();
       c.clipRRect(rr);
-      final r = math.Random((rect.width * 17 + rect.height).round());
-      for (var i = 0; i < (rect.width * rect.height / 700).clamp(5, 80); i++) {
-        c.drawCircle(Offset(rect.left + r.nextDouble() * rect.width, rect.top + r.nextDouble() * rect.height),
-            0.5 + r.nextDouble() * 1.1, _fill(Colors.black.withValues(alpha: 0.32)));
-      }
-      if (rect.height > 30) {
-        // A crack from its top edge, fire deep in it.
-        final from = Offset(rect.left + rect.width * (0.55 + r.nextDouble() * 0.4), rect.top);
-        final crack = _jagged(r, from, from + Offset(-14 - r.nextDouble() * 24, math.min(rect.height * 0.6, 48)), steps: 6, wobble: 3);
-        c.drawPath(crack, _stroke(Colors.black.withValues(alpha: 0.7), 1.6));
-        c.drawPath(crack, _glow(_ember.withValues(alpha: lit ? 0.4 : 0.25), 2.5)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.2);
-      }
-      final foot = Rect.fromLTRB(rect.left, rect.bottom - math.min(rect.height * 0.5, 30), rect.right, rect.bottom);
+      final top = Rect.fromLTRB(rect.left, rect.top, rect.right, rect.top + math.min(rect.height * 0.35, 50));
       c.drawRect(
-        foot,
+        top,
         Paint()
-          ..shader = ui.Gradient.linear(foot.topCenter, foot.bottomCenter,
-              [_ember.withValues(alpha: 0), _ember.withValues(alpha: lit ? 0.14 : 0.06)]),
+          ..shader = ui.Gradient.linear(top.topCenter, top.bottomCenter,
+              [const Color(0xFFB8C6DC).withValues(alpha: lit ? 0.09 : 0.05), const Color(0xFFB8C6DC).withValues(alpha: 0)]),
       );
-      c.drawLine(Offset(rect.left + 6, rect.top + 1.2), Offset(rect.right - 6, rect.top + 1.2), _stroke(Colors.white.withValues(alpha: 0.1), 1.2));
       c.restore();
+
     case Scene.oldTome:
       c.drawRRect(
         rr,
@@ -353,25 +344,36 @@ void paintSceneEdge(Canvas c, Rect rect, Scene scene, BorderRadius corners, {boo
         c.drawCircle(b + const Offset(19, 0), 2.6, _fill(const Color(0xFF8E1F30)));
         c.drawCircle(b + const Offset(18.4, -0.8), 0.9, _fill(const Color(0xFFE88A9C).withValues(alpha: 0.7)));
       }
-    case Scene.dragonSlate:
-      _chipped(c, Path()..addRRect(rr.deflate(0.6)), _silverWorn.withValues(alpha: lit ? 0.6 : 0.42), 1.1, (rect.width * 3 + rect.height).round());
+    case Scene.silverDragon:
+      // A band of engraved silver: two fine rules, a row of scales
+      // engraved between them along the top, a sapphire in each corner,
+      // and a larger one at the top's middle in a silver setting.
+      final silver = const Color(0xFFDCE6F6).withValues(alpha: lit ? 0.75 : 0.55);
+      c.drawRRect(
+        rr.deflate(0.7),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2
+          ..shader = ui.Gradient.linear(rect.topLeft, rect.bottomRight, _chrome, const [0, 0.4, 0.62, 1]),
+      );
       if (!big) return;
-      final k = math.min(9.0, rect.shortestSide * 0.16);
-      for (final (p, dx, dy) in four) {
-        c.drawLine(p, p + Offset(k * dx, 0), _stroke(_silverWorn.withValues(alpha: 0.35), 0.9));
-        c.drawLine(p, p + Offset(0, k * dy), _stroke(_silverWorn.withValues(alpha: 0.35), 0.9));
+      c.drawRRect(rr.deflate(4.2), _stroke(silver.withValues(alpha: 0.28), 0.6));
+      if (wide) {
+        // Scales along the top, between the corners.
+        final y = rect.top + 2.4;
+        for (var x = rect.left + inset + 18; x < rect.right - inset - 18; x += 7) {
+          if ((x - rect.center.dx).abs() < 16) continue;
+          c.drawArc(Rect.fromCenter(center: Offset(x, y), width: 6, height: 4), 0, math.pi, false, _stroke(silver.withValues(alpha: 0.32), 0.6));
+        }
+        final m = Offset(rect.center.dx, rect.top + 1);
+        c.drawCircle(m, 6.2, _fill(const Color(0xFF0E1015)));
+        c.drawCircle(m, 6.2, _stroke(silver, 1));
+        _gem(c, m, 3.8);
       }
-      // Three claw marks raked across the top right.
-      final claw = rect.topRight + Offset(-inset - 26, inset + 2);
-      for (var i = 0; i < 3; i++) {
-        final a = claw + Offset(i * 5.0, 0);
-        c.drawLine(a, a + const Offset(9, 11), _stroke(_silverWorn.withValues(alpha: 0.22), 0.9));
+      for (final (p, _, _) in four) {
+        _gem(c, p, 2.4);
       }
-      // A seam of fire along the foot.
-      final y = rect.bottom - 1.2;
-      final x0 = rect.left + rect.width * 0.18, x1 = rect.left + rect.width * (wide ? 0.42 : 0.6);
-      c.drawLine(Offset(x0, y), Offset(x1, y), _glow(_ember.withValues(alpha: lit ? 0.6 : 0.35), 2.5)..strokeWidth = 1.6);
-      c.drawLine(Offset(x0 + 6, y), Offset(x1 - 6, y), _stroke(const Color(0xFFFFC27A).withValues(alpha: lit ? 0.7 : 0.45), 0.6));
+
     case Scene.oldTome:
       c.drawRRect(rr.deflate(0.6), _stroke(Colors.black.withValues(alpha: 0.6), 1.2));
       if (rect.shortestSide > 20) c.drawRRect(rr.deflate(3), _stroke(_gilt.withValues(alpha: lit ? 0.8 : 0.62), 1));
@@ -471,15 +473,13 @@ void paintSceneEdge(Canvas c, Rect rect, Scene scene, BorderRadius corners, {boo
           ..moveTo(p.dx + k * dx, p.dy)
           ..lineTo(p.dx, p.dy)
           ..lineTo(p.dx, p.dy + k * dy);
-        c.drawPath(b, _glow(gold.withValues(alpha: 0.4), 2)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2);
+        c.drawPath(b, _stroke(gold.withValues(alpha: 0.18), 3.5)..strokeJoin = StrokeJoin.miter);
         c.drawPath(b, _stroke(gold, 1.3)..strokeJoin = StrokeJoin.miter);
         c.drawCircle(p + Offset(k * 0.55 * dx, k * 0.55 * dy), 1.1, _fill(gold.withValues(alpha: 0.6)));
       }
       if (wide) {
         final m = Offset(rect.center.dx, rect.top + 0.8);
-        c.drawLine(m - const Offset(18, 0), m + const Offset(18, 0), _glow(gold, 3)..strokeWidth = 2);
+        c.drawLine(m - const Offset(18, 0), m + const Offset(18, 0), _stroke(gold.withValues(alpha: 0.3), 4));
         c.drawLine(m - const Offset(14, 0), m + const Offset(14, 0), _stroke(const Color(0xFFFFF0C8), 1));
       }
     case Scene.dungeon:
@@ -547,20 +547,6 @@ void _scroll(Canvas c, Offset p, double k, double dx, double dy, Color color) {
   c.drawCircle(p + Offset(k * 0.33 * dx, k * 0.33 * dy), 1.1, _fill(color));
 }
 
-/// [path] stroked in short worn runs with chips between them.
-void _chipped(Canvas c, Path path, Color color, double width, int seed) {
-  final r = math.Random(seed);
-  final paint = _stroke(color, width);
-  for (final m in path.computeMetrics()) {
-    var d = 0.0;
-    while (d < m.length) {
-      final run = 10 + r.nextDouble() * 34;
-      c.drawPath(m.extractPath(d, math.min(m.length, d + run)), paint);
-      d += run + 1 + r.nextDouble() * (r.nextDouble() < 0.2 ? 6 : 2);
-    }
-  }
-}
-
 /// [path] in dashes [on] long, [off] apart: stitches.
 void _dashed(Canvas c, Path path, Color color, double width, double on, double off) {
   final paint = _stroke(color, width)..strokeCap = StrokeCap.butt;
@@ -600,9 +586,15 @@ class SceneEdge extends OutlinedBorder {
   @override
   Path getOuterPath(Rect rect, {TextDirection? textDirection}) => _base.getOuterPath(rect, textDirection: textDirection);
 
+  // Drawn once for a size and kept: a sheet or a menu is drawn again on
+  // every frame it moves.
   @override
-  void paint(Canvas canvas, Rect rect, {TextDirection? textDirection}) =>
-      paintSceneEdge(canvas, rect, scene, borderRadius.resolve(textDirection));
+  void paint(Canvas canvas, Rect rect, {TextDirection? textDirection}) {
+    if (rect.isEmpty) return;
+    final corners = borderRadius.resolve(textDirection);
+    _keptPicture(canvas, 'e:${scene.name}:${_sizeKey(rect)}:${corners.topLeft.x.round()}:${corners.topRight.x.round()}:${corners.bottomLeft.x.round()}',
+        rect.topLeft, rect.size, (c, r) => paintSceneEdge(c, r, scene, corners));
+  }
 
   @override
   SceneEdge copyWith({BorderSide? side}) => SceneEdge(scene, borderRadius: borderRadius, side: side ?? this.side);
@@ -622,8 +614,8 @@ class SceneEdge extends OutlinedBorder {
 // The slider's knob.
 
 /// A slider's knob in [scene]: a glowing mushroom-light, a moon pearl, a
-/// small sun, an iron ring round a flame, a chalk ring, a glass orb, slate
-/// with an ember at its heart, a brass stud. It swells a little while held.
+/// small sun, an iron ring round a flame, a chalk ring, a glass orb, a
+/// sapphire in silver, a brass stud. It swells a little while held.
 class SceneKnobShape extends SliderComponentShape {
   const SceneKnobShape(this.scene, {this.radius = 10});
 
@@ -673,11 +665,11 @@ void paintKnob(Canvas c, Offset center, double r, Scene scene, Color colour) {
           ..strokeWidth = 1.4
           ..shader = ui.Gradient.linear(disc.topLeft, disc.bottomRight, _chrome, const [0, 0.4, 0.62, 1]),
       );
-    case Scene.dragonSlate:
-      c.drawCircle(center, r, Paint()..shader = ui.Gradient.linear(disc.topCenter, disc.bottomCenter, [const Color(0xFF3A3B3F), const Color(0xFF17181A)]));
-      c.drawCircle(center, r * 0.42, _glow(colour.withValues(alpha: 0.9), 2.5));
-      c.drawCircle(center, r * 0.22, _fill(Color.lerp(colour, Colors.white, 0.5)!));
-      _chipped(c, Path()..addOval(disc.deflate(0.6)), _silverWorn.withValues(alpha: 0.7), 1.1, 7);
+    case Scene.silverDragon:
+      // A faceted sapphire in a silver bezel.
+      c.drawCircle(center, r, Paint()..shader = ui.Gradient.linear(disc.topLeft, disc.bottomRight, _chrome, const [0, 0.4, 0.62, 1]));
+      _gem(c, center, r * 0.62);
+
     case Scene.oldTome:
       c.drawCircle(center, r, Paint()..shader = ui.Gradient.radial(center - Offset(r * 0.3, r * 0.35), r * 1.3, _brass, const [0, 0.55, 1]));
       c.drawCircle(center, r - 0.6, _stroke(Colors.black.withValues(alpha: 0.55), 1));
@@ -766,13 +758,16 @@ bool paintOwnDivider(Canvas c, Size s, Scene scene) {
         _fill(_gilt.withValues(alpha: 0.85)),
       );
       return true;
-    case Scene.dragonSlate:
-      _chipped(c, Path()
-        ..moveTo(4, y)
-        ..lineTo(s.width - 4, y), _silverWorn.withValues(alpha: 0.4), 1, 9);
-      _light(c, m, 7, _ember.withValues(alpha: 0.35), mid: 0.2);
-      c.drawCircle(m, 1.4, _fill(const Color(0xFFFFC27A)));
+    case Scene.silverDragon:
+      // A fine silver chain, a sapphire at its middle.
+      final silver = const Color(0xFFDCE6F6).withValues(alpha: 0.45);
+      for (var x = 6.0; x < s.width - 6; x += 7) {
+        if ((x - m.dx).abs() < 9) continue;
+        c.drawOval(Rect.fromCenter(center: Offset(x, y), width: 6, height: 3.2), _stroke(silver, 0.7));
+      }
+      _gem(c, m, 3.4);
       return true;
+
     case Scene.silverWitch:
       final silver = const Color(0xFFC8D4E8).withValues(alpha: 0.4);
       c.drawLine(Offset(0, y), Offset(s.width, y),
@@ -789,4 +784,164 @@ bool paintOwnDivider(Canvas c, Size s, Scene scene) {
     case Scene.forest || Scene.solar || Scene.dungeon || Scene.sketch:
       return false;
   }
+}
+
+/// A cut sapphire at [p], [r] across: deep blue, a lighter table, a glint.
+void _gem(Canvas c, Offset p, double r) {
+  final facets = Path();
+  for (var i = 0; i < 8; i++) {
+    final a = i * math.pi / 4 + math.pi / 8;
+    final q = p + Offset(math.cos(a), math.sin(a)) * r;
+    i == 0 ? facets.moveTo(q.dx, q.dy) : facets.lineTo(q.dx, q.dy);
+  }
+  facets.close();
+  c.drawPath(facets, Paint()..shader = ui.Gradient.radial(p - Offset(r * 0.3, r * 0.35), r * 1.3,
+      const [Color(0xFF9CC4FF), Color(0xFF2856C8), Color(0xFF0A1A4E)], const [0, 0.5, 1]));
+  c.drawPath(facets, _stroke(const Color(0xFFE6ECF6).withValues(alpha: 0.8), math.max(0.5, r * 0.14)));
+  c.drawCircle(p - Offset(r * 0.32, r * 0.32), math.max(0.6, r * 0.2), _fill(Colors.white.withValues(alpha: 0.9)));
+}
+
+// ---------------------------------------------------------------------------
+// The logo's rim.
+
+/// The app's logo tile ([shape] in [box], drawn at 512) rimmed in [scene]'s
+/// own material; false where its kin's rim is drawn.
+bool paintBrandRim(Canvas c, Rect box, Path shape, Scene scene) {
+  final List<Color> metal;
+  switch (scene) {
+    case Scene.blackRose:
+      metal = _chrome;
+    case Scene.silverWitch:
+      metal = _moonSilver;
+    case Scene.silverDragon:
+      metal = _chrome;
+    case Scene.oldTome:
+      metal = _brass;
+    case Scene.forest || Scene.solar || Scene.dungeon || Scene.sketch:
+      return false;
+  }
+  final stops = metal.length == 3 ? const [0.0, 0.55, 1.0] : const [0.0, 0.4, 0.62, 1.0];
+  c.drawPath(
+    shape,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 26
+      ..shader = ui.Gradient.linear(box.topLeft, box.bottomRight, metal, stops),
+  );
+  c.drawPath(shape, Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 3
+    ..color = Colors.black.withValues(alpha: 0.5));
+  switch (scene) {
+    case Scene.oldTome:
+      // Gilt stitches inside the brass.
+      _dashed(c, shape, _gilt.withValues(alpha: 0.7), 4, 14, 12);
+    case Scene.silverDragon:
+      for (final p in const [Offset(58, 58), Offset(454, 58), Offset(58, 454), Offset(454, 454)]) {
+        _gem(c, p, 14);
+      }
+    case Scene.blackRose || Scene.silverWitch || Scene.forest || Scene.solar || Scene.dungeon || Scene.sketch:
+      break;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// An empty screen's picture.
+
+/// Where in each painting an empty screen's cameo looks: the moon at the
+/// window, the cover's fleuron, the dragon's head, the forest's glade.
+Offset? _cameoAt(Scene scene) => switch (scene) {
+      Scene.blackRose => const Offset(0.84, 0.2),
+      Scene.oldTome => const Offset(0.5, 0.1),
+      Scene.silverDragon => const Offset(0.5, 0.36),
+      Scene.forest => const Offset(0.45, 0.55),
+      Scene.silverWitch => const Offset(0.4, 0.25),
+      Scene.solar => const Offset(0.22, 0.38),
+      Scene.dungeon => const Offset(0.5, 0.45),
+      Scene.sketch => null,
+    };
+
+/// An empty screen's picture in [scene]: a round cameo of its own painting,
+/// undimmed, in a rim of its material (rather than a small drawing); false
+/// where there is none (the chalk scene, or its painting not loaded).
+bool paintOwnEmpty(Canvas c, Size s, Scene scene) {
+  final at = _cameoAt(scene);
+  final art = _art[scene];
+  if (at == null || art == null) return false;
+  final r = s.shortestSide / 2 - 3;
+  final m = Offset(s.width / 2, s.height / 2);
+  // A square of the painting about [at], a fifth of its width across.
+  final side = art.width * 0.32;
+  final centre = Offset(art.width * at.dx, art.height * at.dy);
+  final src = Rect.fromCenter(center: centre, width: side, height: side)
+      .shift(Offset(
+        (side / 2 - centre.dx).clamp(0.0, double.infinity) - (centre.dx + side / 2 - art.width).clamp(0.0, double.infinity),
+        (side / 2 - centre.dy).clamp(0.0, double.infinity) - (centre.dy + side / 2 - art.height).clamp(0.0, double.infinity),
+      ));
+  final circle = Rect.fromCircle(center: m, radius: r);
+  c.save();
+  c.clipPath(Path()..addOval(circle));
+  c.drawImageRect(art, src, circle, Paint()..filterQuality = FilterQuality.medium);
+  c.drawRect(circle, Paint()..shader = ui.Gradient.radial(m, r, [Colors.black.withValues(alpha: 0), Colors.black.withValues(alpha: 0.45)], const [0.6, 1]));
+  c.restore();
+  paintSceneEdge(c, circle, scene, BorderRadius.circular(r));
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// The chosen row of a menu.
+
+/// The row you are on in the drawer, in [scene]: a bar of its material
+/// (its button, in a dark tint of [accent]) with its emblem at the end.
+class SceneSelectionPainter extends CustomPainter {
+  const SceneSelectionPainter(this.scene, this.accent);
+
+  final Scene scene;
+  final Color accent;
+
+  @override
+  void paint(Canvas c, Size size) {
+    final rect = Offset.zero & size;
+    paintButton(c, rect, scene, Color.lerp(const Color(0xFF14161C), accent, 0.26)!, BorderRadius.circular(size.height / 2));
+    final p = Offset(size.width - size.height * 0.62, size.height / 2);
+    switch (scene) {
+      case Scene.blackRose:
+        c.drawCircle(p, 4.2, _fill(const Color(0xFF8E1F30)));
+        c.drawCircle(p + const Offset(-1, -1.2), 1.5, _fill(const Color(0xFFE88A9C).withValues(alpha: 0.8)));
+        c.drawLine(p + const Offset(-4, 4), p + const Offset(-10, 9), _stroke(const Color(0xFFDDE4F4).withValues(alpha: 0.5), 0.9));
+      case Scene.silverDragon:
+        _gem(c, p, 4.4);
+      case Scene.oldTome:
+        c.drawPath(
+          Path()
+            ..moveTo(p.dx, p.dy - 4.5)
+            ..lineTo(p.dx + 4.5, p.dy)
+            ..lineTo(p.dx, p.dy + 4.5)
+            ..lineTo(p.dx - 4.5, p.dy)
+            ..close(),
+          _fill(_gilt),
+        );
+      case Scene.silverWitch:
+        c.drawPath(_moonPath(p, 4.6), _fill(const Color(0xFFF0F4FF).withValues(alpha: 0.9)));
+      case Scene.forest:
+        leafAt(c, p, 7, -0.8, math.Random(2), scene: scene);
+      case Scene.solar:
+        for (var i = 0; i < 8; i++) {
+          final a = i * math.pi / 4;
+          c.drawLine(p + Offset(math.cos(a), math.sin(a)) * 5, p + Offset(math.cos(a), math.sin(a)) * 7.5, _stroke(accent.withValues(alpha: 0.8), 1.1));
+        }
+        c.drawCircle(p, 3.8, _fill(accent));
+      case Scene.dungeon:
+        c.drawCircle(p, 3.2, Paint()..shader = ui.Gradient.radial(p - const Offset(1, 1), 4, [const Color(0xFFC07A40), const Color(0xFF5A2A12), const Color(0xFF140804)], const [0, 0.5, 1]));
+      case Scene.sketch:
+        paintChalk(c, Path()
+          ..moveTo(p.dx - 5, p.dy)
+          ..lineTo(p.dx - 1.5, p.dy + 4)
+          ..lineTo(p.dx + 5, p.dy - 5), width: 1.6, alpha: 0.9, seed: 4, amp: 0.8, dust: false);
+    }
+  }
+
+  @override
+  bool shouldRepaint(SceneSelectionPainter old) => old.scene != scene || old.accent != accent;
 }

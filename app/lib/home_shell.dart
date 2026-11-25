@@ -809,9 +809,16 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
         child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: Gap.m, vertical: 2),
         child: Material(
-          color: selected ? Skin.amber.withValues(alpha: 0.16) : Colors.transparent,
+          // In a scene, the row you are on is made of its material (glass,
+          // leather, silver...) with its emblem at the end; else a tint.
+          color: selected && Skin.sceneOf(context) == null ? Skin.amber.withValues(alpha: 0.16) : Colors.transparent,
           borderRadius: BorderRadius.circular(Radii.pill),
-          child: InkWell(
+          child: CustomPaint(
+            painter: switch (Skin.sceneOf(context)) {
+              final scene? when selected => SceneSelectionPainter(scene, Skin.amber),
+              _ => null,
+            },
+            child: InkWell(
             borderRadius: BorderRadius.circular(Radii.pill),
             onTap: onTap,
             child: Padding(
@@ -829,6 +836,7 @@ class _HomeShellState extends State<HomeShell> with WhenShown<HomeShell> {
                 ],
               ),
             ),
+          ),
           ),
         ),
       ),

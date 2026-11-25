@@ -72,8 +72,8 @@ SCENES = {
         'credit': 'Made for TomeVoice with ChatGPT image generation (OpenAI). Cropped and colour-graded.',
         'across': 0.45, 'brightness': 0.95, 'contrast': 1.06, 'colour': 0.95, 'tint': (0.97, 0.98, 1.04),
     },
-    'dragonSlate': {
-        'local': 'scene_sources/dragonSlate.webp',
+    'silverDragon': {
+        'local': 'scene_sources/silverDragon.webp',
         'credit': 'Made for TomeVoice with ChatGPT image generation (OpenAI). Cropped and colour-graded.',
         'across': 0.5, 'brightness': 0.9, 'contrast': 1.08, 'colour': 0.85, 'tint': (0.98, 0.98, 1.0),
     },

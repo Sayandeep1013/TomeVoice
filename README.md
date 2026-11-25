@@ -283,7 +283,7 @@ Not there yet: see [Not built yet](#not-built-yet).
 - **Scene themes:** a place behind every screen, the page you read left plain:
   Enchanted forest, Silver witch, Space · solar, Dungeon, Sketch · chalk (drawn by
   hand: chalk on a grainy slate, the player's buttons painted in chalk), and Black rose,
-  Dragon slate and Old tome, whose buttons, menus, sheets and slider are made of their own
+  Silver dragon and Old tome, whose buttons, menus, sheets and slider are made of their own
   glass, slate or leather.
 - **Gives you the voice controls readers don't:** speed (for every book, or this one
   only), pitch, the gap between words, and pauses at commas, sentences and paragraphs.
