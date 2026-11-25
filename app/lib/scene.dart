@@ -10,6 +10,7 @@ import 'package:flutter/services.dart' show rootBundle;
 
 import 'speech_service.dart';
 
+part 'scene_crafted.dart';
 part 'scene_sketch.dart';
 
 /// Scene themes: a place, not a colour. Each draws its own backdrop behind
@@ -1047,6 +1048,7 @@ void bracket(Canvas c, Offset corner, double len, double dx, double dy, Color co
 
 /// [scene]'s frame round a cover filling [rect], its corners [radius].
 void paintCoverFrame(Canvas c, Rect rect, Scene scene, double radius) {
+  if (_craftedCoverFrame(c, rect, scene, radius)) return;
   final t = (rect.width * 0.06).clamp(2.5, 9.0);
   switch (scene.kin) {
     case Scene.dungeon:
@@ -1226,6 +1228,7 @@ void paintPanel(Canvas c, Rect rect, Scene scene, BorderRadius corners, {bool li
       c.drawRRect(rr.shift(s.offset).inflate(s.spreadRadius), s.toPaint());
     }
   }
+  if (_craftedPanel(c, rect, scene, corners, lit: lit)) return;
   final r = math.Random((rect.width * 31 + rect.height).round());
   switch (scene.kin) {
     case Scene.dungeon:
@@ -1409,6 +1412,7 @@ class _SceneButtonPainter extends BoxPainter {
 
 /// A button of [scene]'s material at [rect].
 void paintButton(Canvas c, Rect rect, Scene scene, Color fill, BorderRadius radius) {
+  if (_craftedButton(c, rect, scene, fill, radius)) return;
   final path = scene.kin == Scene.solar
       ? cutPath(rect, math.min(8.0, rect.shortestSide * 0.3))
       : (Path()..addRRect(radius.toRRect(rect)));

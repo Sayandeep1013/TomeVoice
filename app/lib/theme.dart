@@ -420,6 +420,11 @@ class Skin {
     TextStyle uiStyle(double size, FontWeight w, [Color? color]) =>
         ui(size: size, weight: w, color: color ?? inkColor);
     final pill = RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.pill));
+    // A scene with controls of its own (scene_crafted.dart): its sheets,
+    // dialogs, menus and drawer edged in its material, its knob its own.
+    final scene = palette.scene;
+    final crafted = isCrafted(scene) ? scene : null;
+    ShapeBorder edged(BorderRadius r) => crafted == null ? RoundedRectangleBorder(borderRadius: r) : SceneEdge(crafted, borderRadius: r);
 
     return ThemeData(
       useMaterial3: true,
@@ -444,7 +449,7 @@ class Skin {
         thumbColor: dark ? amberSoft : slide,
         overlayColor: amber.withValues(alpha: 0.12),
         trackShape: const InsetTrackShape(),
-        thumbShape: const PillThumbShape(),
+        thumbShape: crafted == null ? const PillThumbShape() : SceneKnobShape(crafted),
         overlayShape: const RoundSliderOverlayShape(overlayRadius: 20),
         tickMarkShape: SliderTickMarkShape.noTickMark,
         activeTickMarkColor: Colors.transparent,
@@ -490,15 +495,13 @@ class Skin {
         dragHandleColor: inkColor.withValues(alpha: 0.22),
         dragHandleSize: const Size(36, 4),
         modalBarrierColor: Colors.black.withValues(alpha: 0.45),
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(Radii.card)),
-        ),
+        shape: edged(const BorderRadius.vertical(top: Radius.circular(Radii.card))),
         clipBehavior: Clip.antiAlias,
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: sheet,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.card)),
+        shape: edged(BorderRadius.circular(Radii.card)),
         titleTextStyle: TextStyle(
           fontFamily: titleFamily,
           fontSize: 24,
@@ -519,7 +522,7 @@ class Skin {
       popupMenuTheme: PopupMenuThemeData(
         color: sheet,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.row)),
+        shape: edged(BorderRadius.circular(Radii.row)),
         textStyle: uiStyle(15, FontWeight.w500),
         labelTextStyle: WidgetStatePropertyAll(uiStyle(15, FontWeight.w500)),
       ),
@@ -574,13 +577,19 @@ class Skin {
           shape: pill,
           padding: const EdgeInsets.symmetric(horizontal: Gap.xl, vertical: 14),
           textStyle: uiStyle(15, FontWeight.w700),
-          // On the board: scribbled in with chalk, a chalk rim round it.
+          // On the board: scribbled in with chalk, a chalk rim round it. In
+          // a scene with controls of its own: its glass, slate or leather.
           backgroundBuilder: palette.scene == Scene.sketch
               ? (context, states, child) => CustomPaint(
                     painter: states.contains(WidgetState.disabled) ? null : SketchFillPainter(amber),
                     child: child,
                   )
-              : null,
+              : crafted != null
+                  ? (context, states, child) => CustomPaint(
+                        painter: states.contains(WidgetState.disabled) ? null : SceneFillPainter(crafted, amber),
+                        child: child,
+                      )
+                  : null,
         ),
       ),
       textButtonTheme: TextButtonThemeData(
@@ -613,9 +622,7 @@ class Skin {
         backgroundColor: sheet,
         surfaceTintColor: Colors.transparent,
         width: 300,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.horizontal(right: Radius.circular(Radii.card)),
-        ),
+        shape: edged(const BorderRadius.horizontal(right: Radius.circular(Radii.card))),
       ),
       tooltipTheme: TooltipThemeData(
         decoration: BoxDecoration(
