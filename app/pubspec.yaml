@@ -68,6 +68,8 @@ flutter:
     - assets/fonts/OFL-UncialAntiqua.txt
     - assets/fonts/OFL-Almendra.txt
     - assets/fonts/OFL-Cinzel.txt
+    - assets/fonts/OFL-CormorantGaramond.txt
+    - assets/fonts/OFL-MarcellusSC.txt
     # The libraries LNReader source plugins use, and TomeVoice's host for
     # them (tools/lnreader_libs builds the first).
     - assets/js/lnreader_libs.js
@@ -138,3 +140,10 @@ flutter:
     - family: Cinzel
       fonts:
         - asset: assets/fonts/Cinzel-SemiBold.ttf
+    - family: CormorantGaramond
+      fonts:
+        - asset: assets/fonts/CormorantGaramond-SemiBold.ttf
+          weight: 600
+    - family: MarcellusSC
+      fonts:
+        - asset: assets/fonts/MarcellusSC-Regular.ttf

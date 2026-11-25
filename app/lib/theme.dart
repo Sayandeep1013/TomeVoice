@@ -247,6 +247,8 @@ class Skin {
       Scene.solar => ('Cinzel', 0.9, 0.05, FontWeight.w400),
       Scene.dungeon => ('PirataOne', 1.12, 0.01, FontWeight.w400),
       Scene.sketch => ('Caveat', 1.22, 0.0, FontWeight.w600),
+      Scene.blackRose => ('CormorantGaramond', 1.12, 0.01, FontWeight.w600),
+      Scene.dragonSlate => ('MarcellusSC', 0.94, 0.06, FontWeight.w400),
     };
     final s = size * scale;
     return TextStyle(
@@ -1017,7 +1019,48 @@ class Palette {
     scene: Scene.sketch,
   ));
 
-  static final scenes = [forestScene, silverWitch, solar, dungeon, sketch];
+  /// Black roses at a moonlit window: silver type, a blood-rose accent.
+  static final blackRose = readable(const Palette(
+    id: 'scene-black-rose',
+    label: 'Black rose',
+    day: [Color(0xFF0D0F1A), Color(0xFF0A0C16), Color(0xFF080911), Color(0xFF040509)],
+    night: [Color(0xFF0D0F1A), Color(0xFF0A0C16), Color(0xFF080911), Color(0xFF040509)],
+    accent: Color(0xFFD45C74),
+    accentSoft: Color(0xFFE88A9C),
+    accentDeep: Color(0xFF8E2438),
+    onAccent: Color(0xFF1A0609),
+    nightCapsule: Color(0xF2151828),
+    nightSheet: Color(0xFF080A13),
+    // Moonlit silver.
+    nightInk: Color(0xFFEEF1FA),
+    nightInkSoft: Color(0xFFC3CAE0),
+    nightInkFaint: Color(0xFF8E96AE),
+    only: Brightness.dark,
+    scene: Scene.blackRose,
+  ));
+
+  /// Cracked charcoal slate and a worn silver dragon: embers for its light.
+  static final dragonSlate = readable(const Palette(
+    id: 'scene-dragon-slate',
+    label: 'Dragon slate',
+    day: [Color(0xFF17181B), Color(0xFF131416), Color(0xFF0F1012), Color(0xFF09090A)],
+    night: [Color(0xFF17181B), Color(0xFF131416), Color(0xFF0F1012), Color(0xFF09090A)],
+    // An ember's gold.
+    accent: Color(0xFFE6A84E),
+    accentSoft: Color(0xFFF0C27E),
+    accentDeep: Color(0xFF9A6418),
+    onAccent: Color(0xFF1A1206),
+    nightCapsule: Color(0xF21D1E21),
+    nightSheet: Color(0xFF0C0D0E),
+    // Worn silver, as the dragon is.
+    nightInk: Color(0xFFEDEBE6),
+    nightInkSoft: Color(0xFFC4C2BC),
+    nightInkFaint: Color(0xFF8E8C87),
+    only: Brightness.dark,
+    scene: Scene.dragonSlate,
+  ));
+
+  static final scenes = [forestScene, silverWitch, solar, dungeon, sketch, blackRose, dragonSlate];
 
   static final all = [forest, lavender, ocean, black, paper, ...designer, ...scenes];
 

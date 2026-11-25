@@ -114,6 +114,8 @@ void _registerFontLicences() {
       ('Uncial Antiqua', 'UncialAntiqua'),
       ('Almendra', 'Almendra'),
       ('Cinzel', 'Cinzel'),
+      ('Cormorant Garamond', 'CormorantGaramond'),
+      ('Marcellus SC', 'MarcellusSC'),
     ]) {
       yield LicenseEntryWithLineBreaks(
         [family],

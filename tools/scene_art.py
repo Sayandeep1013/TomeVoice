@@ -65,6 +65,18 @@ SCENES = {
         'licences': {'Public domain'},
         'across': 0.25, 'trim': 0.01, 'brightness': 0.68, 'contrast': 1.12, 'colour': 0.3, 'tint': (0.82, 0.92, 1.1),
     },
+    # Made for TomeVoice with an image model (the owner's own account), from
+    # a brief of the scene; the original kept under tools/scene_sources.
+    'blackRose': {
+        'local': 'scene_sources/blackRose.png',
+        'credit': 'Made for TomeVoice with ChatGPT image generation (OpenAI). Cropped and colour-graded.',
+        'across': 0.5, 'brightness': 0.8, 'contrast': 1.08, 'colour': 0.9, 'tint': (0.96, 0.97, 1.04),
+    },
+    'dragonSlate': {
+        'local': 'scene_sources/dragonSlate.png',
+        'credit': 'Made for TomeVoice with ChatGPT image generation (OpenAI). Cropped and colour-graded.',
+        'across': 0.5, 'brightness': 0.8, 'contrast': 1.08, 'colour': 0.85, 'tint': (0.98, 0.98, 1.0),
+    },
 }
 
 
@@ -83,6 +95,10 @@ def fetch_bytes(url):
 
 
 def source(spec):
+    if 'local' in spec:
+        path = os.path.join(HERE, spec['local'])
+        print(f"{spec['local']}: made for TomeVoice")
+        return Image.open(path).convert('RGB')
     api = ('https://commons.wikimedia.org/w/api.php?action=query&format=json&prop=imageinfo'
            '&iiprop=url|size|extmetadata&iiextmetadatafilter=LicenseShortName&titles='
            + urllib.parse.quote('File:' + spec['file']))
