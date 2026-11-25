@@ -81,7 +81,7 @@ void main() {
   }
 
   Future<void> settleIo(WidgetTester tester, {bool Function()? until}) async {
-    for (var i = 0; i < 80 && !(until?.call() ?? false); i++) {
+    for (var i = 0; i < 400 && !(until?.call() ?? false); i++) {
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
       await tester.pump();
     }

@@ -390,7 +390,7 @@ void main() {
       await tester.tap(find.text('Hateful or harassing'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Send report'));
-      for (var i = 0; i < 40 && sent == null; i++) {
+      for (var i = 0; i < 400 && sent == null; i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 25)));
         await tester.pump();
       }

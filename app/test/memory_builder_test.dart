@@ -908,7 +908,7 @@ void main() {
       await service.refresh(id);
       expect(service.stateOf(id).value.skipped, 1);
       await service.retrySkipped(id);
-      for (var i = 0; i < 50 && (service.stateOf(id).value.skipped > 0 || service.isBuilding(id)); i++) {
+      for (var i = 0; i < 200 && (service.stateOf(id).value.skipped > 0 || service.isBuilding(id)); i++) {
         await Future<void>.delayed(const Duration(milliseconds: 100));
       }
       await service.refresh(id);

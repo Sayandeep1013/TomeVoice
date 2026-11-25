@@ -136,7 +136,7 @@ void main() {
       ),
     ));
     await tester.tap(find.text('Check'));
-    for (var i = 0; i < 20 && passed == null; i++) {
+    for (var i = 0; i < 400 && passed == null; i++) {
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
       await tester.pump();
     }

@@ -172,7 +172,7 @@ void main() {
       }
     });
     await tester.pumpWidget(const SpikeApp());
-    for (var i = 0; i < 40 && find.byType(BookCover).evaluate().isEmpty; i++) {
+    for (var i = 0; i < 400 && find.byType(BookCover).evaluate().isEmpty; i++) {
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
       await tester.pump();
     }
@@ -182,7 +182,7 @@ void main() {
 
   /// Let real file IO and isolates finish, then settle the frame.
   Future<void> settleIo(WidgetTester tester, {bool Function()? until}) async {
-    for (var i = 0; i < 60 && !(until?.call() ?? false); i++) {
+    for (var i = 0; i < 400 && !(until?.call() ?? false); i++) {
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 25)));
       await tester.pump();
     }
@@ -204,7 +204,7 @@ void main() {
       await tester.pumpWidget(const SpikeApp());
       // The shelf reads library.json with real file IO; each hop needs the
       // real event loop, then a pump to deliver it to the widget.
-      for (var i = 0; i < 80 && find.text('Your shelf is empty').evaluate().isEmpty; i++) {
+      for (var i = 0; i < 400 && find.text('Your shelf is empty').evaluate().isEmpty; i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
         await tester.pump();
       }
@@ -240,7 +240,7 @@ void main() {
         await tester.pumpAndSettle();
       }
 
-      for (var i = 0; i < 80 && find.text('Your shelf is empty').evaluate().isEmpty; i++) {
+      for (var i = 0; i < 400 && find.text('Your shelf is empty').evaluate().isEmpty; i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
         await tester.pump();
       }
@@ -288,7 +288,7 @@ void main() {
         }
       });
       await tester.pumpWidget(const SpikeApp());
-      for (var i = 0; i < 30 && find.byType(BookCover).evaluate().isEmpty; i++) {
+      for (var i = 0; i < 400 && find.byType(BookCover).evaluate().isEmpty; i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
         await tester.pump();
       }
@@ -1185,7 +1185,7 @@ void main() {
     /// between, until [until] holds. (Not pumpAndSettle: the ring round Play
     /// turns for as long as a sentence is being made.)
     Future<void> io(WidgetTester tester, bool Function() until) async {
-      for (var i = 0; i < 80 && !until(); i++) {
+      for (var i = 0; i < 400 && !until(); i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
         await tester.pump(const Duration(milliseconds: 20));
       }

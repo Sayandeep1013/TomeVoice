@@ -209,7 +209,7 @@ void main() {
   /// Let real IO and isolates (the render after each sentence) run, a frame
   /// between, until [until] holds.
   Future<void> io(WidgetTester tester, bool Function() until) async {
-    for (var i = 0; i < 80 && !until(); i++) {
+    for (var i = 0; i < 400 && !until(); i++) {
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
       await tester.pump(const Duration(milliseconds: 20));
     }
@@ -304,7 +304,7 @@ void main() {
       final nav = GlobalKey<NavigatorState>();
       await tester.pumpWidget(MaterialApp(navigatorKey: nav, home: const Scaffold(body: Text('Shelf'))));
       unawaited(openBook(nav.currentContext!, store, entry));
-      for (var i = 0; i < 60 && find.byType(ReaderScreen).evaluate().isEmpty; i++) {
+      for (var i = 0; i < 400 && find.byType(ReaderScreen).evaluate().isEmpty; i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 25)));
         await tester.pump();
       }

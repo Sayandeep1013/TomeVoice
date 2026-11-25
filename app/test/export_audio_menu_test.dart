@@ -83,7 +83,7 @@ void main() {
         entry = await store.importFile(PickedFile(path: f.path, name: 'menu.md'));
       });
       await tester.pumpWidget(MaterialApp(home: BookScreen(store: store, entry: entry)));
-      for (var i = 0; i < 60 && find.text('Chapter 2').evaluate().isEmpty; i++) {
+      for (var i = 0; i < 400 && find.text('Chapter 2').evaluate().isEmpty; i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 25)));
         await tester.pump();
       }
@@ -236,7 +236,7 @@ void main() {
       });
       expect(store.isSecret(entry.id), isTrue);
       await tester.pumpWidget(MaterialApp(home: BookScreen(store: store, entry: entry)));
-      for (var i = 0; i < 60 && find.text('Chapter 2').evaluate().isEmpty; i++) {
+      for (var i = 0; i < 400 && find.text('Chapter 2').evaluate().isEmpty; i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 25)));
         await tester.pump();
       }

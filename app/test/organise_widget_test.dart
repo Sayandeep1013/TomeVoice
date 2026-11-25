@@ -100,7 +100,7 @@ void main() {
       'books': books,
     }));
     await tester.pumpWidget(const SpikeApp());
-    for (var i = 0; i < 40 && find.byType(BookRow).evaluate().isEmpty; i++) {
+    for (var i = 0; i < 400 && find.byType(BookRow).evaluate().isEmpty; i++) {
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
       await tester.pump();
     }

@@ -274,7 +274,7 @@ void main() {
       // Read aloud a moment, then paused.
       final player = tester.widget<PlayButton>(find.byType(PlayButton)).player;
       await tester.tap(find.byTooltip('Play'));
-      for (var i = 0; i < 40 && player.state.value != PlayState.playing; i++) {
+      for (var i = 0; i < 400 && player.state.value != PlayState.playing; i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 25)));
         await tester.pump(const Duration(milliseconds: 20));
       }

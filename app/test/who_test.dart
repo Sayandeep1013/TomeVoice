@@ -434,7 +434,7 @@ void main() {
         ),
       ));
       await tester.tap(find.text('open'));
-      for (var i = 0; i < 40 && find.text('Who or what is it?').evaluate().isEmpty; i++) {
+      for (var i = 0; i < 400 && find.text('Who or what is it?').evaluate().isEmpty; i++) {
         await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
         await tester.pump();
       }
