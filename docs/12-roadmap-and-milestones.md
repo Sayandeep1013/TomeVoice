@@ -11,7 +11,7 @@ actually shipped is in the [changelog](../CHANGELOG.md).
 0.2 to 1.4.0, between 22 and 31 October 2026, Android only: the reader, the owned audio
 pipeline, system and natural voices, eleven formats, web novels, widgets, stats, secret
 shelves and backups; with 1.3.0 the fixes from a full review of the app on 30 October
-(its report is kept outside the repository); and with 1.4.0 everything that review asked
+(its market notes are kept privately); and with 1.4.0 everything that review asked
 for and every idea it listed that was chosen, from saving as audio, a voice for each
 character and an EPUB's own narration to sync, OCR, organising the library, reader
 comforts and your own colours. The [changelog](../CHANGELOG.md) has each release.

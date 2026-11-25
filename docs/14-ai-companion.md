@@ -1,8 +1,9 @@
 # 14 — AI Companion
 
-How TomeVoice's AI reading companion works, as of 2.0 (on the `ai-companion` branch,
-not yet released). It is written for readers who want to know what is sent where, and
-for contributors who want to find their way round `app/lib/ai/`.
+How TomeVoice's AI reading companion works, as of 2.6.6 (25 November 2026). It was
+first released in 2.0.0 (19 November 2026); what each release added is in the
+[changelog](../CHANGELOG.md). It is written for readers who want to know what is sent
+where, and for contributors who want to find their way round `app/lib/ai/`.
 
 The companion brings no AI of its own. There is no model on the phone and no TomeVoice
 server: the reader adds API keys from the providers they choose, and the app calls those
@@ -13,11 +14,12 @@ on the phone, in a SQLite file in the book's folder (`memory.db`).
 
 | Part | Where | What it does |
 |---|---|---|
-| Client | `ai/ai_client.dart` | One way to call a model: the OpenAI chat format (chat, streaming, JSON replies, tools, embeddings, the model list), over `dart:io` alone, so it runs the same in a background isolate and in the background worker's engine |
+| Client | `ai/ai_client.dart`, `ai/ai_anthropic.dart` | One way to call a model: the OpenAI chat format (chat, streaming, JSON replies, tools, embeddings, the model list), over `dart:io` alone, so it runs the same in a background isolate and in the background worker's engine; Claude through Anthropic's own Messages API (14.2) |
 | Key ring | `ai/ai_keys.dart` | The reader's keys, each job's order of them, why a key is resting or refused, and how much each has been used |
 | Router | `ai/ai_router.dart` | Makes a call with the first key of a job that can take it, resting or refusing keys as their providers answer |
-| AI page | `ai/ai_screen.dart` | Main menu → AI: keys, job order, the memories, Talk and building settings, what is sent |
-| Memory | `ai/memory/` | `memory_db.dart` (the file and its schema), `word_index.dart`, `memory_builder.dart`, `chapter_notes.dart` (the Builder's instructions and the reply's checks), `graph.dart` (the merge), `ledger.dart` (Who's who and the graph's data and layout), `meaning.dart`, `theories.dart`, `series.dart`, `hand_off.dart`, `memory_service.dart` (every book's memory, for the pages and the work), `memory_background.dart` (building with the app closed) and the screens |
+| AI settings | `ai/ai_screen.dart` | AI chat → the gear (Main menu → AI before 2.4.0): keys, job order, the memories, Talk and building settings, what is sent |
+| AI chat | `ai/chat/`, `ai/ai_chat_screen.dart` | Saved chats about one book, several or none, answered with tools (14.14) |
+| Memory | `ai/memory/` | `memory_db.dart` (the file and its schema), `word_index.dart`, `memory_builder.dart`, `chapter_notes.dart` (the Builder's instructions and the reply's checks), `graph.dart` (the merge), `ledger.dart` (Who's who and the graph's data and layout), `meaning.dart`, `theories.dart`, `series.dart` (carrying a cast over), `series_store.dart`, `series_db.dart`, `series_flow.dart` and `series_screen.dart` (series, 14.15), `hand_off.dart`, `memory_service.dart` (every book's memory, for the pages and the work), `memory_background.dart` (building with the app closed) and the screens |
 | Talk | `ai/talk/` | `answer_pack.dart` (what a question is answered from, and the tools), `talk_engine.dart`, `talk_sheet.dart`, `name_card.dart`, `talk_view.dart` (a kept talk, read again) |
 | Worker | `app/android_overlay/.../MemoryBuildWorker.kt` | WorkManager job that builds memories with TomeVoice closed |
 
@@ -30,21 +32,80 @@ their own kind.
 
 ## 14.2 Providers and the key ring
 
-**Providers.** Every provider offered speaks the OpenAI chat format, so one client
-serves them all:
+**Providers.** Nineteen providers are offered by name (`AiProvider` in `ai_keys.dart`),
+and any other service by its address. All but Claude speak the OpenAI chat format, so
+one client serves them; Claude is spoken to in Anthropic's own format. The picker (with
+a search since 2.6.3) gives each a note: what it costs, whether its free tier may use
+what is sent to improve its models, and whether the text passes through a relay on its
+way to the model.
 
-| Provider | Address | Meaning search |
-|---|---|---|
-| Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | yes |
-| Inception (Mercury) | `https://api.inceptionlabs.ai/v1` | no |
-| OpenRouter | `https://openrouter.ai/api/v1` | no |
-| Groq | `https://api.groq.com/openai/v1` | no |
-| OpenAI | `https://api.openai.com/v1` | yes |
-| Another service | the address the reader gives | if it has `/embeddings` |
+| Provider | Address | Meaning search | Since |
+|---|---|---|---|
+| Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | yes | 2.0.0 |
+| Inception (Mercury) | `https://api.inceptionlabs.ai/v1` | no | 2.0.0 |
+| OpenRouter | `https://openrouter.ai/api/v1` | no | 2.0.0 |
+| Groq | `https://api.groq.com/openai/v1` | no | 2.0.0 |
+| OpenAI | `https://api.openai.com/v1` | yes | 2.0.0 |
+| AgentRouter (a relay) | `https://agentrouter.org/v1` | no | 2.3.0 |
+| 100milionseek (a relay to DeepSeek models) | `https://100milionseek.top/v1` | no | 2.4.0 |
+| Anthropic (Claude) | `https://api.anthropic.com/v1` | no | 2.6.3 |
+| DeepSeek | `https://api.deepseek.com` | no | 2.6.3 |
+| Mistral | `https://api.mistral.ai/v1` | yes | 2.6.3 |
+| xAI (Grok) | `https://api.x.ai/v1` | no | 2.6.3 |
+| Z.ai (GLM) | `https://api.z.ai/api/paas/v4` | no | 2.6.3 |
+| Alibaba Cloud (Qwen) | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | yes | 2.6.3 |
+| Together AI | `https://api.together.ai/v1` | no | 2.6.3 |
+| Fireworks AI | `https://api.fireworks.ai/inference/v1` | yes | 2.6.3 |
+| Cerebras | `https://api.cerebras.ai/v1` | no | 2.6.3 |
+| Moonshot (Kimi) | `https://api.moonshot.ai/v1` | no | 2.6.3 |
+| Hugging Face (a relay) | `https://router.huggingface.co/v1` | no | 2.6.3 |
+| NVIDIA | `https://integrate.api.nvidia.com/v1` | no | 2.6.3 |
+| Another service | the address the reader gives | if it has `/embeddings` | 2.0.0 |
 
 Each request carries the key as a bearer token and an `X-Title: TomeVoice` header
-(OpenRouter shows the app's name on its usage page); nothing else about the reader goes
-with it.
+(OpenRouter shows the app's name on its usage page); Claude's carries the key as
+`x-api-key` and the API's version instead. Nothing else about the reader goes with it.
+
+**How each provider differs** (`AiStyle` in `ai_client.dart`). The twelve providers of
+2.6.3 were added after reading each one's own documentation on 24 November 2026 against
+what the client sends, and these differences were handled:
+
+- **No temperature** for Claude and Kimi. Current Claude models answer 400 to a
+  temperature below 1, and Kimi K3 fixes it at 1.0. The 0.1 to 0.3 the Builder and the
+  cast tidy ask for is left out for them.
+- **Claude in its own format** (`ai_anthropic.dart`, `POST /v1/messages`, with
+  `anthropic-version`). Anthropic's OpenAI-compatible endpoint turns down
+  `response_format: json_object` and a temperature below 1, and calls itself not meant
+  for production. The system prompt goes on its own, a reply's tool calls become
+  `tool_use` blocks and the tools' answers `tool_result` blocks, and a reply's own
+  blocks, its thinking among them, are sent back unchanged with the answers. Every call
+  leaves room for at least 4,096 tokens, since thinking counts towards the answer's
+  budget. The models are listed with `?limit=1000` (20 a page otherwise). The picker
+  asks for a key made for one workspace: any other key would need a workspace header
+  the app does not send.
+- **JSON.** Claude gets no `response_format`; the Builder's instructions ask for JSON in
+  any case. DeepSeek and Alibaba require the word "json" in the messages when
+  `json_object` is sent, and the instructions have it.
+- **Thinking sent back on tool calls** for DeepSeek, Kimi, AgentRouter and
+  100milionseek. DeepSeek and Kimi answer 400 to a tool loop whose assistant message has
+  lost its `reasoning_content`, and the two relays route to DeepSeek's models. DeepSeek's
+  thinking is also turned off for JSON calls (`"thinking": {"type": "disabled"}`), so
+  notes come faster and cost less.
+- **A fixed model list** where `/models` is missing or shaped differently: Z.ai, Alibaba
+  and Fireworks. **Check the key** then makes one small call with the first model
+  instead.
+- **Smaller embedding batches:** Alibaba's take at most 10 texts a call; every other
+  provider is sent up to 64. NVIDIA is not offered for meaning search, since its
+  embedding models need an `input_type` the app does not send.
+- **Only standard fields** go in the shared request body, since Fireworks refuses
+  unknown ones.
+
+**Not offered:** GitHub Models (retired on 30 July 2026); SambaNova (every model a
+preview not to be used in production, and a free tier of 20 requests a day per model,
+too few to build a memory); Perplexity (an aggregator like OpenRouter, gated by usage
+tier, with its model list outside its base address); Cohere (a trial key of 1,000 calls
+a month, and no model list in its compatibility API). The last three can still be added
+as another service, by their address.
 
 **Keys.** The reader may add as many keys as they like, from any providers, several
 from one provider among them. A key has a name, its provider, an address, the secret,
@@ -418,11 +479,10 @@ or **Talks**.
   story so far, the forty who matter most with how they stand and their relations, what
   is still unanswered, the reader's theories and journal. With the guard on it stops at
   the line and asks the other AI not to reveal anything after it.
-- **Series**: the Memory menu's **Follows on from another book…** carries the earlier
-  book's memory over (`followOn`): its entities with their names and how they stood at
-  its end, the relations that held, the threads left open, and its story as one account,
-  all placed before this book's first chapter (shown as "an earlier book"). The Builder
-  then links this book to them, and Talk knows them from the start.
+- **Series** (14.15): a later book of a series starts with the earlier books' cast,
+  how they stood, the threads left open and their story, all placed before its first
+  chapter (shown as "an earlier book"). The Builder then links this book to them, and
+  Talk knows them from the start and looks back into the earlier books' memories.
 
 ## 14.9 Who's who and the memory graph
 
@@ -481,6 +541,8 @@ the card's own chapters).
 | Each key's use, per day, thirty days | `.ai_usage.json` beside it, in internal storage; never backed up |
 | A book's memory | `books/<id>/memory.db` in the library folder; carried by backups |
 | Talks | `journal.json`, as entries with a `talk` list of lines |
+| AI chats | `chats/<id>.json` beside the library, one file a chat, and the notes the AI keeps about the reader in `chats/notes.json`; carried by backups (14.14) |
+| Series | `memory_series.json` beside the library (carried by backups); each series' All books memory in `memory_series/<id>.db`, made from the books' own and made again when one of them changes (14.15) |
 | Settings | `prefs.json`: `aiSpeak`, `aiLength`, `aiRecapDays`, `aiOwnKnowledge`, `aiBackground`, `aiBackgroundWifi`, `aiBackgroundCharging` |
 
 See [11 — Data Model & Storage](11-data-model-and-storage.md) for the rest of the files.
@@ -517,7 +579,8 @@ The companion is tested with a fake provider, an in-memory `memory.db` and fixed
   `follows_upto` (how far each was read, with the guard on) and `follows_seen` (a
   signature of each earlier memory: notes, cast, names' length, aliases, facts,
   relations, so a pause or a setting is not a change). Building a book whose series
-  (library series and number) has an earlier book with a memory offers it once.
+  (library series and number) has an earlier book with a memory offers it once. 2.5.0
+  turned these links into series of their own (14.15).
 - **Talk and earlier books** (`answer_pack.dart`): `earlierPack` adds the earlier books'
   cards for names asked about and passages for the question's words; the tool
   `search_earlier_books` searches their text. Their sources read "Title · ch N"; the
@@ -552,3 +615,111 @@ The companion is tested with a fake provider, an in-memory `memory.db` and fixed
 - Settled theories are told, not written into the journal.
 - Speech needs a recogniser on the phone (Google's speech services on most); a language
   not downloaded for offline use needs the internet.
+
+2.2.0 lifted two of these: a merge can be undone in Who's who, and a settled theory is
+written into the journal too.
+
+## 14.14 AI chat (2.4.0)
+
+**AI chat** (Main menu → AI chat; `ai/chat/`) is a conversation kept as a chat, about
+one book, several, a whole series, or none. It reuses Talk's memory queries but has its
+own engine (`ChatEngine`). A design that only enlarged Talk could not talk across books
+or carry on later. One that sent everything each time would cost too much and could
+only guess what to send on a long book. So the model looks things up with tools.
+
+**One turn:**
+
+1. The reader types, or speaks through the phone's own recogniser, as in the journal.
+2. A small pack goes first. For each book in scope that has a memory (four at most),
+   it holds the cards, passages and notes that match the question, within that book's
+   spoiler line, and then the journal entries that match.
+3. The Talking key's model may then call tools, for at most six rounds
+   (`ChatEngine.maxRounds`). After that it is told to answer from what it has found.
+   Every tool only reads, and the app keeps each book's line itself, never trusting
+   the model to:
+
+| Tool | What it gives |
+|---|---|
+| `list_books` | The books in scope: where the reader is in each, the spoiler line, whether a memory is built |
+| `search_text` | A book's text, for words or a quoted phrase |
+| `who_is` | A full card, by any name, alias or title |
+| `cast` | The most important people, places, groups or items so far |
+| `connections` | The memory graph round a name: every tie, how, and since when |
+| `events`, `thread` | What someone did, in order; a mystery or promise, step by step |
+| `chapter_notes`, `read_chapter` | Summaries of one chapter or up to ten; thirty passages of a chapter's own text |
+| `theories` | The reader's theories about the book, and how the story has treated each |
+| `search_journal` | The reader's journal |
+| `search_past_chats` | Earlier chats and Talk's talks, by their summaries |
+| `remember` | Keeps a short note about the reader, for later chats |
+
+**What the reader sees:**
+
+- Under each answer, what was looked at, in plain words ("Looked in: Who's who: Sunny ·
+  The graph around Cassie · Your journal").
+- Citations as chips ("ch 12", "Dune · ch 4") that open the book at that sentence. A
+  number that was never given is dropped.
+- Copy, Read aloud, Again and Report under each answer. Stop while it answers, which
+  stops the paid reply too.
+- A key whose provider turns tools down gets the pack alone, and is remembered for the
+  session, as in Talk.
+
+**Long chats.** The last ten messages are always sent as they were
+(`keptVerbatim`). Once sixteen more have gathered before them, the older part is
+folded into a running summary, one cheap call to the Building memories key. Leaving a
+chat with two or more answers also writes a summary of up to 150 words, which
+`search_past_chats` finds it by. The whole chat always stays in its file.
+
+**Where chats live.**
+
+- Each chat is its own file, `chats/<id>.json`, beside the library, so backups carry
+  it. AI chat lists them as Pinned, Today, This week and Earlier, with a search once
+  there are more than three; each can be renamed, pinned or deleted.
+- A chat about one book is kept in that book's journal as one entry (`chat-<id>`),
+  brought up to date as the chat goes on, unless talks are not kept in the journal.
+  Tapping the entry reopens the chat.
+- A question asked about one book is noted in its memory (`asked`), so it can say "you
+  asked about this before".
+- Notes made by `remember` are kept in `chats/notes.json`. They are sent at the start
+  of every chat, listed under What the AI remembers about you, and can be deleted one
+  by one or all at once, or turned off. A fact from a book's memory always wins over a
+  note, since the notes describe the reader, never the book.
+- **Deleting a chat** takes out only what it made: the chat and its summary, its
+  journal entry (the reader's own pages stay), the notes kept from it, the questions it
+  left in a book's memory, and the places other chats cite from it.
+
+**Cost.** A turn makes at most seven calls, and a summary one cheap call. Every call goes
+through the key ring, so daily caps and resting keys apply. The same safety rule,
+held-back check and Report as Talk apply. In the tests every AI call goes to a fake
+provider, so no credits are spent.
+
+## 14.15 Series (2.5.0)
+
+A **series** ties books whose memories are read together, in order.
+
+- **Each book keeps its own memory.** A series only ties them, so a book can be rebuilt,
+  forgotten or taken out without the others changing. A book is in one series at most.
+- **Where it is kept:** `memory_series.json` beside the library (an id, a name, and the
+  book ids in order), which backups carry (`series_store.dart`).
+- **Starting a memory** (from the book's page or the Memory screen's **New memory**)
+  asks "Does this carry on from another book?". Likely earlier books come first (same
+  library series, lower number), then any book by a search; "No, it starts fresh" is
+  one tap. Earlier books with no memory are queued and built first, in series order,
+  with one estimate for all (`series_flow.dart`).
+- **The book after** gets the earlier books' cast for name recognition and their story
+  so far before its first chapter (`followOnFromAll`, 14.12). Talk in book k uses books
+  1 to k, up to the reader's place; AI chat offers a series as one choice.
+- **The series page** (`series_screen.dart`) has a filter at the top: **All books**,
+  Book 1, Book 2, and so on. One book shows its own memory, as on its page. **All
+  books** shows Who's who, the graph, Chapter by chapter and Threads across the series.
+  It is a read-only memory made from the books' own (`series_db.dart`, in
+  `memory_series/<id>.db`), with each book's chapters after the one before ("Book 2 ·
+  …") and one entry for a person met in several books, matched by name. It is made
+  again when one of them changes; nothing is copied into the books' own memories. Find
+  where looks in each book.
+- **The spoiler line** follows the reader's place in the series: with a book's guard on,
+  nothing from a later book, or from later in the current one.
+- **The menu** renames the series, adds a book after the last, takes a book out (its
+  memory stays) or undoes the series (every memory stays). A book's Memory menu has
+  **Add to a series…**.
+- **Upgrading:** books linked the old way ("Follows on from another book…", 2.0 to 2.4)
+  were made into series once (`seriesFromOldLinks`).
