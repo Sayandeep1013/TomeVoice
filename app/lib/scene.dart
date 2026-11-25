@@ -1987,7 +1987,8 @@ void _solarLife(Canvas c, Size s, double t) {
 /// drifting low, and dark-red petals falling, each turning slowly as it
 /// sways, gone before it reaches the player.
 void _blackRoseLife(Canvas c, Size s, double t) {
-  _light(c, Offset(s.width * 0.74, s.height * 0.16), 120 + 12 * math.sin(t * 0.45),
+  // The painting's moon, at its window.
+  _light(c, Offset(s.width * 0.9, s.height * 0.19), 110 + 12 * math.sin(t * 0.45),
       const Color(0xFFD8E2FF).withValues(alpha: 0.08 + 0.035 * math.sin(t * 0.45)), mid: 0.25);
   for (var i = 0; i < 2; i++) {
     final y = s.height * (0.62 + i * 0.16);

@@ -68,18 +68,21 @@ SCENES = {
     # Made for TomeVoice with an image model (the owner's own account), from
     # a brief of the scene; the original kept under tools/scene_sources.
     'blackRose': {
-        'local': 'scene_sources/blackRose.png',
+        'local': 'scene_sources/blackRose.webp',
         'credit': 'Made for TomeVoice with ChatGPT image generation (OpenAI). Cropped and colour-graded.',
-        'across': 0.5, 'brightness': 0.8, 'contrast': 1.08, 'colour': 0.9, 'tint': (0.96, 0.97, 1.04),
+        'across': 0.45, 'brightness': 0.95, 'contrast': 1.06, 'colour': 0.95, 'tint': (0.97, 0.98, 1.04),
     },
     'dragonSlate': {
-        'local': 'scene_sources/dragonSlate.png',
+        'local': 'scene_sources/dragonSlate.webp',
         'credit': 'Made for TomeVoice with ChatGPT image generation (OpenAI). Cropped and colour-graded.',
-        'across': 0.5, 'brightness': 0.8, 'contrast': 1.08, 'colour': 0.85, 'tint': (0.98, 0.98, 1.0),
+        'across': 0.5, 'brightness': 0.9, 'contrast': 1.08, 'colour': 0.85, 'tint': (0.98, 0.98, 1.0),
     },
     'oldTome': {
-        'local': 'scene_sources/oldTome.png',
+        'local': 'scene_sources/oldTome.webp',
         'credit': 'Made for TomeVoice with ChatGPT image generation (OpenAI). Cropped and colour-graded.',
+        # A book's cover: its borders and corners kept whole, made taller
+        # by two of its plain bands mirrored, not cut at the sides.
+        'grow': [(0.24, 0.42), (0.58, 0.76)],
         'across': 0.5, 'brightness': 0.8, 'contrast': 1.08, 'colour': 0.9, 'tint': (1.0, 0.97, 0.92),
     },
 }
@@ -114,6 +117,44 @@ def source(spec):
         sys.exit(f"{spec['file']}: licence is now {licence!r}, not one of {sorted(spec['licences'])}; not used")
     print(f"{spec['file']}: {info['width']}x{info['height']}, {licence}")
     return Image.open(io.BytesIO(fetch_bytes(info['url']))).convert('RGB')
+
+
+def grow_tall(img, bands):
+    """[img] at the full width, made W:H by repeating [bands] (top and foot,
+    as fractions of its height), each followed by its mirror image."""
+    w, h = img.size
+    img = img.resize((W, round(h * W / w)), Image.LANCZOS)
+    h = img.height
+    need = H - h
+    if need <= 0:
+        return crop_tall(img, 0.5)
+    each = need // len(bands)
+    parts, at = [], 0
+    for i, (a, b) in enumerate(bands):
+        top, foot = round(a * h), round(b * h)
+        add = each if i < len(bands) - 1 else need - each * (len(bands) - 1)
+        parts.append(img.crop((0, at, W, foot)))
+        band = img.crop((0, top, W, foot))
+        flip = band.transpose(Image.FLIP_TOP_BOTTOM)
+        extra, k = [], 0
+        while sum(p.height for p in extra) < add:
+            extra.append(flip if k % 2 == 0 else band)
+            k += 1
+        joined = Image.new('RGB', (W, sum(p.height for p in extra)))
+        y = 0
+        for p in extra:
+            joined.paste(p, (0, y))
+            y += p.height
+        parts.append(joined.crop((0, 0, W, add)))
+        at = foot
+    parts.append(img.crop((0, at, W, h)))
+    out = Image.new('RGB', (W, H))
+    y = 0
+    for p in parts:
+        if p.height:
+            out.paste(p, (0, y))
+            y += p.height
+    return out
 
 
 def crop_tall(img, across):
@@ -152,7 +193,8 @@ def main(names):
         if t:
             w, h = src.size
             src = src.crop((round(w * t), round(h * t), round(w * (1 - t)), round(h * (1 - t))))
-        img = grade(crop_tall(src, spec['across']), spec)
+        tall = grow_tall(src, spec['grow']) if 'grow' in spec else crop_tall(src, spec['across'])
+        img = grade(tall, spec)
         path = os.path.join(OUT, f'{name}.webp')
         img.save(path, 'WEBP', quality=80, method=6)
         print(f'{path}: {os.path.getsize(path) // 1024} KB')
