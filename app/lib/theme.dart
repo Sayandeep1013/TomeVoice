@@ -239,6 +239,7 @@ class Skin {
       Scene.silverWitch => ('Almendra', 1.0, 0.01, FontWeight.w400),
       Scene.solar => ('Cinzel', 0.9, 0.05, FontWeight.w400),
       Scene.dungeon => ('PirataOne', 1.12, 0.01, FontWeight.w400),
+      Scene.sketch => ('Caveat', 1.22, 0.0, FontWeight.w600),
     };
     final s = size * scale;
     return TextStyle(
@@ -981,7 +982,23 @@ class Palette {
     scene: Scene.solar,
   ));
 
-  static final scenes = [forestScene, silverWitch, solar, dungeon];
+  /// Chalk on a slate, one warm red (scene_sketch.dart).
+  static final sketch = readable(const Palette(
+    id: 'scene-sketch',
+    label: 'Sketch · chalk',
+    day: [Color(0xFF1C1F22), Color(0xFF181A1D), Color(0xFF141618), Color(0xFF0F1012)],
+    night: [Color(0xFF1C1F22), Color(0xFF181A1D), Color(0xFF141618), Color(0xFF0F1012)],
+    accent: Color(0xFFE5574A),
+    accentSoft: Color(0xFFF08A7E),
+    accentDeep: Color(0xFFA8352B),
+    onAccent: Color(0xFF1C0907),
+    nightCapsule: Color(0xF2222528),
+    nightSheet: Color(0xFF121416),
+    only: Brightness.dark,
+    scene: Scene.sketch,
+  ));
+
+  static final scenes = [forestScene, silverWitch, solar, dungeon, sketch];
 
   static final all = [forest, lavender, ocean, black, paper, ...designer, ...scenes];
 

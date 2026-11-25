@@ -146,6 +146,9 @@ class BrandPainter extends CustomPainter {
           c.drawCircle(p, 14,
               Paint()..shader = ui.Gradient.radial(p - const Offset(4, 4), 16, [sceneInk(scene!, const Color(0xFFD08A4C)), sceneInk(scene!, const Color(0xFF6A3416)), sceneInk(scene!, const Color(0xFF140804))], const [0, 0.45, 1]));
         }
+      case Scene.sketch:
+        // A chalk ring.
+        paintChalk(c, shape, width: 12, alpha: 0.85, seed: 3, amp: 5);
       case Scene.forest:
         // Bark and moss.
         c.drawPath(
